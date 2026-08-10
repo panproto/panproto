@@ -3,44 +3,6 @@ import Testing
 
 @testable import PanprotoStructural
 
-// MARK: - Helpers
-
-/// The bytes a hexadecimal string spells.
-private func bytes(_ hex: String) -> Data {
-    let digits = Array(hex.utf8)
-    var payload: [UInt8] = []
-    payload.reserveCapacity(digits.count / 2)
-    var index = 0
-    while index + 1 < digits.count {
-        payload.append(nibble(digits[index]) << 4 | nibble(digits[index + 1]))
-        index += 2
-    }
-    return Data(payload)
-}
-
-/// The value of one hexadecimal digit.
-private func nibble(_ digit: UInt8) -> UInt8 {
-    switch digit {
-    case UInt8(ascii: "0")...UInt8(ascii: "9"): digit - UInt8(ascii: "0")
-    case UInt8(ascii: "a")...UInt8(ascii: "f"): digit - UInt8(ascii: "a") + 10
-    case UInt8(ascii: "A")...UInt8(ascii: "F"): digit - UInt8(ascii: "A") + 10
-    default: 0
-    }
-}
-
-/// The hexadecimal spelling of some bytes.
-private func hex(_ data: Data) -> String {
-    data.map { byte in
-        let digits = String(byte, radix: 16)
-        return digits.count == 1 ? "0" + digits : digits
-    }.joined()
-}
-
-/// Encode `value` and answer its hexadecimal spelling.
-private func encodedHex(_ value: some Encodable) throws -> String {
-    hex(try CBOREncoder().encode(value))
-}
-
 // MARK: - RFC 8949 test vectors
 
 /// One row of RFC 8949's test vector appendix.
@@ -977,6 +939,23 @@ struct CBORValueTests {
         #expect(CBORValue.float(0.0) != .float(-0.0))
         #expect(CBORValue.unsigned(0) != .negative(0))
         #expect(Set([CBORValue.simple(20), .bool(false)]).count == 1)
+    }
+
+    @Test("the four named simple values build as their own cases")
+    func namedSimpleValues() {
+        #expect(CBORValue.simpleValue(20) == .bool(false))
+        #expect(CBORValue.simpleValue(21) == .bool(true))
+        #expect(CBORValue.simpleValue(22) == .null)
+        #expect(CBORValue.simpleValue(23) == .undefined)
+    }
+
+    @Test("an unnamed simple value stays simple and encodes to its byte")
+    func unnamedSimpleValues() throws {
+        #expect(CBORValue.simpleValue(0) == .simple(0))
+        #expect(CBORValue.simpleValue(200) == .simple(200))
+        #expect(hex(CBORValue.simpleValue(16).encodedBytes()) == "f0")
+        #expect(hex(CBORValue.simpleValue(22).encodedBytes()) == "f6")
+        #expect(try CBORValue(decoding: bytes("f8ff")) == .simpleValue(255))
     }
 
     @Test("an item survives a coder that is not this one")

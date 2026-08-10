@@ -1,5 +1,6 @@
 import Foundation
 import PanprotoFFI
+import PanprotoStructural
 import Testing
 
 @testable import Panproto
@@ -173,5 +174,46 @@ struct EngineTests {
         for code in Int32(0)...7 {
             #expect(RawStatus(code: code).code == code)
         }
+    }
+
+    @Test("Building an error from a domain selects the matching case")
+    func errorsBuildFromTheirDomain() {
+        // `make` is what every domain method calls once it knows which
+        // family it belongs to, so the property it has to have is that
+        // the case it picks reports the domain it was handed back.
+        let detail = PanprotoError.Detail(
+            status: .operation,
+            operation: "Schema.validate",
+            envelope: ErrorEnvelope(status: 7, tag: "operation", message: "refused"),
+            fault: nil
+        )
+
+        for domain in PanprotoError.Domain.allCases {
+            let error = PanprotoError.make(domain: domain, detail: detail)
+            #expect(error.domain == domain)
+            #expect(error.detail == detail)
+            #expect(error.description == "\(domain.rawValue): Schema.validate: refused")
+        }
+
+        #expect(
+            PanprotoError.make(domain: .lens, detail: detail)
+                != PanprotoError.make(domain: .vcs, detail: detail)
+        )
+    }
+
+    @Test("A detail with no envelope names the status instead of the message")
+    func detailWithoutAnEnvelopeStillReads() {
+        let detail = PanprotoError.Detail(
+            status: .invalidHandle,
+            operation: "Lens.put",
+            envelope: nil,
+            fault: .invalidHandle(0xFFFF_FF00)
+        )
+        let error = PanprotoError.make(domain: .lens, detail: detail)
+
+        #expect(error.detail.message.contains("no error envelope was pending"))
+        #expect(error.detail.message.contains("\(RawStatus.invalidHandle.code)"))
+        #expect(error.errorDescription == error.description)
+        #expect(error.detail.fault == .invalidHandle(0xFFFF_FF00))
     }
 }

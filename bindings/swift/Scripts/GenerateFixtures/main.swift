@@ -285,19 +285,39 @@ final class FixtureGenerator {
     /// Generate a protolens chain between the two schemas and capture
     /// its JSON form, its complement spec at the post schema, and the
     /// view the instantiated chain gets from the post record.
+    ///
+    /// The tier is `lenient` because it is the only one of the four that
+    /// aligns these two schemas, which is recorded as a finding.
     private func captureChain(post: UInt32, profile: UInt32, instance: Data?) {
+        findings.append(
+            """
+            The post and profile schemas align at exactly one stringency tier. \
+            `Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` answers \
+            `operation` with "no morphism found between schemas" at `strict`, at \
+            `balanced`, and at `exploratory`, and succeeds at `lenient`, which is \
+            the tier `chain-post-profile.json` is captured at. \
+            \
+            The failure at `exploratory` is an engine defect, not a property of \
+            these two schemas. `panproto_lens::Stringency` documents that higher \
+            tiers form a superset of lower ones, and the same four-tier sweep run \
+            directly against `lens::auto_generate` in Rust reproduces the same \
+            result, so nothing about this binding is involved. Capture at \
+            `lenient` until it is fixed, then re-run and let the tier rise.
+            """
+        )
+
         let chain = allocateHandle(
             step: "chain-post-profile.json",
             entryPoint: "Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)"
         ) {
-            Raw.lensAutoGenerateProtolens(schema1: post, schema2: profile, stringency: "balanced")
+            Raw.lensAutoGenerateProtolens(schema1: post, schema2: profile, stringency: "lenient")
         }
         guard let chain else { return }
 
         _ = capture(
             "chain-post-profile.json",
             entryPoint: "Raw.protolensChainToJson(chain:)",
-            note: "the chain auto-generated at stringency `balanced`"
+            note: "the chain auto-generated at stringency `lenient`"
         ) {
             Raw.protolensChainToJson(chain: chain)
         }
@@ -310,14 +330,6 @@ final class FixtureGenerator {
             Raw.protolensComplementSpec(chain: chain, schema: post)
         }
 
-        let migration = allocateHandle(
-            step: "get-record.cbor",
-            entryPoint: "Raw.protolensInstantiate(chain:schema:)"
-        ) {
-            Raw.protolensInstantiate(chain: chain, schema: post)
-        }
-        guard let migration else { return }
-
         guard let instance else {
             failures.append(
                 FailedCapture(
@@ -329,13 +341,74 @@ final class FixtureGenerator {
             )
             return
         }
+        captureView(post: post, chain: chain, instance: instance)
+    }
+
+    /// Capture the `{ view, complement }` payload a lens get produces
+    /// for the post record.
+    ///
+    /// The post to profile chain is tried first, since that is the chain
+    /// the rest of this directory is built around. Its restrict step
+    /// cannot carry the post record, so the capture falls back to the
+    /// chain the post schema generates against itself and records what
+    /// the engine said, which keeps the payload shape pinned and keeps
+    /// the reason for the fallback in the README.
+    private func captureView(post: UInt32, chain: UInt32, instance: Data) {
+        let migration = allocateHandle(
+            step: "get-record.cbor",
+            entryPoint: "Raw.protolensInstantiate(chain:schema:)"
+        ) {
+            Raw.protolensInstantiate(chain: chain, schema: post)
+        }
+        guard let migration else { return }
+
+        let direct = Raw.lensGetRecord(migration: migration, record: instance)
+        if direct.status.isOK, !direct.bytes.isEmpty {
+            _ = record(
+                direct.bytes,
+                fileName: "get-record.cbor",
+                entryPoint: "Raw.lensGetRecord(migration:record:)",
+                note: "the post instance through the instantiated post to profile chain"
+            )
+            return
+        }
+
+        let detail = pendingErrorDetail()
+        findings.append(
+            """
+            `Raw.lensGetRecord(migration:record:)` cannot carry the post record \
+            through the post to profile chain. The chain generates and the \
+            instantiation succeeds; the get then answers code \
+            \(direct.status.code) and leaves the envelope "\(detail)". Every post \
+            record in `fixtures/atproto/records` carries `langs`, so no choice of \
+            record avoids that edge. `get-record.cbor` is therefore captured \
+            through the chain the post schema generates against itself, which is \
+            the widest get the engine completes on this input.
+            """
+        )
+
+        let identity = allocateHandle(
+            step: "get-record.cbor",
+            entryPoint: "Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)"
+        ) {
+            Raw.lensAutoGenerateProtolens(schema1: post, schema2: post, stringency: "lenient")
+        }
+        guard let identity else { return }
+
+        let identityMigration = allocateHandle(
+            step: "get-record.cbor",
+            entryPoint: "Raw.protolensInstantiate(chain:schema:)"
+        ) {
+            Raw.protolensInstantiate(chain: identity, schema: post)
+        }
+        guard let identityMigration else { return }
 
         _ = capture(
             "get-record.cbor",
             entryPoint: "Raw.lensGetRecord(migration:record:)",
-            note: "the post instance through the instantiated chain"
+            note: "the post instance through the post schema's chain against itself"
         ) {
-            Raw.lensGetRecord(migration: migration, record: instance)
+            Raw.lensGetRecord(migration: identityMigration, record: instance)
         }
     }
 
@@ -447,8 +520,9 @@ final class FixtureGenerator {
             `instance_theory`, and the `schema_composition` steps) as strings, and \
             the C ABI exposes no lookup from such a name to a `Theory` handle: \
             `pp_gat_create_theory` takes a full CBOR theory and `pp_gat_colimit` \
-            takes handles. The `theory-*` payloads below are therefore captured \
-            from theories supplied to the engine, which is the reachable route.
+            takes handles. The `theory-*` rows in the table above are therefore \
+            captured from theories handed to the engine, which is the route the \
+            ABI leaves open.
             """
         )
 
@@ -610,17 +684,27 @@ final class FixtureGenerator {
             print("FAILED \(fileName): \(entryPoint) succeeded with an empty buffer")
             return nil
         }
-        guard write(result.bytes, to: fileName) else { return nil }
+        return record(result.bytes, fileName: fileName, entryPoint: entryPoint, note: note)
+    }
 
+    /// Write a payload the run already holds and add it to the table.
+    @discardableResult
+    private func record(
+        _ bytes: Data,
+        fileName: String,
+        entryPoint: String,
+        note: String
+    ) -> Data? {
+        guard write(bytes, to: fileName) else { return nil }
         captured.append(
             CapturedFixture(
                 fileName: fileName,
                 entryPoint: entryPoint,
-                byteCount: result.bytes.count,
+                byteCount: bytes.count,
                 note: note
             )
         )
-        return result.bytes
+        return bytes
     }
 
     /// Run one handle-producing call, remembering the handle so the run

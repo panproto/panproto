@@ -217,6 +217,16 @@ let package = Package(
             swiftSettings: featureDefines
         ),
 
+        // Captures the committed test fixtures by driving the raw shim
+        // layer against the live engine. Development tooling: it needs a
+        // linked library and a checkout of the repository's JSON inputs.
+        .executableTarget(
+            name: "generate-fixtures",
+            dependencies: ["PanprotoFFI", "PanprotoStructural"],
+            path: "Scripts/GenerateFixtures",
+            swiftSettings: featureDefines
+        ),
+
         .testTarget(
             name: "PanprotoStructuralTests",
             dependencies: ["PanprotoStructural"],
