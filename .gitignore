@@ -45,6 +45,9 @@ Thumbs.db
 # Claude
 .claude/
 
+# ChatGPT
+.agents/
+
 # Notes
 notes/
 planning/

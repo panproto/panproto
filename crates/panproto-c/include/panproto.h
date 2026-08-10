@@ -315,11 +315,11 @@ pp_expr_check (
 /** \brief
  *  Evaluate a functional expression against an environment.
  *
- *  `expr` is a CBOR-encoded [`panproto_expr::Expr`]; `env` is a
- *  CBOR-encoded `Vec<(String, panproto_expr::Literal)>`. On success,
- *  `out` receives the CBOR-encoded [`panproto_expr::Literal`] result.
- *  Calls [`panproto_expr::eval`] with the default
- *  [`panproto_expr::EvalConfig`] (step and depth limits).
+ *  `expr` is a CBOR-encoded [`panproto_core::expr::Expr`]; `env` is a
+ *  CBOR-encoded `Vec<(String, panproto_core::expr::Literal)>`. On success,
+ *  `out` receives the CBOR-encoded [`panproto_core::expr::Literal`] result.
+ *  Calls [`panproto_core::expr::eval`] with the default
+ *  [`panproto_core::expr::EvalConfig`] (step and depth limits).
  */
 int32_t
 pp_expr_eval_func (
@@ -352,9 +352,9 @@ pp_expr_eval_gat (
  *  Parse expression source text into a `panproto-expr` AST.
  *
  *  `source` is the UTF-8 source bytes. On success, `out` receives the
- *  CBOR-encoded [`panproto_expr::Expr`]. Tokenizes via
- *  [`panproto_expr_parser::tokenize`] then parses via
- *  [`panproto_expr_parser::parse`]; either failure maps to
+ *  CBOR-encoded [`panproto_core::expr::Expr`]. Tokenizes via
+ *  [`panproto_core::expr_parser::tokenize`] then parses via
+ *  [`panproto_core::expr_parser::parse`]; either failure maps to
  *  [`FfiError::Operation`].
  */
 int32_t
@@ -963,7 +963,7 @@ pp_lens_check_put_get (
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
- *  `panproto_lens_dsl::{eval, compile}`.
+ *  `panproto_core::lens_dsl::{eval, compile}`.
  *
  *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
  *  boundary: Nickel evaluation requires a filesystem for its contract
@@ -974,6 +974,29 @@ pp_lens_compile_document (
     slice_ref_uint8_t source,
     slice_ref_uint8_t format,
     slice_ref_uint8_t body_vertex,
+    uint32_t * out_handle);
+
+/** \brief
+ *  Compile a lens DSL document, resolving `compose` named references
+ *  against a bundle of sibling documents.
+ *
+ *  `source`, `format`, and `body_vertex` match
+ *  [`pp_lens_compile_document`]. `refs` is a CBOR-encoded
+ *  `map<string, string>` from each referenced lens `id` to its document
+ *  source (in the same `format`); a `compose` body's `ref` entries are
+ *  resolved against this map. On success, `out_handle` receives a fresh
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  `panproto_core::lens_dsl::compile_with_refs`.
+ *
+ *  Nickel (`ncl`) is intentionally unsupported, matching
+ *  [`pp_lens_compile_document`].
+ */
+int32_t
+pp_lens_compile_document_with_refs (
+    slice_ref_uint8_t source,
+    slice_ref_uint8_t format,
+    slice_ref_uint8_t body_vertex,
+    slice_ref_uint8_t refs,
     uint32_t * out_handle);
 
 /** \brief
@@ -1369,7 +1392,7 @@ pp_registry_list_builtin (
  *
  *  `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle; `from_kind` and `to_kind` are the UTF-8 source/target vertex
- *  kind names; `expr` is a CBOR-encoded `panproto_expr::Expr` coercion
+ *  kind names; `expr` is a CBOR-encoded `panproto_core::expr::Expr` coercion
  *  expression. On success, `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle with the
  *  coercion installed (as a `CoercionClass::Opaque` coercion with no
