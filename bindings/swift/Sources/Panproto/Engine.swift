@@ -84,8 +84,8 @@ public actor PanprotoEngine {
 ///
 /// Jobs are appended to a condition-guarded queue and drained by a
 /// thread that does nothing else. `pp_init` runs once on that thread
-/// before the first job, which is also where the panic hook and the
-/// thread-local slab want to be installed.
+/// before the first job, which puts the panic hook in place ahead of any
+/// call that could trip it.
 ///
 /// The executor is `@unchecked Sendable`: its mutable state is the job
 /// queue, and every access to that queue is inside the `NSCondition`.

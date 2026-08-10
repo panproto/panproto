@@ -2,13 +2,14 @@ import PanprotoFFI
 
 /// A live resource in the engine's slab.
 ///
-/// The C ABI hands out `uint32_t` indices into a thread-local slab and
-/// leaves ownership to the host. This class is that ownership: one
+/// The C ABI hands out `uint32_t` indices into a process-global slab
+/// and leaves ownership to the host. This class is that ownership: one
 /// instance holds one slab entry, and the entry goes back to the
-/// engine when the instance does. Handles are engine-isolated, so the
-/// index can only be used from the thread that minted it, and they
-/// carry their slab variant as a type, so a `SchemaHandle` cannot be
-/// passed where the ABI wants a `ProtocolHandle`.
+/// engine when the instance does. Handles are engine-isolated, which is
+/// what keeps a failure and the drain of its thread-local error
+/// envelope on one thread, and they carry their slab variant as a type,
+/// so a `SchemaHandle` cannot be passed where the ABI wants a
+/// `ProtocolHandle`.
 ///
 /// The slab guarantees stable identity: an index names the same
 /// resource until it is freed, and the engine does not compact. Two

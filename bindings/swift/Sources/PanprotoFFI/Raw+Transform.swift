@@ -31,6 +31,7 @@ extension Raw {
     ///
     /// `proto` must be a `Protocol` handle; `src` and `tgt` must be
     /// `Schema` handles.
+    @inlinable
     public static func migCheckExistence(
         proto: UInt32,
         src: UInt32,
@@ -50,6 +51,7 @@ extension Raw {
     /// fresh `MigrationWithSchemas`.
     ///
     /// `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func migCompile(
         src: UInt32,
         tgt: UInt32,
@@ -89,6 +91,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle; `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func migCoverage(
         migration: UInt32,
         src: UInt32,
@@ -109,6 +112,7 @@ extension Raw {
     /// that is not invertible fails with ``RawStatus/operation``.
     ///
     /// `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func migInvert(
         mapping: Data,
         src: UInt32,
@@ -132,6 +136,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func migLiftJson(
         migration: UInt32,
         json: Data,
@@ -151,6 +156,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func migLiftRecord(
         migration: UInt32,
         record: Data
@@ -166,9 +172,10 @@ extension Raw {
     ///
     /// The buffer receives the CBOR-encoded `inst::CompiledMigration`,
     /// meaning the compiled payload alone without its anchoring schemas.
-    /// These are exactly the bytes ``Raw/graphFiberAt(instance:migration:targetAnchor:)``
-    /// and ``Raw/graphFiberDecomposition(instance:migration:)`` take as
-    /// their `migration` argument.
+    /// These are exactly the bytes
+    /// ``graphFiberAt(instance:migration:targetAnchor:)`` and
+    /// ``graphFiberDecomposition(instance:migration:)`` take as their
+    /// `migration` argument.
     ///
     /// `migHandle` must be a `Migration` or `MigrationWithSchemas`
     /// handle; anything else fails with ``RawStatus/invalidHandle`` or
@@ -195,12 +202,13 @@ extension Raw {
     /// coerce_proposals }` record. Each candidate carries its `chain` in
     /// the JSON shape `ProtolensChain::to_json` emits, so the host can
     /// feed it back through
-    /// ``Raw/protolensFromJson(json:)`` and
-    /// ``Raw/protolensInstantiate(chain:schema:)`` to obtain a runnable
+    /// ``protolensFromJson(json:)`` and
+    /// ``protolensInstantiate(chain:schema:)`` to obtain a runnable
     /// lens, alongside the score, coverage, quality, strategies, and
     /// per-step explanations.
     ///
     /// `schema1` and `schema2` must be `Schema` handles.
+    @inlinable
     public static func lensAutoGenerateCandidates(
         schema1: UInt32,
         schema2: UInt32,
@@ -221,6 +229,7 @@ extension Raw {
     /// The out-handle is a fresh `ProtolensChain`.
     ///
     /// `schema1` and `schema2` must be `Schema` handles.
+    @inlinable
     public static func lensAutoGenerateProtolens(
         schema1: UInt32,
         schema2: UInt32,
@@ -241,6 +250,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func lensCheckGetPut(
         migration: UInt32,
         instance: Data
@@ -261,6 +271,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func lensCheckLaws(
         migration: UInt32,
         instance: Data
@@ -280,6 +291,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func lensCheckPutGet(
         migration: UInt32,
         instance: Data
@@ -301,6 +313,7 @@ extension Raw {
     /// Nickel (`ncl`) is not a supported format here, matching the WASM
     /// boundary: Nickel evaluation needs a filesystem for its contract
     /// imports, so callers precompile Nickel to JSON on the host.
+    @inlinable
     public static func lensCompileDocument(
         source: String,
         format: String,
@@ -317,7 +330,7 @@ extension Raw {
     /// against a bundle of sibling documents.
     ///
     /// `source`, `format`, and `bodyVertex` carry the same meaning they
-    /// do in ``Raw/lensCompileDocument(source:format:bodyVertex:)``.
+    /// do in ``lensCompileDocument(source:format:bodyVertex:)``.
     /// `refs` is a CBOR-encoded map from each referenced lens `id` to
     /// that lens's document source, written in the same `format` as
     /// `source`; every `ref` entry inside a `compose` body is resolved
@@ -325,6 +338,7 @@ extension Raw {
     /// out-handle is a fresh `ProtolensChain`.
     ///
     /// Nickel (`ncl`) is not a supported format here either.
+    @inlinable
     public static func lensCompileDocumentWithRefs(
         source: String,
         format: String,
@@ -368,6 +382,7 @@ extension Raw {
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func lensGetRecord(
         migration: UInt32,
         record: Data
@@ -383,12 +398,13 @@ extension Raw {
     ///
     /// `view` is a CBOR-encoded `WInstance` and `complement` is a
     /// CBOR-encoded `Complement`, accepted either in the list-of-pairs
-    /// shape ``Raw/lensGetRecord(migration:record:)`` emits or with
+    /// shape ``lensGetRecord(migration:record:)`` emits or with
     /// `contraction_choices` and `arc_edges` left as CBOR maps. The
     /// buffer receives the CBOR-encoded restored `WInstance`.
     ///
     /// `migration` must be a `Migration` or `MigrationWithSchemas`
     /// handle.
+    @inlinable
     public static func lensPutRecord(
         migration: UInt32,
         view: Data,
@@ -425,6 +441,7 @@ extension Raw {
     /// The buffer receives the CBOR-encoded synced `WInstance`.
     ///
     /// `symLens` must be a `SymmetricLensHandle` handle.
+    @inlinable
     public static func lensSymmetricSync(
         symLens: UInt32,
         view: Data,
@@ -444,7 +461,7 @@ extension Raw {
     /// step, carrying `name`, `source_endofunctor`,
     /// `target_endofunctor`, and `lossless`. This is a description of
     /// the chain, not its serialized form: the bytes
-    /// ``Raw/protolensFromJson(json:)`` reads back are the full
+    /// ``protolensFromJson(json:)`` reads back are the full
     /// `ProtolensChain` encoding, which this summary does not carry.
     ///
     /// `chain` must be a `ProtolensChain` handle.
@@ -495,6 +512,7 @@ extension Raw {
     /// fresh `ProtolensChain`.
     ///
     /// `schema1` and `schema2` must be `Schema` handles.
+    @inlinable
     public static func protolensFromDiff(
         diff: Data,
         schema1: UInt32,
@@ -512,8 +530,9 @@ extension Raw {
     /// `json` is raw JSON bytes holding a whole `ProtolensChain` in the
     /// shape `ProtolensChain::to_json` emits, which is the shape each
     /// `chain` field inside the
-    /// ``Raw/lensAutoGenerateCandidates(schema1:schema2:topN:stringency:)``
+    /// ``lensAutoGenerateCandidates(schema1:schema2:topN:stringency:)``
     /// report carries. The out-handle is a fresh `ProtolensChain`.
+    @inlinable
     public static func protolensFromJson(
         json: Data
     ) -> (status: RawStatus, handle: UInt32) {
@@ -568,6 +587,7 @@ extension Raw {
     /// when the search finds nothing.
     ///
     /// `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func homFindBestMorphism(
         src: UInt32,
         tgt: UInt32,
@@ -589,6 +609,7 @@ extension Raw {
     /// quality.
     ///
     /// `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func homFindMorphisms(
         src: UInt32,
         tgt: UInt32,
@@ -610,6 +631,7 @@ extension Raw {
     /// with its anchoring schemas.
     ///
     /// `src` and `tgt` must be `Schema` handles.
+    @inlinable
     public static func homInduceMigrationFromTheory(
         theoryMorphism: Data,
         src: UInt32,
@@ -631,6 +653,7 @@ extension Raw {
     /// buffer receives a CBOR-encoded `schema::SchemaMorphism`.
     ///
     /// `src` must be a `Schema` handle.
+    @inlinable
     public static func homInduceSchemaMorphism(
         theoryMorphism: Data,
         src: UInt32
@@ -648,6 +671,7 @@ extension Raw {
     /// `mig::Migration` and then compiled against the minimal schemas
     /// its surviving vertex and edge sets imply. The out-handle is a
     /// fresh `Migration`.
+    @inlinable
     public static func homMorphismToMigration(
         morphism: Data
     ) -> (status: RawStatus, handle: UInt32) {
@@ -669,6 +693,7 @@ extension Raw {
     /// `targetSchema` are UTF-8 schema names. The distance is
     /// `Double.infinity` when the schemas are unknown to the graph or no
     /// path connects them.
+    @inlinable
     public static func graphConversionDistance(
         graph: Data,
         sourceSchema: String,
@@ -686,10 +711,11 @@ extension Raw {
     ///
     /// `instance` is a CBOR-encoded `WInstance` and `migration` is a
     /// CBOR-encoded `CompiledMigration`, the byte form
-    /// ``Raw/migSerializeCompiled(migHandle:)`` produces;
+    /// ``migSerializeCompiled(migHandle:)`` produces;
     /// `targetAnchor` is the UTF-8 anchor name. The buffer receives a
     /// CBOR-encoded `Vec<u32>` of the source node ids whose remapped
     /// anchor equals `targetAnchor`.
+    @inlinable
     public static func graphFiberAt(
         instance: Data,
         migration: Data,
@@ -709,6 +735,7 @@ extension Raw {
     /// CBOR-encoded `CompiledMigration`. The buffer receives a
     /// CBOR-encoded map from anchor name to `Vec<u32>` partitioning the
     /// source nodes, so every source node appears in exactly one fiber.
+    @inlinable
     public static func graphFiberDecomposition(
         instance: Data,
         migration: Data
@@ -727,6 +754,7 @@ extension Raw {
     /// `Schema`, which holds, for each source vertex in `S`, the choice
     /// and backward vertices encoding all structure-preserving maps from
     /// `S` to `T`.
+    @inlinable
     public static func graphPolyHom(
         sourceSchema: Data,
         targetSchema: Data
@@ -748,6 +776,7 @@ extension Raw {
     /// the total cost and the protolens step names along the shortest
     /// path. When no path exists the call fails with
     /// ``RawStatus/operation``.
+    @inlinable
     public static func graphPreferredPath(
         graph: Data,
         sourceSchema: String,
@@ -808,6 +837,7 @@ extension Raw {
     /// re-encoded. Decoding and re-encoding is the point: a malformed
     /// carrier surfaces as ``RawStatus/serialization`` here rather than
     /// during a later backward migration.
+    @inlinable
     public static func dataGetMigrationComplement(
         complement: Data
     ) -> (status: RawStatus, bytes: Data) {
@@ -829,6 +859,7 @@ extension Raw {
     /// `datasetHandle` must be the migrated (forward) `DataSet` handle;
     /// `srcSchema` and `tgtSchema` must be `Schema` handles, the same
     /// pair in the same order the forward migration used.
+    @inlinable
     public static func dataMigrateBackward(
         datasetHandle: UInt32,
         complement: Data,
@@ -850,7 +881,7 @@ extension Raw {
     /// against the target schema, and `complement` keeps the source
     /// schema id with the CBOR-encoded `Vec<Complement>` in its `data`
     /// field, ready for
-    /// ``Raw/dataMigrateBackward(datasetHandle:complement:srcSchema:tgtSchema:)``.
+    /// ``dataMigrateBackward(datasetHandle:complement:srcSchema:tgtSchema:)``.
     ///
     /// `datasetHandle` must be a `DataSet` handle; `srcSchema` and
     /// `tgtSchema` must be `Schema` handles.
@@ -882,6 +913,7 @@ extension Raw {
     /// fresh `DataSet`.
     ///
     /// `schemaHandle` must be a `Schema` handle.
+    @inlinable
     public static func dataStoreDataset(
         schemaHandle: UInt32,
         dataJson: Data

@@ -17,7 +17,7 @@ import Foundation
 // Second, an out-parameter is meaningful only when the returned status
 // is ``RawStatus/ok``. On any other status the handle reads back as zero
 // and the buffer is empty or partial; the detail is waiting in the
-// thread-local last-error slot, which ``Raw/lastErrorTake()`` drains.
+// thread-local last-error slot, which ``lastErrorTake()`` drains.
 //
 // Third, every returned buffer holds canonical CBOR that has already
 // been copied out of engine storage and freed. Object ids cross the
@@ -35,6 +35,7 @@ extension Raw {
     /// success the returned handle is a fresh `VcsRepo` slab entry,
     /// which goes back through ``handleFree(_:)`` when the host is done
     /// with it. No payload crosses the boundary.
+    @inlinable
     public static func vcsInit(path: String) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = withPpSlice(path) { path in
@@ -53,6 +54,7 @@ extension Raw {
     /// CBOR-encoded add result: the staged schema's object id, whether a
     /// migration from HEAD was auto-derived, the validation verdict, and
     /// the validation messages.
+    @inlinable
     public static func vcsAdd(
         repo: UInt32,
         schema: UInt32
@@ -70,6 +72,7 @@ extension Raw {
     ///
     /// An empty staging index, or a commit that GAT validation blocks,
     /// answers ``RawStatus/operation``.
+    @inlinable
     public static func vcsCommit(
         repo: UInt32,
         message: String,
@@ -127,6 +130,7 @@ extension Raw {
     /// that revision against nothing. The buffer receives a CBOR-encoded
     /// diff record: the added, removed, and modified counts plus the
     /// human-readable change descriptions.
+    @inlinable
     public static func vcsDiff(
         repo: UInt32,
         from: String,
@@ -144,6 +148,7 @@ extension Raw {
     /// `vertex` is the UTF-8 vertex id, blamed from HEAD. The buffer
     /// receives a CBOR-encoded blame record: the commit id, author,
     /// timestamp, and message of the commit that introduced the vertex.
+    @inlinable
     public static func vcsBlame(
         repo: UInt32,
         vertex: String
@@ -179,6 +184,7 @@ extension Raw {
     /// `name` is the UTF-8 branch name. The buffer receives a
     /// CBOR-encoded branch result carrying the full listing after the
     /// create, so the caller sees the new branch in context.
+    @inlinable
     public static func vcsBranch(
         repo: UInt32,
         name: String
@@ -195,6 +201,7 @@ extension Raw {
     /// `target` is the UTF-8 branch or commit reference. The buffer
     /// receives a CBOR-encoded op result: a success flag, the resulting
     /// HEAD state, and informational messages.
+    @inlinable
     public static func vcsCheckout(
         repo: UInt32,
         target: String
@@ -214,6 +221,7 @@ extension Raw {
     /// receives a CBOR-encoded merge result: the fast-forward flag, the
     /// resulting HEAD commit id, and the conflict descriptions, empty on
     /// a clean merge.
+    @inlinable
     public static func vcsMerge(
         repo: UInt32,
         branch: String,

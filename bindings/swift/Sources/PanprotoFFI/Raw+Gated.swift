@@ -35,6 +35,7 @@ extension Raw {
     /// linked library was built with. On success the returned handle is
     /// a fresh `AstRegistry` slab entry, released through
     /// ``handleFree(_:)``. No payload crosses the boundary.
+    @inlinable
     public static func parseRegistryNew() -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = pp_parse_registry_new(&handle)
@@ -51,6 +52,7 @@ extension Raw {
     ///
     /// An unrecognized extension, an unparseable source, or a non-UTF-8
     /// path answers ``RawStatus/operation``.
+    @inlinable
     public static func parseFile(
         registry: UInt32,
         path: String,
@@ -72,6 +74,7 @@ extension Raw {
     ///
     /// An unregistered protocol or an unparseable source answers
     /// ``RawStatus/operation``.
+    @inlinable
     public static func parseWithProtocol(
         registry: UInt32,
         protocol protocolName: String,
@@ -79,7 +82,8 @@ extension Raw {
         filePath: String
     ) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
-        let code = withPpSlices(protocolName, content, filePath) { protocolName, content, filePath in
+        let code = withPpSlices(protocolName, content, filePath) {
+            protocolName, content, filePath in
             pp_parse_with_protocol(registry, protocolName, content, filePath, &handle)
         }
         return (RawStatus(code: code), handle)
@@ -92,6 +96,7 @@ extension Raw {
     /// UTF-8 bytes, and is empty when no grammar claims the extension.
     /// A path no grammar recognizes is not a failure: the status is
     /// still ``RawStatus/ok``.
+    @inlinable
     public static func parseDetectLanguage(
         registry: UInt32,
         path: String
@@ -111,6 +116,7 @@ extension Raw {
     /// buffer receives raw source bytes, not CBOR. A schema carrying
     /// parse-derived byte positions emits byte-identically to the source
     /// it came from.
+    @inlinable
     public static func parseEmit(
         registry: UInt32,
         protocol protocolName: String,
@@ -130,6 +136,7 @@ extension Raw {
     /// the buffer likewise receives raw source bytes. Unlike that entry
     /// point, the schema need not carry parse-derived byte positions, so
     /// this reaches by-construction schemas as well as parsed ones.
+    @inlinable
     public static func parseEmitPretty(
         registry: UInt32,
         protocol protocolName: String,
@@ -174,6 +181,7 @@ extension Raw {
     /// buffer is empty when the law holds and carries the divergence
     /// text as UTF-8 bytes when it does not. A divergence is a result,
     /// not a failure: the status is ``RawStatus/ok`` either way.
+    @inlinable
     public static func parseCheckEmitParse(
         registry: UInt32,
         protocol protocolName: String,
@@ -194,6 +202,7 @@ extension Raw {
     /// buffer is empty when the law holds and carries the divergence
     /// text as UTF-8 bytes when it does not, with the status
     /// ``RawStatus/ok`` in both cases.
+    @inlinable
     public static func parseCheckParseEmit(
         registry: UInt32,
         protocol protocolName: String,
@@ -219,6 +228,7 @@ extension Raw {
     /// On success the returned handle is a fresh `ProjectBuilder` slab
     /// entry, released through ``handleFree(_:)``. No payload crosses
     /// the boundary.
+    @inlinable
     public static func projectBuilderNew() -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = pp_project_builder_new(&handle)
@@ -237,6 +247,7 @@ extension Raw {
     ///
     /// A malformed path or a parse failure answers
     /// ``RawStatus/operation``.
+    @inlinable
     public static func projectAddFile(
         builder: UInt32,
         path: String,
@@ -260,6 +271,7 @@ extension Raw {
     ///
     /// A malformed path, an unreadable directory, or a parse failure
     /// answers ``RawStatus/operation``.
+    @inlinable
     public static func projectAddDirectory(
         builder: UInt32,
         path: String
@@ -278,6 +290,7 @@ extension Raw {
     /// builder, so the handle stays usable and carries no accumulated
     /// files. Building with no files added answers
     /// ``RawStatus/operation``.
+    @inlinable
     public static func projectBuild(builder: UInt32) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = pp_project_build(builder, &handle)
@@ -290,6 +303,7 @@ extension Raw {
     /// returned handle is a fresh `Schema` slab entry holding a clone of
     /// the project's coproduct schema, independent of the project handle
     /// it came from. No payload crosses the boundary.
+    @inlinable
     public static func projectSchemaGet(project: UInt32) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = pp_project_schema_get(project, &handle)
@@ -330,6 +344,7 @@ extension Raw {
     ///
     /// A malformed path, a repository that will not open, or a failed
     /// walk answers ``RawStatus/operation``.
+    @inlinable
     public static func gitImport(
         repoPath: String,
         revspec: String

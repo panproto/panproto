@@ -14,9 +14,12 @@ import Foundation
 /// ``withPpOutBuffer(_:)``). Nothing here interprets a payload; CBOR
 /// and JSON decoding belongs to the layers above.
 ///
-/// Handles index a thread-local slab, so a handle is only meaningful on
-/// the thread that produced it, and every handle goes back through
-/// ``handleFree(_:)`` when the host is done with it.
+/// Handles index a process-global slab held behind a mutex, so a handle
+/// is valid from whichever thread reaches for it, and every handle goes
+/// back through ``handleFree(_:)`` when the host is done with it. The
+/// thread-affine part of the ABI is the last-error slot: a failing entry
+/// point stashes its envelope where only the calling thread can drain
+/// it, so ``lastErrorTake()`` has to run on the thread that failed.
 ///
 /// Call ``initialize()`` once per process before anything else so that
 /// caught panics stop printing to stderr.
@@ -78,6 +81,7 @@ extension Raw {
     /// `spec` is a CBOR-encoded `Protocol`. On success the returned
     /// handle names a fresh `Protocol` slab entry. A CBOR decode
     /// failure answers ``RawStatus/serialization``.
+    @inlinable
     public static func protocolDefine(spec: Data) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = withPpSlice(spec) { slice in pp_protocol_define(slice, &handle) }
@@ -105,6 +109,7 @@ extension Raw {
     /// `proto` must be a `Protocol` handle. `ops` is a CBOR-encoded
     /// `Vec<BuildOp>`. On success the returned handle names a fresh
     /// `Schema` slab entry.
+    @inlinable
     public static func schemaBuild(
         proto: UInt32,
         ops: Data
@@ -119,6 +124,7 @@ extension Raw {
     /// `spec` is a CBOR-encoded `Schema`. On success the returned handle
     /// names a fresh `Schema` slab entry. A CBOR decode failure answers
     /// ``RawStatus/serialization`` and leaves the handle untouched.
+    @inlinable
     public static func schemaFromCbor(spec: Data) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = withPpSlice(spec) { slice in pp_schema_from_cbor(slice, &handle) }
@@ -140,6 +146,7 @@ extension Raw {
     /// `schemaHandle` must be a `Schema` handle. On success the returned
     /// handle names a fresh `Schema` slab entry holding the normalized
     /// schema; the input handle stays valid and unchanged.
+    @inlinable
     public static func schemaNormalize(
         schemaHandle: UInt32
     ) -> (status: RawStatus, handle: UInt32) {
@@ -153,6 +160,7 @@ extension Raw {
     /// `json` is raw JSON bytes, decoded with `serde_json` rather than
     /// as CBOR. On success the returned handle names a fresh `Schema`
     /// slab entry.
+    @inlinable
     public static func schemaParseAtprotoLexicon(
         json: Data
     ) -> (status: RawStatus, handle: UInt32) {
@@ -201,6 +209,7 @@ extension Raw {
     /// The returned bytes are a CBOR-encoded `check::CompatReport`. A
     /// `diff` that is not a valid CBOR `check::SchemaDiff` answers
     /// ``RawStatus/serialization``.
+    @inlinable
     public static func checkClassify(
         proto: UInt32,
         diff: Data
@@ -237,6 +246,7 @@ extension Raw {
     /// `report` is a CBOR-encoded `check::CompatReport`. The returned
     /// bytes are UTF-8 JSON, not CBOR. A `report` that does not decode
     /// answers ``RawStatus/serialization``. No handles are involved.
+    @inlinable
     public static func checkReportJson(report: Data) -> (status: RawStatus, bytes: Data) {
         withPpSlice(report) { slice in
             withPpOutBuffer { out in pp_check_report_json(slice, out) }
@@ -248,6 +258,7 @@ extension Raw {
     /// `report` is a CBOR-encoded `check::CompatReport`. The returned
     /// bytes are UTF-8 text, not CBOR. A `report` that does not decode
     /// answers ``RawStatus/serialization``. No handles are involved.
+    @inlinable
     public static func checkReportText(report: Data) -> (status: RawStatus, bytes: Data) {
         withPpSlice(report) { slice in
             withPpOutBuffer { out in pp_check_report_text(slice, out) }
@@ -262,7 +273,8 @@ extension Raw {
     ///
     /// `instance` is a CBOR-encoded `WInstance`. The returned value is
     /// the node count. No handles are involved.
-    public static func instElementCount(instance: Data) -> (status: RawStatus, value: UInt32) {
+    @inlinable
+    public static func instElementCount(instance: Data) -> (status: RawStatus, count: UInt32) {
         var count: UInt32 = 0
         let code = withPpSlice(instance) { slice in pp_inst_element_count(slice, &count) }
         return (RawStatus(code: code), count)
@@ -279,6 +291,7 @@ extension Raw {
     /// Root selection takes the first of these that resolves: the
     /// explicit `rootVertex` when the schema declares it, then the
     /// schema's protocol name, then the schema's declared primary entry.
+    @inlinable
     public static func instJsonToInstance(
         schemaHandle: UInt32,
         json: Data,
@@ -295,6 +308,7 @@ extension Raw {
     ///
     /// `schemaHandle` must be a `Schema` handle. `instance` is a
     /// CBOR-encoded `WInstance`. The returned bytes are JSON, not CBOR.
+    @inlinable
     public static func instToJson(
         schemaHandle: UInt32,
         instance: Data
@@ -314,6 +328,7 @@ extension Raw {
     /// messages; a non-ok status is reserved for inputs that stop
     /// validation from running, such as a bad handle or undecodable
     /// instance bytes.
+    @inlinable
     public static func instValidate(
         schemaHandle: UInt32,
         instance: Data
@@ -337,6 +352,7 @@ extension Raw {
     /// CBOR. Instance bytes that do not decode answer
     /// ``RawStatus/serialization``; an unknown protocol or a failing
     /// emit answers ``RawStatus/operation``.
+    @inlinable
     public static func ioEmitInstance(
         registry: UInt32,
         protoName: String,
@@ -368,6 +384,7 @@ extension Raw {
     /// `FInstance` according to the protocol's native representation. An
     /// unknown protocol or a failing parse answers
     /// ``RawStatus/operation``.
+    @inlinable
     public static func ioParseInstance(
         registry: UInt32,
         protoName: String,
@@ -385,6 +402,7 @@ extension Raw {
     ///
     /// On success the returned handle names a fresh `IoRegistry` slab
     /// entry. No payload crosses the boundary.
+    @inlinable
     public static func ioRegisterProtocols() -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
         let code = pp_io_register_protocols(&handle)
@@ -397,6 +415,7 @@ extension Raw {
     /// CBOR-encoded `Protocol`, ready for
     /// ``protocolDefine(spec:)``. A name outside the built-in catalogue
     /// answers ``RawStatus/operation``. No handles are involved.
+    @inlinable
     public static func registryGetBuiltin(name: String) -> (status: RawStatus, bytes: Data) {
         withPpSlice(name) { slice in
             withPpOutBuffer { out in pp_registry_get_builtin(slice, out) }

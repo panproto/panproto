@@ -10,10 +10,10 @@ import Foundation
 // Two conventions hold for every method below, so neither is repeated on
 // the individual declarations.
 //
-// First, an out-parameter is meaningful only when the returned status is
-// `RawStatus.ok`. On any other status the handle, buffer, count, or flag
-// that comes back carries no information and the detail is waiting in
-// the thread-local last-error slot.
+// First, an out-parameter is meaningful only when the returned status
+// is ``RawStatus/ok``. On any other status the handle, buffer, count,
+// or flag that comes back carries no information and the detail is
+// waiting in the thread-local last-error slot.
 //
 // Second, every handle the engine allocates here is a slab handle the
 // host owns: the theories from `gatCreateTheory` and `gatColimit`, the
@@ -29,8 +29,8 @@ extension Raw {
     /// Create a GAT theory from a CBOR spec.
     ///
     /// `spec` is a CBOR-encoded `gat::Theory`. On success the returned
-    /// handle is a fresh slab `Theory`; a spec that fails to decode
-    /// yields `RawStatus.serialization`.
+    /// handle names a fresh `Theory` slab entry; a spec that fails to
+    /// decode yields ``RawStatus/serialization``.
     @inlinable
     public static func gatCreateTheory(spec: Data) -> (status: RawStatus, handle: UInt32) {
         var handle: UInt32 = 0
@@ -42,12 +42,12 @@ extension Raw {
 
     /// Compute the colimit of two theories over a shared base.
     ///
-    /// `t1`, `t2`, and `shared` must each be a slab `Theory`. On success
-    /// the returned handle is a fresh slab `Theory` holding
-    /// `gat::colimit_by_name(t1, t2, shared)`. A handle that is invalid
-    /// or holds another resource yields `RawStatus.invalidHandle` or
-    /// `RawStatus.typeMismatch`; a colimit the engine cannot form yields
-    /// `RawStatus.operation`.
+    /// `t1`, `t2`, and `shared` must each be a `Theory` handle. On
+    /// success the returned handle names a fresh `Theory` slab entry
+    /// holding `gat::colimit_by_name(t1, t2, shared)`. A handle that is
+    /// invalid or holds another resource yields
+    /// ``RawStatus/invalidHandle`` or ``RawStatus/typeMismatch``; a
+    /// colimit the engine cannot form yields ``RawStatus/operation``.
     @inlinable
     public static func gatColimit(
         t1: UInt32,
@@ -61,9 +61,9 @@ extension Raw {
 
     /// Serialize the theory behind a handle to CBOR.
     ///
-    /// `theory` must be a slab `Theory`. On success the buffer holds the
-    /// CBOR-encoded `gat::Theory` in the same shape
-    /// ``Raw/gatCreateTheory(spec:)`` decodes, so a theory the engine
+    /// `theory` must be a `Theory` handle. On success the buffer holds
+    /// the CBOR-encoded `gat::Theory` in the same shape
+    /// ``gatCreateTheory(spec:)`` decodes, so a theory the engine
     /// produced (a colimit result, for instance) can be reified by the
     /// host and fed back in.
     @inlinable
@@ -76,11 +76,11 @@ extension Raw {
     /// Check the validity of a theory morphism.
     ///
     /// `morphism` is a CBOR-encoded `gat::TheoryMorphism`; `domain` and
-    /// `codomain` must each be a slab `Theory`. On success the buffer
-    /// holds a CBOR-encoded `{ valid, error }` record. The verdict lives
-    /// in that payload, so a valid and an invalid morphism both return
-    /// `RawStatus.ok`; only a malformed payload or a bad handle gives a
-    /// failing status.
+    /// `codomain` must each be a `Theory` handle. On success the buffer
+    /// holds a CBOR-encoded `{ valid, error }` record. The verdict
+    /// lives in that payload, so a valid and an invalid morphism both
+    /// return ``RawStatus/ok``; only a malformed payload or a bad
+    /// handle gives a failing status.
     @inlinable
     public static func gatCheckMorphism(
         morphism: Data,
@@ -106,9 +106,9 @@ extension Raw {
     /// `sort_map`, the codomain sort's carrier is copied to the domain
     /// sort name.
     ///
-    /// Only sort interpretations cross the boundary. A `gat::Model` also
-    /// carries operation interpretations as closures, which cannot be
-    /// serialized; reindexing those is the host's job once the sorts
+    /// Only sort interpretations cross the boundary. A `gat::Model`
+    /// also carries operation interpretations as closures, which cannot
+    /// be serialized; reindexing those is the host's job once the sorts
     /// have moved.
     @inlinable
     public static func gatMigrateModel(
@@ -125,25 +125,26 @@ extension Raw {
     /// Construct a bounded approximation of the free (initial) model of
     /// a theory.
     ///
-    /// `theory` must be a slab `Theory`. `config` is an optional
-    /// CBOR-encoded `{ max_depth, max_terms_per_sort }` record; an empty
-    /// `Data` selects the engine defaults, and either field may be
-    /// omitted to default just that bound. On success the returned
-    /// handle is a fresh slab `Model` holding the constructed model.
+    /// `theory` must be a `Theory` handle. `config` is an optional
+    /// CBOR-encoded `{ max_depth, max_terms_per_sort }` record; an
+    /// empty `Data` selects the engine defaults, and either field may
+    /// be omitted to default just that bound. On success the returned
+    /// handle names a fresh `Model` slab entry holding the constructed
+    /// model.
     ///
-    /// The name mirrors the engine's `gat::free_model`: this allocates a
-    /// model rather than releasing one. A model stays behind its handle
-    /// because its operation interpretations are closures that cannot
-    /// cross the ABI, so the two ways to read it are
-    /// ``Raw/gatEvalInModel(model:opName:args:)`` for its operations and
-    /// ``Raw/gatModelSortInterp(model:)`` for its carrier. The handle is
+    /// The name mirrors the engine's `gat::free_model`: this allocates
+    /// a model rather than releasing one. A model stays behind its
+    /// handle because its operation interpretations are closures that
+    /// cannot cross the ABI, so the two ways to read it are
+    /// ``gatEvalInModel(model:opName:args:)`` for its operations and
+    /// ``gatModelSortInterp(model:)`` for its carrier. The handle is
     /// released like any other, through the handle-free entry point.
     ///
-    /// A malformed config yields `RawStatus.serialization`, a bad theory
-    /// handle yields `RawStatus.invalidHandle` or
-    /// `RawStatus.typeMismatch`, and a construction the engine cannot
+    /// A malformed config yields ``RawStatus/serialization``, a bad
+    /// theory handle yields ``RawStatus/invalidHandle`` or
+    /// ``RawStatus/typeMismatch``, and a construction the engine cannot
     /// finish (a cyclic sort dependency, or an exceeded term bound)
-    /// yields `RawStatus.operation`.
+    /// yields ``RawStatus/operation``.
     @inlinable
     public static func gatFreeModel(
         theory: UInt32,
@@ -158,13 +159,13 @@ extension Raw {
 
     /// Check a model against a theory, returning equation violations.
     ///
-    /// `model` must be a slab `Model` and `theory` a slab `Theory`. On
-    /// success the buffer holds a CBOR-encoded `Vec<String>` of
+    /// `model` must be a `Model` handle and `theory` a `Theory` handle.
+    /// On success the buffer holds a CBOR-encoded `Vec<String>` of
     /// violation descriptions, empty when the model satisfies every
     /// equation. A satisfied and a violated model both return
-    /// `RawStatus.ok`; the verdict lives in the payload. Checking that
-    /// itself fails (a missing carrier set, or an assignment count past
-    /// the engine bound) yields `RawStatus.operation`.
+    /// ``RawStatus/ok``; the verdict lives in the payload. Checking
+    /// that itself fails (a missing carrier set, or an assignment count
+    /// past the engine bound) yields ``RawStatus/operation``.
     @inlinable
     public static func gatCheckModel(
         model: UInt32,
@@ -177,16 +178,18 @@ extension Raw {
 
     /// Evaluate an operation in a model and return the resulting value.
     ///
-    /// `model` must be a slab `Model`; `opName` is the operation name;
-    /// `args` is a CBOR-encoded `Vec<ModelValue>`. On success the buffer
-    /// holds the CBOR-encoded `gat::ModelValue` the operation produced.
-    /// The interpretation is a closure held in the model and runs
-    /// in-process, so only its inputs and its output cross the boundary.
+    /// `model` must be a `Model` handle; `opName` is the operation
+    /// name; `args` is a CBOR-encoded `Vec<ModelValue>`. On success the
+    /// buffer holds the CBOR-encoded `gat::ModelValue` the operation
+    /// produced. The interpretation is a closure held in the model and
+    /// runs in-process, so only its inputs and its output cross the
+    /// boundary.
     ///
-    /// A malformed argument payload yields `RawStatus.serialization`, a
-    /// bad model handle yields `RawStatus.invalidHandle` or
-    /// `RawStatus.typeMismatch`, and an operation absent from the model
-    /// or an interpretation that fails yields `RawStatus.operation`.
+    /// A malformed argument payload yields ``RawStatus/serialization``,
+    /// a bad model handle yields ``RawStatus/invalidHandle`` or
+    /// ``RawStatus/typeMismatch``, and an operation absent from the
+    /// model or an interpretation that fails yields
+    /// ``RawStatus/operation``.
     @inlinable
     public static func gatEvalInModel(
         model: UInt32,
@@ -202,11 +205,11 @@ extension Raw {
 
     /// Emit a model's full carrier: its sort-interpretation map.
     ///
-    /// `model` must be a slab `Model`. On success the buffer holds the
-    /// CBOR-encoded `HashMap<String, Vec<ModelValue>>` of the model's
-    /// `sort_interp`, each sort name mapped to its carrier set. This is
-    /// the extractable half of a model, the operation interpretations
-    /// staying in-process.
+    /// `model` must be a `Model` handle. On success the buffer holds
+    /// the CBOR-encoded `HashMap<String, Vec<ModelValue>>` of the
+    /// model's `sort_interp`, each sort name mapped to its carrier set.
+    /// This is the extractable half of a model, the operation
+    /// interpretations staying in-process.
     @inlinable
     public static func gatModelSortInterp(model: UInt32) -> (status: RawStatus, bytes: Data) {
         withPpOutBuffer { out in
@@ -220,7 +223,7 @@ extension Raw {
     ///
     /// `source` is the expression source. On success the buffer holds
     /// the CBOR-encoded `panproto_core::expr::Expr`. Source the engine
-    /// cannot tokenize or parse yields `RawStatus.operation`.
+    /// cannot tokenize or parse yields ``RawStatus/operation``.
     @inlinable
     public static func exprParse(source: String) -> (status: RawStatus, bytes: Data) {
         withPpSlice(source) { source in
@@ -237,7 +240,7 @@ extension Raw {
     /// success the buffer holds the CBOR-encoded
     /// `panproto_core::expr::Literal` result. Evaluation runs under the
     /// default `EvalConfig` step and depth limits; exceeding them, like
-    /// any other evaluation failure, yields `RawStatus.operation`.
+    /// any other evaluation failure, yields ``RawStatus/operation``.
     @inlinable
     public static func exprEvalFunc(
         expr: Data,
@@ -258,8 +261,8 @@ extension Raw {
     /// `gat::ModelValue` result. Variables resolve against the
     /// environment, applications evaluate their arguments and consult
     /// the theory's operation table, nullary constants reduce to their
-    /// name as a string, and any other application produces a structured
-    /// `{ op, args, output_sort }` map.
+    /// name as a string, and any other application produces a
+    /// structured `{ op, args, output_sort }` map.
     @inlinable
     public static func exprEvalGat(
         expr: Data,
@@ -277,11 +280,11 @@ extension Raw {
     ///
     /// `expr` is a CBOR-encoded `gat::Term`; `theory` must be a slab
     /// `Theory`; `context` is a CBOR-encoded `Vec<(String, String)>`
-    /// mapping variable names to sort names. On success the buffer holds
-    /// a CBOR-encoded `{ well_formed, output_sort, error }` record. The
-    /// result encodes well-formedness, so a well-formed and an
-    /// ill-formed term both return `RawStatus.ok`; only a malformed
-    /// payload or a bad handle gives a failing status.
+    /// mapping variable names to sort names. On success the buffer
+    /// holds a CBOR-encoded `{ well_formed, output_sort, error }`
+    /// record. The result encodes well-formedness, so a well-formed and
+    /// an ill-formed term both return ``RawStatus/ok``; only a
+    /// malformed payload or a bad handle gives a failing status.
     @inlinable
     public static func exprCheck(
         expr: Data,
@@ -298,9 +301,10 @@ extension Raw {
     /// Execute a declarative query against a W-type instance.
     ///
     /// `query` is a CBOR-encoded `inst::InstanceQuery`; `instance` is a
-    /// CBOR-encoded `WInstance`; `schemaHandle` must be a slab `Schema`.
-    /// On success the buffer holds a CBOR-encoded list of match records,
-    /// each a map with `node_id`, `anchor`, `value`, and `fields`.
+    /// CBOR-encoded `WInstance`; `schemaHandle` must be a `Schema`
+    /// handle. On success the buffer holds a CBOR-encoded list of match
+    /// records, each a map with `node_id`, `anchor`, `value`, and
+    /// `fields`.
     @inlinable
     public static func queryExecute(
         query: Data,
@@ -318,13 +322,13 @@ extension Raw {
 
     /// Add a coercion between two vertex kinds to a schema.
     ///
-    /// `schemaHandle` must be a slab `Schema`; `fromKind` and `toKind`
-    /// are the source and target vertex kind names; `expr` is a
-    /// CBOR-encoded `panproto_core::expr::Expr` coercion expression. On
-    /// success the returned handle is a fresh slab `Schema` carrying the
-    /// coercion, installed as an opaque coercion with no inverse and
-    /// keyed by the `(fromKind, toKind)` pair. The input schema is left
-    /// untouched and its handle stays valid.
+    /// `schemaHandle` must be a `Schema` handle; `fromKind` and
+    /// `toKind` are the source and target vertex kind names; `expr` is
+    /// a CBOR-encoded `panproto_core::expr::Expr` coercion expression.
+    /// On success the returned handle names a fresh `Schema` slab entry
+    /// carrying the coercion, installed as an opaque coercion with no
+    /// inverse and keyed by the `(fromKind, toKind)` pair. The input
+    /// schema is left untouched and its handle stays valid.
     @inlinable
     public static func schemaAddCoercion(
         schemaHandle: UInt32,
@@ -341,13 +345,13 @@ extension Raw {
 
     /// Add a default value to a schema vertex.
     ///
-    /// `schemaHandle` must be a slab `Schema`; `vertexName` is the
+    /// `schemaHandle` must be a `Schema` handle; `vertexName` is the
     /// vertex name; `expr` is a CBOR-encoded
     /// `panproto_core::inst::value::Value`. The value is recorded as a
     /// `default` constraint annotation on the vertex, the annotation's
     /// text being the debug rendering of the decoded value. On success
-    /// the returned handle is a fresh slab `Schema` carrying that
-    /// annotation, the input schema being left untouched.
+    /// the returned handle names a fresh `Schema` slab entry carrying
+    /// that annotation, the input schema being left untouched.
     @inlinable
     public static func schemaAddDefault(
         schemaHandle: UInt32,
@@ -363,15 +367,14 @@ extension Raw {
 
     /// Add a merger annotation to a schema vertex.
     ///
-    /// `schemaHandle` must be a slab `Schema`; `vertexName` is the
+    /// `schemaHandle` must be a `Schema` handle; `vertexName` is the
     /// vertex name; `spec` is a CBOR-encoded `{ strategy, args }`
-    /// record, where `args` defaults to empty. The merger is recorded as
-    /// a `merger` constraint annotation reading `strategy` when `args`
-    /// is empty and `strategy(a, b)` when it is not. On success the
-    /// returned handle
-    /// is a fresh slab `Schema` carrying that annotation, the input
-    /// schema being left untouched. A vertex name absent from the schema
-    /// yields `RawStatus.operation`.
+    /// record, where `args` defaults to empty. The merger is recorded
+    /// as a `merger` constraint annotation reading `strategy` when
+    /// `args` is empty and `strategy(a, b)` when it is not. On success
+    /// the returned handle is a fresh slab `Schema` carrying that
+    /// annotation, the input schema being left untouched. A vertex name
+    /// absent from the schema yields ``RawStatus/operation``.
     @inlinable
     public static func schemaAddMerger(
         schemaHandle: UInt32,
@@ -387,12 +390,13 @@ extension Raw {
 
     /// Add a conflict policy annotation to a schema vertex.
     ///
-    /// `schemaHandle` must be a slab `Schema`; `vertexName` is the
+    /// `schemaHandle` must be a `Schema` handle; `vertexName` is the
     /// vertex name; `spec` is a CBOR-encoded `{ policy }` record. The
     /// policy is recorded as a `conflict_policy` constraint annotation.
-    /// On success the returned handle is a fresh slab `Schema` carrying
-    /// that annotation, the input schema being left untouched. A vertex
-    /// name absent from the schema yields `RawStatus.operation`.
+    /// On success the returned handle names a fresh `Schema` slab entry
+    /// carrying that annotation, the input schema being left untouched.
+    /// A vertex name absent from the schema yields
+    /// ``RawStatus/operation``.
     @inlinable
     public static func schemaAddPolicy(
         schemaHandle: UInt32,
@@ -411,25 +415,26 @@ extension Raw {
     /// Decide a refinement subsort relationship between two constraint
     /// sets.
     ///
-    /// `baseSort` is the shared base sort name that both refinements are
-    /// taken over; `subConstraints` and `superConstraints` are
-    /// CBOR-encoded `Vec<(String, String)>` of `(sort, value)` pairs. On
-    /// success the returned value is `1` when the sub-refinement refines
-    /// at least as much as the super-refinement, meaning it carries
-    /// every constraint the super-refinement does, and `0` otherwise.
-    /// The decision is that constraint-set comparison; `baseSort` names
-    /// the carrier both refinements sit over and is validated as UTF-8.
+    /// `baseSort` is the shared base sort name that both refinements
+    /// are taken over; `subConstraints` and `superConstraints` are
+    /// CBOR-encoded `Vec<(String, String)>` of `(sort, value)` pairs.
+    /// On success the returned value is `1` when the sub-refinement
+    /// refines at least as much as the super-refinement, meaning it
+    /// carries every constraint the super-refinement does, and `0`
+    /// otherwise. The decision is that constraint-set comparison;
+    /// `baseSort` names the carrier both refinements sit over and is
+    /// validated as UTF-8.
     @inlinable
     public static func enrichedRefinementSubsort(
         baseSort: String,
         subConstraints: Data,
         superConstraints: Data
-    ) -> (status: RawStatus, value: UInt32) {
-        var value: UInt32 = 0
+    ) -> (status: RawStatus, isSubsort: UInt32) {
+        var isSubsort: UInt32 = 0
         let code = withPpSlices(baseSort, subConstraints, superConstraints) {
-            base, sub, sup in
-            pp_enriched_refinement_subsort(base, sub, sup, &value)
+            baseSort, subConstraints, superConstraints in
+            pp_enriched_refinement_subsort(baseSort, subConstraints, superConstraints, &isSubsort)
         }
-        return (RawStatus(code: code), value)
+        return (RawStatus(code: code), isSubsort)
     }
 }
