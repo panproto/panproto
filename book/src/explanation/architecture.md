@@ -112,7 +112,7 @@ Three places in the system are *boundary layers* in the sense that they convert 
 
 ### C boundary
 
-`panproto-c` is the only crate that knows about C ABI. It exposes a stable C interface used by the Haskell binding (and any other non-Rust language). CBOR is the over-the-boundary format here.
+`panproto-c` is the only crate that knows about C ABI. It exposes a stable C interface used by the Haskell and Swift bindings (and any other non-Rust language). CBOR is the over-the-boundary format here.
 
 ## The generated CLI reference
 

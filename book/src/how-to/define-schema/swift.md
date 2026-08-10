@@ -41,7 +41,7 @@ import PanprotoStructural
 
 let geojson = try await ProtocolHandle.builtin("geojson")
 let handle = try await SchemaHandle(post)
-let messages = try await handle.validate(against: geojson)
+let messages = try await handle.violations(against: geojson)
 
 if messages.isEmpty {
     print("valid")

@@ -8,6 +8,8 @@ panproto ships in four distributions, one per surface. Pick the one that matches
 | Rust application | [Install the Rust SDK](./rust.md) | `panproto-core` (crates.io) |
 | TypeScript / JavaScript application | [Install the TypeScript SDK](./typescript.md) | `@panproto/core` (npm) |
 | Python application | [Install the Python SDK](./python.md) | `panproto` (PyPI) |
+| Haskell application | [Install the Haskell SDK](./haskell.md) | `panproto` (this repository) |
+| Swift application | [Install the Swift SDK](./swift.md) | `panproto` (this repository, SwiftPM) |
 
 The CLI and the language SDKs are independent: you can install any subset.
 

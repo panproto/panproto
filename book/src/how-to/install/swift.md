@@ -88,7 +88,7 @@ let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
 let value = try await schema.value()
 print(value.protocolName, value.vertexCount, "vertices")
 
-let messages = try await schema.validate(against: atproto)
+let messages = try await schema.violations(against: atproto)
 print(messages.isEmpty ? "valid" : messages.joined(separator: "\n"))
 ```
 

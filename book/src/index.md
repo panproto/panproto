@@ -14,7 +14,7 @@ Recipes for specific tasks: defining a schema in your language of choice, buildi
 
 ## [Reference](./reference/index.md)
 
-Authoritative listings: every CLI subcommand, the SDK surfaces for Rust, TypeScript, and Python, the protocol catalogue, the expression-language builtins, the lens combinator algebra, the `panproto.toml` schema. Tables and signatures, no exposition.
+Authoritative listings: every CLI subcommand, the SDK surfaces for Rust, TypeScript, Python, Haskell, and Swift, the protocol catalogue, the expression-language builtins, the lens combinator algebra, the `panproto.toml` schema. Tables and signatures, no exposition.
 
 ## [Explanation](./explanation/index.md)
 

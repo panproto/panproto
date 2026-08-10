@@ -34,7 +34,7 @@ A serial `DispatchQueue` would give mutual exclusion but not thread identity, so
 ```swift
 // Each call hops to the engine and back.
 let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
-let messages = try await schema.validate(against: atproto)
+let messages = try await schema.violations(against: atproto)
 
 // Or amortize the hops by isolating a region of your own code.
 @PanprotoEngine
@@ -112,7 +112,25 @@ Decoding is tolerant in the ways a forward-compatible host has to be: indefinite
 
 `CBORValue` is the untyped escape hatch. It decodes any payload without a static type, and it is itself `Codable`, so a field typed `CBORValue` passes a fragment the Swift model does not describe through unchanged.
 
-## Parity
+## Parity with the other SDKs
+
+The Swift binding reaches every one of the C ABI's 120 entry points, which is the same surface the Haskell binding consumes, so the two are at parity with each other and with the ABI.
+
+The Python SDK is a superset of both, and the reason is architectural rather than a shortfall in either binding: [`panproto-py`](https://github.com/panproto/panproto/tree/main/crates/panproto-py) is a [PyO3](https://pyo3.rs/) extension linking `panproto-core` directly, so it reaches engine surfaces the ABI never exposed. Fifty-two members of the Python surface have no `pp_*` entry point behind them, in five groups:
+
+| Group | What Python reaches | Scale of the gap |
+| --- | --- | --- |
+| Schema-document and IDL parsing | `parse_schema_document` over 106 JSON-document parsers and `parse_schema_source` over ten text and IDL parsers | the ABI carries only `pp_schema_parse_atproto_lexicon` |
+| Version-control porcelain | tags, rebase, cherry-pick, reset, amend, bisect, reflog, the full stash stack, data versioning | the ABI carries 13 operations, all bound |
+| Theory construction | `Theory.from_json` / `from_yaml` / `from_nickel` / `from_path`, and deriving a theory from a schema | the ABI takes a CBOR theory or two handles, with no loader and no schema-to-theory induction |
+| Steered lens generation | `auto_generate_with_hints` and `auto_generate_with_hint_spec` | the ABI takes a stringency string and nothing else |
+| Runtime grammars and lexicon bundles | `AstParserRegistry(extra_grammars=...)`, `override_grammar`, `parse_schema_bundle_project` | no entry point |
+
+One of these is silent rather than merely absent, and is worth knowing about: the ABI's lens entry points take no protocol handle, so a schema built against a protocol you defined yourself is aligned and instantiated against a synthesized default (three object kinds, no edge rules, no constraint sorts) rather than against your rules. That affects Haskell identically.
+
+Swift reaches seven surfaces Python does not, all of them ABI entry points `panproto-py` has no wrapper for: instance queries, the graph fiber calculus, schema enrichment, the dataset and staleness layer, symmetric lenses, evaluation in a model, and expression typechecking.
+
+## Gates
 
 Three gates run in CI, each closing a hole that a binding of this size grows on its own.
 

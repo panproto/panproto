@@ -35,6 +35,9 @@ any that don't apply. The reviewer's checklist is at the bottom.
 - [ ] WASM boundary (`crates/panproto-wasm`)
 - [ ] TypeScript SDK (`bindings/typescript`, `@panproto/core`)
 - [ ] Python SDK (`bindings/python`, `crates/panproto-py`)
+- [ ] Haskell SDK (`bindings/haskell`)
+- [ ] Swift SDK (`bindings/swift`)
+- [ ] C ABI (`crates/panproto-c`) — a signature change here breaks every non-Rust binding
 - [ ] CLI (`crates/panproto-cli`)
 - [ ] Book (`book/src/`)
 - [ ] CI workflows (`.github/workflows/`)
@@ -72,6 +75,8 @@ any that don't apply. The reviewer's checklist is at the bottom.
 - [ ] `wasm-pack build crates/panproto-wasm --target web --dev` (if WASM affected)
 - [ ] `cd bindings/typescript && pnpm install && pnpm test && pnpm exec tsc --noEmit` (if TS SDK affected)
 - [ ] `cd bindings/python && uv run pytest tests/ -x` (if Python SDK affected)
+- [ ] `cd bindings/haskell && cabal test` (if Haskell SDK affected)
+- [ ] `cd bindings/swift && ./bootstrap/dev-link.sh && swift test && python3 Scripts/parity-gate.py` (if Swift SDK or the C ABI is affected)
 - [ ] Manual: <!-- describe any manual verification, e.g. "ran panproto schema parse on a 5kLOC Rust crate" -->
 
 ## Documentation

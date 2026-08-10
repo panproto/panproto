@@ -647,7 +647,7 @@ fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>
 /// proportional to how many complete assignments exist rather than to
 /// how hard any one is to find.
 ///
-/// Measured on the `atproto` pair the regression test uses: 20000 nodes
+/// Measured on the schema pair the regression test uses: 20000 nodes
 /// answers in about two seconds, 200000 in nineteen, 500000 in
 /// forty-seven, all returning a morphism. The number is chosen for the
 /// first of those. Enumerate-then-rank is the thing to replace; until

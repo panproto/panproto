@@ -375,8 +375,8 @@ impl<'a> BacktrackState<'a> {
         // preferred vertex keeps its whole domain, so MRV sends it to
         // the back and the solver explores thousands of unconstrained
         // vertices before reaching the ones it has evidence about. On
-        // the two bsky lexicons that turned an instant search into two
-        // minutes. Taking the evidence first reproduces the shape of
+        // a pair of moderate real-world schemas that turned an instant
+        // search into two minutes. Taking the evidence first reproduces the shape of
         // the old pinned search: the first descent assigns exactly the
         // proposed anchors, forward checking prunes from there, and
         // backtracking past a bad anchor stays available rather than

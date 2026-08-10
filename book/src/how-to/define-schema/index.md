@@ -8,6 +8,8 @@ A schema in panproto is a graph of vertices and edges, validated against a proto
 | TypeScript SDK | [From TypeScript](./typescript.md) |
 | Python SDK | [From Python](./python.md) |
 | Rust SDK | [From Rust](./rust.md) |
+| Haskell SDK | [From Haskell](./haskell.md) |
+| Swift SDK | [From Swift](./swift.md) |
 
 The CLI is the recommended starting point if you have an existing schema file (JSON Schema, Protobuf, ATProto Lexicon, ...) you want to load and inspect. The language SDKs are the recommended starting point if you are building schemas programmatically inside an application.
 
