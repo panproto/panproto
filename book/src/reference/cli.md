@@ -242,6 +242,7 @@ Options:
   -v, --verbose      Enable verbose output
   -f, --force        Force staging even if validation fails
       --data <DATA>  Stage data files alongside the schema
+      --skip-verify  Skip GAT migration validation while staging (leaves the stage pending; the migration is still recorded)
   -h, --help         Print help
 ```
 

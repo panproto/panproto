@@ -6,6 +6,14 @@ ignore = [
     # nickel-lang-core used only at Nickel evaluation time (not in hot paths).
     # No security impact; will be resolved when nickel-lang updates.
     "RUSTSEC-2024-0436",
+    # bitmaps is unmaintained (RUSTSEC-2026-0247, repository archived
+    # 2026-05-03). Same shape as the paste advisory above: it arrives through
+    # nickel-lang-vector -> imbl-sized-chunks and is reached only at Nickel
+    # evaluation time. The advisory records no vulnerability and offers no
+    # safe upgrade, since the alternatives it names (fixedbitset, bitvec) are
+    # a choice for imbl to make rather than for a consumer. Resolved when
+    # nickel-lang updates.
+    "RUSTSEC-2026-0247",
     # quick-xml 0.37 denial-of-service advisories in namespace and duplicate-
     # attribute handling. panproto-io parses XML through the non-namespace
     # `quick_xml::Reader`, and RUSTSEC-2026-0195 explicitly states that a
