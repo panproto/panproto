@@ -7,15 +7,16 @@
 //! actually broke.
 //!
 //! Two real `atproto` lexicons do. `app.bsky.feed.post` against
-//! `app.bsky.actor.profile` yields 26 resolved anchors at `Lenient` and
-//! 57 at `Exploratory`, and the extra ones come from the strategies
-//! only `Exploratory` runs. Since `align::resolve_anchors` keeps a
-//! single winner per source vertex, a higher-confidence structural
-//! anchor displaced one the lower tier depended on. While anchors were
-//! pinned through `SearchOptions::initial`, which collapses a vertex's
-//! domain to exactly the pinned target, that displacement left the CSP
-//! unsatisfiable and `Exploratory` reported no morphism on a pair
-//! `Lenient` aligned.
+//! `app.bsky.actor.profile` resolves 15 anchors at `Lenient` and 27 at
+//! `Exploratory`, and the higher set is a strict superset: no vertex
+//! changes its target. The ladder broke by addition. Two of the added
+//! anchors are jointly infeasible, either one alone being satisfiable,
+//! because together they require the source edge
+//! `body.facets:items --ref--> app.bsky.richtext.facet` to map to a
+//! target edge that does not exist. While anchors were pinned through
+//! `SearchOptions::initial`, which collapses a vertex's domain to
+//! exactly the pinned target, that left the CSP unsatisfiable and
+//! `Exploratory` reported no morphism on a pair `Lenient` aligned.
 
 use panproto_core::lens::{self, AutoLensConfig, Stringency};
 use panproto_core::protocols;

@@ -623,11 +623,12 @@ fn run_strategies(
 ///
 /// Strategy output is evidence, not knowledge, so it reaches the solver
 /// as a preference rather than a pin. That is what keeps the stringency
-/// tiers ordered: a tier that runs more strategies proposes more
-/// anchors, and a preference can only change which morphism is found
-/// first, never whether one exists. Pinning them instead let a
-/// higher-confidence anchor from a tier-exclusive strategy displace a
-/// correct one and leave the search unsatisfiable.
+/// tiers ordered. A tier that runs more strategies contributes more
+/// anchors, and pinning each one collapses its vertex's domain, so a
+/// set of individually plausible anchors can be jointly infeasible and
+/// leave the search unsatisfiable. Anchors are scored one at a time, so
+/// nothing checks the conjunction. As preferences they cost an ordering
+/// instead of a solution.
 fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>) {
     for (s, t) in additional {
         opts.initial.entry(s.clone()).or_insert_with(|| t.clone());
@@ -934,11 +935,13 @@ pub fn auto_generate(
     // reorder a domain but never empty it.
     //
     // This is what keeps the stringency tiers ordered. A higher tier
-    // runs more alignment strategies, and `resolve_anchors` keeps one
-    // winner per source vertex, so a tier-exclusive strategy can
-    // outrank and displace an anchor a lower tier relied on. Pinned,
-    // that turns a solvable alignment into "no morphism found"; as a
-    // preference, the solver simply backtracks past it.
+    // runs more alignment strategies and so contributes more anchors,
+    // and each pin collapses its vertex's domain to one target. Anchors
+    // that are individually plausible can be jointly infeasible: two of
+    // them can require a source edge to map to a target edge that does
+    // not exist. Nothing scores the conjunction, so the tier that knows
+    // more can be the tier that fails. As preferences the solver simply
+    // backtracks past them.
     let caller_anchors = config.search_opts.initial.clone();
     let result = match run_search(
         src,
