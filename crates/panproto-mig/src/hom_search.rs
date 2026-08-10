@@ -405,14 +405,25 @@ impl<'a> BacktrackState<'a> {
     }
 }
 
-/// Move each preferred target to the front of its domain, keeping it
-/// there through every pruning pass.
+/// Move each preferred target to the front of its domain.
 ///
-/// A preference must never shrink a domain: that is the whole
-/// difference between it and [`SearchOptions::initial`], and it is what
-/// keeps a more permissive search from failing where a less permissive
-/// one succeeded. What it may do is reorder, so the solver reaches the
-/// proposed target first and backtracks past it when it does not work.
+/// The property this has to have, and the whole difference between a
+/// preference and [`SearchOptions::initial`], is that it never removes
+/// a target. Removing one is what let a more permissive search fail
+/// where a less permissive one succeeded.
+///
+/// Precisely, for each source vertex this either permutes the domain
+/// (when the preferred target is already in it) or adds one element to
+/// the front. It adds only a target that is kind-compatible and that no
+/// hard constraint rules out: an excluded target, an excluded source,
+/// and a caller-restricted domain are all respected. The
+/// name-similarity filter is a heuristic rather than a stated
+/// admissibility rule, so a preference does reach past it, which is how
+/// `initial` treats it too.
+///
+/// Domains only grow here, so a morphism reachable without preferences
+/// stays reachable with them. What changes is the order the solver
+/// finds them in.
 fn apply_preferences(
     domains: &mut HashMap<Name, Vec<Name>>,
     src: &Schema,
@@ -436,6 +447,17 @@ fn apply_preferences(
         {
             continue;
         }
+        // A restricted domain is the caller stating which targets are
+        // admissible, not a heuristic filter, so a preference does not
+        // reach past it. The name-similarity filter is a heuristic and
+        // is exempted, matching how `initial` skips it.
+        if constraints
+            .restricted_domains
+            .get(src_id)
+            .is_some_and(|allowed| !allowed.contains(preferred))
+        {
+            continue;
+        }
         let Some(domain) = domains.get_mut(src_id) else {
             continue;
         };
@@ -451,43 +473,6 @@ fn apply_preferences(
             continue;
         }
         domain.retain(|t| t != preferred);
-
-        // Edge-name pruning applies to the alternatives even when
-        // `relax_edge_name_pruning` is set. That relaxation exists
-        // so pruning cannot discard a target a strategy seeded, and
-        // the preference below already guarantees that outright.
-        // Leaving the tail unpruned as well is what makes the
-        // domain the entire kind-compatible target set, which on a
-        // schema of any size is a search that does not terminate in
-        // useful time.
-        if domain.len() > 5 {
-            let src_edge_names: std::collections::HashSet<&str> = src
-                .outgoing_edges(src_id)
-                .iter()
-                .filter_map(|e| e.name.as_deref())
-                .collect();
-            if !src_edge_names.is_empty() {
-                let pruned: Vec<Name> = domain
-                    .iter()
-                    .filter(|tid| {
-                        let tgt_edge_names: std::collections::HashSet<&str> = tgt
-                            .outgoing_edges(tid)
-                            .iter()
-                            .filter_map(|e| e.name.as_deref())
-                            .collect();
-                        src_edge_names
-                            .intersection(&tgt_edge_names)
-                            .next()
-                            .is_some()
-                    })
-                    .cloned()
-                    .collect();
-                if !pruned.is_empty() {
-                    *domain = pruned;
-                }
-            }
-        }
-
         domain.insert(0, preferred.clone());
     }
 }
