@@ -8,10 +8,21 @@ import Testing
 /// lifetime and error retrieval both riding on that.
 @Suite("Engine isolation and handle lifetime")
 struct EngineTests {
+    /// Identity of the thread this call is running on.
+    ///
+    /// Deliberately not `async`: `Thread.current` is unavailable from an
+    /// asynchronous context precisely because the answer can change
+    /// across a suspension. Taking it synchronously is what the tests
+    /// below want, since each one compares identities observed at a
+    /// single instant.
+    private static func observedThread() -> ObjectIdentifier {
+        ObjectIdentifier(Thread.current)
+    }
+
     /// Identity of the thread the engine is running on right now.
     @PanprotoEngine
     private static func currentThreadIdentity() -> ObjectIdentifier {
-        ObjectIdentifier(Thread.current)
+        observedThread()
     }
 
     @Test("Every engine call lands on the same thread")
@@ -30,7 +41,7 @@ struct EngineTests {
     @Test("The engine thread is not the caller's thread")
     func engineRunsOffTheCallersThread() async {
         let engineThread = await Self.currentThreadIdentity()
-        let callerThread = ObjectIdentifier(Thread.current)
+        let callerThread = Self.observedThread()
         #expect(engineThread != callerThread)
     }
 

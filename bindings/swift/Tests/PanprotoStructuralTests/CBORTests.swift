@@ -84,8 +84,14 @@ private let roundTripVectors: [Vector] = [
     Vector("3903e7", .negative(999)),
     Vector("3bffffffffffffffff", .negative(18_446_744_073_709_551_615)),
     // Bignums.
-    Vector("c249010000000000000000", .tag(number: 2, item: .byteString([1, 0, 0, 0, 0, 0, 0, 0, 0]))),
-    Vector("c349010000000000000000", .tag(number: 3, item: .byteString([1, 0, 0, 0, 0, 0, 0, 0, 0]))),
+    Vector(
+        "c249010000000000000000",
+        .tag(number: 2, item: .byteString([1, 0, 0, 0, 0, 0, 0, 0, 0]))
+    ),
+    Vector(
+        "c349010000000000000000",
+        .tag(number: 3, item: .byteString([1, 0, 0, 0, 0, 0, 0, 0, 0]))
+    ),
     // Floats.
     Vector("f90000", .float(0.0)),
     Vector("f98000", .float(-0.0)),
@@ -176,7 +182,11 @@ private let roundTripVectors: [Vector] = [
 /// wider head than they need.
 private let decodeOnlyVectors: [Vector] = [
     Vector("5f42010243030405ff", .byteString([1, 2, 3, 4, 5]), canonical: "450102030405"),
-    Vector("7f657374726561646d696e67ff", .textString("streaming"), canonical: "6973747265616d696e67"),
+    Vector(
+        "7f657374726561646d696e67ff",
+        .textString("streaming"),
+        canonical: "6973747265616d696e67"
+    ),
     Vector("9fff", .array([]), canonical: "80"),
     Vector(
         "9f018202039f0405ffff",
@@ -230,22 +240,22 @@ private let decodeOnlyVectors: [Vector] = [
 @Suite("RFC 8949 vectors")
 struct RFCVectorTests {
     @Test("bytes decode to the item the appendix names", arguments: roundTripVectors)
-    func decodes(_ vector: Vector) throws {
+    fileprivate func decodes(_ vector: Vector) throws {
         #expect(try CBORValue(decoding: bytes(vector.hex)) == vector.value)
     }
 
     @Test("the item encodes back to the bytes it came from", arguments: roundTripVectors)
-    func encodes(_ vector: Vector) {
+    fileprivate func encodes(_ vector: Vector) {
         #expect(hex(vector.value.encodedBytes()) == vector.canonical)
     }
 
     @Test("non-deterministic spellings decode", arguments: decodeOnlyVectors)
-    func decodesTolerantly(_ vector: Vector) throws {
+    fileprivate func decodesTolerantly(_ vector: Vector) throws {
         #expect(try CBORValue(decoding: bytes(vector.hex)) == vector.value)
     }
 
     @Test("non-deterministic spellings re-encode deterministically", arguments: decodeOnlyVectors)
-    func reEncodesDeterministically(_ vector: Vector) throws {
+    fileprivate func reEncodesDeterministically(_ vector: Vector) throws {
         let decoded = try CBORValue(decoding: bytes(vector.hex))
         #expect(hex(decoded.encodedBytes()) == vector.canonical)
     }
@@ -490,7 +500,7 @@ struct CiboriumTests {
         6372617783010203
         """
 
-    static let outer = Outer(
+    fileprivate static let outer = Outer(
         name: "n",
         count: .max,
         maybe: "y",
@@ -555,6 +565,21 @@ struct CiboriumTests {
         #expect(try CBORDecoder().decode(Outer.self, from: payload) == Self.outer)
     }
 
+    @Test("the error envelope the C ABI leaves behind round-trips")
+    func errorEnvelope() throws {
+        let encoded = """
+            a36673746174757303637461676e696e76616c69645f68616e646c65676d657373616765\
+            7468616e646c652037206973206e6f74206c697665
+            """
+        let envelope = ErrorEnvelope(
+            status: 3,
+            tag: "invalid_handle",
+            message: "handle 7 is not live"
+        )
+        #expect(try CBORDecoder().decode(ErrorEnvelope.self, from: bytes(encoded)) == envelope)
+        #expect(try encodedHex(envelope) == encoded)
+    }
+
     @Test("a byte string decodes into a field typed as a byte array")
     func byteStringAsSequence() throws {
         #expect(try CBORDecoder().decode([UInt8].self, from: bytes("4401020304")) == [1, 2, 3, 4])
@@ -581,7 +606,8 @@ struct ToleranceTests {
 
     @Test("an indefinite-length map decodes")
     func indefiniteMap() throws {
-        #expect(try CBORDecoder().decode(OneField.self, from: bytes("bf616101ff")) == OneField(a: 1))
+        let payload = bytes("bf616101ff")
+        #expect(try CBORDecoder().decode(OneField.self, from: payload) == OneField(a: 1))
     }
 
     @Test("an indefinite-length array decodes into an array field")
@@ -591,7 +617,8 @@ struct ToleranceTests {
 
     @Test("an indefinite-length text string decodes")
     func indefiniteText() throws {
-        let decoded = try CBORDecoder().decode(String.self, from: bytes("7f657374726561646d696e67ff"))
+        let payload = bytes("7f657374726561646d696e67ff")
+        let decoded = try CBORDecoder().decode(String.self, from: payload)
         #expect(decoded == "streaming")
     }
 
@@ -603,12 +630,14 @@ struct ToleranceTests {
 
     @Test("a tag around a value is read through")
     func tagAroundValue() throws {
-        #expect(try CBORDecoder().decode(OneField.self, from: bytes("a16161c101")) == OneField(a: 1))
+        let payload = bytes("a16161c101")
+        #expect(try CBORDecoder().decode(OneField.self, from: payload) == OneField(a: 1))
     }
 
     @Test("a tag around a map is read through")
     func tagAroundMap() throws {
-        #expect(try CBORDecoder().decode(OneField.self, from: bytes("c1a1616101")) == OneField(a: 1))
+        let payload = bytes("c1a1616101")
+        #expect(try CBORDecoder().decode(OneField.self, from: payload) == OneField(a: 1))
     }
 
     @Test("nested tags are read through")
@@ -757,12 +786,25 @@ struct DeterminismTests {
     func numericStringKeys() throws {
         #expect(try encodedHex(["1": "a", "2": "b"]) == "a26131616161326162")
         let payload = bytes("a26131616161326162")
-        #expect(try CBORDecoder().decode([String: String].self, from: payload) == ["1": "a", "2": "b"])
+        let decoded = try CBORDecoder().decode([String: String].self, from: payload)
+        #expect(decoded == ["1": "a", "2": "b"])
     }
 
     @Test("a set is sorted by the encoded bytes of its elements")
     func canonicalSetOrder() throws {
         #expect(try encodedHex(Set([3, 1, 2])) == "83010203")
+    }
+
+    @Test("a dictionary that reaches an array of pairs is sorted by pair")
+    func canonicalPairOrder() throws {
+        // A key that is neither a string nor an integer takes the
+        // alternating array form, which is still sorted by key.
+        #expect(try encodedHex([2.5: "b", 1.5: "a"]) == "84f93e006161f941006162")
+        let decoded = try CBORDecoder().decode(
+            [Double: String].self,
+            from: bytes("84f93e006161f941006162")
+        )
+        #expect(decoded == [1.5: "a", 2.5: "b"])
     }
 
     @Test("two encodes of the same value agree byte for byte")
@@ -851,6 +893,44 @@ struct ContainerTests {
         #expect(try encodedHex([Int]()) == "80")
         #expect(try encodedHex([String: Int]()) == "a0")
     }
+
+    @Test("a value that writes nothing at all is refused")
+    func nothingEncoded() {
+        struct Silent: Encodable {
+            func encode(to encoder: any Encoder) throws {}
+        }
+        #expect(throws: EncodingError.self) {
+            try CBOREncoder().encode(Silent())
+        }
+    }
+
+    @Test("user info reaches the value being encoded and decoded")
+    func userInfo() throws {
+        let key = CodingUserInfoKey(rawValue: "cbor.tests.marker")
+        struct Marked: Codable, Equatable {
+            var seen: String
+
+            init(seen: String) { self.seen = seen }
+
+            init(from decoder: any Decoder) throws {
+                let container = try decoder.singleValueContainer()
+                _ = try container.decode(String.self)
+                seen = decoder.userInfo.keys.first?.rawValue ?? "none"
+            }
+
+            func encode(to encoder: any Encoder) throws {
+                var container = encoder.singleValueContainer()
+                try container.encode(encoder.userInfo.keys.first?.rawValue ?? "none")
+            }
+        }
+        var encoder = CBOREncoder()
+        encoder.userInfo = key.map { [$0: "set"] } ?? [:]
+        let encoded = try encoder.encode(Marked(seen: ""))
+        #expect(try CBORValue(decoding: encoded).stringValue == "cbor.tests.marker")
+        var decoder = CBORDecoder()
+        decoder.userInfo = key.map { [$0: "set"] } ?? [:]
+        #expect(try decoder.decode(Marked.self, from: encoded).seen == "cbor.tests.marker")
+    }
 }
 
 // MARK: - CBORValue
@@ -867,9 +947,8 @@ struct CBORValueTests {
         #expect(decoded.payload["zz"] == .array([.unsigned(1), .unsigned(2)]))
         // The fragment re-encodes deterministically: the tag and the key
         // order survive, and the indefinite-length array closes.
-        #expect(
-            try encodedHex(decoded) == "a2646b696e64646c6f7564677061796c6f6164c1a2616101627a7a820102"
-        )
+        let reEncoded = "a2646b696e64646c6f7564677061796c6f6164c1a2616101627a7a820102"
+        #expect(try encodedHex(decoded) == reEncoded)
     }
 
     @Test("an item can be inspected without a static type")
@@ -978,7 +1057,7 @@ private let malformedInputs: [BadInput] = [
 @Suite("malformed input")
 struct MalformedInputTests {
     @Test("malformed bytes raise a descriptive error", arguments: malformedInputs)
-    func refused(_ input: BadInput) {
+    fileprivate func refused(_ input: BadInput) {
         #expect(throws: CBORError.self) {
             try CBORValue(decoding: bytes(input.hex))
         }

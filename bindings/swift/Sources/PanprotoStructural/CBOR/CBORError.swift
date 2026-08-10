@@ -63,6 +63,7 @@ public enum CBORError: Error, Hashable, Sendable, CustomStringConvertible {
     /// decoders agree on what is well-formed.
     case trailingBytes(consumed: Int, remaining: Int)
 
+    /// A sentence naming what went wrong and where.
     public var description: String {
         switch self {
         case .truncated(let offset, let needed):
@@ -98,5 +99,7 @@ public enum CBORError: Error, Hashable, Sendable, CustomStringConvertible {
 }
 
 extension CBORError: LocalizedError {
+    /// The same sentence ``description`` gives, so that a `Foundation`
+    /// presentation of the error reads the same as a logged one.
     public var errorDescription: String? { description }
 }

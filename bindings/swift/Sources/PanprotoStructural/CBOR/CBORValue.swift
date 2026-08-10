@@ -123,6 +123,11 @@ extension CBORValue {
 // MARK: - Equality and hashing
 
 extension CBORValue: Hashable {
+    /// Whether two items encode to the same bytes.
+    ///
+    /// Floats compare by bit pattern rather than by value, so `NaN`
+    /// equals `NaN` and `+0.0` differs from `-0.0`, and a simple value
+    /// spelled as ``simple(_:)`` equals the dedicated case for it.
     public static func == (lhs: CBORValue, rhs: CBORValue) -> Bool {
         switch (lhs.normalized, rhs.normalized) {
         case (.unsigned(let a), .unsigned(let b)): a == b
@@ -141,6 +146,8 @@ extension CBORValue: Hashable {
         }
     }
 
+    /// Feed the item's encoded form to `hasher`, so that items which
+    /// encode alike hash alike.
     public func hash(into hasher: inout Hasher) {
         switch normalized {
         case .unsigned(let value):
@@ -354,6 +361,7 @@ extension CBORValue: Codable {
         case undefined
     }
 
+    /// Read an item from a coder that is not this package's.
     public init(from decoder: any Decoder) throws {
         if let single = try? decoder.singleValueContainer(),
             let spelling = try? single.decode(String.self)
@@ -386,7 +394,8 @@ extension CBORValue: Codable {
         switch key {
         case .unsigned: self = .unsigned(try container.decode(UInt64.self, forKey: .unsigned))
         case .negative: self = .negative(try container.decode(UInt64.self, forKey: .negative))
-        case .byteString: self = .byteString(try container.decode([UInt8].self, forKey: .byteString))
+        case .byteString:
+            self = .byteString(try container.decode([UInt8].self, forKey: .byteString))
         case .textString: self = .textString(try container.decode(String.self, forKey: .textString))
         case .array: self = .array(try container.decode([CBORValue].self, forKey: .array))
         case .map: self = .map(try container.decode([Entry].self, forKey: .map))
@@ -399,6 +408,7 @@ extension CBORValue: Codable {
         }
     }
 
+    /// Write an item to a coder that is not this package's.
     public func encode(to encoder: any Encoder) throws {
         switch self {
         case .null:
@@ -447,6 +457,7 @@ extension CBORValue.Entry: Codable {
         case value
     }
 
+    /// Read a pair from a coder that is not this package's.
     public init(from decoder: any Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         self.init(
@@ -455,6 +466,7 @@ extension CBORValue.Entry: Codable {
         )
     }
 
+    /// Write a pair to a coder that is not this package's.
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(key, forKey: .key)

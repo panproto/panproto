@@ -9,8 +9,11 @@ import Foundation
 ///
 /// - A `Codable` struct becomes a definite-length map with text keys,
 ///   in declaration order, matching a Rust struct.
-/// - `nil` becomes CBOR null and a non-`nil` optional becomes the
-///   wrapped value itself, matching `Option`.
+/// - A `nil` written with `encode(_:forKey:)` becomes CBOR null and a
+///   non-`nil` optional becomes the wrapped value itself, matching
+///   `Option`. A synthesized `Codable` conformance instead reaches for
+///   `encodeIfPresent`, which leaves the key out; the engine reads an
+///   absent field for an `Option` as `None`, so both spellings arrive.
 /// - An array or a tuple becomes a definite-length array.
 /// - A `Dictionary` with `String` keys becomes a map with text keys; a
 ///   `Dictionary` with `Int` keys becomes a map with integer keys.
@@ -371,7 +374,9 @@ final class CBOREncodingNode {
         case .empty: kind = .array
         case .array: break
         case .value, .map:
-            preconditionFailure("an unkeyed container cannot be opened over an item already encoded")
+            preconditionFailure(
+                "an unkeyed container cannot be opened over an item already encoded"
+            )
         }
     }
 
@@ -530,7 +535,9 @@ struct CBORKeyedEncodingContainer<Key: CodingKey>: KeyedEncodingContainerProtoco
     func encode(_ value: Bool, forKey key: Key) throws { append(.bool(value), forKey: key) }
     func encode(_ value: String, forKey key: Key) throws { append(.textString(value), forKey: key) }
     func encode(_ value: Double, forKey key: Key) throws { append(.float(value), forKey: key) }
-    func encode(_ value: Float, forKey key: Key) throws { append(.float(Double(value)), forKey: key) }
+    func encode(_ value: Float, forKey key: Key) throws {
+        append(.float(Double(value)), forKey: key)
+    }
     func encode(_ value: Int, forKey key: Key) throws { append(.integer(value), forKey: key) }
     func encode(_ value: Int8, forKey key: Key) throws { append(.integer(value), forKey: key) }
     func encode(_ value: Int16, forKey key: Key) throws { append(.integer(value), forKey: key) }
