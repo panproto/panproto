@@ -2,6 +2,14 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [0.69.1] - 2026-08-11
+
+### Fixed
+
+- **A tree edit can no longer make a node its own parent, and an ancestor walk always terminates** (`panproto-inst`): `apply_move_subtree` guards against cycles by asking whether the new parent is a descendant of the node being moved. `is_descendant` walks *up* from its candidate, so it starts at the candidate's parent and never considers the candidate itself; asked whether a node is a descendant of that same node, it answered no on any acyclic instance. The guard passed, the move wrote `parent_map[node] = node`, and the resulting self-loop was not merely wrong but unwalkable: `is_descendant` has no visited set and no bound, so every later ancestor traversal through that node ran forever. A `MoveSubtree` whose `node_id` equals its `new_parent` is now refused with `CycleDetected`, and the walk is bounded by the node count, since a `WInstance` is deserialized and reaches the engine from hosts across the FFI boundary, where a predicate that hangs on malformed input is worse than one that answers wrongly.
+
+  This surfaced as the `edit_laws::action_laws` property tests timing out in CI. They generate `MoveSubtree` edits over the instance's own node ids, so a self-parent move is one of the shapes they explore; the three of them share `arb_scenario`, which is why all three could hang. Nothing about the tests changed. What changed is that 0.69.0 added a runtime bound to the `ci` nextest profile, which turned a run that never finished into a failure, exactly as that bound intended. At 20000 cases the three tests now complete in under ten seconds. Closes #260.
+
 ## [0.69.0] - 2026-07-30
 
 ### Added
