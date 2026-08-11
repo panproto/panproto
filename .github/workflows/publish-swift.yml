@@ -280,6 +280,13 @@ jobs:
       - name: Build panproto-c and stage libs
         run: bash bindings/swift/bootstrap/dev-link.sh
       - name: Build DocC archives
+        # The plugin is an opt-in dependency so that an ordinary build
+        # never reaches the network for it, which means the one command
+        # that needs it has to ask. Without this the subcommand does not
+        # exist and the step fails with "Unknown subcommand or plugin
+        # name".
+        env:
+          PANPROTO_SWIFT_DOCC: "1"
         run: |
           set -euo pipefail
           cd bindings/swift
