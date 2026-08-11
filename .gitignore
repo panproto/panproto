@@ -48,6 +48,12 @@ Thumbs.db
 # ChatGPT
 .agents/
 
+# Staged panproto-c artifacts. `bindings/swift/bootstrap/dev-link.sh` and
+# `fetch-bindist.sh` write the library and header a binding links
+# against; they are build inputs, not source. The Swift package ignores
+# its own copy too, and this catches a staging directory anywhere else.
+.panproto-c/
+
 # Notes
 notes/
 planning/
