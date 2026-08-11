@@ -7,6 +7,19 @@ name: Publish Swift SDK
 #
 # The engine and every binding share one version, so there is no
 # Swift-specific version to bump here; the tag is the version.
+#
+# One-time setup this workflow needs before it can run:
+#
+#   * A repository `panproto/panproto-swift` to mirror into. SwiftPM
+#     resolves a package URL by cloning and looking for Package.swift at
+#     the root, with no subpath option, so `bindings/swift` of this
+#     repository is not consumable by anyone; the mirror is what a
+#     dependent actually depends on.
+#   * A deploy key with write access to that repository, its private half
+#     stored here as the `SWIFT_MIRROR_DEPLOY_KEY` secret.
+#   * A submission to the Swift Package Index, once the mirror carries a
+#     tag whose Package.swift has its release pin filled in. The index
+#     reads `.spi.yml` from the mirror root and hosts DocC per release.
 
 on:
   push:
@@ -166,6 +179,94 @@ jobs:
             fi
           done
           exit $status
+
+  mirror:
+    name: Mirror the package
+    runs-on: ubuntu-latest
+    needs: pin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Assemble the mirror tree
+        # SwiftPM resolves a package URL by cloning and looking for
+        # Package.swift at the root, with no subpath option, so a package
+        # living in bindings/swift of this repository is not consumable
+        # by anyone. Publishing it means putting that directory at the
+        # root of a repository of its own.
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/mirror && mkdir -p /tmp/mirror
+          rsync -a --delete \
+            --exclude '.build/' \
+            --exclude '.panproto-c/' \
+            --exclude '.swiftpm/' \
+            bindings/swift/ /tmp/mirror/
+
+          # The index checks for a license it can detect, and the package
+          # directory has none of its own.
+          cp LICENSE /tmp/mirror/LICENSE
+
+          # Every relative link in the README walks out of bindings/swift
+          # and lands nowhere once the directory is a root. Rewrite them
+          # to absolute URLs against the tag being published, so they
+          # point at the tree they were written against rather than at
+          # whatever main becomes later.
+          python3 - "$TAG" <<'REWRITE'
+          import pathlib, re, sys
+
+          tag = sys.argv[1]
+          base = f"https://github.com/panproto/panproto/blob/{tag}"
+          readme = pathlib.Path("/tmp/mirror/README.md")
+          text = readme.read_text()
+
+          def absolute(match: "re.Match[str]") -> str:
+              target = match.group(1).removeprefix("../../")
+              return f"]({base}/{target})"
+
+          text = re.sub(r"\]\((\.\./\.\./[^)]*)\)", absolute, text)
+          readme.write_text(text)
+          REWRITE
+
+          if grep -rn "](\.\./" /tmp/mirror/README.md; then
+            echo "::error::a relative link survived the rewrite"
+            exit 1
+          fi
+      - name: Push to the package repository
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SWIFT_MIRROR_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 git@github.com:panproto/panproto-swift.git /tmp/repo || {
+            mkdir -p /tmp/repo && cd /tmp/repo && git init -q -b main \
+              && git remote add origin git@github.com:panproto/panproto-swift.git
+          }
+          cd /tmp/repo
+          find . -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
+          cp -R /tmp/mirror/. .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "mirror already current"
+          else
+            git commit -q -m "panproto Swift SDK $TAG"
+          fi
+          git tag -f "$TAG"
+          git push origin main
+          git push -f origin "$TAG"
 
   docs:
     name: Publish DocC
