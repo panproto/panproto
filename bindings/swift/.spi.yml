@@ -1,0 +1,31 @@
+# Swift Package Index configuration.
+#
+# This file has to sit at the root of the repository the index reads, and
+# the index reads the repository a consumer would depend on. SwiftPM
+# resolves `.package(url:)` by cloning and looking for `Package.swift` at
+# the root, with no subpath option, so this package is not consumable
+# from `bindings/swift` of the engine monorepo. Publishing it means
+# mirroring this directory to the root of a package repository, and this
+# file rides along to become that repository's root `.spi.yml`.
+#
+# Until that mirror exists, this file documents the intended
+# configuration and does nothing.
+version: 1
+
+builder:
+  configs:
+    # The three products a consumer starts from. The gated tiers
+    # (PanprotoParse, PanprotoProject, PanprotoGit) are omitted on
+    # purpose: their sources compile to an empty module unless their
+    # trait is enabled, and enabling one needs a libpanproto_c built with
+    # the matching cargo features, which the index's builders have no way
+    # to stage.
+    - documentation_targets:
+        - PanprotoStructural
+        - Panproto
+        - PanprotoVcs
+      # Apple platforms only. The released library is an XCFramework,
+      # which is an Apple container format; a Linux consumer links the
+      # cdylib from the platform tarball instead, through the dev-link
+      # path rather than the release pin.
+      platform: macos-spm
