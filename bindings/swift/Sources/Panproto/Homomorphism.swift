@@ -29,16 +29,15 @@ extension SchemaHandle {
     /// has to be injective, surjective, or both, how many answers to
     /// stop at, and which assignments to pin before the search starts.
     ///
-    /// Results arrive ranked by descending
-    /// ``FoundMorphism/quality``, so the first is the one
-    /// ``findBestMorphism(to:options:)`` would return. An empty array
-    /// means no assignment satisfied the constraints, which is an
-    /// ordinary answer rather than a failure.
+    /// Results arrive ranked by descending `FoundMorphism.quality`, so
+    /// the first is the one ``findBestMorphism(to:options:)`` would
+    /// return. An empty array means no assignment satisfied the
+    /// constraints, which is an ordinary answer rather than a failure.
     ///
     /// The search enumerates assignments, so its cost climbs steeply
     /// with the number of vertices on either side; a schema of a few
     /// dozen vertices is enough to make an unconstrained search long.
-    /// Pinning vertices through ``MorphismSearchOptions/initial``, or
+    /// Pinning vertices through `MorphismSearchOptions.initial`, or
     /// requiring a shape the engine can prune against, cuts the space
     /// before the enumeration starts.
     ///
@@ -145,7 +144,7 @@ extension SchemaHandle {
     /// morphism between theories acts on schemas: renaming a sort
     /// renames the vertices interpreting it, and renaming an operation
     /// renames the edges. The induced map is that action, recorded as a
-    /// ``SchemaMorphism`` whose ``SchemaMorphism/renames`` says which
+    /// `SchemaMorphism` whose `SchemaMorphism.renames` says which
     /// theory-level renames produced it.
     ///
     /// The induced morphism is a value, not a handle. To get a migration

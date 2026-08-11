@@ -14,7 +14,7 @@ import PanprotoStructural
 /// than pins, which is what keeps the ladder from breaking when a
 /// higher-confidence anchor displaces one a lower tier relied on.
 ///
-/// The ladder is what ``Comparable`` orders: ``strict`` is least and
+/// The ladder is what `Comparable` orders: ``strict`` is least and
 /// ``exploratory`` greatest, so `max` of two tiers is the one that
 /// admits both. That makes ``strict`` the unit of joining tiers, which
 /// is a separate notion from ``balanced`` being the tier the engine
@@ -29,7 +29,7 @@ public enum LensStringency: String, Sendable, Hashable, CaseIterable, Comparable
     /// what carries schemas that agree in shape but not in naming.
     case lenient
     /// Adds carrier bridges through coercion witnesses, and is the only
-    /// tier that reports ``PanprotoStructural/CoerceProposal``.
+    /// tier that reports `CoerceProposal`.
     case exploratory
 
     /// The tier that admits the fewest correspondences, which is the
@@ -139,9 +139,8 @@ extension ProtolensChainHandle {
     ///
     /// Carrier bridges are a property of the run rather than of any one
     /// candidate, so they arrive in
-    /// ``PanprotoStructural/AutoLensCandidates/coerceProposals``
-    /// alongside the list, and only at
-    /// ``LensStringency/exploratory``.
+    /// `AutoLensCandidates.coerceProposals` alongside the list, and
+    /// only at ``LensStringency/exploratory``.
     ///
     /// The protocol behind the judgement is looked up the way
     /// ``autoGenerate(from:to:stringency:)`` describes, with the same
@@ -447,8 +446,8 @@ extension ProtolensChainHandle {
     /// and says whether the step keeps everything, and it drops the
     /// transforms and the complement constructor that make the step
     /// runnable. It is what to show a person, and it is where the value
-    /// algebra on ``PanprotoStructural/ProtolensChain`` operates. It is
-    /// not what to feed ``fromJSON(_:)``, which reads whole steps.
+    /// algebra on `ProtolensChain` operates. It is not what to feed
+    /// ``fromJSON(_:)``, which reads whole steps.
     ///
     /// - Returns: The chain in summary form, steps in order.
     /// - Throws: ``PanprotoError/lens(_:)`` when the handle names no

@@ -15,7 +15,7 @@
  *  `#if PANPROTO_PROJECT`, and `#if PANPROTO_GIT`, so a package built
  *  against the default library never emits an undefined reference.
  *  Link a `full`-feature libpanproto_c and set the matching feature
- *  in `PANPROTO_SWIFT_FEATURES` to reach them.
+ *  the matching package trait to reach them.
  *
  *  Keep this file in step with `crates/panproto-c/src/api/parse.rs`,
  *  `project.rs`, and `git.rs`; the parity gate in

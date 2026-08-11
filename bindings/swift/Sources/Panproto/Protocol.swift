@@ -45,8 +45,8 @@ extension ProtocolHandle {
     /// - Parameter name: the catalogue name, such as `atproto` or `sql`.
     /// - Returns: a handle on the registered protocol.
     /// - Throws: ``PanprotoError`` in the ``PanprotoError/io(_:)``
-    ///   domain, with status ``RawStatus/operation``, when the
-    ///   catalogue has no such name.
+    ///   domain, with status `RawStatus.operation`, when the catalogue
+    ///   has no such name.
     @PanprotoEngine
     public static func builtin(_ name: String) throws(PanprotoError) -> ProtocolHandle {
         let operation = "ProtocolHandle.builtin"
@@ -91,8 +91,8 @@ extension ProtocolHandle {
     /// - Parameter name: the catalogue name, such as `atproto` or `sql`.
     /// - Returns: the protocol as a value.
     /// - Throws: ``PanprotoError`` in the ``PanprotoError/io(_:)``
-    ///   domain, with status ``RawStatus/operation``, when the
-    ///   catalogue has no such name.
+    ///   domain, with status `RawStatus.operation`, when the catalogue
+    ///   has no such name.
     @PanprotoEngine
     public static func builtinSpecification(
         named name: String

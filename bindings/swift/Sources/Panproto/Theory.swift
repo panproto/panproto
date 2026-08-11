@@ -109,8 +109,8 @@ extension TheoryHandle {
     /// and every equation of the domain holds of the images.
     ///
     /// An invalid morphism is an answer, not a failure. The verdict
-    /// lives in the returned ``MorphismCheckResult``, whose
-    /// ``MorphismCheckResult/error`` says what failed; a thrown error
+    /// lives in the returned `MorphismCheckResult`, whose
+    /// `MorphismCheckResult.error` says what failed; a thrown error
     /// means the payload or a handle was bad, not that the morphism was
     /// rejected.
     @PanprotoEngine
@@ -296,9 +296,9 @@ extension TheoryMorphism {
 ///
 /// Sorts, operations, and equations are given as values rather than as
 /// source text. The engine parses one surface language across this ABI,
-/// the expression language ``Expr/parse(_:)`` reads, and a theory is
-/// not written in it; a ``Term`` and a ``SortExpr`` are therefore built
-/// here directly.
+/// the expression language `Expr.parse(_:)` reads, and a theory is not
+/// written in it; a `Term` and a `SortExpr` are therefore built here
+/// directly.
 public struct TheoryBuilder: Hashable, Sendable {
     /// The theory as far as it has been declared.
     private var theory: Theory

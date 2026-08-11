@@ -16,10 +16,10 @@ extension SchemaHandle {
     /// The coercion is keyed by the pair of kinds rather than by a
     /// vertex, so it reaches every vertex of `sourceKind` at once, and
     /// neither kind has to be one this schema uses. It is installed
-    /// with no inverse and with coercion class
-    /// ``CoercionClass/opaque``: `forward` is taken as a one-way map,
-    /// so nothing downstream will try to recover a source value from a
-    /// coerced one. A pair already carrying a coercion is replaced.
+    /// with no inverse and with coercion class `CoercionClass.opaque`:
+    /// `forward` is taken as a one-way map, so nothing downstream will
+    /// try to recover a source value from a coerced one. A pair already
+    /// carrying a coercion is replaced.
     ///
     /// - Parameters:
     ///   - sourceKind: the vertex kind values are coerced from.
@@ -106,7 +106,7 @@ extension SchemaHandle {
     /// - Returns: a handle on the enriched schema.
     /// - Throws: ``PanprotoError`` in the
     ///   ``PanprotoError/schemaValidation(_:)`` domain, with status
-    ///   ``RawStatus/operation``, when the schema has no such vertex.
+    ///   `RawStatus.operation`, when the schema has no such vertex.
     @PanprotoEngine
     public func addingMerger(
         _ merger: MergerSpec,
@@ -141,7 +141,7 @@ extension SchemaHandle {
     /// - Returns: a handle on the enriched schema.
     /// - Throws: ``PanprotoError`` in the
     ///   ``PanprotoError/schemaValidation(_:)`` domain, with status
-    ///   ``RawStatus/operation``, when the schema has no such vertex.
+    ///   `RawStatus.operation`, when the schema has no such vertex.
     @PanprotoEngine
     public func addingPolicy(
         _ policy: PolicySpec,

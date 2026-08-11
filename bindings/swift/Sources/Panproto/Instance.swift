@@ -54,8 +54,8 @@ extension SchemaHandle {
     ///
     /// This is the inverse of ``instance(fromJSON:rootVertex:)`` up to
     /// what the schema describes. Fields the schema does not describe
-    /// survive the round trip in ``Node/extraFields``, so a document
-    /// that carried them comes back carrying them.
+    /// survive the round trip in `Node.extraFields`, so a document that
+    /// carried them comes back carrying them.
     ///
     /// - Parameter instance: the instance to render.
     /// - Returns: the JSON bytes.
@@ -102,7 +102,7 @@ extension SchemaHandle {
 extension Instance {
     /// The number of nodes the engine counts in this instance.
     ///
-    /// ``nodeCount`` counts the nodes this value holds and needs no
+    /// `nodeCount` counts the nodes this value holds and needs no
     /// engine. This encodes the instance, hands the bytes across the
     /// boundary, and answers what the engine counted after decoding
     /// them, which makes it a check on the payload rather than on the

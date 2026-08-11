@@ -190,8 +190,8 @@ extension SchemaHandle {
 /// Order matters the way it matters to the engine: an edge names
 /// vertices that earlier steps added, and a hyper-edge's signature does
 /// the same. Constraints and required-edge declarations are recorded as
-/// given and checked by ``SchemaHandle/validate(against:)`` rather than
-/// by the build.
+/// given and checked by ``SchemaHandle/violations(against:)`` rather
+/// than by the build.
 public struct SchemaBuilder: Sendable {
     /// The protocol every step is replayed against.
     public let protocolHandle: ProtocolHandle
@@ -265,7 +265,7 @@ public struct SchemaBuilder: Sendable {
     ///
     /// The build records the constraint as given. Whether the protocol
     /// declares `sort` is decided later, by
-    /// ``SchemaHandle/validate(against:)``.
+    /// ``SchemaHandle/violations(against:)``.
     ///
     /// - Parameters:
     ///   - sort: the constraint sort, such as `maxLength`.

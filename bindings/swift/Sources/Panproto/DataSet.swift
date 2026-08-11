@@ -161,17 +161,18 @@ extension DataSetHandle {
     /// identifier, so ``staleness(against:)`` reports it current against
     /// `target`.
     ///
-    /// `complement` is the carrier holding one ``Complement`` per record,
-    /// in record order, and it keeps `source`'s schema identifier. It is
-    /// what a backward migration consumes: ``migrateBackward(complement:from:to:)``
-    /// pairs each view with its complement to rebuild the source record.
-    /// Its payload is complements rather than instances, so
-    /// ``instances()`` will not read it, and no entry point in the C ABI
-    /// reads a complement carrier's payload back out. A host that means
-    /// to migrate backward therefore captures the complements alongside
-    /// the move: it auto-generates the protolens chain between the two
-    /// schemas, instantiates it at `source`, and keeps the complement
-    /// half of each `get`.
+    /// `complement` is the carrier holding one `Complement` per record,
+    /// in record order, and it keeps `source`'s schema identifier. It
+    /// is what a backward migration consumes:
+    /// ``migrateBackward(complement:from:to:)`` pairs each view with
+    /// its complement to rebuild the source record. Its payload is
+    /// complements rather than instances, so ``instances()`` will not
+    /// read it, and no entry point in the C ABI reads a complement
+    /// carrier's payload back out. A host that means to migrate
+    /// backward therefore captures the complements alongside the move:
+    /// it auto-generates the protolens chain between the two schemas,
+    /// instantiates it at `source`, and keeps the complement half of
+    /// each `get`.
     ///
     /// The rules the generated lens is judged against come from the
     /// builtin protocol registry, looked up by the source schema's

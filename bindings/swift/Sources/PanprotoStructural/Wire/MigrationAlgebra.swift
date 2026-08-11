@@ -24,7 +24,7 @@ extension Migration {
     ///
     /// Because the map covers the whole schema in all three tables, the
     /// self-map is also the mapping
-    /// ``Panproto/Migration/inverted(from:to:)`` accepts most readily:
+    /// `Migration.inverted(from:to:)` in `Panproto` accepts most readily:
     /// it is bijective and drops nothing.
     public static func identity(on schema: Schema) -> Migration {
         var vertexMap: [Name: Name] = [:]

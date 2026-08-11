@@ -21,7 +21,7 @@ extension RepositoryHandle {
     ///   them. The walk takes a commit and then checks the count, so a
     ///   limit at or below zero still takes the newest one.
     /// - Returns: the commits reachable from HEAD, newest first.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when the walk will not run.
+    /// - Throws: `PanprotoError.vcs(_:)` when the walk will not run.
     @PanprotoEngine
     public func log(limit: Int? = nil) throws(PanprotoError) -> VcsLogResult {
         let count = limit.map { UInt32(clamping: $0) } ?? UInt32.max
@@ -45,7 +45,7 @@ extension RepositoryHandle {
     ///   - to: the revision to diff, or nil for the empty schema.
     /// - Returns: the added, removed, and modified counts alongside one
     ///   description per change.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when a revision will not
+    /// - Throws: `PanprotoError.vcs(_:)` when a revision will not
     ///   resolve, or when its schema will not assemble.
     @PanprotoEngine
     public func diff(from: String?, to: String?) throws(PanprotoError) -> VcsDiffResult {
@@ -64,7 +64,7 @@ extension RepositoryHandle {
     ///
     /// - Returns: the added, removed, and modified counts alongside one
     ///   description per change.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when HEAD or its parent will
+    /// - Throws: `PanprotoError.vcs(_:)` when HEAD or its parent will
     ///   not load.
     @PanprotoEngine
     public func diffHead() throws(PanprotoError) -> VcsDiffResult {
@@ -81,7 +81,7 @@ extension RepositoryHandle {
     /// - Parameter vertex: the vertex id to blame.
     /// - Returns: the introducing commit's id, author, timestamp, and
     ///   message.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when HEAD is unborn, or when
+    /// - Throws: `PanprotoError.vcs(_:)` when HEAD is unborn, or when
     ///   no commit reachable from it introduces the vertex.
     @PanprotoEngine
     public func blame(vertex: String) throws(PanprotoError) -> BlameReport {

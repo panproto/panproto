@@ -14,7 +14,8 @@ import PanprotoFFI
 /// The slab guarantees stable identity: an index names the same
 /// resource until it is freed, and the engine does not compact. Two
 /// handle objects wrapping the same index therefore denote the same
-/// resource, which is why ``rawValue`` is the basis for ``==``.
+/// resource, which is why ``rawValue`` is the basis for
+/// ``PanprotoHandle/==(_:_:)``.
 ///
 /// Subclasses are the fourteen slab variants. They add no stored
 /// state; they exist to make the variant a compile-time fact.
@@ -82,7 +83,8 @@ extension PanprotoHandle: Equatable, Hashable {
         type(of: lhs) == type(of: rhs) && lhs.rawValue == rhs.rawValue
     }
 
-    /// Hashes the slab variant together with the index, matching ``==``.
+    /// Hashes the slab variant together with the index, matching
+    /// ``PanprotoHandle/==(_:_:)``.
     public nonisolated func hash(into hasher: inout Hasher) {
         hasher.combine(ObjectIdentifier(type(of: self)))
         hasher.combine(rawValue)

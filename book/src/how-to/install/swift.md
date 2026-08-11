@@ -63,14 +63,16 @@ The default `libpanproto_c` exports 103 entry points. The `parse`, `project`, an
 
 ```sh
 PANPROTO_C_FEATURES=full ./bootstrap/dev-link.sh
-PANPROTO_SWIFT_FEATURES=parse,project,git swift build
+swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT
 ```
+
+Each tier is a [package trait](https://www.swift.org/documentation/package-manager/), and a trait defines a compilation condition of its own name, which is what the `#if PANPROTO_PARSE` blocks in the gated sources read.
 
 The three gated products exist in the package graph either way, so a build that omits the features still resolves; their modules are simply empty. On the prebuilt path, fetch the `full` variant:
 
 ```sh
-./bootstrap/fetch-bindist.sh v0.69.0 full
-PANPROTO_SWIFT_FEATURES=parse,project,git swift build
+./bootstrap/fetch-bindist.sh v0.70.0 full
+swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT
 ```
 
 ## Verification

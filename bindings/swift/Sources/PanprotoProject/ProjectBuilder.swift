@@ -7,7 +7,7 @@
 // unconditionally would leave every default build with an undefined
 // reference. With the condition off the module compiles to nothing,
 // which is what keeps that build linking. SwiftPM sets the condition
-// from `PANPROTO_SWIFT_FEATURES`, which must name the same features the
+// from the matching package trait, which must name a feature the
 // linked library carries.
 //
 // Two conventions hold across the tier, so neither is repeated on the

@@ -175,7 +175,7 @@ public struct ProtolensStepInfo: Codable, Hashable, Sendable {
 /// with its two endofunctors and whether it keeps everything.
 ///
 /// This is the value half of a chain, and it is what
-/// ``Panproto/ProtolensChainHandle/stepSummaries()`` reads out of a live
+/// `ProtolensChainHandle.stepSummaries()` in `Panproto` reads out of a live
 /// chain. Concatenation, the identity, the optic classification, and the
 /// fusion of a chain are all functions of the step list alone, so they
 /// are available here without an engine.
@@ -248,7 +248,7 @@ public struct ProtolensChain: Codable, Hashable, Sendable {
     /// fuses to ``ProtolensStepInfo/identity``.
     ///
     /// This is the structural fusion and is total. The engine's
-    /// ``Panproto/ProtolensChainHandle/fuse()`` also composes the
+    /// `ProtolensChainHandle.fuse()` in `Panproto` also composes the
     /// transforms, which can fail where two adjacent steps do not
     /// compose.
     ///

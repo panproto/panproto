@@ -14,7 +14,7 @@ import PanprotoStructural
 
 // MARK: - Building a migration
 
-/// Accumulates the parts of a ``Migration`` one entry at a time.
+/// Accumulates the parts of a `Migration` one entry at a time.
 ///
 /// A mapping between two schemas is three tables: where each source
 /// vertex goes, where each source edge goes, and which target edge a
@@ -32,13 +32,12 @@ import PanprotoStructural
 /// Survival follows from being mapped, so the mapping a fresh builder
 /// starts from drops every record it reaches.
 ///
-/// For the four edits that come up most, the mapping is already written:
-/// ``PanprotoStructural/Migration/addingField(to:named:kind:)``,
-/// ``PanprotoStructural/Migration/removingField(_:)``,
-/// ``PanprotoStructural/Migration/renamingField(on:field:from:to:)``, and
-/// ``PanprotoStructural/Migration/hoistingField(on:through:to:)`` build
-/// one each, and ``PanprotoStructural/Migration/pipeline(_:)`` chains
-/// them.
+/// For the four edits that come up most, the mapping is already
+/// written: `Migration.addingField(to:named:kind:)`,
+/// `Migration.removingField(_:)`,
+/// `Migration.renamingField(on:field:from:to:)`, and
+/// `Migration.hoistingField(on:through:to:)` build one each, and
+/// `Migration.pipeline(_:)` chains them.
 public struct MigrationBuilder: Sendable {
     /// The mapping built so far.
     private var migration: Migration
@@ -51,8 +50,8 @@ public struct MigrationBuilder: Sendable {
     /// Start from `migration` and add to it.
     ///
     /// This is the way to amend a self-map from
-    /// ``Migration/identity(on:)`` or an inverse from
-    /// ``Migration/inverted(from:to:)`` rather than rebuild it.
+    /// `Migration.identity(on:)` or an inverse from
+    /// `Migration.inverted(from:to:)` rather than rebuild it.
     public init(extending migration: Migration) {
         self.migration = migration
     }
@@ -101,12 +100,13 @@ extension Migration {
     /// Check this mapping against the conditions a migration from
     /// `source` to `target` has to satisfy.
     ///
-    /// A mapping that fails the conditions is not a failure of the call:
-    /// the engine answers with a report whose ``ExistenceReport/valid``
-    /// is false and whose ``ExistenceReport/errors`` name the obligations
-    /// that went unmet. A thrown error means the check could not run,
-    /// which is a handle of the wrong slab variant, a protocol whose
-    /// theories are not registered, or a payload that would not encode.
+    /// A mapping that fails the conditions is not a failure of the
+    /// call: the engine answers with a report whose
+    /// `ExistenceReport.valid` is false and whose
+    /// `ExistenceReport.errors` name the obligations that went unmet. A
+    /// thrown error means the check could not run, which is a handle of
+    /// the wrong slab variant, a protocol whose theories are not
+    /// registered, or a payload that would not encode.
     ///
     /// Which obligations apply comes from `protocolHandle`: the engine
     /// builds a theory registry from the protocol's name and derives the
@@ -324,17 +324,16 @@ extension MigrationCarrying {
     /// vertex nowhere, which is to say it drops it. Edges compose the
     /// same way.
     ///
-    /// Drop-on-miss is also why there is no ``Migration`` value standing
-    /// as a unit here. The only identity on the right is the self-map of
-    /// the schema in the middle, and a self-map is a fact about one
+    /// Drop-on-miss is also why there is no `Migration` value standing
+    /// as a unit here. The only identity on the right is the self-map
+    /// of the schema in the middle, and a self-map is a fact about one
     /// schema rather than a value that can be written down once: the
     /// empty mapping, the one candidate needing no schema, maps nothing
     /// and so drops everything composed into it.
-    /// ``PanprotoStructural/Migration/identity(on:)`` builds the self-map
-    /// where a schema is at hand. A monoid-shaped protocol would need the
-    /// unit that does not exist, so ``Migration`` conforms to none, and
-    /// the `+` on the value type is a semigroup operation rather than a
-    /// monoid one.
+    /// `Migration.identity(on:)` builds the self-map where a schema is
+    /// at hand. A monoid-shaped protocol would need the unit that does
+    /// not exist, so `Migration` conforms to none, and the `+` on the
+    /// value type is a semigroup operation rather than a monoid one.
     ///
     /// The composite is structural. The value-level work either side
     /// carries, meaning field transforms, conditional survival, term
@@ -342,10 +341,10 @@ extension MigrationCarrying {
     /// appear in the result; a composite of two migrations that coerce
     /// values moves the structure and leaves the coercions behind.
     ///
-    /// The result is a bare ``MigrationHandle``, anchored to no schemas.
-    /// Composing the two *specifications* instead, which keeps a
-    /// ``Migration`` to check, invert, or compile, is
-    /// ``PanprotoStructural/Migration/composed(with:)``.
+    /// The result is a bare ``MigrationHandle``, anchored to no
+    /// schemas. Composing the two *specifications* instead, which keeps
+    /// a `Migration` to check, invert, or compile, is
+    /// `Migration.composed(with:)`.
     ///
     /// - Throws: ``PanprotoError/migration(_:)``.
     @PanprotoEngine

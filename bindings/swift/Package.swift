@@ -1,4 +1,4 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 
 import Foundation
 import PackageDescription
@@ -28,52 +28,26 @@ private let releaseXCFrameworkChecksum = ""
 //                 stages `libpanproto_c` under `.panproto-c/lib`. The
 //                 `CPanproto` system-library target picks it up from
 //                 there. Override the directory with `PANPROTO_C_LIB_DIR`.
-//                 This is what a checkout of the repository uses, and it
-//                 is the only mode that passes an unsafe linker flag,
-//                 which is why it is not the released one.
+//                 This is what a checkout of the repository uses.
 //
 //   release pin   The constants above, once a release has filled them
 //                 in and neither of the other two modes applies.
 //
 // Feature-gated domains (parse, project, git) are absent from the
-// default cdylib. `PANPROTO_SWIFT_FEATURES` is a comma-separated list
-// drawn from `parse`, `project`, `git`, and `full`; it must name the
-// same features the linked library was built with. The gated products
-// always exist so the package graph is stable, but their sources
-// compile to an empty module unless the matching feature is on.
+// default cdylib, and are selected with package traits:
+//
+//     swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT
+//
+// A trait defines a compilation condition of the same name, which is
+// what the `#if PANPROTO_PARSE` blocks in the gated sources read. The
+// trait must name a feature the linked library was actually built with;
+// `bootstrap/dev-link.sh` prints the matching invocation. The gated
+// products always exist so the package graph is stable, and compile to
+// an empty module when their trait is off.
 
 private let env = ProcessInfo.processInfo.environment
 
 private let packageDirectory = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
-
-private let requestedFeatures: Set<String> = {
-    guard let raw = env["PANPROTO_SWIFT_FEATURES"], !raw.isEmpty else { return [] }
-    var names = Set(
-        raw.split(separator: ",")
-            .map { $0.trimmingCharacters(in: .whitespaces).lowercased() }
-            .filter { !$0.isEmpty }
-    )
-    if names.contains("full") {
-        names.formUnion(["parse", "project", "git"])
-    }
-    // `full-parse` is the cargo feature name; accept it as an alias so
-    // one environment variable can drive both cargo and SwiftPM.
-    if names.contains("full-parse") { names.insert("parse") }
-    return names
-}()
-
-private let parseEnabled = requestedFeatures.contains("parse")
-private let projectEnabled = requestedFeatures.contains("project")
-private let gitEnabled = requestedFeatures.contains("git")
-
-/// Compile-time defines that switch the gated shims and domain APIs on.
-private let featureDefines: [SwiftSetting] = {
-    var settings: [SwiftSetting] = []
-    if parseEnabled { settings.append(.define("PANPROTO_PARSE")) }
-    if projectEnabled { settings.append(.define("PANPROTO_PROJECT")) }
-    if gitEnabled { settings.append(.define("PANPROTO_GIT")) }
-    return settings
-}()
 
 /// Whether an explicit XCFramework was named in the environment.
 private let xcframeworkRequested =
@@ -90,20 +64,21 @@ private let stagedLibraryDirectory: String? = {
 }()
 
 /// Directory holding `libpanproto_c.dylib` / `.a` in dev-link mode.
+///
+/// Only a directory that exists counts. Emitting a search path for one
+/// that does not is what made this package ineligible as a dependency:
+/// SwiftPM rejects any package whose manifest carries `unsafeFlags`, so
+/// a consumer resolving it got the flags whether or not anyone had ever
+/// dev-linked. A checkout that has run `bootstrap/dev-link.sh` gets
+/// them; nothing else does.
 private let devLinkLibraryDirectory: String? = {
     guard !xcframeworkRequested else { return nil }
-    if let staged = stagedLibraryDirectory { return staged }
-    // Nothing staged. Fall back to the release pin when there is one,
-    // and otherwise keep the default path so the linker error names the
-    // directory `dev-link.sh` would have written.
-    guard releaseXCFrameworkURL.isEmpty else { return nil }
-    return packageDirectory.appendingPathComponent(".panproto-c/lib").standardizedFileURL.path
+    return stagedLibraryDirectory
 }()
 
 // Search-path and rpath flags for the staged library. SwiftPM marks
-// these unsafe, which makes the package ineligible as a *dependency*
-// while dev-linking; that is the intended trade. Released consumers
-// use the xcframework mode below, which needs no flags at all.
+// these unsafe, which is why they appear only when a staged library is
+// present, and never in the mode a released consumer resolves.
 private let devLinkSettings: [LinkerSetting] = {
     guard let directory = devLinkLibraryDirectory else { return [] }
     return [
@@ -164,57 +139,68 @@ let package = Package(
         .library(name: "PanprotoProject", targets: ["PanprotoProject"]),
         .library(name: "PanprotoGit", targets: ["PanprotoGit"]),
     ],
+    traits: [
+        // Each trait defines a compilation condition of its own name,
+        // which is what the `#if` blocks in the gated sources read. None
+        // is on by default: the default `libpanproto_c` does not export
+        // the symbols behind them, so a build that enabled one without
+        // linking a matching library would fail at link time.
+        .trait(
+            name: "PANPROTO_PARSE",
+            description: "Full-AST source parsing. Needs a libpanproto_c built with `full-parse`."
+        ),
+        .trait(
+            name: "PANPROTO_PROJECT",
+            description: "Multi-file project assembly. Needs a libpanproto_c built with `project`."
+        ),
+        .trait(
+            name: "PANPROTO_GIT",
+            description: "The git bridge. Needs a libpanproto_c built with `git`."
+        ),
+    ],
     dependencies: documentationDependencies,
     targets: [
         cPanprotoTarget,
 
         .target(
-            name: "PanprotoStructural",
-            swiftSettings: featureDefines
+            name: "PanprotoStructural"
         ),
 
         .target(
             name: "PanprotoFFI",
             dependencies: ["CPanproto", "PanprotoStructural"],
-            swiftSettings: featureDefines,
             linkerSettings: devLinkSettings
         ),
 
         .target(
             name: "Panproto",
-            dependencies: ["PanprotoFFI", "PanprotoStructural"],
-            swiftSettings: featureDefines
+            dependencies: ["PanprotoFFI", "PanprotoStructural"]
         ),
 
         .target(
             name: "PanprotoVcs",
-            dependencies: ["Panproto"],
-            swiftSettings: featureDefines
+            dependencies: ["Panproto"]
         ),
 
         .target(
             name: "PanprotoParse",
-            dependencies: ["Panproto"],
-            swiftSettings: featureDefines
+            dependencies: ["Panproto"]
         ),
 
         .target(
             name: "PanprotoProject",
-            dependencies: ["Panproto"],
-            swiftSettings: featureDefines
+            dependencies: ["Panproto"]
         ),
 
         .target(
             name: "PanprotoGit",
-            dependencies: ["Panproto", "PanprotoVcs"],
-            swiftSettings: featureDefines
+            dependencies: ["Panproto", "PanprotoVcs"]
         ),
 
         .executableTarget(
             name: "atproto-post-migration",
             dependencies: ["Panproto", "PanprotoStructural"],
-            path: "Examples/AtprotoPostMigration",
-            swiftSettings: featureDefines
+            path: "Examples/AtprotoPostMigration"
         ),
 
         // Captures the committed test fixtures by driving the raw shim
@@ -223,33 +209,28 @@ let package = Package(
         .executableTarget(
             name: "generate-fixtures",
             dependencies: ["PanprotoFFI", "PanprotoStructural"],
-            path: "Scripts/GenerateFixtures",
-            swiftSettings: featureDefines
+            path: "Scripts/GenerateFixtures"
         ),
 
         .testTarget(
             name: "PanprotoStructuralTests",
-            dependencies: ["PanprotoStructural"],
-            swiftSettings: featureDefines
+            dependencies: ["PanprotoStructural"]
         ),
 
         .testTarget(
             name: "PanprotoTests",
             dependencies: ["Panproto", "PanprotoStructural", "PanprotoFFI"],
-            resources: [.copy("Fixtures")],
-            swiftSettings: featureDefines
+            resources: [.copy("Fixtures")]
         ),
 
         .testTarget(
             name: "PanprotoVcsTests",
-            dependencies: ["PanprotoVcs", "Panproto"],
-            swiftSettings: featureDefines
+            dependencies: ["PanprotoVcs", "Panproto"]
         ),
 
         .testTarget(
             name: "PanprotoFeatureTests",
-            dependencies: ["PanprotoParse", "PanprotoProject", "PanprotoGit", "Panproto"],
-            swiftSettings: featureDefines
+            dependencies: ["PanprotoParse", "PanprotoProject", "PanprotoGit", "Panproto"]
         ),
     ],
     swiftLanguageModes: [.v6]

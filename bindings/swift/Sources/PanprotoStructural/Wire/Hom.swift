@@ -126,7 +126,7 @@ public struct FoundMorphism: Codable, Hashable, Sendable {
     /// The quality score has no place in a specification and is dropped.
     ///
     /// This is the value-level counterpart of
-    /// ``Panproto/FoundMorphism/migration()``, which compiles the same
+    /// `FoundMorphism.migration()` in `Panproto`, which compiles the same
     /// projection in the engine and answers with a handle. Reach for
     /// this one to edit the mapping, compose it with another, or check
     /// its existence before compiling anything.

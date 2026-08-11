@@ -98,7 +98,7 @@ extension Schema {
     /// enrichment maps are outside it, exactly as they are outside the
     /// engine's own lightweight diff.
     ///
-    /// ``Panproto/SchemaHandle/diff(to:)`` is the richer form and the
+    /// `SchemaHandle.diff(to:)` in `Panproto` is the richer form and the
     /// one to reach for where an engine is at hand; this is the subset a
     /// target linking only the value layer can compute. The two vertex
     /// lists come back sorted so that one pair of schemas always

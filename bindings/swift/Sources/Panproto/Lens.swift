@@ -146,9 +146,10 @@ extension CompiledMigrationHandle {
     /// Check both lens laws on `instance`.
     ///
     /// A violated law is a verdict rather than a failure: the call
-    /// succeeds and the answer says which law broke and how, so a caller
-    /// that is surveying instances reads ``LawCheckResult/holds`` rather
-    /// than catching. Only a lens that cannot be run at all throws.
+    /// succeeds and the answer says which law broke and how, so a
+    /// caller that is surveying instances reads `LawCheckResult.holds`
+    /// rather than catching. Only a lens that cannot be run at all
+    /// throws.
     ///
     /// - Parameter instance: An instance of this lens's source schema to
     ///   test the laws at.

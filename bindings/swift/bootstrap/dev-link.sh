@@ -15,9 +15,8 @@
 # PANPROTO_C_FEATURES is a comma-separated cargo feature list for
 # panproto-c (`full-parse`, `project`, `git`, `format-preserving`, or
 # `full` for all of them). Building with features here is only half the
-# job: SwiftPM also needs PANPROTO_SWIFT_FEATURES set to the matching
-# Swift-side list so the gated shims compile in. The script prints the
-# export line to use.
+# job: SwiftPM also needs the matching package traits enabled so the
+# gated shims compile in. The script prints the invocation to use.
 
 set -euo pipefail
 
@@ -80,7 +79,11 @@ if [ -n "$FEATURES" ]; then
     swift_features="$FEATURES"
     case ",$swift_features," in *,full,*) swift_features="parse,project,git" ;; esac
     swift_features="${swift_features//full-parse/parse}"
+    traits=""
+    case ",$swift_features," in *,parse,*) traits="PANPROTO_PARSE" ;; esac
+    case ",$swift_features," in *,project,*) traits="${traits:+$traits,}PANPROTO_PROJECT" ;; esac
+    case ",$swift_features," in *,git,*) traits="${traits:+$traits,}PANPROTO_GIT" ;; esac
     echo
     echo "the library carries gated symbols; build the Swift package with:"
-    echo "    PANPROTO_SWIFT_FEATURES=$swift_features swift build"
+    echo "    swift build --traits $traits"
 fi

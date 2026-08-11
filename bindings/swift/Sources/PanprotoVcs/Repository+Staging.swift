@@ -17,17 +17,18 @@ extension RepositoryHandle {
     /// The schema is written into the object store and recorded in the
     /// index. When HEAD names a commit, a migration from that commit's
     /// schema to this one is derived at the same time, which is what
-    /// ``VcsAddResult/autoDerived`` reports; a first commit has nothing
+    /// `VcsAddResult.autoDerived` reports; a first commit has nothing
     /// to derive from and reads false.
     ///
-    /// Staging does not reject an invalid schema. The verdict arrives in
-    /// ``VcsAddResult/valid`` and ``VcsAddResult/validationMessages``,
-    /// and it is ``commit(message:author:)`` that refuses to record one.
+    /// Staging does not reject an invalid schema. The verdict arrives
+    /// in `VcsAddResult.valid` and `VcsAddResult.validationMessages`,
+    /// and it is ``commit(message:author:)`` that refuses to record
+    /// one.
     ///
     /// - Parameter schema: the schema to stage.
     /// - Returns: the staged schema's object id alongside the derivation
     ///   and validation verdicts.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when the schema will not
+    /// - Throws: `PanprotoError.vcs(_:)` when the schema will not
     ///   stage.
     @PanprotoEngine
     public func add(_ schema: SchemaHandle) throws(PanprotoError) -> VcsAddResult {
@@ -48,7 +49,7 @@ extension RepositoryHandle {
     ///   - author: the author to attribute the commit to, echoed back in
     ///     the result.
     /// - Returns: the new commit's id and recorded metadata.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when nothing is staged, or
+    /// - Throws: `PanprotoError.vcs(_:)` when nothing is staged, or
     ///   when validation blocks the commit.
     @PanprotoEngine
     public func commit(
@@ -66,14 +67,14 @@ extension RepositoryHandle {
 
     /// Read what HEAD points at and whether anything is staged.
     ///
-    /// ``VcsStatus/headCommit`` is nil exactly when HEAD is unborn,
-    /// which is the state a freshly initialized repository is in.
-    /// ``VcsStatus/workingDirty`` tracks ``VcsStatus/hasStaged``: the
+    /// `VcsStatus.headCommit` is nil exactly when HEAD is unborn, which
+    /// is the state a freshly initialized repository is in.
+    /// `VcsStatus.workingDirty` tracks `VcsStatus.hasStaged`: the
     /// working state a schematic repository has is its index.
     ///
     /// - Returns: the HEAD state, the resolved HEAD commit, and the
     ///   staging flags.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when the store will not read.
+    /// - Throws: `PanprotoError.vcs(_:)` when the store will not read.
     @PanprotoEngine
     public func status() throws(PanprotoError) -> VcsStatus {
         let read = Raw.vcsStatus(repo: rawValue)

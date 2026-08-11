@@ -12,7 +12,7 @@ import PanprotoStructural
 // every default build with undefined symbols at link time, so each group
 // sits behind the matching compilation condition:
 // `PANPROTO_PARSE`, `PANPROTO_PROJECT`, and `PANPROTO_GIT`. SwiftPM sets
-// those from `PANPROTO_SWIFT_FEATURES`, which must name the same
+// those from the matching package trait, which must name the same
 // features the linked library carries. With the conditions off this file
 // compiles to nothing, which is what keeps a default build linking.
 //

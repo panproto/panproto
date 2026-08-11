@@ -15,11 +15,23 @@ import PanprotoStructural
 /// Match on the domain to route, and on ``Detail/fault`` to react:
 ///
 /// ```swift
-/// do {
-///     let record = try await lens.put(view: edited, complement: complement)
-/// } catch .lens(let detail) {
-///     if case .complementFingerprintMismatch = detail.fault {
-///         // The complement came from a different source schema.
+/// func restore(
+///     _ edited: Instance,
+///     through lens: CompiledMigrationHandle,
+///     with complement: Complement
+/// ) async -> Instance? {
+///     do {
+///         return try await lens.put(view: edited, complement: complement)
+///     } catch .lens(let detail) {
+///         if case .complementFingerprintMismatch = detail.fault {
+///             // The complement came from a different source schema.
+///         }
+///         return nil
+///     } catch {
+///         // `put` reports no other domain. The arm is here because a
+///         // typed clause makes the catch exhaustive over every case
+///         // of this type rather than over the ones raised.
+///         return nil
 ///     }
 /// }
 /// ```

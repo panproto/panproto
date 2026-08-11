@@ -5,12 +5,15 @@ import Foundation
 /// Every case reports the byte offset at which the trouble starts, so a
 /// caller holding the payload can slice out the neighbourhood and log
 /// it. The cases fall into three groups: the input ran out
-/// (``truncated``), the input is not well-formed CBOR
-/// (``reservedAdditionalInformation``, ``indefiniteLengthNotPermitted``,
-/// ``unexpectedBreak``, ``malformedIndefiniteString``,
-/// ``mapValueMissing``, ``invalidUTF8``), or the input is well-formed
-/// but this host declines it (``lengthOutOfRange``, ``nestingTooDeep``,
-/// ``trailingBytes``).
+/// (``truncated(offset:needed:)``), the input is not well-formed CBOR
+/// (``reservedAdditionalInformation(initialByte:offset:)``,
+/// ``indefiniteLengthNotPermitted(initialByte:offset:)``,
+/// ``unexpectedBreak(offset:)``, ``malformedIndefiniteString(offset:)``,
+/// ``mapValueMissing(offset:)``, ``invalidUTF8(offset:)``), or the input
+/// is well-formed but this host declines it
+/// (``lengthOutOfRange(length:offset:)``,
+/// ``nestingTooDeep(offset:limit:)``,
+/// ``trailingBytes(consumed:remaining:)``).
 ///
 /// Failures that arise once the bytes have parsed (a field of the wrong
 /// type, a key that is not there) surface as Swift's `DecodingError`

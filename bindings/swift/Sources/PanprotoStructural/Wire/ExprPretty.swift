@@ -13,7 +13,7 @@
 extension BuiltinOp {
     /// The name this builtin is written under in surface syntax.
     ///
-    /// This is not ``BuiltinOp/rawValue``, which is the serde variant
+    /// This is not `rawValue`, which is the serde variant
     /// tag: the wire spells the merge operation `MergeRecords` and the
     /// surface spells it `merge`, the wire spells the fallback
     /// `DefaultVal` and the surface spells it `default`, and every
@@ -164,8 +164,8 @@ private enum Precedence: Int, Comparable {
 // MARK: - Rendering
 
 extension Expr {
-    /// This expression written in the surface syntax ``parse(_:)``
-    /// reads.
+    /// This expression written in the surface syntax `Expr.parse(_:)`
+    /// in `Panproto` reads.
     ///
     /// Parentheses are minimized against the precedence of the form
     /// being written, curried applications and nested lambdas collapse

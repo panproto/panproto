@@ -118,5 +118,5 @@ ls "$STAGE/lib"
 if [ "$VARIANT" = "full" ]; then
     echo
     echo "this is the full-feature variant; build with:"
-    echo "    PANPROTO_SWIFT_FEATURES=parse,project,git swift build"
+    echo "    swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT"
 fi

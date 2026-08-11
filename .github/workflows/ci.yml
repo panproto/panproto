@@ -293,11 +293,14 @@ jobs:
     # The second consumer of the panproto-c C ABI, and the one that
     # exercises it from a strict-concurrency host: every engine call is
     # routed through a global actor pinned to one thread, because the
-    # slab and the last-error slot are thread-local. Alongside the
-    # tests this job runs three gates the other bindings learned to
-    # want: the generated header must match what the package compiles
-    # against, every ABI entry point must have a Swift shim, and every
-    # public method must be named by a test.
+    # last-error slot is thread-local (the slab is process-global and
+    # mutex-guarded, so it is not what needs pinning). Alongside the
+    # tests this job runs the gates the other bindings learned to want:
+    # the generated header must match what the package compiles
+    # against, every ABI entry point must have a Swift shim, every
+    # public method must be named by a test, every listing a tutorial
+    # step shows must type-check, and every documentation catalog must
+    # build with no unresolved link in it.
     defaults:
       run:
         working-directory: bindings/swift
@@ -322,13 +325,37 @@ jobs:
         working-directory: .
         run: bash bindings/swift/bootstrap/dev-link.sh
       - name: Lint
-        run: swift format lint -r --strict Sources Tests Examples Package.swift
+        run: swift format lint -r --strict Sources Tests Examples Scripts Package.swift
       - name: Build
         run: swift build --build-tests
+      - name: Build with every trait enabled
+        # The gated sources compile to nothing without their trait, so
+        # nothing else in this job type-checks them. Linking needs a
+        # library built with the matching cargo features, which this job
+        # does not stage, so this stops at compilation.
+        run: swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT 2>&1 | tee /tmp/traits.log; grep -q "error: emit-module\|error: cannot find" /tmp/traits.log && exit 1 || true
       - name: Test
         run: swift test
       - name: Parity gate
         run: python3 Scripts/parity-gate.py
+      - name: Tutorial gate
+        # A tutorial's listings sit inside a documentation catalog,
+        # which SwiftPM copies rather than compiles, so nothing else in
+        # this job would notice one that stopped building.
+        run: python3 Scripts/tutorial-gate.py
+      - name: Documentation gate
+        # Every symbol link has to resolve. A link into another module
+        # cannot, since a target's documentation build sees only its own
+        # symbols, so those are written as code spans instead.
+        env:
+          PANPROTO_SWIFT_DOCC: "1"
+        run: |
+          swift package generate-documentation \
+            --target PanprotoStructural --warnings-as-errors
+          swift package generate-documentation \
+            --target Panproto --warnings-as-errors
+          swift package generate-documentation \
+            --target PanprotoVcs --warnings-as-errors
 
   semver:
     name: Semver Check

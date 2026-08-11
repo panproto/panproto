@@ -49,7 +49,7 @@ extension RepositoryHandle {
     /// - Parameter directory: a file URL naming the repository's working
     ///   directory.
     /// - Returns: a handle onto the open repository.
-    /// - Throws: ``PanprotoError/vcs(_:)`` when the store will not open
+    /// - Throws: `PanprotoError.vcs(_:)` when the store will not open
     ///   or initialize.
     @PanprotoEngine
     public static func open(at directory: URL) throws(PanprotoError) -> RepositoryHandle {
@@ -79,20 +79,20 @@ extension RepositoryHandle {
 /// `.panproto/` store stays on disk, which is what makes a second
 /// session see the first one's commits.
 ///
-/// Everything this function raises itself is a
-/// ``PanprotoError/vcs(_:)``. The throws clause is untyped so that the
-/// body may fail its own way: a session that reads a file, checks an
-/// invariant, or is cancelled should not have to launder that into an
-/// engine error. Swift also declines to infer a closure's thrown type
-/// from context, so a typed clause here would put an explicit
-/// `throws(PanprotoError)` annotation on every session a caller writes.
+/// Everything this function raises itself is a `PanprotoError.vcs(_:)`.
+/// The throws clause is untyped so that the body may fail its own way:
+/// a session that reads a file, checks an invariant, or is cancelled
+/// should not have to launder that into an engine error. Swift also
+/// declines to infer a closure's thrown type from context, so a typed
+/// clause here would put an explicit `throws(PanprotoError)` annotation
+/// on every session a caller writes.
 ///
 /// - Parameters:
 ///   - path: a file URL naming the repository's working directory.
 ///   - body: the session, run against the open repository.
 /// - Returns: whatever `body` returns.
-/// - Throws: ``PanprotoError/vcs(_:)`` when the repository will not
-///   open, and whatever `body` throws otherwise.
+/// - Throws: `PanprotoError.vcs(_:)` when the repository will not open,
+///   and whatever `body` throws otherwise.
 @PanprotoEngine
 public func withRepository<T>(
     at path: URL,

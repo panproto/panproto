@@ -21,7 +21,7 @@ The package splits along the line between values and the engine, and again along
 
 `PanprotoStructural` imports no FFI module at all, which the package graph enforces: it depends on nothing but the standard library. Everything in it is a `Sendable`, `Hashable`, `Codable` value, including the CBOR codec that gives those values their wire form. A pipeline that only reads and rewrites schemas can link it alone and never start an engine.
 
-The three feature-gated products always exist in the package graph, so resolution does not depend on how the library was built. Without the matching feature their modules are empty, and the raw shims that would reference the absent symbols are compiled out. That matters because the default `libpanproto_c` exports 103 of the 120 entry points; referencing the other 17 unconditionally would make every default build fail to link.
+The three feature-gated products always exist in the package graph, so resolution does not depend on how the library was built. Each is selected by a package trait (`PANPROTO_PARSE`, `PANPROTO_PROJECT`, `PANPROTO_GIT`), and a trait defines a compilation condition of its own name, which is what the `#if` blocks in the gated sources read. Without its trait a module is empty, and the raw shims that would reference the absent symbols are compiled out. That matters because the default `libpanproto_c` exports 103 of the 120 entry points; referencing the other 17 unconditionally would make every default build fail to link.
 
 ## The engine actor
 

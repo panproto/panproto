@@ -18,8 +18,8 @@ extension SchemaHandle {
     /// ``structuralDiff(to:)``.
     ///
     /// The receiver is the older schema and `other` the newer one:
-    /// ``SchemaDiff/addedVertices`` names what `other` carries and this
-    /// schema does not, and ``SchemaDiff/removedVertices`` the reverse.
+    /// `SchemaDiff.addedVertices` names what `other` carries and this
+    /// schema does not, and `SchemaDiff.removedVertices` the reverse.
     ///
     /// ```swift
     /// let diff = try await post.diff(to: profile)
@@ -49,11 +49,11 @@ extension SchemaHandle {
     /// moved and nothing else: the engine walks the two vertex maps and
     /// the two edge maps and stops there, so constraints, hyper-edges,
     /// variants, orderings, recursion points, usage modes, spans, and
-    /// the enrichment maps are all outside what it reports. ``diff(to:)``
-    /// covers those, and it is the diff a compatibility verdict needs;
-    /// the classifier reads a ``SchemaDiff`` and does not accept a
-    /// ``StructuralDiff``, which spells its edge and kind-change entries
-    /// differently as well.
+    /// the enrichment maps are all outside what it reports.
+    /// ``diff(to:)`` covers those, and it is the diff a compatibility
+    /// verdict needs; the classifier reads a `SchemaDiff` and does not
+    /// accept a `StructuralDiff`, which spells its edge and kind-change
+    /// entries differently as well.
     ///
     /// The receiver is the older schema and `other` the newer one, as in
     /// ``diff(to:)``.

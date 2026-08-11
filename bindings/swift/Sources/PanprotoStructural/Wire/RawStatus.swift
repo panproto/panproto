@@ -5,9 +5,9 @@
 /// The C ABI answers with an `int32_t` drawn from `PpStatus`; a
 /// non-zero value means the call failed and the detail is waiting in
 /// the thread-local last-error slot, retrievable with
-/// ``Raw/lastErrorTake()``. The `unknown` case keeps the mapping total
-/// so a future engine that adds a status code decodes here rather than
-/// trapping.
+/// `Raw.lastErrorTake()` in `PanprotoFFI`. The `unknown` case keeps the
+/// mapping total, so a future engine that adds a status code decodes
+/// here rather than trapping.
 public enum RawStatus: Sendable, Hashable {
     /// The call succeeded and any out-parameters are populated.
     case ok

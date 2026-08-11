@@ -20,13 +20,14 @@ extension Expr {
     /// Parse expression source into the syntax tree the engine
     /// evaluates.
     ///
-    /// The source is the surface language: `let base = 1 in map (\x ->
-    /// x.score + base) records` parses to a ``Expr/letBinding(name:value:body:)``
-    /// over a ``BuiltinOp/map`` application. Source the engine cannot
-    /// tokenize or parse raises ``PanprotoError/expr(_:)`` carrying the
-    /// tokenizer's or the parser's own diagnostics.
+    /// The source is the surface language:
+    /// `let base = 1 in map (\x -> x.score + base) records` parses to a
+    /// `Expr.letBinding(name:value:body:)` over a `BuiltinOp.map`
+    /// application. Source the engine cannot tokenize or parse raises
+    /// ``PanprotoError/expr(_:)`` carrying the tokenizer's or the
+    /// parser's own diagnostics.
     ///
-    /// This is the only surface syntax the engine parses. A ``Term``,
+    /// This is the only surface syntax the engine parses. A `Term`,
     /// which is what a theory's operations and equations are written
     /// in, has no parser across the boundary and is built as a value.
     @PanprotoEngine
@@ -40,14 +41,14 @@ extension Expr {
     /// the value it reduces to.
     ///
     /// `environment` binds each free variable of the expression to a
-    /// ``Literal``; a variable the environment does not bind fails the
+    /// `Literal`; a variable the environment does not bind fails the
     /// evaluation rather than reducing to an absent value. Evaluation
     /// runs under the engine's default step and depth limits, and an
     /// expression that exceeds either one fails the same way any other
     /// evaluation failure does.
     ///
     /// A lambda that is never applied reduces to
-    /// ``Literal/closure(param:body:env:)``, which carries the bindings
+    /// `Literal.closure(param:body:env:)`, which carries the bindings
     /// it captured, so a partially applied function survives the trip
     /// back across the boundary.
     ///
@@ -76,16 +77,15 @@ extension TheoryHandle {
     /// Evaluate a term of this theory against a variable environment.
     ///
     /// `environment` binds each free variable of the term to a
-    /// ``ModelValue``. The result is symbolic rather than an element of
+    /// `ModelValue`. The result is symbolic rather than an element of
     /// any particular model: a variable resolves to its binding, a
     /// nullary constant reduces to its own name as
-    /// ``ModelValue/string(_:)``, and an operation applied to arguments
-    /// reduces to ``ModelValue/map(_:)`` carrying `op`, the evaluated
+    /// `ModelValue.string(_:)`, and an operation applied to arguments
+    /// reduces to `ModelValue.map(_:)` carrying `op`, the evaluated
     /// `args`, and the `output_sort` the theory declares for it. A
-    /// ``Term/caseOf(scrutinee:branches:)`` reads that same
-    /// representation back to pick its branch, and a
-    /// ``Term/hole(name:)`` is not evaluable at all: a hole carries
-    /// type information only.
+    /// `Term.caseOf(scrutinee:branches:)` reads that same
+    /// representation back to pick its branch, and a `Term.hole(name:)`
+    /// is not evaluable at all: a hole carries type information only.
     ///
     /// Evaluating in a model, where an operation has an actual
     /// interpretation, is ``ModelHandle/evaluate(_:arguments:)``.
@@ -116,13 +116,13 @@ extension TheoryHandle {
     ///
     /// `context` gives the sort of each free variable of the term. Each
     /// entry names a sort, so a dependent sort cannot be written here:
-    /// the engine lifts every entry to a bare ``SortExpr/name(_:)``.
+    /// the engine lifts every entry to a bare `SortExpr.name(_:)`.
     ///
     /// An ill-formed term is an answer, not a failure. The verdict
-    /// lives in the returned ``CheckOutput``, whose
-    /// ``CheckOutput/wellFormed`` is false and whose
-    /// ``CheckOutput/error`` says why; a thrown error means the payload
-    /// or the handle was bad, not that the term was rejected.
+    /// lives in the returned `CheckOutput`, whose
+    /// `CheckOutput.wellFormed` is false and whose `CheckOutput.error`
+    /// says why; a thrown error means the payload or the handle was
+    /// bad, not that the term was rejected.
     @PanprotoEngine
     public func typecheck(
         _ term: Term,
@@ -152,11 +152,11 @@ extension SchemaHandle {
     /// schema.
     ///
     /// The pipeline runs in a fixed order: select the nodes carrying
-    /// the query's ``InstanceQuery/anchor``, follow its
-    /// ``InstanceQuery/path`` edge by edge, keep the nodes its
-    /// ``InstanceQuery/predicate`` accepts, cut the result to its
-    /// ``InstanceQuery/limit``, and project each survivor down to its
-    /// ``InstanceQuery/project`` fields. A query with an anchor and
+    /// the query's `InstanceQuery.anchor`, follow its
+    /// `InstanceQuery.path` edge by edge, keep the nodes its
+    /// `InstanceQuery.predicate` accepts, cut the result to its
+    /// `InstanceQuery.limit`, and project each survivor down to its
+    /// `InstanceQuery.project` fields. A query with an anchor and
     /// nothing else answers with every node carrying that anchor.
     ///
     /// The predicate is evaluated against the node's whole observable
