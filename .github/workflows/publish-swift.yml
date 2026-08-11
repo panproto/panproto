@@ -118,29 +118,54 @@ jobs:
       - name: Diff the public API against the previous tag
         # The Swift surface versions with the engine, so a source-breaking
         # change here is a breaking release even when the engine is
-        # unchanged. This job reports; it does not block, because the
-        # decision of whether a break is intended belongs in review.
+        # unchanged. This reports rather than blocks: whether a break is
+        # intended belongs in review, not in a gate.
         run: |
           set -euo pipefail
-          cd bindings/swift
           previous=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
           if [ -z "$previous" ]; then
-            echo "no previous tag to diff against"
+            echo "::notice::no previous tag to diff against"
             exit 0
           fi
-          mkdir -p /tmp/api
-          for product in PanprotoStructural Panproto PanprotoVcs; do
-            swift build --target "$product"
-            xcrun swift-api-digester -dump-sdk -module "$product" \
-              -o "/tmp/api/$product.json" \
-              -I .build/debug -sdk "$(xcrun --show-sdk-path)" \
-              -target "$(swift -print-target-info | python3 -c \
-                 'import json,sys; print(json.load(sys.stdin)["target"]["unversionedTriple"])')" \
-              || echo "::warning::could not dump $product"
-          done
-          echo "current API dumped; comparing against $previous"
+          if ! git cat-file -e "$previous:bindings/swift/Package.swift" 2>/dev/null; then
+            echo "::notice::$previous predates the Swift package; nothing to diff"
+            exit 0
+          fi
+
+          triple=$(swift -print-target-info \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["unversionedTriple"])')
+          sdk=$(xcrun --show-sdk-path)
+
+          dump() {
+            local root="$1" out="$2"
+            mkdir -p "$out"
+            for product in PanprotoStructural Panproto PanprotoVcs; do
+              swift build --package-path "$root/bindings/swift" --target "$product"
+              xcrun swift-api-digester -dump-sdk -module "$product" \
+                -o "$out/$product.json" \
+                -I "$root/bindings/swift/.build/debug" \
+                -sdk "$sdk" -target "$triple"
+            done
+          }
+
+          dump "$PWD" /tmp/api-new
           git worktree add /tmp/previous "$previous"
-          echo "::notice::compare /tmp/api against the $previous tree by hand when a break is suspected"
+          cp -R bindings/swift/.panproto-c /tmp/previous/bindings/swift/
+          dump /tmp/previous /tmp/api-old
+
+          status=0
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            echo "### $product"
+            if ! xcrun swift-api-digester -diagnose-sdk \
+                 -input-paths "/tmp/api-old/$product.json" \
+                 -input-paths "/tmp/api-new/$product.json" 2>&1 | tee "/tmp/$product.diff"; then
+              status=1
+            fi
+            if [ -s "/tmp/$product.diff" ]; then
+              echo "::warning::$product changed since $previous; see the job log"
+            fi
+          done
+          exit $status
 
   docs:
     name: Publish DocC
@@ -166,23 +191,21 @@ jobs:
               --hosting-base-path "swift/$product" \
               --output-path "../../docc-out/$product"
           done
-      - name: Publish to the documentation site
+      - name: Attach the documentation archives to the release
+        # The book publishes to the external panproto/book repository
+        # through a deploy key, and this repository has no gh-pages
+        # branch. Rather than invent a second publishing path, the
+        # archives ride with the release; hosting them under
+        # panproto.dev/swift/ needs a decision about who owns the root of
+        # that shared repository, which is not this workflow's to make.
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
           set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git fetch origin gh-pages
-          git worktree add /tmp/pages gh-pages
-          rm -rf /tmp/pages/swift
-          mkdir -p /tmp/pages/swift
-          cp -R docc-out/* /tmp/pages/swift/
-          cd /tmp/pages
-          git add swift
-          if git diff --cached --quiet; then
-            echo "documentation unchanged"
-            exit 0
-          fi
-          git commit -m "Publish Swift DocC for ${{ github.ref_name }}"
-          git push origin gh-pages
+          cd docc-out
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            zip -qry "panproto-docc-$product.zip" "$product"
+          done
+          gh release upload "$TAG" ./*.zip --clobber
