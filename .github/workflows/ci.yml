@@ -330,10 +330,17 @@ jobs:
         run: swift build --build-tests
       - name: Build with every trait enabled
         # The gated sources compile to nothing without their trait, so
-        # nothing else in this job type-checks them. Linking needs a
-        # library built with the matching cargo features, which this job
-        # does not stage, so this stops at compilation.
-        run: swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT 2>&1 | tee /tmp/traits.log; grep -q "error: emit-module\|error: cannot find" /tmp/traits.log && exit 1 || true
+        # nothing else in this job type-checks them.
+        #
+        # Only the library targets are built. Linking an executable
+        # needs a libpanproto_c carrying the gated symbols, which this
+        # job does not stage, and a library target stops at compilation,
+        # so this checks exactly what it can: that the gated sources
+        # still type-check.
+        run: |
+          swift build --traits PANPROTO_PARSE --target PanprotoParse
+          swift build --traits PANPROTO_PROJECT --target PanprotoProject
+          swift build --traits PANPROTO_GIT --target PanprotoGit
       - name: Test
         run: swift test
       - name: Parity gate
