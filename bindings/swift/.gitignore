@@ -1,0 +1,13 @@
+# SwiftPM build products.
+.build/
+.swiftpm/
+Package.resolved
+*.xcodeproj
+
+# Staged panproto-c artifacts written by bootstrap/dev-link.sh and
+# bootstrap/fetch-bindist.sh. The library is a build input, not source.
+.panproto-c/
+
+# DocC output.
+.docc-build/
+docs/

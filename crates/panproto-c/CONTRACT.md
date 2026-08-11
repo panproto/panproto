@@ -37,7 +37,11 @@ Handles index a thread-local slab whose variants mirror
 `MigrationWithSchemas`, `IoRegistry`, `Theory`, `VcsRepo`,
 `ProtolensChain`, `SymmetricLens`, `DataSet`, plus feature-gated
 `AstRegistry` (`full-parse`), `ProjectBuilder` and `ProjectSchema`
-(`project`).
+(`project`). One variant has no WASM counterpart: `Model` holds the
+`gat::Model` that `pp_gat_free_model` constructs. A model's operation
+interpretations are closures (`Arc<dyn Fn(...)>`), so the model itself
+never crosses the boundary as data; `pp_gat_eval_in_model` and
+`pp_gat_model_sort_interp` reach it in place.
 
 ## Lifecycle (4)
 
@@ -77,12 +81,13 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_check_report_text(slice_ref_uint8_t report, Vec_uint8_t *out)` | CBOR `CompatReport` in; UTF-8 text out; calls `check::report_text`. |
 | `int32_t pp_check_report_json(slice_ref_uint8_t report, Vec_uint8_t *out)` | CBOR `CompatReport` in; JSON out; calls `check::report_json`. |
 
-## mig (7)
+## mig (8)
 
 | Signature | Notes |
 | --- | --- |
 | `int32_t pp_mig_check_existence(uint32_t proto, uint32_t src, uint32_t tgt, slice_ref_uint8_t mapping, Vec_uint8_t *out)` | CBOR `Migration` in, `ExistenceReport` out; calls `mig::check_existence`. |
 | `int32_t pp_mig_compile(uint32_t src, uint32_t tgt, slice_ref_uint8_t mapping, uint32_t *out_handle)` | CBOR `Migration` in; new `MigrationWithSchemas` handle; calls `mig::compile`. |
+| `int32_t pp_mig_serialize_compiled(uint32_t mig_handle, Vec_uint8_t *out)` | `Migration` or `MigrationWithSchemas` handle in; CBOR `inst::CompiledMigration` out (the compiled payload alone, without the anchoring schemas); encodes the handle's compiled migration via `handle::Resource::as_migration`. These are the exact bytes `pp_graph_fiber_at` and `pp_graph_fiber_decomposition` take as their `migration` argument. |
 | `int32_t pp_mig_lift_record(uint32_t migration, slice_ref_uint8_t record, Vec_uint8_t *out)` | CBOR `WInstance` in/out; calls `mig::lift_wtype`. |
 | `int32_t pp_mig_compose(uint32_t m1, uint32_t m2, uint32_t *out_handle)` | New `Migration` handle; calls `helpers::compose_compiled`. |
 | `int32_t pp_mig_invert(slice_ref_uint8_t mapping, uint32_t src, uint32_t tgt, Vec_uint8_t *out)` | CBOR `Migration` in/out; calls `mig::invert`. |
@@ -119,7 +124,7 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_registry_list_builtin(Vec_uint8_t *out)` | CBOR `Vec<String>` out; calls `helpers::builtin_protocol_names`. |
 | `int32_t pp_registry_get_builtin(slice_ref_uint8_t name, Vec_uint8_t *out)` | UTF-8 name in; CBOR `Protocol` out; calls `helpers::lookup_builtin_protocol`. |
 
-## lens (18)
+## lens (19)
 
 | Signature | Notes |
 | --- | --- |
@@ -141,8 +146,9 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_lens_symmetric_from_schemas(uint32_t schema1, uint32_t schema2, uint32_t *out_handle)` | New `SymmetricLens` handle; calls `SymmetricLens::auto_symmetric`. |
 | `int32_t pp_lens_symmetric_sync(uint32_t sym_lens, slice_ref_uint8_t view, slice_ref_uint8_t complement, uint8_t direction, Vec_uint8_t *out)` | CBOR `WInstance` + `Complement` in; `direction` 0=L→R, 1=R→L; CBOR `WInstance` out. |
 | `int32_t pp_lens_compile_document(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, uint32_t *out_handle)` | UTF-8 DSL source; `format` is `json`/`yaml`; new `ProtolensChain` handle; calls `panproto_lens_dsl`. |
+| `int32_t pp_lens_compile_document_with_refs(slice_ref_uint8_t source, slice_ref_uint8_t format, slice_ref_uint8_t body_vertex, slice_ref_uint8_t refs, uint32_t *out_handle)` | `source`, `format`, and `body_vertex` match `pp_lens_compile_document`; `refs` is a CBOR `HashMap<String, String>` from each referenced lens `id` to its document source in the same `format`, against which a `compose` body's `ref` entries resolve; new `ProtolensChain` handle; calls `lens_dsl::compile_with_refs`. |
 
-## gat (4)
+## gat (9)
 
 | Signature | Notes |
 | --- | --- |
@@ -150,6 +156,11 @@ Handles index a thread-local slab whose variants mirror
 | `int32_t pp_gat_colimit(uint32_t t1, uint32_t t2, uint32_t shared, uint32_t *out_handle)` | New `Theory` handle; calls `gat::colimit_by_name`. |
 | `int32_t pp_gat_check_morphism(slice_ref_uint8_t morphism, uint32_t domain, uint32_t codomain, Vec_uint8_t *out)` | CBOR `TheoryMorphism` in, `MorphismCheckResult` out; calls `gat::check_morphism`. |
 | `int32_t pp_gat_migrate_model(slice_ref_uint8_t model, slice_ref_uint8_t morphism, Vec_uint8_t *out)` | CBOR sort-interp map + `TheoryMorphism` in; CBOR reindexed sort interps out. |
+| `int32_t pp_gat_free_model(uint32_t theory, slice_ref_uint8_t config, uint32_t *out_handle)` | `Theory` handle in; CBOR `{ max_depth, max_terms_per_sort }` config in (an empty slice selects the engine defaults); new `Model` handle out; calls `gat::free_model`. |
+| `int32_t pp_gat_check_model(uint32_t model, uint32_t theory, Vec_uint8_t *out)` | `Model` and `Theory` handles in; CBOR `Vec<String>` out, one entry per `gat::EquationViolation` and empty when the model satisfies every equation; calls `gat::check_model`. |
+| `int32_t pp_gat_eval_in_model(uint32_t model, slice_ref_uint8_t op_name, slice_ref_uint8_t args, Vec_uint8_t *out)` | `Model` handle in; UTF-8 `op_name`; CBOR `Vec<gat::ModelValue>` arguments in; CBOR `gat::ModelValue` out; calls `gat::Model::eval`. |
+| `int32_t pp_gat_model_sort_interp(uint32_t model, Vec_uint8_t *out)` | `Model` handle in; CBOR `HashMap<String, Vec<gat::ModelValue>>` out; encodes the model's `gat::Model::sort_interp` carrier. |
+| `int32_t pp_gat_serialize_theory(uint32_t theory, Vec_uint8_t *out)` | `Theory` handle in; CBOR `gat::Theory` out in the shape `pp_gat_create_theory` decodes, so an engine-produced theory (a colimit result, for instance) can be fed back in. |
 
 ## expr (5)
 

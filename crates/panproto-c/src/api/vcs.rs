@@ -74,12 +74,38 @@ struct LogResultRecord {
     entries: Vec<LogEntryRecord>,
 }
 
+/// HEAD state on the wire.
+///
+/// [`vcs::HeadState`] carries an [`vcs::ObjectId`] in its `Detached`
+/// variant, and `ObjectId` is a newtype over `[u8; 32]`, which `serde`
+/// serializes as a 32-element array. Every other object id on this
+/// surface crosses as its lowercase-hex `Display` rendering, so the
+/// detached case would be the one payload where a host had to decode a
+/// digest two different ways. This mirror renders it as hex like the
+/// rest, keeping the module's stated wire contract true.
+#[derive(Debug, Serialize)]
+enum HeadStateRecord {
+    /// HEAD tracks a branch, named without its `refs/heads/` prefix.
+    Branch(String),
+    /// HEAD points straight at a commit, as 64 lowercase hex chars.
+    Detached(String),
+}
+
+impl From<vcs::HeadState> for HeadStateRecord {
+    fn from(state: vcs::HeadState) -> Self {
+        match state {
+            vcs::HeadState::Branch(name) => Self::Branch(name),
+            vcs::HeadState::Detached(id) => Self::Detached(id.to_string()),
+        }
+    }
+}
+
 /// The `vcs_status` result, matching the Haskell `VcsStatus` decoder:
 /// HEAD state as the externally-tagged `HeadState` enum plus the
 /// resolved HEAD commit and the staging / working booleans.
 #[derive(Debug, Serialize)]
 struct StatusRecord {
-    head_ref: vcs::HeadState,
+    head_ref: HeadStateRecord,
     head_commit: Option<String>,
     has_staged: bool,
     working_dirty: bool,
@@ -116,7 +142,7 @@ struct DiffResultRecord {
 #[derive(Debug, Serialize)]
 struct OpResultRecord {
     ok: bool,
-    head: vcs::HeadState,
+    head: HeadStateRecord,
     messages: Vec<String>,
 }
 
@@ -395,7 +421,7 @@ pub fn pp_vcs_status(repo: u32, out: &mut repr_c::Vec<u8>) -> i32 {
             let has_staged = index.staged.is_some();
 
             Ok(StatusRecord {
-                head_ref: head_state,
+                head_ref: head_state.into(),
                 head_commit: head_commit.map(|id| id.to_string()),
                 has_staged,
                 working_dirty: has_staged,
@@ -672,7 +698,7 @@ pub fn pp_vcs_checkout(repo: u32, target: c_slice::Ref<'_, u8>, out: &mut repr_c
                 .map_err(|e| FfiError::Operation(e.to_string()))?;
             Ok(OpResultRecord {
                 ok: true,
-                head,
+                head: head.into(),
                 messages: vec![format!("switched to '{target_str}'")],
             })
         })?;

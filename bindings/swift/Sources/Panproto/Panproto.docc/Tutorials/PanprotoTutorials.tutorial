@@ -1,0 +1,20 @@
+@Tutorials(name: "Working with panproto") {
+    @Intro(title: "Working with panproto") {
+        Guided walkthroughs that run the whole pipeline on real inputs
+        rather than on sketches. Each one is a program you can build and
+        run, and the code at every step is code that compiles.
+    }
+
+    @Chapter(name: "Carrying records across a schema change") {
+        Read a protocol's own schema document, state a migration on the
+        schema it produces, check and compile it, and carry a record
+        through it and back out in the format it arrived in.
+
+        @Image(
+            source: "pipeline.svg",
+            alt: "A Lexicon document becomes a schema, the schema carries a migration that compiles, and the compiled migration lifts a parsed post record back out as JSON."
+        )
+
+        @TutorialReference(tutorial: "doc:MigrateARecord")
+    }
+}

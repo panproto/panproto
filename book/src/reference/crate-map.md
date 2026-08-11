@@ -55,7 +55,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-cli` | The `schema` binary. |
 | `panproto-wasm` | WebAssembly bindings; consumed by the TypeScript SDK. |
 | `panproto-py` | Native Python bindings via PyO3. |
-| `panproto-c` | C ABI for non-Rust language bindings; the Haskell binding consumes its 112-entry surface. |
+| `panproto-c` | C ABI for non-Rust language bindings; the Haskell and Swift bindings consume it. 103 entry points by default, 120 with the `full-parse`, `project`, and `git` features. |
 
 The interactive REPL for theories, terms, and morphisms is part of `panproto-cli`, reachable as `schema theory repl`; it is not a separate crate.
 

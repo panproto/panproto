@@ -1,0 +1,72 @@
+import Foundation
+import Panproto
+import PanprotoStructural
+
+/// Carry one ATProto post record through an identity migration and write
+/// it back out.
+///
+/// Run it with the lexicon document and then the record document:
+///
+///     atproto-post-migration app.bsky.feed.post.json post-0.json
+@main
+struct AtprotoPostMigration {
+    /// Read both documents, run the pipeline, and report a failure on
+    /// standard error.
+    static func main() async {
+        do {
+            let paths = Array(CommandLine.arguments.dropFirst())
+            guard paths.count == 2 else { throw PipelineFailure.usage }
+            try await run(
+                lexiconJSON: try Data(contentsOf: URL(fileURLWithPath: paths[0])),
+                recordJSON: try Data(contentsOf: URL(fileURLWithPath: paths[1]))
+            )
+        } catch {
+            FileHandle.standardError.write(Data("atproto-post-migration: \(error)\n".utf8))
+            exit(1)
+        }
+    }
+
+    /// The pipeline, one stage per step.
+    ///
+    /// - Parameters:
+    ///   - lexiconJSON: the `app.bsky.feed.post` lexicon document.
+    ///   - recordJSON: one post record, as an ATProto client receives it.
+    /// - Throws: ``PanprotoError`` from any engine call.
+    static func run(lexiconJSON: Data, recordJSON: Data) async throws {
+        // Everything below runs on the engine thread. Isolating the
+        // whole pipeline at once keeps the handles from crossing a
+        // suspension, and it is the shape a host with real work to do
+        // would write.
+        try await PanprotoEngine.run {
+            // 1. The Lexicon document becomes a schema. The document is
+            //    ATProto's own surface syntax, and parsing it is what
+            //    turns a protocol's format into the shape every later
+            //    stage speaks.
+            let schemaHandle = try SchemaHandle.parseAtprotoLexicon(lexiconJSON)
+            defer { schemaHandle.release() }
+            let schema = try schemaHandle.schema()
+            print(
+                """
+                1. lexicon parsed
+                   protocol: \(schema.protocolName)
+                   vertices: \(schema.vertices.count)
+                   edges:    \(schema.edges.count)
+                   entries:  \(schema.entries.sorted().joined(separator: ", "))
+                """
+            )
+        }
+    }
+}
+
+/// What this program can fail at on its own, outside the engine.
+private enum PipelineFailure: Error, CustomStringConvertible {
+    /// The two document paths were not both given.
+    case usage
+
+    /// What went wrong, for the message written to standard error.
+    var description: String {
+        switch self {
+        case .usage: "usage: atproto-post-migration <lexicon.json> <record.json>"
+        }
+    }
+}

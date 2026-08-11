@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 370" width="1000" height="370" role="img" aria-label="A Lexicon document becomes a schema, the schema carries a migration that compiles, and the compiled migration lifts a parsed post record back out as JSON.">
+  <defs>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#3A76C4"/>
+    </marker>
+  </defs>
+  <rect x="40" y="46" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="140" y="78" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">app.bsky.feed.post.json</text>
+  <text x="140" y="100" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">Lexicon document</text>
+  <rect x="280" y="46" width="200" height="76" rx="10"
+        fill="#E7F0FB" stroke="#8FB8E4" stroke-width="1.5"/>
+  <text x="380" y="78" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">SchemaHandle</text>
+  <text x="380" y="100" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">39 vertices, 39 edges</text>
+  <rect x="520" y="46" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="620" y="78" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">Migration</text>
+  <text x="620" y="100" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">identity, checked</text>
+  <rect x="760" y="46" width="200" height="76" rx="10"
+        fill="#E7F0FB" stroke="#8FB8E4" stroke-width="1.5"/>
+  <text x="860" y="78" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">CompiledMigrationHandle</text>
+  <text x="860" y="100" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">surviving verts and edges</text>
+  <rect x="40" y="250" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="140" y="282" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">post-0.json</text>
+  <text x="140" y="304" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">281 bytes in</text>
+  <rect x="280" y="250" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="380" y="282" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">Instance</text>
+  <text x="380" y="304" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">5 nodes, 4 arcs</text>
+  <rect x="520" y="250" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="620" y="282" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">Instance</text>
+  <text x="620" y="304" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">lifted</text>
+  <rect x="760" y="250" width="200" height="76" rx="10"
+        fill="#F5F5F7" stroke="#C7C7CC" stroke-width="1.5"/>
+  <text x="860" y="282" text-anchor="middle"
+        font-family="ui-monospace, 'SF Mono', Menlo, Consolas, monospace" font-size="14" fill="#1D1D1F">post-0.json</text>
+  <text x="860" y="304" text-anchor="middle"
+        font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">256 bytes out</text>
+  <line x1="246" y1="84" x2="274" y2="84" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <line x1="486" y1="84" x2="514" y2="84" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <line x1="726" y1="84" x2="754" y2="84" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <line x1="246" y1="288" x2="274" y2="288" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <line x1="486" y1="288" x2="514" y2="288" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <line x1="726" y1="288" x2="754" y2="288" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <text x="240" y="72" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">parse</text>
+  <text x="480" y="72" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">identity</text>
+  <text x="720" y="72" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">compile</text>
+  <text x="240" y="276" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">parse</text>
+  <text x="480" y="276" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">lift</text>
+  <text x="720" y="276" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">emit</text>
+  <line x1="860" y1="128" x2="480" y2="242" stroke="#3A76C4" stroke-width="2" marker-end="url(#head)"/>
+  <text x="690" y="200" text-anchor="middle" font-family="-apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif" font-size="12" fill="#6E6E73">drives the lift</text>
+</svg>

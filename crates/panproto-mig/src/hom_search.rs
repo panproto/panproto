@@ -35,7 +35,50 @@ pub struct SearchOptions {
     pub max_results: usize,
     /// Pre-assigned vertex mappings. The search extends this partial
     /// morphism to a total one.
+    ///
+    /// These are hard: a vertex named here is assigned before the
+    /// search begins and never reconsidered. Use it for mappings the
+    /// caller knows, not for mappings something inferred.
     pub initial: HashMap<Name, Name>,
+    /// Preferred vertex mappings. The search tries these first and
+    /// backtracks past them when they do not work out.
+    ///
+    /// A vertex named here keeps its whole kind-compatible domain; the
+    /// preferred target is moved to the front of it, and is kept in the
+    /// domain even when a pruning pass would otherwise drop it. This is
+    /// the channel for evidence that is probabilistic rather than
+    /// known: name similarity, structural priors, coercion proposals.
+    ///
+    /// Routing such evidence through [`Self::initial`] instead is what
+    /// makes a more permissive search fail where a less permissive one
+    /// succeeds. Each pin removes every other target for its vertex, so
+    /// a tier that runs more alignment strategies contributes more pins,
+    /// and pins that are individually plausible can be jointly
+    /// infeasible: two of them can require a source edge to map to a
+    /// target edge that does not exist. Anchors are scored one at a
+    /// time, so nothing checks the conjunction. A preference cannot
+    /// cause this: it reorders a domain, so it can change which morphism
+    /// is found first, never whether one exists.
+    pub preferred: HashMap<Name, Name>,
+    /// Maximum number of vertex assignments either backtracking search
+    /// may try before giving up. `0` means unlimited.
+    ///
+    /// A budget matters only when [`Self::preferred`] is populated.
+    /// Pinning an anchor through [`Self::initial`] collapses its domain
+    /// to one target, so few complete assignments exist; a preference
+    /// keeps the whole domain, and leaf vertices (strings, integers)
+    /// have no outgoing edge names to prune on, so every same-kind
+    /// target stays a candidate and the number of complete assignments
+    /// grows combinatorially.
+    ///
+    /// That is what the budget bounds. `find_best_morphism` asks for
+    /// every morphism and ranks them, so the dominant cost is the
+    /// number of complete assignments found and scored rather than the
+    /// difficulty of finding one, and scoring is not cheap: it runs an
+    /// edit distance over every vertex pair. Exhausting the budget ends
+    /// the search with what it has, which for a search that has found
+    /// nothing is the same "no morphism" a pinned search would report.
+    pub max_nodes: usize,
     /// When `true`, the CSP relaxes its hard edge-name overlap pruning
     /// for object vertices with large candidate domains. Kind-compatible
     /// targets are kept even when they share no outgoing edge name with
@@ -213,6 +256,8 @@ struct BacktrackState<'a> {
     vertex_order: VertexOrder,
     /// Target vertices already used (for monic constraint).
     used_targets: std::collections::HashSet<Name>,
+    /// Vertex assignments tried so far, against `SearchOptions::max_nodes`.
+    nodes: usize,
 }
 
 /// Default quality scoring weights: [name, edge, property, degree].
@@ -287,43 +332,32 @@ impl<'a> BacktrackState<'a> {
 
                     candidates
                 },
-                |tgt_id| vec![tgt_id.clone()],
+                |tgt_id| {
+                    // A pin is hard, not exempt. Every other path into a
+                    // domain admits only kind-compatible targets, and
+                    // `build_morphism_weighted` relies on that when it
+                    // maps edges. Honouring an incompatible pin would
+                    // hand back a morphism sending, say, an integer
+                    // vertex to a string one; leaving the domain empty
+                    // fails the search instead, which is the honest
+                    // answer to a caller who asked for something that is
+                    // not a morphism.
+                    if tgt
+                        .vertices
+                        .get(tgt_id)
+                        .is_some_and(|tv| tv.kind == src_vertex.kind)
+                    {
+                        vec![tgt_id.clone()]
+                    } else {
+                        Vec::new()
+                    }
+                },
             );
             domains.insert(src_id.clone(), compatible);
         }
 
-        // Apply domain constraints: excluded sources, excluded targets,
-        // and restricted domains.
-        for src_id in &constraints.excluded_sources {
-            domains.remove(src_id);
-        }
-        if !constraints.excluded_targets.is_empty() {
-            for domain in domains.values_mut() {
-                domain.retain(|t| !constraints.excluded_targets.contains(t));
-            }
-        }
-        for (src_id, restricted) in &constraints.restricted_domains {
-            if let Some(domain) = domains.get_mut(src_id) {
-                let allowed: std::collections::HashSet<&Name> = restricted.iter().collect();
-                domain.retain(|t| allowed.contains(t));
-            }
-        }
-        // Name similarity threshold: prune candidates whose normalized
-        // name similarity (1 - edit_distance/max_len) is below threshold.
-        if let Some(threshold) = constraints.name_similarity_threshold {
-            for (src_id, domain) in &mut domains {
-                if opts.initial.contains_key(src_id) {
-                    continue; // Don't filter pre-assigned vertices
-                }
-                domain.retain(|tgt_id| {
-                    let dist = edit_distance(src_id.as_str(), tgt_id.as_str());
-                    let max_len = src_id.len().max(tgt_id.len()).max(1);
-                    #[allow(clippy::cast_precision_loss)]
-                    let similarity = 1.0 - (dist as f64 / max_len as f64);
-                    similarity >= threshold
-                });
-            }
-        }
+        apply_domain_constraints(&mut domains, opts, constraints);
+        apply_preferences(&mut domains, src, tgt, opts, constraints);
 
         // MRV order: sort source vertices by domain size (smallest first).
         // `domains` is a HashMap, so collecting its keys gives a
@@ -334,10 +368,34 @@ impl<'a> BacktrackState<'a> {
         let mut order: Vec<Name> = domains.keys().cloned().collect();
         order.sort_by(|a, b| a.as_str().cmp(b.as_str()));
         order.sort_by_key(|v| domains.get(v).map_or(0, Vec::len));
+        // Assign the vertices something proposed a target for before
+        // the rest, keeping MRV order within each group.
+        //
+        // MRV alone is the wrong heuristic once preferences exist. A
+        // preferred vertex keeps its whole domain, so MRV sends it to
+        // the back and the solver explores thousands of unconstrained
+        // vertices before reaching the ones it has evidence about. On
+        // a pair of moderate real-world schemas that turned an instant
+        // search into two minutes. Taking the evidence first reproduces the shape of
+        // the old pinned search: the first descent assigns exactly the
+        // proposed anchors, forward checking prunes from there, and
+        // backtracking past a bad anchor stays available rather than
+        // being ruled out by construction.
+        order.sort_by_key(|v| usize::from(!opts.preferred.contains_key(v)));
 
-        let assignment: HashMap<Name, Name> = opts.initial.clone();
-        let used_targets: std::collections::HashSet<Name> =
-            opts.initial.values().cloned().collect();
+        // An excluded source is not part of the search, so its pin is
+        // not part of the assignment either. Carrying it forward left
+        // the vertex assigned, its target marked used, and its edges
+        // still owed an image in `build_morphism_weighted`, which then
+        // returned `None`: a source the caller asked to drop could veto
+        // the whole search from outside the domain map.
+        let assignment: HashMap<Name, Name> = opts
+            .initial
+            .iter()
+            .filter(|(src_id, _)| !constraints.excluded_sources.contains(*src_id))
+            .map(|(src_id, tgt_id)| (src_id.clone(), tgt_id.clone()))
+            .collect();
+        let used_targets: std::collections::HashSet<Name> = assignment.values().cloned().collect();
 
         BacktrackState {
             src,
@@ -346,7 +404,121 @@ impl<'a> BacktrackState<'a> {
             assignment,
             vertex_order: VertexOrder { order },
             used_targets,
+            nodes: 0,
         }
+    }
+}
+
+/// Apply the caller's hard domain restrictions: excluded sources,
+/// excluded targets, restricted domains, and the name-similarity filter.
+fn apply_domain_constraints(
+    domains: &mut HashMap<Name, Vec<Name>>,
+    opts: &SearchOptions,
+    constraints: &DomainConstraints,
+) {
+    // Apply domain constraints: excluded sources, excluded targets,
+    // and restricted domains.
+    for src_id in &constraints.excluded_sources {
+        domains.remove(src_id);
+    }
+    if !constraints.excluded_targets.is_empty() {
+        for domain in domains.values_mut() {
+            domain.retain(|t| !constraints.excluded_targets.contains(t));
+        }
+    }
+    for (src_id, restricted) in &constraints.restricted_domains {
+        if let Some(domain) = domains.get_mut(src_id) {
+            let allowed: std::collections::HashSet<&Name> = restricted.iter().collect();
+            domain.retain(|t| allowed.contains(t));
+        }
+    }
+    // Name similarity threshold: prune candidates whose normalized
+    // name similarity (1 - edit_distance/max_len) is below threshold.
+    if let Some(threshold) = constraints.name_similarity_threshold {
+        for (src_id, domain) in &mut *domains {
+            if opts.initial.contains_key(src_id) {
+                continue; // Don't filter pre-assigned vertices
+            }
+            domain.retain(|tgt_id| {
+                let dist = edit_distance(src_id.as_str(), tgt_id.as_str());
+                let max_len = src_id.len().max(tgt_id.len()).max(1);
+                #[allow(clippy::cast_precision_loss)]
+                let similarity = 1.0 - (dist as f64 / max_len as f64);
+                similarity >= threshold
+            });
+        }
+    }
+}
+
+/// Move each preferred target to the front of its domain.
+///
+/// The property this has to have, and the whole difference between a
+/// preference and [`SearchOptions::initial`], is that it never removes
+/// a target. Removing one is what let a more permissive search fail
+/// where a less permissive one succeeded.
+///
+/// Precisely, for each source vertex this either permutes the domain
+/// (when the preferred target is already in it) or adds one element to
+/// the front. It adds only a target that is kind-compatible and that no
+/// hard constraint rules out: an excluded target, an excluded source,
+/// and a caller-restricted domain are all respected. The
+/// name-similarity filter is a heuristic rather than a stated
+/// admissibility rule, so a preference does reach past it, which is how
+/// `initial` treats it too.
+///
+/// Domains only grow here, so a morphism reachable without preferences
+/// stays reachable with them. What changes is the order the solver
+/// finds them in.
+fn apply_preferences(
+    domains: &mut HashMap<Name, Vec<Name>>,
+    src: &Schema,
+    tgt: &Schema,
+    opts: &SearchOptions,
+    constraints: &DomainConstraints,
+) {
+    // Preferred targets survive every pruning pass and lead their
+    // domain. Re-inserting a target the passes above dropped is
+    // deliberate: the strategy that proposed it saw evidence the
+    // pruning heuristics cannot, which is the same reason
+    // `initial` skips the name-similarity filter. What a preference
+    // must never do is shrink the domain, so nothing is removed
+    // here.
+    for (src_id, preferred) in &opts.preferred {
+        if opts.initial.contains_key(src_id) {
+            continue;
+        }
+        if constraints.excluded_sources.contains(src_id)
+            || constraints.excluded_targets.contains(preferred)
+        {
+            continue;
+        }
+        // A restricted domain is the caller stating which targets are
+        // admissible, not a heuristic filter, so a preference does not
+        // reach past it. The name-similarity filter is a heuristic and
+        // is exempted, matching how `initial` skips it.
+        if constraints
+            .restricted_domains
+            .get(src_id)
+            .is_some_and(|allowed| !allowed.contains(preferred))
+        {
+            continue;
+        }
+        let Some(domain) = domains.get_mut(src_id) else {
+            continue;
+        };
+        // Only a kind-compatible target is a legal assignment, and
+        // the CSP relies on that invariant when it builds the edge
+        // map.
+        let compatible = src
+            .vertices
+            .get(src_id)
+            .zip(tgt.vertices.get(preferred))
+            .is_some_and(|(s, t)| s.kind == t.kind);
+        if !compatible {
+            continue;
+        }
+        domain.retain(|t| t != preferred);
+        domain.insert(0, preferred.clone());
     }
 }
 
@@ -359,6 +531,13 @@ fn backtrack(
 ) {
     // Check result limit
     if opts.max_results > 0 && results.len() >= opts.max_results {
+        return;
+    }
+
+    // Check the node budget. Exhausting it ends the search with
+    // whatever it has found, which for a search that had found nothing
+    // is the same "no morphism" the caller would otherwise have got.
+    if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
         return;
     }
 
@@ -391,6 +570,10 @@ fn backtrack(
     // Try each value in the domain
     let domain = state.domains.get(&src_vertex).cloned().unwrap_or_default();
     for tgt_vertex in domain {
+        if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+            return;
+        }
+        state.nodes += 1;
         // Monic check: target not already used
         if (opts.monic || opts.iso) && state.used_targets.contains(&tgt_vertex) {
             continue;
@@ -433,6 +616,10 @@ fn backtrack_weighted(
         return;
     }
 
+    if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+        return;
+    }
+
     if depth >= state.vertex_order.order.len() {
         if opts.epic || opts.iso {
             let assigned_targets: std::collections::HashSet<&Name> =
@@ -457,6 +644,11 @@ fn backtrack_weighted(
 
     let domain = state.domains.get(&src_vertex).cloned().unwrap_or_default();
     for tgt_vertex in domain {
+        if opts.max_nodes > 0 && state.nodes >= opts.max_nodes {
+            return;
+        }
+        state.nodes += 1;
+
         if (opts.monic || opts.iso) && state.used_targets.contains(&tgt_vertex) {
             continue;
         }

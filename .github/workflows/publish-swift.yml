@@ -1,0 +1,312 @@
+name: Publish Swift SDK
+
+# Runs on the same tag push as the other publish workflows. It does
+# three things: pin the package to the XCFramework the bindist workflow
+# just published, check the public Swift API for breakage against the
+# previous tag, and publish the DocC documentation alongside the book.
+#
+# The engine and every binding share one version, so there is no
+# Swift-specific version to bump here; the tag is the version.
+#
+# One-time setup this workflow needs before it can run:
+#
+#   * A repository `panproto/panproto-swift` to mirror into. SwiftPM
+#     resolves a package URL by cloning and looking for Package.swift at
+#     the root, with no subpath option, so `bindings/swift` of this
+#     repository is not consumable by anyone; the mirror is what a
+#     dependent actually depends on.
+#   * A deploy key with write access to that repository, its private half
+#     stored here as the `SWIFT_MIRROR_DEPLOY_KEY` secret.
+#   * A submission to the Swift Package Index, once the mirror carries a
+#     tag whose Package.swift has its release pin filled in. The index
+#     reads `.spi.yml` from the mirror root and hosts DocC per release.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to publish for
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  pin:
+    name: Pin the release XCFramework
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Wait for the XCFramework to be attached to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.value }}
+        # `build-panproto-c-bindist.yml` builds and uploads it on the
+        # same tag push, and its macOS and iOS matrix takes a while.
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 180); do
+            if gh release view "$TAG" --json assets \
+                 --jq '.assets[].name' | grep -qx 'panproto_c.xcframework.zip'; then
+              echo "artifact present"
+              exit 0
+            fi
+            echo "waiting for panproto_c.xcframework.zip (attempt $i/180)"
+            sleep 20
+          done
+          echo "::error::the XCFramework never appeared on release $TAG"
+          exit 1
+      - name: Rewrite the release pin
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          url="https://github.com/$GITHUB_REPOSITORY/releases/download/$TAG/panproto_c.xcframework.zip"
+          gh release download "$TAG" --pattern panproto_c.xcframework.zip --clobber
+          checksum=$(swift package --package-path bindings/swift \
+                       compute-checksum panproto_c.xcframework.zip)
+          rm -f panproto_c.xcframework.zip
+          python3 - "$url" "$checksum" <<'PY'
+          import pathlib, re, sys
+          url, checksum = sys.argv[1], sys.argv[2]
+          path = pathlib.Path("bindings/swift/Package.swift")
+          text = path.read_text()
+          text = re.sub(
+              r'private let releaseXCFrameworkURL = "[^"]*"',
+              f'private let releaseXCFrameworkURL = "{url}"',
+              text,
+              count=1,
+          )
+          text = re.sub(
+              r'private let releaseXCFrameworkChecksum = "[^"]*"',
+              f'private let releaseXCFrameworkChecksum = "{checksum}"',
+              text,
+              count=1,
+          )
+          path.write_text(text)
+          PY
+          git diff --stat bindings/swift/Package.swift
+      - name: Verify a clean consumer build resolves against the pin
+        # No staged library, no environment overrides: exactly what a
+        # downstream package sees when it adds this one as a dependency.
+        run: |
+          set -euo pipefail
+          rm -rf bindings/swift/.panproto-c
+          cd bindings/swift && swift build
+      - name: Commit the pin
+        run: |
+          set -euo pipefail
+          if git diff --quiet bindings/swift/Package.swift; then
+            echo "pin already current"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add bindings/swift/Package.swift
+          git commit -m "Pin the Swift package to the ${{ steps.tag.outputs.value }} XCFramework"
+          git push origin HEAD:main
+
+  api-diff:
+    name: Swift API diff
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build panproto-c and stage libs
+        run: bash bindings/swift/bootstrap/dev-link.sh
+      - name: Diff the public API against the previous tag
+        # The Swift surface versions with the engine, so a source-breaking
+        # change here is a breaking release even when the engine is
+        # unchanged. This reports rather than blocks: whether a break is
+        # intended belongs in review, not in a gate.
+        run: |
+          set -euo pipefail
+          previous=$(git describe --tags --abbrev=0 --match 'v*' HEAD^ 2>/dev/null || true)
+          if [ -z "$previous" ]; then
+            echo "::notice::no previous tag to diff against"
+            exit 0
+          fi
+          if ! git cat-file -e "$previous:bindings/swift/Package.swift" 2>/dev/null; then
+            echo "::notice::$previous predates the Swift package; nothing to diff"
+            exit 0
+          fi
+
+          triple=$(swift -print-target-info \
+            | python3 -c 'import json,sys; print(json.load(sys.stdin)["target"]["unversionedTriple"])')
+          sdk=$(xcrun --show-sdk-path)
+
+          dump() {
+            local root="$1" out="$2"
+            mkdir -p "$out"
+            for product in PanprotoStructural Panproto PanprotoVcs; do
+              swift build --package-path "$root/bindings/swift" --target "$product"
+              xcrun swift-api-digester -dump-sdk -module "$product" \
+                -o "$out/$product.json" \
+                -I "$root/bindings/swift/.build/debug" \
+                -sdk "$sdk" -target "$triple"
+            done
+          }
+
+          dump "$PWD" /tmp/api-new
+          git worktree add /tmp/previous "$previous"
+          cp -R bindings/swift/.panproto-c /tmp/previous/bindings/swift/
+          dump /tmp/previous /tmp/api-old
+
+          status=0
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            echo "### $product"
+            if ! xcrun swift-api-digester -diagnose-sdk \
+                 -input-paths "/tmp/api-old/$product.json" \
+                 -input-paths "/tmp/api-new/$product.json" 2>&1 | tee "/tmp/$product.diff"; then
+              status=1
+            fi
+            if [ -s "/tmp/$product.diff" ]; then
+              echo "::warning::$product changed since $previous; see the job log"
+            fi
+          done
+          exit $status
+
+  mirror:
+    name: Mirror the package
+    runs-on: ubuntu-latest
+    needs: pin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+      - name: Resolve tag
+        id: tag
+        run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Assemble the mirror tree
+        # SwiftPM resolves a package URL by cloning and looking for
+        # Package.swift at the root, with no subpath option, so a package
+        # living in bindings/swift of this repository is not consumable
+        # by anyone. Publishing it means putting that directory at the
+        # root of a repository of its own.
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/mirror && mkdir -p /tmp/mirror
+          rsync -a --delete \
+            --exclude '.build/' \
+            --exclude '.panproto-c/' \
+            --exclude '.swiftpm/' \
+            bindings/swift/ /tmp/mirror/
+
+          # The index checks for a license it can detect, and the package
+          # directory has none of its own.
+          cp LICENSE /tmp/mirror/LICENSE
+
+          # Every relative link in the README walks out of bindings/swift
+          # and lands nowhere once the directory is a root. Rewrite them
+          # to absolute URLs against the tag being published, so they
+          # point at the tree they were written against rather than at
+          # whatever main becomes later.
+          python3 - "$TAG" <<'REWRITE'
+          import pathlib, re, sys
+
+          tag = sys.argv[1]
+          base = f"https://github.com/panproto/panproto/blob/{tag}"
+          readme = pathlib.Path("/tmp/mirror/README.md")
+          text = readme.read_text()
+
+          def absolute(match: "re.Match[str]") -> str:
+              target = match.group(1).removeprefix("../../")
+              return f"]({base}/{target})"
+
+          text = re.sub(r"\]\((\.\./\.\./[^)]*)\)", absolute, text)
+          readme.write_text(text)
+          REWRITE
+
+          if grep -rn "](\.\./" /tmp/mirror/README.md; then
+            echo "::error::a relative link survived the rewrite"
+            exit 1
+          fi
+      - name: Push to the package repository
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SWIFT_MIRROR_DEPLOY_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 git@github.com:panproto/panproto-swift.git /tmp/repo || {
+            mkdir -p /tmp/repo && cd /tmp/repo && git init -q -b main \
+              && git remote add origin git@github.com:panproto/panproto-swift.git
+          }
+          cd /tmp/repo
+          find . -mindepth 1 -maxdepth 1 -not -name .git -exec rm -rf {} +
+          cp -R /tmp/mirror/. .
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "mirror already current"
+          else
+            git commit -q -m "panproto Swift SDK $TAG"
+          fi
+          git tag -f "$TAG"
+          git push origin main
+          git push -f origin "$TAG"
+
+  docs:
+    name: Publish DocC
+    runs-on: macos-latest
+    needs: pin
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build panproto-c and stage libs
+        run: bash bindings/swift/bootstrap/dev-link.sh
+      - name: Build DocC archives
+        run: |
+          set -euo pipefail
+          cd bindings/swift
+          mkdir -p ../../docc-out
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            swift package --allow-writing-to-directory "../../docc-out" \
+              generate-documentation --target "$product" \
+              --disable-indexing \
+              --transform-for-static-hosting \
+              --hosting-base-path "swift/$product" \
+              --output-path "../../docc-out/$product"
+          done
+      - name: Attach the documentation archives to the release
+        # The book publishes to the external panproto/book repository
+        # through a deploy key, and this repository has no gh-pages
+        # branch. Rather than invent a second publishing path, the
+        # archives ride with the release; hosting them under
+        # panproto.dev/swift/ needs a decision about who owns the root of
+        # that shared repository, which is not this workflow's to make.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.event.inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          cd docc-out
+          for product in PanprotoStructural Panproto PanprotoVcs; do
+            zip -qry "panproto-docc-$product.zip" "$product"
+          done
+          gh release upload "$TAG" ./*.zip --clobber

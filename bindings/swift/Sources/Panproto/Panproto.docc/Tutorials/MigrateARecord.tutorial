@@ -1,0 +1,244 @@
+@Tutorial(time: 20) {
+    @Intro(title: "Migrate a record end to end") {
+        Take an ATProto Lexicon document, turn it into a schema, state a
+        migration on that schema, check it, compile it, and carry a real
+        post record through it and back out as JSON.
+
+        The migration here is the identity, which is the one migration
+        whose answer you already know: what comes out should be the
+        record that went in. That makes it the right shape to learn on,
+        because every stage can be checked against something rather than
+        taken on trust. Swapping the identity for a mapping that changes
+        the schema changes one line of what you write below.
+
+        You need two documents: an `app.bsky.feed.post` Lexicon and one
+        post record. The panproto repository carries both, under
+        `fixtures/atproto/lexicons/` and `fixtures/atproto/records/`, and
+        `Examples/AtprotoPostMigration` is this program reading them.
+    }
+
+    @Section(title: "Read the inputs and parse the lexicon") {
+        @ContentAndMedia {
+            Start with a program that does no panproto work at all, then
+            add the first call that allocates an engine resource. A
+            Lexicon document is ATProto's own surface syntax, and parsing
+            it is what turns a protocol's format into the pointed graph
+            every later stage speaks.
+        }
+
+        @Steps {
+            @Step {
+                Create a file with the two module imports and an entry
+                point that takes both document paths.
+
+                `PanprotoStructural` carries the values every engine call
+                takes and returns, so both imports are wanted from the
+                start. Run it against the two documents and it reports
+                `read 3295 bytes of lexicon` and `read 281 bytes of
+                record`.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-01.swift)
+            }
+
+            @Step {
+                Wrap the body in ``PanprotoEngine/run(_:)`` and parse the
+                lexicon.
+
+                Everything inside the closure runs on the engine thread
+                with no suspension between calls, which is what lets
+                `defer { schemaHandle.release() }` return the slab entry
+                at the end of the scope; see <doc:TheEngineActor> and
+                <doc:HandleLifecycle>. The lexicon reads as 39 vertices
+                and 39 edges in the `atproto` protocol, entered at
+                `app.bsky.feed.post`, and that entry is the pointing: it
+                names the vertex an instance of this schema is rooted at.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-02.swift)
+            }
+        }
+    }
+
+    @Section(title: "State the migration and check it") {
+        @ContentAndMedia {
+            A migration is stated, checked, and only then compiled. The
+            three are separate because they answer different questions:
+            what maps to what, whether that mapping is admissible, and
+            how a record is carried through it.
+        }
+
+        @Steps {
+            @Step {
+                Build the identity migration on the schema.
+
+                `Migration.identity(on:)` maps every vertex, edge, and
+                hyper-edge to itself. It is an identity at one schema and
+                nowhere else, which is why it is derived from the schema
+                rather than written down as a constant. This runs in the
+                value layer; no engine call is made.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-03.swift)
+            }
+
+            @Step {
+                Ask whether the mapping exists.
+
+                ``PanprotoStructural/Migration/checkExistence(against:from:to:)``
+                asks whether the mapping satisfies the obligations the
+                ATProto protocol's theories impose. A failing check is
+                still a successful call: the verdict arrives in
+                `ExistenceReport.valid` and the reasons in
+                `ExistenceReport.errors`, so the report is read rather
+                than caught.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-04.swift)
+            }
+
+            @Step {
+                Compile it.
+
+                Compiling settles which vertices and edges survive and
+                how each arc is re-resolved, so that carrying a record
+                through is a lookup rather than a search. The handle it
+                answers with is also what a lens is: `get`, `put`, and
+                the law checkers all take one of these.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-05.swift)
+            }
+        }
+    }
+
+    @Section(title: "Carry a record through") {
+        @ContentAndMedia {
+            With a compiled migration in hand, the record can be read in
+            through ATProto's codec, lifted, and written back out. This
+            is the loop that closes: what comes out is a post record
+            again.
+        }
+
+        @Steps {
+            @Step {
+                Parse the record against the schema.
+
+                The schema is an argument because the same bytes read
+                against a different schema would be a different instance.
+                ``SchemaHandle/violations(in:)`` then checks the parsed
+                instance against the schema it claims to be an instance
+                of, which for this record reports none.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-06.swift)
+            }
+
+            @Step {
+                Lift it through the compiled migration.
+
+                The identity preserves the nodes and the arcs, though the
+                engine rebuilds the arc list in its own order, so the two
+                agree as sets rather than as sequences. That is worth
+                noticing early: an instance's arc list is a set with an
+                incidental order, not a sequence to compare position by
+                position.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-07.swift)
+            }
+
+            @Step {
+                Emit the lifted instance and compare it against the
+                input.
+
+                Emitting through the codec that parsed the input closes
+                the ingestion loop, and the output is smaller than the
+                input because the codec writes the record without the
+                input's whitespace, which is why the comparison is over
+                parsed fields rather than over bytes. Run the whole
+                program and it reports 5 nodes and 4 arcs preserved
+                across the lift, with `text`, `createdAt`, and `langs`
+                agreeing afterwards: `pipeline OK: in=281 bytes ->
+                out=256 bytes`.
+
+                @Code(name: "AtprotoPostMigration.swift", file: migrate-08.swift)
+            }
+        }
+    }
+
+    @Assessments {
+        @MultipleChoice {
+            The pipeline never asks the engine to compose two migrations,
+            yet a host with a release history usually has several. Where
+            does that composition belong?
+
+            @Choice(isCorrect: true) {
+                In the value layer, before anything is compiled.
+
+                @Justification(reaction: "Correct") {
+                    `Migration.composed(with:)` folds specifications
+                    without an engine, so a host pays for one compile
+                    rather than one per revision. Composition there drops
+                    on a miss, which is why a field-level edit is an
+                    amendment to a self-map.
+                }
+            }
+
+            @Choice(isCorrect: false) {
+                Only after each step has been compiled separately.
+
+                @Justification(reaction: "Not quite") {
+                    Compiled migrations do compose, and
+                    ``CompiledMigrationHandle/composedLens(with:)`` is the
+                    call for it when the value-level work matters. But
+                    compiling each step first costs a compile per
+                    revision, which folding the specifications avoids.
+                }
+            }
+
+            @Choice(isCorrect: false) {
+                Nowhere: a migration between two versions has to be
+                written out in full.
+
+                @Justification(reaction: "Not quite") {
+                    ``PanprotoStructural/Migration`` is a semigroup under
+                    composition, so a release history folds into one
+                    mapping. What it is not is a monoid: the empty
+                    mapping annihilates rather than units.
+                }
+            }
+        }
+
+        @MultipleChoice {
+            The lift reports `arcs preserved: true` only because the
+            program compares `Set(lifted.arcs)` against
+            `Set(instance.arcs)`. What would comparing the arrays
+            directly have told you?
+
+            @Choice(isCorrect: true) {
+                Nothing reliable: the engine rebuilds the arc list in its
+                own order.
+
+                @Justification(reaction: "Correct") {
+                    An instance's arcs are a set with an incidental order.
+                    The same holds for the bytes an engine writes for a
+                    schema, for the same underlying reason.
+                }
+            }
+
+            @Choice(isCorrect: false) {
+                That the lift reordered the record's fields.
+
+                @Justification(reaction: "Not quite") {
+                    Field order in the emitted JSON is the codec's, and
+                    the arc list's order is the engine's; neither is
+                    something the lift chose.
+                }
+            }
+
+            @Choice(isCorrect: false) {
+                That the identity migration is not actually an identity.
+
+                @Justification(reaction: "Not quite") {
+                    The identity maps every vertex and edge to itself, and
+                    the nodes do compare equal as an array. Only the arc
+                    ordering is incidental.
+                }
+            }
+        }
+    }
+}
