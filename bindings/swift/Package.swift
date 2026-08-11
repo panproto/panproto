@@ -12,8 +12,8 @@ import PackageDescription
 // constants when it publishes an artifact; while they are empty, a
 // consumer must dev-link or point at an XCFramework explicitly.
 
-private let releaseXCFrameworkURL = ""
-private let releaseXCFrameworkChecksum = ""
+private let releaseXCFrameworkURL = "https://github.com/panproto/panproto/releases/download/v0.70.0/panproto_c.xcframework.zip"
+private let releaseXCFrameworkChecksum = "63ed84c9dd56e22fb5dc21807ed583987b283e3af7a23d2d8f2a8b5cc1dc55cc"
 
 // MARK: - Build configuration
 //
