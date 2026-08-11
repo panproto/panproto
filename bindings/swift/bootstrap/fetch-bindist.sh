@@ -70,7 +70,7 @@ if [ "$WANT_XCFRAMEWORK" -eq 1 ]; then
     echo "staged $STAGE/panproto_c.xcframework"
     echo
     echo "build with:"
-    echo "    PANPROTO_SWIFT_XCFRAMEWORK=$STAGE/panproto_c.xcframework swift build"
+    echo "    PANPROTO_SWIFT_XCFRAMEWORK=.panproto-c/panproto_c.xcframework swift build"
     exit 0
 fi
 

@@ -89,9 +89,32 @@ private let devLinkSettings: [LinkerSetting] = {
     ]
 }()
 
+/// Express `path` relative to the package root.
+///
+/// Returns `path` unchanged when it is already relative. When it is
+/// absolute, walks up from the package root as far as the two share a
+/// prefix, which covers a staged directory inside the package and an
+/// artifact anywhere else on the filesystem alike.
+private func packageRelative(_ path: String) -> String {
+    guard path.hasPrefix("/") else { return path }
+    let target = URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+    let base = packageDirectory.standardizedFileURL.pathComponents
+    var shared = 0
+    while shared < min(target.count, base.count), target[shared] == base[shared] {
+        shared += 1
+    }
+    let ascent = Array(repeating: "..", count: base.count - shared)
+    return (ascent + target[shared...]).joined(separator: "/")
+}
+
 private let cPanprotoTarget: Target = {
     if let local = env["PANPROTO_SWIFT_XCFRAMEWORK"], !local.isEmpty {
-        return .binaryTarget(name: "CPanproto", path: local)
+        // `binaryTarget(path:)` takes a package-relative path and
+        // rejects an absolute one outright, so an absolute path is
+        // relativized here rather than pushed onto the caller.
+        // `fetch-bindist.sh` stages into an absolute directory and
+        // prints it, which is the spelling most people will paste.
+        return .binaryTarget(name: "CPanproto", path: packageRelative(local))
     }
     if let url = env["PANPROTO_SWIFT_XCFRAMEWORK_URL"], !url.isEmpty,
         let checksum = env["PANPROTO_SWIFT_XCFRAMEWORK_CHECKSUM"], !checksum.isEmpty
