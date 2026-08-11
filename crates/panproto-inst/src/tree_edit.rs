@@ -424,8 +424,17 @@ fn apply_move_subtree(
     if !instance.nodes.contains_key(&new_parent) {
         return Err(EditError::ParentNotFound(new_parent));
     }
-    // Prevent cycles: new_parent must not be a descendant of node_id.
-    if is_descendant(instance, new_parent, node_id) {
+    // Prevent cycles: a node cannot be its own parent, and `new_parent`
+    // must not be a descendant of `node_id`.
+    //
+    // The self-parent case needs its own test. `is_descendant` walks up
+    // from `new_parent`, so it starts at the node's parent and never
+    // considers the node itself; with `node_id == new_parent` it reports
+    // false on an acyclic instance and the move then writes
+    // `parent_map[node_id] = node_id`. That self-loop is not merely
+    // wrong, it is unwalkable: every later ancestor traversal through
+    // the node spins forever.
+    if node_id == new_parent || is_descendant(instance, new_parent, node_id) {
         return Err(EditError::CycleDetected {
             node_id,
             new_parent,
@@ -454,9 +463,20 @@ fn apply_move_subtree(
 }
 
 /// Check if `candidate` is a descendant of `ancestor` in the instance tree.
+///
+/// The walk is bounded by the node count, so a `parent_map` that already
+/// carries a cycle answers `false` rather than looping. Nothing in this
+/// module can now introduce such a cycle, but the map is part of a
+/// deserialized `WInstance` and reaches here from hosts across the FFI
+/// boundary; a predicate that hangs on malformed input is a denial of
+/// service rather than a wrong answer, and a chain longer than every
+/// node in the instance has necessarily revisited one.
 fn is_descendant(instance: &WInstance, candidate: u32, ancestor: u32) -> bool {
     let mut current = candidate;
-    while let Some(&parent) = instance.parent_map.get(&current) {
+    for _ in 0..instance.parent_map.len() {
+        let Some(&parent) = instance.parent_map.get(&current) else {
+            return false;
+        };
         if parent == ancestor {
             return true;
         }
@@ -518,6 +538,8 @@ mod tests {
     use crate::metadata::Node;
     use crate::value::Value;
     use crate::wtype::WInstance;
+
+    use super::{EditError, is_descendant};
 
     use super::TreeEdit;
 
@@ -630,6 +652,57 @@ mod tests {
 
         assert_eq!(inst.parent_map[&2], 1);
         assert!(inst.children_map[&1].contains(&2));
+    }
+
+    #[test]
+    fn move_subtree_refuses_to_make_a_node_its_own_parent() {
+        // `is_descendant` walks up from `new_parent`, so it never
+        // considers the node itself and reported no cycle here. The move
+        // then wrote `parent_map[1] = 1`, and every later ancestor walk
+        // through node 1 ran forever.
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(1, Node::new(1, "a"));
+        let arcs = vec![(0, 1, sample_edge("root", "a"))];
+        let mut inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
+
+        let edit = TreeEdit::MoveSubtree {
+            node_id: 1,
+            new_parent: 1,
+            edge: sample_edge("a", "a"),
+        };
+
+        assert!(matches!(
+            edit.apply(&mut inst),
+            Err(EditError::CycleDetected {
+                node_id: 1,
+                new_parent: 1
+            })
+        ));
+        assert_eq!(inst.parent_map[&1], 0, "the instance is left as it was");
+    }
+
+    #[test]
+    fn ancestor_walk_terminates_on_a_cyclic_parent_map() {
+        // A `WInstance` can arrive already carrying a cycle: it is
+        // deserialized, and hosts hand one across the FFI boundary. The
+        // walk is bounded by the node count so such an instance answers
+        // rather than hanging.
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(1, Node::new(1, "a"));
+        nodes.insert(2, Node::new(2, "b"));
+        let arcs = vec![
+            (0, 1, sample_edge("root", "a")),
+            (1, 2, sample_edge("a", "b")),
+        ];
+        let mut inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
+
+        // Close the chain by hand: 1 -> 2 -> 1.
+        inst.parent_map.insert(1, 2);
+
+        assert!(!is_descendant(&inst, 2, 99));
+        assert!(is_descendant(&inst, 2, 1));
     }
 
     #[test]
