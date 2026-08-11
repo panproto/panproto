@@ -30,6 +30,13 @@ on:
       tag:
         description: Release tag to publish for
         required: true
+      docs_only:
+        description: >-
+          Rebuild and attach the documentation archives without redoing
+          the release. Skips the pin, the API diff, and the mirror, all
+          of which have already run for a published tag.
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -38,6 +45,7 @@ jobs:
   pin:
     name: Pin the release XCFramework
     runs-on: macos-latest
+    if: ${{ !inputs.docs_only }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -121,6 +129,7 @@ jobs:
   api-diff:
     name: Swift API diff
     runs-on: macos-latest
+    if: ${{ !inputs.docs_only }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -183,6 +192,7 @@ jobs:
   mirror:
     name: Mirror the package
     runs-on: ubuntu-latest
+    if: ${{ !inputs.docs_only }}
     needs: pin
     steps:
       - uses: actions/checkout@v6
@@ -272,6 +282,9 @@ jobs:
     name: Publish DocC
     runs-on: macos-latest
     needs: pin
+    # `needs` alone would skip this whenever the pin is skipped, which is
+    # exactly the case a documentation-only run is for.
+    if: ${{ always() && (inputs.docs_only || needs.pin.result == 'success') }}
     steps:
       - uses: actions/checkout@v6
         with:
