@@ -11,8 +11,15 @@ import PackageDescription
 // only mode that reaches iOS. `publish-swift.yml` rewrites both
 // constants when it publishes an artifact; while they are empty, a
 // consumer must dev-link or point at an XCFramework explicitly.
+//
+// Both lines run past the line-length limit and stay that way: the
+// regexes `publish-swift.yml` rewrites them with match the declaration
+// and its string literal on one line, so wrapping either one would make
+// the publish step silently rewrite nothing.
 
+// swift-format-ignore
 private let releaseXCFrameworkURL = "https://github.com/panproto/panproto/releases/download/v0.70.0/panproto_c.xcframework.zip"
+// swift-format-ignore
 private let releaseXCFrameworkChecksum = "63ed84c9dd56e22fb5dc21807ed583987b283e3af7a23d2d8f2a8b5cc1dc55cc"
 
 // MARK: - Build configuration

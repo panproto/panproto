@@ -8,6 +8,8 @@
  *     it as a `CandidateResponse`.
  *   - `ProtolensChainHandle.autoGenerateWithHintSpec(..., hintSpec, wasm)`
  *     must serialize the `HintSpec` through msgpack and forward it.
+ *   - `ProtolensChainHandle.autoGenerateSpan(...)` must decode the
+ *     MessagePack span payload and surface it as a `SpanResponse`.
  *
  * These are mock-based; they verify that the SDK layer wires its typed
  * arguments to the WASM boundary faithfully. A real-wasm e2e path exists
@@ -23,6 +25,7 @@ import type {
   WasmModule,
   WasmExports,
   CandidateResponse,
+  SpanResponse,
   HintSpec,
   CoercionClass,
   StrategyTag,
@@ -71,6 +74,20 @@ function createMockWasm(overrides: Partial<WasmExports> = {}): WasmModule {
     ),
     auto_generate_protolens_with_hint_spec: vi.fn(
       (_s1: number, _s2: number, _bytes: Uint8Array) => ++counter,
+    ),
+    auto_generate_span: vi.fn(
+      (_s1: number, _s2: number, _hints?: Uint8Array) =>
+        packToWasm({
+          apex_vertices: ['r'],
+          apex_edges: [{ src: 'r', tgt: 'r.n', kind: 'prop', name: 'n' }],
+          vertex_map: { r: 'r' },
+          quality: 0.75,
+          quality_bounds: [0.75, 0.75],
+          apex_coverage: 0.5,
+          proven_optimal: true,
+          is_total: false,
+          apex_digest: 'a'.repeat(64),
+        }),
     ),
     instantiate_protolens: vi.fn(() => ++counter),
   };
@@ -202,6 +219,56 @@ describe('ProtolensChainHandle.autoGenerateCandidates', () => {
       3,
       undefined,
     );
+  });
+});
+
+describe('ProtolensChainHandle.autoGenerateSpan', () => {
+  it('decodes the MessagePack payload into a typed SpanResponse', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    const span: SpanResponse = ProtolensChainHandle.autoGenerateSpan(s1, s2, wasm);
+
+    expect(span.apex_vertices).toEqual(['r']);
+    expect(span.apex_edges[0]?.name).toBe('n');
+    expect(span.vertex_map).toEqual({ r: 'r' });
+    expect(span.quality_bounds).toEqual([0.75, 0.75]);
+    expect(span.apex_coverage).toBe(0.5);
+    expect(span.proven_optimal).toBe(true);
+    expect(span.is_total).toBe(false);
+  });
+
+  it('omits the hint bytes entirely when the caller passes no hints', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    ProtolensChainHandle.autoGenerateSpan(s1, s2, wasm);
+
+    expect(wasm.exports.auto_generate_span).toHaveBeenCalledWith(
+      s1._handle.id,
+      s2._handle.id,
+      undefined,
+    );
+  });
+
+  it('packs the hints through msgpack and forwards the bytes', () => {
+    const wasm = createMockWasm();
+    const s1 = createTestSchema(wasm, 'v1');
+    const s2 = createTestSchema(wasm, 'v2');
+
+    ProtolensChainHandle.autoGenerateSpan(s1, s2, wasm, { 'r.n': 'r.n' });
+
+    const calls = vi.mocked(wasm.exports.auto_generate_span).mock.calls;
+    expect(calls).toHaveLength(1);
+    const [sid1, sid2, bytes] = calls[0] ?? [];
+    expect(sid1).toBe(s1._handle.id);
+    expect(sid2).toBe(s2._handle.id);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(unpackFromWasm<Record<string, string>>(bytes as Uint8Array)).toEqual({
+      'r.n': 'r.n',
+    });
   });
 });
 

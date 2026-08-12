@@ -4,13 +4,26 @@
 //! (morphism search has no WASM analogue). The `PyO3` wrapper passes
 //! `SearchOptions` and `FoundMorphism` across the boundary as `PyO3`
 //! classes; the C ABI passes them as CBOR. Because
-//! `panproto_core::mig::hom_search::{SearchOptions, FoundMorphism}` do
-//! not derive `serde`, the CBOR payload types are the serializable
-//! shadow structs `SearchOptionsWire` and `FoundMorphismWire`
-//! defined here (mirroring the shadow-struct idiom in
-//! [`crate::api::helpers`]), converted to and from the engine types at
-//! the boundary. `SchemaMorphism`, `TheoryMorphism`, and `Migration`
-//! already derive `serde` and cross as themselves.
+//! `panproto_core::mig::hom_search::{SearchOptions, DomainConstraints,
+//! FoundMorphism}`, `panproto_core::mig::span::SchemaSpan`,
+//! `panproto_core::mig::CostWeights` and
+//! `panproto_core::schema::SchemaOverlap` do not derive `serde`, the CBOR
+//! payload types are the serializable shadow structs `SearchOptionsWire`,
+//! `DomainConstraintsWire`, `CostWeightsWire`, `FoundMorphismWire`,
+//! `SchemaSpanWire` and `SchemaOverlapWire` defined here (mirroring the
+//! shadow-struct idiom in [`crate::api::helpers`]), converted to and from
+//! the engine types at the boundary. `SchemaMorphism`, `TheoryMorphism`,
+//! `Schema`, and `Migration` already derive `serde` and cross as
+//! themselves.
+//!
+//! # The span is the primary search result
+//!
+//! [`pp_hom_find_span`] answers with a span `src ← apex → tgt`, and it is
+//! total: a pair with nothing in common gets an empty apex rather than a
+//! refusal. [`pp_hom_find_morphisms`] and [`pp_hom_find_best_morphism`] are
+//! the total-morphism restriction of that same search and are empty exactly
+//! when no total morphism exists, which on real schema pairs is the common
+//! case. A host that wants to know what two schemas share asks for the span.
 //!
 //! The WASM `WasmError`/`JsError` pair becomes [`FfiError`], `rmp_serde`
 //! becomes [`crate::canonical`] (CBOR via ciborium), and handle outputs
@@ -24,10 +37,10 @@ use std::sync::Arc;
 
 use panproto_core::gat::{Name, TheoryMorphism};
 use panproto_core::mig::{
-    self, Migration, cascade,
-    hom_search::{self, FoundMorphism, SearchOptions},
+    self, CostWeights, Migration, SchemaSpan, cascade,
+    hom_search::{self, DomainConstraints, FoundMorphism, SearchOptions},
 };
-use panproto_core::schema::Edge;
+use panproto_core::schema::{Edge, Schema};
 use safer_ffi::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -48,10 +61,14 @@ use crate::panic::guard;
 /// (`monic`, `epic`, `iso`, `max_results`, `hard_pins`). `serde(default)`
 /// lets a producer omit any field, matching the engine's `Default`.
 ///
-/// `initial` was renamed to `hard_pins` and `relax_edge_name_pruning` was
-/// dropped: the edge-name domain pruner it relaxed no longer exists, because
-/// edge-name agreement is a soft signal and now enters the objective rather
-/// than removing candidates outright.
+/// The five fields here are every field the engine's options type has. The
+/// node budget is not among them: it lives on the engine's `SearchBudget`,
+/// which the span search takes and the total-morphism entry points do not,
+/// so carrying it here would give a host a knob two of the three entry
+/// points that read this struct could not honour.
+///
+/// Hard *domain* restrictions are a separate struct on both sides:
+/// [`DomainConstraintsWire`], which only [`pp_hom_find_span`] accepts.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 struct SearchOptionsWire {
@@ -134,6 +151,148 @@ impl From<FoundMorphismWire> for FoundMorphism {
     }
 }
 
+/// Serializable mirror of `panproto_core::mig::CostWeights`.
+///
+/// The engine type keeps its five components private because it normalises
+/// them at construction and rejects a vector that is negative, non-finite or
+/// all zero. The wire therefore carries the raw components and
+/// [`Self::into_engine`] runs that constructor, so a host cannot smuggle a
+/// weight vector past the check.
+#[derive(Debug, Serialize, Deserialize)]
+struct CostWeightsWire {
+    /// Weight on vertex-name agreement.
+    name: f64,
+    /// Weight on edge structure agreement.
+    edge: f64,
+    /// Weight on property-set agreement.
+    prop: f64,
+    /// Weight on degree agreement.
+    degree: f64,
+    /// Weight on anchor evidence.
+    anchor: f64,
+}
+
+impl CostWeightsWire {
+    /// Build the engine [`CostWeights`], which normalises the five
+    /// components and checks their range.
+    fn into_engine(self) -> Result<CostWeights, FfiError> {
+        CostWeights::new(self.name, self.edge, self.prop, self.degree, self.anchor)
+            .map_err(|e| FfiError::Operation(format!("scoring weights: {e}")))
+    }
+}
+
+/// Serializable mirror of
+/// `panproto_core::mig::hom_search::DomainConstraints`.
+///
+/// Every field is the caller stating which assignments are admissible, not a
+/// heuristic filter. The two exclusion sets cross as CBOR arrays rather than
+/// as sets, because CBOR has no set type; duplicates collapse on the way in.
+/// `serde(default)` lets a producer omit any field, matching the engine's
+/// `Default`, so an empty CBOR map is a valid payload meaning "no
+/// restrictions".
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct DomainConstraintsWire {
+    /// For each source vertex, the only targets it may take.
+    #[serde(default)]
+    restricted_domains: HashMap<Name, Vec<Name>>,
+    /// Target vertices no source vertex may map to.
+    #[serde(default)]
+    excluded_targets: Vec<Name>,
+    /// Source vertices that must be left out of the apex.
+    #[serde(default)]
+    excluded_sources: Vec<Name>,
+    /// Override the objective's component weights.
+    #[serde(default)]
+    scoring_weights: Option<CostWeightsWire>,
+}
+
+impl DomainConstraintsWire {
+    /// Build the engine [`DomainConstraints`].
+    ///
+    /// # Errors
+    ///
+    /// [`FfiError::Operation`] when the scoring weights are present and the
+    /// engine's constructor rejects them.
+    fn into_engine(self) -> Result<DomainConstraints, FfiError> {
+        let scoring_weights = self
+            .scoring_weights
+            .map(CostWeightsWire::into_engine)
+            .transpose()?;
+        Ok(DomainConstraints {
+            restricted_domains: self.restricted_domains,
+            excluded_targets: self.excluded_targets.into_iter().collect(),
+            excluded_sources: self.excluded_sources.into_iter().collect(),
+            scoring_weights,
+        })
+    }
+}
+
+/// Serializable mirror of `panproto_core::mig::span::SchemaSpan`.
+///
+/// The span is `src ←left─ apex ─right→ tgt`. The apex is a `Schema` and the
+/// two legs are `Migration`s, all three of which derive `serde` and cross as
+/// themselves; the rest of the wire is the span's measurements, flattened out
+/// of the engine's certificate so that a host reads doubles and booleans
+/// rather than a nested record it has no other use for.
+///
+/// `quality` is a ranking signal among spans over one source schema and
+/// nothing else: every denominator of the objective is fixed by `src`, so
+/// comparing it across source schemas compares two different scales. An empty
+/// apex over a non-empty source reads `0.0` and an empty apex over an empty
+/// source reads `1.0`, which is why a host ranking pairs must read
+/// `apex_coverage` alongside it.
+#[derive(Debug, Serialize, Deserialize)]
+struct SchemaSpanWire {
+    /// The apex: the sub-schema of `src` the search gave targets to.
+    apex: Schema,
+    /// `left : apex -> src`, an inclusion.
+    left: Migration,
+    /// `right : apex -> tgt`.
+    right: Migration,
+    /// `1 - quality_cost / COST_SCALE`, excluding the drop count.
+    quality: f64,
+    /// Lower end of the interval bracketing `quality`.
+    quality_lo: f64,
+    /// Upper end of the interval bracketing `quality`. Equal to
+    /// `quality_lo` exactly when `proven_optimal` holds.
+    quality_hi: f64,
+    /// `|apex.vertices| / |src.vertices|`, or one when the source is empty.
+    apex_coverage: f64,
+    /// Whether the search proved its answer optimal.
+    proven_optimal: bool,
+    /// Whether the left leg is onto, which makes the span a total morphism.
+    is_total: bool,
+}
+
+impl From<SchemaSpan> for SchemaSpanWire {
+    fn from(span: SchemaSpan) -> Self {
+        let (quality_lo, quality_hi) = span.quality_bounds;
+        Self {
+            is_total: span.is_total(),
+            proven_optimal: span.certificate.proven_optimal,
+            apex: span.apex,
+            left: span.left,
+            right: span.right,
+            quality: span.quality,
+            quality_lo,
+            quality_hi,
+            apex_coverage: span.apex_coverage,
+        }
+    }
+}
+
+/// Serializable mirror of `panproto_core::schema::SchemaOverlap`.
+///
+/// The pair lists are what `schema::schema_pushout` takes, each pair being
+/// `(source element, target element)`.
+#[derive(Debug, Default, Serialize, Deserialize)]
+struct SchemaOverlapWire {
+    /// Vertex pairs identified by the pushout.
+    vertex_pairs: Vec<(Name, Name)>,
+    /// Edge pairs identified by the pushout.
+    edge_pairs: Vec<(Edge, Edge)>,
+}
+
 // ---------------------------------------------------------------------------
 // Entry points
 // ---------------------------------------------------------------------------
@@ -207,6 +366,95 @@ pub fn pp_hom_find_best_morphism(
             .map(FoundMorphismWire::from);
 
         let bytes = crate::canonical::encode(&best)?;
+        *out = bytes.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Find the maximum span between two schemas.
+///
+/// `src` and `tgt` are [`Resource::Schema`](crate::handle::Resource) handles
+/// and `protocol` is a [`Resource::Protocol`](crate::handle::Resource)
+/// handle: the apex is a schema, a schema is well formed only against a
+/// protocol, and inducing the apex re-validates it rather than assuming it,
+/// so the protocol is an argument rather than something read off the source
+/// (a schema stores only its protocol's name). `opts` is a CBOR-encoded
+/// `SearchOptionsWire` and `constraints` a CBOR-encoded
+/// `DomainConstraintsWire`; an empty CBOR map is a valid payload for either.
+/// On success, `out` receives a CBOR-encoded `SchemaSpanWire`. Calls
+/// `hom_search::find_span_constrained`.
+///
+/// # This never refuses for want of a match
+///
+/// Leaving every source vertex out of the apex is always feasible, so two
+/// schemas with nothing in common get an empty apex, not an error. A non-`Ok`
+/// status here means the search could not be posed or the induced apex is not
+/// a schema, both of which are defects rather than answers.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_hom_find_span(
+    src: u32,
+    tgt: u32,
+    protocol: u32,
+    opts: c_slice::Ref<'_, u8>,
+    constraints: c_slice::Ref<'_, u8>,
+    out: &mut repr_c::Vec<u8>,
+) -> i32 {
+    guard(|| {
+        let opts_wire: SearchOptionsWire = crate::canonical::decode(opts.as_slice())?;
+        let options = opts_wire.into_engine();
+
+        let constraints_wire: DomainConstraintsWire =
+            crate::canonical::decode(constraints.as_slice())?;
+        let domain = constraints_wire.into_engine()?;
+
+        let (src_schema, tgt_schema, proto) =
+            handle::with_three_resources(src, tgt, protocol, |r1, r2, r3| {
+                Ok((
+                    r1.as_schema()?.clone(),
+                    r2.as_schema()?.clone(),
+                    r3.as_protocol()?.clone(),
+                ))
+            })?;
+
+        let span =
+            hom_search::find_span_constrained(&src_schema, &tgt_schema, &proto, &options, &domain)
+                .map_err(|e| FfiError::Operation(format!("find_span: {e}")))?;
+
+        let bytes = crate::canonical::encode(&SchemaSpanWire::from(span))?;
+        *out = bytes.into();
+        Ok(PpStatus::Ok)
+    })
+}
+
+/// Read a span's apex as the identification list a pushout takes.
+///
+/// `span` is a CBOR-encoded `SchemaSpanWire`, as [`pp_hom_find_span`] wrote
+/// it. On success, `out` receives a CBOR-encoded `SchemaOverlapWire`: the
+/// right leg's two maps as `(source element, target element)` pairs, sorted
+/// by key so that one span always yields the same bytes. Feeding those pairs
+/// to a pushout merges `src` and `tgt` along the apex.
+///
+/// The left leg is an inclusion, so the apex's own identifiers *are* source
+/// identifiers and the right leg alone carries the identification.
+#[must_use = "FFI status codes should not be discarded"]
+#[ffi_export]
+pub fn pp_hom_span_to_overlap(span: c_slice::Ref<'_, u8>, out: &mut repr_c::Vec<u8>) -> i32 {
+    guard(|| {
+        let wire: SchemaSpanWire = crate::canonical::decode(span.as_slice())?;
+
+        let mut vertex_pairs: Vec<(Name, Name)> = wire.right.vertex_map.into_iter().collect();
+        vertex_pairs.sort_unstable();
+
+        let mut edge_pairs: Vec<(Edge, Edge)> = wire.right.edge_map.into_iter().collect();
+        edge_pairs.sort_unstable();
+
+        let overlap = SchemaOverlapWire {
+            vertex_pairs,
+            edge_pairs,
+        };
+
+        let bytes = crate::canonical::encode(&overlap)?;
         *out = bytes.into();
         Ok(PpStatus::Ok)
     })
@@ -456,8 +704,64 @@ mod tests {
             .unwrap()
     }
 
+    /// A target schema sharing only the record vertex: the `text` property
+    /// has nowhere to go, so no total morphism exists and the span is the
+    /// only answer.
+    fn lossy_target_schema() -> Schema {
+        let proto = crate::api::helpers::default_protocol("test");
+        SchemaBuilder::new(&proto)
+            .vertex("note", "record", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
     fn alloc_schema(s: &Schema) -> u32 {
         handle::alloc(Resource::Schema(Arc::new(s.clone())))
+    }
+
+    fn alloc_test_protocol() -> u32 {
+        handle::alloc(Resource::Protocol(Box::new(
+            crate::api::helpers::default_protocol("test"),
+        )))
+    }
+
+    /// The all-default domain constraints, CBOR-encoded.
+    fn default_constraints_bytes() -> Vec<u8> {
+        encode(&DomainConstraintsWire::default()).unwrap()
+    }
+
+    /// Run `pp_hom_find_span` over the two schemas under the given options
+    /// and constraints, answering with the decoded span.
+    fn find_span_wire(
+        src: &Schema,
+        tgt: &Schema,
+        opts: &[u8],
+        constraints: &[u8],
+    ) -> SchemaSpanWire {
+        let src_h = alloc_schema(src);
+        let tgt_h = alloc_schema(tgt);
+        let proto_h = alloc_test_protocol();
+
+        let opts = slice(opts);
+        let constraints = slice(constraints);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_find_span(
+            src_h,
+            tgt_h,
+            proto_h,
+            opts.as_ref(),
+            constraints.as_ref(),
+            &mut out,
+        );
+        assert_eq!(status, PpStatus::Ok as i32);
+        let span: SchemaSpanWire = decode(&out).unwrap();
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+        span
     }
 
     fn slice(bytes: &[u8]) -> c_slice::Box<u8> {
@@ -531,11 +835,85 @@ mod tests {
             .iter()
             .any(|m| m.vertex_map.get(&Name::from("post")) == Some(&Name::from("note")));
         assert!(maps_post_to_note, "expected a post -> note mapping");
-        // Results are ranked by descending quality.
+        // Every result attains the optimum, so they all carry one
+        // quality. `find_morphisms_max_results_zero_returns_one` is what
+        // pins the count; this walk passes vacuously on one element.
         for pair in results.windows(2) {
-            assert!(pair[0].quality >= pair[1].quality);
+            assert!((pair[0].quality - pair[1].quality).abs() < f64::EPSILON);
         }
         pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// `max_results = 0` no longer means "the whole hom-set".
+    ///
+    /// This pair admits several total morphisms and exactly one optimum, so
+    /// an unlimited request answers with one element. The
+    /// `find_morphisms_finds_the_rename` monotone-quality walk cannot catch
+    /// the difference, because `windows(2)` over a one-element list is empty.
+    #[test]
+    fn find_morphisms_max_results_zero_returns_one() {
+        let src = source_schema();
+        let tgt = target_schema();
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&tgt);
+
+        let unlimited = encode(&SearchOptionsWire {
+            max_results: 0,
+            ..SearchOptionsWire::default()
+        })
+        .unwrap();
+        let opts = slice(&unlimited);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_find_morphisms(src_h, tgt_h, opts.as_ref(), &mut out);
+        assert_eq!(status, PpStatus::Ok as i32);
+
+        let results: Vec<FoundMorphismWire> = decode(&out).unwrap();
+        assert_eq!(
+            results.len(),
+            1,
+            "an unlimited request answers with the optima, not the hom-set"
+        );
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// The head of the list and the best-morphism answer are the same
+    /// morphism, not merely the same quality.
+    #[test]
+    fn find_morphisms_top_matches_find_best() {
+        let src = source_schema();
+        let tgt = target_schema();
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&tgt);
+
+        let opts = slice(&default_opts_bytes());
+        let mut list_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_hom_find_morphisms(src_h, tgt_h, opts.as_ref(), &mut list_out),
+            PpStatus::Ok as i32
+        );
+        let results: Vec<FoundMorphismWire> = decode(&list_out).unwrap();
+        pp_buf_free(list_out);
+
+        let opts = slice(&default_opts_bytes());
+        let mut best_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_hom_find_best_morphism(src_h, tgt_h, opts.as_ref(), &mut best_out),
+            PpStatus::Ok as i32
+        );
+        let best: Option<FoundMorphismWire> = decode(&best_out).unwrap();
+        pp_buf_free(best_out);
+
+        let best = best.expect("the pair admits a total morphism");
+        let top = results.first().expect("so the list is not empty");
+        assert!((top.quality - best.quality).abs() < f64::EPSILON);
+        assert_eq!(top.vertex_map, best.vertex_map);
+        assert_eq!(top.edge_map, best.edge_map);
 
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
@@ -560,6 +938,176 @@ mod tests {
 
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn find_span_over_a_rename_is_total() {
+        let span = find_span_wire(
+            &source_schema(),
+            &target_schema(),
+            &default_opts_bytes(),
+            &default_constraints_bytes(),
+        );
+
+        assert!(span.is_total, "every source vertex has an image");
+        assert!((span.apex_coverage - 1.0).abs() < f64::EPSILON);
+        assert_eq!(span.apex.vertices.len(), 2);
+        assert_eq!(
+            span.right.vertex_map.get(&Name::from("post")),
+            Some(&Name::from("note"))
+        );
+        assert!(span.proven_optimal);
+        assert!(span.quality_lo <= span.quality && span.quality <= span.quality_hi);
+    }
+
+    #[test]
+    fn find_span_answers_where_no_total_morphism_exists() {
+        let src = source_schema();
+        let tgt = lossy_target_schema();
+
+        // The total-morphism entry point has nothing to say here.
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&tgt);
+        let opts = slice(&default_opts_bytes());
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_hom_find_best_morphism(src_h, tgt_h, opts.as_ref(), &mut out),
+            PpStatus::Ok as i32
+        );
+        let best: Option<FoundMorphismWire> = decode(&out).unwrap();
+        assert!(best.is_none(), "the text property has nowhere to go");
+        pp_buf_free(out);
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+
+        // The span answers with what the two schemas do share.
+        let span = find_span_wire(
+            &src,
+            &tgt,
+            &default_opts_bytes(),
+            &default_constraints_bytes(),
+        );
+        assert!(!span.is_total);
+        assert_eq!(span.apex.vertices.len(), 1);
+        assert!((span.apex_coverage - 0.5).abs() < f64::EPSILON);
+        assert_eq!(
+            span.right.vertex_map.get(&Name::from("post")),
+            Some(&Name::from("note"))
+        );
+    }
+
+    #[test]
+    fn find_span_honours_excluded_sources() {
+        let constraints = encode(&DomainConstraintsWire {
+            excluded_sources: vec![Name::from("text")],
+            ..DomainConstraintsWire::default()
+        })
+        .unwrap();
+
+        let span = find_span_wire(
+            &source_schema(),
+            &target_schema(),
+            &default_opts_bytes(),
+            &constraints,
+        );
+
+        assert!(!span.is_total, "an excluded source cannot be in the apex");
+        assert!(!span.right.vertex_map.contains_key(&Name::from("text")));
+    }
+
+    #[test]
+    fn find_span_rejects_unusable_scoring_weights() {
+        let constraints = encode(&DomainConstraintsWire {
+            scoring_weights: Some(CostWeightsWire {
+                name: 0.0,
+                edge: 0.0,
+                prop: 0.0,
+                degree: 0.0,
+                anchor: 0.0,
+            }),
+            ..DomainConstraintsWire::default()
+        })
+        .unwrap();
+
+        let src_h = alloc_schema(&source_schema());
+        let tgt_h = alloc_schema(&target_schema());
+        let proto_h = alloc_test_protocol();
+        let opts = slice(&default_opts_bytes());
+        let constraints = slice(&constraints);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_find_span(
+            src_h,
+            tgt_h,
+            proto_h,
+            opts.as_ref(),
+            constraints.as_ref(),
+            &mut out,
+        );
+        assert_eq!(status, PpStatus::Operation as i32);
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn find_span_rejects_a_non_protocol_third_handle() {
+        let src = source_schema();
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&target_schema());
+        // A schema handle where a protocol handle belongs.
+        let opts = slice(&default_opts_bytes());
+        let constraints = slice(&default_constraints_bytes());
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_find_span(
+            src_h,
+            tgt_h,
+            src_h,
+            opts.as_ref(),
+            constraints.as_ref(),
+            &mut out,
+        );
+        assert_eq!(status, PpStatus::TypeMismatch as i32);
+        pp_buf_free(out);
+
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// The overlap the C ABI projects out of a span's wire form is the one
+    /// the engine's own `SchemaSpan::to_overlap` computes, pair for pair and
+    /// in the same order.
+    #[test]
+    fn span_to_overlap_matches_the_engine() {
+        let src = source_schema();
+        let tgt = target_schema();
+        let proto = crate::api::helpers::default_protocol("test");
+
+        let engine_span = hom_search::find_span(&src, &tgt, &proto, &SearchOptions::default())
+            .expect("the span search is total");
+        let engine_overlap = engine_span.to_overlap();
+
+        let span_bytes = encode(&SchemaSpanWire::from(engine_span)).unwrap();
+        let span = slice(&span_bytes);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_span_to_overlap(span.as_ref(), &mut out);
+        assert_eq!(status, PpStatus::Ok as i32);
+        let wire: SchemaOverlapWire = decode(&out).unwrap();
+        pp_buf_free(out);
+
+        assert_eq!(wire.vertex_pairs, engine_overlap.vertex_pairs);
+        assert_eq!(wire.edge_pairs, engine_overlap.edge_pairs);
+        assert!(!wire.vertex_pairs.is_empty());
+    }
+
+    #[test]
+    fn span_to_overlap_rejects_garbage() {
+        let bad = slice(&[0xFFu8, 0xFE, 0xFD]);
+        let mut out: repr_c::Vec<u8> = Vec::new().into();
+        let status = pp_hom_span_to_overlap(bad.as_ref(), &mut out);
+        assert_eq!(status, PpStatus::Serialization as i32);
+        pp_buf_free(out);
     }
 
     #[test]

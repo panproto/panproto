@@ -72,6 +72,14 @@ def test_core_public_symbols_are_reexported() -> None:
         "invert_migration",
         "check_existence",
         "check_coverage",
+        # Hom search. `find_span` is the total entry point: it always
+        # returns a span, where `find_best_morphism` returns `None` on
+        # every pair with no total morphism.
+        "FoundMorphism",
+        "SchemaSpan",
+        "find_best_morphism",
+        "find_morphisms",
+        "find_span",
         # Migration combinators (closes the issue where downstream
         # code wrote `panproto.add_field` and got an AttributeError
         # because the combinators were only on `panproto._native`).

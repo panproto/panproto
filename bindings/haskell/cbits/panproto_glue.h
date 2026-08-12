@@ -156,6 +156,23 @@ int32_t pp_hom_find_best_morphism_at(
     Vec_uint8_t *out
 );
 
+int32_t pp_hom_find_span_at(
+    uint32_t src,
+    uint32_t tgt,
+    uint32_t protocol,
+    const uint8_t *opts_ptr,
+    size_t opts_len,
+    const uint8_t *constraints_ptr,
+    size_t constraints_len,
+    Vec_uint8_t *out
+);
+
+int32_t pp_hom_span_to_overlap_at(
+    const uint8_t *span_ptr,
+    size_t span_len,
+    Vec_uint8_t *out
+);
+
 int32_t pp_hom_morphism_to_migration_at(
     const uint8_t *morphism_ptr,
     size_t morphism_len,

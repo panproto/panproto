@@ -1,14 +1,21 @@
 // Homomorphism search as the wire spells it: the options a search runs
-// under, the morphisms it finds, and the schema morphism a theory
-// morphism induces.
+// under, the domain restrictions it honours, the span it answers with,
+// the morphisms it finds, and the schema morphism a theory morphism
+// induces.
 
-/// The constraints a homomorphism search runs under.
+/// The shape a homomorphism search is asked for.
 ///
 /// Every field has a default, so an empty CBOR map is a valid payload.
-/// The engine's own options type carries more than this: restricted
-/// domains, excluded sources and targets, scoring weights, and a name
-/// similarity threshold live on a separate struct that the C boundary
-/// does not expose, so those are not reachable from a host.
+/// None of these is a cost: each states a property of the answer wanted,
+/// and each selects a different algorithm. Restrictions on where a
+/// vertex may land are a separate payload,
+/// ``MorphismDomainConstraints``, which the span search takes alongside
+/// this one.
+///
+/// The engine's node budget is not here. It lives on the engine's search
+/// budget, which the span search takes and the total-morphism entry
+/// points do not, so a host setting it here would be setting a knob two
+/// of the three entry points could not honour.
 public struct MorphismSearchOptions: Codable, Hashable, Sendable {
     /// Require an injective vertex map.
     public var monic: Bool
@@ -21,9 +28,10 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
     /// Vertex mappings the caller knows and the search may not
     /// reconsider.
     ///
-    /// This was called `initial`. It was renamed to say what it does: it
-    /// is a hard restriction, not a starting point the search may move
-    /// away from.
+    /// A hard restriction, not a starting point the search may move away
+    /// from. A pin the target's kind cannot accept leaves its source
+    /// vertex out of the apex rather than failing the whole search.
+    /// Mappings something *inferred* do not belong here.
     public var hardPins: [String: String]
 
     /// The wire keys, in Rust declaration order.
@@ -60,6 +68,240 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
         self.maxResults = try container.decodeIfPresent(UInt.self, forKey: .maxResults) ?? 0
         self.hardPins =
             try container.decodeIfPresent([String: String].self, forKey: .hardPins) ?? [:]
+    }
+}
+
+/// The relative weight of each component of a search's objective.
+///
+/// The engine normalises these to sum to one and rejects a vector that
+/// is negative, non-finite, or all zero, so only the ratios matter and a
+/// vector of five zeros is refused rather than silently ignored. Every
+/// weight is a principled default rather than a fitted value.
+public struct MorphismCostWeights: Codable, Hashable, Sendable {
+    /// Weight on vertex-name agreement.
+    public var name: Double
+    /// Weight on edge structure agreement.
+    public var edge: Double
+    /// Weight on property-set agreement.
+    public var prop: Double
+    /// Weight on degree agreement.
+    public var degree: Double
+    /// Weight on anchor evidence.
+    public var anchor: Double
+
+    /// Weight the five components of the objective. The defaults are the
+    /// engine's own.
+    public init(
+        name: Double = 0.25,
+        edge: Double = 0.25,
+        prop: Double = 0.30,
+        degree: Double = 0.20,
+        anchor: Double = 0.0
+    ) {
+        self.name = name
+        self.edge = edge
+        self.prop = prop
+        self.degree = degree
+        self.anchor = anchor
+    }
+}
+
+/// Where a search is allowed to send each source vertex.
+///
+/// Every field states which assignments are admissible, so each is a
+/// hard restriction rather than a preference the search may overrule.
+/// Every field has a default, so an empty CBOR map is a valid payload
+/// meaning "no restrictions".
+///
+/// Restricting a vertex to the empty list, or naming it in
+/// ``excludedSources``, leaves it out of the apex rather than failing
+/// the search. Asking a *total* morphism search to omit part of its
+/// domain therefore has no answer, and the span search is the entry
+/// point that answers it.
+public struct MorphismDomainConstraints: Codable, Hashable, Sendable {
+    /// For each source vertex, the only targets it may take. Vertices
+    /// absent from this map are unrestricted beyond kind compatibility.
+    public var restrictedDomains: [Name: [Name]]
+    /// Target vertices no source vertex may map to.
+    public var excludedTargets: [Name]
+    /// Source vertices that must be left out of the apex.
+    public var excludedSources: [Name]
+    /// Override the objective's component weights.
+    public var scoringWeights: MorphismCostWeights?
+
+    /// The wire keys, in Rust declaration order.
+    private enum CodingKeys: String, CodingKey {
+        case restrictedDomains = "restricted_domains"
+        case excludedTargets = "excluded_targets"
+        case excludedSources = "excluded_sources"
+        case scoringWeights = "scoring_weights"
+    }
+
+    /// Restrict a search, leaving anything unnamed unrestricted.
+    public init(
+        restrictedDomains: [Name: [Name]] = [:],
+        excludedTargets: [Name] = [],
+        excludedSources: [Name] = [],
+        scoringWeights: MorphismCostWeights? = nil
+    ) {
+        self.restrictedDomains = restrictedDomains
+        self.excludedTargets = excludedTargets
+        self.excludedSources = excludedSources
+        self.scoringWeights = scoringWeights
+    }
+
+    /// Read constraints, defaulting every field the payload leaves out.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.restrictedDomains =
+            try container.decodeIfPresent([Name: [Name]].self, forKey: .restrictedDomains) ?? [:]
+        self.excludedTargets =
+            try container.decodeIfPresent([Name].self, forKey: .excludedTargets) ?? []
+        self.excludedSources =
+            try container.decodeIfPresent([Name].self, forKey: .excludedSources) ?? []
+        self.scoringWeights =
+            try container.decodeIfPresent(MorphismCostWeights.self, forKey: .scoringWeights)
+    }
+
+    /// Write all four keys, the absent weights as a null.
+    ///
+    /// Writing the key rather than dropping it keeps one value encoding
+    /// to one map arity, which is what lets a reader check the shape
+    /// without knowing whether the weights were set.
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(restrictedDomains, forKey: .restrictedDomains)
+        try container.encode(excludedTargets, forKey: .excludedTargets)
+        try container.encode(excludedSources, forKey: .excludedSources)
+        if let scoringWeights {
+            try container.encode(scoringWeights, forKey: .scoringWeights)
+        } else {
+            try container.encodeNil(forKey: .scoringWeights)
+        }
+    }
+}
+
+/// What two schemas share: a span `src ← apex → tgt`.
+///
+/// The apex is the sub-schema of the source the search gave targets to,
+/// so ``left`` is an inclusion and ``right`` carries the whole
+/// identification. A span always exists, because leaving every source
+/// vertex out of the apex is a feasible answer, which is why the search
+/// that produces one never refuses and why an empty apex, rather than a
+/// failure, is how "these two schemas share nothing" is said.
+///
+/// A total morphism is the degenerate case: ``isTotal`` holds exactly
+/// when the apex is the whole source, and ``asTotalMorphism`` hands back
+/// the older shape.
+///
+/// ## Reading the quality
+///
+/// ``quality`` ranks spans **over one source schema and nothing else**.
+/// Every denominator of the objective is fixed by the source, so two
+/// spans out of the same schema are comparable and two spans out of
+/// different schemas are not. The two empty cases read oppositely: an
+/// empty apex over a non-empty source is `0.0`, because every vertex
+/// paid the drop cost, and an empty apex over an empty source is `1.0`,
+/// because nothing paid anything. Both say the same thing, so a host
+/// ranking pairs reads ``apexCoverage`` alongside the score.
+public struct SchemaSpan: Codable, Hashable, Sendable {
+    /// The apex: the sub-schema of the source that found a target.
+    public var apex: Schema
+    /// `apex → src`, an inclusion, so its maps are the identity on the
+    /// apex.
+    public var left: Migration
+    /// `apex → tgt`: the search's assignment, restricted to the apex.
+    public var right: Migration
+    /// How well the covered part matches, excluding what was dropped.
+    public var quality: Double
+    /// The low end of the interval bracketing ``quality``.
+    public var qualityLo: Double
+    /// The high end of the interval bracketing ``quality``. Equal to
+    /// ``qualityLo`` exactly when ``provenOptimal`` holds; a wider
+    /// interval is what separates "nothing better exists" from "the
+    /// search ran out of budget before it could rule better out".
+    public var qualityHi: Double
+    /// The share of the source's vertices the apex covers, or one when
+    /// the source has no vertices.
+    public var apexCoverage: Double
+    /// Whether the search proved its answer optimal.
+    public var provenOptimal: Bool
+    /// Whether the apex is the whole source, which makes the span a
+    /// total morphism.
+    public var isTotal: Bool
+
+    /// The wire keys, in Rust declaration order.
+    private enum CodingKeys: String, CodingKey {
+        case apex
+        case left
+        case right
+        case quality
+        case qualityLo = "quality_lo"
+        case qualityHi = "quality_hi"
+        case apexCoverage = "apex_coverage"
+        case provenOptimal = "proven_optimal"
+        case isTotal = "is_total"
+    }
+
+    /// Describe a span.
+    public init(
+        apex: Schema,
+        left: Migration,
+        right: Migration,
+        quality: Double,
+        qualityLo: Double,
+        qualityHi: Double,
+        apexCoverage: Double,
+        provenOptimal: Bool,
+        isTotal: Bool
+    ) {
+        self.apex = apex
+        self.left = left
+        self.right = right
+        self.quality = quality
+        self.qualityLo = qualityLo
+        self.qualityHi = qualityHi
+        self.apexCoverage = apexCoverage
+        self.provenOptimal = provenOptimal
+        self.isTotal = isTotal
+    }
+
+    /// The span as a total morphism, or `nil` when the apex is not the
+    /// whole source.
+    ///
+    /// This is the right leg's two maps and the quality, which is the
+    /// shape `SchemaHandle.findBestMorphism(to:options:)` answers
+    /// with. That symbol lives in the `Panproto` module, which this
+    /// target's documentation build does not see, so it is written as a
+    /// code span rather than a symbol link.
+    public var asTotalMorphism: FoundMorphism? {
+        guard isTotal else { return nil }
+        return FoundMorphism(
+            vertexMap: right.vertexMap, edgeMap: right.edgeMap, quality: quality)
+    }
+}
+
+/// Which elements of two schemas name the same thing.
+///
+/// This is what merging two schemas along a span takes: each pair is
+/// `(source element, target element)`, and the pushout identifies the
+/// two halves of every pair.
+public struct SchemaOverlap: Codable, Hashable, Sendable {
+    /// Vertex pairs the pushout identifies.
+    public var vertexPairs: [WirePair<Name, Name>]
+    /// Edge pairs the pushout identifies.
+    public var edgePairs: [WirePair<Edge, Edge>]
+
+    /// The wire keys, in Rust declaration order.
+    private enum CodingKeys: String, CodingKey {
+        case vertexPairs = "vertex_pairs"
+        case edgePairs = "edge_pairs"
+    }
+
+    /// Describe an overlap.
+    public init(vertexPairs: [WirePair<Name, Name>] = [], edgePairs: [WirePair<Edge, Edge>] = []) {
+        self.vertexPairs = vertexPairs
+        self.edgePairs = edgePairs
     }
 }
 

@@ -281,7 +281,7 @@ fn compile_auto_body(
     if let Some(enable_overlap) = spec.enable_overlap {
         config.try_overlap = enable_overlap;
     }
-    if let Some(max_results) = spec.max_search_depth {
+    if let Some(max_results) = spec.max_results {
         config.search_opts.max_results = max_results.max(1);
     }
 

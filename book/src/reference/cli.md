@@ -693,7 +693,9 @@ Arguments:
 Options:
       --monic    Require injective (one-to-one) vertex mapping
   -v, --verbose  Enable verbose output
-      --json     Output the migration as JSON
+      --total    Require every source vertex to be mapped; fail on a partial answer
+      --span     Report the span even when it covers nothing at all
+      --json     Output the span's right leg, a migration out of the apex, as JSON
   -h, --help     Print help
 ```
 

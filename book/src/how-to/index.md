@@ -18,6 +18,7 @@ If you want to understand *why* a step works, follow the link to the explanation
 ### Schemas and migrations
 - [Define a schema](./define-schema/index.md) (CLI, TypeScript, Python, Rust)
 - [Build a migration](./build-migration.md)
+- [Find a span between two schemas](./spans.md)
 - [Apply field transforms](./field-transforms.md)
 - [Use lenses](./use-lenses.md), [protolenses](./protolenses.md), [dependent optics](./dependent-optics.md)
 - [Write lenses in the lens DSL](./lens-dsl.md)

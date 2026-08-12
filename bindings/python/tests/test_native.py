@@ -267,6 +267,150 @@ class TestDiffAndClassify:
 
 
 # ---------------------------------------------------------------------------
+# Morphism and span search
+# ---------------------------------------------------------------------------
+
+
+class TestSpanSearch:
+    """`find_span` against `find_best_morphism` on the same schema pairs.
+
+    The pair that motivates the span search is the one where the target
+    dropped a field: no total morphism exists, so `find_best_morphism`
+    returns `None`, while `find_span` still reports how much of the source
+    the target does cover.
+    """
+
+    @pytest.fixture
+    def protocol(self) -> panproto.Protocol:
+        return panproto.get_builtin_protocol("atproto")
+
+    @pytest.fixture
+    def wide(self, protocol: panproto.Protocol) -> panproto.Schema:
+        b = protocol.schema()
+        b.vertex("t", "object")
+        b.vertex("t.id", "integer")
+        b.vertex("t.email", "string")
+        b.edge("t", "t.id", "prop", "id")
+        b.edge("t", "t.email", "prop", "email")
+        return b.build()
+
+    @pytest.fixture
+    def narrow(self, protocol: panproto.Protocol) -> panproto.Schema:
+        """`wide` with the string field dropped. Nothing in this schema can
+        receive `t.email`, so no total morphism out of `wide` exists."""
+        b = protocol.schema()
+        b.vertex("t", "object")
+        b.vertex("t.id", "integer")
+        b.edge("t", "t.id", "prop", "id")
+        return b.build()
+
+    def test_no_total_morphism_when_a_field_was_dropped(
+        self, wide: panproto.Schema, narrow: panproto.Schema
+    ) -> None:
+        assert panproto.find_best_morphism(wide, narrow) is None
+
+    def test_span_answers_where_the_morphism_search_refuses(
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        span = panproto.find_span(wide, narrow, protocol)
+        assert span.is_total is False
+        assert "t.email" not in {v.id for v in span.apex.vertices}
+        assert span.apex.vertex_count < wide.vertex_count
+        assert 0.0 < span.apex_coverage < 1.0
+
+    def test_identity_pair_is_a_total_span(
+        self, wide: panproto.Schema, protocol: panproto.Protocol
+    ) -> None:
+        span = panproto.find_span(wide, wide, protocol)
+        assert span.is_total is True
+        assert span.apex_coverage == 1.0
+        assert span.apex.vertex_count == wide.vertex_count
+
+    def test_a_total_span_converts_to_the_morphism_shape(
+        self, wide: panproto.Schema, protocol: panproto.Protocol
+    ) -> None:
+        span = panproto.find_span(wide, wide, protocol)
+        found = span.as_total_morphism()
+        assert found is not None
+        assert found.vertex_map["t.email"] == "t.email"
+
+    def test_a_partial_span_has_no_morphism_shape(
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        span = panproto.find_span(wide, narrow, protocol)
+        assert span.as_total_morphism() is None
+
+    def test_bounds_collapse_exactly_when_optimality_was_proven(
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        """The interval is what separates "nothing better exists" from "the
+        search ran out of budget", so a proven-optimal answer must report a
+        point interval and an unproven one must not claim one."""
+        span = panproto.find_span(wide, narrow, protocol)
+        lo, hi = span.quality_bounds
+        assert lo <= span.quality <= hi
+        if span.proven_optimal:
+            assert lo == hi
+
+    def test_anchors_are_honoured(
+        self, wide: panproto.Schema, narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        span = panproto.find_span(wide, narrow, protocol, {"t.id": "t.id"})
+        assert span.right.to_dict()["vertex_map"]["t.id"] == "t.id"
+
+    def test_to_dict_carries_the_certificate(
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        d = panproto.find_span(wide, narrow, protocol).to_dict()
+        for key in (
+            "apex",
+            "quality",
+            "quality_bounds",
+            "apex_coverage",
+            "proven_optimal",
+            "is_total",
+            "apex_digest",
+        ):
+            assert key in d
+
+    def test_overlap_pairs_are_sorted(
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
+        protocol: panproto.Protocol,
+    ) -> None:
+        """Sorted so the overlap is a function of the span rather than of a
+        hash seed."""
+        pairs = panproto.find_span(wide, narrow, protocol).to_overlap()
+        assert pairs["vertex_pairs"] == sorted(pairs["vertex_pairs"])
+
+    def test_found_morphism_to_dict_carries_the_edge_map(
+        self, wide: panproto.Schema
+    ) -> None:
+        """`vertex_map` alone does not determine the morphism: parallel
+        edges between the same endpoints are distinguished only by the edge
+        map."""
+        found = panproto.find_best_morphism(wide, wide)
+        assert found is not None
+        d = found.to_dict()
+        assert "edge_map" in d
+        assert len(d["edge_map"]) == wide.edge_count
+
+
+# ---------------------------------------------------------------------------
 # Instance accessors
 # ---------------------------------------------------------------------------
 

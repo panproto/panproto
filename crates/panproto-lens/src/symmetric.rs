@@ -375,4 +375,103 @@ mod tests {
                 .unwrap();
         assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
     }
+
+    // -------------------------------------------------------------------
+    // `auto_symmetric`
+    // -------------------------------------------------------------------
+
+    fn auto_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec![
+                "record".into(),
+                "string".into(),
+                "alpha".into(),
+                "beta".into(),
+            ],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
+    fn one_field_record(protocol: &Protocol, root: &str, field: &str, label: &str) -> Schema {
+        panproto_schema::SchemaBuilder::new(protocol)
+            .vertex(root, "record", None::<&str>)
+            .unwrap()
+            .vertex(field, "string", None::<&str>)
+            .unwrap()
+            .edge(root, field, "prop", Some(label))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    /// A schema spans itself, and the middle is the whole of it.
+    #[test]
+    fn auto_symmetric_spans_a_schema_with_itself() {
+        let protocol = auto_protocol();
+        let schema = one_field_record(&protocol, "post", "post.text", "text");
+        let sym =
+            SymmetricLens::auto_symmetric(&schema, &schema, &protocol, &AutoLensConfig::default())
+                .unwrap();
+        assert_eq!(
+            sym.middle.vertices.len(),
+            schema.vertices.len(),
+            "a schema shares all of itself, so the apex is the whole schema"
+        );
+    }
+
+    /// Two schemas that share no vertex *name* still share structure, and the
+    /// span search finds it.
+    ///
+    /// This is the case that separates the span search from the overlap
+    /// discovery it replaced. `discover_overlap` matched on names and reported
+    /// nothing here; the span search minimises a cost function in which pairing
+    /// two kind-compatible records beats dropping both, so it answers with the
+    /// sub-schema they do share and `auto_symmetric` builds a lens over it.
+    #[test]
+    fn auto_symmetric_finds_a_middle_when_only_the_names_differ() {
+        let protocol = auto_protocol();
+        let left = one_field_record(&protocol, "post", "post.text", "text");
+        let right = one_field_record(&protocol, "profile", "profile.avatar", "avatar");
+        let sym =
+            SymmetricLens::auto_symmetric(&left, &right, &protocol, &AutoLensConfig::default())
+                .unwrap();
+        assert!(
+            !sym.middle.vertices.is_empty(),
+            "the two records are kind-compatible, so the optimal apex is not empty"
+        );
+    }
+
+    /// Refusal is reachable, and reaching it takes schemas that share no *kind*.
+    ///
+    /// An empty apex is always feasible, so this is the only shape that still
+    /// produces one: every pairing is infeasible and dropping everything is
+    /// what is left.
+    #[test]
+    fn auto_symmetric_refuses_when_the_two_schemas_share_no_kind() {
+        let protocol = auto_protocol();
+        let left = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("x", "alpha", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let right = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("y", "beta", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let outcome =
+            SymmetricLens::auto_symmetric(&left, &right, &protocol, &AutoLensConfig::default());
+        let Err(err) = outcome else {
+            panic!("no kind is shared, so there is no middle schema to hang the legs off");
+        };
+        assert!(
+            err.to_string().contains("no overlap found"),
+            "an empty apex must be reported as an absent overlap, got: {err}"
+        );
+    }
 }

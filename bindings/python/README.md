@@ -81,6 +81,8 @@ repo.merge("feature", "anonymous")
 | `define_protocol(spec)`      | Define a custom protocol from a dict.                                    |
 | `Theory`, `create_theory`, `TheoryBuilder` | GAT-level theory construction. `Theory.from_nickel(src)` / `from_yaml(src)` / `from_json(src)` / `from_path(p)` load theory-DSL documents; `to_yaml()` / `from_dict_yaml(s)` round-trip the flat `panproto_gat::Theory` shape (JSON pair already provided). |
 | `diff_schemas`, `diff_and_classify` | Structural diff and breaking-change classification.               |
+| `find_best_morphism`, `find_morphisms` | Search for a total schema morphism. Returns nothing when none exists. |
+| `find_span`, `SchemaSpan`    | Search for the optimal span. Always answers: two schemas with nothing in common give an empty apex, not a failure. |
 | `auto_generate_lens`         | Generate a bidirectional `Lens` from two schemas.                        |
 | `Lens`                       | `get(instance) -> (view, complement)`, `put(view, complement) -> instance`. |
 | `ProtolensChain`             | `from_dsl_json(src, body_vertex)` / `from_dsl_yaml` / `from_dsl_nickel` / `from_dsl_path` compile a `panproto-lens-dsl` document into a chain anchored at the named body vertex of the source schema. |

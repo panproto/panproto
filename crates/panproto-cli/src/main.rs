@@ -636,7 +636,15 @@ enum Command {
         #[arg(long)]
         monic: bool,
 
-        /// Output the migration as JSON.
+        /// Require every source vertex to be mapped; fail on a partial answer.
+        #[arg(long, conflicts_with = "span")]
+        total: bool,
+
+        /// Report the span even when it covers nothing at all.
+        #[arg(long)]
+        span: bool,
+
+        /// Output the span's right leg, a migration out of the apex, as JSON.
         #[arg(long)]
         json: bool,
     },
@@ -1425,8 +1433,29 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             old,
             new,
             monic,
+            total,
+            span,
             json,
-        } => cmd::schema::cmd_auto_migrate(&old, &new, monic, json, verbose),
+        } => {
+            // `--total` and `--span` conflict, so at most one of these holds.
+            let acceptance = if total {
+                cmd::schema::SpanAcceptance::Total
+            } else if span {
+                cmd::schema::SpanAcceptance::Any
+            } else {
+                cmd::schema::SpanAcceptance::NonEmpty
+            };
+            cmd::schema::cmd_auto_migrate(
+                &old,
+                &new,
+                cmd::schema::AutoMigrateOptions {
+                    monic,
+                    acceptance,
+                    json,
+                },
+                verbose,
+            )
+        }
         _ => unreachable!(),
     }
 }

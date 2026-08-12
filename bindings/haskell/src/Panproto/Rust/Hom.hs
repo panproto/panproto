@@ -5,7 +5,7 @@
 -- the @'HomBackend' 'Rust'@ instance.
 --
 -- Implements the @hom@ surface of @libpanproto_c@ (see
--- @crates\/panproto-c\/CONTRACT.md@'s @hom@ domain, five entry points)
+-- @crates\/panproto-c\/CONTRACT.md@'s @hom@ domain, seven entry points)
 -- by dispatching to "Panproto.Rust.FFI" through the
 -- "Panproto.Rust.Handle" combinators. The instance is an orphan by
 -- design, matching the @SchemaBackend Rust@ \/ @MigrationBackend Rust@
@@ -18,11 +18,23 @@
 -- * 'findMorphisms' → @pp_hom_find_morphisms@
 --   (@hom_search::find_morphisms@). The 'SearchOptions' are CBOR-encoded
 --   via 'encodeSearchOptions'; the engine returns a CBOR
---   @Vec\<FoundMorphism\>@ that 'decodeFoundMorphismList' reifies. The
---   results arrive already ranked by descending 'quality'.
+--   @Vec\<FoundMorphism\>@ that 'decodeFoundMorphismList' reifies. Every
+--   element attains the optimum, so they all carry the same
+--   'Panproto.Hom.quality'.
 -- * 'findBestMorphism' → @pp_hom_find_best_morphism@
 --   (@hom_search::find_best_morphism@). Same input; the engine returns a
 --   CBOR @Option\<FoundMorphism\>@ decoded by 'decodeFoundMorphismMaybe'.
+-- * 'findSpan' → @pp_hom_find_span@
+--   (@hom_search::find_span_constrained@). Two CBOR inputs, the
+--   'Panproto.Hom.SearchOptions' and the
+--   'Panproto.Hom.DomainConstraints', are pinned together by nesting
+--   'withSliceIn'; the third handle is the protocol the induced apex is
+--   validated against. The engine returns a CBOR span that
+--   'decodeFoundSpan' reifies.
+-- * 'spanToOverlap' → @pp_hom_span_to_overlap@
+--   (@SchemaSpan::to_overlap@). The span goes back out through
+--   'encodeFoundSpan' and the engine answers with a CBOR
+--   'Panproto.Hom.SchemaOverlap'.
 -- * 'induceSchemaMorphism' → @pp_hom_induce_schema_morphism@
 --   (@cascade::induce_schema_morphism@). The 'TheoryMorphism' is encoded
 --   with 'encodeMorphism'; the result is a CBOR 'SchemaMorphism' decoded
@@ -66,18 +78,24 @@ import Panproto.Hom
     ( FoundMorphism (..)
     , HomBackend (..)
     , SchemaMorphism (..)
+    , decodeFoundSpan
     , decodeSchemaMorphism
+    , decodeSchemaOverlap
+    , encodeDomainConstraints
+    , encodeFoundSpan
     , encodeSearchOptions
     )
 import Panproto.Migration (Migration (..), MigrationBackend (..), emptyMigration)
-import Panproto.Rust (schemaRepHandle)
+import Panproto.Rust (protocolRepHandle, schemaRepHandle)
 import Panproto.Rust.FFI
     ( VecU8
     , pp_handle_free
     , pp_hom_find_best_morphism_at
     , pp_hom_find_morphisms_at
+    , pp_hom_find_span_at
     , pp_hom_induce_migration_from_theory_at
     , pp_hom_induce_schema_morphism_at
+    , pp_hom_span_to_overlap_at
     )
 import Panproto.Rust.Handle
     ( callVecOut
@@ -113,6 +131,26 @@ instance HomBackend Rust where
         case decodeFoundMorphismMaybe bs of
             Right m -> pure m
             Left err -> throwIO (hostDecodeError "pp_hom_find_best_morphism" err)
+
+    findSpan src tgt proto opts constraints = do
+        let sh = schemaRepHandle src
+            th = schemaRepHandle tgt
+            ph = protocolRepHandle proto
+        bs <-
+            withSliceIn (encodeSearchOptions opts) $ \optsPtr optsLen ->
+                withSliceIn (encodeDomainConstraints constraints) $ \conPtr conLen ->
+                    callVecOut (pp_hom_find_span_at sh th ph optsPtr optsLen conPtr conLen)
+        case decodeFoundSpan bs of
+            Right s -> pure s
+            Left err -> throwIO (hostDecodeError "pp_hom_find_span" err)
+
+    spanToOverlap _ found = do
+        bs <-
+            withSliceIn (encodeFoundSpan found) $ \ptr len ->
+                callVecOut (pp_hom_span_to_overlap_at ptr len)
+        case decodeSchemaOverlap bs of
+            Right o -> pure o
+            Left err -> throwIO (hostDecodeError "pp_hom_span_to_overlap" err)
 
     induceSchemaMorphism theoryMorph src = do
         let sh = schemaRepHandle src

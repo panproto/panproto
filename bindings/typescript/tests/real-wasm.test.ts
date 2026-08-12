@@ -732,3 +732,76 @@ describe('ProtolensChainHandle.fieldTransforms', () => {
     chain[Symbol.dispose]();
   });
 });
+
+// ---------------------------------------------------------------------------
+// auto_generate_span — fixed site: api/lens.rs (SpanResponse)
+// The span search always answers, so the assertion that matters is the
+// partial case: a target missing one of the source's fields must come back
+// with an apex smaller than the source rather than as a thrown error.
+// ---------------------------------------------------------------------------
+
+describe('Panproto.span', () => {
+  const buildPair = () => {
+    const atp = pp.protocol('atproto');
+    const wide = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.span' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .vertex('r:body.n', 'integer')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .edge('r:body', 'r:body.n', 'prop', { name: 'n' })
+      .build();
+    const narrow = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.span' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .build();
+    return { wide, narrow };
+  };
+
+  it('reads the payload by named fields, not by position', () => {
+    const { wide, narrow } = buildPair();
+    const span = pp.span(wide, narrow);
+
+    expect(Array.isArray(span.apex_vertices)).toBe(true);
+    expect(span.apex_edges[0]?.src).toBeDefined();
+    expect(span.quality_bounds).toHaveLength(2);
+    expect(typeof span.proven_optimal).toBe('boolean');
+    expect(span.apex_digest).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it('answers on a pair with no total morphism instead of throwing', () => {
+    const { wide, narrow } = buildPair();
+    const span = pp.span(wide, narrow);
+
+    expect(span.is_total).toBe(false);
+    expect(span.apex_vertices).not.toContain('r:body.n');
+    expect(span.apex_coverage).toBeGreaterThan(0);
+    expect(span.apex_coverage).toBeLessThan(1);
+  });
+
+  it('covers the whole source on an identity pair', () => {
+    const { wide } = buildPair();
+    const span = pp.span(wide, wide);
+
+    expect(span.is_total).toBe(true);
+    expect(span.apex_coverage).toBe(1);
+  });
+
+  it('brackets the quality, and collapses the bracket when it proved optimality', () => {
+    const { wide, narrow } = buildPair();
+    const span = pp.span(wide, narrow);
+
+    const [lo, hi] = span.quality_bounds;
+    expect(lo).toBeLessThanOrEqual(span.quality);
+    expect(span.quality).toBeLessThanOrEqual(hi);
+    if (span.proven_optimal) {
+      expect(lo).toBe(hi);
+    }
+  });
+});

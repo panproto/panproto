@@ -292,8 +292,24 @@ class SchemaMorphism:
 
 class FoundMorphism:
     vertex_map: dict[str, str]
+    edge_map: list[tuple[Edge, Edge]]
     quality: float
     def to_migration(self) -> Migration: ...
+    def to_dict(self) -> dict[str, JsonValue]: ...
+
+class SchemaSpan:
+    apex: Schema
+    left: Migration
+    right: Migration
+    quality: float
+    quality_bounds: tuple[float, float]
+    apex_coverage: float
+    proven_optimal: bool
+    is_total: bool
+    legs_are_functorial: bool
+    apex_digest: str
+    def as_total_morphism(self) -> FoundMorphism | None: ...
+    def to_overlap(self) -> dict[str, JsonValue]: ...
     def to_dict(self) -> dict[str, JsonValue]: ...
 
 def find_morphisms(
@@ -313,6 +329,15 @@ def find_best_morphism(
     epic: bool = ...,
     iso: bool = ...,
 ) -> FoundMorphism | None: ...
+def find_span(
+    src: Schema,
+    tgt: Schema,
+    protocol: Protocol,
+    anchors: dict[str, str] | None = ...,
+    monic: bool = ...,
+    epic: bool = ...,
+    iso: bool = ...,
+) -> SchemaSpan: ...
 def induce_schema_morphism(
     theory_morph: TheoryMorphism, src_schema: Schema
 ) -> SchemaMorphism: ...

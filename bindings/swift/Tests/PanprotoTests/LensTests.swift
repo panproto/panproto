@@ -675,28 +675,28 @@ struct LensTests {
 
     // MARK: Symmetric lenses
 
-    @Test("a span needs an overlap the engine can discover")
-    func symmetricLensNeedsAnOverlap() async throws {
-        let (spanned, refusal) = try await PanprotoEngine.run {
-            () throws -> (Bool, PanprotoError?) in
+    @Test("two schemas that share a kind span, whatever their names")
+    func symmetricLensSpansOnSharedStructure() async throws {
+        // The middle schema is the apex of a span, and the span search
+        // minimises a cost function rather than matching names: pairing two
+        // kind-compatible vertices beats dropping both, so a pair sharing no
+        // vertex name still spans. Post against profile is that pair, and it
+        // used to be refused here because the overlap was discovered by name.
+        //
+        // Refusal survives, but it takes two schemas sharing no *kind*, which
+        // no committed lexicon fixture pair does. `panproto-lens`'s
+        // `auto_symmetric_refuses_when_the_two_schemas_share_no_kind` covers
+        // that arm.
+        let (selfSpan, crossSpan) = try await PanprotoEngine.run {
+            () throws -> (Bool, Bool) in
             let fixtures = try LensFixtures()
-            // The post lexicon spans itself: every vertex pairs.
             let symmetric = try SymmetricLensHandle.fromSchemas(fixtures.post, fixtures.post)
-            // Post against profile pairs nothing, so there is no middle
-            // schema to hang the two halves off.
-            do {
-                _ = try SymmetricLensHandle.fromSchemas(fixtures.post, fixtures.profile)
-                return (symmetric.rawValue != 0, nil)
-            } catch let failure as PanprotoError {
-                return (symmetric.rawValue != 0, failure)
-            }
+            let crossed = try SymmetricLensHandle.fromSchemas(fixtures.post, fixtures.profile)
+            return (symmetric.rawValue != 0, crossed.rawValue != 0)
         }
 
-        #expect(spanned)
-        let raised = try #require(refusal)
-        #expect(raised.domain == .lens)
-        #expect(raised.detail.operation == "SymmetricLensHandle.fromSchemas")
-        #expect(raised.detail.message.contains("no overlap found"))
+        #expect(selfSpan)
+        #expect(crossSpan)
     }
 
     @Test("a symmetric lens syncs in the direction it is given")

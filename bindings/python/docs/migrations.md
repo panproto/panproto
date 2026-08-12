@@ -77,3 +77,55 @@ report = panproto.check_coverage(compiled, instances, src_schema, tgt_schema)
 ```
 
 Runs each instance through `lift` and counts successes/failures. The report contains `total_records`, `successful`, `failed` (with per-record failure reasons), and `coverage_ratio`.
+
+## Finding a morphism, and finding a span
+
+`find_best_morphism` searches for a *total* morphism $S \to T$: every source
+vertex must have an image. It returns `None` when there is none, which on real
+schema pairs is the common case rather than the exceptional one, since dropping
+a single field is enough to make one impossible.
+
+```python
+found = panproto.find_best_morphism(src, tgt)
+if found is not None:
+    print(found.quality, found.vertex_map, found.edge_map)
+```
+
+`find_span` asks the weaker question that always has an answer. It returns a
+span $S \leftarrow A \rightarrow T$ whose apex $A$ is the sub-schema of $S$ the
+search could place in $T$, so "these two schemas share nothing" comes back as an
+empty apex rather than as `None`:
+
+```python
+span = panproto.find_span(src, tgt, protocol)
+
+print(span.apex.vertex_count())   # how much of the source was covered
+print(span.apex_coverage)         # the same number as a fraction of |src|
+print(span.quality)               # how well the covered part matches
+print(span.quality_bounds)        # (lower, upper) bracketing `quality`
+print(span.proven_optimal)        # whether the search ruled out anything better
+```
+
+The protocol is a parameter because the apex is a schema, and a schema is only
+well formed against a protocol: inducing the apex re-validates it rather than
+assuming it.
+
+A total morphism is the degenerate span, the one whose apex is the whole
+source. `is_total` tests for it and `as_total_morphism()` returns the
+`FoundMorphism` shape:
+
+```python
+if span.is_total:
+    found = span.as_total_morphism()
+```
+
+Read `quality` and `apex_coverage` together. `quality` measures how well the
+covered part matches and says nothing about how much was covered, so a span
+covering one vertex perfectly scores higher than one covering nine vertices
+well. `quality` is also comparable only among spans out of the *same* source
+schema: every denominator of the objective is fixed by $S$, so two spans over
+different sources are measured on different scales.
+
+`quality_bounds` collapses to a point exactly when `proven_optimal` holds. When
+it does not, the interval is what separates "0.4, and nothing better exists"
+from "0.4, and the search ran out of budget before it could rule out 0.9".

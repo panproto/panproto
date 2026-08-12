@@ -50,9 +50,11 @@ from panproto._native import (
     # Hom search + cascade
     FoundMorphism,
     SchemaMorphism,
+    SchemaSpan,
     TheoryMorphism,
     find_best_morphism,
     find_morphisms,
+    find_span,
     induce_migration_from_theory,
     induce_schema_morphism,
     # Check
@@ -225,9 +227,11 @@ __all__ = [
     # Hom search + cascade
     "FoundMorphism",
     "SchemaMorphism",
+    "SchemaSpan",
     "TheoryMorphism",
     "find_best_morphism",
     "find_morphisms",
+    "find_span",
     "induce_migration_from_theory",
     "induce_schema_morphism",
     # Check

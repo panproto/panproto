@@ -746,10 +746,10 @@ struct HomWireTests {
         let decoded = try CBORDecoder().decode(MorphismSearchOptions.self, from: bytes("a0"))
         #expect(decoded == MorphismSearchOptions())
         #expect(decoded.maxResults == 0)
-        #expect(decoded.initial.isEmpty)
+        #expect(decoded.hardPins.isEmpty)
     }
 
-    @Test("options write all six keys in declaration order")
+    @Test("options write all five keys in declaration order")
     func optionsWriteEveryKey() throws {
         let encoded = try CBOREncoder().encode(MorphismSearchOptions(monic: true, maxResults: 3))
         let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
@@ -778,6 +778,122 @@ struct HomWireTests {
                 maxResults: 4,
                 hardPins: ["post": "note", "author": "person"]
             )
+        )
+    }
+
+    @Test("an empty map is a valid constraints payload")
+    func emptyConstraintsDecode() throws {
+        let decoded = try CBORDecoder().decode(
+            MorphismDomainConstraints.self, from: bytes("a0"))
+        #expect(decoded == MorphismDomainConstraints())
+        #expect(decoded.restrictedDomains.isEmpty)
+        #expect(decoded.excludedTargets.isEmpty)
+        #expect(decoded.excludedSources.isEmpty)
+        #expect(decoded.scoringWeights == nil)
+    }
+
+    @Test("constraints write all four keys in declaration order")
+    func constraintsWriteEveryKey() throws {
+        let encoded = try CBOREncoder().encode(
+            MorphismDomainConstraints(excludedSources: ["post"]))
+        let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
+        guard case .map(let entries) = reflected else {
+            Issue.record("constraints encode as a map")
+            return
+        }
+        #expect(
+            entries.map(\.key) == [
+                .textString("restricted_domains"),
+                .textString("excluded_targets"),
+                .textString("excluded_sources"),
+                .textString("scoring_weights"),
+            ]
+        )
+    }
+
+    @Test("constraints carrying restrictions and weights round trip")
+    func constraintsRoundTrip() throws {
+        try expectRoundTrip(
+            MorphismDomainConstraints(
+                restrictedDomains: ["post": ["note", "entry"]],
+                excludedTargets: ["draft"],
+                excludedSources: ["post.createdAt"],
+                scoringWeights: MorphismCostWeights(
+                    name: 0.4, edge: 0.2, prop: 0.2, degree: 0.1, anchor: 0.1
+                )
+            )
+        )
+    }
+
+    @Test("a span writes all nine keys in declaration order")
+    func spanWritesEveryKey() throws {
+        let encoded = try CBOREncoder().encode(sampleSpan)
+        let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
+        guard case .map(let entries) = reflected else {
+            Issue.record("a span encodes as a map")
+            return
+        }
+        #expect(
+            entries.map(\.key) == [
+                .textString("apex"),
+                .textString("left"),
+                .textString("right"),
+                .textString("quality"),
+                .textString("quality_lo"),
+                .textString("quality_hi"),
+                .textString("apex_coverage"),
+                .textString("proven_optimal"),
+                .textString("is_total"),
+            ]
+        )
+    }
+
+    @Test("a span round trips, and a total one lowers to a morphism")
+    func spanRoundTripsAndLowers() throws {
+        try expectRoundTrip(sampleSpan)
+
+        let total = try #require(sampleSpan.asTotalMorphism)
+        #expect(total.vertexMap == sampleSpan.right.vertexMap)
+        #expect(total.quality == sampleSpan.quality)
+
+        var partial = sampleSpan
+        partial.isTotal = false
+        #expect(partial.asTotalMorphism == nil)
+    }
+
+    @Test("an overlap crosses as two arrays of pairs")
+    func overlapCrossesAsPairArrays() throws {
+        let overlap = SchemaOverlap(
+            vertexPairs: [WirePair("post", "note")],
+            edgePairs: [
+                WirePair(
+                    Edge(src: "post", tgt: "post.text", kind: "prop"),
+                    Edge(src: "note", tgt: "note.body", kind: "prop")
+                )
+            ]
+        )
+        let encoded = try CBOREncoder().encode(overlap)
+        let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
+        guard case .map(let entries) = reflected else {
+            Issue.record("an overlap encodes as a map")
+            return
+        }
+        #expect(entries.map(\.key) == [.textString("vertex_pairs"), .textString("edge_pairs")])
+        try expectRoundTrip(overlap)
+    }
+
+    /// A one-vertex span whose apex is the whole source.
+    private var sampleSpan: SchemaSpan {
+        SchemaSpan(
+            apex: Schema(protocol: "demo"),
+            left: Migration(vertexMap: ["post": "post"]),
+            right: Migration(vertexMap: ["post": "note"]),
+            quality: 0.75,
+            qualityLo: 0.75,
+            qualityHi: 0.75,
+            apexCoverage: 1.0,
+            provenOptimal: true,
+            isTotal: true
         )
     }
 

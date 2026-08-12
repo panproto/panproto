@@ -2317,9 +2317,11 @@ version = "0.70.0"
 dependencies = [
  "blake3",
  "divan",
+ "insta",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
+ "panproto-protocols",
  "panproto-schema",
  "proptest",
  "rustc-hash",

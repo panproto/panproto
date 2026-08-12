@@ -94,12 +94,14 @@ never crosses the boundary as data; `pp_gat_eval_in_model` and
 | `int32_t pp_mig_coverage(uint32_t migration, uint32_t src, uint32_t tgt, slice_ref_uint8_t instances, Vec_uint8_t *out)` | CBOR `Vec<WInstance>` in; CBOR coverage report out. |
 | `int32_t pp_mig_lift_json(uint32_t migration, slice_ref_uint8_t json, slice_ref_uint8_t root_vertex, Vec_uint8_t *out)` | Raw JSON in/out; `root_vertex` is UTF-8; calls `inst::parse_json` -> `mig::lift_wtype` -> `inst::to_json`. |
 
-## hom (5) — Python-only surface
+## hom (7)
 
 | Signature | Notes |
 | --- | --- |
-| `int32_t pp_hom_find_morphisms(uint32_t src, uint32_t tgt, slice_ref_uint8_t opts, Vec_uint8_t *out)` | CBOR `SearchOptions` in, `Vec<FoundMorphism>` out; calls `hom_search::find_morphisms`. |
-| `int32_t pp_hom_find_best_morphism(uint32_t src, uint32_t tgt, slice_ref_uint8_t opts, Vec_uint8_t *out)` | CBOR `Option<FoundMorphism>` out; calls `hom_search::find_best_morphism`. |
+| `int32_t pp_hom_find_span(uint32_t src, uint32_t tgt, uint32_t protocol, slice_ref_uint8_t opts, slice_ref_uint8_t constraints, Vec_uint8_t *out)` | CBOR `SearchOptions` and `DomainConstraints` in, `SchemaSpan` out (`apex`, `left`, `right`, `quality`, `quality_lo`, `quality_hi`, `apex_coverage`, `proven_optimal`, `is_total`); calls `hom_search::find_span_constrained`. The apex is a schema and a schema is well formed only against a protocol, so `protocol` is a `Protocol` handle rather than something read off `src`. Total: two schemas with nothing in common get an empty apex, not an error. |
+| `int32_t pp_hom_span_to_overlap(slice_ref_uint8_t span, Vec_uint8_t *out)` | CBOR `SchemaSpan` in, `SchemaOverlap` out (`vertex_pairs`, `edge_pairs`, each `(source, target)` and sorted by key); the identification list `schema::schema_pushout` takes. |
+| `int32_t pp_hom_find_morphisms(uint32_t src, uint32_t tgt, slice_ref_uint8_t opts, Vec_uint8_t *out)` | CBOR `SearchOptions` in, `Vec<FoundMorphism>` out; calls `hom_search::find_morphisms`. Returns the morphisms **attaining the optimum**, capped by `max_results`, not the whole hom-set: every element carries the same quality, `0` means every optimum up to the engine's own cap, and empty means no total morphism exists. |
+| `int32_t pp_hom_find_best_morphism(uint32_t src, uint32_t tgt, slice_ref_uint8_t opts, Vec_uint8_t *out)` | CBOR `Option<FoundMorphism>` out; calls `hom_search::find_best_morphism`. CBOR `null` exactly when no total morphism exists, which for most real schema pairs is the case; `pp_hom_find_span` is the entry point that answers with what they do share. |
 | `int32_t pp_hom_morphism_to_migration(slice_ref_uint8_t morphism, uint32_t *out_handle)` | CBOR `FoundMorphism` in; new `Migration` handle. |
 | `int32_t pp_hom_induce_schema_morphism(slice_ref_uint8_t theory_morphism, uint32_t src, Vec_uint8_t *out)` | CBOR `TheoryMorphism` in, `SchemaMorphism` out; calls `cascade::induce_schema_morphism`. |
 | `int32_t pp_hom_induce_migration_from_theory(slice_ref_uint8_t theory_morphism, uint32_t src, uint32_t tgt, Vec_uint8_t *out, uint32_t *out_handle)` | CBOR `TheoryMorphism` in, `SchemaMorphism` out plus new `MigrationWithSchemas` handle; calls `cascade::induce_migration_from_theory`. |

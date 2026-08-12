@@ -180,10 +180,17 @@ pub struct SchemaSpan {
     /// sources are not; there is no absolute reading of this number and no
     /// threshold on it is meaningful across pairs.
     ///
-    /// The anchor term is excluded: evidence steers the search without
-    /// inflating the number it reports. The drop count is excluded too, because
-    /// what this measures is how well the covered part matches;
-    /// [`Self::apex_coverage`] separately answers how much was covered.
+    /// The anchor term is **included**, weighted as
+    /// [`CostWeights::anchor`](crate::CostWeights::anchor) weights it. The
+    /// shipped weight is zero, so under the default weights this reads as the
+    /// four structural components and evidence steers the search without
+    /// showing up in the number; a caller that raises the anchor weight is
+    /// reading a quality that its own evidence contributed to, and wanting the
+    /// structural reading alone must recompute it.
+    ///
+    /// The drop count is excluded, because what this measures is how well the
+    /// covered part matches; [`Self::apex_coverage`] separately answers how much
+    /// was covered.
     ///
     /// Each cost function entry was rounded to fixed point once, so this reading
     /// differs from an `f64` accumulation of the same terms by at most

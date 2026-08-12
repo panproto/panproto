@@ -191,6 +191,17 @@ pub struct FoundMorphism {
 /// the iso path refused it, and [`SpanError::Apex`] if the induced apex is not a
 /// well-formed schema.
 ///
+/// "Never refuses for want of a match" is a statement about the *answer*, not
+/// about every input: posing the network can still fail. The reachable case is
+/// a domain ceiling. A variable's domain is a 32-bit set, one bit of which is
+/// `⊥`, so a source vertex offered more than
+/// [`ValId::MAX_REAL_VALUES`](crate::solve::ValId::MAX_REAL_VALUES)
+/// kind-compatible targets is refused as `SpanError::Build`, wrapping
+/// `BuildError::Network` over `CfnError::DomainTooLarge`. A target schema
+/// carrying 32 or more vertices of one kind is what reaches it. No pair in the
+/// vendored schema corpus does, because a schema's kinds spread its vertices
+/// across several domains, but a wide enough schema will.
+///
 /// # Examples
 ///
 /// ```

@@ -571,9 +571,14 @@ pub struct AutoSpec {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enable_overlap: Option<bool>,
 
-    /// Maximum search depth for morphism discovery.
+    /// How many optimal morphisms the search may return.
+    ///
+    /// The search is an exact optimiser, so what this caps is the number of
+    /// morphisms *attaining* the optimum, not how far the search looks. Zero
+    /// is read as one, since a document asking for no results is asking for
+    /// no lens.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub max_search_depth: Option<usize>,
+    pub max_results: Option<usize>,
 
     /// Hints for guiding the morphism search: anchors, constraints,
     /// and scoring preferences.

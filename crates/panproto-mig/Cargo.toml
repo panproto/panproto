@@ -30,6 +30,11 @@ proptest = { workspace = true }
 smallvec = { workspace = true }
 serde_json = { workspace = true }
 divan = { workspace = true }
+insta = { workspace = true }
+# The measured corpus is the atproto lexicon set, and reading it needs the
+# protocol that parses it. Tests and benches only: `panproto-protocols` depends
+# on `panproto-schema` and not on this crate, so the dev-only edge is acyclic.
+panproto-protocols = { workspace = true }
 
 [[bench]]
 name = "span_bench"

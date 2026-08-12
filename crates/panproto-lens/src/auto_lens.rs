@@ -1283,6 +1283,45 @@ fn chain_step_names(chain: &ProtolensChain) -> String {
     out
 }
 
+/// The optimal spans between `src` and `tgt`, each read as its right leg.
+///
+/// A span tier asks what two schemas share. [`find_morphisms`] answers a
+/// different question: it returns the *total* morphisms attaining the optimum,
+/// and no total morphism exists whenever the source carries a sort the target
+/// lacks, which is the ordinary case on real schemas. Routing a span tier
+/// through it therefore reports "no morphism found" on exactly the pairs the
+/// tier exists for. [`run_search`] already reads a span tier off the span
+/// search; this is the same reading for the multi-candidate entry points, which
+/// differ only in wanting more than one optimum.
+///
+/// A span with an empty apex is dropped rather than returned: it is always
+/// feasible, and a chain that drops the whole source is not a candidate.
+fn optimal_spans_as_morphisms(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    opts: &SearchOptions,
+    constraints: Option<&DomainConstraints>,
+    n: usize,
+) -> Vec<FoundMorphism> {
+    let mut search = SpanSearch::new(protocol).with_options(opts.clone());
+    if let Some(dc) = constraints {
+        search = search.with_constraints(dc.clone());
+    }
+    let Ok(spans) = search.optima(src, tgt, n) else {
+        return Vec::new();
+    };
+    spans
+        .into_iter()
+        .filter(|span| !span.apex.vertices.is_empty())
+        .map(|span| FoundMorphism {
+            vertex_map: span.right.vertex_map,
+            edge_map: span.right.edge_map,
+            quality: span.quality,
+        })
+        .collect()
+}
+
 /// Shared engine for multi-candidate generation. Runs the CSP, builds
 /// one candidate per returned morphism, scores them, and truncates to
 /// `n` entries sorted by composite score.
@@ -1297,10 +1336,14 @@ fn candidates_from_search(
     n: usize,
     emit_spans: bool,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
-    let morphisms = domain_constraints.map_or_else(
-        || find_morphisms(src, tgt, search_opts),
-        |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
-    );
+    let morphisms = if emit_spans {
+        optimal_spans_as_morphisms(src, tgt, protocol, search_opts, domain_constraints, n)
+    } else {
+        domain_constraints.map_or_else(
+            || find_morphisms(src, tgt, search_opts),
+            |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
+        )
+    };
 
     if morphisms.is_empty() {
         return Err(LensError::ProtolensError(
@@ -1862,6 +1905,86 @@ mod tests {
             res.is_err(),
             "expected no-morphism error between disjoint-kind schemas, got {res:?}"
         );
+    }
+
+    /// The source carries a field whose kind the target has no vertex for, so
+    /// no total morphism exists. That is the ordinary case on real schemas, and
+    /// it is the case a span tier exists to answer.
+    ///
+    /// The candidate entry points used to route every tier through
+    /// [`find_morphisms`], which returns the total morphisms attaining the
+    /// optimum and is therefore empty here. A span tier must read the span
+    /// search instead, as [`run_search`] does for the single-result entry
+    /// points.
+    #[test]
+    fn a_span_tier_returns_candidates_where_no_total_morphism_exists() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .vertex("post.pinned", "boolean", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .edge("post", "post.pinned", "prop", Some("pinned"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap();
+
+        // The premise. Without this the two tiers below would agree and the
+        // test would pass on a pair that never exercised the split.
+        assert!(
+            find_morphisms(&src, &tgt, &SearchOptions::default()).is_empty(),
+            "the fixture stopped posing the case: a total morphism exists, so a span tier \
+             and a total tier would return the same thing here"
+        );
+
+        for tier in [Stringency::Strict, Stringency::Balanced] {
+            assert!(!tier.allow_spans());
+            let config = AutoLensConfig {
+                stringency: tier,
+                ..Default::default()
+            };
+            assert!(
+                auto_generate_candidates(&src, &tgt, &protocol, &config, 3).is_err(),
+                "{tier:?} asks for a total morphism and there is none, so it must refuse"
+            );
+        }
+
+        for tier in [Stringency::Lenient, Stringency::Exploratory] {
+            assert!(tier.allow_spans());
+            let config = AutoLensConfig {
+                stringency: tier,
+                ..Default::default()
+            };
+            let candidates = auto_generate_candidates(&src, &tgt, &protocol, &config, 3)
+                .unwrap_or_else(|e| panic!("{tier:?} must answer with a span, got: {e}"));
+            assert!(
+                !candidates.is_empty(),
+                "{tier:?}: a non-empty apex must yield at least one candidate"
+            );
+            for cand in &candidates {
+                assert!(
+                    cand.coverage > 0.0,
+                    "{tier:?}: a candidate covering nothing is not an alignment"
+                );
+                assert!(
+                    !cand.chain.steps.is_empty(),
+                    "{tier:?}: a candidate must carry the chain that realizes it"
+                );
+            }
+        }
     }
 
     #[test]

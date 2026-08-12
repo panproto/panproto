@@ -7,7 +7,7 @@
  * @module
  */
 
-import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue } from './types.js';
+import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValidationIssue, SpanResponse } from './types.js';
 import { PanprotoError, WasmError } from './types.js';
 import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
 import { LensHandle, ProtolensChainHandle, SymmetricLensHandle } from './lens.js';
@@ -634,6 +634,31 @@ export class Panproto implements Disposable {
    */
   protolensChain(from: BuiltSchema, to: BuiltSchema): ProtolensChainHandle {
     return ProtolensChainHandle.autoGenerate(from, to, this.#wasm);
+  }
+
+  /**
+   * The optimal span between two schemas.
+   *
+   * Where {@link Panproto.lens} and {@link Panproto.protolensChain} refuse
+   * when no alignment is found, this always answers: two schemas with
+   * nothing in common come back with an empty `apex_vertices` and an
+   * `apex_coverage` of zero. It is the call to reach for when the question
+   * is "how much do these two schemas share", not "give me a lens".
+   *
+   * The response is plain data: the apex arrives as its vertex and edge
+   * sets, not as a handle, so there is nothing to dispose.
+   *
+   * @param from - The source schema
+   * @param to - The target schema
+   * @param hints - Source-to-target vertex mappings the caller knows
+   * @throws {@link WasmError} if the search network could not be posed
+   */
+  span(
+    from: BuiltSchema,
+    to: BuiltSchema,
+    hints?: Readonly<Record<string, string>>,
+  ): SpanResponse {
+    return ProtolensChainHandle.autoGenerateSpan(from, to, this.#wasm, hints);
   }
 
   /**

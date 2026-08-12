@@ -4,15 +4,22 @@
 
 -- | Schema-morphism search and the theory → schema → data cascade.
 --
--- Two schemas A and B may admit many structure-preserving maps A → B.
--- 'findMorphisms' enumerates them by reducing morphism discovery to a
--- constraint-satisfaction problem and solving it with backtracking
--- (the @AlgebraicJulia\/Catlab.jl@ approach, after Spivak's functorial
--- data migration), scoring each result by name and structural overlap.
--- 'findBestMorphism' keeps only the top-scoring one. A 'FoundMorphism'
--- is the raw output of that search: a vertex map, an edge map, and a
--- 'quality' score; 'foundMorphismToMigration' lowers it to the
--- "Panproto.Migration" 'Migration' the restrict pipeline consumes.
+-- What two schemas A and B share is a span @A ← apex → B@, and
+-- 'findSpan' is the method that answers with one. Finding it is a valued
+-- constraint problem: every source vertex takes a target or takes
+-- nothing, and the objective scores name and structural agreement
+-- against the cost of leaving a vertex out. Leaving every vertex out is
+-- always feasible, so the search is total and two schemas with nothing
+-- in common get an empty apex rather than a refusal.
+--
+-- A total morphism A → B, one that leaves nothing out, is the
+-- degenerate case: 'findMorphisms' and 'findBestMorphism' run the same
+-- search with that one option removed, and answer empty when no such
+-- morphism exists. A 'FoundMorphism' is what they hand back, a vertex
+-- map, an edge map, and a 'quality' score;
+-- 'foundMorphismToMigration' lowers it to the "Panproto.Migration"
+-- 'Migration' the restrict pipeline consumes, and
+-- 'spanAsTotalMorphism' recovers the same shape from a span.
 --
 -- The /cascade/ runs the morphism tower top-down. A 'TheoryMorphism'
 -- (see "Panproto.Gat") renames sorts and operations; pushed through a
@@ -23,11 +30,13 @@
 -- the 'HomBackend' capability class, not as pure functions.
 --
 -- This module mirrors the value-level shapes of
--- @panproto_mig::hom_search@ ('SearchOptions', 'FoundMorphism'),
+-- @panproto_mig::hom_search@ ('SearchOptions', 'DomainConstraints',
+-- 'FoundMorphism'), @panproto_mig::span@ ('FoundSpan'),
 -- @panproto_schema::morphism@ ('SchemaMorphism', and the
--- @panproto_gat::SiteRename@ \/ @NameSite@ provenance it carries), and
--- the @hom@ surface of @panproto-c@ (see @crates\/panproto-c\/CONTRACT.md@,
--- five entry points). The codecs follow the tolerant decoder idiom of
+-- @panproto_gat::SiteRename@ \/ @NameSite@ provenance it carries),
+-- @panproto_schema::colimit@ ('SchemaOverlap'), and the @hom@ surface of
+-- @panproto-c@ (see @crates\/panproto-c\/CONTRACT.md@, seven entry
+-- points). The codecs follow the tolerant decoder idiom of
 -- "Panproto.Schema", "Panproto.Migration", and "Panproto.Gat":
 -- snake_case Rust field names, @serde(default)@ for the optional
 -- fields, complex-key maps as @map_as_vec@ arrays of @[key, value]@
@@ -43,6 +52,22 @@ module Panproto.Hom
     , defaultFindOpts
     , encodeSearchOptions
     , decodeSearchOptions
+
+      -- * Domain constraints
+    , DomainConstraints (..)
+    , CostWeights (..)
+    , defaultDomainConstraints
+    , defaultCostWeights
+    , encodeDomainConstraints
+    , decodeDomainConstraints
+
+      -- * Span
+    , FoundSpan (..)
+    , SchemaOverlap (..)
+    , spanAsTotalMorphism
+    , encodeFoundSpan
+    , decodeFoundSpan
+    , decodeSchemaOverlap
 
       -- * Found morphism
     , FoundMorphism (..)
@@ -77,14 +102,22 @@ import Data.Aeson (FromJSON, ToJSON)
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
+import Data.Proxy (Proxy)
 import Data.Text (Text)
 import Data.Text qualified as T
 import GHC.Generics (Generic)
 
-import Panproto.Class (SchemaBackend (..))
+import Panproto.Class (ProtocolBackend (..), SchemaBackend (..))
 import Panproto.Gat (TheoryMorphism)
-import Panproto.Migration (CompiledRep, Migration (..), MigrationBackend, emptyMigration)
-import Panproto.Schema (Edge (..))
+import Panproto.Migration
+    ( CompiledRep
+    , Migration (..)
+    , MigrationBackend
+    , emptyMigration
+    , migrationDecoder
+    , migrationEncoding
+    )
+import Panproto.Schema (Edge (..), Schema, emptySchema, schemaDecoder, schemaEncoding)
 
 -- ---------------------------------------------------------------------------
 -- Rename provenance
@@ -297,15 +330,16 @@ data SearchOptions = SearchOptions
     , iso :: !Bool
     -- ^ Require a bijective vertex map (an isomorphism).
     , maxResults :: !Int
-    -- ^ Stop after this many morphisms; @0@ means unlimited.
+    -- ^ Cap the number of optimal morphisms returned; @0@ means every
+    -- one the search enumerates, up to its own cap.
     , hardPins :: !(HashMap Text Text)
     -- ^ Vertex mappings the caller knows and the search may not
-    -- reconsider (the Python @anchors@). The search extends this partial
-    -- morphism to a total one.
+    -- reconsider (the Python @anchors@).
     --
-    -- This field was called @initial@. It was renamed to say what it
-    -- does: it is a hard restriction, not a starting point the search
-    -- may move away from.
+    -- A hard restriction, not a starting point the search may move away
+    -- from. A pin the target's kind cannot accept leaves its source
+    -- vertex out of the apex rather than failing the whole search.
+    -- Mappings something /inferred/ do not belong here.
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -315,7 +349,7 @@ data SearchOptions = SearchOptions
 type FindOpts = SearchOptions
 
 -- | The all-default search options: no @monic@ \/ @epic@ \/ @iso@
--- constraint, no anchors, unlimited results. Mirrors
+-- requirement, no pins, and no cap on the optima returned. Mirrors
 -- @SearchOptions::default@.
 defaultFindOpts :: SearchOptions
 defaultFindOpts =
@@ -328,33 +362,197 @@ defaultFindOpts =
         }
 
 -- ---------------------------------------------------------------------------
+-- DomainConstraints
+
+-- | The relative weight of each component of a search's objective.
+-- Mirrors @panproto_mig::CostWeights@.
+--
+-- The engine normalises these to sum to one and rejects a vector that is
+-- negative, non-finite, or all zero, so only the ratios matter and a
+-- vector of five zeros is refused rather than quietly ignored. Every
+-- weight is a principled default rather than a fitted value.
+data CostWeights = CostWeights
+    { name :: !Double
+    -- ^ Weight on vertex-name agreement.
+    , edge :: !Double
+    -- ^ Weight on edge structure agreement.
+    , prop :: !Double
+    -- ^ Weight on property-set agreement.
+    , degree :: !Double
+    -- ^ Weight on degree agreement.
+    , anchor :: !Double
+    -- ^ Weight on anchor evidence.
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+-- | The engine's own component weights.
+defaultCostWeights :: CostWeights
+defaultCostWeights =
+    CostWeights
+        { name = 0.25
+        , edge = 0.25
+        , prop = 0.30
+        , degree = 0.20
+        , anchor = 0.0
+        }
+
+-- | Where a search is allowed to send each source vertex. Mirrors
+-- @panproto_mig::hom_search::DomainConstraints@.
+--
+-- Every field states which assignments are admissible, so each is a hard
+-- restriction rather than a preference the search may overrule.
+-- 'defaultDomainConstraints' restricts nothing.
+--
+-- Restricting a vertex to the empty list, or naming it in
+-- 'excludedSources', leaves that vertex out of the apex rather than
+-- failing the search. Asking a /total/ morphism search to omit part of
+-- its domain therefore has no answer at all, and 'findSpan' is the
+-- method that answers it.
+data DomainConstraints = DomainConstraints
+    { restrictedDomains :: !(HashMap Text [Text])
+    -- ^ For each source vertex, the only targets it may take. Vertices
+    -- absent from this map are unrestricted beyond kind compatibility.
+    , excludedTargets :: ![Text]
+    -- ^ Target vertices no source vertex may map to.
+    , excludedSources :: ![Text]
+    -- ^ Source vertices that must be left out of the apex.
+    , scoringWeights :: !(Maybe CostWeights)
+    -- ^ Override the objective's component weights.
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+-- | No restrictions and no weight override: every vertex may go
+-- anywhere its kind allows.
+defaultDomainConstraints :: DomainConstraints
+defaultDomainConstraints =
+    DomainConstraints
+        { restrictedDomains = HM.empty
+        , excludedTargets = []
+        , excludedSources = []
+        , scoringWeights = Nothing
+        }
+
+-- ---------------------------------------------------------------------------
+-- Span
+
+-- | What two schemas share: a span @src ← apex → tgt@. Mirrors
+-- @panproto_mig::span::SchemaSpan@.
+--
+-- The apex is the sub-schema of the source the search gave targets to,
+-- so 'left' is an inclusion and 'right' carries the whole
+-- identification. A span always exists, because leaving every source
+-- vertex out of the apex is a feasible answer, which is why 'findSpan'
+-- never refuses and why an empty apex, rather than a failure, is how
+-- \"these two schemas share nothing\" is said.
+--
+-- A total morphism is the degenerate case: 'isTotal' holds exactly when
+-- the apex is the whole source, and 'spanAsTotalMorphism' hands back the
+-- older shape.
+--
+-- __Reading the quality.__ 'quality' ranks spans over /one source
+-- schema/ and nothing else: every denominator of the objective is fixed
+-- by the source, so two spans out of the same schema are comparable and
+-- two spans out of different schemas are not. The two empty cases read
+-- oppositely, an empty apex over a non-empty source scoring @0@ because
+-- every vertex paid the drop cost and an empty apex over an empty source
+-- scoring @1@ because nothing paid anything, so a caller ranking pairs
+-- reads 'apexCoverage' alongside the score.
+data FoundSpan = FoundSpan
+    { apex :: !Schema
+    -- ^ The apex: the sub-schema of the source that found a target.
+    , left :: !Migration
+    -- ^ @apex → src@, an inclusion, so its maps are the identity on the
+    -- apex.
+    , right :: !Migration
+    -- ^ @apex → tgt@: the search's assignment, restricted to the apex.
+    , quality :: !Double
+    -- ^ How well the covered part matches, excluding what was dropped.
+    , qualityLo :: !Double
+    -- ^ The low end of the interval bracketing 'quality'.
+    , qualityHi :: !Double
+    -- ^ The high end of the interval bracketing 'quality'. Equal to
+    -- 'qualityLo' exactly when 'provenOptimal' holds; a wider interval
+    -- separates \"nothing better exists\" from \"the search ran out of
+    -- budget before it could rule better out\".
+    , apexCoverage :: !Double
+    -- ^ The share of the source's vertices the apex covers, or one when
+    -- the source has no vertices.
+    , provenOptimal :: !Bool
+    -- ^ Whether the search proved its answer optimal.
+    , isTotal :: !Bool
+    -- ^ Whether the apex is the whole source, which makes the span a
+    -- total morphism.
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+-- | The span as a total morphism, or 'Nothing' when the apex is not the
+-- whole source. Mirrors @SchemaSpan::as_total_morphism@: the right leg's
+-- two maps paired with the quality.
+spanAsTotalMorphism :: FoundSpan -> Maybe FoundMorphism
+spanAsTotalMorphism s
+    | s.isTotal = Just (FoundMorphism s.right.vertexMap s.right.edgeMap s.quality)
+    | otherwise = Nothing
+
+-- | Which elements of two schemas name the same thing. Mirrors
+-- @panproto_schema::SchemaOverlap@.
+--
+-- This is what merging two schemas along a span takes: each pair is
+-- @(source element, target element)@, and the pushout identifies the two
+-- halves of every pair.
+data SchemaOverlap = SchemaOverlap
+    { vertexPairs :: ![(Text, Text)]
+    -- ^ Vertex pairs the pushout identifies.
+    , edgePairs :: ![(Edge, Edge)]
+    -- ^ Edge pairs the pushout identifies.
+    }
+    deriving stock (Eq, Show, Generic)
+    deriving anyclass (NFData, ToJSON, FromJSON)
+
+-- ---------------------------------------------------------------------------
 -- Capability class
 
 -- | The @hom@ surface of @panproto-c@ (see @CONTRACT.md@'s @hom@
--- domain, five entry points): morphism search and the theory → schema
+-- domain, seven entry points): morphism search and the theory → schema
 -- → data cascade.
 --
--- 'SchemaBackend' and 'MigrationBackend' are superclasses because every
--- operation here is anchored to schemas and the cascade terminates in a
--- compiled migration: 'findMorphisms' searches between two
--- 'Panproto.Class.SchemaRep's, and 'induceMigrationFromTheory' returns
+-- 'SchemaBackend', 'ProtocolBackend' and 'MigrationBackend' are
+-- superclasses because every operation here is anchored to schemas, the
+-- span search validates its apex against a protocol, and the cascade
+-- terminates in a compiled migration: 'findMorphisms' searches between
+-- two 'Panproto.Class.SchemaRep's, 'findSpan' additionally takes a
+-- 'Panproto.Class.ProtocolRep', and 'induceMigrationFromTheory' returns
 -- a 'Panproto.Migration.CompiledRep' alongside the induced
 -- 'SchemaMorphism'.
 --
--- 'findMorphisms' returns its results already ranked by descending
--- 'quality' (the engine sorts before truncating to 'maxResults'), and
--- 'findBestMorphism' returns the single top result or 'Nothing' when no
--- morphism exists. The pure 'foundMorphismToMigration' lowers a single
--- result to a 'Migration' without an engine; the two @induce@ methods
--- read the schemas' vertices and edges and so cannot be pure.
+-- __The span is the primary answer.__ 'findSpan' is total: two schemas
+-- with nothing in common get an empty apex rather than a refusal.
+-- 'findMorphisms' and 'findBestMorphism' are the total-morphism
+-- restriction of that same search and are empty exactly when no total
+-- morphism exists, which for schemas that were not built from each other
+-- is the ordinary case.
+--
+-- The pure 'foundMorphismToMigration' lowers a single result to a
+-- 'Migration' without an engine; the two @induce@ methods read the
+-- schemas' vertices and edges and so cannot be pure.
 --
 -- The 'Panproto.Class.Rust' instance is authored later (in
 -- @Panproto.Rust.Hom@); this module declares only the class.
-class (SchemaBackend back, MigrationBackend back) => HomBackend back where
-    -- | Find all valid schema morphisms from @src@ to @tgt@, ranked by
-    -- descending 'quality' and truncated to 'maxResults' (when
-    -- non-zero). Wraps @pp_hom_find_morphisms@
-    -- (@hom_search::find_morphisms@).
+class
+    (SchemaBackend back, ProtocolBackend back, MigrationBackend back) =>
+    HomBackend back
+    where
+    -- | Find the best total schema morphisms from @src@ to @tgt@. Wraps
+    -- @pp_hom_find_morphisms@ (@hom_search::find_morphisms@).
+    --
+    -- The results are the morphisms /attaining the optimum/, capped by
+    -- 'maxResults', so every one of them carries the same 'quality' and
+    -- the head of the list is what 'findBestMorphism' answers with.
+    -- There is no second, worse tier to walk to. An empty list means no
+    -- total morphism exists, and 'findSpan' is the method that answers
+    -- with what the two schemas do share.
     findMorphisms
         :: SchemaRep back
         -- ^ Source schema.
@@ -363,8 +561,8 @@ class (SchemaBackend back, MigrationBackend back) => HomBackend back where
         -> SearchOptions
         -> IO [FoundMorphism]
 
-    -- | Find the single best-quality schema morphism from @src@ to
-    -- @tgt@, or 'Nothing' if none exists. Wraps
+    -- | Find the single best-quality total schema morphism from @src@ to
+    -- @tgt@, or 'Nothing' when none exists. Wraps
     -- @pp_hom_find_best_morphism@ (@hom_search::find_best_morphism@).
     findBestMorphism
         :: SchemaRep back
@@ -373,6 +571,38 @@ class (SchemaBackend back, MigrationBackend back) => HomBackend back where
         -- ^ Target schema.
         -> SearchOptions
         -> IO (Maybe FoundMorphism)
+
+    -- | Find what @src@ and @tgt@ share, as a span. Wraps
+    -- @pp_hom_find_span@ (@hom_search::find_span_constrained@).
+    --
+    -- This never refuses for want of a match, so it is the method to
+    -- reach for when 'findBestMorphism' answers 'Nothing'. The protocol
+    -- is an argument because the apex is a schema, a schema is well
+    -- formed only against a protocol, and inducing the apex re-validates
+    -- it; a schema stores only its protocol's name, so the protocol
+    -- cannot be read back off @src@.
+    findSpan
+        :: SchemaRep back
+        -- ^ Source schema.
+        -> SchemaRep back
+        -- ^ Target schema.
+        -> ProtocolRep back
+        -- ^ The protocol the apex is validated against.
+        -> SearchOptions
+        -> DomainConstraints
+        -> IO FoundSpan
+
+    -- | Read a span's apex as the identification list a pushout takes.
+    -- Wraps @pp_hom_span_to_overlap@ (@SchemaSpan::to_overlap@).
+    --
+    -- The pairs come from the span's right leg alone, because the left
+    -- leg is an inclusion and the apex's identifiers /are/ source
+    -- identifiers. The 'Proxy' picks the backend, which the argument and
+    -- result types do not mention.
+    spanToOverlap
+        :: Proxy back
+        -> FoundSpan
+        -> IO SchemaOverlap
 
     -- | Induce a 'SchemaMorphism' from a 'TheoryMorphism' and a source
     -- schema: rename vertex kinds via the theory's sort map and edge
@@ -414,6 +644,56 @@ encodeSearchOptions o =
             <> kv "iso" (Enc.encodeBool o.iso)
             <> kv "max_results" (Enc.encodeInt o.maxResults)
             <> kv "hard_pins" (encodeTextMap Enc.encodeString o.hardPins)
+  where
+    kv k v = Enc.encodeString k <> v
+
+-- | Encode a 'DomainConstraints' to the CBOR shape @ciborium@
+-- deserializes into @panproto_mig::hom_search::DomainConstraints@ (the
+-- @constraints@ argument of @pp_hom_find_span@). The two exclusion sets
+-- cross as CBOR arrays, because CBOR has no set type, and duplicates
+-- collapse on the way in.
+encodeDomainConstraints :: DomainConstraints -> LBS.ByteString
+encodeDomainConstraints c =
+    CBOR.toLazyByteString $
+        Enc.encodeMapLen 4
+            <> kv
+                "restricted_domains"
+                (encodeTextMap (encodeList Enc.encodeString) c.restrictedDomains)
+            <> kv "excluded_targets" (encodeList Enc.encodeString c.excludedTargets)
+            <> kv "excluded_sources" (encodeList Enc.encodeString c.excludedSources)
+            <> kv "scoring_weights" (maybe Enc.encodeNull encodeCostWeights c.scoringWeights)
+  where
+    kv k v = Enc.encodeString k <> v
+
+encodeCostWeights :: CostWeights -> Encoding
+encodeCostWeights w =
+    Enc.encodeMapLen 5
+        <> kv "name" (Enc.encodeDouble w.name)
+        <> kv "edge" (Enc.encodeDouble w.edge)
+        <> kv "prop" (Enc.encodeDouble w.prop)
+        <> kv "degree" (Enc.encodeDouble w.degree)
+        <> kv "anchor" (Enc.encodeDouble w.anchor)
+  where
+    kv k v = Enc.encodeString k <> v
+
+-- | Encode a 'FoundSpan' to the CBOR shape @ciborium@ deserializes into
+-- the engine's span (the @span@ argument of @pp_hom_span_to_overlap@).
+-- The apex and the two legs nest through the schema and migration
+-- encodings, so a span written here reads back the same in either
+-- direction.
+encodeFoundSpan :: FoundSpan -> LBS.ByteString
+encodeFoundSpan s =
+    CBOR.toLazyByteString $
+        Enc.encodeMapLen 9
+            <> kv "apex" (schemaEncoding s.apex)
+            <> kv "left" (migrationEncoding s.left)
+            <> kv "right" (migrationEncoding s.right)
+            <> kv "quality" (Enc.encodeDouble s.quality)
+            <> kv "quality_lo" (Enc.encodeDouble s.qualityLo)
+            <> kv "quality_hi" (Enc.encodeDouble s.qualityHi)
+            <> kv "apex_coverage" (Enc.encodeDouble s.apexCoverage)
+            <> kv "proven_optimal" (Enc.encodeBool s.provenOptimal)
+            <> kv "is_total" (Enc.encodeBool s.isTotal)
   where
     kv k v = Enc.encodeString k <> v
 
@@ -500,6 +780,23 @@ encodeList enc xs =
 decodeSearchOptions :: LBS.ByteString -> Either String SearchOptions
 decodeSearchOptions = runDecoder searchOptionsDecoder "search options"
 
+-- | Decode CBOR @DomainConstraints@ bytes into a structured
+-- 'DomainConstraints'. Any field absent from the payload keeps its
+-- 'defaultDomainConstraints' value, matching the @serde@ defaults the
+-- Rust struct derives.
+decodeDomainConstraints :: LBS.ByteString -> Either String DomainConstraints
+decodeDomainConstraints = runDecoder domainConstraintsDecoder "domain constraints"
+
+-- | Decode CBOR span bytes (the @pp_hom_find_span@ output) into a
+-- structured 'FoundSpan'.
+decodeFoundSpan :: LBS.ByteString -> Either String FoundSpan
+decodeFoundSpan = runDecoder foundSpanDecoder "span"
+
+-- | Decode CBOR @SchemaOverlap@ bytes (the @pp_hom_span_to_overlap@
+-- output) into a structured 'SchemaOverlap'.
+decodeSchemaOverlap :: LBS.ByteString -> Either String SchemaOverlap
+decodeSchemaOverlap = runDecoder schemaOverlapDecoder "schema overlap"
+
 -- | Decode CBOR @FoundMorphism@ bytes into a structured 'FoundMorphism'.
 decodeFoundMorphism :: LBS.ByteString -> Either String FoundMorphism
 decodeFoundMorphism = runDecoder foundMorphismDecoder "found morphism"
@@ -542,6 +839,85 @@ searchOptionsDecoder = decodeFields initial' build handler
         "max_results" -> (\v -> (mo, ep, is, v, pins)) <$> Dec.decodeInt
         "hard_pins" -> (\v -> (mo, ep, is, mr, v)) <$> decodeTextMap Dec.decodeString
         _ -> skipTerm >> pure acc
+
+domainConstraintsDecoder :: Decoder s DomainConstraints
+domainConstraintsDecoder = decodeFields (HM.empty, [], [], Nothing) build handler
+  where
+    build (rd, et, es, sw) = DomainConstraints rd et es sw
+    handler acc@(rd, et, es, sw) key = case key of
+        "restricted_domains" ->
+            (\v -> (v, et, es, sw)) <$> decodeTextMap (decodeListOf Dec.decodeString)
+        "excluded_targets" -> (\v -> (rd, v, es, sw)) <$> decodeListOf Dec.decodeString
+        "excluded_sources" -> (\v -> (rd, et, v, sw)) <$> decodeListOf Dec.decodeString
+        "scoring_weights" -> (\v -> (rd, et, es, v)) <$> decodeMaybeOf costWeightsDecoder
+        _ -> skipTerm >> pure acc
+
+costWeightsDecoder :: Decoder s CostWeights
+costWeightsDecoder = decodeFields (0, 0, 0, 0, 0) build handler
+  where
+    build (n, e, p, d, a) = CostWeights n e p d a
+    handler acc@(n, e, p, d, a) key = case key of
+        "name" -> (\v -> (v, e, p, d, a)) <$> decodeDouble
+        "edge" -> (\v -> (n, v, p, d, a)) <$> decodeDouble
+        "prop" -> (\v -> (n, e, v, d, a)) <$> decodeDouble
+        "degree" -> (\v -> (n, e, p, v, a)) <$> decodeDouble
+        "anchor" -> (\v -> (n, e, p, d, v)) <$> decodeDouble
+        _ -> skipTerm >> pure acc
+
+foundSpanDecoder :: Decoder s FoundSpan
+foundSpanDecoder = decodeFields initial' build handler
+  where
+    initial' =
+        ( emptySchema T.empty
+        , emptyMigration
+        , emptyMigration
+        , 0
+        , 0
+        , 0
+        , 0
+        , False
+        , False
+        )
+    build (ax, l, r, q, lo, hi, cov, po, tot) = FoundSpan ax l r q lo hi cov po tot
+    handler acc@(ax, l, r, q, lo, hi, cov, po, tot) key = case key of
+        "apex" -> (\v -> (v, l, r, q, lo, hi, cov, po, tot)) <$> schemaDecoder
+        "left" -> (\v -> (ax, v, r, q, lo, hi, cov, po, tot)) <$> migrationDecoder
+        "right" -> (\v -> (ax, l, v, q, lo, hi, cov, po, tot)) <$> migrationDecoder
+        "quality" -> (\v -> (ax, l, r, v, lo, hi, cov, po, tot)) <$> decodeDouble
+        "quality_lo" -> (\v -> (ax, l, r, q, v, hi, cov, po, tot)) <$> decodeDouble
+        "quality_hi" -> (\v -> (ax, l, r, q, lo, v, cov, po, tot)) <$> decodeDouble
+        "apex_coverage" -> (\v -> (ax, l, r, q, lo, hi, v, po, tot)) <$> decodeDouble
+        "proven_optimal" -> (\v -> (ax, l, r, q, lo, hi, cov, v, tot)) <$> Dec.decodeBool
+        "is_total" -> (\v -> (ax, l, r, q, lo, hi, cov, po, v)) <$> Dec.decodeBool
+        _ -> skipTerm >> pure acc
+
+schemaOverlapDecoder :: Decoder s SchemaOverlap
+schemaOverlapDecoder = decodeFields ([], []) build handler
+  where
+    build (vps, eps) = SchemaOverlap vps eps
+    handler acc@(vps, eps) key = case key of
+        "vertex_pairs" ->
+            (\v -> (v, eps)) <$> decodeListOf (decodePair Dec.decodeString Dec.decodeString)
+        "edge_pairs" -> (\v -> (vps, v)) <$> decodeListOf (decodePair decodeEdge decodeEdge)
+        _ -> skipTerm >> pure acc
+
+-- | Decode a two-element CBOR array as a pair, which is the shape a Rust
+-- tuple takes on the wire.
+decodePair :: Decoder s a -> Decoder s b -> Decoder s (a, b)
+decodePair decA decB = do
+    _ <- Dec.decodeListLenOrIndef
+    a <- decA
+    b <- decB
+    pure (a, b)
+
+-- | Decode a CBOR @null@ as 'Nothing', anything else through the element
+-- decoder. Matches @ciborium@'s @Option\<T\>@ encoding.
+decodeMaybeOf :: Decoder s a -> Decoder s (Maybe a)
+decodeMaybeOf decA = do
+    tt <- Dec.peekTokenType
+    case tt of
+        Dec.TypeNull -> Nothing <$ Dec.decodeNull
+        _ -> Just <$> decA
 
 foundMorphismDecoder :: Decoder s FoundMorphism
 foundMorphismDecoder = decodeFields (HM.empty, HM.empty, 0) build handler

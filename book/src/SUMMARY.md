@@ -29,6 +29,7 @@
   - [From Haskell](./how-to/define-schema/haskell.md)
   - [From Swift](./how-to/define-schema/swift.md)
 - [Build a migration](./how-to/build-migration.md)
+- [Find a span between two schemas](./how-to/spans.md)
 - [Apply field transforms](./how-to/field-transforms.md)
 - [Use lenses](./how-to/use-lenses.md)
 - [Use protolenses](./how-to/protolenses.md)

@@ -6,18 +6,21 @@
 //! changes.
 //!
 //! When potential renames are detected (vertices removed in old and added
-//! in new), the module uses `panproto_mig::hom_search::find_best_morphism`
-//! to discover a higher-quality migration that accounts for renamed elements.
-//! Detected renames from [`crate::rename_detect`] are used as initial
-//! assignments to guide the homomorphism search.
+//! in new), the module searches for a span between the two schemas and takes
+//! its right leg, which accounts for renamed elements the diff reads as a
+//! removal paired with an addition. The span search covers as much of the old
+//! schema as it can rather than insisting on a total morphism, so it still has
+//! something to say when the change dropped a field outright. Detected renames
+//! from [`crate::rename_detect`] are correspondences this crate computed, so
+//! they pin the search through [`SearchOptions::hard_pins`].
 
 use panproto_gat::Name;
 use std::collections::HashMap;
 
 use panproto_check::diff::SchemaDiff;
 use panproto_mig::Migration;
-use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
-use panproto_schema::{Edge, Schema};
+use panproto_mig::hom_search::{SearchOptions, find_span};
+use panproto_schema::{Edge, Protocol, Schema};
 use rustc_hash::FxHashSet;
 
 use crate::rename_detect;
@@ -129,11 +132,37 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
     identity_mig
 }
 
-/// Attempt to find a better migration via homomorphism search with
-/// rename detection providing the pinned assignments.
+/// The protocol the span search validates its apex against.
 ///
-/// Returns `Some(migration)` if a higher-quality migration is found,
-/// `None` otherwise.
+/// The apex is the sub-schema of `old` induced on the vertices the search gave
+/// a target, so every kind it carries is a kind `old` already carries. Naming
+/// exactly those kinds, with no edge rules and no constraint sorts, makes
+/// validation a statement about the induction rather than about how well a
+/// guessed protocol happens to describe the schema in hand. A repository that
+/// has a stored `Protocol` object should be validating against that instead,
+/// but a diff-derived migration is computed from two schemas alone.
+fn induction_protocol(old: &Schema) -> Protocol {
+    let mut obj_kinds: Vec<String> = old
+        .vertices
+        .values()
+        .map(|vertex| vertex.kind.to_string())
+        .collect();
+    obj_kinds.sort_unstable();
+    obj_kinds.dedup();
+
+    Protocol {
+        name: old.protocol.clone(),
+        obj_kinds,
+        ..Protocol::default()
+    }
+}
+
+/// Attempt to find a better migration by searching for a span, with rename
+/// detection providing the pinned assignments.
+///
+/// Returns `Some(migration)` if the span's right leg maps more vertices than
+/// the diff-derived migration does and the spliced result is a theory
+/// morphism, `None` otherwise.
 fn try_hom_search_enhancement(
     old: &Schema,
     new: &Schema,
@@ -155,18 +184,35 @@ fn try_hom_search_enhancement(
         ..SearchOptions::default()
     };
 
-    let best = find_best_morphism(old, new, &opts)?;
+    // The span search never refuses for want of a match, so the only way this
+    // returns nothing is a malformed apex, which would be a defect in the
+    // search rather than an answer about these two schemas. Falling back to the
+    // diff-derived migration is the same conservative choice the adoption test
+    // below makes.
+    let protocol = induction_protocol(old);
+    let span = find_span(old, new, &protocol, &opts).ok()?;
 
-    // Only use the morphism-based migration if it maps more vertices
-    // than the identity-based one.
-    if best.vertex_map.len() > identity_mig.vertex_map.len() {
-        let mut hom_mig = morphism_to_migration(&best);
-        // Preserve hyper-edge and label maps from the identity migration
-        // since the homomorphism search does not cover those.
-        hom_mig
-            .hyper_edge_map
-            .clone_from(&identity_mig.hyper_edge_map);
-        hom_mig.label_map.clone_from(&identity_mig.label_map);
+    // Only use the span-based migration if it maps more vertices than the
+    // identity-based one. A span that maps fewer is the search agreeing with
+    // the diff about what survives.
+    if span.right.vertex_map.len() > identity_mig.vertex_map.len() {
+        // The right leg is a morphism out of the apex. Spliced onto `old` it
+        // becomes the partial migration `old -> new` this crate stores, so it
+        // carries the two maps and not the leg's own endpoints.
+        // Hyper-edge and label maps come from the identity migration, since
+        // the span search does not cover those.
+        let right = span.right;
+        let hom_mig = Migration {
+            vertex_map: right.vertex_map,
+            edge_map: right.edge_map,
+            hyper_edge_map: identity_mig.hyper_edge_map.clone(),
+            label_map: identity_mig.label_map.clone(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
         // Validate the spliced candidate as a theory morphism before
         // adopting it; a heuristic candidate that is not structure-
         // preserving falls back to the diff-derived identity migration.

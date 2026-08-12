@@ -183,6 +183,118 @@ pub fn auto_generate_protolens(
     ))))
 }
 
+/// The optimal span between two schemas.
+///
+/// Unlike [`auto_generate_protolens`], this never refuses for want of a match:
+/// the assignment leaving every source vertex out is always feasible, so two
+/// schemas with nothing in common come back with an empty apex rather than as
+/// an error. Read `apex_coverage` to tell the two apart.
+///
+/// `hints_bytes`, when present, is a `MessagePack`-encoded
+/// `Record<string, string>` of source-to-target vertex mappings the caller
+/// *knows*; the search may not reconsider them.
+///
+/// Returns a `MessagePack`-encoded object the TS SDK decodes as
+/// `SpanResponse`:
+///
+/// ```text
+/// {
+///   apex_vertices,    // the apex's vertex identifiers, sorted
+///   apex_edges,       // the apex's edges, sorted
+///   vertex_map,       // the right leg, source vertex -> target vertex
+///   quality,          // how well the covered part matches, in [0, 1]
+///   quality_bounds,   // [lower, upper] bracketing `quality`
+///   apex_coverage,    // |apex vertices| / |source vertices|
+///   proven_optimal,   // whether the search proved its answer optimal
+///   is_total,         // whether the span is a total morphism
+///   apex_digest,      // the apex's content digest, lower-case hex
+/// }
+/// ```
+///
+/// The apex goes out as its vertex and edge sets rather than as a slab
+/// handle. It is the sub-schema of the source *induced* on those vertices, so
+/// the two lists determine it against a source the caller already holds, and
+/// no handle means no ownership for the caller to track and no leak when it
+/// only wanted the metrics.
+///
+/// # Errors
+///
+/// Returns `JsError` if a schema handle is invalid, if the hint bytes are not
+/// a `MessagePack` string map, if the search network could not be posed, or if
+/// the induced apex is not a well-formed schema. None of those means "no
+/// morphism exists".
+#[wasm_bindgen]
+pub fn auto_generate_span(
+    schema1: u32,
+    schema2: u32,
+    hints_bytes: Option<Vec<u8>>,
+) -> Result<Vec<u8>, JsError> {
+    let hints: std::collections::HashMap<String, String> = match hints_bytes {
+        Some(bytes) if !bytes.is_empty() => {
+            rmp_serde::from_slice(&bytes).map_err(|e| WasmError::DeserializationFailed {
+                reason: e.to_string(),
+            })?
+        }
+        _ => std::collections::HashMap::new(),
+    };
+
+    let src = slab::with_resource(schema1, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let tgt = slab::with_resource(schema2, |r| Ok(slab::as_schema(r)?.clone()))?;
+    let protocol =
+        lookup_builtin_protocol(&src.protocol).unwrap_or_else(|| default_protocol(&src.protocol));
+
+    let opts = mig::hom_search::SearchOptions {
+        hard_pins: hints
+            .iter()
+            .map(|(s, t)| (gat::Name::from(s.as_str()), gat::Name::from(t.as_str())))
+            .collect(),
+        ..Default::default()
+    };
+
+    let span = mig::hom_search::find_span(&src, &tgt, &protocol, &opts).map_err(|e| {
+        WasmError::LensConstructionFailed {
+            reason: format!("span search failed: {e}"),
+        }
+    })?;
+
+    let mut apex_vertices: Vec<String> = span
+        .apex
+        .vertices
+        .keys()
+        .map(std::string::ToString::to_string)
+        .collect();
+    apex_vertices.sort_unstable();
+
+    let mut apex_edges: Vec<&panproto_core::schema::Edge> = span.apex.edges.keys().collect();
+    apex_edges.sort_unstable();
+
+    let vertex_map: std::collections::HashMap<String, String> = span
+        .right
+        .vertex_map
+        .iter()
+        .map(|(s, t)| (s.to_string(), t.to_string()))
+        .collect();
+
+    let payload = serde_json::json!({
+        "apex_vertices": apex_vertices,
+        "apex_edges": apex_edges,
+        "vertex_map": vertex_map,
+        "quality": span.quality,
+        "quality_bounds": [span.quality_bounds.0, span.quality_bounds.1],
+        "apex_coverage": span.apex_coverage,
+        "proven_optimal": span.certificate.proven_optimal,
+        "is_total": span.is_total(),
+        "apex_digest": span.apex_digest_hex(),
+    });
+
+    rmp_serde::to_vec_named(&payload).map_err(|e| -> JsError {
+        WasmError::SerializationFailed {
+            reason: e.to_string(),
+        }
+        .into()
+    })
+}
+
 /// Check both `GetPut` and `PutGet` lens laws on a test instance.
 ///
 /// The `instance` bytes are `MessagePack`-encoded `WInstance`.

@@ -67,11 +67,20 @@ import Panproto.Gat
     , theoryName
     )
 import Panproto.Graph (GraphBackend (..))
-import Panproto.Hom (FoundMorphism (..), HomBackend (..), defaultFindOpts)
+import Panproto.Hom
+    ( DomainConstraints (..)
+    , FoundMorphism (..)
+    , FoundSpan (..)
+    , HomBackend (..)
+    , SchemaOverlap (..)
+    , defaultDomainConstraints
+    , defaultFindOpts
+    , spanAsTotalMorphism
+    )
 import Panproto.Instance (InstanceBackend (..), nodeCount)
 import Panproto.Io (IoBackend (..))
 import Panproto.Lens (LensBackend (..), Stringency (..))
-import Panproto.Migration (MigrationBackend (..), buildMigration, mapVertex)
+import Panproto.Migration (Migration (..), MigrationBackend (..), buildMigration, mapVertex)
 import Panproto.Native.Protocol ()
 import Panproto.Native.Schema ()
 import Panproto.Schema (Schema)
@@ -119,6 +128,9 @@ tests =
         , testCase "expr: parse + eval arithmetic" exprParseEval
         , testCase "vcs: init + add + commit + log" vcsInitAddLog
         , testCase "hom: find morphisms between equal schemas" homFindMorphisms
+        , testCase "hom: a self-span is a total morphism" homFindSpanIsTotal
+        , testCase "hom: an excluded source leaves the apex" homFindSpanHonoursExclusions
+        , testCase "hom: a span reads back as a pushout overlap" homSpanToOverlap
         , testCase "graph: fiber over a compiled migration anchor" graphFiberAt
         , testCase "data: store + get a JSON dataset" dataStoreGet
         ]
@@ -449,6 +461,53 @@ homFindMorphisms =
             case found of
                 (best : _) -> lookupText "post" best.vertexMap @?= Just "post"
                 [] -> assertBool "a schema must admit at least one self-morphism" False
+
+-- | The span from the base schema to itself covers all of it, so it is a
+-- total morphism and its apex carries both vertices.
+homFindSpanIsTotal :: IO ()
+homFindSpanIsTotal =
+    withProtocol geoProtocol $ \proto ->
+        withSchema postSchema $ \src ->
+            withSchema postSchema $ \tgt -> do
+                found <- findSpan src tgt proto defaultFindOpts defaultDomainConstraints
+                assertBool "a schema maps onto itself" found.isTotal
+                assertEqual "the apex covers the whole source" 1.0 found.apexCoverage
+                assertEqual "the apex is the source" 2 (S.vertexCount found.apex)
+                assertBool "the answer was proved optimal" found.provenOptimal
+                lookupText "post" found.right.vertexMap @?= Just "post"
+                case spanAsTotalMorphism found of
+                    Just best -> lookupText "post" best.vertexMap @?= Just "post"
+                    Nothing -> assertBool "a total span lowers to a morphism" False
+
+-- | Excluding the only property leaves it out of the apex, so the span
+-- stops being total and still answers rather than refusing.
+homFindSpanHonoursExclusions :: IO ()
+homFindSpanHonoursExclusions =
+    withProtocol geoProtocol $ \proto ->
+        withSchema postSchema $ \src ->
+            withSchema postSchema $ \tgt -> do
+                let constraints = defaultDomainConstraints {excludedSources = ["text"]}
+                found <- findSpan src tgt proto defaultFindOpts constraints
+                assertBool "an excluded source cannot be in the apex" (not found.isTotal)
+                lookupText "text" found.right.vertexMap @?= Nothing
+                assertEqual "a partial span lowers to nothing" Nothing (spanAsTotalMorphism found)
+
+-- | A span's overlap names every vertex the right leg maps, which is
+-- what merging the two schemas along the apex takes.
+homSpanToOverlap :: IO ()
+homSpanToOverlap =
+    withProtocol geoProtocol $ \proto ->
+        withSchema postSchema $ \src ->
+            withSchema postSchema $ \tgt -> do
+                found <- findSpan src tgt proto defaultFindOpts defaultDomainConstraints
+                overlap <- spanToOverlap (Proxy @Rust) found
+                assertEqual
+                    "every mapped vertex is identified"
+                    (HM.size found.right.vertexMap)
+                    (length overlap.vertexPairs)
+                assertBool
+                    "the record vertex is identified with itself"
+                    (("post", "post") `elem` overlap.vertexPairs)
 
 -- ---------------------------------------------------------------------------
 -- Data
