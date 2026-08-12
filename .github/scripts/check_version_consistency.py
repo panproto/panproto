@@ -754,15 +754,38 @@ def wanted_tag(expected: str) -> str:
     return "v" + ".".join(str(part) for part in parsed.release)
 
 
-def scan_line(line: str, wanted: str, *, is_package_swift: bool) -> list[str]:
+def pin_line_numbers(text: str) -> set[int]:
+    """The 1-based lines the two pin declarations span in `text`.
+
+    A declaration and its value need not share a line: neither value fits
+    the 100 column limit beside its name, so both sit on a continuation
+    line. A `swift-format-ignore` directive cannot buy the single-line
+    form back, because LineLength is enforced by the pretty-printer
+    rather than by the node rules that directive suppresses. Matching the
+    whole span rather than one line keeps the exemption on the value
+    wherever it is written.
+    """
+    lines: set[int] = set()
+    for pattern in (PIN_URL, PIN_CHECKSUM):
+        match = pattern.search(text)
+        if match is None:
+            continue
+        first = text.count("\n", 0, match.start()) + 1
+        last = text.count("\n", 0, match.end()) + 1
+        lines.update(range(first, last + 1))
+    return lines
+
+
+def scan_line(line: str, wanted: str, *, exempt: bool) -> list[str]:
     """Release tags on one line naming something other than `wanted`.
 
-    The pin exemption applies only in `Package.swift`. Anywhere else the
-    same two lines are documentation, and pasting the `.binaryTarget`
-    snippet into a README is the natural thing to do, so exempting it by
-    shape rather than by file left a permanently stale example.
+    `exempt` is true only for the lines the two pin declarations span in
+    `Package.swift`. Anywhere else the same text is documentation, and
+    pasting the `.binaryTarget` snippet into a README is the natural
+    thing to do, so exempting it by shape rather than by position left a
+    permanently stale example.
     """
-    if is_package_swift and (PIN_URL.match(line) or PIN_CHECKSUM.match(line)):
+    if exempt:
         return []
     found: list[str] = []
     for match in DOC_RELEASE_TAG.finditer(line):
@@ -804,8 +827,9 @@ def check_swift_doc_versions(expected: str) -> list[Mismatch]:
             text = path.read_text(encoding="utf-8")
         except (UnicodeDecodeError, OSError):
             continue
+        exempt_lines = pin_line_numbers(text) if path == package else set()
         for number, line in enumerate(text.splitlines(), start=1):
-            for literal in scan_line(line, wanted, is_package_swift=path == package):
+            for literal in scan_line(line, wanted, exempt=number in exempt_lines):
                 out.append(
                     Mismatch(
                         path=path,
@@ -1005,6 +1029,30 @@ PIN_LINE_VARIANTS: tuple[str, ...] = (
     '    private let releaseXCFrameworkURL = "PIN"',
     'private let releaseXCFrameworkURL = "PIN"  // rewritten by publish-swift.yml',
     'private let releaseXCFrameworkURL = "PIN"   ',
+    # The shipped form: the value does not fit beside its name inside the
+    # column limit, so it sits on a continuation line.
+    'private let releaseXCFrameworkURL =\n    "PIN"',
+)
+
+# `pin_line_numbers` has to find both declarations whether or not each
+# shares a line with its value, because the doc scan exempts exactly the
+# lines it returns and a miss turns the pin itself into a stale literal.
+_SPAN_URL = f'private let releaseXCFrameworkURL =\n    "{release_url("v0.70.0")}"'
+_SPAN_SUM = f'private let releaseXCFrameworkChecksum =\n    "{"a" * 64}"'
+PIN_SPAN_CASES: tuple[tuple[str, str, set[int]], ...] = (
+    ("both broken", f"// header\n{_SPAN_URL}\n{_SPAN_SUM}\n", {2, 3, 4, 5}),
+    (
+        "both inline",
+        f'private let releaseXCFrameworkURL = "{release_url("v0.70.0")}"\n'
+        f'private let releaseXCFrameworkChecksum = "{"a" * 64}"\n',
+        {1, 2},
+    ),
+    (
+        "mixed",
+        f'private let releaseXCFrameworkURL = "{release_url("v0.70.0")}"\n{_SPAN_SUM}\n',
+        {1, 2, 3},
+    ),
+    ("neither present", "// nothing to pin here\n", set()),
 )
 
 ORDER_CASES: tuple[tuple[str, str], ...] = (
@@ -1066,10 +1114,15 @@ def self_test(*, verbose: bool) -> int:
                 f"got {[m.field for m in found] or 'a pass'}",
             )
 
-    for line, is_package, expected_hits in DOC_CASES:
-        found = tuple(scan_line(line, "v0.70.1", is_package_swift=is_package))
+    for line, exempt, expected_hits in DOC_CASES:
+        found = tuple(scan_line(line, "v0.70.1", exempt=exempt))
         if found != expected_hits:
             report("docs", line, f"expected {expected_hits}, got {found}")
+
+    for label, manifest, expected_lines in PIN_SPAN_CASES:
+        found_lines = pin_line_numbers(manifest)
+        if found_lines != expected_lines:
+            report("pin span", label, f"expected {expected_lines}, got {found_lines}")
 
     for variant in PIN_LINE_VARIANTS:
         match = PIN_URL.search(variant)
