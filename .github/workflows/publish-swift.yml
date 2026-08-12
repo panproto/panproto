@@ -151,6 +151,14 @@ jobs:
           set -euo pipefail
           rm -rf bindings/swift/.panproto-c
           cd bindings/swift && swift build
+      - name: Lint the rewritten manifest
+        # This job commits to main, so whatever it writes has to satisfy
+        # the same gate a pull request does. The pinned URL and checksum
+        # both exceed the column limit and carry `swift-format-ignore`
+        # directives for it; if a future rewrite drops them, or reformats
+        # around them, main goes red on the next push and the cause is a
+        # commit nobody made by hand. Catch it here instead.
+        run: cd bindings/swift && swift format lint -r --strict Package.swift
       - name: Commit the pin
         run: |
           set -euo pipefail
