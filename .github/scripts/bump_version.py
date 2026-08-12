@@ -18,14 +18,53 @@ else derives from it:
 - ``bindings/python-grammars-*/pyproject.toml`` ``panproto>=MAJOR.MINOR,<MAJOR.MINOR+1``.
 
 Member crates use ``version.workspace = true`` and ``bindings/python/pyproject.toml``
-is ``dynamic = ["version"]``, so neither is touched — that is the whole point of
+is ``dynamic = ["version"]``, so neither is touched. That is the whole point of
 the inheritance, and the consistency check enforces it stays that way.
+
+Deliberately not touched, and not an oversight
+----------------------------------------------
+
+``bindings/swift/Package.swift`` carries ``releaseXCFrameworkURL`` and
+``releaseXCFrameworkChecksum``. Those name a **published release artifact**, not
+a version: the URL points at an asset attached to a GitHub release, and the
+checksum is that asset's SHA-256. Bumping them here would point the package at a
+release that does not exist yet, and every SwiftPM consumer would fail to resolve
+until the tag was pushed and the artifact built.
+
+They are written by ``publish-swift.yml``'s ``pin`` job, which runs on the tag,
+waits for ``build-panproto-c-bindist.yml`` to attach the XCFramework, computes
+the real checksum, verifies a clean consumer build resolves against it, and
+commits to main. So a bump commit legitimately leaves the pin one release behind,
+and it catches up after the tag.
+
+``check_version_consistency.py`` encodes exactly that: the pin may equal the
+workspace version or lag it, but no release tag may exist strictly between them.
+A pin further back means the ``pin`` job failed on some earlier tag and nobody
+noticed, which is the failure that check exists to catch. **Never hand-edit those
+two constants for a version bump.** If a pin is stale, re-run ``publish-swift.yml``
+for the tag rather than editing the file.
+
+The Swift docs are also untouched, because they no longer name a version:
+``bindings/swift/bootstrap/fetch-bindist.sh`` defaults to the workspace version
+read from ``Cargo.toml``, and the README and book show the argument-free form. If
+a literal is ever reintroduced there, the consistency check fails rather than
+letting it rot.
 
 Usage::
 
     python3 .github/scripts/bump_version.py 0.62.0            # bump + refresh lock + verify
     python3 .github/scripts/bump_version.py 0.62.0 --date 2026-08-01  # also date the CHANGELOG
     python3 .github/scripts/bump_version.py 0.62.0 --no-lock   # skip `cargo update` (CI regenerates)
+
+``--date`` replaces the ``## [Unreleased]`` heading rather than adding a heading
+below it, so a dated CHANGELOG carries no empty ``[Unreleased]`` section. Add one
+back when the next change lands, not here.
+
+Only release triples are accepted. The tag trigger admits prereleases
+(``v[0-9]+.[0-9]+.[0-9]+*``) and the consistency check understands them, but
+bumping the workspace to one would have to reckon with three dependency grammars
+that spell prereleases differently, so it is deliberately out of scope here: cut
+a prerelease by hand if one is ever wanted.
 
 After writing, it runs ``check_version_consistency.py`` and exits non-zero if
 anything is still inconsistent, so a partial bump can never slip through.

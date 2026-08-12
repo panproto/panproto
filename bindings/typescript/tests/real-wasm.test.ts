@@ -13,9 +13,10 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { decode } from '@msgpack/msgpack';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import { Panproto, TheoryBuilder, checkMorphism } from '../src/index.js';
+import { Panproto, TheoryBuilder, checkMorphism, getBuiltinProtocol } from '../src/index.js';
 import type { TheoryMorphism } from '../src/index.js';
 
 /**
@@ -675,6 +676,160 @@ describe('parseSchemaBundle', () => {
     expect(() => pp.parseSchemaBundle('nonexistent', [annotationLayer])).toThrow(
       /no bundle parser registered|nonexistent/i,
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Protocol resolution — the WASM registry is the only source of truth.
+//
+// `protocol()` used to consult a hand-written map of five specs before the
+// registry, and that map had fallen behind the Rust definitions: ATProto's
+// `format`, `knownValues` and `ref` constraint sorts were missing, so a
+// bundle parsed by panproto's own ATProto parser failed validation against
+// panproto's own ATProto protocol. The map is gone; these tests hold the
+// registry and the resolved protocol together so no copy can drift again.
+// ---------------------------------------------------------------------------
+
+describe('protocol resolution', () => {
+  it('resolves the ATProto constraint sorts the Rust definition declares', () => {
+    const atp = pp.protocol('atproto');
+    for (const sort of [
+      'minLength', 'maxLength', 'minimum', 'maximum', 'maxGraphemes',
+      'enum', 'const', 'default', 'closed', 'format', 'knownValues', 'ref',
+    ]) {
+      expect(atp.constraintSorts).toContain(sort);
+    }
+  });
+
+  it('carries the feature flags across the boundary', () => {
+    // ATProto sets exactly these three in `web_document::atproto::protocol`.
+    const atp = pp.protocol('atproto').spec;
+    expect(atp.hasOrder).toBe(true);
+    expect(atp.hasCoproducts).toBe(true);
+    expect(atp.hasRecursion).toBe(true);
+    expect(atp.hasCausal).toBe(false);
+    expect(atp.nominalIdentity).toBe(false);
+
+    // SQL sets `nominal_identity` but no coproducts: a spec that copied
+    // ATProto's flags, or dropped them all, fails here.
+    const sql = pp.protocol('sql').spec;
+    expect(sql.nominalIdentity).toBe(true);
+    expect(sql.hasCoproducts).toBe(false);
+  });
+
+  it('resolves every built-in protocol to exactly what the registry holds', () => {
+    const names = pp.listProtocols();
+    expect(names.length).toBeGreaterThan(50);
+
+    // Read the registry bytes directly and restate the snake_case to
+    // camelCase mapping here, so this compares the resolved protocol
+    // against the Rust definition rather than against the SDK's own
+    // projection of it.
+    for (const name of names) {
+      const bytes = pp._wasm.exports.get_builtin_protocol(new TextEncoder().encode(name));
+      const wire = decode(bytes) as Record<string, unknown> & {
+        edge_rules: { edge_kind: string; src_kinds: string[]; tgt_kinds: string[] }[];
+      };
+
+      expect(pp.protocol(name).spec, `${name} resolved to a different spec`).toEqual({
+        name: wire.name,
+        schemaTheory: wire.schema_theory,
+        instanceTheory: wire.instance_theory,
+        edgeRules: wire.edge_rules.map((r) => ({
+          edgeKind: r.edge_kind,
+          srcKinds: r.src_kinds,
+          tgtKinds: r.tgt_kinds,
+        })),
+        objKinds: wire.obj_kinds,
+        constraintSorts: wire.constraint_sorts,
+        hasOrder: wire.has_order,
+        hasCoproducts: wire.has_coproducts,
+        hasRecursion: wire.has_recursion,
+        hasCausal: wire.has_causal,
+        nominalIdentity: wire.nominal_identity,
+        hasDefaults: wire.has_defaults,
+        hasCoercions: wire.has_coercions,
+        hasMergers: wire.has_mergers,
+        hasPolicies: wire.has_policies,
+      });
+    }
+  });
+
+  it('agrees with the standalone registry accessor', () => {
+    for (const name of ['atproto', 'sql', 'protobuf', 'graphql', 'json-schema']) {
+      expect(pp.protocol(name).spec).toEqual(getBuiltinProtocol(name, pp._wasm));
+    }
+  });
+
+  it('caches the resolved protocol per name', () => {
+    expect(pp.protocol('graphql')).toBe(pp.protocol('graphql'));
+  });
+
+  it('rejects a name the registry does not know', () => {
+    expect(() => pp.protocol('not-a-protocol')).toThrow(/not found/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A bundle parsed by panproto validates against panproto's own protocol.
+// ---------------------------------------------------------------------------
+
+describe('bundle validation against the resolved protocol', () => {
+  const defsDoc = {
+    lexicon: 1,
+    id: 'local.validate.defs',
+    defs: {
+      main: {
+        type: 'object',
+        properties: { value: { type: 'string', format: 'datetime' } },
+      },
+    },
+  };
+
+  const recordDoc = {
+    lexicon: 1,
+    id: 'local.validate.record',
+    defs: {
+      main: {
+        type: 'record',
+        key: 'tid',
+        record: {
+          type: 'object',
+          required: ['item'],
+          properties: { item: { type: 'ref', ref: 'local.validate.defs' } },
+        },
+      },
+    },
+  };
+
+  it('reports no issues for a datetime format and a cross-document ref', () => {
+    const schema = pp.parseSchemaBundle('atproto', [recordDoc, defsDoc]);
+    const result = pp.validateSchema(schema, pp.protocol('atproto'));
+
+    // `format` on the datetime property and `ref` on the ref property are
+    // both recorded by the ATProto parser and both recognized by the ATProto
+    // protocol; a stale constraint-sort list reports them as
+    // `invalid-constraint-sort`.
+    expect(result.issues).toEqual([]);
+    expect(result.isValid).toBe(true);
+
+    schema[Symbol.dispose]();
+  });
+
+  it('reports no issues for a JSON Schema document', () => {
+    const schema = pp.parseSchemaDocument('json-schema', {
+      type: 'object',
+      required: ['id'],
+      properties: {
+        id: { type: 'string', format: 'uuid' },
+        count: { type: 'integer', minimum: 0 },
+      },
+    });
+    const result = pp.validateSchema(schema, pp.protocol('json-schema'));
+
+    expect(result.issues).toEqual([]);
+
+    schema[Symbol.dispose]();
   });
 });
 

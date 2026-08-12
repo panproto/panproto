@@ -7,6 +7,7 @@ pub mod git_bridge;
 pub mod helpers;
 pub mod history;
 pub mod lens;
+pub mod load;
 pub mod migrate;
 pub mod parse;
 pub mod schema;

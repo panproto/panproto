@@ -9,7 +9,8 @@ import { describe, it, expect, vi } from 'vitest';
 import { Instance } from '../src/instance.js';
 import { BuiltSchema } from '../src/schema.js';
 import { WasmHandle } from '../src/wasm.js';
-import { Protocol, ATPROTO_SPEC } from '../src/protocol.js';
+import { Protocol } from '../src/protocol.js';
+import { MOCK_SPEC } from './support/mock-protocol.js';
 import type { WasmModule, WasmExports } from '../src/types.js';
 import { packToWasm } from '../src/msgpack.js';
 
@@ -53,7 +54,7 @@ function createMockWasm(): WasmModule {
 /** Create a test BuiltSchema. */
 function createTestSchema(wasm: WasmModule): BuiltSchema {
   const protocolHandle = new WasmHandle(1, vi.fn());
-  const proto = new Protocol(protocolHandle, ATPROTO_SPEC, wasm);
+  const proto = new Protocol(protocolHandle, MOCK_SPEC, wasm);
   return proto.schema()
     .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
     .build();

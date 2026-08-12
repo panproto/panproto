@@ -26,12 +26,7 @@ export { Panproto } from './panproto.js';
 // Protocol
 export { Protocol } from './protocol.js';
 export {
-  ATPROTO_SPEC,
-  SQL_SPEC,
-  PROTOBUF_SPEC,
-  GRAPHQL_SPEC,
-  JSON_SCHEMA_SPEC,
-  BUILTIN_PROTOCOLS,
+  defineBuiltinProtocol,
   getProtocolNames,
   getBuiltinProtocol,
 } from './protocol.js';

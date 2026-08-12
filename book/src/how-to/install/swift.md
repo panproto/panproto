@@ -26,7 +26,7 @@ Run `dev-link.sh` again after every change to `panproto-c` or the workspace `Car
 
 ### Prebuilt binaries
 
-`bootstrap/fetch-bindist.sh [version] [variant]` downloads the prebuilt library for the host platform from the corresponding GitHub Release. It detects `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, and `aarch64-unknown-linux-gnu`. The version defaults to whatever the checkout declares.
+`bootstrap/fetch-bindist.sh [version] [variant]` downloads the prebuilt library for the host platform from the corresponding GitHub Release. It detects `aarch64-apple-darwin`, `x86_64-apple-darwin`, `x86_64-unknown-linux-gnu`, and `aarch64-unknown-linux-gnu`. Both arguments are optional and are read by shape rather than by position, so either can be given alone: the version defaults to whatever the checkout declares, and the variant (`default` or `full`, also spelled `--default` and `--full`) defaults to `default`.
 
 ```sh
 cd panproto/bindings/swift
@@ -40,7 +40,7 @@ iOS builds go through the XCFramework, which carries a macOS-universal slice, an
 
 ```sh
 cd panproto/bindings/swift
-./bootstrap/fetch-bindist.sh v0.69.0 default --xcframework
+./bootstrap/fetch-bindist.sh --xcframework
 PANPROTO_SWIFT_XCFRAMEWORK=.panproto-c/panproto_c.xcframework swift build
 ```
 
@@ -71,7 +71,7 @@ Each tier is a [package trait](https://www.swift.org/documentation/package-manag
 The three gated products exist in the package graph either way, so a build that omits the features still resolves; their modules are simply empty. On the prebuilt path, fetch the `full` variant:
 
 ```sh
-./bootstrap/fetch-bindist.sh v0.70.0 full
+./bootstrap/fetch-bindist.sh full
 swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT
 ```
 

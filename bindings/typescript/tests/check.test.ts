@@ -8,7 +8,8 @@
 import { describe, it, expect, vi } from 'vitest';
 import { FullDiffReport, CompatReport, ValidationResult } from '../src/check.js';
 import { BuiltSchema } from '../src/schema.js';
-import { Protocol, defineProtocol, ATPROTO_SPEC } from '../src/protocol.js';
+import { Protocol } from '../src/protocol.js';
+import { MOCK_SPEC } from './support/mock-protocol.js';
 import { WasmHandle } from '../src/wasm.js';
 import type { WasmModule, WasmExports, FullSchemaDiff, CompatReportData } from '../src/types.js';
 import { packToWasm } from '../src/msgpack.js';
@@ -163,7 +164,7 @@ describe('FullDiffReport', () => {
     const report = new FullDiffReport(data, reportBytes, wasm);
 
     const handle = new WasmHandle(1, vi.fn());
-    const proto = new Protocol(handle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(handle, MOCK_SPEC, wasm);
 
     const compat = report.classify(proto);
 
@@ -257,7 +258,7 @@ describe('BuiltSchema convenience methods', () => {
   it('normalize calls WASM and returns a new BuiltSchema', () => {
     const wasm = createMockWasm();
     const protocolHandle = new WasmHandle(1, vi.fn());
-    const proto = new Protocol(protocolHandle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(protocolHandle, MOCK_SPEC, wasm);
 
     const schema = proto.schema()
       .vertex('post', 'record', { nsid: 'app.bsky.feed.post' })
@@ -277,7 +278,7 @@ describe('BuiltSchema convenience methods', () => {
   it('validate calls WASM and returns a ValidationResult', () => {
     const wasm = createMockWasm();
     const protocolHandle = new WasmHandle(1, vi.fn());
-    const proto = new Protocol(protocolHandle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(protocolHandle, MOCK_SPEC, wasm);
 
     const schema = proto.schema()
       .vertex('post', 'record')

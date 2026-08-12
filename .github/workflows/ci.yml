@@ -20,9 +20,22 @@ jobs:
     # workspace bump and `skip-existing: true` masks the failure.
     steps:
       - uses: actions/checkout@v6
+        with:
+          # The Swift release pin is allowed to lag the workspace, and
+          # the tag list is what separates a legitimate lag from a pin
+          # job that failed on an intervening release. A default
+          # checkout fetches no tags, which leaves that distinction
+          # unmakeable; the check reports which record it had in its
+          # summary line rather than failing, so this is what keeps the
+          # coverage real instead of quietly degraded.
+          fetch-tags: true
       - uses: actions/setup-python@v6
         with:
           python-version: "3.13"
+      # The check's own rules, exercised against a table of release
+      # states. It touches no files, so it runs as a flag on the script
+      # rather than as a harness with a dependency to install.
+      - run: python3 .github/scripts/check_version_consistency.py --self-test --verbose
       - run: python3 .github/scripts/check_version_consistency.py --verbose
 
   fmt:
