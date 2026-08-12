@@ -154,7 +154,14 @@ export interface EdgeRule {
   readonly tgtKinds: readonly string[];
 }
 
-/** A protocol specification defining schema/instance theories and validation rules. */
+/**
+ * A protocol specification defining schema/instance theories and validation rules.
+ *
+ * The feature flags mirror the flags on the Rust `Protocol` struct. They are
+ * optional here and default to `false` when a spec is sent to WASM, so a
+ * hand-written spec need only name the flags it turns on. Specs obtained from
+ * the built-in registry always carry every flag explicitly.
+ */
 export interface ProtocolSpec {
   readonly name: string;
   readonly schemaTheory: string;
@@ -162,6 +169,25 @@ export interface ProtocolSpec {
   readonly edgeRules: readonly EdgeRule[];
   readonly objKinds: readonly string[];
   readonly constraintSorts: readonly string[];
+
+  /** Whether the protocol uses ordered collections (`ThOrder`). */
+  readonly hasOrder?: boolean;
+  /** Whether the protocol has coproduct/union types (`ThCoproduct`). */
+  readonly hasCoproducts?: boolean;
+  /** Whether the protocol supports recursive types (`ThRecursion`). */
+  readonly hasRecursion?: boolean;
+  /** Whether the protocol has causal/temporal ordering (`ThCausal`). */
+  readonly hasCausal?: boolean;
+  /** Whether the protocol uses nominal identity (`ThNominal`). */
+  readonly nominalIdentity?: boolean;
+  /** Whether the protocol supports default value expressions (`ThValued`). */
+  readonly hasDefaults?: boolean;
+  /** Whether the protocol supports type coercion expressions (`ThCoercible`). */
+  readonly hasCoercions?: boolean;
+  /** Whether the protocol supports merge/split expressions (`ThMergeable`). */
+  readonly hasMergers?: boolean;
+  /** Whether the protocol supports conflict resolution policies (`ThPolicied`). */
+  readonly hasPolicies?: boolean;
 }
 
 // ---------------------------------------------------------------------------

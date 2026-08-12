@@ -74,7 +74,7 @@ const restored = lens.put(modifiedView, complement);
 | `Repository`                     | Git-style VCS for schemas: init, commit, branch, merge, log, etc.      |
 | `ExprBuilder`, `parseExpr`, `evalExpr`, `executeQuery` | Embedded expression language.                    |
 | `TheoryHandle`, `TheoryBuilder`, `createTheory`, `colimit`, `checkMorphism`, `factorizeMorphism` | GAT-level theory construction. |
-| `getProtocolNames()`, `getBuiltinProtocol(name)` | Built-in protocol registry; `ATPROTO_SPEC`, `SQL_SPEC`, etc. for direct import. |
+| `getProtocolNames()`, `getBuiltinProtocol(name)`, `defineBuiltinProtocol(name)` | Built-in protocol registry, read from WASM. Protocol definitions live in Rust; the SDK keeps no copy of them. |
 | `PanprotoError`, `WasmError`, `SchemaValidationError`, `MigrationError`, `ExistenceCheckError` | Error hierarchy. |
 
 ## Distribution and binary fetch

@@ -14,6 +14,7 @@ use super::helpers::{
     build_schema_model, build_theory_registry, load_json, open_repo, print_stored_theory_diff,
     print_theory_diff, resolve_protocol,
 };
+use super::load;
 use crate::format;
 
 pub fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> Result<()> {
@@ -784,8 +785,12 @@ pub fn cmd_diff(
     let new_path =
         new_path.ok_or_else(|| miette::miette!("new schema path is required (or use --staged)"))?;
 
-    let old_schema: Schema = load_json(old_path)?;
-    let new_schema: Schema = load_json(new_path)?;
+    let options = load::LoadOptions {
+        protocol: None,
+        verbose,
+    };
+    let old_schema = load::load_schema(old_path, &options)?.schema;
+    let new_schema = load::load_schema(new_path, &options)?.schema;
 
     if verbose {
         eprintln!(
@@ -820,12 +825,26 @@ pub fn cmd_diff(
 
 /// Classify backward-compatibility between two schema versions.
 ///
+/// Each operand is loaded through [`load::load_schema`], so the two
+/// versions may be given as panproto schema JSON files, as single
+/// schema documents, or as project directories: a manifest-backed
+/// project is parsed as one bundle, which resolves references across
+/// documents and so compares the same assembled schema that `add`
+/// would stage. A directory with no manifest is parsed as a bundle in
+/// `protocol_name`.
+///
+/// A manifest-backed operand takes its protocol from its manifest, and
+/// a `--protocol` that disagrees is a usage error rather than a silent
+/// override; `--protocol` still selects the classifier, and must
+/// therefore agree with both operands.
+///
 /// Runs a structural diff, classifies it against `protocol_name` via
 /// [`classify_with_schemas`](panproto_core::check::classify_with_schemas),
 /// prints the changes grouped by tier, and terminates the process with a
 /// CI-usable status code: `0` when no breaking changes are found, `1`
 /// when at least one breaking change is found, and `2` on a usage or
-/// load error (unreadable schema, unknown protocol, or bad `--format`).
+/// load error (unreadable schema, unknown protocol, protocol/manifest
+/// disagreement, or bad `--format`).
 ///
 /// This command owns its exit code, so it never returns; the `!` return
 /// type coerces to the `Result<()>` the dispatcher expects.
@@ -840,11 +859,15 @@ pub fn cmd_compat(
 
     // Load-or-usage failures must exit 2, distinct from the exit-1
     // breaking-change code, so `?` (which surfaces as exit 1) is avoided.
-    let old_schema: Schema = match load_json(old_path) {
+    let options = load::LoadOptions {
+        protocol: Some(protocol_name),
+        verbose,
+    };
+    let old = match load::load_schema(old_path, &options) {
         Ok(s) => s,
         Err(e) => exit_usage(&format!("{e:?}")),
     };
-    let new_schema: Schema = match load_json(new_path) {
+    let new = match load::load_schema(new_path, &options) {
         Ok(s) => s,
         Err(e) => exit_usage(&format!("{e:?}")),
     };
@@ -852,12 +875,23 @@ pub fn cmd_compat(
         Ok(p) => p,
         Err(e) => exit_usage(&format!("{e:?}")),
     };
+    for (path, loaded) in [(old_path, &old), (new_path, &new)] {
+        if let Some(declared) = loaded.conflicting_protocol(protocol_name) {
+            eprintln!(
+                "warning: {} declares protocol {declared:?}; classifying it as {protocol_name:?}",
+                path.display()
+            );
+        }
+    }
+    let (old_schema, new_schema) = (old.schema, new.schema);
 
     if verbose {
         eprintln!(
-            "Classifying schema {} vs {} against protocol '{protocol_name}'",
-            old_schema.vertex_count(),
-            new_schema.vertex_count(),
+            "Classifying {} ({}) vs {} ({}) against protocol '{protocol_name}'",
+            old_path.display(),
+            old.kind.label(),
+            new_path.display(),
+            new.kind.label(),
         );
     }
 

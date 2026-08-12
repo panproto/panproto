@@ -24,6 +24,7 @@ use crate::merge;
 use crate::object::{CommitObject, DataSetObject, Object};
 use crate::refs;
 use crate::store::{self, HeadState, Store};
+use crate::tree::ProjectProtocol;
 
 /// The versioned-data references a merge commit carries, as
 /// `(data_ids, complement_ids, cst_complement_ids)`.
@@ -121,18 +122,36 @@ impl Repository {
     /// Validate `schema` against its registered protocol theory's
     /// equations, or record an advisory note when no theory is registered.
     ///
+    /// `composition` is the protocol agreement of the per-file schemas
+    /// `schema` was assembled from, which distinguishes the two reasons
+    /// equations can go unchecked: a project that mixes protocols has no
+    /// single theory to check against, whereas a project that agrees on
+    /// one protocol has a theory only if that protocol is registered.
+    ///
     /// Returns diagnostics whose `equation_errors` are blocking and whose
     /// `equation_notes` are advisory.
     #[must_use]
-    fn schema_equation_diagnostics(&self, schema: &Schema) -> gat_validate::GatDiagnostics {
+    fn schema_equation_diagnostics(
+        &self,
+        schema: &Schema,
+        composition: &ProjectProtocol,
+    ) -> gat_validate::GatDiagnostics {
         let mut diag = gat_validate::GatDiagnostics::default();
         if let Some(theory) = self.protocol_theories.get(&schema.protocol) {
             diag.extend(gat_validate::validate_schema_against_theory(schema, theory));
-        } else {
-            diag.equation_notes.push(format!(
-                "no protocol theory registered for '{}'; schema equations were not checked",
-                schema.protocol
-            ));
+            return diag;
+        }
+        match composition {
+            ProjectProtocol::Heterogeneous(names) => diag.equation_notes.push(format!(
+                "project mixes protocols ({}), so it has no single protocol theory; schema equations were not checked",
+                names.join(", ")
+            )),
+            ProjectProtocol::Empty | ProjectProtocol::Homogeneous(_) => {
+                diag.equation_notes.push(format!(
+                    "no protocol theory registered for '{}'; schema equations were not checked",
+                    schema.protocol
+                ));
+            }
         }
         diag
     }
@@ -214,6 +233,11 @@ impl Repository {
         schema: &Schema,
         options: &AddOptions,
     ) -> Result<Index, VcsError> {
+        // Read from the tree rather than from `schema.protocol`, which
+        // records the outcome of the agreement and not the agreement
+        // itself: a project that mixes protocols and one whose files all
+        // declare the coproduct protocol assemble to the same name.
+        let composition = crate::tree::tree_protocol(&self.store, &schema_id)?;
         let (migration_id, auto_derived, validation, gat_diagnostics) = match store::resolve_head(
             &self.store,
         )? {
@@ -223,7 +247,7 @@ impl Repository {
                 if options.skip_verify {
                     (None, false, ValidationStatus::Pending, None)
                 } else {
-                    let gat_diag = self.schema_equation_diagnostics(schema);
+                    let gat_diag = self.schema_equation_diagnostics(schema, &composition);
                     let validation = if gat_diag.has_errors() {
                         ValidationStatus::Invalid(gat_diag.all_errors())
                     } else {
@@ -297,7 +321,7 @@ impl Repository {
                     if let Some(note) = hom_rejection {
                         gat_diag.migration_warnings.push(note);
                     }
-                    gat_diag.extend(self.schema_equation_diagnostics(schema));
+                    gat_diag.extend(self.schema_equation_diagnostics(schema, &composition));
                     // If GAT validation found errors, mark as invalid.
                     let validation = if gat_diag.has_errors() {
                         ValidationStatus::Invalid(gat_diag.all_errors())
@@ -540,8 +564,17 @@ impl Repository {
                 .map_err(VcsError::PushoutVerification)?;
 
             // Validate the merged schema against its registered protocol
-            // theory's equations before recording the merge commit.
-            let eq_diag = self.schema_equation_diagnostics(&result.merged_schema);
+            // theory's equations before recording the merge commit. The
+            // merged schema is a pushout of both parents, so the protocols
+            // it has to agree on are those of both parents' files together.
+            let mut parent_protocols =
+                crate::tree::tree_protocol_names(&self.store, &ours_commit.schema_id)?;
+            parent_protocols.extend(crate::tree::tree_protocol_names(
+                &self.store,
+                &theirs_commit.schema_id,
+            )?);
+            let composition = ProjectProtocol::from_names(parent_protocols);
+            let eq_diag = self.schema_equation_diagnostics(&result.merged_schema, &composition);
             if eq_diag.has_errors() {
                 return Err(VcsError::ValidationFailed {
                     reasons: eq_diag.all_errors(),
@@ -1985,5 +2018,310 @@ mod tests {
             panproto_gat::check_morphism(&morph2, &dom2, &cod2).is_ok(),
             "an adopted auto-derived migration must be a valid morphism"
         );
+    }
+
+    /// Store `(path, protocol, schema)` leaves as a project tree and
+    /// return its root, the shape `schema add <project-dir>` produces.
+    fn project_tree(
+        repo: &mut Repository,
+        files: &[(&str, &str, Schema)],
+    ) -> Result<ObjectId, VcsError> {
+        let leaves: Vec<(PathBuf, crate::object::FileSchemaObject)> = files
+            .iter()
+            .map(|(path, protocol, schema)| {
+                (
+                    PathBuf::from(*path),
+                    crate::object::FileSchemaObject {
+                        path: (*path).to_owned(),
+                        protocol: (*protocol).to_owned(),
+                        schema: schema.clone(),
+                        cross_file_edges: Vec::new(),
+                    },
+                )
+            })
+            .collect();
+        crate::tree::build_schema_tree(&mut repo.store, leaves)
+    }
+
+    fn assembled(repo: &Repository, root: ObjectId) -> Result<Schema, VcsError> {
+        crate::tree::assemble_schema(
+            &repo.store,
+            &root,
+            &crate::tree::project_coproduct_protocol(),
+        )
+    }
+
+    fn staged_diagnostics(index: &Index) -> Option<&gat_validate::GatDiagnostics> {
+        index
+            .staged
+            .as_ref()
+            .and_then(|s| s.gat_diagnostics.as_ref())
+    }
+
+    /// A theory whose one equation says the `prop` relation is the
+    /// identity. It is stated over the edge *kind* `prop` rather than an
+    /// edge name because assembly prefixes edge names with their file
+    /// path, so only kind-keyed operations stay observable on a
+    /// multi-file project.
+    fn prop_identity_theory() -> Theory {
+        use panproto_gat::{Equation, Operation, Sort, Term};
+        Theory::new(
+            "ThPropIdentity",
+            vec![Sort::simple("Node")],
+            vec![Operation::unary("prop", "x", "Node", "Node")],
+            vec![Equation::new(
+                "prop_is_identity",
+                Term::app("prop", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        )
+    }
+
+    #[test]
+    fn homogeneous_project_is_equation_checked() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        repo.set_protocol_theory("proj_test", prop_identity_theory());
+
+        // Two files in one protocol, the second carrying a `prop` edge
+        // that violates `prop(x) = x`.
+        let clean = schema_with_edges("proj_test", &[("root", "Node")], &[]);
+        let violating = schema_with_edges(
+            "proj_test",
+            &[("root", "Node"), ("a", "Node")],
+            &[("root", "a", "p")],
+        );
+        let root = project_tree(
+            &mut repo,
+            &[
+                ("a.json", "proj_test", clean),
+                ("b.json", "proj_test", violating),
+            ],
+        )?;
+
+        // The apex is in `proj_test`, so the lookup that selects the
+        // theory finds one.
+        assert_eq!(assembled(&repo, root)?.protocol, "proj_test");
+
+        let index = repo.add_tree(root)?;
+        let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
+        assert!(
+            diag.equation_notes.is_empty(),
+            "a registered theory leaves no advisory, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(
+            diag.equation_errors
+                .iter()
+                .any(|e| e.contains("prop_is_identity")),
+            "the assembled project's equations must actually be checked, got: {diag:?}"
+        );
+        assert!(matches!(
+            index.staged.as_ref().map(|s| &s.validation),
+            Some(ValidationStatus::Invalid(_))
+        ));
+        let Err(err) = repo.commit("violates the theory", "alice") else {
+            panic!("commit must fail on a project-wide equation violation");
+        };
+        assert!(matches!(err, VcsError::ValidationFailed { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn homogeneous_project_satisfying_its_theory_commits() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        repo.set_protocol_theory("proj_test", prop_identity_theory());
+
+        let a = schema_with_edges("proj_test", &[("root", "Node"), ("a", "Node")], &[]);
+        let b = schema_with_edges("proj_test", &[("root", "Node"), ("b", "Node")], &[]);
+        let root = project_tree(
+            &mut repo,
+            &[("a.json", "proj_test", a), ("b.json", "proj_test", b)],
+        )?;
+
+        let index = repo.add_tree(root)?;
+        let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
+        assert!(diag.equation_notes.is_empty());
+        assert!(diag.is_clean(), "a conforming project must stage clean");
+
+        let commit_id = repo.commit("initial", "alice")?;
+        let commit = repo.load_commit(commit_id)?;
+        assert_eq!(
+            commit.protocol, "proj_test",
+            "the commit records the project's own protocol"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn heterogeneous_project_reports_mixed_protocols() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+
+        let a = schema_with_edges("alpha", &[("root", "Node")], &[]);
+        let b = schema_with_edges("beta", &[("other", "Node")], &[]);
+        let root = project_tree(&mut repo, &[("a.json", "alpha", a), ("b.json", "beta", b)])?;
+
+        // No single protocol covers the project, so the coproduct
+        // protocol is the honest carrier.
+        assert_eq!(assembled(&repo, root)?.protocol, "project");
+
+        let index = repo.add_tree(root)?;
+        let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
+        assert!(
+            diag.equation_notes
+                .iter()
+                .any(|n| n.contains("project mixes protocols (alpha, beta)")),
+            "expected the heterogeneous advisory, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(
+            !diag
+                .equation_notes
+                .iter()
+                .any(|n| n.contains("no protocol theory registered")),
+            "a mixed project is not a missing-registration problem, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(diag.is_clean(), "the advisory must not block");
+        repo.commit("mixed", "alice")?;
+        Ok(())
+    }
+
+    #[test]
+    fn homogeneous_project_without_a_theory_names_its_own_protocol()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        // "zeta" is homogeneous but has no registered theory.
+        let a = schema_with_edges("zeta", &[("root", "Node")], &[]);
+        let b = schema_with_edges("zeta", &[("other", "Node")], &[]);
+        let root = project_tree(&mut repo, &[("a.json", "zeta", a), ("b.json", "zeta", b)])?;
+
+        let index = repo.add_tree(root)?;
+        let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
+        assert!(
+            diag.equation_notes
+                .iter()
+                .any(|n| n.contains("no protocol theory registered for 'zeta'")),
+            "the advisory must name the project's own protocol, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(
+            !diag.equation_notes.iter().any(|n| n.contains("'project'")),
+            "the advisory must not name the coproduct protocol, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(diag.is_clean());
+        Ok(())
+    }
+
+    #[test]
+    fn atproto_project_is_checked_against_the_atproto_theory()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_protocols::atproto;
+
+        let defs = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.defs",
+            "defs": {
+                "main": {
+                    "type": "object",
+                    "properties": {
+                        "value": { "type": "string", "format": "datetime" }
+                    }
+                }
+            }
+        });
+        let record = serde_json::json!({
+            "lexicon": 1,
+            "id": "com.example.record",
+            "defs": {
+                "main": {
+                    "type": "record",
+                    "key": "tid",
+                    "record": {
+                        "type": "object",
+                        "required": ["item"],
+                        "properties": {
+                            "item": { "type": "ref", "ref": "com.example.defs" }
+                        }
+                    }
+                }
+            }
+        });
+
+        let defs_path = "lexicons/com.example.defs.json";
+        let record_path = "lexicons/com.example.record.json";
+        let defs_schema = atproto::parse_lexicon(&defs)?;
+        let record_schema = atproto::parse_lexicon(&record)?;
+        assert_eq!(defs_schema.protocol, "atproto");
+        assert_eq!(record_schema.protocol, "atproto");
+
+        // Reproduce the cross-document `$ref` edge the project parser
+        // records, so the apex has the shape a real ATProto project has.
+        let ref_vertex = record_schema
+            .vertices
+            .values()
+            .find(|v| v.kind.as_ref() == "ref")
+            .ok_or("the record lexicon must parse to a ref vertex")?;
+        let cross = panproto_schema::Edge {
+            src: Name::from(format!("{record_path}::{}", ref_vertex.id).as_str()),
+            tgt: Name::from(format!("{defs_path}::com.example.defs").as_str()),
+            kind: "ref".into(),
+            name: None,
+        };
+
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let leaves = vec![
+            (
+                PathBuf::from(defs_path),
+                crate::object::FileSchemaObject {
+                    path: defs_path.to_owned(),
+                    protocol: "atproto".to_owned(),
+                    schema: defs_schema,
+                    cross_file_edges: Vec::new(),
+                },
+            ),
+            (
+                PathBuf::from(record_path),
+                crate::object::FileSchemaObject {
+                    path: record_path.to_owned(),
+                    protocol: "atproto".to_owned(),
+                    schema: record_schema,
+                    cross_file_edges: vec![cross],
+                },
+            ),
+        ];
+        let root = crate::tree::build_schema_tree(&mut repo.store, leaves)?;
+
+        let proto = atproto::protocol();
+        let mut registry: HashMap<String, Theory> = HashMap::new();
+        atproto::register_theories(&mut registry);
+        let theory = registry
+            .get(&proto.schema_theory)
+            .ok_or("ThATProtoSchema must be registered")?;
+        repo.set_protocol_theory(proto.name.clone(), theory.clone());
+
+        assert_eq!(assembled(&repo, root)?.protocol, "atproto");
+
+        let index = repo.add_tree(root)?;
+        let diag = staged_diagnostics(&index).ok_or("staged diagnostics expected")?;
+        assert!(
+            diag.equation_notes.is_empty(),
+            "an ATProto project must not report a missing theory, got: {:?}",
+            diag.equation_notes
+        );
+        assert!(
+            diag.is_clean(),
+            "the ATProto theory must not fail on a conforming project, got: {diag:?}"
+        );
+
+        let commit_id = repo.commit("initial lexicons", "alice")?;
+        assert_eq!(repo.load_commit(commit_id)?.protocol, "atproto");
+        Ok(())
     }
 }

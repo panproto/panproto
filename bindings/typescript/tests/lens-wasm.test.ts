@@ -6,7 +6,6 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { LensHandle, ProtolensChainHandle } from '../src/lens.js';
 import { SchemaBuilder, BuiltSchema } from '../src/schema.js';
 import { MigrationBuilder } from '../src/migration.js';
-import { Panproto } from '../src/panproto.js';
 import { WasmHandle } from '../src/wasm.js';
 import { packToWasm } from '../src/msgpack.js';
 import type { WasmModule, WasmExports } from '../src/types.js';

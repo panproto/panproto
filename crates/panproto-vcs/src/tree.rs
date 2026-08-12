@@ -7,10 +7,15 @@
 //! [`SchemaTreeObject`] nodes on the path from the changed file to the
 //! root need to be rewritten.
 //!
-//! The flat assembled form produced by [`assemble_schema`] is
-//! byte-identical to what `panproto_project::ProjectBuilder::build`
-//! emits from the same set of per-file schemas, so downstream consumers
-//! of the assembled project schema see no behavioral change.
+//! The flat assembled form produced by [`assemble_schema`] carries the
+//! same vertices, edges, constraints and enrichments as what
+//! `panproto_project::ProjectBuilder::build` emits from the same set of
+//! per-file schemas. The two differ in one field: assembly here keeps
+//! the protocol every file agrees on (see [`ProjectProtocol`]), whereas
+//! that builder stamps its coproduct protocol on any multi-file project.
+//! Keeping the agreed-on protocol is what lets a project be checked
+//! against its protocol's theory at all, and it is what the one-file
+//! case has always done.
 
 use std::path::{Path, PathBuf};
 
@@ -96,15 +101,104 @@ where
     }
 }
 
+/// The protocol agreement among a project's per-file schemas.
+///
+/// A project whose files all declare one protocol belongs to that
+/// protocol, so the assembled schema carries its name and is checked
+/// against its theory. A project that mixes protocols belongs to no
+/// single protocol, so the assembled schema falls back to the name of
+/// the coproduct protocol it was built with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ProjectProtocol {
+    /// The project has no per-file schemas, so no protocol is determined.
+    Empty,
+    /// Every per-file schema declares this protocol.
+    Homogeneous(String),
+    /// The per-file schemas declare more than one protocol, listed in
+    /// first-seen order.
+    Heterogeneous(Vec<String>),
+}
+
+impl ProjectProtocol {
+    /// Classify a sequence of per-file protocol names.
+    ///
+    /// Repeated names collapse to one entry; the retained order is
+    /// first-seen, so the classification is stable under the
+    /// lexicographic tree walk that produces it.
+    #[must_use]
+    pub fn from_names<I>(names: I) -> Self
+    where
+        I: IntoIterator,
+        I::Item: Into<String>,
+    {
+        let mut distinct: Vec<String> = Vec::new();
+        for name in names {
+            let name: String = name.into();
+            if !distinct.contains(&name) {
+                distinct.push(name);
+            }
+        }
+        if distinct.len() > 1 {
+            return Self::Heterogeneous(distinct);
+        }
+        distinct.pop().map_or(Self::Empty, Self::Homogeneous)
+    }
+
+    /// The one protocol every file agrees on, if there is one.
+    #[must_use]
+    pub fn homogeneous(&self) -> Option<&str> {
+        match self {
+            Self::Homogeneous(name) => Some(name),
+            Self::Empty | Self::Heterogeneous(_) => None,
+        }
+    }
+}
+
+/// The distinct protocols declared by the per-file schemas of the tree
+/// rooted at `root_id`, in first-seen tree-walk order.
+///
+/// The protocol read is each leaf's own [`Schema::protocol`], which is
+/// what [`assemble_from_file_objects`] classifies, so the two always
+/// agree.
+///
+/// # Errors
+///
+/// Returns [`VcsError`] if the tree cannot be walked.
+pub fn tree_protocol_names<S: Store>(
+    store: &S,
+    root_id: &ObjectId,
+) -> Result<Vec<String>, VcsError> {
+    let mut names: Vec<String> = Vec::new();
+    walk_tree(store, root_id, |_, file| {
+        if !names.iter().any(|n| n == &file.schema.protocol) {
+            names.push(file.schema.protocol.clone());
+        }
+        Ok(())
+    })?;
+    Ok(names)
+}
+
+/// Classify the protocol agreement of the tree rooted at `root_id`.
+///
+/// # Errors
+///
+/// Returns [`VcsError`] if the tree cannot be walked.
+pub fn tree_protocol<S: Store>(store: &S, root_id: &ObjectId) -> Result<ProjectProtocol, VcsError> {
+    Ok(ProjectProtocol::from_names(tree_protocol_names(
+        store, root_id,
+    )?))
+}
+
 /// Assemble a flat project schema from a schema tree.
 ///
 /// Walks the tree rooted at `root_id` and returns the schema that
 /// would have been produced by running the project-coproduct
 /// construction over the same per-file schemas.
 ///
-/// `protocol` is the coproduct protocol used for the assembled
-/// schema; callers usually pass the "project" protocol that matches
-/// what `panproto_project::ProjectBuilder::build` uses.
+/// `protocol` is the coproduct protocol the assembled schema is built
+/// with; callers usually pass [`project_coproduct_protocol`]. Its name
+/// survives onto the result only when the per-file schemas disagree
+/// about their protocol: see [`assemble_from_file_objects`].
 ///
 /// # Errors
 ///
@@ -157,6 +251,15 @@ pub fn assemble_from_files(
 /// Each triple is `(path, per_file_schema, cross_file_edges)`; the
 /// already-prefixed cross-file edges are added verbatim after per-file
 /// vertices and edges have been prefixed and inserted.
+///
+/// The result's [`Schema::protocol`] is the protocol every file
+/// declares when they agree, and `protocol`'s own name otherwise. A
+/// homogeneous project is a coproduct taken inside one protocol, so it
+/// stays in that protocol and is checked against its theory; only a
+/// project that genuinely mixes protocols falls back to the coproduct
+/// protocol, which no theory covers. This also keeps the multi-file
+/// case in agreement with the single-file shortcut below, which returns
+/// its one input schema and therefore its protocol unchanged.
 ///
 /// # Errors
 ///
@@ -237,6 +340,13 @@ pub fn assemble_from_file_objects(
     // per-file schemas are stitched in here so the round-trip
     // preserves every semantically meaningful field.
     merge_enrichment_fields(&mut schema, files);
+
+    // `SchemaBuilder::build` stamps the builder protocol's name, which
+    // is the right answer only for a project that mixes protocols.
+    let composition = ProjectProtocol::from_names(files.iter().map(|(_, s, _)| s.protocol.clone()));
+    if let Some(name) = composition.homogeneous() {
+        name.clone_into(&mut schema.protocol);
+    }
 
     Ok(schema)
 }
@@ -492,6 +602,13 @@ pub fn resolve_commit_schema<S: Store>(
 
 /// The standard project-coproduct protocol used by both
 /// `panproto_project::ProjectBuilder::build` and [`assemble_schema`].
+///
+/// Its rule sets are empty, so it accepts any vertex kind, edge kind
+/// and constraint sort, and no theory is registered under its name.
+/// That makes it the right carrier for a project whose files disagree
+/// about their protocol and the wrong one for a project whose files
+/// agree, which is why [`assemble_from_file_objects`] keeps the
+/// agreed-on protocol's name when there is one.
 #[must_use]
 pub fn project_coproduct_protocol() -> Protocol {
     Protocol {
@@ -1068,6 +1185,122 @@ mod tests {
         let root = store.put(&Object::SchemaTree(Box::new(tree))).unwrap();
         let result = walk_tree(&store, &root, |_, _| Ok(()));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn project_protocol_classifies_names() {
+        assert_eq!(
+            ProjectProtocol::from_names(Vec::<String>::new()),
+            ProjectProtocol::Empty
+        );
+        assert_eq!(
+            ProjectProtocol::from_names(["atproto"]),
+            ProjectProtocol::Homogeneous("atproto".to_owned())
+        );
+        // Repeats collapse: a project of many files in one protocol is
+        // homogeneous, not heterogeneous.
+        assert_eq!(
+            ProjectProtocol::from_names(["atproto", "atproto", "atproto"]),
+            ProjectProtocol::Homogeneous("atproto".to_owned())
+        );
+        // Distinct names are kept in first-seen order.
+        assert_eq!(
+            ProjectProtocol::from_names(["sql", "atproto", "sql"]),
+            ProjectProtocol::Heterogeneous(vec!["sql".to_owned(), "atproto".to_owned()])
+        );
+        assert_eq!(
+            ProjectProtocol::from_names(["atproto"]).homogeneous(),
+            Some("atproto")
+        );
+        assert_eq!(
+            ProjectProtocol::from_names(["sql", "atproto"]).homogeneous(),
+            None
+        );
+    }
+
+    fn schema_in(protocol: &str, vertex: &str) -> Schema {
+        let mut s = tiny_schema(vertex);
+        s.protocol = protocol.to_owned();
+        s
+    }
+
+    #[test]
+    fn assembly_keeps_a_homogeneous_protocol() {
+        // Two files in one protocol assemble to that protocol, not to
+        // the coproduct protocol the builder was handed.
+        let files = vec![
+            (PathBuf::from("a.json"), schema_in("atproto", "a")),
+            (PathBuf::from("b.json"), schema_in("atproto", "b")),
+        ];
+        let assembled = assemble_from_files(&project_coproduct_protocol(), &files).unwrap();
+        assert_eq!(assembled.protocol, "atproto");
+        assert_eq!(assembled.vertices.len(), 2);
+    }
+
+    #[test]
+    fn assembly_falls_back_for_a_heterogeneous_project() {
+        let files = vec![
+            (PathBuf::from("a.json"), schema_in("atproto", "a")),
+            (PathBuf::from("b.json"), schema_in("sql", "b")),
+        ];
+        let assembled = assemble_from_files(&project_coproduct_protocol(), &files).unwrap();
+        assert_eq!(assembled.protocol, "project");
+    }
+
+    #[test]
+    fn assembly_agrees_with_the_single_file_shortcut() {
+        // The one-file shortcut returns the input schema, protocol
+        // included; the multi-file path must not disagree with it, or a
+        // project would change protocol the moment a second file lands.
+        let one = vec![(PathBuf::from("a.json"), schema_in("atproto", "a"))];
+        let two = vec![
+            (PathBuf::from("a.json"), schema_in("atproto", "a")),
+            (PathBuf::from("b.json"), schema_in("atproto", "b")),
+        ];
+        let proto = project_coproduct_protocol();
+        assert_eq!(
+            assemble_from_files(&proto, &one).unwrap().protocol,
+            assemble_from_files(&proto, &two).unwrap().protocol
+        );
+    }
+
+    #[test]
+    fn tree_protocol_reads_the_leaves() {
+        let mut store = MemStore::new();
+        let mut mixed = file_schema("b.json", "b");
+        mixed.protocol = "sql".to_owned();
+        mixed.schema.protocol = "sql".to_owned();
+        let mut homogeneous_leaf = file_schema("a.json", "a");
+        homogeneous_leaf.protocol = "atproto".to_owned();
+        homogeneous_leaf.schema.protocol = "atproto".to_owned();
+
+        let root = build_schema_tree(
+            &mut store,
+            vec![
+                (PathBuf::from("a.json"), homogeneous_leaf.clone()),
+                (PathBuf::from("b.json"), mixed),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            tree_protocol(&store, &root).unwrap(),
+            ProjectProtocol::Heterogeneous(vec!["atproto".to_owned(), "sql".to_owned()])
+        );
+
+        let mut second = MemStore::new();
+        let other = homogeneous_leaf.clone();
+        let root = build_schema_tree(
+            &mut second,
+            vec![
+                (PathBuf::from("a.json"), homogeneous_leaf),
+                (PathBuf::from("b.json"), other),
+            ],
+        )
+        .unwrap();
+        assert_eq!(
+            tree_protocol(&second, &root).unwrap(),
+            ProjectProtocol::Homogeneous("atproto".to_owned())
+        );
     }
 
     #[test]

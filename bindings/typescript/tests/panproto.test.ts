@@ -7,13 +7,13 @@
 
 import { describe, it, expect, vi } from 'vitest';
 import { Panproto } from '../src/panproto.js';
-import { Protocol, defineProtocol, ATPROTO_SPEC, BUILTIN_PROTOCOLS } from '../src/protocol.js';
+import { Protocol, defineProtocol } from '../src/protocol.js';
+import { MOCK_SPEC } from './support/mock-protocol.js';
 import { WasmHandle } from '../src/wasm.js';
 import { SchemaBuilder } from '../src/schema.js';
 import { MigrationBuilder } from '../src/migration.js';
-import { PanprotoError } from '../src/types.js';
 import type { WasmModule, WasmExports } from '../src/types.js';
-import { packToWasm } from '../src/msgpack.js';
+import { packToWasm, unpackFromWasm } from '../src/msgpack.js';
 
 /** Create a mock WASM module. */
 function createMockWasm(): WasmModule {
@@ -42,16 +42,16 @@ describe('Protocol', () => {
   it('creates a protocol with a handle', () => {
     const wasm = createMockWasm();
     const handle = new WasmHandle(1, vi.fn());
-    const proto = new Protocol(handle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(handle, MOCK_SPEC, wasm);
 
-    expect(proto.name).toBe('atproto');
-    expect(proto.spec).toBe(ATPROTO_SPEC);
+    expect(proto.name).toBe('mock');
+    expect(proto.spec).toBe(MOCK_SPEC);
   });
 
   it('creates a schema builder from protocol', () => {
     const wasm = createMockWasm();
     const handle = new WasmHandle(1, vi.fn());
-    const proto = new Protocol(handle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(handle, MOCK_SPEC, wasm);
 
     const builder = proto.schema();
     expect(builder).toBeInstanceOf(SchemaBuilder);
@@ -61,7 +61,7 @@ describe('Protocol', () => {
     const freeFn = vi.fn();
     const handle = new WasmHandle(1, freeFn);
     const wasm = createMockWasm();
-    const proto = new Protocol(handle, ATPROTO_SPEC, wasm);
+    const proto = new Protocol(handle, MOCK_SPEC, wasm);
 
     proto[Symbol.dispose]();
     expect(freeFn).toHaveBeenCalledWith(1);
@@ -71,35 +71,34 @@ describe('Protocol', () => {
 describe('defineProtocol', () => {
   it('sends spec to WASM and returns a Protocol', () => {
     const wasm = createMockWasm();
-    const proto = defineProtocol(ATPROTO_SPEC, wasm);
+    const proto = defineProtocol(MOCK_SPEC, wasm);
 
     expect(proto).toBeInstanceOf(Protocol);
-    expect(proto.name).toBe('atproto');
+    expect(proto.name).toBe('mock');
     expect(wasm.exports.define_protocol).toHaveBeenCalledOnce();
 
     proto[Symbol.dispose]();
   });
-});
 
-describe('BUILTIN_PROTOCOLS', () => {
-  it('contains atproto', () => {
-    expect(BUILTIN_PROTOCOLS.has('atproto')).toBe(true);
-  });
+  it('sends every feature flag, defaulting the ones the spec omits', () => {
+    const wasm = createMockWasm();
+    const proto = defineProtocol({ ...MOCK_SPEC, hasOrder: true }, wasm);
 
-  it('contains sql', () => {
-    expect(BUILTIN_PROTOCOLS.has('sql')).toBe(true);
-  });
+    const call = vi.mocked(wasm.exports.define_protocol).mock.calls[0];
+    expect(call).toBeDefined();
+    const wire = unpackFromWasm<Record<string, unknown>>(call![0]);
 
-  it('contains protobuf', () => {
-    expect(BUILTIN_PROTOCOLS.has('protobuf')).toBe(true);
-  });
+    // A flag the spec turns on crosses as true; the rest cross as false
+    // rather than being omitted, so serde never has to guess.
+    expect(wire.has_order).toBe(true);
+    for (const flag of [
+      'has_coproducts', 'has_recursion', 'has_causal', 'nominal_identity',
+      'has_defaults', 'has_coercions', 'has_mergers', 'has_policies',
+    ]) {
+      expect(wire[flag]).toBe(false);
+    }
 
-  it('contains graphql', () => {
-    expect(BUILTIN_PROTOCOLS.has('graphql')).toBe(true);
-  });
-
-  it('contains json-schema', () => {
-    expect(BUILTIN_PROTOCOLS.has('json-schema')).toBe(true);
+    proto[Symbol.dispose]();
   });
 });
 
@@ -120,7 +119,7 @@ describe('Panproto (integration with mocks)', () => {
     const wasm = createMockWasm();
 
     // Simulate what Panproto.protocol() does internally
-    const proto = defineProtocol(ATPROTO_SPEC, wasm);
+    const proto = defineProtocol(MOCK_SPEC, wasm);
 
     // Build a schema
     const schema = proto.schema()
@@ -131,7 +130,7 @@ describe('Panproto (integration with mocks)', () => {
       .edge('post:body', 'post:body.text', 'prop', { name: 'text' })
       .build();
 
-    expect(schema.protocol).toBe('atproto');
+    expect(schema.protocol).toBe('mock');
     expect(Object.keys(schema.vertices)).toHaveLength(3);
 
     // Build another schema (target)
@@ -158,22 +157,5 @@ describe('Panproto (integration with mocks)', () => {
     schema[Symbol.dispose]();
     tgtSchema[Symbol.dispose]();
     proto[Symbol.dispose]();
-  });
-
-  it('ATPROTO_SPEC has correct edge rules', () => {
-    expect(ATPROTO_SPEC.edgeRules).toContainEqual(
-      expect.objectContaining({
-        edgeKind: 'record-schema',
-        srcKinds: ['record'],
-        tgtKinds: ['object'],
-      }),
-    );
-  });
-
-  it('ATPROTO_SPEC has correct constraint sorts', () => {
-    expect(ATPROTO_SPEC.constraintSorts).toContain('enum');
-    expect(ATPROTO_SPEC.constraintSorts).toContain('const');
-    expect(ATPROTO_SPEC.constraintSorts).toContain('default');
-    expect(ATPROTO_SPEC.constraintSorts).toContain('closed');
   });
 });
