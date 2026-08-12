@@ -1,6 +1,12 @@
 # Rust
 target/
 
+# cargo-fuzz. `fuzz/target/` is already covered by `target/` above;
+# corpora and crash artifacts are generated data, not source.
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+
 # WASM
 pkg/
 *.wasm

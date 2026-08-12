@@ -282,7 +282,7 @@ foundMorphismToMigration found =
 
 -- | Options controlling the homomorphism search. Mirrors
 -- @panproto_mig::hom_search::SearchOptions@ and the keyword surface of
--- the Python @find_morphisms@ \/ @find_best_morphism@ (where 'initial'
+-- the Python @find_morphisms@ \/ @find_best_morphism@ (where 'hardPins'
 -- is exposed as @anchors@).
 --
 -- 'defaultFindOpts' is the all-default record: no constraints, no
@@ -298,14 +298,14 @@ data SearchOptions = SearchOptions
     -- ^ Require a bijective vertex map (an isomorphism).
     , maxResults :: !Int
     -- ^ Stop after this many morphisms; @0@ means unlimited.
-    , initial :: !(HashMap Text Text)
-    -- ^ Pre-assigned vertex mappings (the Python @anchors@). The search
-    -- extends this partial morphism to a total one.
-    , relaxEdgeNamePruning :: !Bool
-    -- ^ Relax the CSP's hard edge-name overlap pruning for object
-    -- vertices with large candidate domains: keep kind-compatible
-    -- targets even when they share no outgoing edge name with the
-    -- source. Naturality is still enforced during backtracking.
+    , hardPins :: !(HashMap Text Text)
+    -- ^ Vertex mappings the caller knows and the search may not
+    -- reconsider (the Python @anchors@). The search extends this partial
+    -- morphism to a total one.
+    --
+    -- This field was called @initial@. It was renamed to say what it
+    -- does: it is a hard restriction, not a starting point the search
+    -- may move away from.
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -315,7 +315,7 @@ data SearchOptions = SearchOptions
 type FindOpts = SearchOptions
 
 -- | The all-default search options: no @monic@ \/ @epic@ \/ @iso@
--- constraint, no anchors, unlimited results, pruning on. Mirrors
+-- constraint, no anchors, unlimited results. Mirrors
 -- @SearchOptions::default@.
 defaultFindOpts :: SearchOptions
 defaultFindOpts =
@@ -324,8 +324,7 @@ defaultFindOpts =
         , epic = False
         , iso = False
         , maxResults = 0
-        , initial = HM.empty
-        , relaxEdgeNamePruning = False
+        , hardPins = HM.empty
         }
 
 -- ---------------------------------------------------------------------------
@@ -404,18 +403,17 @@ class (SchemaBackend back, MigrationBackend back) => HomBackend back where
 
 -- | Encode a 'SearchOptions' to the CBOR shape @ciborium@ deserializes
 -- into @panproto_mig::hom_search::SearchOptions@ (the @opts@ argument of
--- @pp_hom_find_morphisms@). String-keyed @initial@ encodes as a plain
+-- @pp_hom_find_morphisms@). String-keyed @hard_pins@ encodes as a plain
 -- CBOR map.
 encodeSearchOptions :: SearchOptions -> LBS.ByteString
 encodeSearchOptions o =
     CBOR.toLazyByteString $
-        Enc.encodeMapLen 6
+        Enc.encodeMapLen 5
             <> kv "monic" (Enc.encodeBool o.monic)
             <> kv "epic" (Enc.encodeBool o.epic)
             <> kv "iso" (Enc.encodeBool o.iso)
             <> kv "max_results" (Enc.encodeInt o.maxResults)
-            <> kv "initial" (encodeTextMap Enc.encodeString o.initial)
-            <> kv "relax_edge_name_pruning" (Enc.encodeBool o.relaxEdgeNamePruning)
+            <> kv "hard_pins" (encodeTextMap Enc.encodeString o.hardPins)
   where
     kv k v = Enc.encodeString k <> v
 
@@ -527,25 +525,22 @@ searchOptionsDecoder = decodeFields initial' build handler
         , False -- epic
         , False -- iso
         , 0 -- max_results
-        , HM.empty -- initial
-        , False -- relax_edge_name_pruning
+        , HM.empty -- hard_pins
         )
-    build (mo, ep, is, mr, ini, rp) =
+    build (mo, ep, is, mr, pins) =
         SearchOptions
             { monic = mo
             , epic = ep
             , iso = is
             , maxResults = mr
-            , initial = ini
-            , relaxEdgeNamePruning = rp
+            , hardPins = pins
             }
-    handler acc@(mo, ep, is, mr, ini, rp) key = case key of
-        "monic" -> (\v -> (v, ep, is, mr, ini, rp)) <$> Dec.decodeBool
-        "epic" -> (\v -> (mo, v, is, mr, ini, rp)) <$> Dec.decodeBool
-        "iso" -> (\v -> (mo, ep, v, mr, ini, rp)) <$> Dec.decodeBool
-        "max_results" -> (\v -> (mo, ep, is, v, ini, rp)) <$> Dec.decodeInt
-        "initial" -> (\v -> (mo, ep, is, mr, v, rp)) <$> decodeTextMap Dec.decodeString
-        "relax_edge_name_pruning" -> (\v -> (mo, ep, is, mr, ini, v)) <$> Dec.decodeBool
+    handler acc@(mo, ep, is, mr, pins) key = case key of
+        "monic" -> (\v -> (v, ep, is, mr, pins)) <$> Dec.decodeBool
+        "epic" -> (\v -> (mo, v, is, mr, pins)) <$> Dec.decodeBool
+        "iso" -> (\v -> (mo, ep, v, mr, pins)) <$> Dec.decodeBool
+        "max_results" -> (\v -> (mo, ep, is, v, pins)) <$> Dec.decodeInt
+        "hard_pins" -> (\v -> (mo, ep, is, mr, v)) <$> decodeTextMap Dec.decodeString
         _ -> skipTerm >> pure acc
 
 foundMorphismDecoder :: Decoder s FoundMorphism

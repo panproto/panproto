@@ -421,19 +421,31 @@ fn case_nested_vs_flat() -> CorpusCase {
         tgt,
         expected_morphism_at_strict: Some(ExpectedOutcome::Fails),
         expected_morphism_at_balanced: Some(ExpectedOutcome::Fails),
-        expected_morphism_at_lenient: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.35)),
-        expected_morphism_at_exploratory: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.35)),
-        // Exploratory scores 0.011 below Lenient here, and the cause is
-        // structural rather than specific to this case. `auto_generate`
-        // ranks by enumerating every morphism, so with the whole
-        // enumeration it would pick the same best at both tiers; the
-        // soft-anchor retry runs under a node budget, and Exploratory
-        // has enough preferences to exhaust it and return the best found
-        // so far rather than the best there is. Quality dominance is
-        // therefore approximate while ranking is done by enumeration.
-        // Existence monotonicity is unaffected and is asserted
-        // separately.
-        monotonicity_tolerance: 0.011,
+        // The floor was 0.35 against a score that charged nothing for a
+        // dropped source vertex. It now charges the full penalty on every
+        // component for one, and this case drops exactly one: the
+        // intermediate `reply.parent` record, which the flat target has no
+        // vertex for. The alignment itself is the one the case is named for
+        // and was checked rather than assumed, at both tiers:
+        //
+        //     reply            ↦ reply
+        //     reply.parent.uri ↦ reply.parentUri
+        //     reply.parent.cid ↦ reply.parentCid
+        //
+        // with `reply.parent` dropped, so coverage is 3/4. The number moved
+        // because the scale did; the answer did not.
+        //
+        // The floor still binds. Any alignment that drops a second vertex, or
+        // that fails to carry the two leaf renames, scores below this.
+        expected_morphism_at_lenient: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.29)),
+        expected_morphism_at_exploratory: Some(ExpectedOutcome::AlignsWithQualityAtLeast(0.29)),
+        // Zero, where it used to be 0.011. The tolerance existed because
+        // ranking was done by enumerating the hom-set under a node budget, and
+        // Exploratory had enough preferences to exhaust the budget and return
+        // the best found rather than the best there is. The search is now an
+        // exact optimiser with no budget in that sense, so both tiers return
+        // the same optimum and dominance is exact rather than approximate.
+        monotonicity_tolerance: 0.0,
     }
 }
 
@@ -843,17 +855,17 @@ fn balanced_emits_alias_explanation_for_pure_rename() {
 ///
 /// [`Stringency`] documents that higher tiers form a superset of lower
 /// ones, and for a long time they did not. A tier runs more alignment
-/// strategies than the tier below it, `align::resolve_anchors` keeps one
-/// winner per source vertex, and a strategy that fires only at the
-/// higher tier could outrank and displace an anchor the lower tier
-/// relied on. While anchors were pinned into `SearchOptions::initial`,
-/// which collapses a vertex's domain to the pinned target, that
-/// displacement removed every other option and the search reported no
-/// morphism: `Exploratory` failed on schema pairs `Lenient` aligned.
+/// strategies than the tier below it, selection keeps one winner per
+/// source vertex, and a strategy that fires only at the higher tier can
+/// outrank and displace an anchor the lower tier relied on. A displaced
+/// anchor that is pinned collapses its vertex's domain to the wrong
+/// target, and two individually plausible pins can be jointly
+/// infeasible, so the search reported no morphism: `Exploratory` failed
+/// on schema pairs `Lenient` aligned.
 ///
-/// Anchors now reach the solver through `SearchOptions::preferred`,
-/// which orders a domain instead of emptying it, so a displaced anchor
-/// costs an ordering rather than a solution.
+/// The pinned attempt is now followed by one with the strategy pins
+/// released, keeping only the anchors the caller supplied, so a
+/// displaced anchor costs an attempt rather than a solution.
 ///
 /// This asserts existence, not quality. A higher tier may well find a
 /// different morphism, and a lower-quality one, because it tries a

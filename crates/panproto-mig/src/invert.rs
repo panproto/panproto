@@ -126,9 +126,18 @@ pub fn invert(
         label_map: inv_label_map,
         resolver: inv_resolver,
         hyper_resolver: inv_hyper_resolver,
+        // Expression resolvers are dropped rather than inverted. An expression
+        // is a function, and a function has no inverse to compute here; a span's
+        // legs carry none, so nothing this crate produces loses information to
+        // it, but a hand-built enriched migration does. That is a known gap and
+        // it is separate from the endpoints below.
         expr_resolvers: HashMap::new(),
-        domain: None,
-        codomain: None,
+        // The endpoints are carried across, swapped. An inverse runs from the
+        // codomain to the domain, so dropping them made every inverse
+        // composable with everything, which is exactly the check `compose`
+        // exists to make: it skips composability when either side is `None`.
+        domain: migration.codomain.clone(),
+        codomain: migration.domain.clone(),
     })
 }
 

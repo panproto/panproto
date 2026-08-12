@@ -1096,14 +1096,14 @@ pub fn auto_generate_protolens_with_hints(
     let protocol =
         lookup_builtin_protocol(&s1.protocol).unwrap_or_else(|| default_protocol(&s1.protocol));
 
-    let mut initial = std::collections::HashMap::new();
+    let mut hard_pins = std::collections::HashMap::new();
     for (src, tgt) in &hints {
-        initial.insert(gat::Name::from(src.as_str()), gat::Name::from(tgt.as_str()));
+        hard_pins.insert(gat::Name::from(src.as_str()), gat::Name::from(tgt.as_str()));
     }
     let mut config = lens::auto_lens::AutoLensConfig {
         try_overlap: true,
         search_opts: panproto_core::mig::hom_search::SearchOptions {
-            initial,
+            hard_pins,
             ..Default::default()
         },
         ..Default::default()
@@ -1153,7 +1153,6 @@ pub fn auto_generate_protolens_with_hint_spec(
         excluded_targets: hint_spec.excluded_target_names(),
         excluded_sources: hint_spec.excluded_source_names(),
         scoring_weights: hint_spec.scoring_weights(),
-        name_similarity_threshold: hint_spec.name_similarity_threshold(),
     };
     let (derived, domain_constraints) = lens::hint::resolve_hints(&parts, &s1, &s2);
 

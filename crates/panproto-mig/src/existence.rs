@@ -24,7 +24,7 @@ use crate::error::ExistenceError;
 use crate::migration::Migration;
 
 /// Result of existence checking.
-#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ExistenceReport {
     /// Whether all conditions are satisfied.
     pub valid: bool,

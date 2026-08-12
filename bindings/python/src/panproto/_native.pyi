@@ -304,7 +304,6 @@ def find_morphisms(
     epic: bool = ...,
     iso: bool = ...,
     max_results: int = ...,
-    relax_edge_name_pruning: bool = ...,
 ) -> list[FoundMorphism]: ...
 def find_best_morphism(
     src: Schema,
@@ -313,7 +312,6 @@ def find_best_morphism(
     monic: bool = ...,
     epic: bool = ...,
     iso: bool = ...,
-    relax_edge_name_pruning: bool = ...,
 ) -> FoundMorphism | None: ...
 def induce_schema_morphism(
     theory_morph: TheoryMorphism, src_schema: Schema

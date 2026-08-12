@@ -4,9 +4,8 @@
 //! that share a common complement. This module provides the span-based
 //! construction where the "middle" schema M serves as the shared state.
 
-use std::collections::HashMap;
-
 use panproto_inst::WInstance;
+use panproto_mig::hom_search::{SearchOptions, find_span};
 use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
@@ -259,69 +258,46 @@ impl SymmetricLens {
 
     /// Auto-generate a symmetric lens from two schemas.
     ///
-    /// Uses overlap discovery to find shared structure, then builds
-    /// protolens chains for each projection.
+    /// Runs one span search on the iso path and takes its apex as the middle
+    /// schema, then builds a protolens chain for each projection.
+    ///
+    /// # Why the apex rather than a hand-assembled restriction
+    ///
+    /// The middle schema is the apex of a span, and a span's apex is the
+    /// sub-schema of the source *induced* on the chosen vertices. Inducing
+    /// carries the non-edge structure and rebuilds the adjacency indices;
+    /// selecting vertices and edges by hand carries neither, so a middle
+    /// schema assembled that way answers every adjacency query with nothing
+    /// even though its edge map is populated, and silently drops entries,
+    /// required sets, variants and recursion points.
+    ///
+    /// The iso path is the one that applies: a merge along the middle needs the
+    /// right leg to be a mono, and only that path guarantees it.
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ProtolensError`] if no overlap is found or
-    /// if automatic lens generation fails for either direction.
+    /// Returns [`LensError::ProtolensError`] if the search fails, if the two
+    /// schemas share no induced sub-schema, or if automatic lens generation
+    /// fails for either direction.
     pub fn auto_symmetric(
         left: &Schema,
         right: &Schema,
         protocol: &Protocol,
         _config: &AutoLensConfig,
     ) -> Result<Self, LensError> {
-        use panproto_mig::overlap::discover_overlap;
+        let opts = SearchOptions {
+            iso: true,
+            ..SearchOptions::default()
+        };
+        let span = find_span(left, right, protocol, &opts)
+            .map_err(|e| LensError::ProtolensError(format!("overlap search failed: {e}")))?;
 
-        let overlap = discover_overlap(left, right);
-
-        if overlap.vertex_pairs.is_empty() {
+        if span.apex.vertices.is_empty() {
             return Err(LensError::ProtolensError(
                 "no overlap found between schemas".into(),
             ));
         }
-
-        // Build the overlap schema from the left schema restricted to
-        // overlapping vertices.
-        let mut overlap_vertices = HashMap::new();
-        let mut overlap_edges = HashMap::new();
-        for (src_id, _tgt_id) in &overlap.vertex_pairs {
-            if let Some(v) = left.vertices.get(src_id) {
-                overlap_vertices.insert(src_id.clone(), v.clone());
-            }
-        }
-        // Edges where both endpoints are in the overlap
-        for (edge, kind) in &left.edges {
-            if overlap_vertices.contains_key(&edge.src) && overlap_vertices.contains_key(&edge.tgt)
-            {
-                overlap_edges.insert(edge.clone(), kind.clone());
-            }
-        }
-
-        let overlap_schema = Schema {
-            protocol: left.protocol.clone(),
-            vertices: overlap_vertices,
-            edges: overlap_edges,
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between: HashMap::new(),
-        };
+        let overlap_schema = span.apex;
 
         // Generate protolens chains: overlap -> left and overlap -> right
         let config = AutoLensConfig::default();

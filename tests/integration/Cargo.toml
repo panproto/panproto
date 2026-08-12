@@ -10,15 +10,24 @@ publish = false
 name = "panproto_integration"
 path = "src/lib.rs"
 
-[dev-dependencies]
+# The lib target holds the shared proptest generators, so the crates it
+# names must be normal dependencies: a lib target cannot reference
+# dev-dependencies. Everything only the test binaries touch stays below.
+[dependencies]
 panproto-gat = { path = "../../crates/panproto-gat" }
 panproto-schema = { path = "../../crates/panproto-schema" }
+# The `oracle` feature compiles `panproto_mig::solve::oracle`, the exhaustive
+# enumerator a search path is checked against. It lives behind a feature so a
+# release build never carries it, and this crate is the one that turns it on.
+panproto-mig = { path = "../../crates/panproto-mig", features = ["oracle"] }
+proptest = { workspace = true }
+
+[dev-dependencies]
 panproto-inst = { path = "../../crates/panproto-inst" }
-panproto-mig = { path = "../../crates/panproto-mig" }
+panproto-protocols = { path = "../../crates/panproto-protocols" }
 panproto-lens = { path = "../../crates/panproto-lens" }
 panproto-lens-dsl = { path = "../../crates/panproto-lens-dsl" }
 panproto-check = { path = "../../crates/panproto-check" }
-panproto-protocols = { path = "../../crates/panproto-protocols" }
 panproto-project = { path = "../../crates/panproto-project" }
 panproto-vcs = { path = "../../crates/panproto-vcs" }
 panproto-core = { path = "../../crates/panproto-core" }
@@ -29,7 +38,6 @@ serde_json = { workspace = true }
 rmp-serde = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
-proptest = { workspace = true }
 
 [lints]
 workspace = true

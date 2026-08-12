@@ -183,7 +183,6 @@ pub fn cmd_lens_generate(
             excluded_targets: hint_spec.excluded_target_names(),
             excluded_sources: hint_spec.excluded_source_names(),
             scoring_weights: hint_spec.scoring_weights(),
-            name_similarity_threshold: hint_spec.name_similarity_threshold(),
         };
         let (derived, domain_constraints) =
             lens::hint::resolve_hints(&parts, &src_schema, &tgt_schema);

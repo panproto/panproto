@@ -646,8 +646,18 @@ pp_hom_find_best_morphism (
  *  handles. `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
  *  `panproto_core::mig::hom_search::SearchOptions`. On success, `out`
  *  receives a CBOR-encoded `Vec<FoundMorphismWire>` (each with
- *  `vertex_map`, `edge_map`, and `quality`), already ranked by
- *  descending quality. Calls `hom_search::find_morphisms`.
+ *  `vertex_map`, `edge_map`, and `quality`). Calls
+ *  `hom_search::find_morphisms`.
+ *
+ *  # This no longer returns the whole hom-set
+ *
+ *  It returns the morphisms **attaining the optimum**, capped by
+ *  `max_results`, and nothing else. Every element therefore carries the same
+ *  quality, which is the maximum over all total morphisms, so the list is in
+ *  non-increasing quality order trivially and a host reading element zero gets
+ *  what it always got. A host that walked the list for a suboptimal
+ *  alternative will not find one: there is no k-best over distinct quality
+ *  levels. Empty means no total morphism exists.
  */
 int32_t
 pp_hom_find_morphisms (

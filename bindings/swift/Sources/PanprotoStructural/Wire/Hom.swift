@@ -18,12 +18,13 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
     public var iso: Bool
     /// Stop after this many morphisms. Zero means unlimited.
     public var maxResults: UInt
-    /// Vertex assignments to start from, which pin part of the map
-    /// before the search runs.
-    public var initial: [String: String]
-    /// Relax the pruning that discards a candidate whose edge names do
-    /// not overlap.
-    public var relaxEdgeNamePruning: Bool
+    /// Vertex mappings the caller knows and the search may not
+    /// reconsider.
+    ///
+    /// This was called `initial`. It was renamed to say what it does: it
+    /// is a hard restriction, not a starting point the search may move
+    /// away from.
+    public var hardPins: [String: String]
 
     /// The wire keys, in Rust declaration order.
     private enum CodingKeys: String, CodingKey {
@@ -31,8 +32,7 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
         case epic
         case iso
         case maxResults = "max_results"
-        case initial
-        case relaxEdgeNamePruning = "relax_edge_name_pruning"
+        case hardPins = "hard_pins"
     }
 
     /// Configure a search, taking the engine's defaults for anything
@@ -42,15 +42,13 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
         epic: Bool = false,
         iso: Bool = false,
         maxResults: UInt = 0,
-        initial: [String: String] = [:],
-        relaxEdgeNamePruning: Bool = false
+        hardPins: [String: String] = [:]
     ) {
         self.monic = monic
         self.epic = epic
         self.iso = iso
         self.maxResults = maxResults
-        self.initial = initial
-        self.relaxEdgeNamePruning = relaxEdgeNamePruning
+        self.hardPins = hardPins
     }
 
     /// Read options, defaulting every field the payload leaves out.
@@ -60,16 +58,15 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
         self.epic = try container.decodeIfPresent(Bool.self, forKey: .epic) ?? false
         self.iso = try container.decodeIfPresent(Bool.self, forKey: .iso) ?? false
         self.maxResults = try container.decodeIfPresent(UInt.self, forKey: .maxResults) ?? 0
-        self.initial =
-            try container.decodeIfPresent([String: String].self, forKey: .initial) ?? [:]
-        self.relaxEdgeNamePruning =
-            try container.decodeIfPresent(Bool.self, forKey: .relaxEdgeNamePruning) ?? false
+        self.hardPins =
+            try container.decodeIfPresent([String: String].self, forKey: .hardPins) ?? [:]
     }
 }
 
 /// One morphism a homomorphism search found.
 ///
-/// The search ranks its answers by descending ``quality``, and the
+/// The search answers with the morphisms attaining the optimum, so every
+/// element of a result list carries the same ``quality`` and the
 /// best-morphism entry point answers with one of these or with CBOR
 /// null. Handing one back is how a host turns a found morphism into a
 /// migration.

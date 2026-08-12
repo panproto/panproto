@@ -11,6 +11,7 @@ use panproto_gat::Name;
 use smallvec::SmallVec;
 
 use crate::error::SchemaError;
+use crate::induce::ordered_edges;
 use crate::morphism::SchemaMorphism;
 use crate::schema::{Edge, Schema, Vertex};
 
@@ -211,6 +212,49 @@ fn build_merged_edges(
     (merged, left_map, right_map)
 }
 
+/// The pushout's edges in the order the adjacency indices should record them:
+/// every left edge in `left`'s own order, then each right edge that survives
+/// renaming without colliding, in `right`'s own order.
+///
+/// This is the coproduct order on the merged edge set, and it is what keeps a
+/// pushout's buckets reproducible: `merged_edges` is a [`HashMap`], so reading
+/// the order off it instead would make the result depend on the hash seed.
+/// Taking each side's order from [`ordered_edges`] rather than from its edge
+/// map is what carries a parser's sibling order through the pushout.
+fn ordered_merged_edges(
+    left: &Schema,
+    right: &Schema,
+    merged_edges: &HashMap<Edge, Name>,
+    right_rename: &HashMap<Name, Name>,
+) -> Vec<Edge> {
+    let mut out: Vec<Edge> = Vec::with_capacity(merged_edges.len());
+    let mut seen: std::collections::HashSet<Edge> = std::collections::HashSet::new();
+
+    let mut push = |edge: Edge| {
+        if merged_edges.contains_key(&edge) && seen.insert(edge.clone()) {
+            out.push(edge);
+        }
+    };
+
+    for edge in ordered_edges(left) {
+        push(edge);
+    }
+    for edge in ordered_edges(right) {
+        push(remap_edge(&edge, right_rename));
+    }
+
+    // An edge the merge introduced that neither traversal reached still has to
+    // appear, and in an order that does not depend on the hash seed.
+    let mut rest: Vec<&Edge> = merged_edges
+        .keys()
+        .filter(|edge| !seen.contains(*edge))
+        .collect();
+    rest.sort_unstable();
+    out.extend(rest.into_iter().cloned());
+
+    out
+}
+
 /// Look up a right vertex ID through the rename map, falling back to identity.
 fn resolve(right_rename: &HashMap<Name, Name>, id: &Name) -> Name {
     right_rename.get(id).cloned().unwrap_or_else(|| id.clone())
@@ -395,7 +439,7 @@ fn assemble_pushout(
     }
 
     // Rebuild adjacency indices
-    let idx = build_indices(&merged_edges);
+    let idx = build_indices(left, right, &merged_edges, right_rename);
 
     let entries = merge_entries(left, right, right_rename);
 
@@ -449,13 +493,22 @@ struct AdjacencyIndices {
     between: HashMap<(Name, Name), SmallVec<Edge, 2>>,
 }
 
-/// Rebuild adjacency indices from an edge map.
-fn build_indices(edges: &HashMap<Edge, Name>) -> AdjacencyIndices {
+/// Rebuild the pushout's adjacency indices.
+///
+/// Bucket order comes from [`ordered_merged_edges`] rather than from
+/// `merged_edges`: iterating the edge map would order the buckets by hash seed,
+/// so a pushout would present its edges differently in every process.
+fn build_indices(
+    left: &Schema,
+    right: &Schema,
+    merged_edges: &HashMap<Edge, Name>,
+    right_rename: &HashMap<Name, Name>,
+) -> AdjacencyIndices {
     let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for edge in edges.keys() {
+    for edge in &ordered_merged_edges(left, right, merged_edges, right_rename) {
         outgoing
             .entry(edge.src.clone())
             .or_default()

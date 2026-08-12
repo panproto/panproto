@@ -763,13 +763,12 @@ struct HomWireTests {
                 .textString("epic"),
                 .textString("iso"),
                 .textString("max_results"),
-                .textString("initial"),
-                .textString("relax_edge_name_pruning"),
+                .textString("hard_pins"),
             ]
         )
     }
 
-    @Test("options carrying initial assignments round trip")
+    @Test("options carrying pinned assignments round trip")
     func optionsRoundTrip() throws {
         try expectRoundTrip(
             MorphismSearchOptions(
@@ -777,8 +776,7 @@ struct HomWireTests {
                 epic: false,
                 iso: false,
                 maxResults: 4,
-                initial: ["post": "note", "author": "person"],
-                relaxEdgeNamePruning: true
+                hardPins: ["post": "note", "author": "person"]
             )
         )
     }

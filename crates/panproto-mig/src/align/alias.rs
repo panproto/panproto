@@ -13,6 +13,7 @@ use std::collections::HashMap;
 
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// A cluster of mutually-aliased terms. All members of the same cluster
@@ -366,6 +367,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
                         tgt: tgt_id.clone(),
                         confidence: 0.85,
                         strategy: StrategyTag::Alias,
+                        provenance: Provenance::Synonym,
                         explanation: format!(
                             "alias match: {} ↔ {}",
                             src_id.as_str(),
@@ -409,6 +411,7 @@ pub fn alias_anchors(src: &Schema, tgt: &Schema, dict: &AliasDict) -> Vec<Anchor
                 tgt: tgt_id.clone(),
                 confidence,
                 strategy: StrategyTag::Alias,
+                provenance: Provenance::DeclaredEdgeLabel,
                 explanation: format!(
                     "alias-match on {matched} shared child field name(s): {} ↔ {}",
                     src_id.as_str(),

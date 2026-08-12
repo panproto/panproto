@@ -213,7 +213,7 @@ fn discover_overlap_and_pushout_integration() {
     );
 
     // Discover the shared structure: both have object -> string with "name" edge
-    let overlap = discover_overlap(&schema_a, &schema_b);
+    let overlap = discover_overlap(&schema_a, &schema_b, &test_protocol()).unwrap();
 
     // Should find at least the object+string subgraph
     assert!(
@@ -563,7 +563,7 @@ fn schema_pushout_with_overlap_and_lift() {
     );
 
     // Discover overlap: both have object + string with "name" edge
-    let overlap = discover_overlap(&schema_a, &schema_b);
+    let overlap = discover_overlap(&schema_a, &schema_b, &test_protocol()).unwrap();
     assert!(
         overlap.vertex_pairs.len() >= 2,
         "should find overlapping object+string vertices"

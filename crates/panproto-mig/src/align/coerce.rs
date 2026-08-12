@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_compatible};
 use crate::coerce::{SortLensWitness, WitnessLibrary};
 
@@ -121,6 +122,7 @@ pub fn coerce_anchors(src: &Schema, tgt: &Schema, library: &WitnessLibrary) -> V
                     tgt: tgt_id.clone(),
                     confidence,
                     strategy: StrategyTag::Coerce,
+                    provenance: Provenance::Inferred,
                     explanation: format!(
                         "sort-coercion {}: {} ↔ {} ({:?})",
                         witness.description,

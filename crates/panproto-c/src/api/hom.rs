@@ -45,9 +45,13 @@ use crate::panic::guard;
 /// The engine type derives only `Clone`/`Debug`/`Default`, so it cannot
 /// cross the FFI boundary directly. This shadow struct carries the same
 /// fields with the same `snake_case` names the Haskell encoder pins
-/// (`monic`, `epic`, `iso`, `max_results`, `initial`,
-/// `relax_edge_name_pruning`). `serde(default)` lets a producer omit any
-/// field, matching the engine's `Default`.
+/// (`monic`, `epic`, `iso`, `max_results`, `hard_pins`). `serde(default)`
+/// lets a producer omit any field, matching the engine's `Default`.
+///
+/// `initial` was renamed to `hard_pins` and `relax_edge_name_pruning` was
+/// dropped: the edge-name domain pruner it relaxed no longer exists, because
+/// edge-name agreement is a soft signal and now enters the objective rather
+/// than removing candidates outright.
 #[derive(Debug, Default, Serialize, Deserialize)]
 #[allow(clippy::struct_excessive_bools)]
 struct SearchOptionsWire {
@@ -63,20 +67,18 @@ struct SearchOptionsWire {
     /// Stop after this many morphisms; `0` means unlimited.
     #[serde(default)]
     max_results: usize,
-    /// Pre-assigned vertex mappings (the Python `anchors`).
+    /// Vertex mappings the caller knows and the search may not reconsider
+    /// (the Python `anchors`).
     #[serde(default)]
-    initial: HashMap<String, String>,
-    /// Relax the CSP's edge-name overlap pruning.
-    #[serde(default)]
-    relax_edge_name_pruning: bool,
+    hard_pins: HashMap<String, String>,
 }
 
 impl SearchOptionsWire {
     /// Build the engine [`SearchOptions`], lifting the string-keyed
-    /// `initial` map into the `Name`-keyed form the search expects.
+    /// `hard_pins` map into the `Name`-keyed form the search expects.
     fn into_engine(self) -> SearchOptions {
-        let initial = self
-            .initial
+        let hard_pins = self
+            .hard_pins
             .into_iter()
             .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
             .collect();
@@ -85,16 +87,7 @@ impl SearchOptionsWire {
             epic: self.epic,
             iso: self.iso,
             max_results: self.max_results,
-            initial,
-            // The wire form carries hard anchors only. `preferred` and
-            // `max_nodes` exist for `lens::auto_generate`, which derives
-            // its anchors from alignment strategies and needs a channel
-            // that orders a domain rather than collapsing it; a host
-            // calling the search directly is supplying anchors it knows,
-            // which is what `initial` is for.
-            preferred: HashMap::new(),
-            max_nodes: 0,
-            relax_edge_name_pruning: self.relax_edge_name_pruning,
+            hard_pins,
         }
     }
 }
@@ -151,8 +144,18 @@ impl From<FoundMorphismWire> for FoundMorphism {
 /// handles. `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
 /// `panproto_core::mig::hom_search::SearchOptions`. On success, `out`
 /// receives a CBOR-encoded `Vec<FoundMorphismWire>` (each with
-/// `vertex_map`, `edge_map`, and `quality`), already ranked by
-/// descending quality. Calls `hom_search::find_morphisms`.
+/// `vertex_map`, `edge_map`, and `quality`). Calls
+/// `hom_search::find_morphisms`.
+///
+/// # This no longer returns the whole hom-set
+///
+/// It returns the morphisms **attaining the optimum**, capped by
+/// `max_results`, and nothing else. Every element therefore carries the same
+/// quality, which is the maximum over all total morphisms, so the list is in
+/// non-increasing quality order trivially and a host reading element zero gets
+/// what it always got. A host that walked the list for a suboptimal
+/// alternative will not find one: there is no k-best over distinct quality
+/// levels. Empty means no total morphism exists.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_hom_find_morphisms(
@@ -484,8 +487,7 @@ mod tests {
             epic: false,
             iso: true,
             max_results: 3,
-            initial: HashMap::from([("a".to_string(), "b".to_string())]),
-            relax_edge_name_pruning: true,
+            hard_pins: HashMap::from([("a".to_string(), "b".to_string())]),
         };
         let bytes = encode(&wire).unwrap();
         let back: SearchOptionsWire = decode(&bytes).unwrap();
@@ -493,8 +495,10 @@ mod tests {
         assert!(engine.monic);
         assert!(engine.iso);
         assert_eq!(engine.max_results, 3);
-        assert!(engine.relax_edge_name_pruning);
-        assert_eq!(engine.initial.get(&Name::from("a")), Some(&Name::from("b")));
+        assert_eq!(
+            engine.hard_pins.get(&Name::from("a")),
+            Some(&Name::from("b"))
+        );
     }
 
     #[test]
@@ -505,7 +509,7 @@ mod tests {
         let engine = wire.into_engine();
         assert!(!engine.monic);
         assert_eq!(engine.max_results, 0);
-        assert!(engine.initial.is_empty());
+        assert!(engine.hard_pins.is_empty());
     }
 
     #[test]

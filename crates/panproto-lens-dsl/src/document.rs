@@ -756,24 +756,6 @@ impl HintSpec {
         Some(weights)
     }
 
-    /// Extract the name similarity threshold from `SimilarName` preferences.
-    ///
-    /// If multiple `SimilarName` preferences exist, returns the maximum
-    /// threshold (most restrictive).
-    #[must_use]
-    pub fn name_similarity_threshold(&self) -> Option<f64> {
-        self.constraints
-            .iter()
-            .filter_map(|c| match c {
-                Constraint::Prefer {
-                    predicate: PreferencePredicate::SimilarName { threshold },
-                    ..
-                } => Some(*threshold),
-                _ => None,
-            })
-            .reduce(f64::max)
-    }
-
     /// Extract scope constraint pairs as `(source_root, target_root)`.
     #[must_use]
     pub fn scope_pairs(&self) -> Vec<(String, String)> {
@@ -861,6 +843,19 @@ pub enum PreferencePredicate {
     /// below threshold, normalized to \[0.0, 1.0\]).
     SimilarName {
         /// Minimum normalized similarity (0.0 to 1.0).
+        ///
+        /// This is a preference, and it reaches the search as the weight the
+        /// objective puts on its name component, through
+        /// [`HintSpec::scoring_weights`]. It is **not** a cut: a candidate
+        /// scoring below it is still searched, just scored lower.
+        ///
+        /// It used to also become a hard domain restriction, removing every
+        /// target whose name scored below it. That restriction is gone. It cut
+        /// a soft signal at a hard edge, over full path-like identifiers rather
+        /// than the local names a reader would compare, so it removed correct
+        /// answers whenever two schemas agreed on a field and disagreed on the
+        /// prefix leading to it. A caller wanting a genuine restriction states
+        /// it as a scope or exclusion, which say what they mean.
         threshold: f64,
     },
 

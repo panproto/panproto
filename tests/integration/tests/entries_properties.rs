@@ -28,91 +28,10 @@
 use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
-use panproto_schema::{
-    EdgeRule, Protocol, Schema, SchemaBuilder, SchemaError, Vertex, normalize, primary_entry,
-};
+use panproto_integration::{arb_kind, arb_schema, open_protocol};
+use panproto_schema::{Schema, SchemaBuilder, SchemaError, Vertex, normalize, primary_entry};
 use panproto_vcs::merge::three_way_merge_entries;
 use proptest::prelude::*;
-
-// ---------------------------------------------------------------------------
-// Strategies
-// ---------------------------------------------------------------------------
-
-/// A permissive protocol that accepts any vertex kind and any edge
-/// kind — lets the generator explore arbitrary schemas without the
-/// builder rejecting them for protocol-mismatch reasons unrelated to
-/// the properties we want to test.
-fn open_protocol() -> Protocol {
-    Protocol {
-        name: "test-open".into(),
-        schema_theory: "ThTest".into(),
-        instance_theory: "ThWType".into(),
-        edge_rules: vec![EdgeRule {
-            edge_kind: "prop".into(),
-            src_kinds: vec![],
-            tgt_kinds: vec![],
-        }],
-        obj_kinds: vec!["object".into(), "string".into(), "ref".into()],
-        constraint_sorts: vec![],
-        ..Protocol::default()
-    }
-}
-
-/// A vertex kind.
-fn arb_kind() -> impl Strategy<Value = &'static str> {
-    prop_oneof!(Just("object"), Just("string"), Just("ref"))
-}
-
-/// A built schema with between 1 and 6 vertices, an arbitrary subset
-/// of edges between them, and an arbitrary (possibly empty) subset of
-/// vertex ids flagged as entries. Returns `None` if the sampled shape
-/// is unbuildable (e.g. produces a duplicate edge with the same name),
-/// which the caller filters out.
-fn arb_schema() -> impl Strategy<Value = Schema> {
-    // 1..=6 vertices.
-    (1usize..=6)
-        .prop_flat_map(|n| {
-            // Per-vertex kind.
-            let kinds = prop::collection::vec(arb_kind(), n);
-            // Edges: bounded subset of (src_idx, tgt_idx, name?).
-            let edges = prop::collection::vec((0..n, 0..n, prop::option::of(0u32..5)), 0..=n * 2);
-            // Entries: subset of vertex indices.
-            let entry_idxs = prop::collection::vec(0..n, 0..=n);
-
-            (Just(n), kinds, edges, entry_idxs)
-        })
-        .prop_filter_map(
-            "unbuildable schema shape",
-            |(n, kinds, edges, entry_idxs)| {
-                let proto = open_protocol();
-                let mut b = SchemaBuilder::new(&proto);
-                for (i, k) in kinds.iter().enumerate() {
-                    b = b.vertex(&format!("v{i}"), k, None).ok()?;
-                }
-                let mut seen_edges = HashSet::new();
-                for (s, t, name_idx) in edges {
-                    let src = format!("v{s}");
-                    let tgt = format!("v{t}");
-                    let name = name_idx.map(|n| format!("e{n}"));
-                    // Avoid the builder's DuplicateEdge rejection by
-                    // tracking (src, tgt, name) locally.
-                    if !seen_edges.insert((src.clone(), tgt.clone(), name.clone())) {
-                        continue;
-                    }
-                    b = b.edge(&src, &tgt, "prop", name.as_deref()).ok()?;
-                }
-                let mut seen_entries = HashSet::new();
-                for i in entry_idxs {
-                    let v = format!("v{i}");
-                    if seen_entries.insert(v.clone()) {
-                        b = b.entry(&v);
-                    }
-                }
-                let _ = n;
-                b.build().ok()
-            },
-        )
-}
 
 // ---------------------------------------------------------------------------
 // Laws

@@ -6,6 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::solve::build::BuildError;
+use crate::solve::mcsplit::IsoError;
+
 /// Top-level migration error.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -25,6 +28,53 @@ pub enum MigError {
     /// Migration inversion failed.
     #[error("inversion failed: {0}")]
     Invert(#[from] InvertError),
+
+    /// A span search could not produce a span.
+    #[error("span search failed: {0}")]
+    Span(#[from] SpanError),
+}
+
+/// Why a span search could not produce a span.
+///
+/// None of these variants means "no morphism exists". The span search is total:
+/// leaving every source vertex out of the apex is always feasible, so the
+/// absence of a match is reported as an empty apex rather than as an error.
+/// What is reported here is a search that could not be posed or a result that
+/// is not a schema, both of which are defects rather than answers.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum SpanError {
+    /// The cost function network could not be built from the schema pair.
+    #[error("the search network could not be built: {source}")]
+    Build {
+        /// What the network builder refused.
+        #[from]
+        source: BuildError,
+    },
+
+    /// The apex is not a well-formed sub-schema of the source.
+    ///
+    /// The hard constraints of the network are meant to make this unreachable:
+    /// they forbid exactly the assignments whose apex would carry a dangling
+    /// reference. Reaching it means a constraint is missing.
+    #[error("the apex is not a well-formed sub-schema of the source: {source}")]
+    Apex {
+        /// What inducing the apex reported.
+        #[from]
+        source: panproto_schema::SchemaError,
+    },
+
+    /// The maximum common sub-schema search refused the network.
+    ///
+    /// Its reward frame has preconditions the network must meet, and it refuses
+    /// rather than silently optimising a different objective when one is
+    /// broken.
+    #[error("the maximum common sub-schema search refused the network: {source}")]
+    Iso {
+        /// The precondition of the reward frame the network broke.
+        #[from]
+        source: IsoError,
+    },
 }
 
 /// A structured existence error detected by `check_existence`.

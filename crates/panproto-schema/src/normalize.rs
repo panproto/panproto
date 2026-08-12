@@ -11,6 +11,7 @@ use panproto_gat::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
+use crate::induce::ordered_edges;
 use crate::schema::{Edge, Schema, Vertex};
 
 /// The vertex kind that represents a reference indirection.
@@ -120,7 +121,12 @@ fn collapse_edges(
     let mut new_edges: Vec<Edge> = Vec::new();
     let mut used_refs: FxHashSet<Name> = FxHashSet::default();
 
-    for edge in schema.edges.keys() {
+    // Take the edge order from the schema's own index rather than from
+    // `schema.edges`, whose iteration order follows the hash seed: the
+    // collapsed list below fixes the bucket order of the rebuilt schema, so
+    // reading it off the edge map would make normalization's output vary
+    // between processes.
+    for edge in &ordered_edges(schema) {
         let src_vertex = schema.vertices.get(&edge.src);
         // Skip edges that originate FROM a ref vertex (they are part of
         // the chain and will be collapsed into the originating edge).

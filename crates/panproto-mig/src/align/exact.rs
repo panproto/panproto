@@ -5,6 +5,7 @@
 
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_compatible};
 
 /// Emit anchors for every source vertex whose name exists in `tgt` with
@@ -22,6 +23,7 @@ pub fn exact_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
                 tgt: src_id.clone(),
                 confidence: 1.0,
                 strategy: StrategyTag::Exact,
+                provenance: Provenance::ExactIdentifier,
                 explanation: format!("exact name match: {}", src_id.as_str()),
             });
         }

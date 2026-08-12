@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Split an identifier into lowercase word tokens. Boundaries are
@@ -191,7 +192,8 @@ pub fn token_similarity(a: &str, b: &str) -> f64 {
 /// `threshold`, emit an anchor with that score as confidence.
 ///
 /// Priority is per-source (each source gets its best match), so ambiguous
-/// many-to-one cases are resolved by [`super::resolve_anchors`] later.
+/// many-to-one cases are settled by the objective the solver minimises, over
+/// the aggregated evidence [`super::evidence::aggregate`] produces.
 #[must_use]
 pub fn token_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> {
     let mut out = Vec::new();
@@ -219,6 +221,7 @@ pub fn token_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<Anchor> 
                     tgt: tgt_id.clone(),
                     confidence: score,
                     strategy: StrategyTag::TokenSimilarity,
+                    provenance: Provenance::Derived,
                     explanation: format!(
                         "token similarity {:.2}: {} ↔ {}",
                         score,
@@ -696,8 +699,8 @@ mod tests {
 
     #[test]
     fn token_similarity_never_returns_nan_on_unicode_inputs() {
-        // Angle-2 guard: callers downstream (resolve_anchors) drop
-        // NaN confidence anchors, but any strategy function that can
+        // Angle-2 guard: aggregation downstream drops NaN
+        // confidence anchors, but any strategy function that can
         // manufacture NaN from well-formed input would be a silent
         // data-loss bug. Spot-check a handful of Unicode corner cases
         // and assert the score is always finite in [0, 1].

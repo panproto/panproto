@@ -80,6 +80,22 @@ pub enum SchemaError {
          use build_decorated for a decorated schema"
     )]
     LayoutConstraintsOnAbstractBuild,
+
+    /// [`induce`](crate::induce()) produced a sub-schema that fails
+    /// [`validate`](crate::validate) against the protocol it was cut from.
+    ///
+    /// Because induction never invents a vertex, an edge, a kind or a
+    /// constraint, every finding here is inherited from the parent schema:
+    /// either the parent was already invalid, or the cut exposed a
+    /// requirement whose endpoints did not survive.
+    #[error(
+        "induced sub-schema is invalid: {}",
+        .findings.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
+    )]
+    InducedSchemaInvalid {
+        /// Every violation reported for the induced sub-schema.
+        findings: Vec<ValidationError>,
+    },
 }
 
 /// An error found during schema validation against a protocol.

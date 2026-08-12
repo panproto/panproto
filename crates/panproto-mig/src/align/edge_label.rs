@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_and_constraints_compatible, kinds_compatible};
 
 /// Emit anchors for every `(src_child, tgt_child)` pair reached by a
@@ -82,6 +83,7 @@ pub fn edge_label_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
                 tgt: pair.1,
                 confidence: 1.0,
                 strategy: StrategyTag::EdgeLabel,
+                provenance: Provenance::DeclaredEdgeLabel,
                 explanation: format!(
                     "edge-label '{}' ({}): {} child {} against {} child {}",
                     src_label,

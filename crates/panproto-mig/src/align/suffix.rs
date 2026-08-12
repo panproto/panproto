@@ -19,6 +19,7 @@ use std::collections::HashMap;
 
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Emit anchors for every `(source, target)` pair whose vertex IDs
@@ -29,9 +30,8 @@ use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 /// namespacing metadata, not schema content.
 /// A single source vertex may emit multiple target anchors when more
 /// than one target shares its terminal segment. The CSP's naturality
-/// check and [`super::resolve_anchors`] pick the surviving mapping;
-/// no deduplication happens here, in parity with
-/// [`super::edge_label_anchors`].
+/// check and the objective pick the surviving mapping; no deduplication
+/// happens here, in parity with [`super::edge_label_anchors`].
 #[must_use]
 pub fn suffix_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
     let mut src_ids: Vec<&panproto_gat::Name> = src.vertices.keys().collect();
@@ -72,6 +72,7 @@ pub fn suffix_anchors(src: &Schema, tgt: &Schema) -> Vec<Anchor> {
                 tgt: (*tgt_id).clone(),
                 confidence: 1.0,
                 strategy: StrategyTag::ExactSuffix,
+                provenance: Provenance::DeclaredLabel,
                 explanation: format!(
                     "suffix match on '.{tail}': {} against {}",
                     src_id.as_str(),

@@ -13,10 +13,11 @@
 //! anchors are jointly infeasible, either one alone being satisfiable,
 //! because together they require the source edge
 //! `body.facets:items --ref--> app.bsky.richtext.facet` to map to a
-//! target edge that does not exist. While anchors were pinned through
-//! `SearchOptions::initial`, which collapses a vertex's domain to
-//! exactly the pinned target, that left the CSP unsatisfiable and
-//! `Exploratory` reported no morphism on a pair `Lenient` aligned.
+//! target edge that does not exist. Pinned through
+//! `SearchOptions::hard_pins`, which collapses a vertex's domain to
+//! exactly the pinned target, that leaves the CSP unsatisfiable, and
+//! `Exploratory` reported no morphism on a pair `Lenient` aligned until
+//! the retry that releases the strategy pins was added.
 
 use panproto_core::lens::{self, AutoLensConfig, Stringency};
 use panproto_core::protocols;
@@ -51,10 +52,10 @@ fn aligns_at(src: &Schema, tgt: &Schema, tier: Stringency) -> bool {
 /// and considerably more in debug, which is more than a unit test
 /// should spend.
 ///
-/// The cost is the soft-anchor retry. `find_best_morphism` enumerates
-/// the whole hom-set and ranks it, and a preference keeps a vertex's
-/// whole domain, so the number of complete assignments to score is
-/// large. `SOFT_ANCHOR_NODE_BUDGET` bounds it. Run this with:
+/// The cost is the released-pin retry: with the strategy pins gone every
+/// one of those vertices recovers its whole kind-compatible domain, so
+/// the network the second attempt minimises over is much wider than the
+/// first. Run this with:
 ///
 /// ```text
 /// cargo nextest run --release -p panproto-core -- --ignored

@@ -15,15 +15,25 @@ panproto-expr = { workspace = true }
 serde = { workspace = true }
 thiserror = { workspace = true }
 rustc-hash = { workspace = true }
+smallvec = { workspace = true }
 blake3 = { workspace = true }
 
 [features]
 default = []
+# Compiles `solve::oracle`, the exhaustive enumerator. It is a measuring
+# instrument rather than a solver: another crate turns it on to check a search
+# path against the true optimum, and nothing turns it on in a release build.
+oracle = []
 
 [dev-dependencies]
 proptest = { workspace = true }
 smallvec = { workspace = true }
 serde_json = { workspace = true }
+divan = { workspace = true }
+
+[[bench]]
+name = "span_bench"
+harness = false
 
 [lints]
 workspace = true

@@ -130,7 +130,7 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
 }
 
 /// Attempt to find a better migration via homomorphism search with
-/// rename detection providing initial assignments.
+/// rename detection providing the pinned assignments.
 ///
 /// Returns `Some(migration)` if a higher-quality migration is found,
 /// `None` otherwise.
@@ -139,18 +139,19 @@ fn try_hom_search_enhancement(
     new: &Schema,
     identity_mig: &Migration,
 ) -> Option<Migration> {
-    // Use detected renames as initial assignments for the search.
+    // Detected renames are correspondences this crate computed, so they pin
+    // the search rather than merely steering it.
     let renames = rename_detect::detect_vertex_renames(old, new, 0.3);
-    let mut initial: HashMap<Name, Name> = HashMap::new();
+    let mut hard_pins: HashMap<Name, Name> = HashMap::new();
     for detected in &renames {
-        initial.insert(
+        hard_pins.insert(
             Name::from(detected.rename.old.as_ref()),
             Name::from(detected.rename.new.as_ref()),
         );
     }
 
     let opts = SearchOptions {
-        initial,
+        hard_pins,
         ..SearchOptions::default()
     };
 

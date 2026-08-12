@@ -24,6 +24,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_compatible};
 
 /// Emit anchors for kind-signature-compatible vertex pairs.
@@ -103,6 +104,7 @@ pub fn type_signature_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec
                 tgt: tgt_id.clone(),
                 confidence,
                 strategy: StrategyTag::TypeSignature,
+                provenance: Provenance::Inferred,
                 explanation: format!(
                     "kind-signature overlap {:.2} on {size} field(s): {} ↔ {}",
                     overlap,

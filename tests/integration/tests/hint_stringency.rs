@@ -78,7 +78,6 @@ fn hint_file_with_lenient_stringency_triggers_span_drop() {
         excluded_targets: hint_spec.excluded_target_names(),
         excluded_sources: hint_spec.excluded_source_names(),
         scoring_weights: hint_spec.scoring_weights(),
-        name_similarity_threshold: hint_spec.name_similarity_threshold(),
     };
     let (derived, domain) = hint::resolve_hints(&parts, &src, &tgt);
 
@@ -154,7 +153,6 @@ fn cli_stringency_flag_overrides_hint_file_stringency() {
         excluded_targets: hint_spec.excluded_target_names(),
         excluded_sources: hint_spec.excluded_source_names(),
         scoring_weights: hint_spec.scoring_weights(),
-        name_similarity_threshold: hint_spec.name_similarity_threshold(),
     };
     let (derived, domain) = hint::resolve_hints(&parts, &src, &tgt);
 

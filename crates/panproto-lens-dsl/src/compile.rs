@@ -300,7 +300,6 @@ fn compile_auto_body(
             excluded_targets: hints.excluded_target_names(),
             excluded_sources: hints.excluded_source_names(),
             scoring_weights: hints.scoring_weights(),
-            name_similarity_threshold: hints.name_similarity_threshold(),
         };
         let (derived, domain_constraints) =
             panproto_lens::hint::resolve_hints(&parts, source_schema, target_schema);

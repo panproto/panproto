@@ -18,6 +18,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag};
 
 /// Confidence assigned to every WL anchor. Color refinement rarely
@@ -77,6 +78,7 @@ pub fn wl_anchors(src: &Schema, tgt: &Schema, iterations: usize) -> Vec<Anchor> 
             tgt: t.clone(),
             confidence: WL_CONFIDENCE,
             strategy: StrategyTag::WlRefinement,
+            provenance: Provenance::Inferred,
             explanation: format!(
                 "WL refinement singleton color class: {} ↔ {}",
                 s.as_str(),

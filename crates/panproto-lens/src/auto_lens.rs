@@ -9,6 +9,10 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
+use panproto_mig::SpanSearch;
+use panproto_mig::align::evidence::{
+    AggregationPolicy, Cardinality, Provenance, RowFilter, aggregate,
+};
 use panproto_mig::align::{self, AliasDict, Anchor, CoerceAnchor, default_alias_dict};
 use panproto_mig::hom_search::{
     DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
@@ -210,15 +214,6 @@ impl Stringency {
             Self::Lenient => 0.75,
             Self::Exploratory => 0.50,
         }
-    }
-
-    /// Whether the CSP should relax its hard edge-name overlap pruning
-    /// at this tier. When `true`, kind-compatible candidates are kept
-    /// even when they share no edge names with the source vertex; when
-    /// `false`, the pruner runs as in the `Strict` baseline.
-    #[must_use]
-    pub const fn relax_edge_name_pruning(self) -> bool {
-        !matches!(self, Self::Strict)
     }
 
     /// User-facing lowercase token (`"strict"`, `"balanced"`,
@@ -488,10 +483,10 @@ fn check_witness_backward_law(
 
 /// Run the alignment strategies enabled by `config.stringency`, returning
 /// the raw anchor proposals. Strategies are listed in priority order;
-/// `resolve_anchors` later picks a single target per source vertex,
-/// preferring higher-confidence and higher-priority anchors.
+/// [`resolve_seed_map`] later aggregates the pool and selects a single
+/// target per source vertex.
 ///
-/// User-supplied anchors (`config.search_opts.initial`) are not consulted
+/// User-supplied anchors (`config.search_opts.hard_pins`) are not consulted
 /// here; callers merge them in on top of the strategy output.
 /// Test-only view of `run_strategies` used by regression tests that
 /// need to inspect the raw anchor output without running the CSP.
@@ -606,10 +601,10 @@ fn run_strategies(
 
     // Neighborhood propagation: re-resolve the first-pass anchors to
     // obtain a seed map and propagate child anchors from each seeded
-    // pair. The second-pass anchors are merged back into the pool and
-    // the caller's `resolve_anchors` later picks winners overall.
+    // pair. The second-pass anchors are merged back into the pool, which
+    // the caller aggregates and selects over as a whole.
     if config.stringency.uses_neighborhood_propagation() {
-        let seeds = align::resolve_anchors(&anchors, false);
+        let seeds = resolve_seed_map(&anchors);
         let threshold = config.stringency.neighborhood_threshold();
         let neighborhood = align::neighborhood_anchors(src, tgt, &seeds, threshold);
         anchors.extend(neighborhood);
@@ -618,269 +613,70 @@ fn run_strategies(
     (anchors, coerce_proposals)
 }
 
-/// Merge `additional` (source → target name pairs) into
-/// `opts.preferred` without overwriting any existing entry.
+/// Reduce an anchor pool to one target per source vertex.
 ///
-/// Strategy output is evidence, not knowledge, so it reaches the solver
-/// as a preference rather than a pin. That is what keeps the stringency
-/// tiers ordered. A tier that runs more strategies contributes more
-/// anchors, and pinning each one collapses its vertex's domain, so a
-/// set of individually plausible anchors can be jointly infeasible and
-/// leave the search unsatisfiable. Anchors are scored one at a time, so
-/// nothing checks the conjunction. As preferences they cost an ordering
-/// instead of a solution.
+/// This is the replacement for the deleted winner-takes-slot resolver.
+/// Aggregation runs first, so the priority ordering is applied to the whole
+/// pool before anything is chosen, and selection is a strict one-to-one pass
+/// over the aggregated scores rather than a per-source argmax over raw
+/// confidences.
+///
+/// [`RowFilter::relative_only`] rather than the default: the default's absolute
+/// floor is stated on COMA's aggregated-similarity scale, while an aggregated
+/// score here is a mean over six families and so caps at `k / 6` for a
+/// candidate carried by `k` of them. Against the default floor a single-family
+/// candidate can never clear the bar, which would silently empty the seed map.
+///
+/// The old resolver took an injectivity flag. It has no analogue: many-to-one
+/// is a property of the morphism, decided by [`SearchOptions::monic`] against
+/// the whole objective, and selection here is one-to-one on both sides
+/// regardless.
+fn resolve_seed_map(anchors: &[Anchor]) -> HashMap<Name, Name> {
+    aggregate(anchors, AggregationPolicy::StrictPriority)
+        .select(Cardinality::Strict, RowFilter::relative_only())
+        .to_map()
+}
+
+/// Merge `additional` (source → target name pairs) into `opts.hard_pins`
+/// without overwriting any existing entry.
 fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>) {
     for (s, t) in additional {
-        opts.initial.entry(s.clone()).or_insert_with(|| t.clone());
+        opts.hard_pins.entry(s.clone()).or_insert_with(|| t.clone());
     }
 }
 
-/// Node budget for the soft-anchor retry.
+/// Rebuild `opts` with every strategy anchor dropped, keeping only the
+/// anchors the caller supplied.
 ///
-/// This bounds solutions, not effort in the usual sense.
-/// `find_best_morphism` asks for every morphism (`max_results` of zero)
-/// and returns the highest-scoring one, so the search enumerates the
-/// whole hom-set and scores each member, and scoring runs an edit
-/// distance over every vertex pair. Under pinning the hom-set has about
-/// one member; under preferences each anchored vertex keeps its whole
-/// kind-compatible domain and the hom-set is enormous, so the cost is
-/// proportional to how many complete assignments exist rather than to
-/// how hard any one is to find.
+/// Anchors the caller supplied stay pinned: those are known, not inferred.
+/// Everything the strategies contributed is released, so each of those
+/// vertices recovers its whole kind-compatible domain and the search can
+/// reach an assignment the pinned attempt had ruled out.
 ///
-/// Measured on the schema pair the regression test uses: 20000 nodes
-/// answers in about two seconds, 200000 in nineteen, 500000 in
-/// forty-seven, all returning a morphism. The number is chosen for the
-/// first of those. Enumerate-then-rank is the thing to replace; until
-/// then this is what keeps the retry usable.
-const SOFT_ANCHOR_NODE_BUDGET: usize = 20_000;
-
-/// Rebuild `opts` with every strategy anchor demoted from a pin to a
-/// preference, under a node budget.
-///
-/// Anchors the caller supplied stay pinned: those are known, not
-/// inferred. Everything `resolved` contributed moves to
-/// [`SearchOptions::preferred`], where a wrong guess costs an ordering
-/// rather than a solution.
-fn soften_seed_anchors(
+/// This used to demote strategy anchors to a preference ordering under a node
+/// budget. Preferences are gone, and so is the budget: a preference could only
+/// change which optimum was reached first, while the search now returns an
+/// optimum of the whole objective, so there is no ordering left to express.
+/// Releasing the pins is the part that mattered, since it is the domain
+/// collapse rather than the ordering that turns a jointly infeasible anchor set
+/// into "no morphism found".
+fn release_strategy_pins(
     opts: &SearchOptions,
     caller_anchors: &HashMap<Name, Name>,
-    resolved: &HashMap<Name, Name>,
 ) -> SearchOptions {
     let mut soft = opts.clone();
-    soft.initial.clone_from(caller_anchors);
-    for (s, t) in resolved {
-        if caller_anchors.contains_key(s) {
-            continue;
-        }
-        soft.preferred.entry(s.clone()).or_insert_with(|| t.clone());
-    }
-    soft.max_nodes = SOFT_ANCHOR_NODE_BUDGET;
+    soft.hard_pins.clone_from(caller_anchors);
     soft
 }
-
-/// Set `opts.relax_edge_name_pruning` according to `stringency`. The
-/// caller's explicit `true` is preserved if already set.
-///
-/// Other `SearchOptions` fields are intentionally *not* forced by the
-/// tier:
-///
-/// * `monic` / `epic` / `iso`: these encode categorical properties of
-///   the morphism itself, not search aggressiveness; flipping them at
-///   `Strict` would reject perfectly valid identity-fill morphisms on
-///   partial schemas. Callers who want a monic search pass it in via
-///   `AutoLensConfig::search_opts`.
-/// * `max_results`: candidate APIs set this per-call; the single-best
-///   entry point leaves it at the default.
-/// * `initial`: reserved for caller-supplied anchors. Strategy anchors
-///   go to `preferred` via `merge_seed_anchors`.
-const fn apply_stringency_search_opts(opts: &mut SearchOptions, stringency: Stringency) {
-    if stringency.relax_edge_name_pruning() {
-        opts.relax_edge_name_pruning = true;
-    }
-}
-
-/// Identify source vertices with no kind-compatible target vertex.
-///
-/// Used at `Lenient`+ to pre-populate `DomainConstraints.excluded_sources`
-/// so the CSP can still find a morphism on the shared subschema `C`
-/// rather than failing outright when a source sort has no counterpart.
-fn sources_without_compatible_targets(src: &Schema, tgt: &Schema) -> Vec<Name> {
-    let tgt_kinds: std::collections::HashSet<&str> =
-        tgt.vertices.values().map(|v| v.kind.as_str()).collect();
-    let mut out: Vec<Name> = src
-        .vertices
-        .iter()
-        .filter_map(|(id, vertex)| {
-            if tgt_kinds.contains(vertex.kind.as_str()) {
-                None
-            } else {
-                Some(id.clone())
-            }
-        })
-        .collect();
-    // HashMap iteration is nondeterministic; sort so the derived
-    // `DomainConstraints.excluded_sources` and any downstream log are
-    // stable across runs.
-    out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-    out
-}
-
-/// Identify source vertices that cannot participate in any naturality-
-/// consistent morphism given the currently-seeded anchors.
-///
-/// Strictly stronger than [`sources_without_compatible_targets`]: a
-/// source `s` passes this test only when there is at least one target
-/// `t` such that every outgoing edge `s --kind--> s'` in the source has
-/// a corresponding outgoing edge `t --kind'--> t'` in the target where
-/// the child target respects the anchor (when `s'` is already anchored)
-/// or is kind-compatible with `s'` (when it is not).
-///
-/// Excluding the sources returned here lets the CSP find a morphism
-/// on the anchored sub-schema even when the full source has sparse
-/// overlap with the target. The naturality-feasibility test is sound
-/// (never excludes a source that could participate in a valid
-/// morphism) because a source whose outgoing-edge set has no feasible
-/// counterpart cannot satisfy naturality against any target choice.
-fn sources_without_naturality_compatible_targets(
-    src: &Schema,
-    tgt: &Schema,
-    anchors: &HashMap<Name, Name>,
-    strict_edge_names: bool,
-) -> Vec<Name> {
-    // Precompute each target vertex's outgoing edges bucketed by edge
-    // kind. Without this, `naturality_feasible` iterates every source
-    // edge against every target edge of every target vertex for every
-    // source vertex, giving `O(|V_s| * |V_t| * |E_s| * |E_t|)`. With
-    // a kind-keyed lookup, the inner edge match is `O(1)` hash
-    // probe plus the usually-small number of edges sharing a kind.
-    let target_edge_index = build_target_edge_index(tgt);
-    let mut out: Vec<Name> = src
-        .vertices
-        .keys()
-        .filter(|s| {
-            !tgt.vertices.keys().any(|t| {
-                naturality_feasible(
-                    src,
-                    s,
-                    tgt,
-                    t,
-                    anchors,
-                    strict_edge_names,
-                    &target_edge_index,
-                )
-            })
-        })
-        .cloned()
-        .collect();
-    out.sort_by(|a, b| a.as_str().cmp(b.as_str()));
-    out
-}
-
-/// Map each target vertex to a sub-map keyed by edge `kind`, listing
-/// the outgoing edges with that kind. Used by
-/// [`naturality_feasible`] to replace the per-source inner
-/// `O(|E_t|)` scan with an `O(1)` hash lookup that narrows to the
-/// edges whose kind can possibly match.
-fn build_target_edge_index<'a>(
-    tgt: &'a Schema,
-) -> rustc_hash::FxHashMap<&'a Name, rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>>
-{
-    let mut index: rustc_hash::FxHashMap<
-        &'a Name,
-        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
-    > = rustc_hash::FxHashMap::default();
-    for t in tgt.vertices.keys() {
-        let mut bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
-            rustc_hash::FxHashMap::default();
-        for edge in tgt.outgoing_edges(t.as_str()) {
-            bucket.entry(&edge.kind).or_default().push(edge);
-        }
-        index.insert(t, bucket);
-    }
-    index
-}
-
-/// Return `true` when mapping `s ↦ t` is consistent with naturality
-/// for every outgoing edge of `s` given the existing anchor set.
-///
-/// For each edge `s --kind--> s'` the target must have at least one
-/// edge `t --kind'--> t'` satisfying:
-///
-/// - kinds agree (`kind == kind'`),
-/// - labels agree when `strict_edge_names` is on,
-/// - if `s'` is anchored to `t''`, `t' == t''`; otherwise `t'`'s
-///   vertex kind is compatible with `s'`'s.
-///
-/// The check ignores incoming edges: the CSP validates the incoming
-/// side of naturality during the main search, and a source whose only
-/// problem is incoming-side naturality can still be assigned within
-/// the CSP.
-///
-/// `target_edge_index` is a precomputed map of every target vertex to
-/// its outgoing edges bucketed by edge kind; callers in a loop (e.g.
-/// [`sources_without_naturality_compatible_targets`]) build the index
-/// once and pass it to every invocation so each inner lookup is a
-/// hash probe rather than a linear scan over the target vertex's full
-/// outgoing-edge set.
-fn naturality_feasible<'a>(
-    src: &Schema,
-    s: &Name,
-    tgt: &Schema,
-    t: &Name,
-    anchors: &HashMap<Name, Name>,
-    strict_edge_names: bool,
-    target_edge_index: &rustc_hash::FxHashMap<
-        &'a Name,
-        rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>>,
-    >,
-) -> bool {
-    // Source and target must themselves be kind-compatible before
-    // naturality-feasibility makes sense to evaluate.
-    if !align::kinds_compatible(src, s, tgt, t) {
-        return false;
-    }
-    let empty_bucket: rustc_hash::FxHashMap<&'a Name, Vec<&'a panproto_schema::Edge>> =
-        rustc_hash::FxHashMap::default();
-    let by_kind = target_edge_index.get(t).unwrap_or(&empty_bucket);
-    src.outgoing_edges(s.as_str()).iter().all(|se| {
-        let Some(candidates) = by_kind.get(&se.kind) else {
-            return false;
-        };
-        candidates.iter().any(|te| {
-            (!strict_edge_names || edge_labels_compatible(se, te))
-                && child_target_respects_anchor(src, se, tgt, te, anchors)
-        })
-    })
-}
-
-fn edge_labels_compatible(se: &panproto_schema::Edge, te: &panproto_schema::Edge) -> bool {
-    match (&se.name, &te.name) {
-        (None, _) | (_, None) => true,
-        (Some(a), Some(b)) => a == b,
-    }
-}
-
-fn child_target_respects_anchor(
-    src: &Schema,
-    se: &panproto_schema::Edge,
-    tgt: &Schema,
-    te: &panproto_schema::Edge,
-    anchors: &HashMap<Name, Name>,
-) -> bool {
-    anchors.get(&se.tgt).map_or_else(
-        || align::kinds_compatible(src, &se.tgt, tgt, &te.tgt),
-        |anchored| &te.tgt == anchored,
-    )
-}
-
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
 ///
 /// 1. Run alignment strategies enabled by [`AutoLensConfig::stringency`]
 ///    over `(src, tgt)`, producing candidate anchors.
-/// 2. Resolve anchors into a single seed map (higher-priority strategies
-///    win conflicts) and merge into [`SearchOptions::initial`].
+/// 2. Aggregate the anchor pool and select a single seed map from it
+///    (higher-priority strategies win conflicts), then merge into
+///    [`SearchOptions::hard_pins`].
 /// 3. Run the CSP-based morphism search; the CSP enforces naturality on
 ///    every candidate seed, so heuristic priors cannot produce an invalid
 ///    morphism.
@@ -901,10 +697,9 @@ pub fn auto_generate(
     config: &AutoLensConfig,
 ) -> Result<AutoLensResult, LensError> {
     let (seed_anchors, coerce_proposals) = run_strategies(src, tgt, config);
-    let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
+    let resolved = resolve_seed_map(&seed_anchors);
 
     let mut search_opts = config.search_opts.clone();
-    apply_stringency_search_opts(&mut search_opts, config.stringency);
     merge_seed_anchors(&mut search_opts, &resolved);
 
     // Lenient / Exploratory tiers always consult the overlap fallback
@@ -915,53 +710,39 @@ pub fn auto_generate(
         effective.try_overlap = true;
     }
 
-    // Span search: at Lenient+, pre-exclude source vertices with no
-    // naturality-feasible target given the already-resolved anchor
-    // set. Excluded vertices surface as `DropSort` endofunctors in the
-    // factorized chain: the left leg of the span `A ←f− C −g→ B`.
-    let span_constraints = span_exclusions_at_lenient(
-        src,
-        tgt,
-        config.stringency,
-        &resolved,
-        !search_opts.relax_edge_name_pruning,
-    );
-
-    // Pinned first, because collapsing each anchored vertex's domain to
-    // one target is what keeps this search in milliseconds. A pin is a
-    // guess, though, and a wrong one removes every other target for its
-    // vertex, so a failure here is not evidence that no morphism
-    // exists. Retry with the same anchors as preferences, which can
-    // reorder a domain but never empty it.
+    // Pinned first, so that the answer agrees with the strategies wherever
+    // they agree with each other. A pin is a guess, though, and a wrong one
+    // removes every other target for its vertex, so a failure here is not
+    // evidence that no morphism exists; the retry releases the strategy pins
+    // and keeps only what the caller supplied.
     //
-    // This is what keeps the stringency tiers ordered. A higher tier
-    // runs more alignment strategies and so contributes more anchors,
-    // and each pin collapses its vertex's domain to one target. Anchors
-    // that are individually plausible can be jointly infeasible: two of
-    // them can require a source edge to map to a target edge that does
-    // not exist. Nothing scores the conjunction, so the tier that knows
-    // more can be the tier that fails. As preferences the solver simply
-    // backtracks past them.
-    let caller_anchors = config.search_opts.initial.clone();
+    // The retry is what keeps the stringency tiers ordered. A higher tier runs
+    // more alignment strategies and so contributes more anchors, and each pin
+    // collapses its vertex's domain to one target. Anchors that are
+    // individually plausible can be jointly infeasible: two of them can
+    // require a source edge to map to a target edge that does not exist.
+    // Nothing scores the conjunction, so the tier that knows more can be the
+    // tier that fails. Released, the solver searches past them.
+    let caller_anchors = config.search_opts.hard_pins.clone();
     let result = match run_search(
         src,
         tgt,
         protocol,
         &effective,
         &search_opts,
-        span_constraints.as_ref(),
+        None,
         DEFAULT_QUALITY_FLOOR,
     ) {
         Ok(found) => found,
         Err(pinned_failure) => {
-            let soft_opts = soften_seed_anchors(&search_opts, &caller_anchors, &resolved);
+            let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
             run_search(
                 src,
                 tgt,
                 protocol,
                 &effective,
                 &soft_opts,
-                span_constraints.as_ref(),
+                None,
                 DEFAULT_QUALITY_FLOOR,
             )
             .map_err(|_| pinned_failure)?
@@ -988,9 +769,36 @@ struct SearchResult {
     alignment_quality: f64,
 }
 
-/// Shared CSP-search/factorize/instantiate pipeline. `domain_constraints`
-/// is consulted only when `Some`; otherwise the unconstrained
-/// [`find_best_morphism`] is used.
+/// Shared search/factorize/instantiate pipeline. `domain_constraints` is
+/// consulted only when `Some`.
+///
+/// # Which search runs, and why the tier decides
+///
+/// A tier that [allows spans](Stringency::allow_spans) takes the span search
+/// and reads its right leg. The source vertices the apex left out are exactly
+/// the ones the factorization turns into `DropSort`, which is what a partial
+/// alignment has always meant here. A tier that does not take the
+/// total-morphism search, which is the same search with `⊥` forbidden, and
+/// fails when no total morphism exists.
+///
+/// The split matters in both directions and neither entry point subsumes the
+/// other:
+///
+/// * The total search cannot answer a span tier. `DomainConstraints`
+///   [excluded sources](DomainConstraints::excluded_sources) force a vertex out
+///   of the apex, and a total morphism must map every source vertex, so any
+///   exclusion leaves no total morphism at all. Since `span_exclusions_at_lenient`
+///   populates exclusions precisely at the span tiers, asking for a total
+///   morphism there reports "no morphism found" on every pair with a source
+///   sort the target lacks, which is the ordinary case those tiers exist for.
+/// * The span search cannot answer a strict tier. It returns the *best span*,
+///   and a span that drops a vertex can score better than a total morphism that
+///   keeps it, so taking `as_total_morphism` on the best span would report no
+///   morphism on a pair that has one.
+///
+/// A span tier still fails on an empty apex: a chain that drops the whole
+/// source is not an alignment, and reporting one would be worse than saying
+/// nothing was found.
 fn run_search(
     src: &Schema,
     tgt: &Schema,
@@ -1001,6 +809,21 @@ fn run_search(
     quality_floor: f64,
 ) -> Result<SearchResult, LensError> {
     let search = |opts: &SearchOptions| -> Option<FoundMorphism> {
+        if config.stringency.allow_spans() {
+            let mut builder = SpanSearch::new(protocol).with_options(opts.clone());
+            if let Some(constraints) = domain_constraints {
+                builder = builder.with_constraints(constraints.clone());
+            }
+            let span = builder.run(src, tgt).ok()?;
+            if span.apex.vertices.is_empty() {
+                return None;
+            }
+            return Some(FoundMorphism {
+                vertex_map: span.right.vertex_map.clone(),
+                edge_map: span.right.edge_map.clone(),
+                quality: span.quality,
+            });
+        }
         domain_constraints.map_or_else(
             || find_best_morphism(src, tgt, opts),
             |dc| find_best_morphism_constrained(src, tgt, opts, dc),
@@ -1012,12 +835,17 @@ fn run_search(
     if config.try_overlap {
         let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < quality_floor);
         if should_try_overlap {
-            let overlap = panproto_mig::discover_overlap(src, tgt);
+            let overlap = panproto_mig::discover_overlap(src, tgt, protocol).unwrap_or_else(|_| {
+                panproto_schema::SchemaOverlap {
+                    vertex_pairs: Vec::new(),
+                    edge_pairs: Vec::new(),
+                }
+            });
             if !overlap.vertex_pairs.is_empty() {
                 let mut overlap_opts = search_opts.clone();
                 for (src_id, tgt_id) in &overlap.vertex_pairs {
                     overlap_opts
-                        .initial
+                        .hard_pins
                         .entry(src_id.clone())
                         .or_insert_with(|| tgt_id.clone());
                 }
@@ -1089,13 +917,12 @@ pub fn auto_generate_with_hints(
     };
 
     let (strategy_anchors, coerce_proposals) = run_strategies(src, tgt, config);
-    let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
+    let resolved_strategy = resolve_seed_map(&strategy_anchors);
 
     let mut search_opts = config.search_opts.clone();
-    apply_stringency_search_opts(&mut search_opts, config.stringency);
     // User hints first (highest priority).
     for (src_v, tgt_v) in anchors {
-        search_opts.initial.insert(src_v.clone(), tgt_v.clone());
+        search_opts.hard_pins.insert(src_v.clone(), tgt_v.clone());
     }
     // Strategy anchors fill in the rest without overwriting.
     merge_seed_anchors(&mut search_opts, &resolved_strategy);
@@ -1105,42 +932,11 @@ pub fn auto_generate_with_hints(
         effective.try_overlap = true;
     }
 
-    // Span search: at Lenient+, fold source vertices with no
-    // kind-compatible target into `excluded_sources` so the CSP
-    // searches the shared subschema C instead of failing outright.
-    // User-supplied `domain_constraints` are preserved; the span
-    // exclusions are UNIONED in rather than replacing them.
-    //
-    // User hints override auto-exclusion: if the caller explicitly
-    // anchored a source vertex to some target, we must NOT add that
-    // source to the span's `excluded_sources` even when our
-    // kind-compatibility scan couldn't find a match. The user's
-    // anchor is a stronger signal than our heuristic; silently
-    // dropping a hinted source would surface as "CSP ignored my
-    // hint" from the caller's perspective.
-    let mut merged_domain = domain_constraints.clone();
-    // Combine user hints with strategy anchors for the feasibility
-    // check: a richer anchor set lets the naturality predicate rule
-    // out more sources that cannot participate in a consistent
-    // morphism.
-    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
-    for (s, t) in anchors {
-        feasibility_anchors.insert(s.clone(), t.clone());
-    }
-    if let Some(span) = span_exclusions_at_lenient(
-        src,
-        tgt,
-        config.stringency,
-        &feasibility_anchors,
-        !search_opts.relax_edge_name_pruning,
-    ) {
-        for src_v in span.excluded_sources {
-            if anchors.contains_key(&src_v) {
-                continue;
-            }
-            merged_domain.excluded_sources.insert(src_v);
-        }
-    }
+    // The caller's domain constraints are the only ones applied. A source
+    // vertex the target cannot host is dropped by the span search itself,
+    // which decides that against the whole objective rather than by a local
+    // scan, so nothing is pre-excluded on its behalf.
+    let merged_domain = domain_constraints.clone();
 
     let result = run_search(
         src,
@@ -1168,6 +964,7 @@ pub fn auto_generate_with_hints(
             tgt: tgt_v.clone(),
             confidence: 1.0,
             strategy: align::StrategyTag::UserHint,
+            provenance: Provenance::UserSupplied,
             explanation: format!("user hint: {} ↔ {}", src_v.as_str(), tgt_v.as_str()),
         });
     }
@@ -1394,74 +1191,23 @@ pub fn auto_generate_candidates(
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let n = top_n.max(1);
     let (seed_anchors, _coerce_proposals) = run_strategies(src, tgt, config);
-    let resolved = align::resolve_anchors(&seed_anchors, config.search_opts.monic);
+    let resolved = resolve_seed_map(&seed_anchors);
 
     let mut search_opts = config.search_opts.clone();
-    apply_stringency_search_opts(&mut search_opts, config.stringency);
     merge_seed_anchors(&mut search_opts, &resolved);
     search_opts.max_results = n;
-
-    // Span search: at Lenient+ pre-exclude source vertices with no
-    // naturality-feasible target given the resolved anchor set, so
-    // the CSP searches the anchored sub-schema rather than failing on
-    // full-source coverage.
-    let span_constraints = span_exclusions_at_lenient(
-        src,
-        tgt,
-        config.stringency,
-        &resolved,
-        !search_opts.relax_edge_name_pruning,
-    );
 
     candidates_from_search(
         src,
         tgt,
         protocol,
         &search_opts,
-        span_constraints.as_ref(),
+        None,
         &seed_anchors,
         n,
         config.stringency.allow_spans(),
     )
 }
-
-/// Build `DomainConstraints` with auto-derived `excluded_sources` for
-/// span search. Returns `None` at tiers where spans are not allowed or
-/// when every source vertex has a compatible target.
-///
-/// When `anchors` is non-empty, the stronger naturality-feasibility
-/// predicate is used: a source is excluded if no target vertex admits
-/// a naturality-consistent assignment given the anchor set. This
-/// catches cases where a source vertex has some kind-compatible
-/// target but no *naturality-compatible* one, which otherwise forces
-/// the CSP to fail on schemas with sparse overlap.
-///
-/// When `anchors` is empty, falls back to the kind-only predicate so
-/// the pre-alignment path (where no anchors exist yet) is not starved
-/// of exclusions.
-fn span_exclusions_at_lenient(
-    src: &Schema,
-    tgt: &Schema,
-    stringency: Stringency,
-    anchors: &HashMap<Name, Name>,
-    strict_edge_names: bool,
-) -> Option<DomainConstraints> {
-    if !stringency.allow_spans() {
-        return None;
-    }
-    let to_drop = if anchors.is_empty() {
-        sources_without_compatible_targets(src, tgt)
-    } else {
-        sources_without_naturality_compatible_targets(src, tgt, anchors, strict_edge_names)
-    };
-    if to_drop.is_empty() {
-        return None;
-    }
-    let mut dc = DomainConstraints::default();
-    dc.excluded_sources.extend(to_drop);
-    Some(dc)
-}
-
 /// Candidate-API variant accepting caller-supplied anchors and domain
 /// constraints.
 ///
@@ -1483,43 +1229,19 @@ pub fn auto_generate_candidates_with_hints(
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let n = top_n.max(1);
     let (strategy_anchors, _coerce_proposals) = run_strategies(src, tgt, config);
-    let resolved_strategy = align::resolve_anchors(&strategy_anchors, config.search_opts.monic);
+    let resolved_strategy = resolve_seed_map(&strategy_anchors);
 
     let mut search_opts = config.search_opts.clone();
-    apply_stringency_search_opts(&mut search_opts, config.stringency);
     for (src_v, tgt_v) in anchors {
-        search_opts.initial.insert(src_v.clone(), tgt_v.clone());
+        search_opts.hard_pins.insert(src_v.clone(), tgt_v.clone());
     }
     merge_seed_anchors(&mut search_opts, &resolved_strategy);
     search_opts.max_results = n;
 
-    // Span search: at Lenient+, union auto-derived source exclusions
-    // into the caller's `domain_constraints` so the CSP can still
-    // factor through the shared subschema `C`. User hints override
-    // auto-exclusion: if the caller explicitly anchored a source
-    // vertex, we must NOT add that source to `excluded_sources` even
-    // when our kind-compatibility scan couldn't find a match. Without
-    // this guard the CSP silently drops user-hinted sources, surfacing
-    // as a "CSP ignored my hint" bug.
-    let mut merged_domain = domain_constraints.clone();
-    let mut feasibility_anchors: HashMap<Name, Name> = resolved_strategy.clone();
-    for (s, t) in anchors {
-        feasibility_anchors.insert(s.clone(), t.clone());
-    }
-    if let Some(span) = span_exclusions_at_lenient(
-        src,
-        tgt,
-        config.stringency,
-        &feasibility_anchors,
-        !search_opts.relax_edge_name_pruning,
-    ) {
-        for src_v in span.excluded_sources {
-            if anchors.contains_key(&src_v) {
-                continue;
-            }
-            merged_domain.excluded_sources.insert(src_v);
-        }
-    }
+    // As in `auto_generate_with_hints`: only the caller's constraints apply,
+    // because the span search decides what to drop against the whole
+    // objective rather than by a local feasibility scan.
+    let merged_domain = domain_constraints.clone();
 
     // See `auto_generate_with_hints` for the determinism rationale on
     // sorting `anchors` before constructing user-hint entries.
@@ -1532,6 +1254,7 @@ pub fn auto_generate_candidates_with_hints(
             tgt: tgt_v.clone(),
             confidence: 1.0,
             strategy: align::StrategyTag::UserHint,
+            provenance: Provenance::UserSupplied,
             explanation: format!("user hint: {} ↔ {}", src_v.as_str(), tgt_v.as_str()),
         });
     }
@@ -2358,12 +2081,76 @@ mod tests {
         );
     }
 
+    /// The span search decides what to drop, and nothing pre-empts it.
+    ///
+    /// A local feasibility scan used to pre-populate `excluded_sources` before
+    /// the search ran. It excluded any source vertex that had no target it
+    /// could map to *with all of its outgoing edges preserved*, which on the
+    /// fixture below excludes the root as well as the orphan leaf, because the
+    /// root's only edge leads to that leaf. Both excluded leaves an empty
+    /// apex and reports "no morphism found" on a pair whose answer is
+    /// obviously `{r ↦ r}`.
+    ///
+    /// The span search has no such failure mode. An edge whose endpoint left
+    /// the apex is unpreserved rather than infeasible, so dropping the leaf
+    /// costs the edge's share of the objective and keeps the root, which is
+    /// the minimum. This pins that a source vertex is dropped only when the
+    /// objective prefers it, never by a scan run beforehand.
+    #[test]
+    fn only_the_objective_decides_which_sources_are_dropped() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .vertex("r.flag", "boolean", None::<&str>)
+            .unwrap()
+            .edge("r", "r.flag", "prop", Some("flag"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("r", "record", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let config = AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let result = auto_generate(&src, &tgt, &protocol, &config)
+            .unwrap_or_else(|e| panic!("the root maps onto the root: {e}"));
+
+        // The root survives, so the chain is not the degenerate one that drops
+        // everything, and the orphan leaf is dropped rather than the root.
+        assert!(
+            result.chain.steps.iter().any(|step| matches!(
+                &step.target.transform,
+                TheoryTransform::DropSort(name) if &**name == "boolean"
+            )),
+            "the orphan leaf must be dropped: {:?}",
+            result
+                .chain
+                .steps
+                .iter()
+                .map(|s| s.name.to_string())
+                .collect::<Vec<_>>()
+        );
+        assert!(
+            !result.chain.steps.iter().any(|step| matches!(
+                &step.target.transform,
+                TheoryTransform::DropSort(name) if &**name == "record"
+            )),
+            "the root has a target and must not be dropped"
+        );
+    }
+
     #[test]
     fn lenient_span_search_drops_orphan_source_sorts() {
         // Schemas that share `record` sort but differ on `boolean`:
         // the source has an `r.flag` child of kind boolean with no
         // counterpart in the target. Strict cannot find a morphism.
-        // Lenient auto-excludes the orphan source vertex and emits a
+        // Lenient drops the orphan source vertex and emits a
         // DropSort for the `boolean` sort in the factorization.
         let protocol = test_protocol();
         let src = SchemaBuilder::new(&protocol)
@@ -2615,45 +2402,6 @@ mod tests {
         assert!(!Stringency::Balanced.uses_coerce());
         assert!(!Stringency::Lenient.uses_coerce());
         assert!(Stringency::Exploratory.uses_coerce());
-    }
-
-    #[test]
-    fn sources_without_compatible_targets_is_sorted() {
-        let protocol = Protocol {
-            name: "test".into(),
-            schema_theory: "ThGraph".into(),
-            instance_theory: "ThWType".into(),
-            edge_rules: vec![],
-            obj_kinds: vec![
-                "record".into(),
-                "alpha".into(),
-                "beta".into(),
-                "gamma".into(),
-            ],
-            constraint_sorts: vec![],
-            ..Protocol::default()
-        };
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("zeta", "alpha", None::<&str>)
-            .unwrap()
-            .vertex("aardvark", "beta", None::<&str>)
-            .unwrap()
-            .vertex("mango", "gamma", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("r", "record", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-        let out = sources_without_compatible_targets(&src, &tgt);
-        let names: Vec<&str> = out.iter().map(panproto_gat::Name::as_str).collect();
-        assert_eq!(
-            names,
-            vec!["aardvark", "mango", "zeta"],
-            "HashMap iteration order leaked into output"
-        );
     }
 
     #[test]
@@ -3025,59 +2773,6 @@ mod tests {
     }
 
     #[test]
-    fn auto_generate_with_hints_user_anchor_overrides_span_exclusion() {
-        // Source has `r.flag: boolean`; target has no boolean vertex.
-        // At Lenient, `span_exclusions_at_lenient` would drop `r.flag`
-        // from the search. But if the caller explicitly hints
-        // `r.flag -> r.other_flag`, that hint must WIN — the CSP
-        // should receive `r.flag` in its domain, not in the excluded
-        // set. The previous implementation unioned span exclusions
-        // unconditionally, silently discarding the user's hint.
-        let protocol = test_protocol();
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("r", "record", None::<&str>)
-            .unwrap()
-            .vertex("r.flag", "boolean", None::<&str>)
-            .unwrap()
-            .edge("r", "r.flag", "prop", Some("flag"))
-            .unwrap()
-            .build()
-            .unwrap();
-        // Target has no boolean; auto-exclusion would drop r.flag.
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("r", "record", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        // Directly exercise the merge logic: build the span set and
-        // the user-hint set, and confirm the hinted source is kept in
-        // the CSP domain (not excluded).
-        let span =
-            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
-                .expect("Lenient should auto-exclude r.flag");
-        assert!(
-            span.excluded_sources.contains(&Name::from("r.flag")),
-            "span auto-exclusion must name r.flag"
-        );
-
-        // Simulate the guarded merge: user anchors override span drops.
-        let mut anchors: HashMap<Name, Name> = HashMap::new();
-        anchors.insert(Name::from("r.flag"), Name::from("r"));
-        let mut merged = DomainConstraints::default();
-        for src_v in span.excluded_sources {
-            if anchors.contains_key(&src_v) {
-                continue;
-            }
-            merged.excluded_sources.insert(src_v);
-        }
-        assert!(
-            !merged.excluded_sources.contains(&Name::from("r.flag")),
-            "user-hinted source must not end up in excluded_sources"
-        );
-    }
-
-    #[test]
     fn auto_generate_with_hints_preserves_caller_excluded_sources() {
         // Caller supplies domain_constraints with an excluded source.
         // Lenient span logic unions additional auto-exclusions; the
@@ -3125,193 +2820,6 @@ mod tests {
         let _ = res; // presence of a result proves exclusion was honored
     }
 
-    #[test]
-    fn auto_generate_candidates_with_hints_user_anchor_overrides_span_exclusion() {
-        // Parity test for `auto_generate_with_hints_user_anchor_overrides_span_exclusion`:
-        // the candidates-API variant must honor the same user-hint-vs-span
-        // exclusion rule. A Lenient search where the source's only child
-        // vertex has no kind-compatible target would otherwise see that
-        // vertex auto-excluded by `span_exclusions_at_lenient`, silently
-        // dropping the caller's anchor. The pass-6 fix unions span
-        // exclusions into the caller's DomainConstraints with the same
-        // `anchors.contains_key` skip guard the single-best path uses.
-        let protocol = test_protocol();
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("r", "record", None::<&str>)
-            .unwrap()
-            .vertex("r.flag", "boolean", None::<&str>)
-            .unwrap()
-            .edge("r", "r.flag", "prop", Some("flag"))
-            .unwrap()
-            .build()
-            .unwrap();
-        // Target has no boolean: auto-exclusion would drop `r.flag`.
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("r", "record", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        // Prove the span logic wants to exclude `r.flag`.
-        let span =
-            span_exclusions_at_lenient(&src, &tgt, Stringency::Lenient, &HashMap::new(), false)
-                .expect("Lenient should auto-exclude r.flag");
-        assert!(
-            span.excluded_sources.contains(&Name::from("r.flag")),
-            "span auto-exclusion must name r.flag"
-        );
-
-        // User hint: `r.flag -> r`. The candidates-with-hints entry
-        // point must keep `r.flag` in the CSP domain (not exclude it).
-        let mut anchors: HashMap<Name, Name> = HashMap::new();
-        anchors.insert(Name::from("r.flag"), Name::from("r"));
-        let cfg = AutoLensConfig {
-            stringency: Stringency::Lenient,
-            ..Default::default()
-        };
-        // Either the CSP accepts the (kind-mismatched) hint and
-        // produces a candidate, or it rejects on kind-compatibility
-        // grounds — but it must NOT silently drop `r.flag` via the
-        // span path (which would produce a trivial `r -> r` candidate
-        // claiming the hint was honored). We can't observe "was the
-        // exclusion added" directly, so assert the guard logic by
-        // reproducing it on the same inputs.
-        let mut merged = DomainConstraints::default();
-        for src_v in span.excluded_sources {
-            if anchors.contains_key(&src_v) {
-                continue;
-            }
-            merged.excluded_sources.insert(src_v);
-        }
-        assert!(
-            !merged.excluded_sources.contains(&Name::from("r.flag")),
-            "user-hinted source must not end up in excluded_sources"
-        );
-        // End-to-end: call the candidates path; Err is acceptable
-        // (kind mismatch), Ok is acceptable. A panic is not.
-        let _ = auto_generate_candidates_with_hints(
-            &src,
-            &tgt,
-            &protocol,
-            &cfg,
-            &anchors,
-            &DomainConstraints::default(),
-            1,
-        );
-    }
-
-    /// Naturality-aware exclusion catches sources whose outgoing
-    /// edges have no corresponding counterpart in the target, even
-    /// when the source vertex kind happens to appear somewhere in the
-    /// target. Under the old kind-only predicate, a `record` source
-    /// with an incompatible outgoing-edge structure would be retained
-    /// in the CSP scope and block every candidate solution. The
-    /// stronger predicate excludes it so the CSP searches only the
-    /// anchored subschema.
-    #[test]
-    fn naturality_feasibility_excludes_sources_with_unmatchable_outgoing_edges() {
-        let protocol = test_protocol();
-
-        // Source: a record with a `blob` child via the "blob" edge
-        // kind. Target has no "blob" edges at all, only "prop" edges.
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("post", "record", None::<&str>)
-            .unwrap()
-            .vertex("post.media", "array", None::<&str>)
-            .unwrap()
-            .edge("post", "post.media", "blob", Some("media"))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        // Target carries records, strings, and objects, none linked by
-        // a "blob" edge. The source record's kind (`record`) matches
-        // both target records, so the kind-only predicate retains
-        // `post`. Naturality-feasibility rejects it because no target
-        // record offers a `blob` outgoing edge.
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("doc", "record", None::<&str>)
-            .unwrap()
-            .vertex("doc.title", "string", None::<&str>)
-            .unwrap()
-            .edge("doc", "doc.title", "prop", Some("title"))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let anchors: HashMap<Name, Name> = HashMap::new();
-        let kind_only = sources_without_compatible_targets(&src, &tgt);
-        assert!(
-            !kind_only.contains(&Name::from("post")),
-            "kind-only predicate retains `post` because target also has a record kind",
-        );
-
-        let naturality = sources_without_naturality_compatible_targets(
-            &src, &tgt, &anchors, /* strict_edge_names = */ false,
-        );
-        assert!(
-            naturality.contains(&Name::from("post")),
-            "naturality predicate must exclude `post`: no target record has a `blob` \
-             outgoing edge, so no naturality-consistent mapping exists (got {naturality:?})",
-        );
-    }
-
-    /// A schema pair where every source vertex has a kind-compatible
-    /// target but only one source has a naturality-compatible one.
-    /// Under the old predicate the CSP retains all sources and fails
-    /// to find a total morphism; under the stronger predicate the
-    /// unmatchable sources are excluded and the CSP succeeds on the
-    /// remaining anchored sub-schema.
-    #[test]
-    fn stronger_predicate_unblocks_csp_when_kind_only_retains_unmatchable_sources() {
-        let protocol = test_protocol();
-
-        // Source has two records. `recA` has a `prop` outgoing; `recB`
-        // has a `blob` outgoing that the target cannot fulfil. The
-        // kind-only predicate keeps both because both are records.
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("recA", "record", None::<&str>)
-            .unwrap()
-            .vertex("recA.name", "string", None::<&str>)
-            .unwrap()
-            .vertex("recB", "record", None::<&str>)
-            .unwrap()
-            .vertex("recB.media", "array", None::<&str>)
-            .unwrap()
-            .edge("recA", "recA.name", "prop", Some("name"))
-            .unwrap()
-            .edge("recB", "recB.media", "blob", Some("media"))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("rec", "record", None::<&str>)
-            .unwrap()
-            .vertex("rec.name", "string", None::<&str>)
-            .unwrap()
-            .edge("rec", "rec.name", "prop", Some("name"))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let mut anchors: HashMap<Name, Name> = HashMap::new();
-        anchors.insert(Name::from("recA"), Name::from("rec"));
-        anchors.insert(Name::from("recA.name"), Name::from("rec.name"));
-
-        let naturality = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
-        assert!(
-            naturality.contains(&Name::from("recB")),
-            "recB must be excluded: its `blob` outgoing edge has no target counterpart \
-             (got {naturality:?})",
-        );
-        assert!(
-            !naturality.contains(&Name::from("recA")),
-            "recA must survive: its outgoing `prop` edge aligns with the target's \
-             outgoing `prop` edge on the anchored `rec` vertex (got {naturality:?})",
-        );
-    }
-
     fn synthetic_coerce_anchor(witness_name: &str) -> CoerceAnchor {
         use panproto_mig::align::StrategyTag;
         CoerceAnchor {
@@ -3320,6 +2828,7 @@ mod tests {
                 tgt: Name::from("tgt_v"),
                 confidence: 0.5,
                 strategy: StrategyTag::Coerce,
+                provenance: Provenance::Inferred,
                 explanation: format!("synthetic coerce anchor for {witness_name}"),
             },
             witness_name: witness_name.to_owned(),
@@ -3439,132 +2948,5 @@ mod tests {
         let (kept, dropped) = filter_coerce_proposals_by_law_check(proposals, &registry);
         assert_eq!(kept.len(), 1);
         assert!(dropped.is_empty());
-    }
-
-    /// Leaf-source regression: a source vertex with zero outgoing
-    /// edges satisfies the universal quantifier over its outgoing
-    /// edges vacuously, so it must not be excluded by
-    /// `sources_without_naturality_compatible_targets` as long as the
-    /// target has at least one vertex of a compatible kind. Conversely,
-    /// when no such target vertex exists the kind-compatibility gate
-    /// alone excludes the leaf.
-    #[test]
-    fn leaf_source_is_kept_when_kind_compatible_target_exists() {
-        let protocol = test_protocol();
-
-        // Source is a single leaf of kind `string` with no outgoing
-        // edges.
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("leaf", "string", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        // Target has a `string` vertex among others.
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("doc", "record", None::<&str>)
-            .unwrap()
-            .vertex("doc.title", "string", None::<&str>)
-            .unwrap()
-            .edge("doc", "doc.title", "prop", Some("title"))
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let anchors: HashMap<Name, Name> = HashMap::new();
-        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
-        assert!(
-            !excluded.contains(&Name::from("leaf")),
-            "leaf source with zero outgoing edges must not be excluded when a \
-             kind-compatible target exists (got {excluded:?})",
-        );
-    }
-
-    #[test]
-    fn leaf_source_is_excluded_when_no_kind_compatible_target_exists() {
-        let protocol = test_protocol();
-
-        // Leaf source kind `string`.
-        let src = SchemaBuilder::new(&protocol)
-            .vertex("leaf", "string", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        // Target has no `string` vertex, only `record` and `array`.
-        let tgt = SchemaBuilder::new(&protocol)
-            .vertex("doc", "record", None::<&str>)
-            .unwrap()
-            .vertex("items", "array", None::<&str>)
-            .unwrap()
-            .build()
-            .unwrap();
-
-        let anchors: HashMap<Name, Name> = HashMap::new();
-        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
-        assert!(
-            excluded.contains(&Name::from("leaf")),
-            "leaf source must be excluded when no target vertex has a compatible kind \
-             (got {excluded:?})",
-        );
-    }
-
-    /// Regression guard for the cached edge-index optimization:
-    /// `sources_without_naturality_compatible_targets` must remain
-    /// fast on moderately-sized schemas. Before the cache the inner
-    /// loop was `O(|V_s|*|V_t|*|E_s|*|E_t|)` and would linger on a
-    /// 30x30-vertex pair; with the cache the same input is an
-    /// `O(|V_s|*|V_t|*|E_s|)` hash-probe loop.
-    #[test]
-    fn sources_without_naturality_compatible_targets_scales_on_larger_schemas() {
-        let protocol = test_protocol();
-        let size: usize = 30;
-
-        let mut src_builder = SchemaBuilder::new(&protocol);
-        for i in 0..size {
-            src_builder = src_builder
-                .vertex(&format!("src_rec_{i}"), "record", None::<&str>)
-                .unwrap()
-                .vertex(&format!("src_rec_{i}.name"), "string", None::<&str>)
-                .unwrap()
-                .edge(
-                    &format!("src_rec_{i}"),
-                    &format!("src_rec_{i}.name"),
-                    "prop",
-                    Some("name"),
-                )
-                .unwrap();
-        }
-        let src = src_builder.build().unwrap();
-
-        let mut tgt_builder = SchemaBuilder::new(&protocol);
-        for i in 0..size {
-            tgt_builder = tgt_builder
-                .vertex(&format!("tgt_rec_{i}"), "record", None::<&str>)
-                .unwrap()
-                .vertex(&format!("tgt_rec_{i}.name"), "string", None::<&str>)
-                .unwrap()
-                .edge(
-                    &format!("tgt_rec_{i}"),
-                    &format!("tgt_rec_{i}.name"),
-                    "prop",
-                    Some("name"),
-                )
-                .unwrap();
-        }
-        let tgt = tgt_builder.build().unwrap();
-
-        let anchors: HashMap<Name, Name> = HashMap::new();
-        let excluded = sources_without_naturality_compatible_targets(&src, &tgt, &anchors, false);
-        // Every source record has a compatible target record (both
-        // carry one `prop` outgoing edge to a `string` child), so the
-        // record vertices themselves must not be excluded. The
-        // `.name` leaves have no outgoing edges and therefore every
-        // kind-compatible target satisfies the vacuous universal
-        // quantifier; they must survive too.
-        assert!(
-            excluded.is_empty(),
-            "no source should be excluded on a symmetric schema pair; got {excluded:?}",
-        );
     }
 }

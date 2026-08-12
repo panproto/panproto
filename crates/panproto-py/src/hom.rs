@@ -205,9 +205,20 @@ impl PyFoundMorphism {
 // Module-level functions
 // ---------------------------------------------------------------------------
 
+/// Optimal total schema morphisms from `src` to `tgt`.
+///
+/// Returns the morphisms **attaining the optimum**, capped by `max_results`,
+/// rather than the whole hom-set ranked by quality. Every element carries the
+/// same quality, which is the maximum over all total morphisms, so a caller
+/// reading element zero gets what it always got; a caller walking the list for
+/// a suboptimal alternative will not find one. An empty list means no total
+/// morphism exists.
+///
+/// `anchors` are mappings the caller *knows*, and the search may not
+/// reconsider them.
 #[pyfunction]
-#[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, max_results=0, relax_edge_name_pruning=false))]
-#[allow(clippy::too_many_arguments, clippy::fn_params_excessive_bools)]
+#[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, max_results=0))]
+#[allow(clippy::fn_params_excessive_bools)]
 pub fn find_morphisms(
     src: &PySchema,
     tgt: &PySchema,
@@ -216,9 +227,8 @@ pub fn find_morphisms(
     epic: bool,
     iso: bool,
     max_results: usize,
-    relax_edge_name_pruning: bool,
 ) -> Vec<PyFoundMorphism> {
-    let initial = anchors
+    let hard_pins = anchors
         .unwrap_or_default()
         .into_iter()
         .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
@@ -228,16 +238,7 @@ pub fn find_morphisms(
         epic,
         iso,
         max_results,
-        initial,
-        // The Python surface passes hard anchors only. `preferred` and
-        // `max_nodes` exist for `lens::auto_generate`, which derives its
-        // anchors from alignment strategies and needs a channel that
-        // orders a domain rather than collapsing it; a caller reaching
-        // the search directly is supplying anchors it knows, which is
-        // what `initial` is for.
-        preferred: HashMap::new(),
-        max_nodes: 0,
-        relax_edge_name_pruning,
+        hard_pins,
     };
     hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
         .into_iter()
@@ -245,8 +246,10 @@ pub fn find_morphisms(
         .collect()
 }
 
+/// The single best total schema morphism from `src` to `tgt`, or `None` when
+/// no total morphism exists.
 #[pyfunction]
-#[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, relax_edge_name_pruning=false))]
+#[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn find_best_morphism(
     src: &PySchema,
@@ -255,9 +258,8 @@ pub fn find_best_morphism(
     monic: bool,
     epic: bool,
     iso: bool,
-    relax_edge_name_pruning: bool,
 ) -> Option<PyFoundMorphism> {
-    let initial = anchors
+    let hard_pins = anchors
         .unwrap_or_default()
         .into_iter()
         .map(|(k, v)| (Name::from(k.as_str()), Name::from(v.as_str())))
@@ -267,16 +269,7 @@ pub fn find_best_morphism(
         epic,
         iso,
         max_results: 1,
-        initial,
-        // The Python surface passes hard anchors only. `preferred` and
-        // `max_nodes` exist for `lens::auto_generate`, which derives its
-        // anchors from alignment strategies and needs a channel that
-        // orders a domain rather than collapsing it; a caller reaching
-        // the search directly is supplying anchors it knows, which is
-        // what `initial` is for.
-        preferred: HashMap::new(),
-        max_nodes: 0,
-        relax_edge_name_pruning,
+        hard_pins,
     };
     hom_search::find_best_morphism(&src.inner, &tgt.inner, &opts)
         .map(|m| PyFoundMorphism { inner: m })

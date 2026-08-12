@@ -3051,16 +3051,25 @@ fn merge_nsids(
 /// [`panproto_mig::discover_overlap`], then computes the categorical
 /// pushout via [`panproto_schema::schema_pushout`].
 ///
+/// `protocol` is what the discovered overlap is validated against. Overlap
+/// discovery induces a sub-schema, and a schema is only well formed relative
+/// to a protocol, so it re-validates rather than assuming. Callers with a
+/// stored protocol should pass it;
+/// [`protocol_for_schema`](crate::data_mig::protocol_for_schema) builds a
+/// minimal one from a schema's protocol name otherwise.
+///
 /// Returns the integrated schema together with morphisms embedding each
 /// input into the result.
 ///
 /// # Errors
 ///
-/// Returns [`crate::VcsError::NotImplemented`] if the underlying pushout fails
-/// (e.g., overlap references nonexistent vertices).
+/// Returns [`crate::VcsError::NotImplemented`] if overlap discovery fails or
+/// if the underlying pushout does (for instance because the overlap
+/// references nonexistent vertices).
 pub fn integrate_schemas(
     left: &Schema,
     right: &Schema,
+    protocol: &panproto_schema::Protocol,
 ) -> Result<
     (
         Schema,
@@ -3069,7 +3078,11 @@ pub fn integrate_schemas(
     ),
     crate::VcsError,
 > {
-    let overlap = panproto_mig::discover_overlap(left, right);
+    let overlap = panproto_mig::discover_overlap(left, right, protocol).map_err(|e| {
+        crate::VcsError::NotImplemented {
+            feature: format!("overlap discovery failed: {e}"),
+        }
+    })?;
     panproto_schema::schema_pushout(left, right, &overlap).map_err(|e| {
         crate::VcsError::NotImplemented {
             feature: format!("schema pushout failed: {e}"),

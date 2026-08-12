@@ -304,7 +304,28 @@ pub fn matched_count(vertex_map: &HashMap<Name, Name>) -> usize {
 mod tests {
     use super::*;
     use panproto_gat::Name;
+    use panproto_mig::align::evidence::Provenance;
     use panproto_mig::align::{Anchor, StrategyTag};
+
+    /// The provenance the strategy named by `tag` stamps on its own anchors.
+    ///
+    /// A real anchor carries the provenance of the branch that emitted it, and
+    /// no such branch runs here, so these fixtures restate the stamp rather
+    /// than deriving it. Only the tags these tests use are listed; a new one
+    /// gets the most conservative ceiling until it is added.
+    fn provenance_of(tag: StrategyTag) -> Provenance {
+        match tag {
+            StrategyTag::UserHint => Provenance::UserSupplied,
+            StrategyTag::Exact => Provenance::ExactIdentifier,
+            StrategyTag::ExactSuffix => Provenance::DeclaredLabel,
+            StrategyTag::EdgeLabel => Provenance::DeclaredEdgeLabel,
+            StrategyTag::Alias => Provenance::Synonym,
+            StrategyTag::TokenSimilarity
+            | StrategyTag::DescriptionSimilarity
+            | StrategyTag::WrapUnwrap => Provenance::Derived,
+            _ => Provenance::Inferred,
+        }
+    }
 
     fn mk_anchor(src: &str, tgt: &str, conf: f64, tag: StrategyTag, explanation: &str) -> Anchor {
         Anchor {
@@ -312,6 +333,7 @@ mod tests {
             tgt: Name::from(tgt),
             confidence: conf,
             strategy: tag,
+            provenance: provenance_of(tag),
             explanation: explanation.to_owned(),
         }
     }

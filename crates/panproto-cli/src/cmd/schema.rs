@@ -344,8 +344,14 @@ pub fn cmd_integrate(
         );
     }
 
+    // Overlap discovery induces a sub-schema, and a schema is only well
+    // formed relative to a protocol, so the apex is re-validated against the
+    // one the left schema names.
+    let protocol = super::helpers::resolve_protocol(&left.protocol)?;
     let overlap = if auto_overlap {
-        let o = mig::discover_overlap(&left, &right);
+        let o = mig::discover_overlap(&left, &right, &protocol)
+            .into_diagnostic()
+            .wrap_err("overlap discovery failed")?;
         if verbose {
             eprintln!(
                 "Discovered overlap: {} vertex pairs, {} edge pairs",

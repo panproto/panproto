@@ -13,12 +13,19 @@
 //!   theories and edge rules a data format uses.
 //! - **[`normalize`]**: Ref-chain collapse for schemas with `Ref` vertices.
 //! - **[`validate`]**: Post-hoc validation of a schema against a protocol.
+//! - **[`induce()`]**: The supported way to cut a sub-schema, accounting for
+//!   every field in its own key space.
+//! - **[`canonical_bytes`]** and **[`canonical_digest`]**: A total,
+//!   deterministic encoding of a schema, and the blake3 over it, for content
+//!   identity.
 
 mod abstract_schema;
 mod builder;
+pub mod canonical;
 mod colimit;
 pub mod equivalence;
 mod error;
+pub mod induce;
 mod morphism;
 mod normalize;
 mod protocol;
@@ -30,9 +37,11 @@ pub use abstract_schema::{
     AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
 };
 pub use builder::SchemaBuilder;
+pub use canonical::{canonical_bytes, canonical_digest};
 pub use colimit::{SchemaOverlap, schema_pushout};
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
+pub use induce::{induce, induce_on_vertices};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
