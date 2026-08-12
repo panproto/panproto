@@ -15,7 +15,7 @@ swift test
 `dev-link.sh` needs a Rust toolchain. To skip it, `./bootstrap/fetch-bindist.sh` downloads a prebuilt library for the host platform from the matching GitHub Release. For iOS, fetch the XCFramework instead:
 
 ```sh
-./bootstrap/fetch-bindist.sh v0.69.0 default --xcframework
+./bootstrap/fetch-bindist.sh --xcframework
 PANPROTO_SWIFT_XCFRAMEWORK=.panproto-c/panproto_c.xcframework swift build
 ```
 

@@ -66,6 +66,43 @@ jobs:
           done
           echo "::error::the XCFramework never appeared on release $TAG"
           exit 1
+      - name: Refuse to move the pin backwards
+        # This job checks out `main`, not the tag, so a workflow_dispatch
+        # naming an older tag would rewrite main's pin backwards and push
+        # it, stranding every SwiftPM consumer on a superseded
+        # XCFramework. That is also the documented way to recover a
+        # failed release, so the destructive path is the one an operator
+        # is most likely to take. Refuse here rather than after the push.
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          python3 - "$TAG" <<'PY'
+          import pathlib, re, sys
+
+          def triple(tag):
+              match = re.match(r"v?(\d+)\.(\d+)\.(\d+)", tag or "")
+              return tuple(int(part) for part in match.groups()) if match else None
+
+          tag = sys.argv[1]
+          text = pathlib.Path("bindings/swift/Package.swift").read_text()
+          match = re.search(
+              r'^[ \t]*private let releaseXCFrameworkURL\s*=\s*"([^"]*)"',
+              text,
+              re.MULTILINE,
+          )
+          url = match.group(1) if match else ""
+          current = url.rsplit("/", 2)[-2] if url else ""
+          incoming, existing = triple(tag), triple(current)
+          if incoming is not None and existing is not None and incoming < existing:
+              sys.exit(
+                  f"::error::refusing to move main's pin back from {current} to {tag}. "
+                  "Re-running an older tag rewrites main's Package.swift backwards. "
+                  "To republish a mirror for an older release, re-run that release's "
+                  "mirror job rather than the whole workflow."
+              )
+          print(f"pin may move from {current or '<empty>'} to {tag}")
+          PY
       - name: Rewrite the release pin
         env:
           GH_TOKEN: ${{ github.token }}
@@ -83,18 +120,27 @@ jobs:
           url, checksum = sys.argv[1], sys.argv[2]
           path = pathlib.Path("bindings/swift/Package.swift")
           text = path.read_text()
-          text = re.sub(
-              r'private let releaseXCFrameworkURL = "[^"]*"',
-              f'private let releaseXCFrameworkURL = "{url}"',
-              text,
-              count=1,
-          )
-          text = re.sub(
-              r'private let releaseXCFrameworkChecksum = "[^"]*"',
-              f'private let releaseXCFrameworkChecksum = "{checksum}"',
-              text,
-              count=1,
-          )
+
+          # Anchored and indentation-preserving, matching the pattern the
+          # mirror guard and check_version_consistency.py read with. An
+          # unanchored substitution would also rewrite a mention of the
+          # constant inside a comment, and a silent no-op on a renamed
+          # constant would publish a release still pinned to the previous
+          # XCFramework, so a miss is a hard failure.
+          def pin(text, name, value):
+              text, count = re.subn(
+                  rf'^([ \t]*private let {name}\s*=\s*)"[^"]*"',
+                  lambda m: f'{m.group(1)}"{value}"',
+                  text,
+                  count=1,
+                  flags=re.MULTILINE,
+              )
+              if count != 1:
+                  sys.exit(f"::error::no {name} declaration to rewrite in {path}")
+              return text
+
+          text = pin(text, "releaseXCFrameworkURL", url)
+          text = pin(text, "releaseXCFrameworkChecksum", checksum)
           path.write_text(text)
           PY
           git diff --stat bindings/swift/Package.swift
@@ -192,6 +238,49 @@ jobs:
       - name: Resolve tag
         id: tag
         run: echo "value=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+      - name: Assert the checked-out pin names the tag being published
+        # `needs: pin` orders the two jobs but says nothing about what
+        # this checkout observed: the pin job pushes to main, and this
+        # job clones main again, so a checkout that lands before the
+        # push propagates carries the previous release's pin. The mirror
+        # is what every SwiftPM consumer resolves, so a mirror published
+        # with a stale pin points all of them at the wrong XCFramework
+        # for a whole release cycle. Refuse rather than publish it; the
+        # fix is to re-run this job once the push has landed.
+        env:
+          TAG: ${{ steps.tag.outputs.value }}
+        run: |
+          set -euo pipefail
+          python3 - "$TAG" <<'PY'
+          import pathlib, re, sys
+
+          # The same pattern the rewrite step and
+          # .github/scripts/check_version_consistency.py use. Reading the
+          # constants three different ways meant a trailing comment or a
+          # stray space failed the release here while both other readers
+          # were satisfied, and the error then named a race that had not
+          # happened.
+          def constant(text, name):
+              match = re.search(
+                  rf'^[ \t]*private let {name}\s*=\s*"([^"]*)"', text, re.MULTILINE
+              )
+              return match.group(1) if match else ""
+
+          tag = sys.argv[1]
+          manifest = pathlib.Path("bindings/swift/Package.swift")
+          text = manifest.read_text()
+          url = constant(text, "releaseXCFrameworkURL")
+          checksum = constant(text, "releaseXCFrameworkChecksum")
+          if not url or not checksum:
+              sys.exit(
+                  f"::error::{manifest} carries no release pin; "
+                  "the pin job's commit is not in this checkout"
+              )
+          pinned = url.rsplit("/", 2)[-2]
+          if pinned != tag:
+              sys.exit(f"::error::{manifest} pins {pinned} but this run publishes {tag}")
+          print(f"pin names {tag}")
+          PY
       - name: Assemble the mirror tree
         # SwiftPM resolves a package URL by cloning and looking for
         # Package.swift at the root, with no subpath option, so a package
