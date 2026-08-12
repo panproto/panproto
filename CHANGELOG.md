@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.70.1] - 2026-08-12
+
 ### Fixed
 
 - **`schema add --data` stages the files it says it staged** (`panproto-cli`): the command read the data directory, counted the JSON files in it, and printed `Staged N data file(s)`, but never handed any of them to the repository, so the index kept an empty `staged_data` and the following `commit` carried no data at all. The count was the only evidence anything had happened, and it was wrong. Each file is now staged, keyed by its source path (the key the migration path already writes, so a set read back out of a commit maps to the file it came from), and the printed count reports what reached the index. Staging is all or nothing across the directory: if any file fails, the index is restored and the error names the file, since a partial stage behind a success message is the same false report in a smaller form. The toolkit MCP wrapper forwards `--data` to this command and picks up the fix with it.
@@ -15,6 +17,11 @@ All notable changes to panproto will be documented in this file.
 - **A built-in protocol resolves to what the Rust definition says, not to a stale copy of it** (`@panproto/core`): `Panproto.protocol(name)` consulted a hand-written map of five protocol specs before the WASM registry, and the map had fallen behind. `ATPROTO_SPEC.constraintSorts` listed nine sorts where `web_document::atproto::protocol` declares twelve, so `format`, `knownValues` and `ref` were missing, and a lexicon bundle parsed by panproto's own ATProto parser failed validation against panproto's own ATProto protocol, reporting `invalid-constraint-sort` on every datetime property and every cross-document ref. The map is gone. `protocol()` resolves through `get_builtin_protocol` for all 54 built-ins and caches the result per name, so there is one definition and nothing left to fall behind it.
 
   A second loss ran through both paths, not just the map. The wire spec the SDK sent to `define_protocol` carried six fields, while `panproto_schema::Protocol` also has nine feature flags, each `#[serde(default)]`; every one of them therefore arrived `false`, which cost ATProto its `has_order`, `has_coproducts` and `has_recursion` and SQL its `nominal_identity`. `ProtocolSpec` now carries the flags (optional, defaulting to `false` for a hand-written spec that omits them), and `defineBuiltinProtocol(name, wasm)` registers a built-in by handing the registry's own bytes straight back to `define_protocol`, so a built-in is registered byte-identically to its Rust definition rather than through a projection that can lose a field.
+
+
+### Known limitations
+
+- **Staged data is not parsed or validated against the schema it is recorded under** (`panproto-vcs`): now that `schema add --data` genuinely stages files, it is worth stating what staging does not check. `Repository::add_data` stores the bytes opaquely alongside a `schema_id`, so a file that is not JSON at all, or one whose shape has nothing to do with the schema, is accepted and committed; `record_count` reports 1 for anything that does not parse as a JSON array. This is pre-existing behaviour rather than a consequence of the fix, and it is tracked in #262.
 
 ### Removed
 
