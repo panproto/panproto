@@ -177,24 +177,39 @@ def date_changelog(new: str, date: str, changed: list[str]) -> None:
     changed.append(str(path.relative_to(ROOT)))
 
 
-def refresh_lockfile(changed: list[str]) -> None:
-    """Update Cargo.lock for the bumped workspace crates without touching deps."""
-    proc = subprocess.run(
-        ["cargo", "update", "--workspace", "--offline"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
+def refresh_one_lockfile(manifest: Path, label: str, changed: list[str]) -> None:
+    """Update one lockfile for the bumped workspace crates, leaving deps alone."""
+    base = ["cargo", "update", "--workspace", "--manifest-path", str(manifest)]
+    proc = subprocess.run([*base, "--offline"], cwd=ROOT, capture_output=True, text=True)
     if proc.returncode != 0:
         # Fall back to a non-offline update (fetches nothing new for path crates).
-        proc = subprocess.run(["cargo", "update", "--workspace"], cwd=ROOT, capture_output=True, text=True)
+        proc = subprocess.run(base, cwd=ROOT, capture_output=True, text=True)
     if proc.returncode == 0:
-        changed.append("Cargo.lock")
+        changed.append(label)
     else:
         print(
-            "  (could not refresh Cargo.lock automatically; run `cargo update --workspace`)",
+            f"  (could not refresh {label} automatically; run "
+            f"`cargo update --workspace --manifest-path {manifest.relative_to(ROOT)}`)",
             file=sys.stderr,
         )
+
+
+def refresh_lockfile(changed: list[str]) -> None:
+    """Update every lockfile that records a workspace crate's version.
+
+    `fuzz/` is its own workspace, excluded from the root one so that a
+    `#![no_main]` crate does not reach `cargo clippy --workspace
+    --all-targets` under `unsafe_code = "deny"`. It depends on the engine
+    by path, so its lockfile records the engine's version and goes stale
+    on a bump exactly as the root one does. Nothing else notices: CI does
+    not build it with `--locked`, and `check_version_consistency.py` reads
+    version-declaring files rather than lockfiles. The 0.70.1 release
+    shipped with `fuzz/Cargo.lock` still naming 0.70.0 for that reason.
+    """
+    refresh_one_lockfile(ROOT / "Cargo.toml", "Cargo.lock", changed)
+    fuzz = ROOT / "fuzz" / "Cargo.toml"
+    if fuzz.is_file():
+        refresh_one_lockfile(fuzz, "fuzz/Cargo.lock", changed)
 
 
 def main() -> int:

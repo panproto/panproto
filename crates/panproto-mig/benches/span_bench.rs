@@ -15,6 +15,21 @@
 //! numbers are the reason the search was rewritten, so they are the numbers
 //! these benchmarks exist to hold down.
 //!
+//! # What is inside the timed region, and what is not
+//!
+//! [`bench_pair`] builds the anchor pool once, outside the timed closure, and
+//! times [`SpanSearch::run`] alone. The figures above are whole-`auto_lens`
+//! wall times, which include anchoring, so the ratio between them and what
+//! these benchmarks print overstates the search's own improvement by whatever
+//! anchoring costs. Read them as a ceiling on the search rather than as a
+//! like-for-like speedup, and read the like-for-like figures off the corpus
+//! sweep in `crates/panproto-mig/tests/lexicon_sweep.rs`, which times the
+//! whole call. Allocation is not measured here at all: no bench in this file
+//! installs [`divan::AllocProfiler`], because the per-allocation accounting it
+//! adds would eat the headroom `span_post_to_profile` holds against its
+//! sub-millisecond target. The byte figures quoted below are the prior
+//! measurements, and nothing in this repository regresses on them.
+//!
 //! What the search costs is no longer the size of the hom-set. The network is
 //! one variable per source vertex and the objective is minimised exactly, so
 //! cost tracks the induced width of the primal graph rather than the number of

@@ -351,6 +351,24 @@ fn shipped_weights_make_the_span_tier_invariant() {
         })
         .collect();
 
+    // Every assertion below compares one tier to another, so a defect that
+    // moves all four to the same place is invisible to them. Saturation is
+    // exactly that defect: an objective that drives the cost to either end of
+    // `[quality_units(0.0), quality_units(1.0)]` does so at every tier, and the
+    // cross-tier equalities then hold on a degenerate answer. One absolute
+    // reading rules it out. The measured cost on this pair sits near the middle
+    // of the range, so the bound is a check on degeneracy and not a threshold
+    // anything is tuned against.
+    for (tier, span) in TIERS.iter().zip(&spans) {
+        let cost = quality_cost(span);
+        assert!(
+            cost > quality_units(0.0) && cost < quality_units(1.0),
+            "the span at {tier:?} costs {cost}, which is an endpoint of the quality range. The \
+             tier comparisons below cannot see a defect that saturates every tier alike, so a \
+             saturated reading here means they are asserting nothing"
+        );
+    }
+
     for (tier, span) in TIERS.iter().zip(&spans).skip(1) {
         assert_eq!(
             span.certificate.apex_digest, spans[0].certificate.apex_digest,

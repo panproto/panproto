@@ -8,7 +8,6 @@ use std::path::{Path, PathBuf};
 
 use panproto_check::diff;
 use panproto_gat::Theory;
-use panproto_mig::hom_search::{SearchOptions, find_best_morphism, morphism_to_migration};
 use panproto_schema::Schema;
 
 use crate::auto_mig;
@@ -238,112 +237,81 @@ impl Repository {
         // itself: a project that mixes protocols and one whose files all
         // declare the coproduct protocol assemble to the same name.
         let composition = crate::tree::tree_protocol(&self.store, &schema_id)?;
-        let (migration_id, auto_derived, validation, gat_diagnostics) = match store::resolve_head(
-            &self.store,
-        )? {
-            None => {
-                // First commit: no migration, but (unless skipping) the
-                // schema is checked against its protocol theory's equations.
-                if options.skip_verify {
-                    (None, false, ValidationStatus::Pending, None)
-                } else {
-                    let gat_diag = self.schema_equation_diagnostics(schema, &composition);
-                    let validation = if gat_diag.has_errors() {
-                        ValidationStatus::Invalid(gat_diag.all_errors())
+        let (migration_id, auto_derived, validation, gat_diagnostics) =
+            match store::resolve_head(&self.store)? {
+                None => {
+                    // First commit: no migration, but (unless skipping) the
+                    // schema is checked against its protocol theory's equations.
+                    if options.skip_verify {
+                        (None, false, ValidationStatus::Pending, None)
                     } else {
-                        ValidationStatus::Valid
-                    };
-                    (None, false, validation, Some(gat_diag))
-                }
-            }
-            Some(head_id) => {
-                let head_commit = self.load_commit(head_id)?;
-                let head_schema = self.load_schema(head_commit.schema_id)?;
-
-                let schema_diff = diff::diff(&head_schema, schema);
-                if schema_diff.is_empty() {
-                    return Err(VcsError::ValidationFailed {
-                        reasons: vec!["no changes detected".to_owned()],
-                    });
-                }
-
-                let mut migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
-
-                // If the auto-derived migration maps very few vertices
-                // (less than half of old schema vertices), try
-                // `find_best_morphism` as a fallback. The spliced
-                // candidate is validated as a morphism before adoption;
-                // a candidate that fails falls back to the diff-derived
-                // migration.
-                let mut hom_rejection: Option<String> = None;
-                let old_vertex_count = head_schema.vertex_count();
-                if old_vertex_count > 0 && migration.vertex_map.len() * 2 < old_vertex_count {
-                    let opts = SearchOptions::default();
-                    if let Some(best) = find_best_morphism(&head_schema, schema, &opts) {
-                        if best.vertex_map.len() > migration.vertex_map.len() {
-                            let mut hom_mig = morphism_to_migration(&best);
-                            hom_mig.hyper_edge_map.clone_from(&migration.hyper_edge_map);
-                            hom_mig.label_map.clone_from(&migration.label_map);
-                            // Validate the actual spliced candidate as a
-                            // theory morphism before adopting it.
-                            let (dom, cod, morph) = panproto_mig::induced_theory_morphism(
-                                &head_schema,
-                                schema,
-                                &hom_mig,
-                            );
-                            match panproto_gat::check_morphism(&morph, &dom, &cod) {
-                                Ok(()) => migration = hom_mig,
-                                Err(e) => {
-                                    hom_rejection = Some(format!(
-                                        "hom_search candidate rejected (not a theory morphism): {e}; kept diff-derived migration"
-                                    ));
-                                }
-                            }
-                        }
+                        let gat_diag = self.schema_equation_diagnostics(schema, &composition);
+                        let validation = if gat_diag.has_errors() {
+                            ValidationStatus::Invalid(gat_diag.all_errors())
+                        } else {
+                            ValidationStatus::Valid
+                        };
+                        (None, false, validation, Some(gat_diag))
                     }
                 }
+                Some(head_id) => {
+                    let head_commit = self.load_commit(head_id)?;
+                    let head_schema = self.load_schema(head_commit.schema_id)?;
 
-                // Stamp the migration with the source and target schema
-                // identities, and (unless skipping) GAT-validate the
-                // derived migration and the staged schema's equations.
-                let mig_src_id = self
-                    .store
-                    .put(&Object::FlatSchema(Box::new(head_schema.clone())))?;
-                let mig_tgt_id = self
-                    .store
-                    .put(&Object::FlatSchema(Box::new(schema.clone())))?;
-
-                let (validation, gat_diagnostics) = if options.skip_verify {
-                    (ValidationStatus::Pending, None)
-                } else {
-                    let mut gat_diag =
-                        gat_validate::validate_migration(&head_schema, schema, &migration);
-                    if let Some(note) = hom_rejection {
-                        gat_diag.migration_warnings.push(note);
+                    let schema_diff = diff::diff(&head_schema, schema);
+                    if schema_diff.is_empty() {
+                        return Err(VcsError::ValidationFailed {
+                            reasons: vec!["no changes detected".to_owned()],
+                        });
                     }
-                    gat_diag.extend(self.schema_equation_diagnostics(schema, &composition));
-                    // If GAT validation found errors, mark as invalid.
-                    let validation = if gat_diag.has_errors() {
-                        ValidationStatus::Invalid(gat_diag.all_errors())
+
+                    // Rename recovery lives in `derive_migration`, which searches
+                    // for a span and adopts its right leg when that leg maps more
+                    // vertices than the diff-derived map and the spliced result
+                    // type-checks as a theory morphism. A second recovery pass
+                    // here could only run `find_best_morphism`, which answers only
+                    // when a total morphism exists and so is silent on exactly the
+                    // partial pairs rename recovery is for.
+                    let migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
+
+                    // Stamp the migration with the source and target schema
+                    // identities, and (unless skipping) GAT-validate the
+                    // derived migration and the staged schema's equations.
+                    let mig_src_id = self
+                        .store
+                        .put(&Object::FlatSchema(Box::new(head_schema.clone())))?;
+                    let mig_tgt_id = self
+                        .store
+                        .put(&Object::FlatSchema(Box::new(schema.clone())))?;
+
+                    let (validation, gat_diagnostics) = if options.skip_verify {
+                        (ValidationStatus::Pending, None)
                     } else {
-                        ValidationStatus::Valid
+                        let mut gat_diag =
+                            gat_validate::validate_migration(&head_schema, schema, &migration);
+                        gat_diag.extend(self.schema_equation_diagnostics(schema, &composition));
+                        // If GAT validation found errors, mark as invalid.
+                        let validation = if gat_diag.has_errors() {
+                            ValidationStatus::Invalid(gat_diag.all_errors())
+                        } else {
+                            ValidationStatus::Valid
+                        };
+                        (validation, Some(gat_diag))
                     };
-                    (validation, Some(gat_diag))
-                };
 
-                let migration = migration.with_endpoints(
-                    Some(panproto_gat::Name::from(mig_src_id.to_string())),
-                    Some(panproto_gat::Name::from(mig_tgt_id.to_string())),
-                );
-                let migration_id = self.store.put(&Object::Migration {
-                    src: mig_src_id,
-                    tgt: mig_tgt_id,
-                    mapping: migration,
-                })?;
+                    let migration = migration.with_endpoints(
+                        Some(panproto_gat::Name::from(mig_src_id.to_string())),
+                        Some(panproto_gat::Name::from(mig_tgt_id.to_string())),
+                    );
+                    let migration_id = self.store.put(&Object::Migration {
+                        src: mig_src_id,
+                        tgt: mig_tgt_id,
+                        mapping: migration,
+                    })?;
 
-                (Some(migration_id), true, validation, gat_diagnostics)
-            }
-        };
+                    (Some(migration_id), true, validation, gat_diagnostics)
+                }
+            };
 
         let mut index = self.read_index()?;
         index.staged = Some(StagedSchema {

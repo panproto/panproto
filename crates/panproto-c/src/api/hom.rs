@@ -306,7 +306,7 @@ struct SchemaOverlapWire {
 /// `vertex_map`, `edge_map`, and `quality`). Calls
 /// `hom_search::find_morphisms`.
 ///
-/// # This no longer returns the whole hom-set
+/// # This returns the optima, not the whole hom-set
 ///
 /// It returns the morphisms **attaining the optimum**, capped by
 /// `max_results`, and nothing else. Every element therefore carries the same

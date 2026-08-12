@@ -3088,7 +3088,9 @@ fn cli_auto_migrate_refuses_an_unresolvable_protocol() {
         .current_dir(tmp.path())
         .assert()
         .failure();
+}
 
+// ---------------------------------------------------------------------------
 // ATProto project workflow, end to end
 // ---------------------------------------------------------------------------
 

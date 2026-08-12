@@ -38,6 +38,35 @@
 //! and its existence is asserted to be monotone, but no floor is stated on it,
 //! because the two halves of the ladder are answering different questions.
 //!
+//! # The floors are a regression bar, and the snapshot is the gate
+//!
+//! Each [`ExpectedOutcome`] floor is set well under the measured value: the
+//! committed snapshot reads 1000 against a floor of 900 on `identical`, 800
+//! against 500 on `add_only`, 433 against 300 on `casing`, and so on down to
+//! 260 against 200 on `temporal_rename_created_sent`. A perturbation of the
+//! cost weights that moved 32 of the 40 rows of `span_selection_by_case` was
+//! measured leaving `corpus_strict_baseline`, the three improvement tests,
+//! both monotonicity tests and `auto_generate_never_beats_the_optimal_span`
+//! green. So the floors state the shape of the answer and catch a collapse;
+//! they do not detect that the objective moved. The snapshot is what detects
+//! that, which is why it is reviewed row by row rather than accepted.
+//!
+//! # Three cases pass on an alignment worth arguing with
+//!
+//! `cross_namespace_entry_note` selects `entry.content -> note.createdAt` and
+//! `entry.timestamp -> note.body`, which is the crossed pairing rather than the
+//! obvious one. `temporal_rename_created_sent` sends both `post.createdAt` and
+//! `post.text` to `message.sentAt`, so free text lands in a timestamp field.
+//! `drop_only_extra_field` drops nothing, mapping `post.extra` and `post.text`
+//! both onto `post.text`. In each the objective is indifferent between the
+//! selection it made and the one a reader would expect, because nothing in the
+//! four structural components separates them and the anchor term is weighted at
+//! zero. The corpus records these selections; it does not endorse them, and no
+//! assertion here distinguishes an inverted alignment from a correct one at
+//! equal cost. Separating them needs a component the objective does not yet
+//! have, so a case that changed away from one of these rows should be read as
+//! the objective having gained one rather than as a regression.
+//!
 //! # The snapshot is reviewed, not accepted
 //!
 //! `cargo insta accept` is not appropriate on this file. Every row records a
@@ -93,14 +122,6 @@ enum ExpectedOutcome {
     /// The statement to prefer where the interesting fact is how much survived
     /// rather than how well it matched.
     SpanWithApexAtLeast(usize),
-    /// The two schemas share nothing the search can align.
-    ///
-    /// No case in this corpus is that far apart, so nothing constructs it
-    /// today. It is stated because it is the third answer the search can give
-    /// and a case that reached it would otherwise have to be written as
-    /// `SpanWithApexAtLeast(0)`, which asserts nothing at all.
-    #[allow(dead_code)]
-    EmptyApex,
 }
 
 struct CorpusCase {
@@ -621,13 +642,6 @@ fn assert_matches(
             case.name,
             span.apex.vertices.len(),
             case.src.vertices.len(),
-        ),
-        ExpectedOutcome::EmptyApex => assert!(
-            span.apex.vertices.is_empty(),
-            "case `{}` at {tier:?}: expected the two schemas to share nothing, but the apex kept \
-             {} vertices",
-            case.name,
-            span.apex.vertices.len(),
         ),
     }
 }

@@ -48,8 +48,19 @@ mod lexicons;
 ///
 /// Fifty milliseconds is two orders of magnitude below the 13.2 second worst
 /// case the previous search was measured at on this corpus, and roughly two
-/// orders of magnitude *above* the measured median, so it reports a regression
-/// rather than machine noise.
+/// orders of magnitude *above* the measured median of 360 microseconds.
+///
+/// The margin the median enjoys is not the margin that decides whether this
+/// assertion fires, though, because the assertion is on the maximum. Two runs
+/// of the same binary on an idle machine put the slowest pair at 28.6 ms and
+/// at 5.1 ms, so the maximum moves by more than a factor of five run to run
+/// and the worst of those readings sits at 57% of the ceiling. A loaded runner
+/// may therefore cross it without anything having regressed. The ceiling is
+/// left where it is rather than raised to hide that: a maximum that reaches
+/// 50 ms is worth looking at either way, and a flake here is cheaper than a
+/// bound loose enough to miss a real regression. Read a failure as a prompt to
+/// re-run before treating it as a regression, and read the median and the p95
+/// this test prints as the stable signal.
 const PER_PAIR_CEILING: Duration = Duration::from_millis(50);
 
 /// One measured pair.
