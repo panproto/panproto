@@ -12,8 +12,19 @@ import PackageDescription
 // constants when it publishes an artifact; while they are empty, a
 // consumer must dev-link or point at an XCFramework explicitly.
 
-private let releaseXCFrameworkURL = "https://github.com/panproto/panproto/releases/download/v0.70.0/panproto_c.xcframework.zip"
-private let releaseXCFrameworkChecksum = "63ed84c9dd56e22fb5dc21807ed583987b283e3af7a23d2d8f2a8b5cc1dc55cc"
+// The values sit on their own lines because neither fits the 100 column
+// limit beside its declaration: a release asset URL is as long as it is,
+// and a SHA-256 is 64 characters. `swift-format-ignore` does not help,
+// since LineLength is enforced by the pretty-printer rather than by the
+// node rules that directive suppresses.
+//
+// The rewrite in `publish-swift.yml` captures everything up to the opening
+// quote and writes it back verbatim, so the line break and its indentation
+// survive every republish.
+private let releaseXCFrameworkURL =
+    "https://github.com/panproto/panproto/releases/download/v0.70.0/panproto_c.xcframework.zip"
+private let releaseXCFrameworkChecksum =
+    "63ed84c9dd56e22fb5dc21807ed583987b283e3af7a23d2d8f2a8b5cc1dc55cc"
 
 // MARK: - Build configuration
 //

@@ -139,6 +139,23 @@ fn staged_leaf_ids(
     (root, leaves)
 }
 
+/// Read the staged data entries from the index as `(source path, data id)`.
+fn staged_data_entries(dir: &Path) -> Vec<(String, panproto_core::vcs::ObjectId)> {
+    panproto_core::vcs::Repository::open(dir)
+        .unwrap()
+        .read_index()
+        .unwrap()
+        .staged_data
+        .into_iter()
+        .map(|staged| {
+            (
+                staged.source_path.to_string_lossy().into_owned(),
+                staged.data_id,
+            )
+        })
+        .collect()
+}
+
 fn add_and_commit(dir: &Path, schema_file: &str, message: &str) {
     schema_cmd()
         .args(["add", schema_file])
@@ -326,6 +343,114 @@ fn cli_add_atproto_directory_stages_per_file_tree_and_reuses_unchanged_leaf() {
         first_leaves.get("annotation.json"),
         second_leaves.get("annotation.json"),
         "the changed file must receive a new object id"
+    );
+}
+
+#[test]
+fn cli_add_data_stages_one_index_entry_per_file() {
+    use panproto_core::vcs::{Object, Repository, Store as _};
+
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo(tmp.path());
+    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+
+    let data_dir = tmp.path().join("records");
+    std::fs::create_dir(&data_dir).unwrap();
+    let first = br#"[{"a": 1}, {"a": 2}]"#;
+    let second = br#"[{"a": 3}]"#;
+    std::fs::write(data_dir.join("one.json"), first).unwrap();
+    std::fs::write(data_dir.join("two.json"), second).unwrap();
+    // A non-JSON sibling must not be staged.
+    std::fs::write(data_dir.join("notes.txt"), b"ignored").unwrap();
+
+    schema_cmd()
+        .args(["add", "v1.json", "--data", "records"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Staged 2 data file(s)"));
+
+    let staged = staged_data_entries(tmp.path());
+    assert_eq!(
+        staged.len(),
+        2,
+        "the index must hold one entry per data file, not just a printed count"
+    );
+    let paths: Vec<&str> = staged.iter().map(|(path, _)| path.as_str()).collect();
+    assert_eq!(paths, vec!["records/one.json", "records/two.json"]);
+
+    // Each entry points at a stored data set holding that file's bytes.
+    let repo = Repository::open(tmp.path()).unwrap();
+    for ((_, data_id), expected) in staged.iter().zip([first.as_slice(), second.as_slice()]) {
+        match repo.store().get(data_id).unwrap() {
+            Object::DataSet(set) => assert_eq!(set.data, expected),
+            other => panic!("expected a data set, found {}", other.type_name()),
+        }
+    }
+
+    // Committing carries the sets forward, keyed by their source paths.
+    schema_cmd()
+        .args(["commit", "-m", "schema and data"])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+    let repo = Repository::open(tmp.path()).unwrap();
+    let mut keys: Vec<String> = repo
+        .data_at("HEAD")
+        .unwrap()
+        .into_iter()
+        .filter_map(|set| set.key)
+        .collect();
+    keys.sort();
+    assert_eq!(keys, vec!["records/one.json", "records/two.json"]);
+    assert!(staged_data_entries(tmp.path()).is_empty());
+}
+
+#[test]
+fn cli_add_data_failure_stages_nothing_and_reports_it() {
+    let tmp = tempfile::tempdir().unwrap();
+    init_repo(tmp.path());
+    write_schema(tmp.path(), "v1.json", &[("a", "object")]);
+
+    let data_dir = tmp.path().join("records");
+    std::fs::create_dir(&data_dir).unwrap();
+    std::fs::write(data_dir.join("good.json"), br#"[{"a": 1}]"#).unwrap();
+    // A directory carrying a .json name is discovered as a data file and
+    // then fails to read, which is the failure the staging loop must not
+    // report as success.
+    std::fs::create_dir(data_dir.join("unreadable.json")).unwrap();
+
+    let assertion = schema_cmd()
+        .args(["add", "v1.json", "--data", "records"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure();
+    let output = assertion.get_output();
+    let stdout = String::from_utf8(output.stdout.clone()).unwrap();
+    let stderr = String::from_utf8(output.stderr.clone()).unwrap();
+    assert!(
+        !stdout.contains("data file(s)"),
+        "a failed run must not print a success count: {stdout}"
+    );
+    assert!(
+        stderr.contains("unreadable.json"),
+        "the failing file must be named in the error: {stderr}"
+    );
+
+    // All or nothing: the file that did stage is rolled back, while the
+    // schema staged before it survives.
+    assert!(
+        staged_data_entries(tmp.path()).is_empty(),
+        "a partial run must leave no data staged"
+    );
+    assert!(
+        panproto_core::vcs::Repository::open(tmp.path())
+            .unwrap()
+            .read_index()
+            .unwrap()
+            .staged
+            .is_some(),
+        "the staged schema must survive a data staging failure"
     );
 }
 
@@ -2786,4 +2911,207 @@ fn cli_lens_compile_auto_body_without_schemas_fails() {
         ])
         .assert()
         .failure();
+}
+
+// ---------------------------------------------------------------------------
+// ATProto project workflow, end to end
+// ---------------------------------------------------------------------------
+
+/// Write a two-document `ATProto` project rooted at `dir`.
+///
+/// `com.example.record` holds a `ref` to `com.example.defs`, so the two
+/// documents only assemble into one schema if the bundle parser resolves
+/// references across files. `extra_defs_property` adds a second, optional
+/// property to `com.example.defs`, which is the compatible change the
+/// compatibility check is driven with.
+fn write_reported_atproto_project(dir: &Path, extra_defs_property: bool) {
+    std::fs::create_dir_all(dir.join("lexicons")).unwrap();
+    std::fs::write(
+        dir.join("panproto.toml"),
+        "[workspace]\n\
+         name = \"atproto-project\"\n\
+         \n\
+         [[package]]\n\
+         name = \"lexicons\"\n\
+         path = \"lexicons\"\n\
+         protocol = \"atproto\"\n",
+    )
+    .unwrap();
+
+    let mut properties = serde_json::Map::new();
+    properties.insert(
+        "value".to_owned(),
+        serde_json::json!({ "type": "string", "format": "datetime" }),
+    );
+    if extra_defs_property {
+        properties.insert("note".to_owned(), serde_json::json!({ "type": "string" }));
+    }
+    let defs = serde_json::json!({
+        "lexicon": 1,
+        "id": "com.example.defs",
+        "defs": { "main": { "type": "object", "properties": properties } }
+    });
+    std::fs::write(
+        dir.join("lexicons/com.example.defs.json"),
+        serde_json::to_string_pretty(&defs).unwrap(),
+    )
+    .unwrap();
+
+    let record = serde_json::json!({
+        "lexicon": 1,
+        "id": "com.example.record",
+        "defs": { "main": {
+            "type": "record",
+            "key": "tid",
+            "record": {
+                "type": "object",
+                "required": ["item"],
+                "properties": { "item": { "type": "ref", "ref": "com.example.defs" } }
+            }
+        } }
+    });
+    std::fs::write(
+        dir.join("lexicons/com.example.record.json"),
+        serde_json::to_string_pretty(&record).unwrap(),
+    )
+    .unwrap();
+}
+
+/// The reported `ATProto` project workflow, driven end to end.
+///
+/// A homogeneous two-document `ATProto` project staged with `add . --data`
+/// must resolve its cross-document `ref`, stage the data it reports
+/// staging, keep its own protocol so equations are checked against the
+/// `ATProto` theory rather than skipped, and carry the data into the
+/// commit.
+#[test]
+fn cli_atproto_project_stages_data_and_keeps_its_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    let root = tmp.path();
+    write_reported_atproto_project(root, false);
+    std::fs::create_dir_all(root.join("fixtures/records")).unwrap();
+    std::fs::write(
+        root.join("fixtures/records/example.json"),
+        r#"{"$type": "com.example.record", "item": {"value": "2026-08-12T00:00:00Z"}}"#,
+    )
+    .unwrap();
+    init_repo(root);
+
+    schema_cmd()
+        .args(["add", ".", "--data", "fixtures/records"])
+        .current_dir(root)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Staged 1 data file(s)"));
+
+    // The printed count must be backed by the index, which was the
+    // defect: the count was printed without staging anything.
+    let staged = staged_data_entries(root);
+    assert_eq!(
+        staged.len(),
+        1,
+        "the index must hold the data file the command reported staging"
+    );
+    assert_eq!(staged[0].0, "fixtures/records/example.json");
+
+    let repo = panproto_core::vcs::Repository::open(root).unwrap();
+    let index = repo.read_index().unwrap();
+    let staged_schema = index.staged.as_ref().unwrap();
+
+    // The assembled project keeps `atproto`, so the theory lookup finds
+    // one and the equations are checked instead of skipped.
+    let schema = panproto_core::vcs::assemble_schema(
+        repo.store(),
+        &staged_schema.schema_id,
+        &panproto_core::vcs::project_coproduct_protocol(),
+    )
+    .unwrap();
+    assert_eq!(
+        schema.protocol, "atproto",
+        "a homogeneous ATProto project must not be stamped with the coproduct protocol"
+    );
+
+    let diagnostics = staged_schema.gat_diagnostics.as_ref().unwrap();
+    assert!(
+        diagnostics.equation_notes.is_empty(),
+        "a registered protocol theory leaves no missing-theory advisory, got: {:?}",
+        diagnostics.equation_notes
+    );
+    assert!(
+        diagnostics.equation_errors.is_empty(),
+        "the ATProto project must satisfy the ATProto theory, got: {:?}",
+        diagnostics.equation_errors
+    );
+
+    // The cross-document `ref` resolves: the edge leaves the record
+    // document and lands on a vertex owned by the defs document.
+    let (ref_edge, _) = schema
+        .edges
+        .iter()
+        .find(|(edge, _)| &*edge.kind == "ref")
+        .unwrap();
+    assert!(
+        ref_edge.src.contains("com.example.record.json")
+            && ref_edge.tgt.contains("com.example.defs.json"),
+        "the ref must cross documents, got {} -> {}",
+        ref_edge.src,
+        ref_edge.tgt
+    );
+
+    schema_cmd()
+        .args(["commit", "-m", "atproto project with data"])
+        .current_dir(root)
+        .assert()
+        .success();
+
+    // The commit carries the staged data set, keyed by its source path.
+    let committed = repo.data_at("HEAD").unwrap();
+    assert_eq!(committed.len(), 1, "the commit must carry the staged data");
+    assert_eq!(
+        committed[0].key.as_deref(),
+        Some("fixtures/records/example.json")
+    );
+    assert!(
+        String::from_utf8_lossy(&committed[0].data).contains("com.example.record"),
+        "the committed data set must hold the record's bytes"
+    );
+}
+
+/// Two manifest-backed versions of the project compare through the
+/// supported compatibility path.
+///
+/// Both operands are project directories, which `compat` could not load
+/// before: it deserialized each operand as an internal schema. Adding an
+/// optional property is compatible (exit 0); removing the referenced
+/// property is breaking (exit 1).
+#[test]
+fn cli_atproto_project_versions_compare_through_compat() {
+    let tmp = tempfile::tempdir().unwrap();
+    let old = tmp.path().join("old");
+    let new = tmp.path().join("new");
+    write_reported_atproto_project(&old, false);
+    write_reported_atproto_project(&new, true);
+
+    schema_cmd()
+        .args(["compat", "old", "new", "--protocol", "atproto"])
+        .current_dir(tmp.path())
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("com.example.defs.note"));
+
+    // Reversing the operands removes a property, which is breaking.
+    schema_cmd()
+        .args(["compat", "new", "old", "--protocol", "atproto"])
+        .current_dir(tmp.path())
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains("breaking"));
+
+    // A protocol that disagrees with the manifest is a usage error, not
+    // a silent override, and must be distinguishable from "breaking".
+    schema_cmd()
+        .args(["compat", "old", "new", "--protocol", "sql"])
+        .current_dir(tmp.path())
+        .assert()
+        .code(2);
 }

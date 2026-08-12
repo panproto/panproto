@@ -85,7 +85,7 @@ export class Protocol implements Disposable {
  * @throws {@link PanprotoError} if the WASM call fails
  */
 export function defineProtocol(spec: ProtocolSpec, wasm: WasmModule): Protocol {
-  const wireSpec = {
+  const wireSpec: ProtocolWire = {
     name: spec.name,
     schema_theory: spec.schemaTheory,
     instance_theory: spec.instanceTheory,
@@ -96,6 +96,15 @@ export function defineProtocol(spec: ProtocolSpec, wasm: WasmModule): Protocol {
     })),
     obj_kinds: [...spec.objKinds],
     constraint_sorts: [...spec.constraintSorts],
+    has_order: spec.hasOrder ?? false,
+    has_coproducts: spec.hasCoproducts ?? false,
+    has_recursion: spec.hasRecursion ?? false,
+    has_causal: spec.hasCausal ?? false,
+    nominal_identity: spec.nominalIdentity ?? false,
+    has_defaults: spec.hasDefaults ?? false,
+    has_coercions: spec.hasCoercions ?? false,
+    has_mergers: spec.hasMergers ?? false,
+    has_policies: spec.hasPolicies ?? false,
   };
 
   try {
@@ -112,123 +121,76 @@ export function defineProtocol(spec: ProtocolSpec, wasm: WasmModule): Protocol {
 }
 
 // ---------------------------------------------------------------------------
-// Built-in protocol specs
+// Built-in protocol registry
 // ---------------------------------------------------------------------------
 
 /**
- * Built-in ATProto protocol specification.
+ * Wire shape of the Rust `Protocol` struct.
  *
- * Schema theory: colimit(ThGraph, ThConstraint, ThMulti).
- * Instance theory: ThWType + ThMeta.
+ * `get_builtin_protocol` serializes exactly this and `define_protocol`
+ * deserializes exactly this, so a value read from the registry can be handed
+ * straight back without passing through the camelCase {@link ProtocolSpec}
+ * view. The composition fields are carried opaquely: nothing on the
+ * TypeScript side reads them, and typing them would only invite them to fall
+ * out of step with the Rust definition.
  */
-export const ATPROTO_SPEC: ProtocolSpec = {
-  name: 'atproto',
-  schemaTheory: 'ThATProtoSchema',
-  instanceTheory: 'ThATProtoInstance',
-  edgeRules: [
-    { edgeKind: 'record-schema', srcKinds: ['record'], tgtKinds: ['object'] },
-    { edgeKind: 'prop', srcKinds: ['object', 'query', 'procedure', 'subscription'], tgtKinds: [] },
-    { edgeKind: 'items', srcKinds: ['array'], tgtKinds: [] },
-    { edgeKind: 'variant', srcKinds: ['union'], tgtKinds: [] },
-    { edgeKind: 'ref', srcKinds: [], tgtKinds: [] },
-    { edgeKind: 'self-ref', srcKinds: [], tgtKinds: [] },
-  ] satisfies EdgeRule[],
-  objKinds: [
-    'record', 'object', 'array', 'union', 'string', 'integer', 'boolean',
-    'bytes', 'cid-link', 'blob', 'unknown', 'token', 'query', 'procedure',
-    'subscription', 'ref',
-  ],
-  constraintSorts: [
-    'minLength', 'maxLength', 'minimum', 'maximum', 'maxGraphemes',
-    'enum', 'const', 'default', 'closed',
-  ],
-};
+interface ProtocolWire {
+  name: string;
+  schema_theory: string;
+  instance_theory: string;
+  schema_composition?: unknown;
+  instance_composition?: unknown;
+  edge_rules: { edge_kind: string; src_kinds: string[]; tgt_kinds: string[] }[];
+  obj_kinds: string[];
+  constraint_sorts: string[];
+  has_order?: boolean;
+  has_coproducts?: boolean;
+  has_recursion?: boolean;
+  has_causal?: boolean;
+  nominal_identity?: boolean;
+  has_defaults?: boolean;
+  has_coercions?: boolean;
+  has_mergers?: boolean;
+  has_policies?: boolean;
+}
+
+/** Project a wire protocol into the camelCase {@link ProtocolSpec} view. */
+function specFromWire(wire: ProtocolWire): ProtocolSpec {
+  return {
+    name: wire.name,
+    schemaTheory: wire.schema_theory,
+    instanceTheory: wire.instance_theory,
+    edgeRules: wire.edge_rules.map((r) => ({
+      edgeKind: r.edge_kind,
+      srcKinds: r.src_kinds,
+      tgtKinds: r.tgt_kinds,
+    })),
+    objKinds: wire.obj_kinds,
+    constraintSorts: wire.constraint_sorts,
+    hasOrder: wire.has_order ?? false,
+    hasCoproducts: wire.has_coproducts ?? false,
+    hasRecursion: wire.has_recursion ?? false,
+    hasCausal: wire.has_causal ?? false,
+    nominalIdentity: wire.nominal_identity ?? false,
+    hasDefaults: wire.has_defaults ?? false,
+    hasCoercions: wire.has_coercions ?? false,
+    hasMergers: wire.has_mergers ?? false,
+    hasPolicies: wire.has_policies ?? false,
+  };
+}
 
 /**
- * Built-in SQL protocol specification.
+ * Fetch the raw MessagePack bytes of a built-in protocol from WASM.
  *
- * Schema theory: colimit(ThHypergraph, ThConstraint).
- * Instance theory: ThFunctor.
+ * Returns `undefined` when no protocol of that name is registered.
  */
-export const SQL_SPEC: ProtocolSpec = {
-  name: 'sql',
-  schemaTheory: 'ThSQLSchema',
-  instanceTheory: 'ThSQLInstance',
-  edgeRules: [
-    { edgeKind: 'prop', srcKinds: ['table'], tgtKinds: [] },
-    { edgeKind: 'foreign-key', srcKinds: [], tgtKinds: [] },
-  ] satisfies EdgeRule[],
-  objKinds: ['table', 'integer', 'string', 'boolean', 'number', 'bytes', 'timestamp', 'date', 'uuid', 'json'],
-  constraintSorts: ['NOT NULL', 'UNIQUE', 'CHECK', 'PRIMARY KEY', 'DEFAULT', 'FOREIGN KEY'],
-};
-
-/**
- * Built-in Protobuf protocol specification.
- */
-export const PROTOBUF_SPEC: ProtocolSpec = {
-  name: 'protobuf',
-  schemaTheory: 'ThProtobufSchema',
-  instanceTheory: 'ThProtobufInstance',
-  edgeRules: [
-    {
-      edgeKind: 'field-of',
-      srcKinds: ['message', 'oneof', 'service'],
-      tgtKinds: ['field', 'oneof', 'rpc', 'map', 'string', 'integer', 'float', 'boolean'],
-    },
-    {
-      edgeKind: 'type-of',
-      srcKinds: ['field', 'rpc', 'map'],
-      tgtKinds: ['message', 'enum', 'field', 'map', 'string', 'integer', 'float', 'boolean'],
-    },
-    { edgeKind: 'variant-of', srcKinds: ['enum'], tgtKinds: ['enum-value'] },
-  ] satisfies EdgeRule[],
-  objKinds: ['message', 'field', 'enum', 'enum-value', 'oneof', 'service', 'rpc', 'map', 'string', 'integer', 'float', 'boolean'],
-  constraintSorts: ['field_number', 'label', 'packed'],
-};
-
-/**
- * Built-in GraphQL protocol specification.
- */
-export const GRAPHQL_SPEC: ProtocolSpec = {
-  name: 'graphql',
-  schemaTheory: 'ThGraphQLSchema',
-  instanceTheory: 'ThGraphQLInstance',
-  edgeRules: [
-    { edgeKind: 'field-of', srcKinds: ['type', 'interface', 'input', 'subscription'], tgtKinds: ['field'] },
-    { edgeKind: 'implements', srcKinds: ['type', 'subscription'], tgtKinds: ['interface'] },
-    { edgeKind: 'member-of', srcKinds: ['union', 'enum'], tgtKinds: [] },
-    { edgeKind: 'type-of', srcKinds: ['field'], tgtKinds: [] },
-  ] satisfies EdgeRule[],
-  objKinds: ['type', 'interface', 'input', 'field', 'union', 'enum', 'scalar', 'enum-value', 'subscription'],
-  constraintSorts: ['non_null', 'list', 'deprecated'],
-};
-
-/**
- * Built-in JSON Schema protocol specification.
- */
-export const JSON_SCHEMA_SPEC: ProtocolSpec = {
-  name: 'json-schema',
-  schemaTheory: 'ThJsonSchemaSchema',
-  instanceTheory: 'ThJsonSchemaInstance',
-  edgeRules: [
-    { edgeKind: 'prop', srcKinds: ['object'], tgtKinds: [] },
-    { edgeKind: 'items', srcKinds: ['array'], tgtKinds: [] },
-    { edgeKind: 'variant', srcKinds: [], tgtKinds: [] },
-    { edgeKind: 'ref', srcKinds: [], tgtKinds: [] },
-    { edgeKind: 'pattern-prop', srcKinds: ['object'], tgtKinds: [] },
-  ] satisfies EdgeRule[],
-  objKinds: ['object', 'array', 'string', 'integer', 'boolean', 'unknown', 'not', 'if', 'then', 'else', 'union'],
-  constraintSorts: ['type', 'minLength', 'maxLength', 'pattern', 'minimum', 'maximum', 'required', 'format', 'enum', 'const', 'additionalProperties'],
-};
-
-/** Registry of built-in protocol specs, keyed by name. */
-export const BUILTIN_PROTOCOLS: ReadonlyMap<string, ProtocolSpec> = new Map([
-  ['atproto', ATPROTO_SPEC],
-  ['sql', SQL_SPEC],
-  ['protobuf', PROTOBUF_SPEC],
-  ['graphql', GRAPHQL_SPEC],
-  ['json-schema', JSON_SCHEMA_SPEC],
-]);
+function builtinProtocolBytes(name: string, wasm: WasmModule): Uint8Array | undefined {
+  try {
+    return wasm.exports.get_builtin_protocol(new TextEncoder().encode(name));
+  } catch {
+    return undefined;
+  }
+}
 
 /** Lazily cached list of all 54 built-in protocol names from WASM. */
 let _protocolNamesCache: readonly string[] | null = null;
@@ -251,38 +213,50 @@ export function getProtocolNames(wasm: WasmModule): readonly string[] {
 /**
  * Get a built-in protocol spec by name from WASM.
  *
- * This fetches the full protocol definition from the WASM layer,
- * which includes all 54 protocols (not just the 5 hardcoded ones).
+ * The WASM registry is the single source of truth for every built-in
+ * protocol, so this reflects whatever the Rust definition currently says.
+ *
+ * To register the protocol and obtain a handle, use
+ * {@link defineBuiltinProtocol} rather than passing the returned spec to
+ * {@link defineProtocol}: it round-trips the registry's own bytes and so
+ * cannot lose a field this projection does not model.
  *
  * @param name - The protocol name
  * @param wasm - The WASM module
  * @returns The protocol spec, or undefined if not found
  */
 export function getBuiltinProtocol(name: string, wasm: WasmModule): ProtocolSpec | undefined {
+  const bytes = builtinProtocolBytes(name, wasm);
+  if (bytes === undefined) return undefined;
+  return specFromWire(unpackFromWasm<ProtocolWire>(bytes));
+}
+
+/**
+ * Register a built-in protocol by name and return a handle to it.
+ *
+ * The bytes read from the registry are handed straight to
+ * `define_protocol`, so the registered protocol is byte-identical to the
+ * Rust definition. Every field survives, including ones the
+ * {@link ProtocolSpec} view does not model.
+ *
+ * @param name - The protocol name
+ * @param wasm - The WASM module
+ * @returns The registered protocol, or undefined if no protocol of that
+ *   name is built in
+ * @throws {@link PanprotoError} if the protocol is found but registration fails
+ */
+export function defineBuiltinProtocol(name: string, wasm: WasmModule): Protocol | undefined {
+  const bytes = builtinProtocolBytes(name, wasm);
+  if (bytes === undefined) return undefined;
+
   try {
-    const nameBytes = new TextEncoder().encode(name);
-    const bytes = wasm.exports.get_builtin_protocol(nameBytes);
-    const wire = unpackFromWasm<{
-      name: string;
-      schema_theory: string;
-      instance_theory: string;
-      edge_rules: { edge_kind: string; src_kinds: string[]; tgt_kinds: string[] }[];
-      obj_kinds: string[];
-      constraint_sorts: string[];
-    }>(bytes);
-    return {
-      name: wire.name,
-      schemaTheory: wire.schema_theory,
-      instanceTheory: wire.instance_theory,
-      edgeRules: wire.edge_rules.map((r) => ({
-        edgeKind: r.edge_kind,
-        srcKinds: r.src_kinds,
-        tgtKinds: r.tgt_kinds,
-      })),
-      objKinds: wire.obj_kinds,
-      constraintSorts: wire.constraint_sorts,
-    };
-  } catch {
-    return undefined;
+    const rawHandle = wasm.exports.define_protocol(bytes);
+    const handle = createHandle(rawHandle, wasm);
+    return new Protocol(handle, specFromWire(unpackFromWasm<ProtocolWire>(bytes)), wasm);
+  } catch (error) {
+    throw new PanprotoError(
+      `Failed to define protocol "${name}": ${error instanceof Error ? error.message : String(error)}`,
+      { cause: error },
+    );
   }
 }

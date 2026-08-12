@@ -6,8 +6,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import type { TheorySpec, TheoryMorphism, Term } from '../src/types.js';
-import { TheoryBuilder, createTheory, colimit, checkMorphism, migrateModel } from '../src/gat.js';
+import type { TheoryMorphism, Term } from '../src/types.js';
+import { TheoryBuilder } from '../src/gat.js';
 
 // Note: These tests require a running WASM module.
 // They are structured as integration tests that will be run when

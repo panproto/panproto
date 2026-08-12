@@ -15,9 +15,8 @@ import { packToWasm, unpackFromWasm } from './msgpack.js';
 import {
   Protocol,
   defineProtocol,
-  BUILTIN_PROTOCOLS,
+  defineBuiltinProtocol,
   getProtocolNames,
-  getBuiltinProtocol,
 } from './protocol.js';
 import { BuiltSchema } from './schema.js';
 import {
@@ -90,9 +89,11 @@ export class Panproto implements Disposable {
   /**
    * Get or register a protocol by name.
    *
-   * If the protocol is a built-in (e.g., 'atproto', 'sql'), it is
-   * automatically registered on first access. Custom protocols must
-   * be registered first with {@link Panproto.defineProtocol}.
+   * Built-in protocols are resolved from the WASM registry, which holds all
+   * 54 of them and is the single source of truth for their definitions. The
+   * result is cached per instance, so the registry is read once per name.
+   * Custom protocols must be registered first with
+   * {@link Panproto.defineProtocol}.
    *
    * @param name - The protocol name
    * @returns The protocol instance
@@ -102,25 +103,15 @@ export class Panproto implements Disposable {
     const cached = this.#protocols.get(name);
     if (cached) return cached;
 
-    // Try hardcoded built-in protocols first (fast path)
-    const builtinSpec = BUILTIN_PROTOCOLS.get(name);
-    if (builtinSpec) {
-      const proto = defineProtocol(builtinSpec, this.#wasm);
-      this.#protocols.set(name, proto);
-      return proto;
+    const proto = defineBuiltinProtocol(name, this.#wasm);
+    if (proto === undefined) {
+      throw new PanprotoError(
+        `Protocol "${name}" not found. Register it with defineProtocol() first.`,
+      );
     }
 
-    // Try fetching from WASM (supports all 54 protocols)
-    const wasmSpec = getBuiltinProtocol(name, this.#wasm);
-    if (wasmSpec) {
-      const proto = defineProtocol(wasmSpec, this.#wasm);
-      this.#protocols.set(name, proto);
-      return proto;
-    }
-
-    throw new PanprotoError(
-      `Protocol "${name}" not found. Register it with defineProtocol() first.`,
-    );
+    this.#protocols.set(name, proto);
+    return proto;
   }
 
   /**

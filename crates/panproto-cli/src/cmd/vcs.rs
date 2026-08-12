@@ -196,14 +196,60 @@ pub fn cmd_add(
     }
 
     if let Some(dp) = data_path {
-        let entries = read_json_dir(dp)?;
-        let count = entries.len();
-        if verbose {
-            eprintln!("Staged {count} data file(s) from {}", dp.display());
-        }
+        let count = stage_data_files(&mut repo, dp, verbose)?;
         println!("Staged {count} data file(s) from {}", dp.display());
     }
     Ok(())
+}
+
+/// Stage every JSON file in `data_path` for the next commit.
+///
+/// Each file is handed to [`vcs::Repository::add_data`] with no explicit
+/// key, so the staged set is keyed by its source path. That is the key
+/// the migration path in `panproto-vcs` writes as well, so a set read
+/// back out of a commit maps to the file it came from.
+///
+/// Staging is all or nothing across the directory: the index is
+/// snapshotted before the first file and restored if any file fails, so
+/// no run leaves part of a directory staged behind an error message. The
+/// snapshot is taken after the schema is staged, so a data failure
+/// leaves the staged schema alone. Data set objects written before the
+/// failure remain in the object store unreferenced, where `schema gc`
+/// collects them.
+///
+/// Returns the number of files staged.
+fn stage_data_files(repo: &mut vcs::Repository, data_path: &Path, verbose: bool) -> Result<usize> {
+    let entries = read_json_dir(data_path)?;
+    let restore_point = repo
+        .read_index()
+        .into_diagnostic()
+        .wrap_err("failed to read the index")?;
+
+    for entry in &entries {
+        let path = entry.path();
+        match repo.add_data(&path, None) {
+            Ok(_) => {
+                if verbose {
+                    eprintln!("Staged data file {}", path.display());
+                }
+            }
+            Err(stage_err) => {
+                let context = match repo.write_index(&restore_point) {
+                    Ok(()) => format!(
+                        "failed to stage data file {}; no data files were staged",
+                        path.display()
+                    ),
+                    Err(restore_err) => format!(
+                        "failed to stage data file {}; the index could not be restored: {restore_err}",
+                        path.display()
+                    ),
+                };
+                return Err(stage_err).into_diagnostic().wrap_err(context);
+            }
+        }
+    }
+
+    Ok(entries.len())
 }
 
 /// Parse a single source file into a panproto Schema via tree-sitter.
