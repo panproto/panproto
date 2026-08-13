@@ -16,8 +16,12 @@
 //!
 //! [`find_morphisms`] and [`find_best_morphism`] are the total-morphism
 //! restriction of that same search: the same network with `⊥` removed from every
-//! domain. They still return `Option`/`Vec` and are still empty exactly when no
-//! total morphism exists. There is no second search.
+//! domain. Both return a `Result`, and the distinction it carries is the point:
+//! `Ok([])`/`Ok(None)` means no total morphism exists, and `Err` means the
+//! search could not be posed or run at all. Spelling the second as the first is
+//! a wrong answer, not a conservative one — a caller told "no morphism exists"
+//! about a pair whose identity is perfect has no way to tell. There is still no
+//! second search.
 //!
 //! # What changed, and what a caller has to do about it
 //!
@@ -48,7 +52,7 @@ use crate::solve::build::{NoEvidence, build_cfn};
 use crate::solve::cost::{CostWeights, DEFAULT_WEIGHTS};
 use crate::solve::{
     Assignment, Cfn, CfnBuilder, Cost, SearchBudget, all_optima, choose_order, eliminate,
-    fits_budget, solve, solve_iso, solve_monic,
+    fits_budget, solve, solve_epic, solve_iso, solve_monic,
 };
 use crate::span::{
     DEFAULT_OPTIMA_CAP, SchemaSpan, SpanSearch, bijective_edge_map, greedy_edge_map, image_map,
@@ -78,16 +82,23 @@ pub struct SearchOptions {
     ///
     /// Checked at the leaf and taking no part in any bound: it constrains the
     /// whole assignment at once, so a partial assignment carries no information
-    /// about it, and paying to maintain that would buy pruning the measured
-    /// corpus never needs. Satisfiable only when the source has at least as many
-    /// vertices as the target, and on the injective path only when the two
-    /// counts are equal.
+    /// about it. It is nonetheless a constraint the *search* enforces, not a
+    /// filter over its answer — the search optimises over the surjective
+    /// assignments, so a surjective total morphism is returned whenever one
+    /// exists, whether or not it is also an argmin of the unconstrained
+    /// objective. Filtering the argmins instead would report "none exists"
+    /// whenever the optimum happened not to be onto.
     ///
-    /// Because it is a filter on the answer rather than a constraint in the
-    /// network, it is applied to the *optimal* morphisms: a surjective morphism
-    /// that is not optimal is not searched for, so this can return empty where
-    /// one exists. Surjectivity is not part of the objective and cannot be made
-    /// so without changing what the objective measures.
+    /// Satisfiable only when the source has at least as many vertices as the
+    /// target, and on the injective path only when the two counts are equal.
+    /// Both are tested before any search runs.
+    ///
+    /// **Total morphisms only.** Surjectivity is not a property a span can
+    /// promise: a span's right leg is deliberately partial, the empty apex is
+    /// always feasible, and [`find_span`] is documented never to refuse for want
+    /// of a match. [`find_span`] and [`find_span_constrained`] therefore reject
+    /// this flag with [`SpanError::EpicIsNotASpanProperty`] rather than ignoring
+    /// it.
     pub epic: bool,
 
     /// Require an isomorphism.
@@ -193,14 +204,15 @@ pub struct FoundMorphism {
 ///
 /// "Never refuses for want of a match" is a statement about the *answer*, not
 /// about every input: posing the network can still fail. The reachable case is
-/// a domain ceiling. A variable's domain is a 32-bit set, one bit of which is
+/// a domain ceiling. A variable's domain is a 64-bit set, one bit of which is
 /// `⊥`, so a source vertex offered more than
 /// [`ValId::MAX_REAL_VALUES`](crate::solve::ValId::MAX_REAL_VALUES)
 /// kind-compatible targets is refused as `SpanError::Build`, wrapping
 /// `BuildError::Network` over `CfnError::DomainTooLarge`. A target schema
-/// carrying 32 or more vertices of one kind is what reaches it. No pair in the
-/// vendored schema corpus does, because a schema's kinds spread its vertices
-/// across several domains, but a wide enough schema will.
+/// carrying 64 or more vertices of one kind is what reaches it, which an
+/// ordinary wide record type or a line-per-vertex parse does. That is a
+/// capacity, not a guard against the impossible, and every entry point reports
+/// it rather than spelling it "nothing found".
 ///
 /// # Examples
 ///
@@ -297,33 +309,48 @@ pub fn find_span_constrained(
 ///    no k-best over distinct quality levels.
 ///
 /// Enumerating more than one optimum needs the message tables of exact
-/// inference, so a pair whose network is too wide for that, and any injective
-/// search, yields the single canonical answer. Ties are broken by taking the
-/// lexicographically smallest assignment vector in **decode** order, which is
-/// the *reverse* of the elimination order;
+/// inference, so a pair whose network is too wide for that, and any injective or
+/// surjective search, yields the single canonical answer. Ties are broken by
+/// taking the lexicographically smallest assignment vector in **decode** order,
+/// which is the *reverse* of the elimination order;
 /// [`SpanCertificate::tie_break_order`](crate::span::SpanCertificate::tie_break_order)
 /// reports that sequence for a span.
 ///
-/// Returns empty exactly when no total morphism exists, which on the measured
-/// schema corpus is the common case. [`find_span`] is the entry point that
-/// answers with what the two schemas *do* share.
-#[must_use]
-pub fn find_morphisms(src: &Schema, tgt: &Schema, opts: &SearchOptions) -> Vec<FoundMorphism> {
+/// # Errors
+///
+/// [`SpanError::Build`] when the network could not be posed, which the domain
+/// ceiling reaches on a target schema wide enough in one kind;
+/// [`SpanError::Iso`] when `opts.iso` is set and the maximum common sub-schema
+/// search refused the network.
+///
+/// `Ok(vec![])` means no total morphism exists, which on the measured schema
+/// corpus is the common case, and it means **only** that: a search that could
+/// not run reports `Err`, so a caller can tell the two apart.
+/// [`find_span`] is the entry point that answers with what the two schemas *do*
+/// share.
+pub fn find_morphisms(
+    src: &Schema,
+    tgt: &Schema,
+    opts: &SearchOptions,
+) -> Result<Vec<FoundMorphism>, SpanError> {
     find_morphisms_constrained(src, tgt, opts, &DomainConstraints::default())
 }
 
 /// The single best total schema morphism from `src` to `tgt`.
 ///
-/// `None` exactly when no total morphism exists.
-#[must_use]
+/// `Ok(None)` exactly when no total morphism exists.
+///
+/// # Errors
+///
+/// As [`find_morphisms`].
 pub fn find_best_morphism(
     src: &Schema,
     tgt: &Schema,
     opts: &SearchOptions,
-) -> Option<FoundMorphism> {
+) -> Result<Option<FoundMorphism>, SpanError> {
     let mut opts = opts.clone();
     opts.max_results = 1;
-    find_morphisms(src, tgt, &opts).into_iter().next()
+    Ok(find_morphisms(src, tgt, &opts)?.into_iter().next())
 }
 
 /// [`find_morphisms`], with the caller's hard domain restrictions applied.
@@ -333,17 +360,34 @@ pub fn find_best_morphism(
 /// and this returns empty. That is the honest reading of a request for a total
 /// morphism that omits part of its domain; [`find_span_constrained`] is the
 /// entry point that answers it.
-#[must_use]
+///
+/// # Errors
+///
+/// As [`find_morphisms`].
 pub fn find_morphisms_constrained(
     src: &Schema,
     tgt: &Schema,
     opts: &SearchOptions,
     constraints: &DomainConstraints,
-) -> Vec<FoundMorphism> {
+) -> Result<Vec<FoundMorphism>, SpanError> {
+    // Surjectivity is decided by cardinality before anything is built. A vertex
+    // map is a function, so its image is no larger than its domain; injectively,
+    // no smaller either. Answering these here keeps the majority case free: most
+    // corpus pairs that admit a total morphism admit no surjective one, and that
+    // is the case a leaf-filtered branch and bound has no incumbent to prune
+    // with.
+    if opts.epic {
+        let (source, target) = (src.vertices.len(), tgt.vertices.len());
+        if source < target || (opts.monic && source != target) {
+            return Ok(Vec::new());
+        }
+    }
+
     let weights = constraints.scoring_weights.unwrap_or(DEFAULT_WEIGHTS);
-    let Ok(cfn) = build_cfn(src, tgt, opts, constraints, &NoEvidence, weights) else {
-        return Vec::new();
-    };
+    // A network that will not build is not the same answer as a network with no
+    // solution. Laundering the first into the second is what tells a caller "no
+    // morphism exists" about a pair whose identity morphism is perfect.
+    let cfn = build_cfn(src, tgt, opts, constraints, &NoEvidence, weights)?;
     let budget = SearchBudget::default();
     let limit = if opts.max_results == 0 {
         DEFAULT_OPTIMA_CAP
@@ -358,32 +402,43 @@ pub fn find_morphisms_constrained(
     // The total-morphism search is the span search with `⊥` removed from every
     // domain, which is what makes the two one search rather than two.
     let total = without_bottom(&cfn);
-    let assignments = if opts.monic {
+    let assignments = if opts.epic {
+        // Surjectivity is enforced inside the search rather than filtered from
+        // its answer, so this cannot take the exact-inference route: a leaf
+        // predicate has no counterpart in a message table.
+        solve_epic(&total, &budget, tgt.vertices.len(), opts.monic)
+            .best
+            .into_iter()
+            .collect()
+    } else if opts.monic {
         solve_monic(&total, &budget).best.into_iter().collect()
     } else {
         optimal_assignments(&total, &budget, limit)
     };
 
-    assignments
+    Ok(assignments
         .iter()
         .filter_map(|assignment| morphism_of(&total, src, tgt, assignment, opts))
         .take(limit)
-        .collect()
+        .collect())
 }
 
 /// [`find_best_morphism`], with the caller's hard domain restrictions applied.
-#[must_use]
+///
+/// # Errors
+///
+/// As [`find_morphisms`].
 pub fn find_best_morphism_constrained(
     src: &Schema,
     tgt: &Schema,
     opts: &SearchOptions,
     constraints: &DomainConstraints,
-) -> Option<FoundMorphism> {
+) -> Result<Option<FoundMorphism>, SpanError> {
     let mut opts = opts.clone();
     opts.max_results = 1;
-    find_morphisms_constrained(src, tgt, &opts, constraints)
+    Ok(find_morphisms_constrained(src, tgt, &opts, constraints)?
         .into_iter()
-        .next()
+        .next())
 }
 
 /// Convert a [`FoundMorphism`] into a [`Migration`](crate::Migration).
@@ -483,9 +538,13 @@ fn morphism_of(
     if vertex_map.len() != src.vertices.len() {
         return None;
     }
-    if opts.epic && !is_surjective(&vertex_map, tgt) {
-        return None;
-    }
+    // Surjectivity is enforced by the search, not here. Restating it as a
+    // filter would reintroduce the defect this replaced: a filter cannot tell
+    // "the optimum is not onto" from "nothing is onto".
+    debug_assert!(
+        !opts.epic || is_surjective(&vertex_map, tgt),
+        "the surjective search returned an assignment that is not onto"
+    );
     let edge_map = greedy_edge_map(src, tgt, &vertex_map);
     if edge_map.len() != mappable_edges(src) {
         return None;
@@ -511,28 +570,27 @@ fn isomorphisms(
     src: &Schema,
     tgt: &Schema,
     budget: &SearchBudget,
-) -> Vec<FoundMorphism> {
-    let Ok(outcome) = solve_iso(cfn, src, tgt, budget) else {
-        return Vec::new();
-    };
+) -> Result<Vec<FoundMorphism>, SpanError> {
+    // A refused network is reported, not spelled "the two are not isomorphic".
+    let outcome = solve_iso(cfn, src, tgt, budget)?;
     let Some(assignment) = outcome.best else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
     let vertex_map = image_map(cfn, &assignment);
     if vertex_map.len() != src.vertices.len() || src.vertices.len() != tgt.vertices.len() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     if !is_surjective(&vertex_map, tgt) {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     let Some(edge_map) = bijective_edge_map(src, tgt, &vertex_map) else {
-        return Vec::new();
+        return Ok(Vec::new());
     };
-    vec![FoundMorphism {
+    Ok(vec![FoundMorphism {
         vertex_map,
         edge_map,
         quality: cfn.quality_of(&assignment),
-    }]
+    }])
 }
 
 /// Whether a vertex map covers every target vertex.
@@ -580,7 +638,7 @@ mod tests {
             &[("root", "root.name", "prop", "name")],
         );
 
-        let results = find_morphisms(&schema, &schema, &SearchOptions::default());
+        let results = find_morphisms(&schema, &schema, &SearchOptions::default()).unwrap();
         assert!(!results.is_empty(), "should find at least the identity");
         assert!(
             results.iter().any(|m| m
@@ -602,7 +660,7 @@ mod tests {
             &[("root", "root.body", "prop", "body")],
         );
 
-        let results = find_morphisms(&old, &new, &SearchOptions::default());
+        let results = find_morphisms(&old, &new, &SearchOptions::default()).unwrap();
         assert!(!results.is_empty(), "a renamed schema still maps");
         assert_eq!(
             results[0].vertex_map.get("root").map(Name::as_str),
@@ -623,7 +681,9 @@ mod tests {
         );
 
         assert!(
-            find_morphisms(&a, &b, &SearchOptions::default()).is_empty(),
+            find_morphisms(&a, &b, &SearchOptions::default())
+                .unwrap()
+                .is_empty(),
             "no total morphism exists between incompatible schemas"
         );
     }
@@ -651,7 +711,7 @@ mod tests {
             ..SearchOptions::default()
         };
         assert!(
-            find_morphisms(&src, &tgt, &opts).is_empty(),
+            find_morphisms(&src, &tgt, &opts).unwrap().is_empty(),
             "two source strings cannot share one target injectively"
         );
     }
@@ -672,7 +732,7 @@ mod tests {
             ..SearchOptions::default()
         };
         assert!(
-            !find_morphisms(&a, &b, &opts).is_empty(),
+            !find_morphisms(&a, &b, &opts).unwrap().is_empty(),
             "structurally identical schemas are isomorphic"
         );
     }
@@ -700,16 +760,20 @@ mod tests {
             ..SearchOptions::default()
         };
         assert!(
-            find_morphisms(&src, &tgt, &opts).is_empty(),
+            find_morphisms(&src, &tgt, &opts).unwrap().is_empty(),
             "an edge map that is not injective is not an isomorphism"
         );
         assert!(
-            find_morphisms(&tgt, &src, &opts).is_empty(),
+            find_morphisms(&tgt, &src, &opts).unwrap().is_empty(),
             "an edge map that is not surjective is not an isomorphism"
         );
 
         // The same pair is a perfectly good homomorphism, and stays one.
-        assert!(!find_morphisms(&src, &tgt, &SearchOptions::default()).is_empty());
+        assert!(
+            !find_morphisms(&src, &tgt, &SearchOptions::default())
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -730,7 +794,7 @@ mod tests {
             iso: true,
             ..SearchOptions::default()
         };
-        let results = find_morphisms(&src, &tgt, &opts);
+        let results = find_morphisms(&src, &tgt, &opts).unwrap();
         assert!(!results.is_empty(), "the kinds match up, so this is an iso");
 
         let found = &results[0];
@@ -767,7 +831,7 @@ mod tests {
             hard_pins,
             ..SearchOptions::default()
         };
-        let results = find_morphisms(&schema, &schema, &opts);
+        let results = find_morphisms(&schema, &schema, &opts).unwrap();
         assert!(!results.is_empty(), "the pinned assignment is a morphism");
 
         let m = &results[0];
@@ -793,7 +857,7 @@ mod tests {
             ],
         );
 
-        let results = find_morphisms(&src, &tgt, &SearchOptions::default());
+        let results = find_morphisms(&src, &tgt, &SearchOptions::default()).unwrap();
         assert!(!results.is_empty());
         // Every returned morphism attains the optimum, and the optimum here is
         // the exact name match, so the wrong one is not among them at all.
@@ -826,7 +890,7 @@ mod tests {
             ],
         );
 
-        let results = find_morphisms(&src, &tgt, &SearchOptions::default());
+        let results = find_morphisms(&src, &tgt, &SearchOptions::default()).unwrap();
         assert!(results.len() >= 2, "the tie is enumerated");
         let best = results[0].quality;
         for found in &results {
@@ -856,8 +920,13 @@ mod tests {
             max_results: 1,
             ..SearchOptions::default()
         };
-        assert_eq!(find_morphisms(&src, &tgt, &opts).len(), 1);
-        assert!(find_morphisms(&src, &tgt, &SearchOptions::default()).len() >= 2);
+        assert_eq!(find_morphisms(&src, &tgt, &opts).unwrap().len(), 1);
+        assert!(
+            find_morphisms(&src, &tgt, &SearchOptions::default())
+                .unwrap()
+                .len()
+                >= 2
+        );
     }
 
     #[test]
@@ -879,8 +948,9 @@ mod tests {
         );
 
         let best = find_best_morphism(&src, &tgt, &SearchOptions::default())
+            .expect("the network poses")
             .expect("a total morphism exists");
-        let all = find_morphisms(&src, &tgt, &SearchOptions::default());
+        let all = find_morphisms(&src, &tgt, &SearchOptions::default()).unwrap();
         assert_eq!(best.quality, all[0].quality);
         assert_eq!(
             best.vertex_map.get("root.name").map(Name::as_str),
@@ -895,7 +965,7 @@ mod tests {
             &[("root", "root.x", "prop", "x")],
         );
 
-        let results = find_morphisms(&schema, &schema, &SearchOptions::default());
+        let results = find_morphisms(&schema, &schema, &SearchOptions::default()).unwrap();
         assert!(!results.is_empty());
 
         let mig = morphism_to_migration(&results[0]);
@@ -907,7 +977,7 @@ mod tests {
     fn empty_schema_morphism() {
         let empty = crate::span::empty_schema("test");
 
-        let results = find_morphisms(&empty, &empty, &SearchOptions::default());
+        let results = find_morphisms(&empty, &empty, &SearchOptions::default()).unwrap();
         assert_eq!(
             results.len(),
             1,
@@ -929,6 +999,7 @@ mod tests {
 
         assert!(
             find_morphisms_constrained(&schema, &schema, &SearchOptions::default(), &constraints)
+                .unwrap()
                 .is_empty(),
             "a total morphism cannot omit part of its domain"
         );
@@ -957,7 +1028,8 @@ mod tests {
         };
 
         let results =
-            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints);
+            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
+                .unwrap();
         assert!(!results.is_empty());
         for found in &results {
             assert_eq!(
@@ -991,11 +1063,11 @@ mod tests {
             ..SearchOptions::default()
         };
         assert!(
-            find_morphisms(&src, &tgt, &opts).is_empty(),
+            find_morphisms(&src, &tgt, &opts).unwrap().is_empty(),
             "two source vertices cannot cover three targets"
         );
         assert!(
-            !find_morphisms(&src, &src, &opts).is_empty(),
+            !find_morphisms(&src, &src, &opts).unwrap().is_empty(),
             "the identity is onto"
         );
     }

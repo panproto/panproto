@@ -4,20 +4,28 @@
 //! It pins the one answer the search can never get wrong: searching a
 //! schema against itself, where each vertex has a distinct kind, admits
 //! exactly one kind-respecting assignment, and that assignment is the
-//! identity. Any regression that shuffles the vertex map, drops an edge
-//! from the edge map, or ranks a total structure-preserving map below
-//! some other morphism shows up here before it reaches the corpus tests.
+//! identity. Any regression that shuffles the vertex map or drops an edge
+//! from the edge map shows up here before it reaches the corpus tests.
 //!
-//! Optimality is asserted against the hom-set the search itself
-//! enumerates rather than against a hardcoded quality threshold. A
-//! threshold is a snapshot of today's weight vector: `CostWeights`
-//! normalises over five components while the reported quality sums four
-//! of them, so the ceiling for a perfect match is `1 - anchor`, and any
-//! anchor weight above `0.01` would fail a `> 0.99` assertion on a match
-//! that is exactly right.
+//! The singleton hom-set is the premise, so it is asserted rather than
+//! assumed: `domain_of` filters candidate targets by kind, and if it ever
+//! stopped doing so every search in the crate would silently widen and
+//! `assert_eq!(src, tgt)` on each vertex would become a coincidence rather
+//! than a consequence.
+//!
+//! That premise is also why the reported quality is pinned against a
+//! computed ceiling here and not against the hom-set. Comparing the one
+//! element of a singleton set against the maximum over that same set is
+//! `x >= x`, which no regression can fail; the perfect-match ceiling is
+//! `1 - anchor`, because `CostWeights` normalises over five components
+//! while the reported quality sums four of them, and reading it off
+//! `DEFAULT_WEIGHTS` keeps the assertion true across a reweighting without
+//! being vacuous. Genuine optimality-under-choice belongs on a pair with a
+//! real tie, and `hom_search`'s own unit tests cover it.
 
 #![allow(clippy::expect_used)]
 
+use panproto_mig::DEFAULT_WEIGHTS;
 use panproto_mig::hom_search::{SearchOptions, find_best_morphism, find_morphisms};
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
@@ -79,6 +87,7 @@ fn identity_pair_yields_the_identity_morphism() {
     let schema = post_schema(&protocol);
 
     let found = find_best_morphism(&schema, &schema, &SearchOptions::default())
+        .expect("the network poses")
         .expect("a schema always maps to itself");
 
     assert_eq!(
@@ -99,27 +108,28 @@ fn identity_pair_yields_the_identity_morphism() {
         assert_eq!(src, tgt, "edge {src:?} must map to itself");
     }
 
-    // The identity attains the optimum of whatever objective the search
-    // is ranking on. Comparing against the hom-set rather than against a
-    // constant keeps the assertion true across a reweighting and turns a
-    // future failure into a statement about the objective.
-    let all = find_morphisms(&schema, &schema, &SearchOptions::default());
-    assert!(!all.is_empty(), "the identity must be enumerated");
-    let best = all
-        .iter()
-        .map(|m| m.quality)
-        .fold(f64::NEG_INFINITY, f64::max);
+    // The premise of every assertion above: four distinct kinds leave one
+    // kind-respecting assignment, so the identity is not merely the best
+    // answer, it is the only one. This fires if `domain_of` ever stops
+    // filtering candidates by kind.
+    let all =
+        find_morphisms(&schema, &schema, &SearchOptions::default()).expect("the network poses");
+    assert_eq!(
+        all.len(),
+        1,
+        "distinct kinds leave one kind-respecting assignment, so the hom-set is a singleton"
+    );
+
+    // A perfect match reads the ceiling of the reported quality, which is
+    // `1 - anchor`: the weights normalise over five components and the
+    // quality sums four. Computing it from the weight vector rather than
+    // hardcoding it is what keeps this true across a reweighting.
+    let ceiling = 1.0 - DEFAULT_WEIGHTS.anchor();
     assert!(
-        found.quality >= best,
-        "the identity must attain the optimum: got {}, best enumerated {best}",
+        (found.quality - ceiling).abs() < 1e-12,
+        "the identity must read the perfect-match ceiling {ceiling}: got {}",
         found.quality
     );
-    for other in &all {
-        assert!(
-            other.vertex_map.len() <= found.vertex_map.len(),
-            "no morphism may cover more of the source than the identity does"
-        );
-    }
 }
 
 #[test]
@@ -132,6 +142,7 @@ fn monic_search_also_finds_the_identity() {
         ..SearchOptions::default()
     };
     let found = find_best_morphism(&schema, &schema, &opts)
+        .expect("the network poses")
         .expect("the identity is injective, so the monic search must find it");
 
     // Totality first: a map that is empty or partial would satisfy the

@@ -75,6 +75,37 @@ pub enum SpanError {
         #[from]
         source: IsoError,
     },
+
+    /// Surjectivity was asked of a span.
+    ///
+    /// [`SearchOptions::epic`](crate::SearchOptions::epic) is a property of a
+    /// *total* morphism and the span search cannot promise it: a span's right
+    /// leg is deliberately partial, the empty apex is always feasible, and
+    /// [`find_span`](crate::find_span) is documented never to refuse for want of
+    /// a match. Enforcing surjectivity would make it refuse, and ignoring the
+    /// flag would answer a different question than the one asked, so the
+    /// combination is rejected instead.
+    #[error(
+        "`epic` asks for a surjective vertex map, which is a property of a total \
+         morphism rather than of a span; use `find_morphisms` or \
+         `find_best_morphism` for a surjective total morphism"
+    )]
+    EpicIsNotASpanProperty,
+
+    /// The span's right leg identifies two apex vertices, so it has no pushout.
+    ///
+    /// A merge along the apex has to commute: an apex vertex must reach the
+    /// same merged vertex through either leg. A right leg that sends two apex
+    /// vertices to one target vertex makes that impossible, and the square that
+    /// comes back is not a cocone over the span it was asked about. Set
+    /// [`SearchOptions::iso`](crate::SearchOptions::iso), which is what
+    /// [`discover_overlap`](crate::discover_overlap) does, to search for a span
+    /// whose right leg is an embedding.
+    #[error(
+        "the span's right leg identifies two apex vertices, so merging along it \
+         would not commute; search with `iso` for a span that embeds"
+    )]
+    ContractingRightLeg,
 }
 
 /// A structured existence error detected by `check_existence`.

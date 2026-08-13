@@ -343,10 +343,25 @@ fn assemble_pushout(
     left: &Schema,
     right: &Schema,
     right_rename: &HashMap<Name, Name>,
-    merged_vertices: HashMap<Name, Vertex>,
+    mut merged_vertices: HashMap<Name, Vertex>,
     merged_edges: HashMap<Edge, Name>,
 ) -> Schema {
     let vk = merge_vertex_keyed(left, right, right_rename);
+
+    // A schema records each NSID twice: on the vertex and in `nsids`. The two
+    // merges disagree about which side wins, because `build_merged_vertices`
+    // merges whole vertices (left's `Vertex` wins outright) while `nsids` is
+    // merged per key (an absent left key is filled from the right). Identifying
+    // a left vertex that carries no NSID with a right vertex that carries one
+    // therefore leaves the vertex saying `None` while the map says the NSID,
+    // which every reader of one copy resolves differently from every reader of
+    // the other. Deriving the vertex's copy from the merged map puts the two
+    // back in step; the map is the more complete of the two by construction,
+    // and every constructor writes a row for every vertex that has an NSID, so
+    // this never erases one.
+    for (id, vertex) in &mut merged_vertices {
+        vertex.nsid = vk.nsids.get(id).cloned();
+    }
 
     // Hyper-edges
     let mut hyper_edges = left.hyper_edges.clone();
@@ -410,11 +425,14 @@ fn assemble_pushout(
         usage_modes.entry(remapped).or_insert_with(|| mode.clone());
     }
 
-    // Coercions: merge (Name, Name) → CoercionSpec, left wins on overlap
+    // Coercions: merge (Name, Name) → CoercionSpec, left wins on overlap.
+    // The key is a pair of vertex *kinds*, not a pair of vertex ids, so it does
+    // not pass through the vertex rename map: renaming a right vertex that
+    // happens to spell a kind would rewrite the key into the vertex namespace
+    // and put the coercion beyond every lookup.
     let mut coercions = left.coercions.clone();
     for (key, spec) in &right.coercions {
-        let merged_key = (resolve(right_rename, &key.0), resolve(right_rename, &key.1));
-        coercions.entry(merged_key).or_insert_with(|| spec.clone());
+        coercions.entry(key.clone()).or_insert_with(|| spec.clone());
     }
 
     // Mergers: merge Name → Expr, left wins on overlap
@@ -431,11 +449,13 @@ fn assemble_pushout(
         defaults.entry(mid).or_insert_with(|| expr.clone());
     }
 
-    // Policies: merge Name → Expr, left wins on overlap
+    // Policies: merge Name → Expr, left wins on overlap.
+    // The key is a constraint sort name, not a vertex id, so it does not pass
+    // through the vertex rename map for the same reason the coercion key does
+    // not.
     let mut policies = left.policies.clone();
-    for (rid, expr) in &right.policies {
-        let mid = resolve(right_rename, rid);
-        policies.entry(mid).or_insert_with(|| expr.clone());
+    for (sort, expr) in &right.policies {
+        policies.entry(sort.clone()).or_insert_with(|| expr.clone());
     }
 
     // Rebuild adjacency indices
@@ -785,5 +805,107 @@ mod tests {
         };
         let result = schema_pushout(&s, &s, &overlap);
         assert!(result.is_err());
+    }
+
+    /// A coercion is keyed by a pair of vertex *kinds*, so a right vertex whose
+    /// id spells a kind must not drag the key into the vertex namespace.
+    #[test]
+    fn a_coercion_keeps_its_kind_pair_key_through_a_rename() {
+        let proto = test_protocol();
+        let left = SchemaBuilder::new(&proto)
+            .vertex("string", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let right = SchemaBuilder::new(&proto)
+            .vertex("string", "string", None::<&str>)
+            .unwrap()
+            .coercion(
+                "string",
+                "object",
+                crate::schema::CoercionSpec {
+                    forward: panproto_expr::Expr::Lit(panproto_expr::Literal::Null),
+                    inverse: None,
+                    class: panproto_gat::CoercionClass::Opaque,
+                },
+            )
+            .build()
+            .unwrap();
+
+        // `string` collides, so `build_vertex_rename` sends right's vertex to
+        // `right.string`. The coercion key must not follow it.
+        let (merged, _, _) = schema_pushout(&left, &right, &SchemaOverlap::default()).unwrap();
+        assert!(
+            merged.has_vertex("right.string"),
+            "the rename this test depends on did happen"
+        );
+        assert!(
+            merged
+                .coercions
+                .contains_key(&(Name::from("string"), Name::from("object"))),
+            "a coercion is keyed by kinds, not vertex ids: got {:?}",
+            merged.coercions.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// A policy is keyed by a constraint sort name, with the same consequence.
+    #[test]
+    fn a_policy_keeps_its_sort_name_key_through_a_rename() {
+        let proto = test_protocol();
+        let left = SchemaBuilder::new(&proto)
+            .vertex("format", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let right = SchemaBuilder::new(&proto)
+            .vertex("format", "string", None::<&str>)
+            .unwrap()
+            .policy(
+                "format",
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Int(2)),
+            )
+            .build()
+            .unwrap();
+
+        let (merged, _, _) = schema_pushout(&left, &right, &SchemaOverlap::default()).unwrap();
+        assert!(merged.has_vertex("right.format"));
+        assert!(
+            merged.policies.contains_key("format"),
+            "a policy is keyed by a sort name, not a vertex id: got {:?}",
+            merged.policies.keys().collect::<Vec<_>>()
+        );
+    }
+
+    /// A schema records each NSID on the vertex and in `nsids`; identifying a
+    /// vertex that carries one with a vertex that does not must not leave the
+    /// two copies disagreeing.
+    #[test]
+    fn an_identified_vertex_carries_one_nsid_on_both_copies() {
+        let proto = test_protocol();
+        let left = SchemaBuilder::new(&proto)
+            .vertex("a", "object", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let right = SchemaBuilder::new(&proto)
+            .vertex("a", "object", Some("com.example.a"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let overlap = SchemaOverlap {
+            vertex_pairs: vec![(Name::from("a"), Name::from("a"))],
+            edge_pairs: vec![],
+        };
+
+        let (merged, _, _) = schema_pushout(&left, &right, &overlap).unwrap();
+        assert_eq!(
+            merged.vertices["a"].nsid.as_ref(),
+            merged.nsids.get("a"),
+            "the vertex's copy of the NSID and the map's copy must agree"
+        );
+
+        // And the same pair the other way round, which already agreed.
+        let (swapped, _, _) = schema_pushout(&right, &left, &overlap).unwrap();
+        assert_eq!(swapped.vertices["a"].nsid.as_ref(), swapped.nsids.get("a"));
     }
 }

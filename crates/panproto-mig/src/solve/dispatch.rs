@@ -57,12 +57,17 @@
 
 use panproto_gat::Name;
 
-use super::cfn::{Cfn, CfnBuilder};
+use rustc_hash::FxHashSet;
+
+use super::cfn::{Cfn, CfnBuilder, Domain};
 use super::cost::Cost;
 use super::dfbb::SearchParameters;
 use super::elim::{decode, eliminate};
 use super::hbfs::{HbfsParameters, solve_hbfs};
-use super::order::{choose_order, elimination_cost, fits_budget, primal_graph};
+use super::order::{
+    EliminationCost, Graph, choose_order, elimination_cost, fits_budget, induced_width,
+    min_fill_order, primal_graph,
+};
 use super::{Assignment, SearchBudget, SearchWarning, SolveOutcome, SolverPath, ValId, VarId};
 
 /// Solve a network, choosing the algorithm from its shape and the budget.
@@ -143,6 +148,178 @@ pub fn solve(cfn: &Cfn, budget: &SearchBudget) -> SolveOutcome {
         || solve_part(cfn, budget),
         |parts| combine(cfn, &components, &parts, budget),
     )
+}
+
+/// How [`solve`] will route a network.
+///
+/// Reported so that a caller wanting the message tables of exact inference —
+/// [`SpanSearch::optima`](crate::span::SpanSearch::optima) is the one in the
+/// tree — can eliminate under the same order [`solve`] will, and can fall back
+/// exactly where [`solve`] would. Choosing an order independently is not a
+/// harmless difference: the tie-break among equally good assignments is stated
+/// relative to the order used, so two entry points on two orders name two
+/// different canonical answers for one network.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct DispatchPlan {
+    /// The elimination order, component by component.
+    ///
+    /// Concatenating per-component orders is a valid whole-network elimination
+    /// order: no cost function joins two components, so eliminating one whole
+    /// before starting the next adds no fill between them.
+    pub order: Vec<VarId>,
+
+    /// The induced width of that order, which is the largest component's.
+    pub width: usize,
+
+    /// Whether every component prices inside the budget for exact inference.
+    ///
+    /// False means at least one component would be routed to search, so the
+    /// message tables the whole network would need do not all exist.
+    pub exact: bool,
+}
+
+/// The plan [`solve`] will follow on this network.
+///
+/// Computed on the primal graph alone. Asking the same question by building a
+/// network per component would copy every cost table to pick a variable order,
+/// which costs more than the elimination it is planning.
+#[must_use]
+pub fn dispatch_plan(cfn: &Cfn, budget: &SearchBudget) -> DispatchPlan {
+    if cfn.n_variables() == 0 {
+        return DispatchPlan {
+            order: Vec::new(),
+            width: 0,
+            exact: true,
+        };
+    }
+    let graph = primal_graph(cfn);
+    let components = graph.components();
+    if components.len() <= 1 {
+        let (order, width) = choose_order(cfn);
+        return DispatchPlan {
+            exact: fits_budget(cfn, width, budget),
+            order,
+            width,
+        };
+    }
+
+    let mut order = Vec::with_capacity(cfn.n_variables());
+    let mut width = 0usize;
+    let mut exact = true;
+    for component in &components {
+        let (local, local_width) = component_order(cfn, &graph, component);
+        exact = exact && component_fits(cfn, component, local_width, budget);
+        width = width.max(local_width);
+        order.extend(local);
+    }
+    DispatchPlan {
+        order,
+        width,
+        exact,
+    }
+}
+
+/// The order [`choose_order`] would pick for one component, in global
+/// numbering, with its induced width.
+///
+/// The two candidates are the same two [`choose_order`] weighs, restricted to
+/// the component: descending source vertex name, and min-fill on the induced
+/// subgraph. Descending name wins ties, for the reason `choose_order` gives.
+fn component_order(cfn: &Cfn, graph: &Graph, component: &[VarId]) -> (Vec<VarId>, usize) {
+    let induced = graph.induced(component);
+
+    let mut reverse: Vec<usize> = (0..component.len()).collect();
+    reverse.sort_unstable_by(|left, right| {
+        let name = |slot: usize| {
+            component
+                .get(slot)
+                .and_then(|var| cfn.variable(*var))
+                .map(|variable| variable.name().as_str())
+        };
+        name(*right).cmp(&name(*left)).then(right.cmp(left))
+    });
+    let reverse: Vec<VarId> = reverse
+        .into_iter()
+        .filter_map(|slot| u32::try_from(slot).ok().map(VarId::new))
+        .collect();
+    let reverse_width = induced_width(&induced, &reverse);
+
+    let fill = min_fill_order(&induced);
+    let fill_width = induced_width(&induced, &fill);
+
+    let (local, width) = if fill_width < reverse_width {
+        (fill, fill_width)
+    } else {
+        (reverse, reverse_width)
+    };
+    let global = local
+        .into_iter()
+        .filter_map(|var| component.get(var.index()).copied())
+        .collect();
+    (global, width)
+}
+
+/// Whether exact inference over one component fits the budget.
+///
+/// The same arithmetic [`elimination_cost`] does, over the component's own
+/// variable count, function count and widest domain rather than the whole
+/// network's, because that is what [`solve_part`] prices after [`decompose`].
+fn component_fits(cfn: &Cfn, component: &[VarId], width: usize, budget: &SearchBudget) -> bool {
+    let members: FxHashSet<VarId> = component.iter().copied().collect();
+    let domain = component
+        .iter()
+        .filter_map(|var| cfn.domain(*var))
+        .map(Domain::len)
+        .max()
+        .unwrap_or(0);
+    // A scope is a clique in the primal graph, so it lies wholly inside one
+    // component; its first variable decides which.
+    let functions = cfn
+        .functions()
+        .iter()
+        .filter(|function| {
+            function
+                .scope()
+                .first()
+                .is_some_and(|var| members.contains(var))
+        })
+        .count();
+
+    let cost = elimination_cost_of(component.len(), functions, domain, width);
+    let cell = u64::try_from(size_of::<Cost>()).unwrap_or(u64::MAX);
+    let memory = u64::try_from(budget.mem_bytes).unwrap_or(u64::MAX);
+    cost.entries.saturating_mul(cell) <= memory && cost.operations <= budget.op_budget
+}
+
+/// [`elimination_cost`]'s arithmetic, over counts rather than over a network.
+fn elimination_cost_of(
+    variables: usize,
+    functions: usize,
+    domain: usize,
+    width: usize,
+) -> EliminationCost {
+    let domain = u64::try_from(domain).unwrap_or(u64::MAX);
+    let variables = u64::try_from(variables).unwrap_or(u64::MAX);
+    let functions = u64::try_from(functions).unwrap_or(u64::MAX);
+    let exponent = u32::try_from(width).unwrap_or(u32::MAX);
+    EliminationCost {
+        entries: variables.saturating_mul(saturating_pow(domain, exponent)),
+        operations: functions
+            .saturating_add(variables)
+            .saturating_mul(saturating_pow(domain, exponent.saturating_add(1))),
+    }
+}
+
+/// `base^exponent`, saturating instead of overflowing.
+fn saturating_pow(base: u64, exponent: u32) -> u64 {
+    let mut total = 1u64;
+    for _ in 0..exponent {
+        total = total.saturating_mul(base);
+        if total == u64::MAX {
+            break;
+        }
+    }
+    total
 }
 
 /// The outcome of a network with no variables: the constant, and nothing to
@@ -448,6 +625,59 @@ pub fn solve_monic(cfn: &Cfn, budget: &SearchBudget) -> SolveOutcome {
     outcome
 }
 
+// ---------------------------------------------------------------------------
+// The surjective path
+// ---------------------------------------------------------------------------
+
+/// Solve a network under the constraint that the answer covers every target.
+///
+/// `target_vertices` is the size of the target schema, and `injective` asks for
+/// [`solve_monic`]'s all-different constraint on top.
+///
+/// Surjectivity cannot be a cost function: it constrains the whole assignment at
+/// once, so no bounded scope states it and a partial assignment carries no
+/// information about it. That rules exact inference out — a message table is a
+/// projection onto a scope and there is no scope to project onto — so this is
+/// always branch and bound, whatever the width. The constraint is applied at the
+/// leaf, where a complete assignment is offered as the incumbent, which is the
+/// only point at which it can be decided.
+///
+/// Applying it there rather than to the argmins afterwards is the whole point.
+/// A surjective assignment need not be an argmin of an objective that does not
+/// mention surjectivity, so filtering the argmin set answers "no surjective
+/// morphism exists" whenever the optimum happens not to be onto, however many
+/// surjective morphisms there are. Optimising over the surjective subspace
+/// answers the question asked, and branch and bound stays sound doing it: every
+/// bound is still a lower bound over a superset of the completions now
+/// admitted.
+///
+/// A caller should test the cardinality first. Surjectivity is unsatisfiable
+/// when the source has fewer vertices than the target, and on the injective path
+/// unless the two counts are equal; this does not test it, because it holds a
+/// network rather than the two schemas.
+#[must_use]
+pub fn solve_epic(
+    cfn: &Cfn,
+    budget: &SearchBudget,
+    target_vertices: usize,
+    injective: bool,
+) -> SolveOutcome {
+    let (_, width) = choose_order(cfn);
+    let parameters = HbfsParameters::default().with_search(
+        SearchParameters::default()
+            .with_budget(*budget)
+            .with_width(width)
+            .with_all_different(injective)
+            .with_epic(Some(target_vertices)),
+    );
+    let mut outcome = solve_hbfs(cfn, &parameters).outcome;
+    if injective {
+        outcome.path = SolverPath::Monic;
+    }
+    outcome.elimination_order = None;
+    outcome
+}
+
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
@@ -694,5 +924,83 @@ mod tests {
         let best = monic.best.unwrap();
         let reals = best.values().iter().filter(|v| !v.is_bottom()).count();
         assert!(reals <= 1, "one target cannot serve two variables");
+    }
+
+    /// Eliminating under [`dispatch_plan`]'s order names the same member of a
+    /// tie [`solve`] does.
+    ///
+    /// The fixture is built so that the whole-network order and the
+    /// per-component orders genuinely disagree, which is what makes the
+    /// assertion say something. Component A is a star whose hub sorts last by
+    /// name, so on the whole graph descending-name costs width four and
+    /// min-fill costs one and min-fill therefore wins; component B is a tied
+    /// pair on which the two orders tie on width, so descending name keeps it.
+    /// Whole-network min-fill then settles B's variables in the opposite
+    /// sequence from the one `solve` uses, and the tie-break among equally good
+    /// assignments is stated relative to that sequence.
+    #[test]
+    fn the_plan_order_and_solve_agree_on_which_tied_optimum_is_canonical() {
+        let names = ["a0", "a1", "a2", "a3", "a9hub", "b0", "b1"];
+        let spec: Vec<(Name, Vec<Name>)> = names
+            .iter()
+            .map(|name| (Name::new(*name), vec![Name::new("t0"), Name::new("t1")]))
+            .collect();
+        let mut b = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+
+        // Component A: a star on {a0..a3, a9hub}, every cost zero.
+        for leaf in 0..4u32 {
+            let scope = [var(leaf), var(4)];
+            let len = b.table_length(&scope).unwrap();
+            b.add_function(&scope, vec![Cost::BOT; len]).unwrap();
+        }
+
+        // Component B: b0 and b1 must differ and neither may drop, so the two
+        // ways of satisfying that tie exactly.
+        let pen = cost(100);
+        b.add_unary_table(var(5), &[Cost::BOT, Cost::BOT, pen])
+            .unwrap();
+        b.add_unary_table(var(6), &[Cost::BOT, Cost::BOT, pen])
+            .unwrap();
+        let mut table = vec![Cost::BOT; 9];
+        table[0] = Cost::TOP_SENTINEL; // (t0, t0)
+        table[4] = Cost::TOP_SENTINEL; // (t1, t1)
+        b.add_function(&[var(5), var(6)], table).unwrap();
+        let cfn = b.build();
+
+        assert_eq!(
+            primal_graph(&cfn).components().len(),
+            2,
+            "the fixture must decompose, or there is nothing to disagree about"
+        );
+
+        let budget = SearchBudget::default();
+        let plan = dispatch_plan(&cfn, &budget);
+        assert!(
+            plan.exact,
+            "both components price inside the default budget"
+        );
+
+        // The fixture's premise: eliminating the whole network under one order
+        // settles the tie the other way. Both answers are optima, so nothing is
+        // wrong with either in isolation; what would be wrong is two entry
+        // points calling different ones canonical.
+        let whole_order = choose_order(&cfn).0;
+        let whole = decode(&cfn, &eliminate(&cfn, &whole_order), &whole_order);
+        let dispatched = solve(&cfn, &budget).best.unwrap();
+        assert_eq!(
+            cfn.evaluate(&whole),
+            cfn.evaluate(&dispatched),
+            "both are optima"
+        );
+        assert_ne!(
+            whole, dispatched,
+            "the fixture must make a whole-network order disagree with the decomposed one, or the assertion below holds for the wrong reason"
+        );
+
+        let planned = decode(&cfn, &eliminate(&cfn, &plan.order), &plan.order);
+        assert_eq!(
+            planned, dispatched,
+            "the plan's order must name the same canonical optimum `solve` does"
+        );
     }
 }

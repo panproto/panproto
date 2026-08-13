@@ -61,7 +61,9 @@ use crate::panic::guard;
 /// (`monic`, `epic`, `iso`, `max_results`, `hard_pins`). `serde(default)`
 /// lets a producer omit any field, matching the engine's `Default`.
 ///
-/// The five fields here are every field the engine's options type has. The
+/// The five fields here are every field the engine's options type has, and
+/// every one of them is honoured or refused rather than dropped: see `epic`,
+/// which the span entry point rejects instead of ignoring. The
 /// node budget is not among them: it lives on the engine's `SearchBudget`,
 /// which the span search takes and the total-morphism entry points do not,
 /// so carrying it here would give a host a knob two of the three entry
@@ -76,6 +78,14 @@ struct SearchOptionsWire {
     #[serde(default)]
     monic: bool,
     /// Require a surjective vertex map.
+    ///
+    /// A property of a **total morphism**, so it is honoured by
+    /// [`pp_hom_find_morphisms`] and [`pp_hom_find_best_morphism`] and refused
+    /// by [`pp_hom_find_span`]: a span's right leg is deliberately partial and
+    /// the span search never refuses for want of a match, so requiring the map
+    /// to be onto would contradict that contract. Setting it on a span request
+    /// returns `PpStatus::Operation` rather than an answer to a different
+    /// question.
     #[serde(default)]
     epic: bool,
     /// Require a bijective vertex map (an isomorphism).
@@ -314,7 +324,9 @@ struct SchemaOverlapWire {
 /// non-increasing quality order trivially and a host reading element zero gets
 /// what it always got. A host that walked the list for a suboptimal
 /// alternative will not find one: there is no k-best over distinct quality
-/// levels. Empty means no total morphism exists.
+/// levels. Empty means no total morphism exists — and only that: a search that
+/// could not be posed returns `PpStatus::Operation` with the reason, rather
+/// than an empty list under a success status.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_hom_find_morphisms(
@@ -331,7 +343,8 @@ pub fn pp_hom_find_morphisms(
             Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
         })?;
 
-        let found = hom_search::find_morphisms(&src_schema, &tgt_schema, &options);
+        let found = hom_search::find_morphisms(&src_schema, &tgt_schema, &options)
+            .map_err(|e| FfiError::Operation(format!("find_morphisms: {e}")))?;
         let wire_results: Vec<FoundMorphismWire> =
             found.into_iter().map(FoundMorphismWire::from).collect();
 
@@ -346,6 +359,10 @@ pub fn pp_hom_find_morphisms(
 /// Arguments match [`pp_hom_find_morphisms`]. On success, `out`
 /// receives a CBOR-encoded `Option<FoundMorphismWire>`. Calls
 /// `hom_search::find_best_morphism`.
+///
+/// A CBOR `null` means no total morphism exists. A search that could not be
+/// posed returns `PpStatus::Operation` instead, so a host is never told "no
+/// morphism exists" about a pair the engine could not search.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_hom_find_best_morphism(
@@ -363,6 +380,7 @@ pub fn pp_hom_find_best_morphism(
         })?;
 
         let best = hom_search::find_best_morphism(&src_schema, &tgt_schema, &options)
+            .map_err(|e| FfiError::Operation(format!("find_best_morphism: {e}")))?
             .map(FoundMorphismWire::from);
 
         let bytes = crate::canonical::encode(&best)?;

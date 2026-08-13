@@ -24,7 +24,7 @@
 //! the best answer, and leaves contraction to an explicit migration file.
 
 use panproto_gat::Name;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use panproto_check::diff::SchemaDiff;
 use panproto_mig::Migration;
@@ -171,8 +171,14 @@ fn induction_protocol(old: &Schema) -> Protocol {
 ///
 /// Returns `Some(migration)` if the span's right leg maps more vertices than
 /// the diff-derived migration does and the spliced result is a theory
-/// morphism, `None` otherwise. The leg is injective on vertices, so the
-/// returned migration never contracts.
+/// morphism, `None` otherwise.
+///
+/// The leg is injective on **vertices**, which is what
+/// [`SearchOptions::monic`] promises and all it promises. It says nothing about
+/// edges: two parallel source edges between one vertex pair are distinct keys
+/// that may share an image, and the objective charges the loser an ordinary
+/// rename penalty rather than rejecting it. The edge map is therefore pruned
+/// here before the migration is stored.
 fn try_hom_search_enhancement(
     old: &Schema,
     new: &Schema,
@@ -180,13 +186,32 @@ fn try_hom_search_enhancement(
 ) -> Option<Migration> {
     // Detected renames are correspondences this crate computed, so they pin
     // the search rather than merely steering it.
+    //
+    // A pin must agree on kind. `domain_of` keeps a pinned target only when its
+    // kind matches the source vertex's, so a kind-incompatible pin leaves the
+    // vertex with `⊥` as its only value and the search drops it — silently, and
+    // even when a kind-compatible target was available. That is the one way a
+    // pin can lose a field, and it is reachable: `detect_vertex_renames` scores
+    // 0.2 for matching incoming edge labels plus 0.2 for a short edit distance
+    // and never requires the kinds to agree, so a 0.4-confidence pin can rename
+    // an integer field onto a string one. Raising the threshold cannot fix it,
+    // because outgoing names alone already score 0.5 with no kind credit.
+    //
+    // Dropping a low-confidence pin strands nothing: the vertex falls back to
+    // its whole kind-compatible domain and the search picks the best target.
     let renames = rename_detect::detect_vertex_renames(old, new, 0.3);
     let mut hard_pins: HashMap<Name, Name> = HashMap::new();
     for detected in &renames {
-        hard_pins.insert(
-            Name::from(detected.rename.old.as_ref()),
-            Name::from(detected.rename.new.as_ref()),
-        );
+        let old_name = Name::from(detected.rename.old.as_ref());
+        let new_name = Name::from(detected.rename.new.as_ref());
+        let kinds_agree = old
+            .vertices
+            .get(&old_name)
+            .zip(new.vertices.get(&new_name))
+            .is_some_and(|(from, to)| from.kind == to.kind);
+        if kinds_agree {
+            hard_pins.insert(old_name, new_name);
+        }
     }
 
     // The search is asked for an injective vertex map. A span that sends two
@@ -207,11 +232,14 @@ fn try_hom_search_enhancement(
         ..SearchOptions::default()
     };
 
-    // The span search never refuses for want of a match, so the only way this
-    // returns nothing is a malformed apex, which would be a defect in the
-    // search rather than an answer about these two schemas. Falling back to the
-    // diff-derived migration is the same conservative choice the adoption test
-    // below makes.
+    // The span search never refuses *for want of a match*: the empty apex is
+    // always feasible. It can still fail to be posed — a source vertex offered
+    // more kind-compatible targets than one domain word holds is refused — and
+    // that is a fact about the network rather than about these two schemas.
+    // Falling back to the diff-derived migration is the same conservative
+    // choice the adoption test below makes, and it is why this is `.ok()?`
+    // rather than a propagated error: rename detection is an enhancement, and
+    // losing it costs a rename, not a commit.
     let protocol = induction_protocol(old);
     let span = find_span(old, new, &protocol, &opts).ok()?;
 
@@ -227,7 +255,7 @@ fn try_hom_search_enhancement(
         let right = span.right;
         let hom_mig = Migration {
             vertex_map: right.vertex_map,
-            edge_map: right.edge_map,
+            edge_map: injective_edge_map(right.edge_map),
             hyper_edge_map: identity_mig.hyper_edge_map.clone(),
             label_map: identity_mig.label_map.clone(),
             resolver: HashMap::new(),
@@ -248,6 +276,43 @@ fn try_hom_search_enhancement(
     } else {
         None
     }
+}
+
+/// Drop the losers of any edge-map collision, keeping the name-matched image.
+///
+/// `monic` is injectivity on vertices only, so the right leg of a monic span
+/// may still send two parallel source edges to one target edge. A stored
+/// migration whose edge map contracts is a migration that says two fields
+/// become one without saying how, and there is nothing in the lift path that
+/// could carry that out: `Migration::resolver` is an edge disambiguation table,
+/// not a merge rule, and nothing reads `Schema::mergers`.
+///
+/// Leaving the loser *unmapped* rather than declining the whole leg is
+/// deliberate. Declining falls back to the diff-derived identity migration,
+/// which does not know about the rename either, so the surviving field's own
+/// data is lost along with the contracted one — strictly more loss than the
+/// defect being repaired. An unmapped edge is simply an edge the migration does
+/// not carry.
+///
+/// The name-matched preimage wins, and the tie among the rest is broken on the
+/// source edge's own order so that two runs over one schema pair agree.
+fn injective_edge_map(edge_map: HashMap<Edge, Edge>) -> HashMap<Edge, Edge> {
+    let mut pairs: Vec<(Edge, Edge)> = edge_map.into_iter().collect();
+    pairs.sort_by(|left, right| {
+        let name_matched = |pair: &(Edge, Edge)| pair.0.name != pair.1.name;
+        name_matched(left)
+            .cmp(&name_matched(right))
+            .then_with(|| left.0.cmp(&right.0))
+    });
+
+    let mut taken: HashSet<Edge> = HashSet::new();
+    let mut kept: HashMap<Edge, Edge> = HashMap::new();
+    for (source, image) in pairs {
+        if taken.insert(image.clone()) {
+            kept.insert(source, image);
+        }
+    }
+    kept
 }
 
 /// Find an edge in `schema` between `src` and `tgt` with the given `name`.

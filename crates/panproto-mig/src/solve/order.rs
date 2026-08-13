@@ -230,6 +230,52 @@ impl Graph {
             .filter_map(|index| u32::try_from(index).ok().map(VarId::new))
     }
 
+    /// The subgraph on `vertices`, renumbered densely in the order given.
+    ///
+    /// The result's vertex `i` is `vertices[i]`, so a caller maps an answer back
+    /// by indexing. Vertices outside the graph and repeats are skipped, which
+    /// keeps the renumbering dense whatever it is handed.
+    ///
+    /// This exists so that a per-component question can be asked without
+    /// materialising a per-component network. An order chosen on the induced
+    /// subgraph of a *component* is the order the decomposed network would
+    /// choose, because a component is closed under adjacency and every
+    /// tie-break in [`min_fill_order`] is ascending in the local numbering,
+    /// which is order-isomorphic to the numbering it came from when `vertices`
+    /// is ascending.
+    #[must_use]
+    pub fn induced(&self, vertices: &[VarId]) -> Self {
+        let mut slot: Vec<Option<usize>> = vec![None; self.adjacency.len()];
+        let mut kept: Vec<VarId> = Vec::with_capacity(vertices.len());
+        for vertex in vertices {
+            let Some(entry) = slot.get_mut(vertex.index()) else {
+                continue;
+            };
+            if entry.is_some() {
+                continue;
+            }
+            *entry = Some(kept.len());
+            kept.push(*vertex);
+        }
+
+        let mut out = Self::new(kept.len());
+        for (local, vertex) in kept.iter().enumerate() {
+            let Ok(raw) = u32::try_from(local) else {
+                continue;
+            };
+            for neighbour in self.neighbours(*vertex) {
+                let Some(Some(other)) = slot.get(neighbour.index()).copied() else {
+                    continue;
+                };
+                let Ok(other_raw) = u32::try_from(other) else {
+                    continue;
+                };
+                out.add_edge(VarId::new(raw), VarId::new(other_raw));
+            }
+        }
+        out
+    }
+
     /// The connected components, each in ascending vertex order, ordered by
     /// their smallest vertex.
     ///

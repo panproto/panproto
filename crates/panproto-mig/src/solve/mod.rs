@@ -54,7 +54,7 @@ pub use cost::{
     MAX_COVERAGE_RADIX, coverage_radix, quality_units,
 };
 pub use dfbb::{SearchParameters, solve_dfbb};
-pub use dispatch::{solve, solve_monic};
+pub use dispatch::{DispatchPlan, dispatch_plan, solve, solve_epic, solve_monic};
 pub use elim::{
     Buckets, COUNT_CEILING, ProductVerdict, all_optima, count_solutions, decode, detect_product,
     eliminate,
@@ -107,16 +107,23 @@ impl VarId {
 /// consequences follow from that layout, and both are relied on elsewhere.
 /// First, `Ord` puts `⊥` last in every domain, which is the tie-break the
 /// search needs, with no separate ordering rule to keep in step. Second, a
-/// whole domain including `⊥` fits in one `u32` bitset word.
+/// whole domain including `⊥` fits in one `u64` bitset word.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct ValId(u32);
 
 impl ValId {
     /// The number of real target vertices a domain can hold.
     ///
-    /// The largest domain measured on the schema corpus is 19 values including
-    /// `⊥`, so this leaves room to spare while keeping a domain in one word.
-    pub const MAX_REAL_VALUES: u32 = 31;
+    /// One less than the bit width of [`Domain`], whose
+    /// top bit is `⊥`. This is a **capacity**, not a guard against something
+    /// unreachable: a source vertex's domain is every kind-compatible target
+    /// vertex, so any target schema with 64 or more vertices of one kind meets
+    /// it. What that costs is a reported refusal
+    /// ([`CfnError::DomainTooLarge`], surfaced as
+    /// [`SpanError::Build`](crate::SpanError::Build)) rather than a
+    /// wrong answer; removing the ceiling altogether needs a variable-width
+    /// domain, which is a different representation and not a larger constant.
+    pub const MAX_REAL_VALUES: u32 = 63;
 
     /// `⊥`, meaning the source vertex is left out of the apex.
     pub const BOTTOM: Self = Self(Self::MAX_REAL_VALUES);

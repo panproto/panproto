@@ -116,8 +116,8 @@ use crate::schema_theory::check_migration_morphism;
 use crate::solve::build::{Evidence, NoEvidence, build_cfn, edge_image};
 use crate::solve::cost::{COST_SCALE, Cost, CostWeights, DEFAULT_WEIGHTS};
 use crate::solve::{
-    Assignment, Cfn, LimitKind, SearchBudget, SolveOutcome, SolverPath, all_optima, choose_order,
-    eliminate, fits_budget, solve, solve_iso, solve_monic,
+    Assignment, Cfn, LimitKind, SearchBudget, SolveOutcome, SolverPath, all_optima, dispatch_plan,
+    eliminate, solve, solve_iso, solve_monic,
 };
 
 /// The cost scale as a float, for turning an integer cost into a quality.
@@ -225,6 +225,25 @@ pub struct SchemaSpan {
     pub certificate: SpanCertificate,
 }
 
+/// Whether a leg's edge map is injective.
+///
+/// An enumeration rather than a boolean because the two answers are not
+/// "yes" and "not yet checked": both are measurements, and a span whose edge
+/// map contracts is a real answer rather than a defective one.
+#[derive(Copy, Clone, Debug, Default, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum EdgeImages {
+    /// Distinct apex arcs have distinct images, so the leg embeds on edges.
+    Distinct,
+
+    /// Two apex arcs share an image, so the leg contracts on edges.
+    ///
+    /// The default, because it is the weaker claim: a `LegShape` that was never
+    /// measured should not read as an embedding.
+    #[default]
+    Shared,
+}
+
 /// What the two legs are, as morphisms.
 ///
 /// Split out of [`SpanCertificate`] so that neither type carries more booleans
@@ -241,9 +260,20 @@ pub struct LegShape {
     ///
     /// This is injectivity on **vertices only**. An injective vertex map may
     /// still send two parallel source edges to one target edge, which is a
-    /// homomorphism into a denser target and not an embedding. The iso path
-    /// additionally makes the edge map a bijection.
+    /// homomorphism into a denser target and not an embedding.
+    /// [`Self::right_edge_images`] is the other half.
     pub right_is_mono: bool,
+
+    /// Whether `r` is injective on edges.
+    ///
+    /// Reported separately from [`Self::right_is_mono`] because the two come
+    /// apart: an injective vertex map may still send two parallel apex arcs to
+    /// one target arc, and a caller merging along the span needs to know, since
+    /// a merge keyed by the target element keeps only one preimage of a
+    /// collision. The iso path asks for a bijection on edges and so reports
+    /// [`EdgeImages::Distinct`]; the ordinary path takes a greedy image and need
+    /// not.
+    pub right_edge_images: EdgeImages,
 
     /// Whether `ℓ` is surjective, hence an isomorphism, hence the span is a
     /// total morphism.
@@ -430,9 +460,28 @@ impl SchemaSpan {
     /// over. Passing anything other than the pair the span was produced from is
     /// a contract violation that shows up as a missing vertex.
     ///
+    /// # The right leg must not contract
+    ///
+    /// The pushout is the merge of the two schemas *along* the apex, so the
+    /// square it completes has to commute: an apex vertex must reach the same
+    /// merged vertex through either leg. A right leg that sends two apex
+    /// vertices to one target vertex makes that impossible, because
+    /// [`schema_pushout`] identifies elements by a map keyed on the *right*
+    /// element and a repeated right key can name only one left preimage. The
+    /// result is not a cocone over this span, and nothing about it says so.
+    ///
+    /// A contracting right leg is an ordinary answer from the default search —
+    /// a source with four string fields and a target with one gives one — so
+    /// this is a precondition a caller meets rather than an impossibility.
+    /// [`SearchOptions::iso`](crate::SearchOptions::iso) is the option that
+    /// rules it out, and
+    /// [`discover_overlap`](crate::discover_overlap) sets it for this reason.
+    ///
     /// # Errors
     ///
-    /// Whatever [`schema_pushout`] reports, which is
+    /// [`SpanError::ContractingRightLeg`] when the right leg is not injective on
+    /// vertices, and [`SpanError::Apex`] wrapping whatever [`schema_pushout`]
+    /// reports, which is
     /// [`SchemaError::VertexNotFound`](panproto_schema::SchemaError::VertexNotFound)
     /// when an overlap pair names a vertex the corresponding schema does not
     /// hold.
@@ -440,8 +489,11 @@ impl SchemaSpan {
         &self,
         src: &Schema,
         tgt: &Schema,
-    ) -> Result<(Schema, SchemaMorphism, SchemaMorphism), panproto_schema::SchemaError> {
-        schema_pushout(src, tgt, &self.to_overlap())
+    ) -> Result<(Schema, SchemaMorphism, SchemaMorphism), SpanError> {
+        if !self.certificate.shape.right_is_mono {
+            return Err(SpanError::ContractingRightLeg);
+        }
+        Ok(schema_pushout(src, tgt, &self.to_overlap())?)
     }
 
     /// The apex digest in lower-case hexadecimal.
@@ -605,6 +657,14 @@ impl<'a> SpanSearch<'a> {
     /// if the iso path refused it, and [`SpanError::Apex`] if the induced apex is
     /// not a well-formed schema. The last is unreachable from a feasible
     /// assignment and reaching it means a hard constraint is missing.
+    ///
+    /// [`SpanError::EpicIsNotASpanProperty`] if
+    /// [`SearchOptions::epic`](crate::SearchOptions::epic) is set. Surjectivity
+    /// is a property of a total morphism: a span's right leg is deliberately
+    /// partial and the empty apex is always feasible, so requiring it would
+    /// break the "never refuses" contract two paragraphs up. The flag is
+    /// rejected rather than ignored, because a search that quietly drops an
+    /// option a caller set answers a different question than the one asked.
     pub fn run(&self, src: &Schema, tgt: &Schema) -> Result<SchemaSpan, SpanError> {
         let cfn = self.network(src, tgt)?;
         let outcome = self.dispatch(&cfn, src, tgt)?;
@@ -632,6 +692,16 @@ impl<'a> SpanSearch<'a> {
     /// [`Self::run`] would have returned. A `limit` of zero is read as
     /// [`DEFAULT_OPTIMA_CAP`].
     ///
+    /// The order eliminated under is the one [`Self::run`] would use, taken
+    /// from [`dispatch_plan`], and the fallback fires exactly where
+    /// [`Self::run`] would decline to eliminate. Both matter for the same
+    /// reason: [`solve`] splits the network into
+    /// components and chooses an order per component, so choosing one over the
+    /// whole network instead settles tied variables in a different sequence and
+    /// names a different member of the tie as canonical — and the budget is
+    /// priced per component too, so pricing the whole network refuses
+    /// enumeration on pairs [`Self::run`] eliminates exactly.
+    ///
     /// # Errors
     ///
     /// As [`Self::run`].
@@ -647,20 +717,20 @@ impl<'a> SpanSearch<'a> {
             limit
         };
         let cfn = self.network(src, tgt)?;
-        let (order, width) = choose_order(&cfn);
-        if self.options.iso || self.options.monic || !fits_budget(&cfn, width, &self.budget) {
+        let plan = dispatch_plan(&cfn, &self.budget);
+        if self.options.iso || self.options.monic || !plan.exact {
             return self.run(src, tgt).map(|span| vec![span]);
         }
 
-        let buckets = eliminate(&cfn, &order);
+        let buckets = eliminate(&cfn, &plan.order);
         let optimum = buckets.optimum();
         let outcome = SolveOutcome {
             best: None,
             lower_bound: optimum,
             upper_bound: optimum,
             proven_optimal: true,
-            path: SolverPath::Eliminate { width },
-            elimination_order: Some(order),
+            path: SolverPath::Eliminate { width: plan.width },
+            elimination_order: Some(plan.order),
             nodes: 0,
             limit_hit: None,
             warnings: Vec::new(),
@@ -674,6 +744,9 @@ impl<'a> SpanSearch<'a> {
 
     /// The network this search minimises over.
     fn network(&self, src: &Schema, tgt: &Schema) -> Result<Cfn, SpanError> {
+        if self.options.epic {
+            return Err(SpanError::EpicIsNotASpanProperty);
+        }
         Ok(build_cfn(
             src,
             tgt,
@@ -727,6 +800,11 @@ impl<'a> SpanSearch<'a> {
             shape: LegShape {
                 left_is_mono: is_injective(&left),
                 right_is_mono: is_vertex_injective(&right),
+                right_edge_images: if is_edge_injective(&right) {
+                    EdgeImages::Distinct
+                } else {
+                    EdgeImages::Shared
+                },
                 left_is_iso: apex.vertices.len() == src.vertices.len()
                     && apex.edges.len() == mappable_edges(src),
             },
@@ -829,7 +907,10 @@ fn inclusion(apex: &Schema, apex_id: Name, src_id: Name) -> Migration {
 /// isomorphism means and what a greedy image would not give: two parallel apex
 /// arcs of one kind whose names have no counterpart both take the first arc of
 /// that kind. When the bijection does not exist the greedy map is returned
-/// instead, and the certificate records that the leg is not a mono.
+/// instead, and [`LegShape::right_edge_images`] records whether what came back
+/// is injective on edges. That field rather than [`LegShape::right_is_mono`],
+/// which is a statement about vertices only and is true of a map that sends two
+/// parallel arcs onto one.
 fn right_leg(
     apex: &Schema,
     tgt: &Schema,
@@ -944,10 +1025,21 @@ pub(crate) fn bijective_edge_map(
         }
     }
 
-    // Surjectivity, made explicit: every target edge between mapped endpoints
-    // was consumed, and a vertex-surjective map leaves no target edge outside
-    // that set.
-    if covered != tgt.edges.len() {
+    // Surjectivity, made explicit: every target edge *between mapped endpoints*
+    // was consumed. Comparing against the whole target instead would be the
+    // same test only when the vertex map is onto the target's vertices, which
+    // holds on the isomorphism path and fails on every other caller: the apex
+    // of a maximum common induced sub-schema is a proper part of the target for
+    // essentially every non-isomorphic pair, so a bijection that had just been
+    // built successfully would be discarded and the greedy fallback would send
+    // two parallel apex arcs onto one target arc.
+    let images: std::collections::BTreeSet<&Name> = vertex_map.values().collect();
+    let reachable = tgt
+        .edges
+        .keys()
+        .filter(|edge| images.contains(&edge.src) && images.contains(&edge.tgt))
+        .count();
+    if covered != reachable {
         return None;
     }
     Some(edge_map)
@@ -955,13 +1047,16 @@ pub(crate) fn bijective_edge_map(
 
 /// Whether a migration's vertex and edge maps are both injective.
 fn is_injective(migration: &Migration) -> bool {
-    is_vertex_injective(migration) && {
-        let mut images: Vec<&Edge> = migration.edge_map.values().collect();
-        images.sort_unstable();
-        let before = images.len();
-        images.dedup();
-        images.len() == before
-    }
+    is_vertex_injective(migration) && is_edge_injective(migration)
+}
+
+/// Whether a migration's edge map is injective.
+fn is_edge_injective(migration: &Migration) -> bool {
+    let mut images: Vec<&Edge> = migration.edge_map.values().collect();
+    images.sort_unstable();
+    let before = images.len();
+    images.dedup();
+    images.len() == before
 }
 
 /// Whether a migration's vertex map is injective.

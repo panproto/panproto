@@ -38,8 +38,16 @@
 //! allocates `d^(|U_p| + 1)` entries to produce `d^|U_p|`. The nest in
 //! the sweep runs `U_p` outside and `X_p` inside instead, accumulating
 //! `⊕` and folding with `min` as it goes, so the only table it allocates is the
-//! message. [`Buckets::peak_cells`] reports the largest allocation the sweep
-//! actually made, so the claim is measured rather than asserted in prose.
+//! message.
+//!
+//! That is a property of the code below and is not measured anywhere.
+//! [`Buckets::peak_cells`] and [`Buckets::total_cells`] count *message*
+//! entries, which is a quantity a join-then-minimise sweep would report
+//! identically, so they cannot tell the two shapes apart and no test built on
+//! them can either. Measuring it would need an allocation counter, which needs
+//! a global allocator, which this workspace's `unsafe_code = "deny"` rules out.
+//! The counters are worth having as a description of the working set; they are
+//! not evidence for the paragraph above.
 //!
 //! # One sweep, three semirings
 //!
@@ -586,19 +594,24 @@ impl Buckets {
         self.terms.len()
     }
 
-    /// The largest single cost table the sweep allocated, in entries.
+    /// The largest message the sweep produced, in entries.
     ///
-    /// Every table the sweep allocates is a message, so this is
-    /// `max_p d^|U_p|`. A nest that materialised the join before minimising
-    /// would allocate `d^(|U_p| + 1)` at the widest bucket and this number
-    /// would be a factor of `d` larger.
+    /// Every table the sweep allocates is a message, so today this is also the
+    /// largest allocation it made, `max_p d^|U_p|`. The two are not the same
+    /// quantity: this counter is incremented from the length of the message a
+    /// bucket returns, so a sweep that allocated a join table and then reduced
+    /// it would report exactly this number. Read it as the working set the
+    /// messages occupy, not as a check on how they were computed.
     #[inline]
     #[must_use]
     pub const fn peak_cells(&self) -> usize {
         self.peak_cells
     }
 
-    /// Every cost table entry the sweep allocated, summed over buckets.
+    /// Every message entry the sweep produced, summed over buckets.
+    ///
+    /// The sum of [`Self::peak_cells`]'s quantity over every bucket, and
+    /// subject to the same reading.
     #[inline]
     #[must_use]
     pub const fn total_cells(&self) -> usize {
@@ -1332,10 +1345,16 @@ mod tests {
     // -- The streaming nest ------------------------------------------------
 
     #[test]
-    fn the_nest_allocates_the_message_and_not_the_join() {
+    fn every_bucket_sends_a_message_over_its_own_separator() {
         // Three variables of three slots each, joined by one ternary scope. The
         // first bucket eliminates one of them and leaves a message over the
-        // other two: nine entries, where the join would be twenty seven.
+        // other two: nine entries.
+        //
+        // This checks the message *sizes*, which is what the counters count. It
+        // does not check that the join was never materialised: a sweep that
+        // built the 27-entry join and then reduced it would send the same
+        // nine-entry message and report the same nine here. The module docs say
+        // why that claim is not testable in this workspace.
         let mut b = builder(3, 2);
         b.add_function(&[var(0), var(1), var(2)], vec![Cost::BOT; 27])
             .unwrap();
@@ -1344,14 +1363,14 @@ mod tests {
         let buckets = eliminate(&cfn, &order);
 
         assert_eq!(buckets.width(), 2);
-        assert_eq!(buckets.peak_cells(), 9, "d^|U_p|, not d^(|U_p| + 1)");
+        assert_eq!(buckets.peak_cells(), 9, "d^|U_p| at the widest bucket");
         // Nine for the first bucket's message, three for the second's, one for
         // the scalar the last bucket produces.
         assert_eq!(buckets.total_cells(), 9 + 3 + 1);
     }
 
     #[test]
-    fn the_peak_allocation_is_the_widest_message_and_nothing_larger() {
+    fn the_message_sizes_match_an_independent_fill_in() {
         let mut b = builder(4, 3);
         b.add_function(&[var(0), var(1), var(3)], vec![Cost::BOT; 64])
             .unwrap();
@@ -1377,27 +1396,21 @@ mod tests {
             .iter()
             .map(|arity| slots.pow(u32::try_from(*arity).unwrap()))
             .sum();
-        let join_total: usize = arities
-            .iter()
-            .map(|arity| slots.pow(u32::try_from(*arity + 1).unwrap()))
-            .sum();
 
         assert_eq!(buckets.width(), arities.iter().copied().max().unwrap());
         assert_eq!(buckets.peak_cells(), slots.pow(2));
         assert_eq!(
             buckets.total_cells(),
             message_total,
-            "the sweep allocates one message per bucket and nothing else"
+            "the sweep sends one message per bucket, each over its own separator"
         );
-        assert_eq!(
-            join_total,
-            message_total * slots,
-            "joining first would cost a factor of d more at every bucket"
-        );
-        assert!(
-            buckets.total_cells() < join_total,
-            "d^|U_p| rather than d^(|U_p| + 1), measured against an independent count"
-        );
+
+        // Two further assertions used to stand here, comparing `join_total` --
+        // the same arities raised one power higher -- against `message_total`.
+        // Given the equality just above, `join_total == message_total * slots`
+        // and `total_cells() < join_total` are arithmetic identities in
+        // `slots`: both hold for every possible value of every input, so
+        // neither could ever fail and neither said anything about the sweep.
     }
 
     /// The arity of the message each bucket sends, by position in the order.

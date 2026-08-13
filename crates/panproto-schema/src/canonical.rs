@@ -17,10 +17,11 @@
 //!    `(src, tgt, kind, name)`.
 //! 2. **Every variable-length run is length-prefixed.** Strings, byte
 //!    strings, lists and maps are all written as a `u64` little-endian count
-//!    followed by the elements. Without the prefixes a schema with one
-//!    vertex named `ab` could encode identically to one with vertices `a` and
-//!    `b`, and concatenation ambiguity would collapse distinct schemas onto
-//!    one digest.
+//!    followed by the elements. Without the string prefix, one vertex named
+//!    `a` of kind `aab` would encode identically to one named `aa` of kind
+//!    `b`, since a vertex is written as id ++ id ++ kind and the two runs
+//!    concatenate alike, and concatenation ambiguity would collapse distinct
+//!    schemas onto one digest.
 //!
 //! Sums are written as a one-byte discriminant before their payload, so
 //! `Option`, [`UsageMode`], [`Expr`] and [`Literal`] are all self-delimiting.
@@ -787,6 +788,15 @@ mod tests {
 
     /// Length prefixes are what stop two different schemas concatenating to
     /// the same bytes.
+    ///
+    /// The two pairs test different prefixes, and the second is the one that
+    /// tests the string prefix at all. Vertex counts differ in the first pair,
+    /// so the map's own length prefix separates them however the strings inside
+    /// are written; only a pair with equal element counts whose *runs*
+    /// concatenate alike can reach the string prefix. `a`/`aab` and `aa`/`b`
+    /// are such a pair: a vertex is written as id ++ id ++ kind, and
+    /// `"a" ++ "a" ++ "aab"` is `"aa" ++ "aa" ++ "b"`, so dropping the string
+    /// prefix collapses the two onto one digest.
     #[test]
     fn concatenation_is_unambiguous() {
         let protocol = protocol();
@@ -804,6 +814,23 @@ mod tests {
             .expect("build");
 
         assert_ne!(canonical_bytes(&split), canonical_bytes(&joined));
+
+        let one = SchemaBuilder::new(&protocol)
+            .vertex("a", "aab", None)
+            .expect("a")
+            .build()
+            .expect("build");
+        let other = SchemaBuilder::new(&protocol)
+            .vertex("aa", "b", None)
+            .expect("aa")
+            .build()
+            .expect("build");
+
+        assert_ne!(
+            canonical_bytes(&one),
+            canonical_bytes(&other),
+            "id ++ id ++ kind concatenates alike, so only the string prefix separates these"
+        );
     }
 
     #[test]

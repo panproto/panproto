@@ -327,6 +327,11 @@ data SearchOptions = SearchOptions
     -- target).
     , epic :: !Bool
     -- ^ Require a surjective vertex map (every target vertex is hit).
+    --
+    -- A property of a total morphism, so 'findMorphisms' and
+    -- 'findBestMorphism' honour it and 'findSpan' refuses it: a span's right
+    -- leg is deliberately partial and the span search never refuses for want
+    -- of a match, so requiring the map to be onto would contradict that.
     , iso :: !Bool
     -- ^ Require a bijective vertex map (an isomorphism).
     , maxResults :: !Int

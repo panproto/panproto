@@ -141,7 +141,8 @@ fn a_total_morphism_is_the_degenerate_span() {
     assert_eq!(total.edge_map.len(), schema.edges.len());
 
     // And the total-morphism entry point agrees, because it is the same search.
-    let found = find_morphisms(&schema, &schema, &SearchOptions::default());
+    let found =
+        find_morphisms(&schema, &schema, &SearchOptions::default()).expect("the network poses");
     assert!(!found.is_empty());
     assert!((found[0].quality - total.quality).abs() < 1e-12);
     assert_eq!(found[0].vertex_map, total.vertex_map);
@@ -156,7 +157,9 @@ fn a_pair_with_no_total_morphism_still_spans() {
     let protocol = protocol();
 
     assert!(
-        find_morphisms(&src, &tgt, &SearchOptions::default()).is_empty(),
+        find_morphisms(&src, &tgt, &SearchOptions::default())
+            .expect("the network poses")
+            .is_empty(),
         "the counter has nowhere to go, so no total morphism exists"
     );
 
@@ -408,4 +411,100 @@ fn optima_all_attain_the_optimum() {
             .any(|span| span.right.vertex_map == one.right.vertex_map),
         "the canonical answer is among them"
     );
+}
+
+/// A discovered overlap must not identify two apex arcs with one target arc.
+///
+/// `discover_overlap` searches for a maximum common induced sub-schema, whose
+/// apex is a proper part of the target for essentially every non-isomorphic
+/// pair. A surjectivity test taken against the *whole* target therefore
+/// discards the edge bijection that was just built and falls back to a greedy
+/// image, which sends both parallel arcs to the first target arc of their kind.
+/// The pushout then keeps one preimage of the collision and invents a fourth
+/// arc that is in neither input.
+#[test]
+fn a_discovered_overlap_does_not_identify_two_arcs_with_one() {
+    let protocol = protocol();
+    let left = SchemaBuilder::new(&protocol)
+        .vertex("a", "object", None::<&str>)
+        .expect("a")
+        .vertex("b", "string", None::<&str>)
+        .expect("b")
+        .edge("a", "b", "prop", Some("p"))
+        .expect("p")
+        .edge("a", "b", "prop", Some("q"))
+        .expect("q")
+        .entry("a")
+        .build()
+        .expect("left");
+    let right = SchemaBuilder::new(&protocol)
+        .vertex("x", "object", None::<&str>)
+        .expect("x")
+        .vertex("y", "string", None::<&str>)
+        .expect("y")
+        .vertex("z", "integer", None::<&str>)
+        .expect("z")
+        .edge("x", "y", "prop", Some("m"))
+        .expect("m")
+        .edge("x", "y", "prop", Some("n"))
+        .expect("n")
+        .edge("x", "z", "prop", Some("zz"))
+        .expect("zz")
+        .entry("x")
+        .build()
+        .expect("right");
+
+    let overlap = discover_overlap(&left, &right, &protocol).expect("an overlap");
+    let mut images: Vec<&panproto_schema::Edge> =
+        overlap.edge_pairs.iter().map(|(_, right)| right).collect();
+    let before = images.len();
+    images.sort_unstable();
+    images.dedup();
+    assert_eq!(
+        images.len(),
+        before,
+        "two left arcs were identified with one right arc: {:?}",
+        overlap.edge_pairs
+    );
+
+    let (merged, _, _) = schema_pushout(&left, &right, &overlap).expect("a pushout");
+    assert_eq!(
+        merged.edges.len(),
+        3,
+        "merging {{p, q}} with {{m, n, zz}} along {{p~m, q~n}} gives three arcs, \
+         not four: {:?}",
+        merged.edges.keys().collect::<Vec<_>>()
+    );
+}
+
+/// Merging along a span whose right leg contracts is refused rather than
+/// answered with a square that does not commute.
+#[test]
+fn a_contracting_span_has_no_pushout() {
+    // Four source strings, one target string: the optimal right leg sends all
+    // four onto it, which is an ordinary answer rather than a pathological one.
+    let src = record("", &[("title", "string"), ("subtitle", "string")]);
+    let tgt = record("", &[("heading", "string")]);
+    let protocol = protocol();
+
+    let span = find_span(&src, &tgt, &protocol, &SearchOptions::default()).expect("a span");
+    assert!(
+        !span.certificate.shape.right_is_mono,
+        "the fixture must produce a contracting right leg: {:?}",
+        span.right.vertex_map
+    );
+
+    let refused = span.pushout(&src, &tgt);
+    assert!(
+        matches!(refused, Err(panproto_mig::SpanError::ContractingRightLeg)),
+        "a merge along a contracting leg does not commute, so it must be \
+         refused rather than returned: got {refused:?}"
+    );
+
+    // And a span whose right leg embeds still merges, so the refusal is about
+    // the leg rather than about the entry point.
+    let same = record("", &[("title", "string")]);
+    let embedding = find_span(&same, &same, &protocol, &SearchOptions::default()).expect("a span");
+    assert!(embedding.certificate.shape.right_is_mono);
+    assert!(embedding.pushout(&same, &same).is_ok());
 }

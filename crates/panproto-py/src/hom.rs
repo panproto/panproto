@@ -389,10 +389,16 @@ impl PySchemaSpan {
 /// same quality, which is the maximum over all total morphisms, so a caller
 /// reading element zero gets what it always got; a caller walking the list for
 /// a suboptimal alternative will not find one. An empty list means no total
-/// morphism exists.
+/// morphism exists, and only that.
 ///
 /// `anchors` are mappings the caller *knows*, and the search may not
 /// reconsider them.
+///
+/// # Errors
+///
+/// Raises ``MigrationError`` when the search network could not be posed or the
+/// iso path refused it. Neither means "no morphism exists", which is why they
+/// are raised rather than folded into an empty list.
 #[pyfunction]
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, max_results=0))]
 #[allow(clippy::fn_params_excessive_bools)]
@@ -404,7 +410,7 @@ pub fn find_morphisms(
     epic: bool,
     iso: bool,
     max_results: usize,
-) -> Vec<PyFoundMorphism> {
+) -> PyResult<Vec<PyFoundMorphism>> {
     let hard_pins = anchors
         .unwrap_or_default()
         .into_iter()
@@ -417,14 +423,21 @@ pub fn find_morphisms(
         max_results,
         hard_pins,
     };
-    hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
+    let found = hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
+        .map_err(|e| MigrationError::new_err(format!("morphism search failed: {e}")))?;
+    Ok(found
         .into_iter()
         .map(|m| PyFoundMorphism { inner: m })
-        .collect()
+        .collect())
 }
 
 /// The single best total schema morphism from `src` to `tgt`, or `None` when
 /// no total morphism exists.
+///
+/// # Errors
+///
+/// Raises ``MigrationError`` when the search network could not be posed or the
+/// iso path refused it, so ``None`` means what it says.
 #[pyfunction]
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]
@@ -435,7 +448,7 @@ pub fn find_best_morphism(
     monic: bool,
     epic: bool,
     iso: bool,
-) -> Option<PyFoundMorphism> {
+) -> PyResult<Option<PyFoundMorphism>> {
     let hard_pins = anchors
         .unwrap_or_default()
         .into_iter()
@@ -449,7 +462,8 @@ pub fn find_best_morphism(
         hard_pins,
     };
     hom_search::find_best_morphism(&src.inner, &tgt.inner, &opts)
-        .map(|m| PyFoundMorphism { inner: m })
+        .map(|found| found.map(|inner| PyFoundMorphism { inner }))
+        .map_err(|e| MigrationError::new_err(format!("morphism search failed: {e}")))
 }
 
 /// The optimal span between `src` and `tgt`.
@@ -472,6 +486,12 @@ pub fn find_best_morphism(
 /// Raises ``MigrationError`` when the search network could not be posed, when
 /// the iso path refused it, or when the induced apex is not a well-formed
 /// schema. None of those means "no morphism exists".
+///
+/// It also raises when ``epic`` is set. Surjectivity is a property of a total
+/// morphism: a span's right leg is deliberately partial and this entry point
+/// never refuses for want of a match, so requiring the map to be onto would
+/// contradict the paragraph above. Use :func:`find_morphisms` or
+/// :func:`find_best_morphism` for a surjective total morphism.
 #[pyfunction]
 #[pyo3(signature = (src, tgt, protocol, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]

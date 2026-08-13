@@ -170,6 +170,18 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
     // 2. `vertices`: key space is vertex id.
     let vertices = retain_by_vertex(&schema.vertices, keep_v);
 
+    // Every rule below tests vertex-id membership against the *surviving
+    // vertices* rather than against the caller's request. The two coincide
+    // whenever the parent is well formed, and they diverge exactly when the
+    // parent holds a vertex-keyed row for an id it has no vertex for: filtering
+    // by `keep_v` alone would then copy that row into the apex whenever the
+    // caller happened to name the id, which is the dangling reference induction
+    // exists to remove. Intersecting once and reusing the result is what makes
+    // "`keep_v` is intersected with `schema.vertices`" true of every rule and
+    // not only of `vertices` itself.
+    let keep_v: HashSet<Name> = vertices.keys().cloned().collect();
+    let keep_v = &keep_v;
+
     // 3. `edges`: key space is `Edge`. The retained keys are the intersection
     //    of `keep_e` with the edges whose endpoints are both surviving
     //    vertices; the value is re-derived as `edge.kind`.
@@ -1536,6 +1548,52 @@ mod tests {
             out_labels(&composite),
             expected,
             "induce ∘ normalize ∘ colimit"
+        );
+    }
+
+    /// The `# Selection` contract says `keep_v` is intersected with
+    /// `schema.vertices`, so a parent row filed under an id it has no vertex
+    /// for cannot reach the apex however the caller phrases its request.
+    ///
+    /// Every vertex-keyed field is checked here rather than one representative,
+    /// because each is filtered by its own call and one of them regressing is
+    /// what this guards.
+    #[test]
+    fn a_row_keyed_at_a_non_vertex_never_reaches_the_apex() {
+        let mut schema = SchemaBuilder::new(&protocol())
+            .vertex("a", "object", None)
+            .expect("a")
+            .build()
+            .expect("build");
+
+        let ghost = Name::from("ghost");
+        schema.nsids.insert(ghost.clone(), Name::from("g"));
+        schema.constraints.insert(
+            ghost.clone(),
+            vec![Constraint {
+                sort: Name::from("maxLength"),
+                value: "1".to_owned(),
+            }],
+        );
+        schema.nominal.insert(ghost.clone(), true);
+        schema.mergers.insert(ghost.clone(), expr("merge"));
+        schema.defaults.insert(ghost.clone(), expr("default"));
+        schema.entries.push(ghost.clone());
+
+        // The caller names the ghost, which is the only way the row is reachable.
+        let keep_v = names(&["a", "ghost"]);
+        let keep_e: FxHashSet<Edge> = FxHashSet::default();
+        let apex = induce(&schema, &protocol(), &keep_v, &keep_e).expect("induce");
+
+        assert!(!apex.vertices.contains_key(&ghost), "no ghost vertex");
+        assert!(!apex.nsids.contains_key(&ghost), "nsids");
+        assert!(!apex.constraints.contains_key(&ghost), "constraints");
+        assert!(!apex.nominal.contains_key(&ghost), "nominal");
+        assert!(!apex.mergers.contains_key(&ghost), "mergers");
+        assert!(!apex.defaults.contains_key(&ghost), "defaults");
+        assert!(
+            !apex.entries.contains(&ghost),
+            "entries: a basepoint naming no vertex is the worst of the set, since              `entry_vertices` then hands out a vertex the apex does not hold"
         );
     }
 }

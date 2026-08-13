@@ -5,7 +5,7 @@
 //! `panproto_vcs` (rename detection, repository operations) to verify
 //! end-to-end migration workflows.
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{HashMap, HashSet};
 
@@ -146,7 +146,7 @@ fn auto_migrate_rename_workflow() {
 
     // Use find_best_morphism to discover the mapping
     let opts = SearchOptions::default();
-    let best = find_best_morphism(&v1, &v2, &opts);
+    let best = find_best_morphism(&v1, &v2, &opts).expect("the network poses");
     assert!(best.is_some(), "should find a morphism for rename");
 
     let morphism = best.unwrap();
@@ -498,7 +498,9 @@ fn full_pipeline_auto_morphism_to_lift() {
 
     // Discover the migration automatically
     let opts = SearchOptions::default();
-    let best = find_best_morphism(&old_schema, &new_schema, &opts).unwrap();
+    let best = find_best_morphism(&old_schema, &new_schema, &opts)
+        .expect("the network poses")
+        .unwrap();
     let mig = morphism_to_migration(&best);
 
     // Verify the morphism maps correctly
@@ -804,6 +806,7 @@ fn the_total_morphism_these_pairs_admit_is_a_contraction() {
         let mig = panproto_vcs::auto_mig::derive_migration(&old, &new, &d);
 
         let best = find_best_morphism(&old, &new, &SearchOptions::default())
+            .expect("the network poses")
             .unwrap_or_else(|| panic!("{label}: expected a total morphism"));
         assert_eq!(
             best.vertex_map.len(),
@@ -883,4 +886,159 @@ fn committed_migration_never_contracts() {
              is why the map above has to be injective"
         );
     }
+}
+
+// ---------------------------------------------------------------------------
+// What an auto-derived migration may not do
+// ---------------------------------------------------------------------------
+
+/// A protocol with a `record` kind, for the rename-detection fixtures.
+fn record_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        schema_theory: "ThTest".into(),
+        instance_theory: "ThWType".into(),
+        edge_rules: vec![],
+        obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
+        constraint_sorts: vec![],
+        ..Protocol::default()
+    }
+}
+
+fn build_with(
+    proto: &Protocol,
+    vertices: &[(&str, &str)],
+    edges: &[(&str, &str, &str, &str)],
+) -> Schema {
+    let mut builder = SchemaBuilder::new(proto);
+    for (id, kind) in vertices {
+        builder = builder.vertex(id, kind, None::<&str>).unwrap();
+    }
+    for (src, tgt, kind, name) in edges {
+        builder = builder.edge(src, tgt, kind, Some(*name)).unwrap();
+    }
+    builder.build().unwrap()
+}
+
+/// A detected rename that disagrees on kind must not be pinned.
+///
+/// `detect_vertex_renames` scores 0.2 for matching incoming edge labels plus
+/// 0.2 for a short edit distance and never requires kind agreement, so
+/// `post.count: integer` and `post.counter: string` come back at 0.40. Pinned,
+/// `domain_of` keeps a pinned target only when the kinds match, so the vertex
+/// is left with `⊥` alone and the search drops it — even though
+/// `post.total: integer` was there to take it.
+#[test]
+fn a_kind_incompatible_rename_is_not_pinned() {
+    let proto = record_protocol();
+    let old = build_with(
+        &proto,
+        &[
+            ("post", "record"),
+            ("post.count", "integer"),
+            ("post.tag", "string"),
+        ],
+        &[
+            ("post", "post.count", "prop", "count"),
+            ("post", "post.tag", "prop", "tag"),
+        ],
+    );
+    let new = build_with(
+        &proto,
+        &[
+            ("post", "record"),
+            ("post.counter", "string"),
+            ("post.total", "integer"),
+        ],
+        &[
+            ("post", "post.counter", "prop", "count"),
+            ("post", "post.total", "prop", "total"),
+        ],
+    );
+
+    // The premise: the detector really does propose the kind-crossing rename.
+    let detected = rename_detect::detect_vertex_renames(&old, &new, 0.3);
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.rename.old.as_ref() == "post.count"
+                && d.rename.new.as_ref() == "post.counter"),
+        "the fixture depends on this detection: {detected:?}"
+    );
+
+    let diff = panproto_check::diff::diff(&old, &new);
+    let migration = panproto_vcs::auto_mig::derive_migration(&old, &new, &diff);
+    assert!(
+        migration.vertex_map.contains_key("post.count"),
+        "an integer field with an integer counterpart was dropped by a \
+         kind-crossing pin: {:?}",
+        migration.vertex_map
+    );
+}
+
+/// An auto-derived migration's edge map must be injective.
+///
+/// `monic` is injectivity on vertices only, so the right leg of a monic span
+/// may still send two parallel source edges to one target edge. A stored
+/// migration that contracts on edges says two fields become one without saying
+/// how, and the lift then delivers both values under one name.
+#[test]
+fn an_auto_derived_migration_never_contracts_on_edges() {
+    let proto = record_protocol();
+    // Two parallel props between the same vertex pair on the old side, one on
+    // the new side, plus a vertex rename so the enhancement path is reached.
+    let old = build_with(
+        &proto,
+        &[("root", "record"), ("leaf", "string")],
+        &[("root", "leaf", "prop", "a"), ("root", "leaf", "prop", "b")],
+    );
+    let new = build_with(
+        &proto,
+        &[("root", "record"), ("leaf2", "string")],
+        &[("root", "leaf2", "prop", "a")],
+    );
+
+    let diff = panproto_check::diff::diff(&old, &new);
+    let migration = panproto_vcs::auto_mig::derive_migration(&old, &new, &diff);
+
+    let mut images: Vec<&Edge> = migration.edge_map.values().collect();
+    let before = images.len();
+    images.sort_unstable();
+    images.dedup();
+    assert_eq!(
+        images.len(),
+        before,
+        "two source edges share one image: {:?}",
+        migration.edge_map
+    );
+}
+
+/// A three-way merge must keep a vertex's NSID and the `nsids` map in step.
+///
+/// `merge_vertices` branches on kind changes and never looks at the NSID, while
+/// `merge_nsids` merges the map, so a side that adds an NSID to a vertex it
+/// does not otherwise touch lands in the map alone. The two copies of one fact
+/// then disagree, and the disagreement is baked into the commit's content
+/// address.
+#[test]
+fn a_three_way_merge_keeps_both_copies_of_an_nsid_in_step() {
+    let proto = test_protocol();
+    let base = SchemaBuilder::new(&proto)
+        .vertex("root", "object", None::<&str>)
+        .unwrap()
+        .build()
+        .unwrap();
+    let ours = base.clone();
+    let theirs = SchemaBuilder::new(&proto)
+        .vertex("root", "object", Some("com.example.root"))
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let merged = panproto_vcs::merge::three_way_merge(&base, &ours, &theirs);
+    assert_eq!(
+        merged.merged_schema.vertices["root"].nsid.as_ref(),
+        merged.merged_schema.nsids.get("root"),
+        "the vertex's copy of the NSID and the map's copy must agree"
+    );
 }

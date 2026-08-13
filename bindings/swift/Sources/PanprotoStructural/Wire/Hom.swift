@@ -20,6 +20,11 @@ public struct MorphismSearchOptions: Codable, Hashable, Sendable {
     /// Require an injective vertex map.
     public var monic: Bool
     /// Require a surjective vertex map.
+    ///
+    /// A property of a total morphism, so the morphism entry points honour it
+    /// and the span entry point refuses it: a span's right leg is deliberately
+    /// partial and the span search never refuses for want of a match, so
+    /// requiring the map to be onto would contradict that.
     public var epic: Bool
     /// Require a bijective vertex map, which is an isomorphism.
     public var iso: Bool

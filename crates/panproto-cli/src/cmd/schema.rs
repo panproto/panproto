@@ -332,15 +332,37 @@ pub fn cmd_auto_migrate(
         .into_diagnostic()
         .wrap_err("span search failed")?;
 
-    if options.acceptance == SpanAcceptance::Total && !found.is_total() {
-        miette::bail!(
-            "no total morphism exists: the optimal span covers {} of {} source vertices \
-             ({:.1}%). Drop --total to accept the partial answer",
-            found.apex.vertices.len(),
-            old_schema.vertex_count(),
-            found.apex_coverage * 100.0
-        );
-    }
+    // `--total` asks whether a total morphism *exists*, and the span search
+    // answers a different question: it returns the best span, and a span that
+    // drops a vertex can score strictly better than a total morphism that keeps
+    // it, because span quality excludes the drop count while the objective is
+    // lexicographic in `(quality, drops)`. So an optimal span that is not total
+    // is no evidence at all about existence, and reading it as such reports "no
+    // total morphism exists" on pairs that have one.
+    //
+    // The total-morphism search is the entry point that answers the question
+    // asked. It runs only on the bail path, so a pair whose optimal span is
+    // already total pays nothing, and a successful `find_span` above proves the
+    // network poses — the two calls build the same network from the same
+    // inputs — so an empty answer here means what it says.
+    let total = if options.acceptance == SpanAcceptance::Total && !found.is_total() {
+        let recovered = mig::find_best_morphism(&old_schema, &new_schema, &opts)
+            .into_diagnostic()
+            .wrap_err("total morphism search failed")?;
+        match recovered {
+            Some(morphism) => Some(morphism),
+            None => miette::bail!(
+                "no total morphism exists: the optimal span covers {} of {} source vertices \
+                 ({:.1}%), and no total morphism was found either. Drop --total to accept the \
+                 partial answer",
+                found.apex.vertices.len(),
+                old_schema.vertex_count(),
+                found.apex_coverage * 100.0
+            ),
+        }
+    } else {
+        None
+    };
     if options.acceptance != SpanAcceptance::Any && found.apex.vertices.is_empty() {
         miette::bail!(
             "the two schemas share nothing: the optimal span has an empty apex, so no vertex \
@@ -348,6 +370,35 @@ pub fn cmd_auto_migrate(
             old_path.display(),
             new_path.display()
         );
+    }
+
+    // A right leg that identifies two source vertices is an ordinary answer
+    // from the default search, and it is not a migration a lift can carry out:
+    // the two fields' data would both arrive under the survivor's name. Say so
+    // on stderr, which keeps stdout pipeable on the `--json` path.
+    if !found.certificate.shape.right_is_mono {
+        eprintln!(
+            "warning: the right leg is not injective on vertices, so this migration \
+             identifies two source vertices. Lifting it has no well-defined answer \
+             without a rule for combining them; pass --monic to search for a leg \
+             that embeds."
+        );
+    }
+
+    if let Some(morphism) = total {
+        // The recovered answer is a total morphism rather than a span, so it
+        // carries no apex and no certificate; it is reported as the migration
+        // it is.
+        let migration = mig::hom_search::morphism_to_migration(&morphism);
+        if options.json {
+            let output = serde_json::to_string_pretty(&migration)
+                .into_diagnostic()
+                .wrap_err("failed to serialize migration")?;
+            println!("{output}");
+        } else {
+            print_total_morphism(&morphism, &old_schema);
+        }
+        return Ok(());
     }
 
     if options.json {
@@ -360,6 +411,41 @@ pub fn cmd_auto_migrate(
     }
 
     Ok(())
+}
+
+/// Report a total morphism the span search did not return.
+///
+/// Deliberately not `print_span`'s output: there is no apex, no coverage and no
+/// certificate here, and printing headings for them with invented values would
+/// be worse than printing fewer.
+fn print_total_morphism(morphism: &mig::FoundMorphism, old_schema: &Schema) {
+    println!("Found total morphism (quality: {:.3}):\n", morphism.quality);
+    println!(
+        "Maps all {} source vertices; the optimal span was partial, so this was \
+         found by the total-morphism search rather than read off the span.",
+        old_schema.vertex_count()
+    );
+
+    println!("\nVertex map:");
+    let mut vertex_entries: Vec<_> = morphism.vertex_map.iter().collect();
+    vertex_entries.sort_by_key(|(k, _)| k.as_str());
+    for (src, tgt) in &vertex_entries {
+        println!("  {src} -> {tgt}");
+    }
+
+    if !morphism.edge_map.is_empty() {
+        println!("\nEdge map:");
+        let mut edge_entries: Vec<_> = morphism.edge_map.iter().collect();
+        edge_entries.sort_by_key(|(k, _)| (k.src.clone(), k.tgt.clone(), k.name.clone()));
+        for (src_e, tgt_e) in &edge_entries {
+            let src_label = src_e.name.as_deref().unwrap_or("");
+            let tgt_label = tgt_e.name.as_deref().unwrap_or("");
+            println!(
+                "  {}->{} ({}) {src_label} -> {}->{} ({}) {tgt_label}",
+                src_e.src, src_e.tgt, src_e.kind, tgt_e.src, tgt_e.tgt, tgt_e.kind
+            );
+        }
+    }
 }
 
 /// Report a span on the human path: what it covers, how good it is, how well

@@ -1667,6 +1667,26 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
 
     let entries = three_way_merge_entries(base, ours, theirs, &vertices);
 
+    // A schema records each NSID twice, on the vertex and in `nsids`, and the
+    // two are merged by different rules: `merge_vertices` branches on kind
+    // changes and never looks at the NSID, while `merge_nsids` does a full
+    // three-way merge of the map. A side that adds an NSID to a vertex it does
+    // not otherwise touch therefore lands in the map alone, and the two copies
+    // of one fact then disagree — every reader of the vertex resolves it
+    // differently from every reader of the map, and the disagreement is baked
+    // into the commit's content address. `induce` asserts against it in debug
+    // builds; in release the schema simply carries the contradiction, and
+    // ATProto lexicon emission, which finds the root by `Vertex::nsid`, loses
+    // the NSID entirely.
+    //
+    // The map is authoritative: it is the copy that was merged with conflict
+    // detection, and every constructor writes a row for each vertex that has an
+    // NSID, so deriving the vertex's copy from it never erases one.
+    let mut vertices = vertices;
+    for (id, vertex) in &mut vertices {
+        vertex.nsid = nsids.get(id).cloned();
+    }
+
     let merged_schema = Schema {
         protocol: base.protocol.clone(),
         vertices,

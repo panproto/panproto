@@ -173,7 +173,7 @@ fn domain_values(cfn: &Cfn) -> Vec<Vec<ValId>> {
             let bits = domain.bits();
             let mut value = 0u32;
             while value < Domain::CAPACITY {
-                if bits & (1u32 << value) != 0 {
+                if bits & (1u64 << value) != 0 {
                     values.push(ValId::from_index(value));
                 }
                 value += 1;
@@ -338,15 +338,20 @@ mod tests {
             .iter()
             .map(|a| a.values().iter().map(|v| v.raw()).collect())
             .collect();
+        // `⊥` is the top index of the value numbering, so it sorts last in
+        // every position; naming it by the constant rather than by its
+        // current numeral keeps the assertion about the ordering rather than
+        // about the domain's width.
+        let bottom = ValId::BOTTOM.raw();
         assert_eq!(
             seen,
             vec![
                 vec![0, 0],
-                vec![0, 31],
+                vec![0, bottom],
                 vec![1, 0],
-                vec![1, 31],
-                vec![31, 0],
-                vec![31, 31],
+                vec![1, bottom],
+                vec![bottom, 0],
+                vec![bottom, bottom],
             ]
         );
     }

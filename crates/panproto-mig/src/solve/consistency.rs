@@ -178,7 +178,7 @@ pub struct TrailMark(usize);
 ///
 /// Cost cells are trailed, because they are what the EPTs accumulate and
 /// undoing them one at a time is far cheaper than rebuilding them. Domains are
-/// **not**: they are one `u32` per variable, so a search copies the whole
+/// **not**: they are one `u64` per variable, so a search copies the whole
 /// domain vector on branching and restores it by assignment. Mixing the two is
 /// deliberate and the sizes are the reason.
 #[derive(Clone, Debug)]
@@ -561,7 +561,7 @@ impl Network {
             hasher.write_u64(cell.raw());
         }
         for domain in &self.domains {
-            hasher.write_u32(domain.bits());
+            hasher.write_u64(domain.bits());
         }
         hasher.finish()
     }
@@ -1077,9 +1077,7 @@ impl Network {
     fn change_stamp(&self) -> (usize, u64) {
         let mut domains = 0u64;
         for domain in &self.domains {
-            domains = domains
-                .rotate_left(7)
-                .wrapping_add(u64::from(domain.bits()));
+            domains = domains.rotate_left(7).wrapping_add(domain.bits());
         }
         (self.trail.len(), domains)
     }

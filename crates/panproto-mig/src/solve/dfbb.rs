@@ -24,7 +24,7 @@
 //! # What is trailed and what is copied
 //!
 //! Cost cells are trailed, one `(index, old value)` pair per write, with a
-//! single restore back to a mark. Domains are one `u32` per variable, so they
+//! single restore back to a mark. Domains are one `u64` per variable, so they
 //! are copied on branching and restored by assignment. Two mechanisms rather
 //! than one, and the sizes are the reason.
 //!
@@ -63,7 +63,7 @@ use rustc_hash::FxHashMap;
 use super::cfn::{Cfn, Domain};
 use super::consistency::{ConsistencyLevel, Network};
 use super::cost::Cost;
-use super::mcsplit::{HallOutcome, ValueIndex, propagate_all_different};
+use super::mcsplit::{HallOutcome, ValueIndex, epic_satisfied, propagate_all_different};
 use super::{
     Assignment, DEFAULT_SEARCH_NODES, LimitKind, SearchBudget, SolveOutcome, SolverPath, ValId,
     VarId,
@@ -142,6 +142,28 @@ pub struct SearchParameters {
     /// variables share values, which is a property of an assignment rather than
     /// of any bounded scope.
     pub all_different: bool,
+
+    /// Whether the answer's vertex map must cover every target vertex, and how
+    /// many target vertices there are to cover.
+    ///
+    /// `Some(n)` optimises over the *surjective* assignments only: a complete
+    /// assignment that leaves one of the `n` target vertices uncovered is
+    /// rejected at the leaf and never becomes the incumbent.
+    ///
+    /// This is a search parameter for the same reason `all_different` is, and
+    /// it is enforced here rather than filtered afterwards for a sharper
+    /// reason: filtering the argmin set discards every surjective assignment
+    /// that is not itself an argmin, so it reports "none exists" whenever the
+    /// optimum happens not to be onto. Optimising over the surjective subspace
+    /// answers the question that was asked. Branch and bound stays correct
+    /// because every bound remains a lower bound over a *superset* of the
+    /// completions now admitted; what changes is only which complete
+    /// assignments may become the incumbent.
+    ///
+    /// The count is the target schema's, not the network's: a target vertex no
+    /// variable can take is one no assignment can cover, and counting the
+    /// network's values instead would call such a search surjective.
+    pub epic: Option<usize>,
 }
 
 impl Default for SearchParameters {
@@ -154,6 +176,7 @@ impl Default for SearchParameters {
             restarts: true,
             restart_scale: LUBY_SCALE,
             all_different: false,
+            epic: None,
         }
     }
 }
@@ -198,6 +221,13 @@ impl SearchParameters {
     #[must_use]
     pub const fn with_all_different(mut self, all_different: bool) -> Self {
         self.all_different = all_different;
+        self
+    }
+
+    /// Require the assignment to cover every one of `target_vertices` targets.
+    #[must_use]
+    pub const fn with_epic(mut self, target_vertices: Option<usize>) -> Self {
+        self.epic = target_vertices;
         self
     }
 
@@ -314,6 +344,25 @@ enum Literal {
 // The engine
 // ---------------------------------------------------------------------------
 
+/// The constraints on a complete assignment that no cost function states.
+///
+/// Injectivity and surjectivity are properties of an assignment rather than of
+/// any bounded scope, so neither can be a table in the network and both are
+/// carried here. They share a target numbering because both ask the same
+/// question of a `(variable, value)` pair: which global target does it name.
+struct GlobalConstraints {
+    /// The numbering both constraints compare in, built only when one is asked
+    /// for. `None` is the ordinary span search, where two source vertices may
+    /// share a target and every target may go uncovered.
+    values: Option<ValueIndex>,
+
+    /// Whether no two variables may take the same target.
+    all_different: bool,
+
+    /// How many target vertices a complete assignment must cover.
+    epic: Option<usize>,
+}
+
 /// A depth-first branch and bound over one cost function network.
 ///
 /// [`Self::run`] is the whole search. The finer entry points exist for the
@@ -348,12 +397,9 @@ pub struct BranchAndBound<'a> {
     /// The static degree of each variable in the primal graph.
     degree: Vec<u32>,
 
-    /// The target numbering the all-different filter compares in, when the
-    /// search is injective.
-    ///
-    /// `None` is the ordinary span search, where two source vertices may share
-    /// a target and the filter has nothing to say.
-    all_different: Option<ValueIndex>,
+    /// The constraints on the assignment as a whole, which no cost function
+    /// states and which the network therefore cannot enforce.
+    global: GlobalConstraints,
 
     /// The value the incumbent gave each variable.
     phase: Vec<Option<ValId>>,
@@ -442,7 +488,12 @@ impl<'a> BranchAndBound<'a> {
             weights,
             neighbours,
             degree,
-            all_different: parameters.all_different.then(|| ValueIndex::of(cfn)),
+            global: GlobalConstraints {
+                values: (parameters.all_different || parameters.epic.is_some())
+                    .then(|| ValueIndex::of(cfn)),
+                all_different: parameters.all_different,
+                epic: parameters.epic,
+            },
             phase: vec![None; count],
             nodes: 0,
             node_budget: Some(parameters.budget.max_nodes.unwrap_or(DEFAULT_SEARCH_NODES)),
@@ -764,11 +815,11 @@ impl BranchAndBound<'_> {
     /// is a singleton, two variables holding the same target are a Hall set of
     /// one target with two members, which is the pigeonhole the sweep reports.
     fn filter_all_different(&mut self) -> bool {
-        if self.all_different.is_none() {
+        if !self.global.all_different {
             return true;
         }
         let mut domains = self.net.domains().to_vec();
-        let wiped = self.all_different.as_ref().is_some_and(|index| {
+        let wiped = self.global.values.as_ref().is_some_and(|index| {
             propagate_all_different(index, &mut domains) == HallOutcome::Wipeout
         });
         if wiped {
@@ -788,6 +839,22 @@ impl BranchAndBound<'_> {
             values.push(value);
         }
         let assignment = Assignment::from_values(values);
+        // Surjectivity is a leaf test: it constrains the whole assignment at
+        // once, so there is nothing to propagate and nothing to bound with, and
+        // the only sound place to apply it is where a complete assignment is
+        // offered as the incumbent. Applying it here rather than to the argmins
+        // afterwards is what makes the search optimise over the surjective
+        // assignments instead of reporting none when the optimum is not one.
+        if let Some(target_vertices) = self.global.epic {
+            let onto = self
+                .global
+                .values
+                .as_ref()
+                .is_some_and(|index| epic_satisfied(index, &assignment, target_vertices));
+            if !onto {
+                return;
+            }
+        }
         // Scored against the pristine network, never against the transformed
         // one: the transformations move cost between functions, so a search can
         // report a number that is right in the working copy while the

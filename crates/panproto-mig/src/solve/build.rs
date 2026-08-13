@@ -208,9 +208,14 @@ pub enum BuildError {
     /// The network refused what the decomposition asked it to hold.
     ///
     /// In practice this is a source vertex offered more kind-compatible targets
-    /// than one domain word has bits for. The largest domain measured on the
-    /// schema corpus is well under that ceiling, so it is a guard rather than a
-    /// limit anything has met.
+    /// than one domain word has bits for. That is a capacity ordinary input
+    /// reaches, not a guard against the impossible: a target schema with more
+    /// than
+    /// [`ValId::MAX_REAL_VALUES`](crate::solve::ValId::MAX_REAL_VALUES)
+    /// vertices of one kind meets it, and one vertex per line or per token
+    /// reaches it on a small file. It is reported, never absorbed: a search
+    /// that could not be posed is not the same answer as a search that found
+    /// nothing, and the entry points keep the two apart.
     #[error("the network could not hold the decomposition: {source}")]
     Network {
         /// What the network refused.

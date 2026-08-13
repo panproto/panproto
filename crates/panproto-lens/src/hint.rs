@@ -286,7 +286,7 @@ pub fn resolve_hints(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::{Protocol, SchemaBuilder};
@@ -538,7 +538,8 @@ mod tests {
             .insert(Name::from("root.other"));
 
         let results =
-            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints);
+            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
+                .unwrap();
 
         // All results should map root.name to root.name (root.other excluded)
         for m in &results {
@@ -586,7 +587,8 @@ mod tests {
             &tgt,
             &SearchOptions::default(),
             &DomainConstraints::default(),
-        );
+        )
+        .expect("the network poses");
         assert!(
             unconstrained.is_empty(),
             "no total morphism exists: root.extra has no compatible target"
@@ -599,6 +601,7 @@ mod tests {
 
         assert!(
             find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
+                .expect("the network poses")
                 .is_empty(),
             "excluding a source leaves no total morphism, so this must stay empty"
         );

@@ -668,6 +668,49 @@ fn release_strategy_pins(
     soft.hard_pins.clone_from(caller_anchors);
     soft
 }
+
+/// Take the pinned answer, or the unpinned one when releasing the strategy
+/// pins covers more of the source.
+///
+/// A strategy anchor is an inference, and
+/// [`SearchOptions::hard_pins`] is for what a caller *knows*: a pinned vertex
+/// keeps that one target and `⊥`, so a wrong pin does not make the search fail,
+/// it makes the vertex infeasible and the optimum drops it. Nothing in the
+/// answer says so — the span is optimal, `proven_optimal` is true, and the
+/// field is simply not in the lens.
+///
+/// So comparing the two attempts on `Err` alone, which is what this used to do,
+/// never fires at a tier that allows spans: the span search answers `⊥` rather
+/// than refusing. Comparing them on coverage is what makes the release
+/// reachable, and it keeps the pins' benefit, since a pinned answer that covers
+/// at least as much is kept.
+///
+/// The released search is only run when the pinned attempt failed or left part
+/// of the source unmapped, so a pair the anchors get right pays for one search.
+fn best_of_pinned_and_released<F>(
+    pinned: Result<SearchResult, LensError>,
+    pinned_opts: &SearchOptions,
+    soft_opts: &SearchOptions,
+    released: F,
+    source_vertices: usize,
+) -> Result<SearchResult, LensError>
+where
+    F: FnOnce() -> Result<SearchResult, LensError>,
+{
+    // Nothing was pinned beyond what the caller supplied, so there is nothing
+    // to release and the second search would repeat the first.
+    if pinned_opts.hard_pins.len() == soft_opts.hard_pins.len() {
+        return pinned;
+    }
+    match pinned {
+        Ok(found) if found.mapped_vertices >= source_vertices => Ok(found),
+        Ok(found) => Ok(match released() {
+            Ok(free) if free.mapped_vertices > found.mapped_vertices => free,
+            _ => found,
+        }),
+        Err(pinned_failure) => released().map_err(|_| pinned_failure),
+    }
+}
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
@@ -724,7 +767,8 @@ pub fn auto_generate(
     // Nothing scores the conjunction, so the tier that knows more can be the
     // tier that fails. Released, the solver searches past them.
     let caller_anchors = config.search_opts.hard_pins.clone();
-    let result = match run_search(
+    let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
+    let pinned = run_search(
         src,
         tgt,
         protocol,
@@ -732,10 +776,12 @@ pub fn auto_generate(
         &search_opts,
         None,
         DEFAULT_QUALITY_FLOOR,
-    ) {
-        Ok(found) => found,
-        Err(pinned_failure) => {
-            let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
+    );
+    let result = best_of_pinned_and_released(
+        pinned,
+        &search_opts,
+        &soft_opts,
+        || {
             run_search(
                 src,
                 tgt,
@@ -745,9 +791,9 @@ pub fn auto_generate(
                 None,
                 DEFAULT_QUALITY_FLOOR,
             )
-            .map_err(|_| pinned_failure)?
-        }
-    };
+        },
+        src.vertices.len(),
+    )?;
 
     Ok(AutoLensResult {
         chain: result.chain,
@@ -767,6 +813,14 @@ struct SearchResult {
     chain: ProtolensChain,
     lens: Lens,
     alignment_quality: f64,
+
+    /// How many source vertices the alignment mapped.
+    ///
+    /// Carried so that a pinned attempt and an unpinned one can be compared on
+    /// what they cover rather than only on whether they errored. A strategy pin
+    /// that is wrong does not make the search fail; it removes every other
+    /// target for its vertex, and the vertex is then dropped from the answer.
+    mapped_vertices: usize,
 }
 
 /// Shared search/factorize/instantiate pipeline. `domain_constraints` is
@@ -808,39 +862,43 @@ fn run_search(
     domain_constraints: Option<&DomainConstraints>,
     quality_floor: f64,
 ) -> Result<SearchResult, LensError> {
-    let search = |opts: &SearchOptions| -> Option<FoundMorphism> {
+    // A search that could not be posed is reported, never spelled "no morphism
+    // found between schemas". The two are different facts about a schema pair
+    // and only one of them is about the pair.
+    let search = |opts: &SearchOptions| -> Result<Option<FoundMorphism>, LensError> {
         if config.stringency.allow_spans() {
             let mut builder = SpanSearch::new(protocol).with_options(opts.clone());
             if let Some(constraints) = domain_constraints {
                 builder = builder.with_constraints(constraints.clone());
             }
-            let span = builder.run(src, tgt).ok()?;
+            let span = builder
+                .run(src, tgt)
+                .map_err(|e| LensError::ProtolensError(format!("the span search failed: {e}")))?;
             if span.apex.vertices.is_empty() {
-                return None;
+                return Ok(None);
             }
-            return Some(FoundMorphism {
+            return Ok(Some(FoundMorphism {
                 vertex_map: span.right.vertex_map.clone(),
                 edge_map: span.right.edge_map.clone(),
                 quality: span.quality,
-            });
+            }));
         }
-        domain_constraints.map_or_else(
-            || find_best_morphism(src, tgt, opts),
-            |dc| find_best_morphism_constrained(src, tgt, opts, dc),
-        )
+        domain_constraints
+            .map_or_else(
+                || find_best_morphism(src, tgt, opts),
+                |dc| find_best_morphism_constrained(src, tgt, opts, dc),
+            )
+            .map_err(|e| LensError::ProtolensError(format!("the morphism search failed: {e}")))
     };
 
-    let mut alignment = search(search_opts);
+    let mut alignment = search(search_opts)?;
 
     if config.try_overlap {
         let should_try_overlap = alignment.as_ref().is_none_or(|a| a.quality < quality_floor);
         if should_try_overlap {
-            let overlap = panproto_mig::discover_overlap(src, tgt, protocol).unwrap_or_else(|_| {
-                panproto_schema::SchemaOverlap {
-                    vertex_pairs: Vec::new(),
-                    edge_pairs: Vec::new(),
-                }
-            });
+            let overlap = panproto_mig::discover_overlap(src, tgt, protocol).map_err(|e| {
+                LensError::ProtolensError(format!("the overlap search failed: {e}"))
+            })?;
             if !overlap.vertex_pairs.is_empty() {
                 let mut overlap_opts = search_opts.clone();
                 for (src_id, tgt_id) in &overlap.vertex_pairs {
@@ -849,7 +907,7 @@ fn run_search(
                         .entry(src_id.clone())
                         .or_insert_with(|| tgt_id.clone());
                 }
-                if let Some(oa) = search(&overlap_opts) {
+                if let Some(oa) = search(&overlap_opts)? {
                     let is_better = alignment.as_ref().is_none_or(|a| oa.quality > a.quality);
                     if is_better {
                         alignment = Some(oa);
@@ -863,6 +921,7 @@ fn run_search(
         .ok_or_else(|| LensError::ProtolensError("no morphism found between schemas".into()))?;
 
     let quality = alignment.quality;
+    let mapped_vertices = alignment.vertex_map.len();
     let chain =
         protolens_from_alignment_mode(&alignment, src, tgt, config.stringency.allow_spans())?;
     let mut lens = chain.instantiate(src, protocol)?;
@@ -873,6 +932,7 @@ fn run_search(
         chain,
         lens,
         alignment_quality: quality,
+        mapped_vertices,
     })
 }
 
@@ -938,7 +998,16 @@ pub fn auto_generate_with_hints(
     // scan, so nothing is pre-excluded on its behalf.
     let merged_domain = domain_constraints.clone();
 
-    let result = run_search(
+    // The caller's anchors stay pinned; only the strategy anchors are released.
+    let caller_anchors: HashMap<Name, Name> = config
+        .search_opts
+        .hard_pins
+        .iter()
+        .map(|(s, t)| (s.clone(), t.clone()))
+        .chain(anchors.iter().map(|(s, t)| (s.clone(), t.clone())))
+        .collect();
+    let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
+    let pinned = run_search(
         src,
         tgt,
         protocol,
@@ -946,6 +1015,23 @@ pub fn auto_generate_with_hints(
         &search_opts,
         Some(&merged_domain),
         quality_floor,
+    );
+    let result = best_of_pinned_and_released(
+        pinned,
+        &search_opts,
+        &soft_opts,
+        || {
+            run_search(
+                src,
+                tgt,
+                protocol,
+                &effective,
+                &soft_opts,
+                Some(&merged_domain),
+                quality_floor,
+            )
+        },
+        src.vertices.len(),
     )?;
 
     // Combine user anchors (as `UserHint`-tagged anchors) with the
@@ -1193,11 +1279,13 @@ pub fn auto_generate_candidates(
     let (seed_anchors, _coerce_proposals) = run_strategies(src, tgt, config);
     let resolved = resolve_seed_map(&seed_anchors);
 
+    let caller_anchors = config.search_opts.hard_pins.clone();
     let mut search_opts = config.search_opts.clone();
     merge_seed_anchors(&mut search_opts, &resolved);
     search_opts.max_results = n;
+    let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
 
-    candidates_from_search(
+    let pinned = candidates_from_search(
         src,
         tgt,
         protocol,
@@ -1206,7 +1294,19 @@ pub fn auto_generate_candidates(
         &seed_anchors,
         n,
         config.stringency.allow_spans(),
-    )
+    );
+    best_candidates_of_pinned_and_released(pinned, &search_opts, &soft_opts, || {
+        candidates_from_search(
+            src,
+            tgt,
+            protocol,
+            &soft_opts,
+            None,
+            &seed_anchors,
+            n,
+            config.stringency.allow_spans(),
+        )
+    })
 }
 /// Candidate-API variant accepting caller-supplied anchors and domain
 /// constraints.
@@ -1235,8 +1335,13 @@ pub fn auto_generate_candidates_with_hints(
     for (src_v, tgt_v) in anchors {
         search_opts.hard_pins.insert(src_v.clone(), tgt_v.clone());
     }
+    // The caller's own anchors stay pinned: those are the mappings a caller
+    // knows, which is what `hard_pins` is specified for. Only the strategy
+    // anchors are released on the retry.
+    let caller_anchors = search_opts.hard_pins.clone();
     merge_seed_anchors(&mut search_opts, &resolved_strategy);
     search_opts.max_results = n;
+    let soft_opts = release_strategy_pins(&search_opts, &caller_anchors);
 
     // As in `auto_generate_with_hints`: only the caller's constraints apply,
     // because the span search decides what to drop against the whole
@@ -1260,7 +1365,7 @@ pub fn auto_generate_candidates_with_hints(
     }
     combined.extend(strategy_anchors);
 
-    candidates_from_search(
+    let pinned = candidates_from_search(
         src,
         tgt,
         protocol,
@@ -1269,7 +1374,53 @@ pub fn auto_generate_candidates_with_hints(
         &combined,
         n,
         config.stringency.allow_spans(),
-    )
+    );
+    best_candidates_of_pinned_and_released(pinned, &search_opts, &soft_opts, || {
+        candidates_from_search(
+            src,
+            tgt,
+            protocol,
+            &soft_opts,
+            Some(&merged_domain),
+            &combined,
+            n,
+            config.stringency.allow_spans(),
+        )
+    })
+}
+
+/// Take the pinned candidate list, or the unpinned one when releasing the
+/// strategy pins covers more of the source.
+///
+/// The candidate-API counterpart of [`best_of_pinned_and_released`], and it
+/// exists for the same reason: a wrong strategy pin does not make the search
+/// fail, it makes its vertex infeasible, and the optimum drops the field
+/// without saying so.
+fn best_candidates_of_pinned_and_released<F>(
+    pinned: Result<Vec<crate::candidate::LensCandidate>, LensError>,
+    pinned_opts: &SearchOptions,
+    soft_opts: &SearchOptions,
+    released: F,
+) -> Result<Vec<crate::candidate::LensCandidate>, LensError>
+where
+    F: FnOnce() -> Result<Vec<crate::candidate::LensCandidate>, LensError>,
+{
+    if pinned_opts.hard_pins.len() == soft_opts.hard_pins.len() {
+        return pinned;
+    }
+    let best_coverage = |list: &[crate::candidate::LensCandidate]| {
+        list.iter()
+            .map(|candidate| candidate.coverage)
+            .fold(f64::NEG_INFINITY, f64::max)
+    };
+    match pinned {
+        Ok(found) if best_coverage(&found) >= 1.0 => Ok(found),
+        Ok(found) => Ok(match released() {
+            Ok(free) if best_coverage(&free) > best_coverage(&found) => free,
+            _ => found,
+        }),
+        Err(pinned_failure) => released().map_err(|_| pinned_failure),
+    }
 }
 
 /// Concatenation of `chain.steps[i].name` used as a deterministic
@@ -1296,6 +1447,12 @@ fn chain_step_names(chain: &ProtolensChain) -> String {
 ///
 /// A span with an empty apex is dropped rather than returned: it is always
 /// feasible, and a chain that drops the whole source is not a candidate.
+///
+/// # Errors
+///
+/// [`LensError::ProtolensError`] when the span search could not be posed or
+/// run. That is not the same fact as "the two schemas share nothing", and the
+/// caller reads an empty list as the latter.
 fn optimal_spans_as_morphisms(
     src: &Schema,
     tgt: &Schema,
@@ -1303,15 +1460,15 @@ fn optimal_spans_as_morphisms(
     opts: &SearchOptions,
     constraints: Option<&DomainConstraints>,
     n: usize,
-) -> Vec<FoundMorphism> {
+) -> Result<Vec<FoundMorphism>, LensError> {
     let mut search = SpanSearch::new(protocol).with_options(opts.clone());
     if let Some(dc) = constraints {
         search = search.with_constraints(dc.clone());
     }
-    let Ok(spans) = search.optima(src, tgt, n) else {
-        return Vec::new();
-    };
-    spans
+    let spans = search
+        .optima(src, tgt, n)
+        .map_err(|e| LensError::ProtolensError(format!("the span search failed: {e}")))?;
+    Ok(spans
         .into_iter()
         .filter(|span| !span.apex.vertices.is_empty())
         .map(|span| FoundMorphism {
@@ -1319,7 +1476,7 @@ fn optimal_spans_as_morphisms(
             edge_map: span.right.edge_map,
             quality: span.quality,
         })
-        .collect()
+        .collect())
 }
 
 /// Shared engine for multi-candidate generation. Runs the CSP, builds
@@ -1337,12 +1494,16 @@ fn candidates_from_search(
     emit_spans: bool,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
     let morphisms = if emit_spans {
-        optimal_spans_as_morphisms(src, tgt, protocol, search_opts, domain_constraints, n)
+        optimal_spans_as_morphisms(src, tgt, protocol, search_opts, domain_constraints, n)?
     } else {
-        domain_constraints.map_or_else(
-            || find_morphisms(src, tgt, search_opts),
-            |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
-        )
+        // A search that could not be posed is reported rather than folded into
+        // the empty list, which the check below reads as "no morphism found".
+        domain_constraints
+            .map_or_else(
+                || find_morphisms(src, tgt, search_opts),
+                |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
+            )
+            .map_err(|e| LensError::ProtolensError(format!("the morphism search failed: {e}")))?
     };
 
     if morphisms.is_empty() {
@@ -1945,7 +2106,9 @@ mod tests {
         // The premise. Without this the two tiers below would agree and the
         // test would pass on a pair that never exercised the split.
         assert!(
-            find_morphisms(&src, &tgt, &SearchOptions::default()).is_empty(),
+            find_morphisms(&src, &tgt, &SearchOptions::default())
+                .unwrap()
+                .is_empty(),
             "the fixture stopped posing the case: a total morphism exists, so a span tier \
              and a total tier would return the same thing here"
         );

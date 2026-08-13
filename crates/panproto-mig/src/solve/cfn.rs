@@ -27,11 +27,13 @@
 //! position prefers a real image to a dropped vertex, and prefers the
 //! alphabetically earlier target among real images.
 //!
-//! Domains are [`Domain`], a 32-bit set with one bit per value and the top bit
-//! for `⊥`. The largest kind-compatible domain measured on the schema corpus is
-//! 18 real values, so 19 bits are in use and 13 are spare. A variable offered
-//! more than [`ValId::MAX_REAL_VALUES`] real values is rejected rather than
-//! truncated.
+//! Domains are [`Domain`], a 64-bit set with one bit per value and the top bit
+//! for `⊥`. A variable offered more than [`ValId::MAX_REAL_VALUES`] real values
+//! is **rejected** rather than truncated, and the rejection is reported: a
+//! source vertex's domain is every kind-compatible target vertex, so the
+//! ceiling is met by any target schema carrying 64 or more vertices of one
+//! kind, which an ordinary record type or a line-per-vertex parse reaches. See
+//! [`CfnError::DomainTooLarge`].
 //!
 //! # The scope uniqueness invariant
 //!
@@ -114,7 +116,7 @@ const COST_SCALE_FLOAT: f64 = 1.0e9;
 // Domain
 // ---------------------------------------------------------------------------
 
-/// The set of values one variable may take, as a 32-bit set.
+/// The set of values one variable may take, as a 64-bit set.
 ///
 /// Bit `i` stands for the value with index `i`, so bit
 /// [`ValId::MAX_REAL_VALUES`] stands for `⊥` and iteration in ascending bit
@@ -127,26 +129,26 @@ const COST_SCALE_FLOAT: f64 = 1.0e9;
 /// paid billions of times to guard against a state the builder already refuses
 /// to create.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct Domain(u32);
+pub struct Domain(u64);
 
 impl Domain {
     /// The empty domain.
     pub const EMPTY: Self = Self(0);
 
     /// The number of values a domain can represent, `⊥` included.
-    pub const CAPACITY: u32 = u32::BITS;
+    pub const CAPACITY: u32 = u64::BITS;
 
     /// The domain holding exactly the values in a bit pattern.
     #[inline]
     #[must_use]
-    pub const fn from_bits(bits: u32) -> Self {
+    pub const fn from_bits(bits: u64) -> Self {
         Self(bits)
     }
 
     /// The bit pattern, one bit per value index.
     #[inline]
     #[must_use]
-    pub const fn bits(self) -> u32 {
+    pub const fn bits(self) -> u64 {
         self.0
     }
 
@@ -228,10 +230,10 @@ impl IntoIterator for Domain {
 
 /// The bit pattern selecting one value, or zero if the index is out of range.
 #[inline]
-const fn mask(value: ValId) -> u32 {
+const fn mask(value: ValId) -> u64 {
     let index = value.raw();
     if index < Domain::CAPACITY {
-        1u32 << index
+        1u64 << index
     } else {
         0
     }
@@ -239,7 +241,7 @@ const fn mask(value: ValId) -> u32 {
 
 /// The values of a [`Domain`], in ascending order.
 #[derive(Clone, Debug)]
-pub struct DomainIter(u32);
+pub struct DomainIter(u64);
 
 impl Iterator for DomainIter {
     type Item = ValId;
@@ -731,10 +733,16 @@ impl CfnBuilder {
     /// [`VarId`] can number; [`CfnError::DuplicateVariable`] if one name is
     /// offered twice, since one variable per source vertex is what makes an
     /// assignment a vertex map; and [`CfnError::DomainTooLarge`] if some
-    /// variable is offered more distinct targets than a [`Domain`] can hold. The
-    /// largest domain measured on the schema corpus is 18 real values against a
-    /// ceiling of [`ValId::MAX_REAL_VALUES`], so the last is a guard rather than
-    /// a limit anything has met.
+    /// variable is offered more distinct targets than a [`Domain`] can hold.
+    ///
+    /// The last is a capacity the caller can meet on ordinary input: a source
+    /// vertex is offered every kind-compatible target vertex, so a target
+    /// schema with more than [`ValId::MAX_REAL_VALUES`] vertices of one kind
+    /// reaches it. A record type with that many fields of one type does, and so
+    /// does anything that makes one vertex per line or per token. Refusing is
+    /// the honest answer to a network that cannot be represented; truncating the
+    /// domain to fit would answer a different question and report the answer as
+    /// optimal.
     pub fn new(variables: Vec<(Name, Vec<Name>)>, weights: CostWeights) -> Result<Self, CfnError> {
         let count = u32::try_from(variables.len()).map_err(|_| CfnError::TooManyVariables {
             count: variables.len(),
@@ -1175,7 +1183,7 @@ mod tests {
 
     #[test]
     fn a_domain_round_trips_through_its_bits() {
-        for bits in [0u32, 1, 0b1010_1010, 0x8000_0001, u32::MAX] {
+        for bits in [0u64, 1, 0b1010_1010, 0x8000_0000_0000_0001, u64::MAX] {
             let domain = Domain::from_bits(bits);
             assert_eq!(domain.bits(), bits);
             assert_eq!(domain.len(), bits.count_ones() as usize);
@@ -1196,7 +1204,7 @@ mod tests {
         }
         domain.insert(ValId::BOTTOM);
         let seen: Vec<u32> = domain.iter().map(ValId::raw).collect();
-        assert_eq!(seen, vec![0, 3, 7, 30, 31]);
+        assert_eq!(seen, vec![0, 3, 7, 30, ValId::MAX_REAL_VALUES]);
         assert!(seen.windows(2).all(|pair| pair[0] < pair[1]));
     }
 
@@ -1224,7 +1232,7 @@ mod tests {
         }
         domain.insert(ValId::BOTTOM);
 
-        assert_eq!(domain.bits(), u32::MAX);
+        assert_eq!(domain.bits(), u64::MAX);
         assert_eq!(domain.len(), Domain::CAPACITY as usize);
         assert_eq!(domain.iter().last(), Some(ValId::BOTTOM));
     }

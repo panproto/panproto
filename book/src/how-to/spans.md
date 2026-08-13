@@ -101,6 +101,8 @@ A correspondence you *know* goes in [`SearchOptions::hard_pins`](https://docs.rs
 
 A span is the input a pushout wants. `SchemaSpan::to_overlap` produces the pair list `schema_pushout` expects, and `SchemaSpan::pushout` performs the merge, returning `src ⊔_A tgt` together with the two injections. The pushout is the integrated schema; the CLI reaches it through `schema integrate --auto-overlap`.
 
+The merge has a precondition: the right leg must not identify two apex vertices. A merge along the apex has to commute, and a right leg that sends two apex vertices to one target vertex makes that impossible, since the merge identifies elements by a map keyed on the target element and a repeated key names only one preimage. A contracting right leg is an ordinary answer from the default search, so `SchemaSpan::pushout` reports `SpanError::ContractingRightLeg` rather than returning a square that does not commute. Search with `SearchOptions::iso` for a span that embeds; `discover_overlap` does exactly that, which is why the CLI path is safe.
+
 ## Verification
 
 Every span carries a `SpanCertificate` recording what the construction proved rather than what it assumed:
