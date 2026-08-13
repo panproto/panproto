@@ -13,6 +13,15 @@
 //! something to say when the change dropped a field outright. Detected renames
 //! from [`crate::rename_detect`] are correspondences this crate computed, so
 //! they pin the search through [`SearchOptions::hard_pins`].
+//!
+//! The search is asked for an injective vertex map ([`SearchOptions::monic`]).
+//! A derived migration carries no resolver, so it has nothing to say about how
+//! two old vertices sent to one new vertex combine, and a search ranking
+//! candidates by coverage alone prefers exactly that: on the ordinary edit that
+//! renames one field and drops its siblings, sending every dropped sibling onto
+//! the renamed one covers more of the old schema than keeping the rename and
+//! dropping the rest. Insisting on injectivity leaves the honest partial map as
+//! the best answer, and leaves contraction to an explicit migration file.
 
 use panproto_gat::Name;
 use std::collections::HashMap;
@@ -162,7 +171,8 @@ fn induction_protocol(old: &Schema) -> Protocol {
 ///
 /// Returns `Some(migration)` if the span's right leg maps more vertices than
 /// the diff-derived migration does and the spliced result is a theory
-/// morphism, `None` otherwise.
+/// morphism, `None` otherwise. The leg is injective on vertices, so the
+/// returned migration never contracts.
 fn try_hom_search_enhancement(
     old: &Schema,
     new: &Schema,
@@ -179,7 +189,20 @@ fn try_hom_search_enhancement(
         );
     }
 
+    // The search is asked for an injective vertex map. A span that sends two
+    // old vertices to one new vertex is a contraction, and a contraction needs
+    // a resolver to say how the two sources combine. Auto-derivation has no
+    // resolver to offer: it leaves `resolver` empty and tells the user to
+    // supply an explicit migration file when contraction resolution is needed.
+    // Without this the search maximises coverage alone, so the ordinary edit
+    // that renames one field and drops its siblings scores the map sending
+    // every dropped sibling onto the renamed one above the map that keeps the
+    // rename and drops the rest, and the higher-coverage answer wins the
+    // adoption test below. Under `Pi` such a migration is rejected outright as
+    // a non-injective vertex map; under `Sigma` it silently reproduces each
+    // dropped field's data under the survivor.
     let opts = SearchOptions {
+        monic: true,
         hard_pins,
         ..SearchOptions::default()
     };

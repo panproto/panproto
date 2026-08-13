@@ -266,12 +266,29 @@ impl Repository {
                     }
 
                     // Rename recovery lives in `derive_migration`, which searches
-                    // for a span and adopts its right leg when that leg maps more
-                    // vertices than the diff-derived map and the spliced result
-                    // type-checks as a theory morphism. A second recovery pass
-                    // here could only run `find_best_morphism`, which answers only
-                    // when a total morphism exists and so is silent on exactly the
-                    // partial pairs rename recovery is for.
+                    // for an injective span and adopts its right leg when that leg
+                    // maps more vertices than the diff-derived map and the spliced
+                    // result type-checks as a theory morphism. Staging takes that
+                    // migration and stops.
+                    //
+                    // In particular it runs no second recovery pass over
+                    // `find_best_morphism` when the derived map covers little of
+                    // the old schema. Such a pass would fire, and what it would
+                    // adopt is wrong. Requiring a total morphism on a pair that
+                    // dropped vertices forces those vertices onto survivors, so the
+                    // candidate is a contraction; auto-derivation supplies no
+                    // resolver to say how the contracted vertices combine; and
+                    // `check_morphism` accepts it, since a contraction is a perfectly
+                    // good morphism. Adopting it costs a `Pi` lift outright and makes
+                    // a `Sigma` lift silently reproduce each dropped vertex's data
+                    // under the survivor. The tests
+                    // `auto_derived_migration_never_contracts`,
+                    // `the_total_morphism_these_pairs_admit_is_a_contraction`, and
+                    // `committed_migration_never_contracts` in
+                    // `tests/auto_migration.rs` hold this down from both ends: they
+                    // exhibit pairs where the gate such a pass would sit behind is
+                    // open and the total morphism exists, and assert the stored
+                    // migration is injective on vertices anyway.
                     let migration = auto_mig::derive_migration(&head_schema, schema, &schema_diff);
 
                     // Stamp the migration with the source and target schema

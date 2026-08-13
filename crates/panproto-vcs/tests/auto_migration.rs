@@ -18,8 +18,8 @@ use panproto_mig::{
     find_best_morphism, lift_wtype, lift_wtype_sigma, saturate_row_existence,
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder, Vertex, schema_pushout};
-use panproto_vcs::Repository;
 use panproto_vcs::rename_detect;
+use panproto_vcs::{Repository, Store};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -643,6 +643,244 @@ fn schema_pushout_with_overlap_and_lift() {
             pushout.has_vertex(&node.anchor),
             "lifted node anchor {} should exist in pushout",
             node.anchor
+        );
+    }
+}
+
+// ===========================================================================
+// Test 7: auto-derived migrations never contract
+// ===========================================================================
+
+/// Is every source vertex sent to a distinct target?
+fn vertex_map_is_injective(mig: &Migration) -> bool {
+    let mut seen = HashSet::new();
+    mig.vertex_map
+        .values()
+        .all(|target| seen.insert(target.clone()))
+}
+
+/// Fixtures whose diffs invite the span search to contract.
+///
+/// Each is `(label, old, new)`. Every one pairs a rename the diff reads as a
+/// removal plus an addition with removals that have no counterpart, which is
+/// the shape that scores a contraction above the honest partial map when the
+/// search ranks candidates by coverage alone.
+fn contraction_bait() -> Vec<(&'static str, Schema, Schema)> {
+    vec![
+        (
+            // Rename one field, drop its three siblings. The contraction sends
+            // all four onto the renamed field.
+            "rename one, drop three",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("a", "string"),
+                    ("b", "string"),
+                    ("c", "string"),
+                    ("d", "string"),
+                ],
+                &[
+                    ("root", "a", "prop", "a"),
+                    ("root", "b", "prop", "b"),
+                    ("root", "c", "prop", "c"),
+                    ("root", "d", "prop", "d"),
+                ],
+            ),
+            build_schema(
+                &[("root", "object"), ("keep", "string")],
+                &[("root", "keep", "prop", "a")],
+            ),
+        ),
+        (
+            // Five integer fields retyped to string, with one integer field
+            // added. Only the added field is kind-compatible with the five, so
+            // the sole total morphism sends all five onto it.
+            "retype five, add one of the old kind",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("i1", "integer"),
+                    ("i2", "integer"),
+                    ("i3", "integer"),
+                    ("i4", "integer"),
+                    ("i5", "integer"),
+                ],
+                &[
+                    ("root", "i1", "prop", "fk"),
+                    ("root", "i2", "prop", "fk"),
+                    ("root", "i3", "prop", "fk"),
+                    ("root", "i4", "prop", "fk"),
+                    ("root", "i5", "prop", "fk"),
+                ],
+            ),
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("s1", "string"),
+                    ("s2", "string"),
+                    ("s3", "string"),
+                    ("s4", "string"),
+                    ("s5", "string"),
+                    ("z", "integer"),
+                ],
+                &[
+                    ("root", "s1", "prop", "fk"),
+                    ("root", "s2", "prop", "fk"),
+                    ("root", "s3", "prop", "fk"),
+                    ("root", "s4", "prop", "fk"),
+                    ("root", "s5", "prop", "fk"),
+                    ("root", "z", "prop", "z"),
+                ],
+            ),
+        ),
+        (
+            // A pure deletion: four of five fields go away and nothing is
+            // added. The contraction sends the four onto the survivor.
+            "drop four of five fields",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("root.a", "string"),
+                    ("root.b", "string"),
+                    ("root.c", "string"),
+                    ("root.d", "string"),
+                    ("root.e", "string"),
+                ],
+                &[
+                    ("root", "root.a", "prop", "a"),
+                    ("root", "root.b", "prop", "b"),
+                    ("root", "root.c", "prop", "c"),
+                    ("root", "root.d", "prop", "d"),
+                    ("root", "root.e", "prop", "e"),
+                ],
+            ),
+            build_schema(
+                &[("root", "object"), ("root.a", "string")],
+                &[("root", "root.a", "prop", "a")],
+            ),
+        ),
+    ]
+}
+
+/// An auto-derived migration is injective on vertices.
+///
+/// Auto-derivation leaves `resolver` empty and directs the user to an explicit
+/// migration file when contraction resolution is needed, so a derived map that
+/// sends two old vertices to one new vertex is an unresolved contraction. Under
+/// `Pi` it is rejected as a non-injective vertex map; under `Sigma` it silently
+/// reproduces each contracted vertex's data under the shared target.
+#[test]
+fn auto_derived_migration_never_contracts() {
+    for (label, old, new) in contraction_bait() {
+        let d = panproto_check::diff::diff(&old, &new);
+        let mig = panproto_vcs::auto_mig::derive_migration(&old, &new, &d);
+
+        let mut pairs: Vec<(String, String)> = mig
+            .vertex_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        pairs.sort();
+        assert!(
+            vertex_map_is_injective(&mig),
+            "{label}: auto-derived migration contracts: {pairs:?}"
+        );
+    }
+}
+
+/// The contraction is what a total-morphism search offers on these pairs.
+///
+/// This is the fact that makes the previous test load-bearing rather than
+/// vacuous. On every fixture a total morphism exists, it covers every old
+/// vertex, it covers strictly more than the derived migration does, and it is a
+/// contraction. So a coverage-ranked second pass over `find_best_morphism`
+/// would find a candidate, clear a "derived map covers less than half" gate,
+/// pass `check_morphism`, and adopt the contraction. Staging runs no such pass:
+/// it takes `derive_migration` and stops.
+#[test]
+fn the_total_morphism_these_pairs_admit_is_a_contraction() {
+    for (label, old, new) in contraction_bait() {
+        let d = panproto_check::diff::diff(&old, &new);
+        let mig = panproto_vcs::auto_mig::derive_migration(&old, &new, &d);
+
+        let best = find_best_morphism(&old, &new, &SearchOptions::default())
+            .unwrap_or_else(|| panic!("{label}: expected a total morphism"));
+        assert_eq!(
+            best.vertex_map.len(),
+            old.vertex_count(),
+            "{label}: a total morphism covers every old vertex"
+        );
+        assert!(
+            best.vertex_map.len() > mig.vertex_map.len(),
+            "{label}: the total morphism must cover more than the derived map, \
+             or a coverage-ranked pass could not prefer it"
+        );
+        assert!(
+            mig.vertex_map.len() * 2 < old.vertex_count(),
+            "{label}: the derived map must fall under half, or the gate a \
+             second pass sits behind never opens"
+        );
+
+        let mut spliced = morphism_to_migration(&best);
+        spliced.hyper_edge_map.clone_from(&mig.hyper_edge_map);
+        spliced.label_map.clone_from(&mig.label_map);
+        assert!(
+            !vertex_map_is_injective(&spliced),
+            "{label}: the total morphism must be a contraction, or adopting it \
+             would be harmless and this fixture proves nothing"
+        );
+
+        let (dom, cod, morph) = panproto_mig::induced_theory_morphism(&old, &new, &spliced);
+        assert!(
+            panproto_gat::check_morphism(&morph, &dom, &cod).is_ok(),
+            "{label}: the contraction type-checks, so `check_morphism` is not \
+             what keeps it out of the stored migration"
+        );
+    }
+}
+
+/// The migration a commit stores is injective on vertices.
+///
+/// Same claim as `auto_derived_migration_never_contracts`, made of the object
+/// the repository actually writes rather than of the derivation in isolation,
+/// so that a recovery pass added between `derive_migration` and the store
+/// cannot reintroduce the contraction unnoticed.
+#[test]
+fn committed_migration_never_contracts() {
+    for (label, old, new) in contraction_bait() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut repo = Repository::init(dir.path()).unwrap();
+        repo.add(&old).unwrap();
+        repo.commit("old", "alice").unwrap();
+        repo.add(&new).unwrap();
+        let commit_id = repo.commit("new", "alice").unwrap();
+
+        let commit = match repo.store().get(&commit_id).unwrap() {
+            panproto_vcs::object::Object::Commit(c) => c,
+            other => panic!("{label}: expected Commit, got {}", other.type_name()),
+        };
+        let mig_id = commit
+            .migration_id
+            .unwrap_or_else(|| panic!("{label}: the second commit stores a migration"));
+        let stored = match repo.store().get(&mig_id).unwrap() {
+            panproto_vcs::object::Object::Migration { mapping, .. } => mapping,
+            other => panic!("{label}: expected Migration, got {}", other.type_name()),
+        };
+
+        let mut pairs: Vec<(String, String)> = stored
+            .vertex_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        pairs.sort();
+        assert!(
+            vertex_map_is_injective(&stored),
+            "{label}: the stored migration contracts: {pairs:?}"
+        );
+        assert!(
+            stored.resolver.is_empty(),
+            "{label}: auto-derivation supplies no contraction resolver, which \
+             is why the map above has to be injective"
         );
     }
 }

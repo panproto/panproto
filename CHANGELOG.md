@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **An auto-derived migration never contracts** (`panproto-vcs`): the span the rename-recovery pass asked for was ranked by coverage alone, so an ordinary edit that renamed one field and dropped its siblings derived a migration mapping every dropped field onto the survivor. Nothing downstream refused it: under `Pi` the lift rejects a non-injective vertex map, but under `Sigma` it succeeds and reproduces each dropped field's data under the survivor, so a schema change that removed three fields could commit a migration that silently duplicated their contents. The pass now asks for an injective span, which is what the module's contract already claimed: a contraction needs an explicit migration file, not a guess. Renames are still recovered and drops stay drops.
+
 ### Changed
 
 - **The morphism search returns a span, and the total morphism is the degenerate case** (`panproto-mig`): `find_span` returns `SchemaSpan`, a span `src ←ℓ─ A ─r→ tgt` whose apex is the sub-schema of the source induced on the vertices the search gave a target. It never refuses: leaving every vertex out is a feasible assignment, so two schemas with nothing in common get an empty apex rather than a failure, which on the measured corpus is the common answer because most real pairs admit no total morphism at all. `SchemaSpan::is_total` and `as_total_morphism` recover the older shape. Each span carries a `SpanCertificate` recording what the construction proved: whether the optimum was proven, what shape the two legs are, whether both are functorial, what the existence check reported **on each leg separately**, whether the apex has an entry point, the apex digest, the solver path, and the order the tie-break among equally good assignments was read in.
