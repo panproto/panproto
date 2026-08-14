@@ -83,7 +83,9 @@ pub use quality::reference_quality;
 pub use span::{DEFAULT_OPTIMA_CAP, EdgeImages, LegShape, SchemaSpan, SpanCertificate, SpanSearch};
 
 pub use solve::build::{BuildError, Evidence, NoEvidence};
-pub use solve::cfn::{Cfn, CfnBuilder, CfnError, CostFunction, Domain, DomainIter, Variable};
+pub use solve::cfn::{
+    Cfn, CfnBuilder, CfnError, CostFunction, Domain, DomainIter, Domains, Variable,
+};
 pub use solve::cost::{
     COST_SCALE, Cost, CostWeights, CostWeightsError, DEFAULT_WEIGHTS, DROP_UNIT,
     MAX_COVERAGE_RADIX, coverage_radix, quality_units,

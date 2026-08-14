@@ -27,13 +27,19 @@
 //! position prefers a real image to a dropped vertex, and prefers the
 //! alphabetically earlier target among real images.
 //!
-//! Domains are [`Domain`], a 64-bit set with one bit per value and the top bit
-//! for `⊥`. A variable offered more than [`ValId::MAX_REAL_VALUES`] real values
-//! is **rejected** rather than truncated, and the rejection is reported: a
-//! source vertex's domain is every kind-compatible target vertex, so the
-//! ceiling is met by any target schema carrying 64 or more vertices of one
-//! kind, which an ordinary record type or a line-per-vertex parse reaches. See
-//! [`CfnError::DomainTooLarge`].
+//! Every domain of one network lives in [`Domains`], one contiguous bit set of
+//! `n · words` machine words, and [`Domain`] is a borrowed view of one
+//! variable's block. `words` is a property of the network rather than of the
+//! type, so **nothing bounds how many targets a variable may be offered**: a
+//! record with a thousand fields of one type and a file parsed to one vertex
+//! per line are ordinary networks. `⊥` is bit zero of every block, which is
+//! what keeps its identity independent of the width, and the search's `⊥`-last
+//! order is stated by [`DomainIter`] rather than fallen out of the numbering.
+//!
+//! What does bound a network is memory, and that is measured rather than
+//! assumed: [`CfnBuilder`] adds up the cost table entries it is asked to
+//! allocate and refuses with [`CfnError::OverMemoryBudget`], which names the
+//! bytes and the budget.
 //!
 //! # The scope uniqueness invariant
 //!
@@ -101,9 +107,10 @@
 
 use panproto_gat::Name;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
 use super::cost::{COST_SCALE, Cost, CostWeights, coverage_radix};
-use super::{Assignment, ValId, VarId};
+use super::{Assignment, DEFAULT_MEM_BYTES, ValId, VarId};
 
 /// [`COST_SCALE`] as a float, for the one conversion [`Cfn::quality_of`] makes.
 ///
@@ -116,73 +123,96 @@ const COST_SCALE_FLOAT: f64 = 1.0e9;
 // Domain
 // ---------------------------------------------------------------------------
 
-/// The set of values one variable may take, as a 64-bit set.
+/// The word a value's bit lives in.
+#[inline]
+const fn word_of(value: ValId) -> usize {
+    (value.raw() / u64::BITS) as usize
+}
+
+/// The bit pattern selecting a value within its word.
+#[inline]
+const fn bit_of(value: ValId) -> u64 {
+    1u64 << (value.raw() % u64::BITS)
+}
+
+/// How many words a domain of this many slots, `⊥` included, needs.
+#[inline]
+#[must_use]
+const fn words_for(slots: u32) -> usize {
+    (slots as usize).div_ceil(u64::BITS as usize)
+}
+
+/// The set of values one variable may take, as a borrowed bit set.
 ///
-/// Bit `i` stands for the value with index `i`, so bit
-/// [`ValId::MAX_REAL_VALUES`] stands for `⊥` and iteration in ascending bit
-/// order puts `⊥` last with no separate ordering rule to maintain.
+/// Bit `i` stands for the value at slot `i`, so bit zero is `⊥` and bit `i + 1`
+/// is the `i`th target vertex in ascending name order. The block is as many
+/// words as the network needs and the view is [`Copy`], so reading a domain
+/// costs a slice reference rather than a copy of the bits.
 ///
-/// A value whose index is outside the representable range is treated as absent:
-/// [`Self::contains`] is false for it, [`Self::insert`] and [`Self::remove`] do
-/// nothing. That keeps every operation total, which matters because a domain is
-/// read in the innermost loop of the solver and a bounds check there would be
-/// paid billions of times to guard against a state the builder already refuses
-/// to create.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
-pub struct Domain(u64);
+/// A value whose slot is outside the block is treated as absent, so
+/// [`Self::contains`] is false for it. That keeps every operation total, which
+/// matters because a domain is read in the innermost loop of the solver.
+///
+/// Iteration is `⊥`-**last**, which is not the order of the bits; see
+/// [`DomainIter`].
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Domain<'a> {
+    bits: &'a [u64],
+}
 
-impl Domain {
-    /// The empty domain.
-    pub const EMPTY: Self = Self(0);
+impl Domain<'static> {
+    /// The empty domain, of no width at all.
+    ///
+    /// Every operation on it is the operation on a set holding nothing, so it
+    /// is what a lookup for a variable the network does not have reads as.
+    pub const EMPTY: Self = Self { bits: &[] };
+}
 
-    /// The number of values a domain can represent, `⊥` included.
-    pub const CAPACITY: u32 = u64::BITS;
-
-    /// The domain holding exactly the values in a bit pattern.
+impl<'a> Domain<'a> {
+    /// A view of one block of domain words.
     #[inline]
     #[must_use]
-    pub const fn from_bits(bits: u64) -> Self {
-        Self(bits)
+    pub const fn new(bits: &'a [u64]) -> Self {
+        Self { bits }
     }
 
-    /// The bit pattern, one bit per value index.
+    /// The bit pattern, one bit per value slot.
     #[inline]
     #[must_use]
-    pub const fn bits(self) -> u64 {
-        self.0
+    pub const fn bits(self) -> &'a [u64] {
+        self.bits
     }
 
     /// Whether the domain holds a value.
     #[inline]
     #[must_use]
-    pub const fn contains(self, value: ValId) -> bool {
-        self.0 & mask(value) != 0
-    }
-
-    /// Add a value.
-    #[inline]
-    pub const fn insert(&mut self, value: ValId) {
-        self.0 |= mask(value);
-    }
-
-    /// Remove a value.
-    #[inline]
-    pub const fn remove(&mut self, value: ValId) {
-        self.0 &= !mask(value);
+    pub fn contains(self, value: ValId) -> bool {
+        self.bits
+            .get(word_of(value))
+            .is_some_and(|word| word & bit_of(value) != 0)
     }
 
     /// How many values the domain holds.
     #[inline]
     #[must_use]
-    pub const fn len(self) -> usize {
-        self.0.count_ones() as usize
+    pub fn len(self) -> usize {
+        // The one-word case is peeled because it is the whole of the measured
+        // corpus, and a fold over a slice of length one does not reduce to a
+        // single population count on its own.
+        match self.bits {
+            [only] => only.count_ones() as usize,
+            words => words.iter().map(|word| word.count_ones() as usize).sum(),
+        }
     }
 
     /// Whether the domain holds nothing, which makes its variable unsatisfiable.
     #[inline]
     #[must_use]
-    pub const fn is_empty(self) -> bool {
-        self.0 == 0
+    pub fn is_empty(self) -> bool {
+        match self.bits {
+            [only] => *only == 0,
+            words => words.iter().all(|word| *word == 0),
+        }
     }
 
     /// The smallest value the domain holds.
@@ -191,83 +221,331 @@ impl Domain {
     /// the alphabetically earliest target among real values.
     #[inline]
     #[must_use]
-    pub const fn first(self) -> Option<ValId> {
-        if self.0 == 0 {
-            None
-        } else {
-            Some(ValId::from_index(self.0.trailing_zeros()))
-        }
+    pub fn first(self) -> Option<ValId> {
+        self.iter().next()
     }
 
     /// The one value the domain holds, or `None` if it holds none or several.
     #[inline]
     #[must_use]
-    pub const fn only(self) -> Option<ValId> {
-        if self.0.is_power_of_two() {
-            Some(ValId::from_index(self.0.trailing_zeros()))
+    pub fn only(self) -> Option<ValId> {
+        let mut walk = self.iter();
+        let found = walk.next()?;
+        if walk.next().is_none() {
+            Some(found)
         } else {
             None
         }
     }
 
-    /// The values, in ascending order, so `⊥` last.
+    /// The values, in the domain order: reals ascending, then `⊥`.
     #[inline]
     #[must_use]
-    pub const fn iter(self) -> DomainIter {
-        DomainIter(self.0)
+    pub fn iter(self) -> DomainIter<'a> {
+        DomainIter::new(self.bits)
     }
 }
 
-impl IntoIterator for Domain {
+impl<'a> IntoIterator for Domain<'a> {
     type Item = ValId;
-    type IntoIter = DomainIter;
+    type IntoIter = DomainIter<'a>;
 
     #[inline]
-    fn into_iter(self) -> DomainIter {
+    fn into_iter(self) -> DomainIter<'a> {
         self.iter()
     }
 }
 
-/// The bit pattern selecting one value, or zero if the index is out of range.
-#[inline]
-const fn mask(value: ValId) -> u64 {
-    let index = value.raw();
-    if index < Domain::CAPACITY {
-        1u64 << index
-    } else {
-        0
+/// The values of a [`Domain`], in the domain order.
+///
+/// **The order is reals ascending, then `⊥`**, and the walk implements that
+/// contract rather than inheriting it from the bit layout: `⊥` is bit zero, so
+/// an ascending walk of the bits would yield it first. It is held back and
+/// yielded once every real value has been, which is the order
+/// [`ValId::order_key`] sorts in and the order the canonical tie-break among
+/// tied optima is read in.
+#[derive(Clone, Debug)]
+pub struct DomainIter<'a> {
+    /// The whole block, so that the walk can move on to the next word.
+    bits: &'a [u64],
+    /// The word being drained, with the bits already yielded cleared.
+    current: u64,
+    /// Which word `current` came from.
+    word: usize,
+    /// Whether `⊥` is still owed.
+    bottom: bool,
+}
+
+impl<'a> DomainIter<'a> {
+    /// Start a walk over one block of domain words.
+    #[inline]
+    #[must_use]
+    fn new(bits: &'a [u64]) -> Self {
+        let first = bits.first().copied().unwrap_or(0);
+        Self {
+            bits,
+            // Bit zero is `⊥` and is owed at the end, so the walk over the reals
+            // never sees it.
+            current: first & !1,
+            word: 0,
+            bottom: first & 1 != 0,
+        }
     }
 }
 
-/// The values of a [`Domain`], in ascending order.
-#[derive(Clone, Debug)]
-pub struct DomainIter(u64);
-
-impl Iterator for DomainIter {
+impl Iterator for DomainIter<'_> {
     type Item = ValId;
 
     #[inline]
     fn next(&mut self) -> Option<ValId> {
-        if self.0 == 0 {
-            return None;
+        loop {
+            if self.current != 0 {
+                let bit = self.current.trailing_zeros();
+                // Clearing the lowest set bit is what makes the walk ascending
+                // within a word.
+                self.current &= self.current - 1;
+                // Saturating because the view is public and its width is the
+                // caller's: a slot past what a `ValId` can number is one no
+                // domain holds, and reading it as the last one is the same
+                // silent-absence rule the rest of the type follows.
+                let slot = u32::try_from(self.word)
+                    .unwrap_or(u32::MAX)
+                    .saturating_mul(u64::BITS)
+                    .saturating_add(bit);
+                return Some(ValId::from_index(slot));
+            }
+            match self.bits.get(self.word + 1) {
+                Some(word) => {
+                    self.word += 1;
+                    self.current = *word;
+                }
+                None => break,
+            }
         }
-        let index = self.0.trailing_zeros();
-        // Clearing the lowest set bit is what makes the walk ascending, and it
-        // is why `⊥`, which owns the highest bit, comes out last.
-        self.0 &= self.0 - 1;
-        Some(ValId::from_index(index))
+        if self.bottom {
+            self.bottom = false;
+            return Some(ValId::BOTTOM);
+        }
+        None
     }
 
     #[inline]
     fn size_hint(&self) -> (usize, Option<usize>) {
-        let remaining = self.0.count_ones() as usize;
+        let remaining = self.current.count_ones() as usize
+            + self
+                .bits
+                .get(self.word + 1..)
+                .unwrap_or_default()
+                .iter()
+                .map(|word| word.count_ones() as usize)
+                .sum::<usize>()
+            + usize::from(self.bottom);
         (remaining, Some(remaining))
     }
 }
 
-impl ExactSizeIterator for DomainIter {}
+impl ExactSizeIterator for DomainIter<'_> {}
 
-impl std::iter::FusedIterator for DomainIter {}
+impl std::iter::FusedIterator for DomainIter<'_> {}
+
+// ---------------------------------------------------------------------------
+// Domains
+// ---------------------------------------------------------------------------
+
+/// Every domain of one network, in one contiguous bit set.
+///
+/// One block of [`Self::words`] machine words per variable, laid out back to
+/// back, so a search that saves and restores the whole store on branching moves
+/// it with one copy rather than one per variable. The width is a property of
+/// the network: it is fixed at construction from the largest value count any
+/// variable was offered, and it is what removes the fixed ceiling a
+/// single-word domain would carry.
+///
+/// The store is used for two different jobs and both want the same layout: a
+/// network's live domains, and a scratch odometer over the positions of one
+/// cost function's scope. Nothing here knows which it is holding.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Domains {
+    /// `variables · words` words, block per variable.
+    bits: SmallVec<u64, 8>,
+    /// Words per block. At least one, so every variable has a `⊥` bit.
+    words: usize,
+}
+
+impl Default for Domains {
+    /// A store over no variables at all.
+    ///
+    /// The width is one rather than zero: a block is never narrower than the
+    /// word holding `⊥`, and the block arithmetic divides by it.
+    fn default() -> Self {
+        Self::new(0, 1)
+    }
+}
+
+impl Domains {
+    /// An empty store over `variables` blocks wide enough for `slots` values.
+    ///
+    /// `slots` counts `⊥`, so a variable offered `k` targets needs `k + 1`.
+    #[must_use]
+    pub fn new(variables: usize, slots: u32) -> Self {
+        let words = words_for(slots).max(1);
+        Self {
+            bits: smallvec::from_elem(0u64, variables.saturating_mul(words)),
+            words,
+        }
+    }
+
+    /// An empty store of the same width as another, over its own block count.
+    ///
+    /// The odometer a cost function is walked with has one block per scope
+    /// position and has to name the same values the network does, so it takes
+    /// its width from the network rather than from its own arity.
+    #[must_use]
+    pub fn like(other: &Self, blocks: usize) -> Self {
+        Self {
+            bits: smallvec::from_elem(0u64, blocks.saturating_mul(other.words)),
+            words: other.words,
+        }
+    }
+
+    /// How many words one block spans.
+    #[inline]
+    #[must_use]
+    pub const fn words(&self) -> usize {
+        self.words
+    }
+
+    /// Overwrite one block from a block of the same width.
+    ///
+    /// A block of the wrong width is ignored, on the same reasoning as
+    /// [`Self::copy_from`].
+    #[inline]
+    pub fn copy_block(&mut self, var: VarId, block: &[u64]) {
+        if block.len() != self.words {
+            return;
+        }
+        if let Some(target) = self.block_mut(var) {
+            target.copy_from_slice(block);
+        }
+    }
+
+    /// How many blocks the store holds.
+    #[inline]
+    #[must_use]
+    pub const fn len(&self) -> usize {
+        self.bits.len() / self.words
+    }
+
+    /// Whether the store holds no blocks at all.
+    #[inline]
+    #[must_use]
+    pub const fn is_empty(&self) -> bool {
+        self.bits.is_empty()
+    }
+
+    /// One variable's block, or an empty one if it has none.
+    #[inline]
+    #[must_use]
+    pub fn block(&self, var: VarId) -> &[u64] {
+        // Saturating rather than checked on both steps: a block index this
+        // arithmetic cannot represent is one the store does not hold, and the
+        // range lookup reports that as absent. An overflowing `+` here would
+        // panic instead, which is the one answer a total accessor must not
+        // give.
+        let start = var.index().saturating_mul(self.words);
+        let end = start.saturating_add(self.words);
+        self.bits.get(start..end).unwrap_or_default()
+    }
+
+    /// One variable's block, mutably.
+    #[inline]
+    fn block_mut(&mut self, var: VarId) -> Option<&mut [u64]> {
+        let start = var.index().checked_mul(self.words)?;
+        let end = start.checked_add(self.words)?;
+        self.bits.get_mut(start..end)
+    }
+
+    /// One variable's domain.
+    #[inline]
+    #[must_use]
+    pub fn get(&self, var: VarId) -> Domain<'_> {
+        Domain::new(self.block(var))
+    }
+
+    /// Add a value to one variable's domain.
+    #[inline]
+    pub fn insert(&mut self, var: VarId, value: ValId) {
+        let word = word_of(value);
+        if let Some(cell) = self.block_mut(var).and_then(|block| block.get_mut(word)) {
+            *cell |= bit_of(value);
+        }
+    }
+
+    /// Take a value out of one variable's domain.
+    #[inline]
+    pub fn remove(&mut self, var: VarId, value: ValId) {
+        let word = word_of(value);
+        if let Some(cell) = self.block_mut(var).and_then(|block| block.get_mut(word)) {
+            *cell &= !bit_of(value);
+        }
+    }
+
+    /// Reduce one variable's domain to a single value, or to nothing if it did
+    /// not hold that value.
+    pub fn assign(&mut self, var: VarId, value: ValId) {
+        let word = word_of(value);
+        let bit = bit_of(value);
+        if let Some(block) = self.block_mut(var) {
+            let held = block.get(word).is_some_and(|cell| cell & bit != 0);
+            block.fill(0);
+            if held {
+                if let Some(cell) = block.get_mut(word) {
+                    *cell = bit;
+                }
+            }
+        }
+    }
+
+    /// Whether one variable's domain holds a value.
+    #[inline]
+    #[must_use]
+    pub fn contains(&self, var: VarId, value: ValId) -> bool {
+        self.get(var).contains(value)
+    }
+
+    /// Whether some variable has no values left, which makes the network
+    /// unsatisfiable.
+    #[must_use]
+    pub fn any_empty(&self) -> bool {
+        (0..self.len())
+            .filter_map(|index| u32::try_from(index).ok())
+            .any(|index| self.get(VarId::new(index)).is_empty())
+    }
+
+    /// Overwrite every block from another store of the same shape.
+    ///
+    /// The counterpart of copy-on-branch, and one copy rather than one per
+    /// variable. A store of a different shape is ignored rather than partially
+    /// applied, since a partial restore is a silently wrong network.
+    pub fn copy_from(&mut self, other: &Self) {
+        if self.words == other.words && self.bits.len() == other.bits.len() {
+            self.bits.copy_from_slice(&other.bits);
+        }
+    }
+
+    /// Every word of every block, in variable order.
+    #[inline]
+    #[must_use]
+    pub fn bits(&self) -> &[u64] {
+        &self.bits
+    }
+
+    /// Every variable identifier the store has a block for.
+    #[inline]
+    pub fn variable_ids(&self) -> impl Iterator<Item = VarId> + '_ {
+        (0..self.len()).filter_map(|index| u32::try_from(index).ok().map(VarId::new))
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Variable
@@ -282,7 +560,6 @@ impl std::iter::FusedIterator for DomainIter {}
 pub struct Variable {
     name: Name,
     values: Vec<Name>,
-    domain: Domain,
 }
 
 impl Variable {
@@ -302,13 +579,6 @@ impl Variable {
         &self.values
     }
 
-    /// The values still available, `⊥` included.
-    #[inline]
-    #[must_use]
-    pub const fn domain(&self) -> Domain {
-        self.domain
-    }
-
     /// How many table slots this variable spans, which is one per real value
     /// plus one for `⊥`.
     #[inline]
@@ -320,8 +590,16 @@ impl Variable {
     /// The table slot a value occupies, or `None` if it is not a value of this
     /// variable.
     ///
-    /// `⊥` takes the last slot, which is what puts it last in every table the
-    /// same way it is last in every domain.
+    /// **A table slot is not a domain bit.** `⊥` is bit zero of a [`Domain`]
+    /// and the *last* slot of a cost table, and the two numberings differ by
+    /// exactly that rotation: real value `i` is bit `i + 1` and slot `i`. Cost
+    /// tables are row-major over slots, so keeping `⊥` last there is what makes
+    /// a table's layout independent of how a domain stores its bits, and it is
+    /// why moving `⊥` to bit zero left every table untouched.
+    ///
+    /// Both numberings agree on the *order*, which is the thing the search's
+    /// tie-break reads: `⊥` sorts last, by [`ValId::order_key`] and by
+    /// [`DomainIter`] alike.
     #[inline]
     #[must_use]
     pub fn slot(&self, value: ValId) -> Option<usize> {
@@ -409,6 +687,7 @@ impl CostFunction {
 #[derive(Clone, Debug, PartialEq)]
 pub struct Cfn {
     variables: Vec<Variable>,
+    domains: Domains,
     unary: Vec<Vec<Cost>>,
     functions: Vec<CostFunction>,
     c_empty: Cost,
@@ -461,9 +740,9 @@ impl Cfn {
     /// against its budget.
     #[must_use]
     pub fn max_domain(&self) -> usize {
-        self.variables
-            .iter()
-            .map(|variable| variable.domain.len())
+        self.domains
+            .variable_ids()
+            .map(|var| self.domains.get(var).len())
             .max()
             .unwrap_or(0)
     }
@@ -472,8 +751,22 @@ impl Cfn {
     /// out of range.
     #[inline]
     #[must_use]
-    pub fn domain(&self, var: VarId) -> Option<Domain> {
-        self.variables.get(var.index()).map(Variable::domain)
+    pub fn domain(&self, var: VarId) -> Option<Domain<'_>> {
+        if var.index() < self.variables.len() {
+            Some(self.domains.get(var))
+        } else {
+            None
+        }
+    }
+
+    /// Every domain, in one contiguous bit set.
+    ///
+    /// This is what a working copy starts from, so it is handed out whole
+    /// rather than one variable at a time.
+    #[inline]
+    #[must_use]
+    pub const fn domains(&self) -> &Domains {
+        &self.domains
     }
 
     /// The unary cost table of one variable, indexed by slot.
@@ -677,6 +970,23 @@ impl Cfn {
     }
 }
 
+/// Whether the cost tables built so far are still inside the memory budget.
+///
+/// The check is on entries rather than on an allocation that already happened,
+/// so a network too large to hold is refused before it is held.
+fn check_budget(entries: u64, budget: u64) -> Result<(), CfnError> {
+    let cell = u64::try_from(size_of::<Cost>()).unwrap_or(u64::MAX);
+    let bytes = entries.saturating_mul(cell);
+    if bytes > budget {
+        return Err(CfnError::OverMemoryBudget {
+            entries,
+            bytes,
+            budget,
+        });
+    }
+    Ok(())
+}
+
 /// How many entries a table over a scope has.
 fn table_length(variables: &[Variable], scope: &[VarId]) -> Option<usize> {
     let mut length = 1usize;
@@ -705,12 +1015,17 @@ fn table_length(variables: &[Variable], scope: &[VarId]) -> Option<usize> {
 #[derive(Clone, Debug)]
 pub struct CfnBuilder {
     variables: Vec<Variable>,
+    domains: Domains,
     unary: Vec<Vec<Cost>>,
     functions: Vec<CostFunction>,
     by_scope: FxHashMap<Vec<VarId>, usize>,
     c_empty: Cost,
     radix: u64,
     weights: CostWeights,
+    /// Cost table entries allocated so far, unary tables included.
+    entries: u64,
+    /// The bytes those entries may reach before the builder refuses.
+    mem_bytes: u64,
 }
 
 impl CfnBuilder {
@@ -732,25 +1047,45 @@ impl CfnBuilder {
     /// [`CfnError::TooManyVariables`] if there are more variables than a
     /// [`VarId`] can number; [`CfnError::DuplicateVariable`] if one name is
     /// offered twice, since one variable per source vertex is what makes an
-    /// assignment a vertex map; and [`CfnError::DomainTooLarge`] if some
-    /// variable is offered more distinct targets than a [`Domain`] can hold.
+    /// assignment a vertex map; and [`CfnError::OverMemoryBudget`] if the unary
+    /// tables alone would exceed [`DEFAULT_MEM_BYTES`].
     ///
-    /// The last is a capacity the caller can meet on ordinary input: a source
-    /// vertex is offered every kind-compatible target vertex, so a target
-    /// schema with more than [`ValId::MAX_REAL_VALUES`] vertices of one kind
-    /// reaches it. A record type with that many fields of one type does, and so
-    /// does anything that makes one vertex per line or per token. Refusing is
-    /// the honest answer to a network that cannot be represented; truncating the
-    /// domain to fit would answer a different question and report the answer as
-    /// optimal.
+    /// **No domain size is refused.** A source vertex is offered every
+    /// kind-compatible target vertex, so a wide record type or a
+    /// line-per-vertex parse gives one variable hundreds of values, and that is
+    /// an ordinary network. What is refused is measured memory, and
+    /// [`Self::with_mem_bytes`] is where a caller sets the figure.
     pub fn new(variables: Vec<(Name, Vec<Name>)>, weights: CostWeights) -> Result<Self, CfnError> {
+        Self::with_mem_bytes(variables, weights, DEFAULT_MEM_BYTES)
+    }
+
+    /// [`Self::new`], against an explicit memory budget for the cost tables.
+    ///
+    /// The budget is checked before anything is allocated, against the entry
+    /// count the variable list implies and then again against every cost
+    /// function offered. It is the same quantity the dispatcher's
+    /// [`SearchBudget::mem_bytes`](super::SearchBudget::mem_bytes) bounds for
+    /// exact inference, applied one step earlier: a network too large to hold
+    /// is refused where it would be built rather than where it would be solved.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::new`], with the budget this call names.
+    pub fn with_mem_bytes(
+        variables: Vec<(Name, Vec<Name>)>,
+        weights: CostWeights,
+        mem_bytes: usize,
+    ) -> Result<Self, CfnError> {
         let count = u32::try_from(variables.len()).map_err(|_| CfnError::TooManyVariables {
             count: variables.len(),
         })?;
+        let mem_bytes = u64::try_from(mem_bytes).unwrap_or(u64::MAX);
 
         let mut built = Vec::with_capacity(variables.len());
-        let mut unary = Vec::with_capacity(variables.len());
+        let mut slot_counts = Vec::with_capacity(variables.len());
         let mut seen: FxHashMap<Name, usize> = FxHashMap::default();
+        let mut entries = 0u64;
+        let mut widest = 1u32;
         for (position, (name, mut values)) in variables.into_iter().enumerate() {
             if let Some(&first) = seen.get(&name) {
                 return Err(CfnError::DuplicateVariable {
@@ -762,37 +1097,43 @@ impl CfnBuilder {
             seen.insert(name.clone(), position);
             values.sort_by(|left, right| left.as_str().cmp(right.as_str()));
             values.dedup();
-            let real = u32::try_from(values.len()).unwrap_or(u32::MAX);
-            if real > ValId::MAX_REAL_VALUES {
-                return Err(CfnError::DomainTooLarge {
-                    variable: name,
+            let slots = u32::try_from(values.len())
+                .ok()
+                .and_then(|real| real.checked_add(1))
+                .ok_or_else(|| CfnError::TooManyValues {
+                    variable: name.clone(),
                     values: values.len(),
-                    limit: ValId::MAX_REAL_VALUES,
-                });
-            }
+                })?;
+            widest = widest.max(slots);
+            entries = entries.saturating_add(u64::from(slots));
+            slot_counts.push(slots);
+            built.push(Variable { name, values });
+        }
+        check_budget(entries, mem_bytes)?;
 
-            let mut domain = Domain::EMPTY;
-            for index in 0..real {
-                domain.insert(ValId::real(index));
+        let mut domains = Domains::new(built.len(), widest);
+        let mut unary = Vec::with_capacity(built.len());
+        for (index, slots) in slot_counts.into_iter().enumerate() {
+            let var = VarId::new(u32::try_from(index).unwrap_or(u32::MAX));
+            // `⊥` is slot zero and the reals follow it, so a full domain is the
+            // low `slots` bits of the block.
+            for slot in 0..slots {
+                domains.insert(var, ValId::from_index(slot));
             }
-            domain.insert(ValId::BOTTOM);
-
-            unary.push(vec![Cost::BOT; values.len() + 1]);
-            built.push(Variable {
-                name,
-                values,
-                domain,
-            });
+            unary.push(vec![Cost::BOT; slots as usize]);
         }
 
         Ok(Self {
             variables: built,
+            domains,
             unary,
             functions: Vec::new(),
             by_scope: FxHashMap::default(),
             c_empty: Cost::BOT,
             radix: coverage_radix(count),
             weights,
+            entries,
+            mem_bytes,
         })
     }
 
@@ -978,6 +1319,12 @@ impl CfnBuilder {
                         *entry = entry.combine(added, Cost::TOP_SENTINEL);
                     }
                 } else {
+                    // Only a new scope allocates: merging into one that already
+                    // has a function reuses its table.
+                    self.entries = self
+                        .entries
+                        .saturating_add(u64::try_from(table.len()).unwrap_or(u64::MAX));
+                    check_budget(self.entries, self.mem_bytes)?;
                     self.by_scope.insert(scope.to_vec(), self.functions.len());
                     self.functions.push(CostFunction {
                         scope: scope.to_vec(),
@@ -1003,6 +1350,7 @@ impl CfnBuilder {
         );
         Cfn {
             variables: self.variables,
+            domains: self.domains,
             unary: self.unary,
             functions: self.functions,
             c_empty: self.c_empty,
@@ -1060,15 +1408,38 @@ pub enum CfnError {
         second: usize,
     },
 
-    /// A variable was offered more distinct targets than a domain can hold.
-    #[error("variable `{variable}` was offered {values} targets, above the limit of {limit}")]
-    DomainTooLarge {
+    /// A variable was offered more distinct targets than a [`ValId`] can
+    /// number.
+    ///
+    /// The numbering is a `u32` with slot zero taken by `⊥`, so this is
+    /// `u32::MAX` targets on one variable. Nothing that reads a schema reaches
+    /// it: the memory budget binds first by four orders of magnitude, and it is
+    /// here so that the numbering cannot wrap in silence.
+    #[error("variable `{variable}` was offered {values} targets, more than a value can number")]
+    TooManyValues {
         /// The source vertex the variable stands for.
         variable: Name,
         /// How many distinct targets it was offered.
         values: usize,
-        /// How many a domain can hold.
-        limit: u32,
+    },
+
+    /// The cost tables the network was asked to hold exceed the memory budget.
+    ///
+    /// This is a measurement, not a capacity: it names the bytes the tables
+    /// come to and the budget they were checked against, and both move with the
+    /// caller's [`CfnBuilder::with_mem_bytes`]. No domain size is refused on
+    /// its own account.
+    #[error(
+        "the network's cost tables need {bytes} bytes for {entries} entries, \
+         above the budget of {budget} bytes"
+    )]
+    OverMemoryBudget {
+        /// Cost table entries the network was asked to allocate.
+        entries: u64,
+        /// What those entries come to in bytes.
+        bytes: u64,
+        /// The budget they were checked against.
+        budget: u64,
     },
 
     /// A variable identifier named no variable of the network.
@@ -1181,40 +1552,79 @@ mod tests {
 
     // -- Domain ------------------------------------------------------------
 
+    /// A one-block store holding exactly the given values.
+    fn domain_of(slots: u32, values: &[ValId]) -> Domains {
+        let mut store = Domains::new(1, slots);
+        for value in values {
+            store.insert(A, *value);
+        }
+        store
+    }
+
     #[test]
     fn a_domain_round_trips_through_its_bits() {
-        for bits in [0u64, 1, 0b1010_1010, 0x8000_0000_0000_0001, u64::MAX] {
-            let domain = Domain::from_bits(bits);
-            assert_eq!(domain.bits(), bits);
-            assert_eq!(domain.len(), bits.count_ones() as usize);
-            assert_eq!(domain.is_empty(), bits == 0);
-            let rebuilt = domain.iter().fold(Domain::EMPTY, |mut acc, value| {
-                acc.insert(value);
-                acc
-            });
-            assert_eq!(rebuilt, domain);
+        for bits in [
+            vec![0u64],
+            vec![1],
+            vec![0b1010_1010],
+            vec![0x8000_0000_0000_0001],
+            vec![u64::MAX],
+            vec![u64::MAX, 0b1011],
+            vec![0, 1 << 63, 3],
+        ] {
+            let domain = Domain::new(&bits);
+            let expected: usize = bits.iter().map(|word| word.count_ones() as usize).sum();
+            assert_eq!(domain.len(), expected);
+            assert_eq!(domain.is_empty(), expected == 0);
+
+            let slots = u32::try_from(bits.len()).unwrap() * u64::BITS;
+            let mut rebuilt = Domains::new(1, slots);
+            for value in domain {
+                rebuilt.insert(A, value);
+            }
+            assert_eq!(rebuilt.get(A).bits(), bits.as_slice());
         }
     }
 
     #[test]
-    fn a_domain_iterates_in_ascending_order() {
-        let mut domain = Domain::EMPTY;
-        for index in [7u32, 0, 30, 3] {
-            domain.insert(ValId::real(index));
-        }
-        domain.insert(ValId::BOTTOM);
-        let seen: Vec<u32> = domain.iter().map(ValId::raw).collect();
-        assert_eq!(seen, vec![0, 3, 7, 30, ValId::MAX_REAL_VALUES]);
+    fn a_domain_iterates_reals_ascending_then_bottom() {
+        let store = domain_of(
+            64,
+            &[
+                ValId::real(7),
+                ValId::real(0),
+                ValId::real(30),
+                ValId::real(3),
+                ValId::BOTTOM,
+            ],
+        );
+        let seen: Vec<ValId> = store.get(A).iter().collect();
+        assert_eq!(
+            seen,
+            vec![
+                ValId::real(0),
+                ValId::real(3),
+                ValId::real(7),
+                ValId::real(30),
+                ValId::BOTTOM,
+            ]
+        );
+        // The walk agrees with the order `Ord` reports, which is what the
+        // canonical tie-break among tied optima is read in.
         assert!(seen.windows(2).all(|pair| pair[0] < pair[1]));
+        // And it is *not* the order of the stored slots: `⊥` is slot zero.
+        let raw: Vec<u32> = seen.iter().map(|value| value.raw()).collect();
+        assert_eq!(raw, vec![1, 4, 8, 31, 0]);
     }
 
     #[test]
     fn a_domain_holds_nineteen_real_values_and_bottom() {
-        let mut domain = Domain::EMPTY;
+        let mut store = Domains::new(1, 20);
         for index in 0..19u32 {
-            domain.insert(ValId::real(index));
+            store.insert(A, ValId::real(index));
         }
-        domain.insert(ValId::BOTTOM);
+        store.insert(A, ValId::BOTTOM);
+        let domain = store.get(A);
 
         assert_eq!(domain.len(), 20);
         assert!(domain.contains(ValId::BOTTOM));
@@ -1225,37 +1635,68 @@ mod tests {
     }
 
     #[test]
-    fn a_domain_holds_the_whole_representable_range() {
-        let mut domain = Domain::EMPTY;
-        for index in 0..ValId::MAX_REAL_VALUES {
-            domain.insert(ValId::real(index));
+    fn a_domain_is_as_wide_as_the_network_asks_for() {
+        // The point of the representation: a variable offered two hundred
+        // targets is an ordinary variable, and nothing about the word size
+        // shows through.
+        let count = 200u32;
+        let mut store = Domains::new(1, count + 1);
+        for index in 0..count {
+            store.insert(A, ValId::real(index));
         }
-        domain.insert(ValId::BOTTOM);
+        store.insert(A, ValId::BOTTOM);
+        let domain = store.get(A);
 
-        assert_eq!(domain.bits(), u64::MAX);
-        assert_eq!(domain.len(), Domain::CAPACITY as usize);
+        assert_eq!(store.words(), 4);
+        assert_eq!(domain.len(), count as usize + 1);
+        assert_eq!(domain.first(), Some(ValId::real(0)));
         assert_eq!(domain.iter().last(), Some(ValId::BOTTOM));
+        assert_eq!(
+            domain.iter().nth(199),
+            Some(ValId::real(199)),
+            "the last real value comes before `⊥`, three words up"
+        );
     }
 
     #[test]
     fn removing_values_leaves_first_and_only_consistent() {
-        let mut domain = Domain::EMPTY;
-        domain.insert(ValId::real(2));
-        domain.insert(ValId::real(5));
-        domain.insert(ValId::BOTTOM);
-        assert_eq!(domain.only(), None);
-        assert_eq!(domain.first(), Some(ValId::real(2)));
+        let mut store = domain_of(64, &[ValId::real(2), ValId::real(5), ValId::BOTTOM]);
+        assert_eq!(store.get(A).only(), None);
+        assert_eq!(store.get(A).first(), Some(ValId::real(2)));
 
-        domain.remove(ValId::real(2));
-        domain.remove(ValId::BOTTOM);
-        assert_eq!(domain.only(), Some(ValId::real(5)));
-        assert_eq!(domain.first(), Some(ValId::real(5)));
+        store.remove(A, ValId::real(2));
+        store.remove(A, ValId::BOTTOM);
+        assert_eq!(store.get(A).only(), Some(ValId::real(5)));
+        assert_eq!(store.get(A).first(), Some(ValId::real(5)));
 
-        domain.remove(ValId::real(5));
-        assert!(domain.is_empty());
-        assert_eq!(domain.first(), None);
-        assert_eq!(domain.only(), None);
-        assert_eq!(domain.iter().next(), None);
+        store.remove(A, ValId::real(5));
+        assert!(store.get(A).is_empty());
+        assert_eq!(store.get(A).first(), None);
+        assert_eq!(store.get(A).only(), None);
+        assert_eq!(store.get(A).iter().next(), None);
+    }
+
+    #[test]
+    fn only_reports_bottom_alone_across_word_boundaries() {
+        // `⊥` is bit zero, so a store whose only value is `⊥` has a set bit in
+        // the first word and nothing anywhere else.
+        let store = domain_of(200, &[ValId::BOTTOM]);
+        assert_eq!(store.get(A).only(), Some(ValId::BOTTOM));
+        assert_eq!(store.get(A).first(), Some(ValId::BOTTOM));
+
+        let far = domain_of(200, &[ValId::real(150)]);
+        assert_eq!(far.get(A).only(), Some(ValId::real(150)));
+    }
+
+    #[test]
+    fn assigning_a_value_the_domain_lacks_empties_it() {
+        let mut store = domain_of(200, &[ValId::real(3), ValId::real(150), ValId::BOTTOM]);
+        store.assign(A, ValId::real(150));
+        assert_eq!(store.get(A).only(), Some(ValId::real(150)));
+
+        let mut absent = domain_of(200, &[ValId::real(3)]);
+        absent.assign(A, ValId::real(150));
+        assert!(absent.get(A).is_empty());
     }
 
     // -- Domains of a built network ----------------------------------------
@@ -1276,7 +1717,7 @@ mod tests {
             let domain = cfn.domain(var).unwrap();
             assert!(domain.contains(ValId::BOTTOM), "{var:?} has no bottom");
             assert_eq!(domain.iter().last(), Some(ValId::BOTTOM));
-            let seen: Vec<u32> = domain.iter().map(ValId::raw).collect();
+            let seen: Vec<ValId> = domain.iter().collect();
             assert!(seen.windows(2).all(|pair| pair[0] < pair[1]));
         }
 
@@ -1334,13 +1775,63 @@ mod tests {
     }
 
     #[test]
-    fn a_domain_beyond_the_representable_range_is_rejected() {
-        let targets: Vec<Name> = (0..=ValId::MAX_REAL_VALUES)
+    fn a_wide_domain_is_built_rather_than_refused() {
+        // Two hundred kind-compatible targets is an ordinary record type and an
+        // ordinary line-per-vertex parse. No word size has anything to say
+        // about it.
+        let targets: Vec<Name> = (0..200u32)
             .map(|index| name(&format!("t{index:03}")))
             .collect();
-        let error = CfnBuilder::new(vec![(name("a"), targets)], DEFAULT_WEIGHTS).unwrap_err();
+        let cfn = CfnBuilder::new(vec![(name("a"), targets)], DEFAULT_WEIGHTS)
+            .unwrap()
+            .build();
+        let domain = cfn.domain(A).unwrap();
+        assert_eq!(domain.len(), 201);
+        assert_eq!(domain.iter().last(), Some(ValId::BOTTOM));
+        assert_eq!(cfn.variable(A).unwrap().slots(), 201);
+    }
+
+    #[test]
+    fn a_network_over_the_memory_budget_is_refused_with_its_measurement() {
+        // Nothing about the domain is refused: what is refused is the bytes the
+        // cost tables come to, and the refusal reports them.
+        let targets: Vec<Name> = (0..200u32)
+            .map(|index| name(&format!("t{index:03}")))
+            .collect();
+        let spec: Vec<(Name, Vec<Name>)> = (0..200u32)
+            .map(|index| (name(&format!("s{index:03}")), targets.clone()))
+            .collect();
+
+        let error = CfnBuilder::with_mem_bytes(spec.clone(), DEFAULT_WEIGHTS, 1024).unwrap_err();
+        let CfnError::OverMemoryBudget {
+            entries,
+            bytes,
+            budget,
+        } = error
+        else {
+            panic!("a network over the budget must report the budget: {error:?}");
+        };
+        assert_eq!(entries, 200 * 201);
+        assert_eq!(bytes, entries * size_of::<Cost>() as u64);
+        assert_eq!(budget, 1024);
+
+        // The same network is ordinary against an ordinary budget.
+        assert!(CfnBuilder::new(spec, DEFAULT_WEIGHTS).is_ok());
+    }
+
+    #[test]
+    fn a_cost_function_that_breaks_the_budget_is_refused() {
+        let targets: Vec<Name> = (0..40u32)
+            .map(|index| name(&format!("t{index:02}")))
+            .collect();
+        let spec = vec![(name("a"), targets.clone()), (name("b"), targets)];
+        // The unary tables are 82 entries; one binary table is 41 x 41.
+        let mut builder = CfnBuilder::with_mem_bytes(spec, DEFAULT_WEIGHTS, 82 * 8 + 8).unwrap();
+        let error = builder
+            .add_function(&[A, B], vec![Cost::BOT; 41 * 41])
+            .unwrap_err();
         assert!(
-            matches!(error, CfnError::DomainTooLarge { .. }),
+            matches!(error, CfnError::OverMemoryBudget { entries, .. } if entries == 82 + 41 * 41),
             "{error:?}"
         );
     }

@@ -75,8 +75,9 @@
 use std::hash::Hasher;
 
 use rustc_hash::FxHasher;
+use smallvec::SmallVec;
 
-use super::cfn::{Cfn, Domain};
+use super::cfn::{Cfn, Domain, Domains};
 use super::cost::Cost;
 use super::{ValId, VarId};
 
@@ -178,22 +179,24 @@ pub struct TrailMark(usize);
 ///
 /// Cost cells are trailed, because they are what the EPTs accumulate and
 /// undoing them one at a time is far cheaper than rebuilding them. Domains are
-/// **not**: they are one `u64` per variable, so a search copies the whole
-/// domain vector on branching and restores it by assignment. Mixing the two is
-/// deliberate and the sizes are the reason.
+/// **not**: [`Domains`] is one contiguous bit set, so a search copies the whole
+/// store on branching and restores it with one copy. Mixing the two is
+/// deliberate and the sizes are the reason: at the measured widths a
+/// save-and-restore pair is five orders of magnitude below the enforcement it
+/// brackets.
 #[derive(Clone, Debug)]
 pub struct Network {
     /// Table slots per variable, which is its real value count plus one for `⊥`.
     slots: Vec<usize>,
 
     /// The values each variable may still take.
-    domains: Vec<Domain>,
+    domains: Domains,
 
     /// The pristine cost cells, for [`Self::reset`].
     origin_cells: Vec<Cost>,
 
     /// The pristine domains, for [`Self::reset`].
-    origin_domains: Vec<Domain>,
+    origin_domains: Domains,
 
     /// Every mutable cost, in the layout the type docs describe.
     cells: Vec<Cost>,
@@ -254,13 +257,12 @@ impl Network {
     pub fn from_cfn(cfn: &Cfn, top: Cost) -> Self {
         let count = cfn.n_variables();
         let mut slots = Vec::with_capacity(count);
-        let mut domains = Vec::with_capacity(count);
+        let domains = cfn.domains().clone();
         let mut unary_at = Vec::with_capacity(count);
         let mut cells = vec![cfn.c_empty()];
 
         for (var, variable) in cfn.variable_ids().zip(cfn.variables()) {
             slots.push(variable.slots());
-            domains.push(variable.domain());
             unary_at.push(cells.len());
             let table = cfn.unary(var).unwrap_or(&[]);
             debug_assert_eq!(
@@ -327,7 +329,7 @@ impl Network {
     /// table.
     pub fn reset(&mut self, top: Cost) {
         self.cells.copy_from_slice(&self.origin_cells);
-        self.domains.copy_from_slice(&self.origin_domains);
+        self.domains.copy_from(&self.origin_domains);
         self.trail.clear();
         self.reset_contributions();
         self.top = top;
@@ -466,47 +468,46 @@ impl Network {
     /// The values one variable may still take.
     #[inline]
     #[must_use]
-    pub fn domain(&self, var: VarId) -> Domain {
-        self.domains
-            .get(var.index())
-            .copied()
-            .unwrap_or(Domain::EMPTY)
+    pub fn domain(&self, var: VarId) -> Domain<'_> {
+        self.domains.get(var)
     }
 
-    /// Every domain, indexed by variable.
+    /// Every domain, in one contiguous bit set.
     #[inline]
     #[must_use]
-    pub fn domains(&self) -> &[Domain] {
+    pub const fn domains(&self) -> &Domains {
         &self.domains
     }
 
     /// Put every domain back to a saved copy.
     ///
-    /// The counterpart of copy-on-branch. A slice of the wrong length is
+    /// The counterpart of copy-on-branch. A store of the wrong shape is
     /// ignored rather than partially applied, since a partial restore is a
     /// silently wrong network.
-    pub fn set_domains(&mut self, domains: &[Domain]) {
-        if domains.len() == self.domains.len() {
-            self.domains.copy_from_slice(domains);
-        }
+    pub fn set_domains(&mut self, domains: &Domains) {
+        self.domains.copy_from(domains);
     }
 
     /// Reduce a variable's domain to one value.
     pub fn assign(&mut self, var: VarId, value: ValId) {
-        if let Some(domain) = self.domains.get_mut(var.index()) {
-            let mut only = Domain::EMPTY;
-            if domain.contains(value) {
-                only.insert(value);
-            }
-            *domain = only;
-        }
+        self.domains.assign(var, value);
     }
 
     /// Take one value out of a variable's domain.
     pub fn refute(&mut self, var: VarId, value: ValId) {
-        if let Some(domain) = self.domains.get_mut(var.index()) {
-            domain.remove(value);
-        }
+        self.domains.remove(var, value);
+    }
+
+    /// A detached copy of one variable's domain words.
+    ///
+    /// A [`Domain`] borrows the store, so a step that walks a domain while
+    /// writing to the network cannot hold one. Those steps take this instead: at
+    /// the one-word width the whole corpus sits at, it is the same eight-byte
+    /// copy the borrowed view replaced, made on the stack.
+    #[inline]
+    #[must_use]
+    fn domain_words(&self, var: VarId) -> SmallVec<u64, 2> {
+        SmallVec::from_slice_copy(self.domains.block(var))
     }
 
     /// Whether a variable has exactly one value left.
@@ -522,7 +523,7 @@ impl Network {
     /// the primal bound.
     #[must_use]
     pub fn feasible(&self) -> bool {
-        !self.is_top(self.c_empty()) && !self.domains.iter().any(|domain| domain.is_empty())
+        !self.is_top(self.c_empty()) && !self.domains.any_empty()
     }
 
     // -- trail -------------------------------------------------------------
@@ -560,8 +561,8 @@ impl Network {
         for cell in &self.cells {
             hasher.write_u64(cell.raw());
         }
-        for domain in &self.domains {
-            hasher.write_u64(domain.bits());
+        for word in self.domains.bits() {
+            hasher.write_u64(*word);
         }
         hasher.finish()
     }
@@ -773,7 +774,8 @@ impl Network {
         );
         let top = self.top;
         let constant = self.c_empty().min(top);
-        let domain = self.domain(var);
+        let snapshot = self.domain_words(var);
+        let domain = Domain::new(&snapshot);
         for value in domain {
             let Some(cell) = self.unary_cell(var, value) else {
                 continue;
@@ -782,9 +784,10 @@ impl Network {
             let lowered = saturated.diff(alpha, top);
             self.write(cell, lowered);
         }
+        let visited = u64::try_from(domain.len()).unwrap_or(u64::MAX);
         self.write(0, constant.combine(alpha, top));
         self.contribute(self.unary_slot(var), alpha);
-        self.step(u64::try_from(domain.len()).unwrap_or(u64::MAX) + 1);
+        self.step(visited + 1);
     }
 
     // -- enforcers ---------------------------------------------------------
@@ -1076,8 +1079,8 @@ impl Network {
     /// A summary that changes exactly when a sweep moved something.
     fn change_stamp(&self) -> (usize, u64) {
         let mut domains = 0u64;
-        for domain in &self.domains {
-            domains = domains.rotate_left(7).wrapping_add(domain.bits());
+        for word in self.domains.bits() {
+            domains = domains.rotate_left(7).wrapping_add(*word);
         }
         (self.trail.len(), domains)
     }
@@ -1168,27 +1171,27 @@ impl Network {
             return;
         };
         let arity = scope.len();
-        let mut whole: Vec<Domain> = Vec::with_capacity(arity);
-        for var in scope {
+        // One block per scope position rather than per variable, which is what
+        // makes the odometer positional against the scope.
+        let mut whole = Domains::like(&self.domains, arity);
+        for (position, var) in scope.iter().enumerate() {
+            let slot = VarId::new(u32::try_from(position).unwrap_or(u32::MAX));
             match fixed {
-                Some((held, value)) if held == *var => {
-                    let mut only = Domain::EMPTY;
-                    only.insert(value);
-                    whole.push(only);
-                }
-                _ => whole.push(self.domain(*var)),
+                Some((held, value)) if held == *var => whole.insert(slot, value),
+                _ => whole.copy_block(slot, self.domains.block(*var)),
             }
         }
-        if whole.iter().any(|domain| domain.is_empty()) {
+        if whole.any_empty() {
             return;
         }
         let mut untried = whole.clone();
-        let mut tuple: Vec<ValId> = Vec::with_capacity(arity);
-        for domain in &mut untried {
-            let Some(value) = domain.first() else {
+        let mut tuple: SmallVec<ValId, 4> = SmallVec::with_capacity(arity);
+        for position in 0..arity {
+            let slot = VarId::new(u32::try_from(position).unwrap_or(u32::MAX));
+            let Some(value) = untried.get(slot).first() else {
                 return;
             };
-            domain.remove(value);
+            untried.remove(slot, value);
             tuple.push(value);
         }
         loop {
@@ -1250,7 +1253,8 @@ impl Network {
         let constant = self.c_empty();
         let top = self.top;
         let mut dropped = false;
-        for value in self.domain(var) {
+        let snapshot = self.domain_words(var);
+        for value in Domain::new(&snapshot) {
             if self.is_top(constant.combine(self.unary_cost(var, value), top)) {
                 self.refute(var, value);
                 dropped = true;
@@ -1281,7 +1285,8 @@ impl Network {
     /// it over one scope variable covers every tuple, because every tuple gives
     /// that variable some value.
     fn saturate(&mut self, function: usize, var: VarId) {
-        for value in self.domain(var) {
+        let snapshot = self.domain_words(var);
+        for value in Domain::new(&snapshot) {
             self.extend(var, value, function, Cost::BOT);
         }
     }
@@ -1753,31 +1758,27 @@ fn default_step_budget(variables: usize, functions: usize, domain: usize) -> u64
 ///
 /// `untried` holds the values each position has not yet taken since it last
 /// carried, and `whole` is what a position is refilled from when it does.
-fn advance(whole: &[Domain], untried: &mut [Domain], tuple: &mut [ValId]) -> bool {
+fn advance(whole: &Domains, untried: &mut Domains, tuple: &mut [ValId]) -> bool {
     let mut position = tuple.len();
     loop {
         if position == 0 {
             return false;
         }
         position -= 1;
-        let (Some(remaining), Some(slot)) = (untried.get_mut(position), tuple.get_mut(position))
-        else {
+        let index = VarId::new(u32::try_from(position).unwrap_or(u32::MAX));
+        let Some(slot) = tuple.get_mut(position) else {
             return false;
         };
-        if let Some(next) = remaining.first() {
-            remaining.remove(next);
+        if let Some(next) = untried.get(index).first() {
             *slot = next;
+            untried.remove(index, next);
             return true;
         }
-        let Some(&refill) = whole.get(position) else {
+        let Some(first) = whole.get(index).first() else {
             return false;
         };
-        let mut refilled = refill;
-        let Some(first) = refilled.first() else {
-            return false;
-        };
-        refilled.remove(first);
-        *remaining = refilled;
+        untried.copy_block(index, whole.block(index));
+        untried.remove(index, first);
         *slot = first;
     }
 }

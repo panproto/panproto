@@ -184,6 +184,7 @@ impl PartialOrd for Frontier {
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
 /// use panproto_mig::solve::hbfs::{HbfsParameters, solve_hbfs};
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -207,6 +208,7 @@ impl PartialOrd for Frontier {
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// let found = solve_hbfs(&cfn, &HbfsParameters::default());

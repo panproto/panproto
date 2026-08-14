@@ -94,6 +94,7 @@ use super::{Assignment, SearchBudget, SearchWarning, SolveOutcome, SolverPath, V
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
 /// use panproto_mig::solve::{SearchBudget, SolverPath, solve};
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -117,6 +118,7 @@ use super::{Assignment, SearchBudget, SearchWarning, SolveOutcome, SolverPath, V
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// let found = solve(&cfn, &SearchBudget::default());
@@ -141,10 +143,14 @@ pub fn solve(cfn: &Cfn, budget: &SearchBudget) -> SolveOutcome {
         return solve_part(cfn, budget);
     }
     // A restriction of a network the builder already accepted is a network the
-    // builder accepts, so the fallback is unreachable. Taking it would still
-    // give the right answer, only without the decomposition's saving, which is
-    // why it is a fallback rather than a panic.
-    decompose(cfn, &components).map_or_else(
+    // builder accepts *against the same budget*, so the fallback is
+    // unreachable. That is why the caller's figure is threaded through rather
+    // than left at the default: a part of a network built against a raised
+    // budget can exceed the default one, and refusing it here would silently
+    // cost the decomposition on exactly the large networks it is for. Taking
+    // the fallback would still give the right answer, only without the
+    // decomposition's saving, which is why it is a fallback rather than a panic.
+    decompose(cfn, &components, budget.mem_bytes).map_or_else(
         || solve_part(cfn, budget),
         |parts| combine(cfn, &components, &parts, budget),
     )
@@ -405,7 +411,12 @@ fn eliminate_whole(cfn: &Cfn, order: Vec<VarId>, width: usize) -> SolveOutcome {
 ///
 /// The constant stays with the caller rather than being copied into every part,
 /// since copying it would count it once per component.
-fn decompose(cfn: &Cfn, components: &[Vec<VarId>]) -> Option<Vec<Cfn>> {
+///
+/// `mem_bytes` is the budget the whole network was built against. Each part
+/// holds a subset of its variables and a subset of its cost functions, so no
+/// part can want more than the whole did and every part poses whenever the
+/// whole did.
+fn decompose(cfn: &Cfn, components: &[Vec<VarId>], mem_bytes: usize) -> Option<Vec<Cfn>> {
     let mut local: Vec<Option<VarId>> = vec![None; cfn.n_variables()];
     let mut parts = Vec::with_capacity(components.len());
 
@@ -418,7 +429,7 @@ fn decompose(cfn: &Cfn, components: &[Vec<VarId>]) -> Option<Vec<Cfn>> {
             spec.push((variable.name().clone(), variable.values().to_vec()));
         }
 
-        let mut builder = CfnBuilder::new(spec, cfn.weights()).ok()?;
+        let mut builder = CfnBuilder::with_mem_bytes(spec, cfn.weights(), mem_bytes).ok()?;
         for var in component {
             let Some(table) = cfn.unary(*var) else {
                 continue;
@@ -566,6 +577,7 @@ fn combine(
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
 /// use panproto_mig::solve::{SearchBudget, SolverPath, solve_monic};
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -591,6 +603,7 @@ fn combine(
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// let found = solve_monic(&cfn, &SearchBudget::default());

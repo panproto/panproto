@@ -203,16 +203,16 @@ pub struct FoundMorphism {
 /// well-formed schema.
 ///
 /// "Never refuses for want of a match" is a statement about the *answer*, not
-/// about every input: posing the network can still fail. The reachable case is
-/// a domain ceiling. A variable's domain is a 64-bit set, one bit of which is
-/// `⊥`, so a source vertex offered more than
-/// [`ValId::MAX_REAL_VALUES`](crate::solve::ValId::MAX_REAL_VALUES)
-/// kind-compatible targets is refused as `SpanError::Build`, wrapping
-/// `BuildError::Network` over `CfnError::DomainTooLarge`. A target schema
-/// carrying 64 or more vertices of one kind is what reaches it, which an
-/// ordinary wide record type or a line-per-vertex parse does. That is a
-/// capacity, not a guard against the impossible, and every entry point reports
-/// it rather than spelling it "nothing found".
+/// about every input: posing the network can still fail. The one reachable case
+/// is memory. No domain size is refused, so a wide record type and a
+/// line-per-vertex parse pose like anything else; what is refused is the cost
+/// tables the pair implies exceeding the memory budget, reported as
+/// `SpanError::Build` wrapping `BuildError::Network` over
+/// [`CfnError::OverMemoryBudget`](crate::solve::CfnError::OverMemoryBudget),
+/// which names the bytes it measured and the budget it checked them against.
+/// [`SpanSearch::with_budget`](crate::SpanSearch::with_budget) moves that
+/// budget. Every entry point reports the refusal rather than spelling it
+/// "nothing found".
 ///
 /// # Examples
 ///
@@ -387,8 +387,16 @@ pub fn find_morphisms_constrained(
     // A network that will not build is not the same answer as a network with no
     // solution. Laundering the first into the second is what tells a caller "no
     // morphism exists" about a pair whose identity morphism is perfect.
-    let cfn = build_cfn(src, tgt, opts, constraints, &NoEvidence, weights)?;
     let budget = SearchBudget::default();
+    let cfn = build_cfn(
+        src,
+        tgt,
+        opts,
+        constraints,
+        &NoEvidence,
+        weights,
+        budget.mem_bytes,
+    )?;
     let limit = if opts.max_results == 0 {
         DEFAULT_OPTIMA_CAP
     } else {
@@ -401,7 +409,7 @@ pub fn find_morphisms_constrained(
 
     // The total-morphism search is the span search with `⊥` removed from every
     // domain, which is what makes the two one search rather than two.
-    let total = without_bottom(&cfn);
+    let total = without_bottom(&cfn, budget.mem_bytes);
     let assignments = if opts.epic {
         // Surjectivity is enforced inside the search rather than filtered from
         // its answer, so this cannot take the exact-inference route: a leaf
@@ -477,13 +485,17 @@ pub fn morphism_to_migration(found: &FoundMorphism) -> crate::Migration {
 /// A source vertex with no kind-compatible target then has an empty domain and
 /// the whole network is infeasible, which is the right answer: no total morphism
 /// maps it anywhere.
-fn without_bottom(cfn: &Cfn) -> Cfn {
+///
+/// `mem_bytes` is the budget the network in hand was built against. Rebuilding
+/// it costs exactly what it cost the first time, so passing the same figure is
+/// what makes the fallback below unreachable rather than merely unlikely.
+fn without_bottom(cfn: &Cfn, mem_bytes: usize) -> Cfn {
     let spec: Vec<(Name, Vec<Name>)> = cfn
         .variables()
         .iter()
         .map(|variable| (variable.name().clone(), variable.values().to_vec()))
         .collect();
-    let Ok(mut builder) = CfnBuilder::new(spec, cfn.weights()) else {
+    let Ok(mut builder) = CfnBuilder::with_mem_bytes(spec, cfn.weights(), mem_bytes) else {
         return cfn.clone();
     };
     builder.add_empty(cfn.c_empty());
@@ -605,6 +617,7 @@ fn is_surjective(vertex_map: &HashMap<Name, Name>, tgt: &Schema) -> bool {
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::float_cmp)]
 mod tests {
     use super::*;
+    use crate::solve::DEFAULT_MEM_BYTES;
     use panproto_schema::SchemaBuilder;
 
     fn test_protocol() -> Protocol {
@@ -1085,9 +1098,10 @@ mod tests {
             &DomainConstraints::default(),
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap();
-        let total = without_bottom(&cfn);
+        let total = without_bottom(&cfn, DEFAULT_MEM_BYTES);
 
         assert_eq!(total.n_variables(), cfn.n_variables());
         assert_eq!(total.n_functions(), cfn.n_functions());

@@ -55,6 +55,7 @@ use divan::Bencher;
 use panproto_gat::Name;
 use panproto_mig::align::evidence::{AggregationPolicy, EvidenceTable, aggregate};
 use panproto_mig::hom_search::{DomainConstraints, SearchOptions, find_best_morphism};
+use panproto_mig::solve::DEFAULT_MEM_BYTES;
 use panproto_mig::solve::build::{NoEvidence, build_cfn};
 use panproto_mig::solve::order::{induced_width, min_fill_order, primal_graph};
 use panproto_mig::{Anchor, CostWeights, SpanSearch, align};
@@ -284,6 +285,7 @@ fn induced_width_min_fill(bencher: Bencher) {
         &DomainConstraints::default(),
         &NoEvidence,
         CostWeights::default(),
+        DEFAULT_MEM_BYTES,
     )
     .expect("the network poses");
     let graph = primal_graph(&cfn);
@@ -443,22 +445,14 @@ fn narrowed_schema(protocol: &Protocol, prefix: &str, n: usize) -> Schema {
 ///
 /// A star is width one whatever its degree; a chain is what makes the
 /// elimination sweep carry a message from one end to the other, and nesting it
-/// deeper is the cheapest way to grow the network without growing the domains.
+/// deeper grows the network in the direction the sweep is measured over.
 ///
-/// # Why the kinds alternate
-///
-/// A [`Domain`](panproto_mig::Domain) is a `u32` bitset, so a variable admits
-/// at most `ValId::MAX_REAL_VALUES` real values, which is 31. A source vertex's
-/// domain is the set of kind-compatible targets, so a chain of 40 links all of
-/// one kind gives every link 40 candidates and the network refuses to build at
-/// all. Alternating two link kinds and two leaf kinds halves each domain, which
-/// keeps 40 links inside the ceiling. Without this the benchmark at `n = 40`
-/// times [`build_cfn`] failing rather than the search running, and reports a
-/// figure *faster* than `n = 20` for it.
+/// Every link is one kind and every leaf is one kind, so a chain of `n` links
+/// gives each link `n` candidates: the network grows in both `n` and `d` at
+/// once, which is what the benchmark is for. It used to alternate two link
+/// kinds and two leaf kinds, to halve each domain and keep 40 links inside a
+/// 64-value ceiling that no longer exists.
 fn chain_schema(protocol: &Protocol, prefix: &str, n: usize) -> Schema {
-    let link_kind = |i: usize| if i % 2 == 0 { "object" } else { "node" };
-    let leaf_kind = |i: usize| if i % 2 == 0 { "string" } else { "integer" };
-
     let mut b = SchemaBuilder::new(protocol)
         .vertex(&format!("{prefix}root"), "record", None)
         .expect("vertex root")
@@ -475,13 +469,13 @@ fn chain_schema(protocol: &Protocol, prefix: &str, n: usize) -> Schema {
     for i in 0..n {
         let leaf = format!("{prefix}n{i}.value");
         b = b
-            .vertex(&leaf, leaf_kind(i), None)
+            .vertex(&leaf, "string", None)
             .expect("vertex leaf")
             .edge(&format!("{prefix}n{i}"), &leaf, "prop", Some("value"))
             .expect("edge leaf");
         if i + 1 < n {
             b = b
-                .vertex(&format!("{prefix}n{}", i + 1), link_kind(i + 1), None)
+                .vertex(&format!("{prefix}n{}", i + 1), "object", None)
                 .expect("vertex link")
                 .edge(
                     &format!("{prefix}n{i}"),

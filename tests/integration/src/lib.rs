@@ -729,6 +729,7 @@ pub fn arb_small_cfn_instance() -> impl Strategy<Value = CfnInstance> {
                     &DomainConstraints::default(),
                     &evidence,
                     weights,
+                    panproto_mig::solve::DEFAULT_MEM_BYTES,
                 )
                 .ok()?;
                 Some((protocol, src, tgt, weights, cfn))

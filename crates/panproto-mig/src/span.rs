@@ -754,6 +754,7 @@ impl<'a> SpanSearch<'a> {
             &self.constraints,
             self.evidence,
             self.constraints.scoring_weights.unwrap_or(self.weights),
+            self.budget.mem_bytes,
         )?)
     }
 

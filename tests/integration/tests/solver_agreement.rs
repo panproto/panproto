@@ -33,15 +33,16 @@ mod exact_inference {
     /// The value vector read in decode order, which is the elimination order
     /// backwards and so the order the tie-break is stated in.
     ///
-    /// `ValId` orders real targets by ascending target vertex name with `⊥`
-    /// last, so comparing these vectors is exactly the documented rule:
-    /// smallest under the elimination order used, values ascending by target
-    /// and `⊥` last.
+    /// The key is [`ValId::order_key`] and **not** the stored slot: `⊥` is
+    /// stored first and ordered last, so the two disagree, and it is the domain
+    /// order the tie-break is stated in. Comparing these vectors is then exactly
+    /// the documented rule: smallest under the elimination order used, values
+    /// ascending by target and `⊥` last.
     fn decode_key(assignment: &Assignment, order: &[VarId]) -> Vec<u32> {
         order
             .iter()
             .rev()
-            .filter_map(|var| assignment.get(*var).map(ValId::raw))
+            .filter_map(|var| assignment.get(*var).map(ValId::order_key))
             .collect()
     }
 
@@ -203,33 +204,25 @@ mod injective {
         HallOutcome, TargetId, ValueIndex, arc_descriptor, propagate_all_different, solve_iso,
     };
     use panproto_mig::solve::solve_monic;
-    use panproto_mig::{Assignment, Cfn, Cost, Domain, SearchBudget, SolverPath, ValId, VarId};
+    use panproto_mig::{Assignment, Cfn, Cost, Domains, SearchBudget, SolverPath, ValId, VarId};
     use panproto_schema::Schema;
     use proptest::prelude::*;
 
     /// Every total assignment of a network, walked independently of the solver.
     fn every_assignment(cfn: &Cfn) -> Vec<Assignment> {
-        walk(cfn, |domain| domain)
+        walk(cfn.domains())
     }
 
     /// Every total assignment of a network with `⊥` removed from every domain,
     /// which is the total-morphism restriction.
     fn every_total_assignment(cfn: &Cfn) -> Vec<Assignment> {
-        walk(cfn, |mut domain| {
-            domain.remove(ValId::BOTTOM);
-            domain
-        })
+        walk(&total_domains(cfn))
     }
 
-    fn walk(cfn: &Cfn, restrict: impl Fn(Domain) -> Domain) -> Vec<Assignment> {
+    fn walk(domains: &Domains) -> Vec<Assignment> {
         let mut out = vec![Vec::new()];
-        for index in 0..cfn.n_variables() {
-            let Ok(raw) = u32::try_from(index) else {
-                return Vec::new();
-            };
-            let Some(domain) = cfn.domain(VarId::new(raw)).map(&restrict) else {
-                return Vec::new();
-            };
+        for var in domains.variable_ids() {
+            let domain = domains.get(var);
             let mut next = Vec::with_capacity(out.len() * domain.len());
             for partial in &out {
                 for value in domain {
@@ -304,14 +297,12 @@ mod injective {
     }
 
     /// The domains of a network with `⊥` removed.
-    fn total_domains(cfn: &Cfn) -> Vec<Domain> {
-        cfn.variable_ids()
-            .filter_map(|var| {
-                let mut domain = cfn.domain(var)?;
-                domain.remove(ValId::BOTTOM);
-                Some(domain)
-            })
-            .collect()
+    fn total_domains(cfn: &Cfn) -> Domains {
+        let mut domains = cfn.domains().clone();
+        for var in cfn.variable_ids() {
+            domains.remove(var, ValId::BOTTOM);
+        }
+        domains
     }
 
     /// Whether an assignment gives every variable a distinct target vertex.
@@ -489,8 +480,8 @@ mod injective {
                 .collect();
 
             // (1) Propagation only prunes, and says how much.
-            for (filtered, original) in after.iter().zip(&before) {
-                prop_assert_eq!(filtered.bits() & !original.bits(), 0);
+            for (filtered, original) in after.bits().iter().zip(before.bits()) {
+                prop_assert_eq!(filtered & !original, 0);
             }
 
             match outcome {
@@ -500,9 +491,8 @@ mod injective {
                     prop_assert_eq!(
                         removed,
                         before
-                            .iter()
-                            .zip(&after)
-                            .map(|(original, filtered)| original.len() - filtered.len())
+                            .variable_ids()
+                            .map(|var| before.get(var).len() - after.get(var).len())
                             .sum::<usize>()
                     );
 
@@ -511,7 +501,7 @@ mod injective {
                     let mut witness: Option<Assignment> = None;
                     for assignment in &injective {
                         for (var, value) in assignment.pairs() {
-                            prop_assert!(after[var.index()].contains(value));
+                            prop_assert!(after.contains(var, value));
                         }
                         let cost = cfn.evaluate(assignment);
                         if cost != Cost::TOP_SENTINEL && cost < cheapest {
@@ -523,7 +513,7 @@ mod injective {
                     // (3) The cheapest one in particular.
                     if let Some(witness) = witness {
                         for (var, value) in witness.pairs() {
-                            prop_assert!(after[var.index()].contains(value));
+                            prop_assert!(after.contains(var, value));
                         }
                     }
                 }
@@ -549,10 +539,7 @@ mod injective {
             (_, _, _, _, cfn) in arb_small_cfn_instance()
         ) {
             let index = ValueIndex::of(&cfn);
-            let full: Vec<Domain> = cfn
-                .variable_ids()
-                .filter_map(|var| cfn.domain(var))
-                .collect();
+            let full = cfn.domains().clone();
             let injective: Vec<Assignment> = every_assignment(&cfn)
                 .into_iter()
                 .filter(|assignment| is_injective(&index, assignment))
@@ -563,30 +550,30 @@ mod injective {
             let decisions: Vec<(VarId, ValId)> = cfn
                 .variable_ids()
                 .flat_map(|var| {
-                    full[var.index()]
+                    full.get(var)
                         .into_iter()
                         .filter(|value| !value.is_bottom())
                         .map(move |value| (var, value))
+                        .collect::<Vec<_>>()
                 })
                 .take(8)
                 .collect();
 
             for (decided, chosen) in decisions {
                 let mut domains = full.clone();
-                domains[decided.index()] = Domain::EMPTY;
-                domains[decided.index()].insert(chosen);
+                domains.assign(decided, chosen);
 
                 let filtered = propagate_all_different(&index, &mut domains);
                 prop_assert_ne!(filtered, HallOutcome::Wipeout);
                 let target = index.global(decided, chosen).unwrap();
 
                 // The decision itself is left alone.
-                prop_assert_eq!(domains[decided.index()].len(), 1);
-                prop_assert!(domains[decided.index()].contains(chosen));
+                prop_assert_eq!(domains.get(decided).len(), 1);
+                prop_assert!(domains.contains(decided, chosen));
 
                 for var in cfn.variable_ids().filter(|var| *var != decided) {
-                    for value in full[var.index()] {
-                        let kept = domains[var.index()].contains(value);
+                    for value in full.get(var) {
+                        let kept = domains.contains(var, value);
                         if index.global(var, value) == Some(target) {
                             // (1) The decided target is gone from everyone else.
                             prop_assert!(!kept);
@@ -604,7 +591,7 @@ mod injective {
                         continue;
                     }
                     for (var, value) in assignment.pairs() {
-                        prop_assert!(domains[var.index()].contains(value));
+                        prop_assert!(domains.contains(var, value));
                     }
                 }
             }
@@ -1254,6 +1241,7 @@ mod hash_seed {
             &DomainConstraints::default(),
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            panproto_mig::solve::DEFAULT_MEM_BYTES,
         )
         .unwrap()
     }

@@ -207,15 +207,14 @@ impl Evidence for NoEvidence {
 pub enum BuildError {
     /// The network refused what the decomposition asked it to hold.
     ///
-    /// In practice this is a source vertex offered more kind-compatible targets
-    /// than one domain word has bits for. That is a capacity ordinary input
-    /// reaches, not a guard against the impossible: a target schema with more
-    /// than
-    /// [`ValId::MAX_REAL_VALUES`](crate::solve::ValId::MAX_REAL_VALUES)
-    /// vertices of one kind meets it, and one vertex per line or per token
-    /// reaches it on a small file. It is reported, never absorbed: a search
-    /// that could not be posed is not the same answer as a search that found
-    /// nothing, and the entry points keep the two apart.
+    /// In practice this is
+    /// [`CfnError::OverMemoryBudget`]:
+    /// the cost tables the pair implies come to more than the caller's memory
+    /// budget. No domain size is refused, so a wide record type or a
+    /// line-per-vertex parse poses like anything else, and what is left is a
+    /// measurement the caller can move. It is reported, never absorbed: a
+    /// search that could not be posed is not the same answer as a search that
+    /// found nothing, and the entry points keep the two apart.
     #[error("the network could not hold the decomposition: {source}")]
     Network {
         /// What the network refused.
@@ -345,16 +344,26 @@ pub fn edge_match(
 /// steering the search with a term that then also shows up in the reading, and
 /// wants to separate the two.
 ///
+/// # The memory budget
+///
+/// `mem_bytes` is the caller's ceiling on the cost tables the network holds,
+/// the same figure
+/// [`SearchBudget::mem_bytes`](crate::solve::SearchBudget::mem_bytes) bounds
+/// exact inference with. No domain size is refused: a source vertex offered a
+/// thousand kind-compatible targets is an ordinary variable. What is refused is
+/// a measured allocation, and the refusal names it.
+///
 /// # Errors
 ///
-/// [`BuildError::Network`] if a source vertex is offered more kind-compatible
-/// targets than one domain can hold, and [`BuildError::EvidenceOutOfRange`] if
-/// the evidence table reports a confidence outside `[0, 1]`.
+/// [`BuildError::Network`] if the network's cost tables would exceed
+/// `mem_bytes`, and [`BuildError::EvidenceOutOfRange`] if the evidence table
+/// reports a confidence outside `[0, 1]`.
 ///
 /// # Examples
 ///
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -378,6 +387,7 @@ pub fn edge_match(
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// // One variable per source vertex, and `⊥` alongside the one kind-compatible
@@ -393,6 +403,7 @@ pub fn build_cfn(
     constraints: &DomainConstraints,
     evidence: &dyn Evidence,
     weights: CostWeights,
+    mem_bytes: usize,
 ) -> Result<Cfn, BuildError> {
     let names = source_variable_names(src);
     let domains: Vec<Vec<Name>> = names
@@ -400,9 +411,10 @@ pub fn build_cfn(
         .map(|source| domain_of(src, tgt, source, opts, constraints))
         .collect();
 
-    let mut builder = CfnBuilder::new(
+    let mut builder = CfnBuilder::with_mem_bytes(
         names.iter().cloned().zip(domains).collect::<Vec<_>>(),
         weights,
+        mem_bytes,
     )?;
     let model = Model::new(src, tgt, &builder, names);
 
@@ -1053,7 +1065,7 @@ mod tests {
     use super::*;
     use crate::quality::reference_quality;
     use crate::solve::cost::DEFAULT_WEIGHTS;
-    use crate::solve::{Assignment, ValId};
+    use crate::solve::{Assignment, DEFAULT_MEM_BYTES, ValId};
     use panproto_schema::{HyperEdge, Protocol, RecursionPoint, SchemaBuilder, Span, Variant};
     use std::collections::HashMap;
 
@@ -1111,6 +1123,7 @@ mod tests {
             &DomainConstraints::default(),
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap()
     }
@@ -1662,6 +1675,7 @@ mod tests {
             &constraints,
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap();
 
@@ -1695,6 +1709,7 @@ mod tests {
             &constraints,
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap();
 
@@ -1718,6 +1733,7 @@ mod tests {
             &DomainConstraints::default(),
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap();
 
@@ -1754,6 +1770,7 @@ mod tests {
                 &DomainConstraints::default(),
                 &FixedEvidence(confidence),
                 weights,
+                DEFAULT_MEM_BYTES,
             )
             .unwrap_err();
             assert!(matches!(error, BuildError::EvidenceOutOfRange { .. }));
@@ -1774,6 +1791,7 @@ mod tests {
                 &DomainConstraints::default(),
                 &FixedEvidence(confidence),
                 weights,
+                DEFAULT_MEM_BYTES,
             )
             .unwrap()
         };

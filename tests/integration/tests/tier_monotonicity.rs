@@ -150,6 +150,7 @@ fn network(src: &Schema, tgt: &Schema, evidence: &dyn Evidence) -> Option<Cfn> {
         &DomainConstraints::default(),
         evidence,
         weighted_for_evidence(),
+        panproto_mig::solve::DEFAULT_MEM_BYTES,
     )
     .ok()
 }

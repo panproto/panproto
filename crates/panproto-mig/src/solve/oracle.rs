@@ -16,7 +16,8 @@
 //!
 //! So this module reuses nothing beyond the network's own accessors and the one
 //! scorer. It reads [`Cfn::n_variables`] and [`Cfn::domain`], decodes each
-//! domain's bits with its own loop rather than through [`Domain`]'s iterator,
+//! domain's bits with its own loop rather than through
+//! [`Domain`](super::cfn::Domain)'s iterator,
 //! walks the product space with a hand-written odometer rather than through any
 //! assignment builder, and computes each cost with [`Cfn::evaluate`], which
 //! consults no transformed table, no propagation state, and no bound. The
@@ -38,9 +39,12 @@
 //!
 //! # The order of the argmins
 //!
-//! The odometer runs the last variable fastest and walks each domain in
-//! ascending value order, so the returned argmins are in ascending
-//! lexicographic order on the value vector, read left to right. Since `⊥` is
+//! The odometer runs the last variable fastest and walks each domain in the
+//! domain order — real targets ascending, then `⊥` — so the returned argmins are
+//! in ascending lexicographic order on the value vector, read left to right.
+//! That order is decoded here rather than inherited: `⊥` is stored at slot zero,
+//! so a walk that read the slots ascending would put it first and the head of
+//! this list would be the wrong argmin. Since `⊥` is
 //! ordered last in every domain, the first argmin is the one that prefers a
 //! real image to a dropped vertex, and the alphabetically earlier target among
 //! real images, at the earliest position where two argmins differ. That is the
@@ -50,7 +54,7 @@
 
 #![cfg(any(test, feature = "oracle"))]
 
-use super::cfn::{Cfn, Domain};
+use super::cfn::Cfn;
 use super::cost::Cost;
 use super::{Assignment, ValId, VarId};
 
@@ -158,12 +162,16 @@ pub fn brute_force(cfn: &Cfn) -> (Cost, Vec<Assignment>) {
     }
 }
 
-/// The values of every variable's domain, in ascending order, decoded by hand.
+/// The values of every variable's domain, in the domain order, decoded by hand.
 ///
-/// Written as a bit test per index rather than through [`Domain`]'s iterator so
+/// Written as a bit test per slot rather than through
+/// [`Domain`](super::cfn::Domain)'s iterator so
 /// that the solver and the oracle do not walk domains through one piece of
-/// code. A variable the network does not have contributes an empty list, which
-/// [`brute_force`] reads as an unsatisfiable network.
+/// code. It reproduces the order that iterator promises — reals ascending, then
+/// `⊥` — because the argmin the oracle reports has to be the same argmin under
+/// the same tie-break, and a decoder that walked the bits in storage order
+/// would put `⊥` first. A variable the network does not have contributes an
+/// empty list, which [`brute_force`] reads as an unsatisfiable network.
 fn domain_values(cfn: &Cfn) -> Vec<Vec<ValId>> {
     let count = u32::try_from(cfn.n_variables()).unwrap_or(u32::MAX);
     let mut choices = Vec::with_capacity(cfn.n_variables());
@@ -171,12 +179,21 @@ fn domain_values(cfn: &Cfn) -> Vec<Vec<ValId>> {
         let mut values = Vec::new();
         if let Some(domain) = cfn.domain(VarId::new(index)) {
             let bits = domain.bits();
-            let mut value = 0u32;
-            while value < Domain::CAPACITY {
-                if bits & (1u64 << value) != 0 {
-                    values.push(ValId::from_index(value));
+            let held = |slot: u32| {
+                let word = (slot / u64::BITS) as usize;
+                bits.get(word)
+                    .is_some_and(|word| word & (1u64 << (slot % u64::BITS)) != 0)
+            };
+            let slots = u32::try_from(bits.len())
+                .unwrap_or(u32::MAX)
+                .saturating_mul(u64::BITS);
+            for slot in 1..slots {
+                if held(slot) {
+                    values.push(ValId::from_index(slot));
                 }
-                value += 1;
+            }
+            if held(ValId::BOTTOM.raw()) {
+                values.push(ValId::BOTTOM);
             }
         }
         choices.push(values);
@@ -336,13 +353,13 @@ mod tests {
         let (_, argmins) = brute_force(&cfn);
         let seen: Vec<Vec<u32>> = argmins
             .iter()
-            .map(|a| a.values().iter().map(|v| v.raw()).collect())
+            .map(|a| a.values().iter().map(|v| v.order_key()).collect())
             .collect();
-        // `⊥` is the top index of the value numbering, so it sorts last in
-        // every position; naming it by the constant rather than by its
-        // current numeral keeps the assertion about the ordering rather than
-        // about the domain's width.
-        let bottom = ValId::BOTTOM.raw();
+        // `⊥` sorts last in every position. Reading the sort key rather than
+        // the stored slot keeps the assertion about the ordering: `⊥` is
+        // stored first and ordered last, and it is the ordering the odometer
+        // walks in.
+        let bottom = ValId::BOTTOM.order_key();
         assert_eq!(
             seen,
             vec![

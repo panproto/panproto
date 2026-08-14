@@ -233,9 +233,9 @@ fn try_hom_search_enhancement(
     };
 
     // The span search never refuses *for want of a match*: the empty apex is
-    // always feasible. It can still fail to be posed — a source vertex offered
-    // more kind-compatible targets than one domain word holds is refused — and
-    // that is a fact about the network rather than about these two schemas.
+    // always feasible. It can still fail to be posed: a pair whose cost tables
+    // exceed the memory budget is refused, and that is a fact about the network
+    // rather than about these two schemas.
     // Falling back to the diff-derived migration is the same conservative
     // choice the adoption test below makes, and it is why this is `.ok()?`
     // rather than a propagated error: rename detection is an enhancement, and

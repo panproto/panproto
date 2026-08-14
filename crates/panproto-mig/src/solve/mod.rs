@@ -47,7 +47,7 @@ pub mod mcsplit;
 pub mod oracle;
 pub mod order;
 
-pub use cfn::{Cfn, CfnBuilder, CfnError, CostFunction, Domain, DomainIter, Variable};
+pub use cfn::{Cfn, CfnBuilder, CfnError, CostFunction, Domain, DomainIter, Domains, Variable};
 pub use consistency::{ConsistencyLevel, Network};
 pub use cost::{
     COST_SCALE, Cost, CostWeights, CostWeightsError, DEFAULT_WEIGHTS, DROP_UNIT,
@@ -102,93 +102,91 @@ impl VarId {
 
 /// A value in a variable's domain.
 ///
-/// Real target vertices occupy indices `0 .. MAX_REAL_VALUES` in ascending
-/// target vertex name order, and [`ValId::BOTTOM`] occupies the last index. Two
-/// consequences follow from that layout, and both are relied on elsewhere.
-/// First, `Ord` puts `⊥` last in every domain, which is the tie-break the
-/// search needs, with no separate ordering rule to keep in step. Second, a
-/// whole domain including `⊥` fits in one `u64` bitset word.
-#[derive(Copy, Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// [`ValId::BOTTOM`] is slot zero and the real target vertices follow it, so
+/// value `i + 1` is the `i`th target vertex in ascending name order. Nothing
+/// bounds how many follow: the numbering is a `u32` and a domain is as many
+/// bitset words as the network needs, so the type carries no capacity at all.
+///
+/// # The domain order is not the numeric order
+///
+/// The search's tie-break is "the lexicographically smallest assignment among
+/// the argmins", read against an order that puts a real image before a dropped
+/// one and orders real images by target vertex name. `⊥` at slot zero is
+/// numerically first and has to sort **last**, so [`Ord`] is written by hand
+/// over [`Self::order_key`] rather than derived. Every comparison of two values
+/// therefore reports the domain order, and so does every domain walk, which
+/// [`DomainIter`] states once.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct ValId(u32);
 
 impl ValId {
-    /// The number of real target vertices a domain can hold.
-    ///
-    /// One less than the bit width of [`Domain`], whose
-    /// top bit is `⊥`. This is a **capacity**, not a guard against something
-    /// unreachable: a source vertex's domain is every kind-compatible target
-    /// vertex, so any target schema with 64 or more vertices of one kind meets
-    /// it. What that costs is a reported refusal
-    /// ([`CfnError::DomainTooLarge`], surfaced as
-    /// [`SpanError::Build`](crate::SpanError::Build)) rather than a
-    /// wrong answer; removing the ceiling altogether needs a variable-width
-    /// domain, which is a different representation and not a larger constant.
-    pub const MAX_REAL_VALUES: u32 = 63;
-
     /// `⊥`, meaning the source vertex is left out of the apex.
-    pub const BOTTOM: Self = Self(Self::MAX_REAL_VALUES);
+    ///
+    /// Slot zero of every domain, so "this variable may still be dropped" is
+    /// the low bit of its first word, and the always-feasible all-`⊥`
+    /// assignment is visible in the representation rather than maintained
+    /// beside it.
+    pub const BOTTOM: Self = Self(0);
 
     /// The value standing for the target vertex at this index.
     ///
-    /// The check is unconditional rather than a debug assertion because
-    /// [`Self::MAX_REAL_VALUES`] is the index of [`Self::BOTTOM`]: an unchecked
-    /// `real(31)` would hand back `⊥` under the name of a real target, and a
-    /// caller asking for a real value has no way to notice. Use
-    /// [`Self::from_index`] where the top slot is meant to be reachable.
+    /// Real values start one past `⊥`, so this cannot alias it. The only thing
+    /// it can fail on is an index no `u32` can hold one past, which no schema
+    /// reaches and which would silently wrap.
     ///
     /// # Panics
     ///
-    /// If `index` is not below [`Self::MAX_REAL_VALUES`].
+    /// If `index` is `u32::MAX`, which leaves no slot to shift it into.
     #[inline]
     #[must_use]
     pub const fn real(index: u32) -> Self {
         assert!(
-            index < Self::MAX_REAL_VALUES,
-            "a real value index must leave the last slot for bottom"
+            index < u32::MAX,
+            "a real value index must leave room for the bottom slot"
         );
-        Self(index)
+        Self(index + 1)
     }
 
-    /// The value at this domain index, `⊥` included.
+    /// The value at this domain slot, `⊥` included.
     ///
-    /// The total counterpart of [`Self::real`]: index [`Self::MAX_REAL_VALUES`]
-    /// is [`Self::BOTTOM`] rather than a contract violation. It is what a bitset
-    /// domain needs, since a set bit carries no record of which of the two
-    /// constructors put it there.
-    ///
-    /// The check is a debug assertion rather than an unconditional one because
-    /// this is the innermost step of every domain walk and because an index past
-    /// the top slot fails safely: the value it produces is in no domain, so a
-    /// release build reads it as absent rather than as some other value. That is
-    /// the same silent-absence rule [`Domain`]
-    /// follows, and it is why [`Self::real`], whose out-of-range index would
-    /// alias `⊥` instead, checks unconditionally.
-    ///
-    /// # Panics
-    ///
-    /// In debug builds, if `index` is above [`Self::MAX_REAL_VALUES`].
+    /// The total counterpart of [`Self::real`]: slot zero is [`Self::BOTTOM`]
+    /// rather than a contract violation. It is what a bitset domain needs, since
+    /// a set bit carries no record of which of the two constructors put it
+    /// there.
     #[inline]
     #[must_use]
     pub const fn from_index(index: u32) -> Self {
-        debug_assert!(
-            index <= Self::MAX_REAL_VALUES,
-            "a value index must not exceed the bottom slot"
-        );
         Self(index)
     }
 
-    /// The index as it is stored.
+    /// The slot as it is stored, which is the bit a domain sets for it.
     #[inline]
     #[must_use]
     pub const fn raw(self) -> u32 {
         self.0
     }
 
-    /// The index, for use as a slice offset.
+    /// The real target vertex index, for use as a slice offset.
+    ///
+    /// `⊥` is not a target vertex, so it reads as an index no value list holds
+    /// rather than as a target: a caller that forgets to test
+    /// [`Self::is_bottom`] gets `None` out of the lookup instead of the last
+    /// vertex.
     #[inline]
     #[must_use]
     pub const fn index(self) -> usize {
-        self.0 as usize
+        (self.0 as usize).wrapping_sub(1)
+    }
+
+    /// The sort key of the domain order: reals ascending, then `⊥`.
+    ///
+    /// `⊥` is stored first and sorts last, so the key rotates the numbering by
+    /// one. This is the one place that rotation is written, and [`Ord`],
+    /// [`PartialOrd`] and [`DomainIter`] all agree with it.
+    #[inline]
+    #[must_use]
+    pub const fn order_key(self) -> u32 {
+        self.0.wrapping_sub(1)
     }
 
     /// Whether this is `⊥`.
@@ -196,6 +194,26 @@ impl ValId {
     #[must_use]
     pub const fn is_bottom(self) -> bool {
         self.0 == Self::BOTTOM.0
+    }
+}
+
+impl Ord for ValId {
+    /// The domain order, which is **not** the order of the stored slots.
+    ///
+    /// Comparing two argmins position by position has to prefer a real image to
+    /// a dropped vertex and the alphabetically earlier target among real
+    /// images. `⊥` is stored at slot zero, so that order is
+    /// [`ValId::order_key`]'s and not the numbering's.
+    #[inline]
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.order_key().cmp(&other.order_key())
+    }
+}
+
+impl PartialOrd for ValId {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
     }
 }
 
@@ -533,19 +551,35 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_bottom_slot_is_the_last_index() {
-        assert_eq!(ValId::BOTTOM, ValId::from_index(ValId::MAX_REAL_VALUES));
-        assert!(ValId::from_index(ValId::MAX_REAL_VALUES).is_bottom());
-        assert!(!ValId::real(ValId::MAX_REAL_VALUES - 1).is_bottom());
+    fn the_bottom_slot_is_the_first_index() {
+        assert_eq!(ValId::BOTTOM, ValId::from_index(0));
+        assert!(ValId::from_index(0).is_bottom());
+        assert!(!ValId::real(0).is_bottom());
+        assert_eq!(ValId::real(0).raw(), 1);
+        assert_eq!(ValId::real(7).index(), 7);
     }
 
     #[test]
-    #[should_panic(expected = "a real value index must leave the last slot for bottom")]
-    fn a_real_value_index_cannot_reach_the_bottom_slot() {
-        // The check must hold in a release build too: `real` returning `⊥` for
-        // the top index would hand a caller the drop value under the name of a
-        // target vertex, with nothing to notice it by.
-        let index = std::hint::black_box(ValId::MAX_REAL_VALUES);
+    fn bottom_sorts_after_every_real_value() {
+        // The whole canonical tie-break rests on this, and it is no longer a
+        // consequence of the numbering: `⊥` is stored first and must compare
+        // last, however many real values there are.
+        assert!(ValId::real(0) < ValId::BOTTOM);
+        assert!(ValId::real(u32::MAX - 2) < ValId::BOTTOM);
+        assert!(ValId::real(0) < ValId::real(1));
+
+        let mut values = vec![ValId::BOTTOM, ValId::real(2), ValId::real(0)];
+        values.sort_unstable();
+        assert_eq!(values, vec![ValId::real(0), ValId::real(2), ValId::BOTTOM]);
+    }
+
+    #[test]
+    #[should_panic(expected = "a real value index must leave room for the bottom slot")]
+    fn a_real_value_index_cannot_wrap_onto_the_bottom_slot() {
+        // The check must hold in a release build too: `real` wrapping to `⊥`
+        // would hand a caller the drop value under the name of a target vertex,
+        // with nothing to notice it by.
+        let index = std::hint::black_box(u32::MAX);
         let _ = ValId::real(index);
     }
 }

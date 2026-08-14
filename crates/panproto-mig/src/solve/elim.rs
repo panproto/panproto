@@ -60,7 +60,9 @@
 //! shape is a property of the data rather than a bug signature, which is why it
 //! is a diagnostic and not an assertion.
 
-use super::cfn::{Cfn, CostFunction, Domain, Variable};
+use smallvec::SmallVec;
+
+use super::cfn::{Cfn, CostFunction, Domain, Domains, Variable};
 use super::cost::Cost;
 use super::order::{Graph, is_permutation};
 use super::{Assignment, ValId, VarId};
@@ -816,9 +818,14 @@ pub struct DecodeTrace {
 /// against the values already assigned. Every such choice extends to a global
 /// optimum, so the pass never backtracks and never dead-ends.
 ///
-/// Ties are broken towards the smallest value, and values are ordered by
-/// ascending target vertex name with `⊥` last, so the returned assignment is
-/// the lexicographically smallest optimum read in decode order. Under
+/// Ties are broken towards the smallest value in the **domain order**, which is
+/// ascending target vertex name with `⊥` last. That order is
+/// [`DomainIter`](super::cfn::DomainIter)'s and
+/// [`ValId::order_key`](super::ValId::order_key)'s, not the order of the stored
+/// slots: `⊥` is slot zero and sorts last, so the pass takes the first value the
+/// domain walk yields and nothing here reads a raw slot. The returned assignment
+/// is therefore the lexicographically smallest optimum read in decode order.
+/// Under
 /// [`reverse_source_id_order`](super::order::reverse_source_id_order) decode
 /// order is ascending source vertex order, so the rule reads as the natural
 /// one on source vertex names.
@@ -1135,21 +1142,19 @@ pub fn detect_product(cfn: &Cfn) -> ProductVerdict {
         return ProductVerdict::Empty { variable: None };
     }
 
-    let mut effective = Vec::with_capacity(cfn.n_variables());
+    let mut effective = cfn.domains().clone();
     for var in cfn.variable_ids() {
-        let start = cfn.domain(var).unwrap_or(Domain::EMPTY);
-        let mut domain = start;
-        for value in start {
+        let start: SmallVec<u64, 2> = SmallVec::from_slice_copy(effective.block(var));
+        for value in Domain::new(&start) {
             if cfn.unary_cost(var, value) == Some(Cost::TOP_SENTINEL) {
-                domain.remove(value);
+                effective.remove(var, value);
             }
         }
-        if domain.is_empty() {
+        if effective.get(var).is_empty() {
             return ProductVerdict::Empty {
                 variable: Some(var),
             };
         }
-        effective.push(domain);
     }
 
     let restricting: Vec<Vec<VarId>> = cfn
@@ -1160,7 +1165,10 @@ pub fn detect_product(cfn: &Cfn) -> ProductVerdict {
         .collect();
 
     if restricting.is_empty() {
-        let domains: Vec<usize> = effective.iter().map(|domain| domain.len()).collect();
+        let domains: Vec<usize> = cfn
+            .variable_ids()
+            .map(|var| effective.get(var).len())
+            .collect();
         let count = domains.iter().fold(1u128, |total, size| {
             total.saturating_mul(u128::try_from(*size).unwrap_or(COUNT_CEILING))
         });
@@ -1182,13 +1190,13 @@ pub fn detect_product(cfn: &Cfn) -> ProductVerdict {
 }
 
 /// Whether a cost function forbids nothing its variables can still take.
-fn is_universal(cfn: &Cfn, function: &CostFunction, effective: &[Domain]) -> bool {
+fn is_universal(cfn: &Cfn, function: &CostFunction, effective: &Domains) -> bool {
     let scope = function.scope();
     let strides = strides_of(cfn, scope);
 
     let mut choices: Vec<Vec<usize>> = Vec::with_capacity(scope.len());
     for var in scope {
-        let domain = effective.get(var.index()).copied().unwrap_or(Domain::EMPTY);
+        let domain = effective.get(*var);
         let variable = cfn.variable(*var);
         choices.push(
             domain
@@ -1267,10 +1275,12 @@ mod tests {
     /// The value vector read in decode order, which is the order the tie-break
     /// is stated in.
     fn decode_key(assignment: &Assignment, order: &[VarId]) -> Vec<u32> {
+        // `ValId::order_key`, not `ValId::raw`: the tie-break is read in the
+        // domain order, which puts `⊥` last, and `⊥` is stored first.
         order
             .iter()
             .rev()
-            .filter_map(|var| assignment.get(*var).map(ValId::raw))
+            .filter_map(|var| assignment.get(*var).map(ValId::order_key))
             .collect()
     }
 

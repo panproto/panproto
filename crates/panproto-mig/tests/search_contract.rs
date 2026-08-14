@@ -4,10 +4,10 @@
 //! Three contracts live here, each of which was broken by a returned value
 //! rather than by a crash, so each is pinned against the observable answer:
 //!
-//! 1. **A search that could not run is not a search that found nothing.** The
-//!    domain ceiling is reachable on ordinary input, and reporting it as "no
-//!    total morphism exists" is a wrong answer about a pair whose identity
-//!    morphism is perfect.
+//! 1. **A search that could not run is not a search that found nothing.** No
+//!    domain size is refused any more, so what is left to refuse is a measured
+//!    memory cost, and reporting that as "no total morphism exists" would be a
+//!    wrong answer about a pair whose identity morphism is perfect.
 //! 2. **`epic` is a constraint the search enforces, not a filter over its
 //!    answer.** A surjective total morphism need not be an argmin of an
 //!    objective that says nothing about surjectivity, so filtering the argmins
@@ -18,7 +18,8 @@
 #![allow(clippy::expect_used)]
 
 use panproto_mig::hom_search::{SearchOptions, find_best_morphism, find_morphisms, find_span};
-use panproto_mig::{BuildError, CfnError, SpanError, ValId};
+use panproto_mig::solve::SearchBudget;
+use panproto_mig::{BuildError, CfnError, SpanError, SpanSearch};
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
 fn protocol() -> Protocol {
@@ -68,55 +69,116 @@ fn schema(ids: &[&str]) -> Schema {
 // 1. A refused network is reported, never spelled "nothing found"
 // ---------------------------------------------------------------------------
 
-/// At the ceiling the identity is found; one past it the search reports why it
-/// could not run.
+/// A record with two hundred fields of one type is an ordinary schema, and the
+/// search finds its identity.
 ///
-/// The two halves have to be one test. The first pins that the ceiling really
-/// is where `ValId::MAX_REAL_VALUES` says it is, so the second is testing the
-/// refusal rather than some unrelated failure, and together they say the only
-/// thing that changes across the boundary is `Ok` against `Err` — never `Ok`
-/// against `Ok(empty)`.
+/// Every one of the two hundred string vertices sees all two hundred string
+/// targets, so this is the shape that used to be refused: a single-word domain
+/// held sixty-three real values, and the sixty-fourth field made the network
+/// unbuildable. Nothing about the width shows through now.
 #[test]
-fn a_domain_ceiling_is_reported_rather_than_spelled_no_morphism() {
-    let at = ValId::MAX_REAL_VALUES as usize;
-    let fits = record(at);
-    let best = find_best_morphism(&fits, &fits, &SearchOptions::default())
-        .expect("a domain of exactly the ceiling poses")
+fn a_record_of_two_hundred_same_kind_fields_finds_its_identity() {
+    let wide = record(200);
+    let best = find_best_morphism(&wide, &wide, &SearchOptions::default())
+        .expect("a two hundred value domain poses")
         .expect("a schema maps onto itself");
     assert!(
         (best.quality - 1.0).abs() < 1e-9,
         "the identity of a schema against itself is a perfect match: got {}",
         best.quality
     );
+    assert_eq!(
+        best.vertex_map.len(),
+        201,
+        "the identity maps the body and every field"
+    );
+    for index in 0..200usize {
+        let id = format!("f{index:03}");
+        assert_eq!(
+            best.vertex_map.get(&panproto_gat::Name::from(id.as_str())),
+            Some(&panproto_gat::Name::from(id.as_str())),
+            "field {id} is not mapped to itself"
+        );
+    }
+}
 
-    let over = record(at + 1);
-    let refused = find_morphisms(&over, &over, &SearchOptions::default());
+/// A pair too large to hold is refused by the memory budget, and the refusal
+/// names the bytes.
+///
+/// This is what replaced the domain ceiling. The ceiling was a word size and
+/// said nothing about the machine; this is a measurement of the cost tables the
+/// network would allocate, checked against the same figure the dispatcher
+/// budgets exact inference with. Two things are pinned: the number in the error
+/// is a measured cost, and the refusal is not laundered into "no morphism
+/// exists" about a pair whose identity morphism is perfect.
+#[test]
+fn a_network_over_the_memory_budget_reports_the_budget() {
+    // Unary tables alone come to `fields · (fields + 1) + 2` entries, which at
+    // eight bytes each passes the default sixty-four megabyte budget. That is
+    // roughly forty-six times the widest domain the old ceiling allowed, and it
+    // is the first thing that refuses anything now.
+    let over = record(2_900);
+    let refused = find_best_morphism(&over, &over, &SearchOptions::default());
+    let Err(SpanError::Build {
+        source:
+            BuildError::Network {
+                source:
+                    CfnError::OverMemoryBudget {
+                        entries,
+                        bytes,
+                        budget,
+                    },
+            },
+    }) = refused
+    else {
+        panic!(
+            "a network past the budget must report the budget, and \
+             `find_best_morphism` must not launder it into `Ok(None)`, which \
+             its own contract defines as `no total morphism exists`: {refused:?}"
+        );
+    };
+    assert_eq!(entries, 2_900 * 2_901 + 2);
+    assert_eq!(bytes, entries * 8);
+    assert!(
+        bytes > budget,
+        "the refusal must report a cost above the budget it was checked against"
+    );
+}
+
+/// The budget the refusal is measured against is the caller's, not a constant.
+///
+/// A word size could not be moved. This can: the same pair poses or is refused
+/// according to what the caller says the machine has, and both answers name the
+/// same measurement.
+#[test]
+fn the_memory_budget_is_the_callers() {
+    let pair = record(200);
+    let entries = 200 * 201 + 2;
+
+    let refused = SpanSearch::new(&protocol())
+        .with_budget(SearchBudget::default().with_mem_bytes(1024))
+        .run(&pair, &pair);
     assert!(
         matches!(
             refused,
             Err(SpanError::Build {
                 source: BuildError::Network {
-                    source: CfnError::DomainTooLarge { .. }
+                    source: CfnError::OverMemoryBudget {
+                        entries: measured,
+                        budget: 1024,
+                        ..
+                    }
                 }
-            })
+            }) if measured == entries
         ),
-        "one target past the ceiling must report the ceiling, not an empty \
-         hom-set: got {refused:?}"
+        "{refused:?}"
     );
 
-    let refused_best = find_best_morphism(&over, &over, &SearchOptions::default());
-    assert!(
-        refused_best.is_err(),
-        "`find_best_morphism` must not launder the same refusal into `None`, \
-         which its own contract defines as `no total morphism exists`"
-    );
-
-    // The identity of a schema against itself is total, perfect, and exists
-    // whatever the network can represent, so `Ok(None)` here would be false.
-    assert!(
-        !matches!(refused_best, Ok(None)),
-        "a pair whose identity morphism is perfect was told no morphism exists"
-    );
+    let span = SpanSearch::new(&protocol())
+        .with_budget(SearchBudget::default())
+        .run(&pair, &pair)
+        .expect("the same pair poses against the default budget");
+    assert_eq!(span.apex.vertices.len(), 201);
 }
 
 // ---------------------------------------------------------------------------

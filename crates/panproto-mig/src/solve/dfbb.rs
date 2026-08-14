@@ -24,9 +24,13 @@
 //! # What is trailed and what is copied
 //!
 //! Cost cells are trailed, one `(index, old value)` pair per write, with a
-//! single restore back to a mark. Domains are one `u64` per variable, so they
-//! are copied on branching and restored by assignment. Two mechanisms rather
-//! than one, and the sizes are the reason.
+//! single restore back to a mark. Domains are one contiguous bit set, so they
+//! are copied whole on branching and restored with one copy. Two mechanisms
+//! rather than one, and the sizes are the reason: at the widths the corpus
+//! reaches a save-and-restore pair costs a small fraction of a microsecond
+//! against the milliseconds of enforcement it brackets, and it gets relatively
+//! cheaper as domains grow, since the copy is linear in the width and the
+//! enforcement is quadratic.
 //!
 //! # The heuristics, and why they are these
 //!
@@ -721,7 +725,7 @@ impl BranchAndBound<'_> {
         let Some(value) = self.select_value(variable) else {
             return;
         };
-        let saved = self.net.domains().to_vec();
+        let saved = self.net.domains().clone();
 
         let mark = self.net.mark();
         self.path.push(Decision::assign(variable, value));
@@ -818,7 +822,7 @@ impl BranchAndBound<'_> {
         if !self.global.all_different {
             return true;
         }
-        let mut domains = self.net.domains().to_vec();
+        let mut domains = self.net.domains().clone();
         let wiped = self.global.values.as_ref().is_some_and(|index| {
             propagate_all_different(index, &mut domains) == HallOutcome::Wipeout
         });
@@ -826,7 +830,7 @@ impl BranchAndBound<'_> {
             return false;
         }
         self.net.set_domains(&domains);
-        !self.net.domains().iter().any(|domain| domain.is_empty())
+        !self.net.domains().any_empty()
     }
 
     /// Accept a complete assignment if it beats the incumbent.
@@ -1015,9 +1019,13 @@ impl BranchAndBound<'_> {
     /// One propagation per value, which is affordable only while there is no
     /// incumbent, which is exactly when the question is worth asking.
     fn bound_impact_value(&mut self, variable: VarId) -> Option<ValId> {
-        let saved = self.net.domains().to_vec();
+        let saved = self.net.domains().clone();
         let mut best: Option<(ValId, Cost)> = None;
-        for value in self.net.domain(variable) {
+        // The walk is over the saved copy rather than over the live store,
+        // because every step below assigns into the very domain a borrowed view
+        // of the live store would be reading. The copy is the one the loop
+        // restores from anyway, so this costs nothing extra.
+        for value in saved.get(variable) {
             let mark = self.net.mark();
             self.net.assign(variable, value);
             let bound = if self.net.enforce(self.level) {
@@ -1233,6 +1241,7 @@ impl BranchAndBound<'_> {
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
 /// use panproto_mig::solve::dfbb::{SearchParameters, solve_dfbb};
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -1256,6 +1265,7 @@ impl BranchAndBound<'_> {
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// let outcome = solve_dfbb(&cfn, &SearchParameters::default());

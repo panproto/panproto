@@ -173,8 +173,9 @@ use std::time::Instant;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 use rustc_hash::FxHashMap;
+use smallvec::SmallVec;
 
-use super::cfn::{Cfn, CostFunction, Domain, Variable};
+use super::cfn::{Cfn, CostFunction, Domain, Domains, Variable};
 use super::cost::Cost;
 use super::{
     Assignment, DEFAULT_SEARCH_NODES, LimitKind, SearchBudget, SolveOutcome, SolverPath, ValId,
@@ -521,18 +522,16 @@ pub enum HallOutcome {
 /// `domains` is positional: entry `i` is the domain of `VarId::new(i)`, in the
 /// per-variable [`ValId`] numbering, and `index` is what makes two variables'
 /// values comparable.
-pub fn propagate_all_different(index: &ValueIndex, domains: &mut [Domain]) -> HallOutcome {
+pub fn propagate_all_different(index: &ValueIndex, domains: &mut Domains) -> HallOutcome {
     let words = index.len().div_ceil(u64::BITS as usize).max(1);
     let mut bits = vec![0u64; domains.len() * words];
     let mut order: Vec<(u32, usize)> = Vec::new();
 
-    for (position, domain) in domains.iter().enumerate() {
-        let Ok(raw) = u32::try_from(position) else {
-            continue;
-        };
-        let var = VarId::new(raw);
+    for var in domains.variable_ids() {
+        let position = var.index();
+        let domain = domains.get(var);
         let mut size = 0u32;
-        for value in *domain {
+        for value in domain {
             if let Some(target) = index.global(var, value) {
                 let offset = position * words + target.index() / u64::BITS as usize;
                 bits[offset] |= 1u64 << (target.index() % u64::BITS as usize);
@@ -603,20 +602,20 @@ fn sweep(order: &[(u32, usize)], bits: &mut [u64], words: usize, variables: usiz
 /// A value the index does not number is left alone: nothing can be concluded
 /// about a target the propagator never saw, and leaving it is the direction
 /// that cannot over-prune.
-fn restrict(index: &ValueIndex, domains: &mut [Domain], bits: &[u64], words: usize) -> usize {
+fn restrict(index: &ValueIndex, domains: &mut Domains, bits: &[u64], words: usize) -> usize {
     let mut removed = 0usize;
-    for (position, domain) in domains.iter_mut().enumerate() {
-        let Ok(raw) = u32::try_from(position) else {
-            continue;
-        };
-        let var = VarId::new(raw);
-        for value in *domain {
+    let variables: Vec<VarId> = domains.variable_ids().collect();
+    for var in variables {
+        let position = var.index();
+        // Detached, because the walk removes from the very domain it reads.
+        let block: SmallVec<u64, 2> = SmallVec::from_slice_copy(domains.block(var));
+        for value in Domain::new(&block) {
             let Some(target) = index.global(var, value) else {
                 continue;
             };
             let offset = position * words + target.index() / u64::BITS as usize;
             if bits[offset] & (1u64 << (target.index() % u64::BITS as usize)) == 0 {
-                domain.remove(value);
+                domains.remove(var, value);
                 removed += 1;
             }
         }
@@ -722,6 +721,23 @@ pub enum IsoError {
         scope: Vec<VarId>,
     },
 
+    /// The dense frames the bound is computed over exceed the memory budget.
+    ///
+    /// The iso path prices every source vertex against every target vertex and
+    /// every pair of target vertices, and those tables are sized by the two
+    /// vertex counts alone. Nothing else the search consults bounds them, so
+    /// they are checked against the caller's
+    /// [`SearchBudget::mem_bytes`](super::SearchBudget::mem_bytes) before they
+    /// are allocated. Like every other budget refusal this names a measurement
+    /// rather than a capacity, and the caller can move it.
+    #[error("the iso frames need {bytes} bytes, above the budget of {budget} bytes")]
+    OverMemoryBudget {
+        /// What the three dense tables come to in bytes.
+        bytes: u64,
+        /// The budget they were checked against.
+        budget: u64,
+    },
+
     /// A variable names a vertex the source schema does not hold, or a value
     /// names a vertex the target schema does not hold.
     ///
@@ -798,12 +814,14 @@ impl<'a> Instance<'a> {
     ///
     /// # Errors
     ///
-    /// [`IsoError`] when the network breaks a reward-frame precondition or
-    /// names a vertex the schema pair does not hold.
-    fn new(cfn: &'a Cfn, src: &Schema, tgt: &Schema) -> Result<Self, IsoError> {
+    /// [`IsoError`] when the network breaks a reward-frame precondition, names
+    /// a vertex the schema pair does not hold, or wants more memory for its
+    /// dense frames than `mem_bytes` allows.
+    fn new(cfn: &'a Cfn, src: &Schema, tgt: &Schema, mem_bytes: usize) -> Result<Self, IsoError> {
         let index = ValueIndex::of(cfn);
         let lefts = cfn.n_variables();
         let rights = index.len();
+        check_frame_budget(lefts, rights, mem_bytes)?;
 
         let baseline = verify_frame(cfn)?;
         let (feasible, unary_reward) = unary_frame(cfn, &index, lefts, rights);
@@ -1206,6 +1224,29 @@ fn dropped_positions(offset: usize, slots: &[usize]) -> usize {
         rest /= count;
     }
     dropped
+}
+
+/// Whether the dense frames the iso path allocates fit the caller's budget.
+///
+/// [`Instance`] holds three tables sized by the two vertex counts rather than by
+/// the sparse structure: `lefts · rights` feasibility flags, the same many
+/// rewards, and `rights²` pair rewards. None of the three is bounded by anything
+/// else the search consults, so a target schema with a few thousand vertices of
+/// one kind would allocate hundreds of megabytes before any node opened. The
+/// check is on the size, before the allocation, and the refusal names it.
+fn check_frame_budget(lefts: usize, rights: usize, mem_bytes: usize) -> Result<(), IsoError> {
+    let lefts = u64::try_from(lefts).unwrap_or(u64::MAX);
+    let rights = u64::try_from(rights).unwrap_or(u64::MAX);
+    let cell = u64::try_from(size_of::<u64>()).unwrap_or(u64::MAX);
+    let flags = lefts.saturating_mul(rights);
+    let rewards = flags.saturating_mul(cell);
+    let pairs = rights.saturating_mul(rights).saturating_mul(cell);
+    let bytes = flags.saturating_add(rewards).saturating_add(pairs);
+    let budget = u64::try_from(mem_bytes).unwrap_or(u64::MAX);
+    if bytes > budget {
+        return Err(IsoError::OverMemoryBudget { bytes, budget });
+    }
+    Ok(())
 }
 
 /// Feasibility and the vertex reward of every `(variable, target)` pair.
@@ -1842,6 +1883,7 @@ impl Search<'_> {
 /// ```
 /// use panproto_mig::solve::build::{NoEvidence, build_cfn};
 /// use panproto_mig::solve::mcsplit::solve_iso;
+/// use panproto_mig::solve::DEFAULT_MEM_BYTES;
 /// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchBudget, SearchOptions};
 /// use panproto_schema::{Protocol, SchemaBuilder};
 ///
@@ -1865,6 +1907,7 @@ impl Search<'_> {
 ///     &DomainConstraints::default(),
 ///     &NoEvidence,
 ///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
 /// )?;
 ///
 /// let outcome = solve_iso(&cfn, &schema, &schema, &SearchBudget::default())?;
@@ -1881,7 +1924,7 @@ pub fn solve_iso(
     tgt: &Schema,
     budget: &SearchBudget,
 ) -> Result<SolveOutcome, IsoError> {
-    let instance = Instance::new(cfn, src, tgt)?;
+    let instance = Instance::new(cfn, src, tgt, budget.mem_bytes)?;
     let root = instance.root();
 
     let mut search = Search::new(&instance, budget);
@@ -1914,6 +1957,7 @@ pub fn solve_iso(
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::solve::DEFAULT_MEM_BYTES;
     use crate::solve::build::{NoEvidence, build_cfn};
     use crate::solve::cfn::CfnBuilder;
     use crate::solve::cost::DEFAULT_WEIGHTS;
@@ -1954,6 +1998,7 @@ mod tests {
             &DomainConstraints::default(),
             &NoEvidence,
             DEFAULT_WEIGHTS,
+            DEFAULT_MEM_BYTES,
         )
         .unwrap()
     }
@@ -2200,14 +2245,12 @@ mod tests {
 
     /// The domains of a network with `⊥` removed, which is the total-morphism
     /// restriction and the regime the propagator is for.
-    fn total_domains(cfn: &Cfn) -> Vec<Domain> {
-        cfn.variable_ids()
-            .map(|var| {
-                let mut domain = cfn.domain(var).unwrap();
-                domain.remove(ValId::BOTTOM);
-                domain
-            })
-            .collect()
+    fn total_domains(cfn: &Cfn) -> Domains {
+        let mut domains = cfn.domains().clone();
+        for var in cfn.variable_ids() {
+            domains.remove(var, ValId::BOTTOM);
+        }
+        domains
     }
 
     #[test]
@@ -2229,7 +2272,7 @@ mod tests {
             HallOutcome::Filtered { removed: 2 }
         ));
         // `{x, y}` is saturated by the first two, so the third keeps only `z`.
-        let third = domains[2];
+        let third = domains.get(VarId::new(2));
         assert_eq!(third.len(), 1);
         let only = third.only().unwrap();
         assert_eq!(
@@ -2248,7 +2291,7 @@ mod tests {
         ));
         for (position, expected) in ["x", "y", "z"].iter().enumerate() {
             let var = VarId::new(u32::try_from(position).unwrap());
-            let only = domains[position].only().unwrap();
+            let only = domains.get(var).only().unwrap();
             assert_eq!(
                 index.name(index.global(var, only).unwrap()),
                 Some(&Name::from(*expected))
@@ -2261,10 +2304,7 @@ mod tests {
         // The same pigeonhole, but every variable keeps `⊥`, so nothing is
         // forced and the propagator must stay silent. This is the span search.
         let (cfn, index) = pool(&[&["x", "y"], &["x", "y"], &["x", "y"]]);
-        let mut domains: Vec<Domain> = cfn
-            .variable_ids()
-            .map(|var| cfn.domain(var).unwrap())
-            .collect();
+        let mut domains = cfn.domains().clone();
         let before = domains.clone();
         assert_eq!(
             propagate_all_different(&index, &mut domains),
@@ -2279,13 +2319,13 @@ mod tests {
         // them even though it was never counted.
         let (cfn, index) = pool(&[&["x", "y"], &["x", "y"], &["x", "y", "z"]]);
         let mut domains = total_domains(&cfn);
-        domains[2].insert(ValId::BOTTOM);
+        domains.insert(VarId::new(2), ValId::BOTTOM);
         assert!(matches!(
             propagate_all_different(&index, &mut domains),
             HallOutcome::Filtered { removed: 2 }
         ));
-        assert!(domains[2].contains(ValId::BOTTOM));
-        assert_eq!(domains[2].len(), 2);
+        assert!(domains.contains(VarId::new(2), ValId::BOTTOM));
+        assert_eq!(domains.get(VarId::new(2)).len(), 2);
     }
 
     #[test]
@@ -2312,30 +2352,28 @@ mod tests {
             }
             injective += 1;
             for (position, value) in assignment.iter().enumerate() {
+                let var = VarId::new(u32::try_from(position).unwrap());
                 assert!(
-                    domains[position].contains(*value),
+                    domains.contains(var, *value),
                     "propagation dropped a value an injective assignment uses"
                 );
             }
         }
         assert!(injective > 0, "the fixture must have injective assignments");
         assert!(matches!(outcome, HallOutcome::Filtered { .. }));
-        for (after, original) in domains.iter().zip(&before) {
-            assert_eq!(
-                after.bits() & !original.bits(),
-                0,
-                "propagation only prunes"
-            );
+        for (after, original) in domains.bits().iter().zip(before.bits()) {
+            assert_eq!(after & !original, 0, "propagation only prunes");
         }
     }
 
     /// Every combination of one value per domain.
-    fn exhaustive(domains: &[Domain]) -> Vec<Vec<ValId>> {
+    fn exhaustive(domains: &Domains) -> Vec<Vec<ValId>> {
         let mut out = vec![Vec::new()];
-        for domain in domains {
+        for var in domains.variable_ids() {
+            let domain = domains.get(var);
             let mut next = Vec::new();
             for partial in &out {
-                for value in *domain {
+                for value in domain {
                     let mut extended = partial.clone();
                     extended.push(value);
                     next.push(extended);
@@ -2412,7 +2450,7 @@ mod tests {
             &[("x", "y", "prop", Some("p"))],
         );
         let cfn = unweighted(&src, &tgt);
-        let instance = Instance::new(&cfn, &src, &tgt).unwrap();
+        let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
         let root = instance.root();
         let search = Search::new(&instance, &SearchBudget::default());
         let plan = search.bound(&root);
@@ -2438,7 +2476,7 @@ mod tests {
             &[("x", "y", "prop", Some("p")), ("y", "w", "prop", Some("r"))],
         );
         let cfn = network(&src, &tgt);
-        let instance = Instance::new(&cfn, &src, &tgt).unwrap();
+        let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
         let root = instance.root();
         let search = Search::new(&instance, &SearchBudget::default());
         let root_bound = search.bound(&root).bound;
@@ -2621,7 +2659,7 @@ mod tests {
             for (other_vertices, other_edges) in &cases {
                 let tgt = schema(other_vertices, other_edges);
                 let cfn = network(&src, &tgt);
-                let instance = Instance::new(&cfn, &src, &tgt).unwrap();
+                let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
                 let root = instance.root();
                 let mut search = Search::new(&instance, &SearchBudget::default());
                 search.search(&root);
@@ -2643,6 +2681,37 @@ mod tests {
         let outcome = solve_iso(&cfn, &empty, &empty, &SearchBudget::default()).unwrap();
         assert_eq!(outcome.best, Some(Assignment::all_bottom(0)));
         assert!(outcome.proven_optimal);
+    }
+
+    // -- the frame budget --------------------------------------------------
+
+    #[test]
+    fn dense_frames_over_the_memory_budget_are_refused_with_their_measurement() {
+        // Eight source vertices against eight targets: `8 · 8` flags, `8 · 8`
+        // rewards and `8 · 8` pair rewards, which is 1088 bytes.
+        let ids: Vec<(String, &str)> = (0..8)
+            .map(|index| (format!("v{index}"), "object"))
+            .collect();
+        let pairs: Vec<(&str, &str)> = ids.iter().map(|(id, kind)| (id.as_str(), *kind)).collect();
+        let src = schema(&pairs, &[]);
+        let cfn = network(&src, &src);
+
+        let tight = SearchBudget::default().with_mem_bytes(512);
+        let refused = solve_iso(&cfn, &src, &src, &tight);
+        assert!(
+            matches!(
+                refused,
+                Err(IsoError::OverMemoryBudget {
+                    bytes: 1088,
+                    budget: 512
+                })
+            ),
+            "{refused:?}"
+        );
+
+        // The same pair is ordinary against the default budget, so what was
+        // refused is the memory and not the shape.
+        assert!(solve_iso(&cfn, &src, &src, &SearchBudget::default()).is_ok());
     }
 
     // -- the reward frame --------------------------------------------------

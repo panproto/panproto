@@ -78,6 +78,7 @@ fn network_of(src: &Schema, tgt: &Schema, weights: CostWeights) -> Option<Cfn> {
         &DomainConstraints::default(),
         &NoEvidence,
         weights,
+        panproto_mig::solve::DEFAULT_MEM_BYTES,
     )
     .ok()
 }
