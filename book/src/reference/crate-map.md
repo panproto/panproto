@@ -8,9 +8,9 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 |---|---|
 | `panproto-gat` | Generalized algebraic theories: sorts, operations, equations, and the colimit machinery that composes them. |
 | `panproto-gat-macros` | `class!` and `inductive!` macros for declaring GATs in Rust source. |
-| `panproto-schema` | Schema representation: vertices, edges, the schema graph, validation. Hosts the `AbstractSchema` / `DecoratedSchema` typed-newtype distinction and the layout-fibre forgetful U (`Schema::forget_layout`). |
+| `panproto-schema` | Schema representation: vertices, edges, the schema graph, validation. Hosts the `AbstractSchema` / `DecoratedSchema` typed-newtype distinction, the layout-fibre forgetful U (`Schema::forget_layout`), `induce` (the one supported way to cut a well-formed sub-schema, accounting for all twenty-one `Schema` fields), and `canonical_digest`. |
 | `panproto-inst` | Instances: data records over a schema, including `Value::List` and the typed value lattice. |
-| `panproto-mig` | Migration engine: morphisms between schema theories, restrict and lift. |
+| `panproto-mig` | Migration engine: morphisms between schema theories, restrict and lift, plus the `solve` / `span` / `hom_search` subsystem that *finds* those morphisms by minimising a cost function network. |
 | `panproto-lens` | Bidirectional lenses: get/put/complement, the three round-trip laws, fibration over schemas, optic kinds, protolenses, the cross-crate `enrichment_registry` for layout and other schema-level fibres. |
 | `panproto-lens-dsl` | Declarative lens DSL with Nickel, JSON, and YAML surfaces. |
 | `panproto-theory-dsl` | Declarative theory DSL for defining custom protocols. |
@@ -18,6 +18,8 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-protocols` | Built-in protocol definitions composed via theory colimits. |
 | `panproto-expr` | Pure, total expression language: terms, types, environment evaluation. |
 | `panproto-expr-parser` | Haskell-style surface syntax parser for `panproto-expr`. |
+
+One line does not locate the morphism search, which is the largest subsystem inside `panproto-mig`. [`panproto_mig::solve`](https://docs.rs/panproto-mig/latest/panproto_mig/solve/) poses the search for a schema morphism as a **cost function network** (CFN): one variable per source vertex, one value per kind-compatible target vertex, and a distinguished bottom value meaning that the vertex is left out of the result. Minimising the total cost over that network is the search. Because bottom is an ordinary value rather than a failure, the maximum common sub-schema falls out as the network's optimum and no separate subgraph search is needed. [`panproto_mig::span`](https://docs.rs/panproto-mig/latest/panproto_mig/span/) assembles the winning assignment into a span, re-inducing and re-validating its apex, and [`panproto_mig::hom_search`](https://docs.rs/panproto-mig/latest/panproto_mig/hom_search/) is the surface a caller reaches for. Four algorithms sit behind that surface: exact bucket elimination [@dechter1999bucket] on the primary path, hybrid best-first search [@allouchedegivrykatsirelosschiexzytnicki2015anytime] over branch and bound maintaining existential directional arc consistency [@degivryheraszytnickilarrosa2005existential] when the network is too wide to eliminate, that same search with a counting-based all-different propagator [@mccreeshprosser2015backjumping] added for an injective request, and McSplit [@mccreeshprossertrimble2017partitioning] for an isomorphism request.
 
 ## I/O and parsing
 
@@ -55,7 +57,7 @@ The `panproto-*` crates in the workspace, with one-line descriptions and depende
 | `panproto-cli` | The `schema` binary. |
 | `panproto-wasm` | WebAssembly bindings; consumed by the TypeScript SDK. |
 | `panproto-py` | Native Python bindings via PyO3. |
-| `panproto-c` | C ABI for non-Rust language bindings; the Haskell and Swift bindings consume it. 103 entry points by default, 120 with the `full-parse`, `project`, and `git` features. |
+| `panproto-c` | C ABI for non-Rust language bindings; the Haskell and Swift bindings consume it. 105 entry points by default, 122 with the `full-parse`, `project`, and `git` features. |
 
 The interactive REPL for theories, terms, and morphisms is part of `panproto-cli`, reachable as `schema theory repl`; it is not a separate crate.
 
@@ -68,4 +70,5 @@ The interactive REPL for theories, terms, and morphisms is part of `panproto-cli
 ## See also
 
 - [Architecture](../explanation/architecture.md) for the dependency direction and layering.
+- [Searching for a morphism](../explanation/morphism-search.md) for the cost function network the `panproto-mig` search subsystem is posed over, and [Alignment evidence](../explanation/alignment-evidence.md) for what feeds its anchor term.
 - The repository [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml) for authoritative workspace membership.

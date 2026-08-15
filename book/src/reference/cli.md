@@ -17,6 +17,62 @@ For the model that the commands operate on, see
 [Migrations as morphisms](../explanation/migrations-as-morphisms.md), and
 [Schema version control semantics](../explanation/vcs-semantics.md).
 
+## Discovering a migration
+
+`schema auto-migrate` runs one search over spans `old ← apex → new`, where the
+apex is the sub-schema of `old` whose vertices found a target in `new`. That
+search never refuses for want of a match: leaving every source vertex out of the
+apex is always feasible, so two schemas with nothing in common come back with an
+empty apex rather than with an error. Two of the three flags below therefore
+select which of its answers counts as an answer, and the search underneath is the
+same one either way; the third constrains the search itself.
+
+`--span` accepts every answer, the empty apex included. Without it the command
+accepts a span covering at least one source vertex and reports the empty apex as
+a failure naming the two files.
+
+`--total` accepts only a span whose left leg is onto, which is to say a total
+morphism. Totality is a condition on the edges as well as the vertices, so an
+apex holding every source vertex is not on its own enough: a source arc that
+found no image in the target leaves the answer partial at full vertex coverage.
+The command does not read that off the span alone. An optimal span that
+drops a vertex is no evidence about whether a total morphism exists, because span
+quality excludes the drop count while the objective is lexicographic in quality
+first and drops second, so a span that drops a vertex can score strictly better
+than a total morphism that keeps it. When the optimal span is not total, the
+command runs the total-morphism search before giving up, and it fails only when
+that second search comes back empty, quoting the coverage the span did reach.
+`--total` and `--span` conflict, and the pair is rejected before either search
+runs.
+
+`--monic` constrains the search rather than the acceptance, so it composes with
+either of the others. It requires the vertex map to be injective, so that no two
+source vertices land on the same target. Injectivity on vertices does not force
+injectivity on edges, and a monic answer may still send two parallel source edges
+to one target edge. When the answer is not injective on vertices, the command
+says so on stderr, since a migration identifying two source vertices has no
+well-defined lift without a rule for combining them.
+
+The human report opens with the shape, the score, and the interval the search
+certified, then sizes the apex:
+
+```text
+Found span (quality: 0.812, bounds: [0.812, 0.884]):
+
+Apex: 7 of 9 vertices (77.8% coverage), 6 edges
+```
+
+The bounds collapse to a point exactly when the answer was proved optimal. When
+they do not, a following line records that the search stopped before it could
+rule out a better span, which is what separates a quality of 0.812 that nothing
+beats from a quality of 0.812 the search never got to improve on. Underneath
+come the right leg's vertex map and, when it has one, its edge map. A total
+morphism recovered by the second search prints a shorter report, with no apex
+line and no bounds, because it carries neither.
+
+`--json` writes the span's right leg, a migration out of the apex, to stdout.
+Warnings stay on stderr, so the output pipes.
+
 ## `schema`
 
 ```text
@@ -693,7 +749,7 @@ Arguments:
 Options:
       --monic    Require injective (one-to-one) vertex mapping
   -v, --verbose  Enable verbose output
-      --total    Require every source vertex to be mapped; fail on a partial answer
+      --total    Require a total morphism; fail on a partial answer
       --span     Report the span even when it covers nothing at all
       --json     Output the span's right leg, a migration out of the apex, as JSON
   -h, --help     Print help

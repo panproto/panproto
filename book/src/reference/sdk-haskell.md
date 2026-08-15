@@ -8,7 +8,7 @@ The package is not yet on a registry; install from this repository. See [Install
 
 ## Two backends behind capability classes
 
-Each domain is one typeclass parameterised by a backend tag, and every class method returns `IO`. There are two backends. `Rust` is FFI-backed and implements every class; it consumes the 112-entry C ABI documented in [`crates/panproto-c/CONTRACT.md`](https://github.com/panproto/panproto/blob/main/crates/panproto-c/CONTRACT.md). `Native` is pure Haskell and implements the protocol and schema round-trips plus the backend-independent value algebra, for pipelines that never start a Rust runtime.
+Each domain is one typeclass parameterised by a backend tag, and every class method returns `IO`. There are two backends. `Rust` is FFI-backed and implements every class; it consumes the 122-entry C ABI documented in [`crates/panproto-c/CONTRACT.md`](https://github.com/panproto/panproto/blob/main/crates/panproto-c/CONTRACT.md), of which 105 are present in a default build and 17 behind the `full-parse`, `project`, and `git` features. `Native` is pure Haskell and implements the protocol and schema round-trips plus the backend-independent value algebra, for pipelines that never start a Rust runtime.
 
 A call like `compile mig src tgt` resolves to whichever backend the representations carry. Capability methods take and return backend-specific representations (`ProtocolRep back`, `SchemaRep back`, `LensRep back`, and so on), which are associated data families on each class: the `Rust` representations wrap opaque `u32` slab handles, the `Native` representations wrap the canonical value. The `toCanonical` / `fromCanonical` bridge (and `toSchema` / `fromSchema` for the structured schema) moves a value between backends.
 
@@ -127,6 +127,40 @@ validate =
 
 *Listing R.3: Ingesting a structured schema into the `Rust` backend and validating it against a protocol. It reuses `postSchema` from Listing R.1.*
 
+## Morphism and span search
+
+`HomBackend` carries the search. `findSpan` is the method to reach for, because it never refuses for want of a match: leaving every source vertex out of the apex is a feasible answer, so two schemas with nothing in common come back as a `FoundSpan` with an empty apex rather than as an exception.
+
+```haskell
+import Panproto.Class (ProtocolBackend (..), Rust, SchemaBackend (..))
+import Panproto.Hom
+    ( FoundSpan
+    , HomBackend (..)
+    , SearchOptions (..)
+    , defaultDomainConstraints
+    , defaultFindOpts
+    )
+import Panproto.Rust.Hom ()
+
+sharedPart :: SchemaRep Rust -> SchemaRep Rust -> ProtocolRep Rust -> IO FoundSpan
+sharedPart old new proto =
+    findSpan old new proto
+        (defaultFindOpts {monic = True})
+        defaultDomainConstraints
+```
+
+*Listing R.4: Asking what two schemas share, under an injective vertex map.* The protocol is an argument because the apex is a schema, a schema is well formed only against a protocol, and inducing the apex re-validates it; a schema carries its protocol's name alone, so the protocol cannot be read back off `old`.
+
+`FoundSpan` is a plain record, so it carries the span's measurements flat rather than nesting the engine's certificate: `apex`, `left` and `right` for the span itself, then `quality`, `qualityLo`, `qualityHi`, `apexCoverage`, `provenOptimal`, and `isTotal`. The package is compiled with `NoFieldSelectors`, so those fields are read through `OverloadedRecordDot` (`found.apexCoverage`) rather than through selector functions, which never come into scope. The two quality ends are equal exactly when `provenOptimal` holds, which is what separates a score nothing beats from a score the search ran out of budget before improving on. `quality` ranks spans over *one* source schema and nothing else, since every denominator of the objective is fixed by the source, so `apexCoverage` is read alongside it. The pure `spanAsTotalMorphism` hands back the older `FoundMorphism` shape when `isTotal` holds, and `spanToOverlap` (which takes a `Proxy` for the backend the argument and result types do not mention) gives the identification list a pushout takes.
+
+`SearchOptions` is shared with the two total-morphism methods: `monic`, `epic`, `iso`, `maxResults`, and `hardPins`, with `defaultFindOpts` the all-default record. `epic` is honoured by `findMorphisms` and `findBestMorphism` and refused by `findSpan`, since surjectivity is a property of a total morphism and a span's right leg is deliberately partial. Hard domain restrictions travel separately in `DomainConstraints` (`restrictedDomains`, `excludedTargets`, `excludedSources`, `scoringWeights`), which only `findSpan` takes.
+
+### `findMorphisms` no longer returns the hom-set
+
+This is a silent behavioural change, so a program that upgrades without reading this paragraph will get different answers from an unchanged call. `findMorphisms` used to return every total morphism in descending quality order. It now returns the morphisms **attaining the optimum**, capped by `maxResults`, and nothing else. Every element carries the same `quality`, so the head of the list is what `findBestMorphism` answers with and there is no second, worse tier to walk to. The `ByQuality` wrapper still orders results by score, which matters across separate searches rather than within one.
+
+An empty list means that no total morphism exists, and only that. A search that could not be posed throws instead: the `hom` methods go through the generic status check, so what arrives is a `PanprotoError` carrying the FFI `PpStatus` and its envelope rather than one of the twelve domain children. `findSpan` is the method that answers with what the two schemas do share.
+
 ## Cabal flags
 
 | Flag | Default | Effect |
@@ -145,3 +179,4 @@ validate =
 - [Install the Haskell SDK](../how-to/install/haskell.md) for setup and the bootstrap scripts.
 - [Crate map](./crate-map.md) for `panproto-c` and the rest of the workspace.
 - [Define a schema from Haskell](../how-to/define-schema/haskell.md) for the builder walkthrough.
+- [Find a span between two schemas](../how-to/spans.md), and [Searching for a morphism](../explanation/morphism-search.md) for what the search is doing.

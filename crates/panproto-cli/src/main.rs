@@ -636,7 +636,7 @@ enum Command {
         #[arg(long)]
         monic: bool,
 
-        /// Require every source vertex to be mapped; fail on a partial answer.
+        /// Require a total morphism; fail on a partial answer.
         #[arg(long, conflicts_with = "span")]
         total: bool,
 

@@ -64,7 +64,7 @@ pub use existence::{ExistenceReport, check_existence};
 pub use hom_search::{
     DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
     find_best_morphism_constrained, find_morphisms, find_morphisms_constrained, find_span,
-    find_span_constrained,
+    find_span_constrained, without_bottom,
 };
 pub use invert::invert;
 pub use lift::{

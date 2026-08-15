@@ -13,6 +13,8 @@ The pages here, in increasing order of formality:
 | [The vocabulary in plain terms](./decoder-ring.md) | Plain; a one-line translation of every term of art |
 | [Schemas as theories](./schemas-as-theories.md) | Plain, with one formal section |
 | [Migrations as morphisms](./migrations-as-morphisms.md) | Plain, with one formal section |
+| [Searching for a morphism](./morphism-search.md) | Plain opener; the body is dense, and states the solver's mathematics in full |
+| [Alignment evidence](./alignment-evidence.md) | Plain, with the aggregation arithmetic and the calibration status of every constant |
 | [Lenses and round-trip laws](./lenses-roundtrip.md) | Plain, with the three laws stated formally |
 | [Layout enrichment](./layout-enrichment.md) | Plain, with the section law stated formally |
 | [Composing protocols by colimit](./protocol-colimits.md) | Plain, with one formal section |

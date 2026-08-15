@@ -7,6 +7,12 @@
 //! change in what the search considers optimal shows up as a diff at corpus
 //! scale rather than as a surprise in one hand-written case.
 //!
+//! `lexicon_domain_shapes.rs` is the half before this one: the shape of the
+//! network the search was handed, over every ordered pair of all seventy-seven
+//! lexicons rather than over this file's unordered subset. Domain sizes, how
+//! often no total morphism exists, and how often the constraints forbid nothing
+//! are recorded there.
+//!
 //! Forty-two of the seventy-seven lexicons declare a record as their `main`
 //! definition, which gives 861 unordered pairs. Records are taken because a
 //! record carries a full property graph, where a query or a procedure carries

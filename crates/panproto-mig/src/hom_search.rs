@@ -469,11 +469,13 @@ pub fn morphism_to_migration(found: &FoundMorphism) -> crate::Migration {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internals
-// ---------------------------------------------------------------------------
-
 /// The same network with `⊥` forbidden on every variable.
+///
+/// This is the total-morphism restriction of the span network, and it is what
+/// [`find_morphisms`] searches. A caller measuring a corpus rather than solving
+/// it wants the same network the search would have run on, since the domains,
+/// the emptiness and the constraints are the thing being measured; posing a
+/// second one by hand would measure something adjacent to it.
 ///
 /// Forbidding is a `⊤`-valued unary cost rather than a smaller domain, because
 /// `⊤` is absorbing: any assignment using `⊥` costs `⊤` and is infeasible, which
@@ -484,12 +486,58 @@ pub fn morphism_to_migration(found: &FoundMorphism) -> crate::Migration {
 ///
 /// A source vertex with no kind-compatible target then has an empty domain and
 /// the whole network is infeasible, which is the right answer: no total morphism
-/// maps it anywhere.
+/// maps it anywhere. `⊥` is forbidden wherever the variable carries a unary
+/// table, which [`build_cfn`] writes for every variable it poses.
 ///
 /// `mem_bytes` is the budget the network in hand was built against. Rebuilding
 /// it costs exactly what it cost the first time, so passing the same figure is
 /// what makes the fallback below unreachable rather than merely unlikely.
-fn without_bottom(cfn: &Cfn, mem_bytes: usize) -> Cfn {
+///
+/// # Examples
+///
+/// ```
+/// use panproto_mig::solve::build::{NoEvidence, build_cfn};
+/// use panproto_mig::solve::{DEFAULT_MEM_BYTES, ProductVerdict, detect_product};
+/// use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints, SearchOptions, without_bottom};
+/// use panproto_schema::{Protocol, SchemaBuilder};
+///
+/// let protocol = Protocol {
+///     name: "demo".into(),
+///     schema_theory: "ThTest".into(),
+///     instance_theory: "ThWType".into(),
+///     obj_kinds: vec!["object".into(), "string".into()],
+///     ..Protocol::default()
+/// };
+/// let src = SchemaBuilder::new(&protocol)
+///     .vertex("root", "object", None::<&str>)?
+///     .vertex("root.label", "string", None::<&str>)?
+///     .edge("root", "root.label", "prop", Some("label"))?
+///     .build()?;
+/// let tgt = SchemaBuilder::new(&protocol)
+///     .vertex("root", "object", None::<&str>)?
+///     .build()?;
+///
+/// let span = build_cfn(
+///     &src,
+///     &tgt,
+///     &SearchOptions::default(),
+///     &DomainConstraints::default(),
+///     &NoEvidence,
+///     DEFAULT_WEIGHTS,
+///     DEFAULT_MEM_BYTES,
+/// )?;
+///
+/// // Dropping `root.label` is feasible, so the span network is not empty.
+/// assert!(!matches!(detect_product(&span), ProductVerdict::Empty { .. }));
+///
+/// // There is no total morphism, though: the target holds no `string` vertex,
+/// // so `root.label` has nowhere to go.
+/// let hom = without_bottom(&span, DEFAULT_MEM_BYTES);
+/// assert!(matches!(detect_product(&hom), ProductVerdict::Empty { .. }));
+/// # Ok::<(), Box<dyn std::error::Error>>(())
+/// ```
+#[must_use]
+pub fn without_bottom(cfn: &Cfn, mem_bytes: usize) -> Cfn {
     let spec: Vec<(Name, Vec<Name>)> = cfn
         .variables()
         .iter()
@@ -523,6 +571,10 @@ fn without_bottom(cfn: &Cfn, mem_bytes: usize) -> Cfn {
     }
     builder.build()
 }
+
+// ---------------------------------------------------------------------------
+// Internals
+// ---------------------------------------------------------------------------
 
 /// Assignments attaining the optimum, up to `limit` of them.
 ///

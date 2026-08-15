@@ -1,0 +1,110 @@
+# Alignment evidence
+
+## In plain terms
+
+Before panproto can search for a morphism between two schemas, something has to propose which source vertex might correspond to which target vertex. Twelve alignment strategies do the proposing, and two further channels carry what a caller supplies directly: a stated hint, and a proposal from a language model. Some strategies compare identifiers, some compare the labels edges carry, some compare the prose attached to a vertex, and some read nothing but shape. Each emits **anchors**, one for every pair it wants to propose, each carrying a confidence and a record of what the claim was read from.
+
+An anchor is a claim, not a decision. The whole pool is reduced to one number per source-target pair, and that number reaches the search as a reward and never as a restriction. It can change which assignment is best. It cannot remove an assignment from consideration, and it cannot make a search that would have succeeded fail. That last property is the reward-only evidence discipline developed in [Searching for a morphism](./morphism-search.md); this page is about the step before it, which is how a pile of overlapping claims becomes the one number the discipline consumes.
+
+We call the reduction **aggregate-then-select**: everything the strategies said is aggregated first, and only then is anything chosen. The ordering is the design. The aggregated table is what the solver reads; the selection step exists for explanations and for callers who want a plain map, and it sits off the search path entirely.
+
+## What the old resolution got wrong
+
+The resolution this replaced took a per-source argmax over raw confidences and wrote the winner into the solver as a hard pin. Two failures followed from that one shape.
+
+The first is a ranking failure. Comparing raw confidences means comparing numbers that different strategies computed by different means and on different scales, so a token-similarity match reporting 0.8 outbid an exact identifier match reporting 0.4. The strategy ordering was documented, but it was consulted only to break bit-exact ties, which on floating-point similarity scores almost never happen. A strategy documented as a last resort could thus win against strategies carrying much stronger evidence.
+
+The second is a feasibility failure, and it is the more serious of the two. A hard pin collapses a source vertex's domain to a single target, so two anchors that are each individually plausible can be jointly infeasible: together they can require a source edge to map to a target edge that does not exist in the target schema. Nothing scored the conjunction. This meant that a tier that ran more strategies, and so proposed more anchors, could be the tier that reported no morphism at all, while a stricter tier that proposed fewer succeeded. A ladder of stringency tiers whose rungs are not ordered is worse than no ladder.
+
+## The four steps
+
+The reduction runs in [`panproto_mig::align::evidence`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/). Two steps turn each anchor into a single number, and two more reduce the anchors bearing on one pair into one score.
+
+1. **Provenance ceiling.** A metric cannot report more certainty than its input licenses. A character n-gram cosine of 0.98 computed over two dictionary synonyms is still a claim about two dictionary synonyms, so the anchor's [`Provenance`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/enum.Provenance.html) caps it before anything else happens.
+2. **Priority band.** The fourteen strategy tags cut the unit interval into fourteen bands of width $1/14$ in descending priority order, and the capped confidence positions the anchor inside its own band rather than anywhere on the interval. Writing $r$ for the tag's rank, from 0 for the strongest to 13 for the weakest, and $c$ for the capped confidence, the effective value $e$ is
+   $$e = \frac{13 - r + c}{14}$$
+3. **Maximum within a family.** Strategies are partitioned by the *input they read*, because that is what makes their errors correlated: when an identifier is misleading, every metric over that identifier is misled together. Within one family the members complement each other, so the family contributes the strongest claim any of its members made.
+4. **Fixed-arity mean across families.** The pair's score is the sum of the six family maxima divided by six, with a family that did not fire contributing exactly zero.
+
+A caller's own hint is then folded in with a maximum against its capped confidence, so a pair hinted at full confidence reads 1.0 and a pair hinted at less reads what the caller asked for. The hint stays soft throughout: it lowers a cost, it never restricts a domain. A caller who means "this correspondence is fixed" wants `SearchOptions::hard_pins` instead, which is a different instrument with a different failure mode, described in [Find a span between two schemas](../how-to/spans.md).
+
+Step 2 is arithmetic that looks trivial and is not. The shipped formula divides once. The algebraically equal form that multiplies the confidence by $1/14$ and adds the band's lower endpoint disagrees with it in `f64` across most of the grid, and at rank 8 with confidence 1 it returns a value strictly greater than that band's own upper endpoint. That is a one-ulp escape into the band above, at exactly the boundary the priority ordering is stated over. Anything reimplementing this in another language has to divide once rather than multiply by a reciprocal and add.
+
+The bands are closed intervals that meet at their endpoints rather than half-open intervals separated by a gap, so priority dominance holds as $\ge$ and not as $>$. A tag's strongest possible claim and the next tag up's weakest possible claim aggregate to the same number. That case is reachable rather than exotic. A **required-set tiebreak** runs over the pool before aggregation, nudging an anchor by $\pm 0.05$ according to whether the source and target vertices agree about being required, and clamping the result into the unit interval. The clamp targets exactly the two endpoints where adjacent bands meet. A nudge moves an anchor within its band and can never move it out of one, so it settles ties without disturbing the ordering; what it can do is land two anchors from adjacent bands on the same number. A caller's own hint is exempt from the tiebreak, since a stated correspondence is not a proposal awaiting one.
+
+## The six families
+
+The partition is total and each tag lands in exactly one family, which is what makes a fixed-arity mean well defined at all.
+
+| Family | Reads | Strategies |
+|---|---|---|
+| User hint | A correspondence the caller stated | `UserHint` |
+| Identifier | The vertex identifiers | `Exact`, `ExactSuffix`, `Alias`, `TokenSimilarity` |
+| Edge label | The labels edges carry | `EdgeLabel`, `WrapUnwrap` |
+| Documentation | Prose on a vertex, read from the `description` constraint | `DescriptionSimilarity` |
+| Structure | Degree, edge-kind multisets, colour refinement, propagation from an aligned neighbour | `TypeSignature`, `Neighborhood`, `WlRefinement`, `Structural`, `Llm` |
+| Coercion | A registered coercion witness between two primitive carriers | `Coerce` |
+
+One tag straddles the partition and is resolved by its provenance rather than by its tag. The alias strategy compares vertex identifiers on its leaf branch and the labels of child edges on its composite branch, so which family an alias anchor belongs to is decided by which branch stamped it.
+
+Two more tags look like they should be split and are filed whole. Neighborhood propagation is seeded from an already-aligned parent, so the identifier and edge-label evidence that produced the seed has already been counted in those families; filing the propagated anchor under Structure is what stops it from being counted twice. Wrap-unwrap detection selects a parent pair, which makes an identifier reading tempting, but its confidence is entirely a measure of how well one group of field labels covers another and nothing about the parents' own identifiers enters the number.
+
+## Why the arity is fixed
+
+A mean normalised by the count of families that actually fired would be the obvious choice, and it is wrong. Such a mean is not monotone in the anchor pool: a weak anchor from a family that had not yet fired lowers a pair's score, because it adds a small number to the numerator and a whole unit to the denominator. The monotonicity of the search optimum in how much evidence a caller supplies rests on the aggregation being monotone in the pool, so a non-monotone normaliser would take the stringency ladder down with it.
+
+The fixed divisor buys two things beyond that. It makes the score a shrinkage estimator: a false positive carried by one family in six is divided by six, while a true positive carried by three is not. And it puts a hard cap on what thin evidence can claim, since a candidate supported by $k$ of the six families cannot score above $k/6$ whatever those $k$ families report. Both consequences are asserted in the crate's own tests, the monotonicity as a property over generated anchor pools and the cap as a unit test on a single-family candidate.
+
+This is also where the aggregation and the tier ladder meet. The tier-monotonicity theorem in [Searching for a morphism](./morphism-search.md) needs an aggregator that is monotone in the anchor pool, and the fixed-arity mean of family maxima is one: aggregating a superset of the anchors produces a score at least as large for every pair. Because each tier runs every strategy the tier below it runs and every threshold falls as the tier rises, the anchor pool grows with the tier, and the optimum a caller gets is non-decreasing in the tier.
+
+Two strategies are exempt from the pool-growth half of that argument and cannot be otherwise. Colour refinement takes an iteration *count* from the tier rather than a threshold, and a further round of refinement can separate two vertices that shared a colour after the previous one, so the tier changes the resolution of the comparison and not the bar it must clear. Neighborhood propagation propagates outward from a one-to-one selection over the pool assembled so far, so a larger pool can hand a source vertex a different seed, and everything that propagated from the old seed goes with it. The tier tests in `panproto-core` assert pool growth over the threshold-driven strategies and separately assert that these two are the *only* exceptions, which is the sharper of the two claims: a third strategy going non-monotone is a regression.
+
+## Why a maximum inside a family and a mean across them
+
+The two aggregators are answering different questions. Inside a family the members are alternative readings of one input that genuinely complement one another: a trigram metric fires where a synonym dictionary cannot, and the reverse. Taking the strongest reading is the right summary of "did any way of reading this input find something". Across families the readings are drawn from different inputs, so a misleading identifier does not drag the documentation and the structure down with it, and the question becomes how much of the available evidence agrees.
+
+Choosing the mean rather than the maximum across families follows published measurement. @dorahm2002coma ran a systematic evaluation of composite schema matchers over 12,312 series, 8,208 of them in the no-reuse configuration, comparing Max, Min and Average as aggregators across matcher-specific similarity matrices. Max appears only in the lowest quality band, below 0.1 average Overall, which the authors attribute to its optimism and to the inaccuracy of several of the constituent matchers; Min and Average are equally represented up to 0.6, and only Average reaches higher. Their summary is that Max is suitable for combining accurate matchers while Min and Average also cope with inaccurate ones, and Average is the aggregation strategy their default configuration adopts.
+
+That finding transfers, we think, though only so far. COMA measured an undifferentiated pool of matchers, where every matcher is averaged against every other. panproto averages over a *partition* of the pool and takes a maximum inside each cell, which is a different estimator, and one COMA did not measure. The argument for the partition is the correlation structure rather than the measurement: a four-member family of identifier readers should not silently command four sixths of the weight, and under a flat average it would. The mean across families is thus backed by published measurement while the partition inside it is backed by an argument, and those are not the same standard of evidence.
+
+## Why not Dempster–Shafer
+
+Combining scored claims from several sources is exactly the problem Dempster–Shafer theory was built for, and it is the wrong tool here. The rule of combination presupposes stochastically independent sources, and the product in its numerator is that assumption written down. @dempster1967upper says as much in the section that introduces the rule: the mechanism "assumes independence of the sources", and, in the sentence that decides the question for us, "Opinions of different people based on overlapping experiences could not be regarded as independent sources".
+
+Four strategies reading one identifier are not four bodies of evidence. They are four deterministic functions of one datum, and when the datum is misleading they fail together, which is the overlapping-experience case Dempster ruled out rather than the different-observers case he allowed. Combining several correlated copies of a single moderate mass under the rule drives belief toward certainty on evidence that supports something well short of it, and the normalisation by the conflict makes that tendency worse rather than better. A redundant family of matchers needs an estimator that shrinks toward the consensus, and the fixed-arity mean is one.
+
+## Selection is off the search path
+
+The aggregated table is read by the network builder as a single unary cost term, $w_{\mathrm{anchor}} \cdot (1 - \mathrm{score}) / |V_S|$ for a source vertex set $V_S$, and by nothing else. The solver then chooses, globally, subject to the hard constraints and the objective. That is the whole content of aggregate-then-select: the selection is an argmin over whole assignments rather than a per-source argmax, which is what removes the failure where one loud claim blocks a pair of quieter claims whose total is greater.
+
+There is still a selection function, and the module keeps it structurally away from the search: `EvidenceTable::select` is public and the unary cost path goes through a crate-private `score`. Selection exists so that a caller can be shown what the evidence said, and so that the auto-lens pipeline can seed a search. It runs a row filter and then a greedy cardinality pass. The row filter's decision rule is a *relative* tolerance, keeping every candidate within a fixed fraction of the best candidate for its source, with the absolute floor as a sanity gate rather than the decision. A relative test is scale-free and survives miscalibration; an absolute cut does not.
+
+That the extraction step deserves its own name and its own defence is a lesson from the ontology-matching literature rather than something we discovered. @meilickestuckenschmidt2007analyzing gives a framework for the step that turns a matrix of similarity values into a final alignment, and shows on OAEI 2006 submissions that the choice of extraction method materially changes precision and recall. Treating selection as an afterthought is a way to lose quality that no amount of work on the matchers recovers.
+
+## The numbers are defaults, not measurements
+
+panproto has no labelled schema-matching corpus. Every numeric constant the evidence pipeline introduces is a principled default taken from published practice, not a calibrated value, and none of them has been fitted to panproto data. They live together in [`panproto_mig::align::defaults`](https://docs.rs/panproto-mig/latest/panproto_mig/align/defaults/) so that an audit of "where did this number come from" is one file long, and a test enforces that every constant declared there carries a calibration marker, says it is not a fit, and warns against tuning it against the synthetic autolens corpus, whose expectations were themselves derived from engine behaviour, so fitting to it would be circular.
+
+The provenance ceilings generalise the name-provenance weights in [AgreementMakerLight](https://github.com/AgreementMakerLight/AML-Project), whose `LexicalType` enum weights a local name at 1.0, a label at 0.95, an exact synonym at 0.9 and a related synonym at 0.85 before any string metric runs. panproto's ceilings are 1.00 for an identical canonical identifier, 0.95 for a declared vertex label, 0.90 for a declared edge label, 0.85 for a dictionary alias, 0.80 for a transformation of a declared string such as tokenisation or abbreviation expansion, and 0.75 for an inference that reads no declared correspondence at all. The *ordering* is a fact about what the input format declares and transfers across corpora. The absolute values are conventional, and AML's own table stops at related synonyms, so the last two steps extend its ordering rather than quoting it.
+
+The selection constants come from the same two places and are equally uncalibrated. The relative tolerance is COMA's `Delta(0.02)`, whose variants measured beyond 0.7 average Overall while the best `Threshold` variant stayed below 0.3, and the absolute floor is COMA's `Threshold(0.5)`. The two sit on different scales here. COMA's 0.5 is a floor on an aggregated similarity, while a panproto score is a six-family mean, so against that floor a single-family candidate can never clear the bar. The high-confidence line at which the cardinality bound relaxes, and the amount it relaxes by, are read off AML's `Selector.java`, whose hybrid branch admits a cardinality of two above 0.75 similarity and falls back to permissive selection below it. No published table justifies that 0.75; the code is the citable source and it is what we followed.
+
+The strategy priority table is uncalibrated in exactly the same way. It encodes a judgement about which kind of evidence is stronger, it has never been validated against labelled data, and the aggregation carries a second policy that turns the bands off and lets the capped confidence lead. That second policy is the one to choose once a labelled corpus exists.
+
+## Where the design still pins
+
+The anchor weight in the shipped objective is **zero**. Evidence reaches the span and morphism search through one term and that term's weight is currently 0.0, which makes it the same constant on every value of every variable and so unable to change which assignment is optimal. The zero is deliberate: the rewrite changed how anchors are aggregated, which anchors survive, and what a caller is shown, and shipping a non-zero weight at the same time would leave no way to tell which change moved a ranking. It also means the tier-invariance property is currently the one with teeth, while tier-monotonicity needs the weight raised before it is observable at all. The tier tests, which live in `panproto-core` rather than in the crate the pipeline itself sits in, are organised around that split: one asserts that the shipped weights make the span tier-invariant, and the monotonicity test runs with the anchor term weighted in.
+
+The auto-lens pipeline, meanwhile, has not finished migrating to the reward-only discipline. It aggregates and selects as described, and then merges the selected map into `SearchOptions::hard_pins`, which is a domain collapse of exactly the kind this design argues against. A second search keeps it honest. When the pinned attempt leaves part of the source unmapped, the strategy pins are released, only the caller's own anchors are kept, and the two answers are compared on coverage rather than on whether either errored. The comparison has to be on coverage, because at a tier that allows spans a wrong pin does not produce an error at all. It makes its vertex infeasible, the optimum drops that vertex, and the answer comes back optimal and proven optimal with the field quietly missing.
+
+## Related work
+
+The composite-matcher architecture, and the specific finding that averaging aggregates better than maximising over an inaccurate matcher pool, are from @dorahm2002coma. The provenance-weighted lexical matching and the hybrid cardinality rule are from AgreementMakerLight, described in @fariapesquitasantospalmonaricruzcouto2013agreementmakerlight, with the constants taken from its source rather than from the paper. The argument that mapping extraction is a first-class step whose choice moves precision and recall is @meilickestuckenschmidt2007analyzing. The independence precondition that rules out Dempster–Shafer combination for correlated string metrics is stated in @dempster1967upper. See [Related work](./related-work.md) for how these sit against the rest of the system.
+
+## See also
+
+- [Searching for a morphism](./morphism-search.md) for the objective the aggregated score enters, the reward-only discipline, and the two tier theorems.
+- [Find a span between two schemas](../how-to/spans.md) for the difference between a hint and a pin, and what a span certificate records.
+- [Migrations as morphisms](./migrations-as-morphisms.md) for the object the search is searching for.
+- [What panproto verifies](./what-is-verified.md) for the catalogue of mechanically checked properties.
+- [CLI reference](../reference/cli.md) for `--stringency` and the hints file `schema lens generate` accepts.

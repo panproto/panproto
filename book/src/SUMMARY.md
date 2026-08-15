@@ -74,6 +74,8 @@
 - [The vocabulary in plain terms](./explanation/decoder-ring.md)
 - [Schemas as theories](./explanation/schemas-as-theories.md)
 - [Migrations as morphisms](./explanation/migrations-as-morphisms.md)
+- [Searching for a morphism](./explanation/morphism-search.md)
+- [Alignment evidence](./explanation/alignment-evidence.md)
 - [Lenses and round-trip laws](./explanation/lenses-roundtrip.md)
 - [Layout enrichment](./explanation/layout-enrichment.md)
 - [Source-code emission](./explanation/emit-pretty.md)

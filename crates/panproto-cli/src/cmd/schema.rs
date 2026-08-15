@@ -461,12 +461,13 @@ fn print_span(span: &mig::SchemaSpan, old_schema: &Schema) {
         },
         span.quality,
     );
+    let edges = span.apex.edge_count();
     println!(
-        "Apex: {} of {} vertices ({:.1}% coverage), {} edges",
+        "Apex: {} of {} vertices ({:.1}% coverage), {edges} {}",
         span.apex.vertices.len(),
         old_schema.vertex_count(),
         span.apex_coverage * 100.0,
-        span.apex.edge_count(),
+        if edges == 1 { "edge" } else { "edges" },
     );
     if !span.certificate.proven_optimal {
         println!(
