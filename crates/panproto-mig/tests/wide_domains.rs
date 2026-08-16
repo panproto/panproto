@@ -19,7 +19,8 @@
 use panproto_mig::hom_search::{SearchOptions, find_best_morphism};
 use panproto_mig::solve::build::{NoEvidence, build_cfn};
 use panproto_mig::solve::{
-    Assignment, Cfn, Cost, DEFAULT_MEM_BYTES, ValId, choose_order, decode, eliminate,
+    Assignment, Cfn, Cost, DEFAULT_MEM_BYTES, SearchBudget, SolverPath, ValId, choose_order,
+    decode, dispatch_plan, eliminate, elimination_cost, solve,
 };
 use panproto_mig::{DEFAULT_WEIGHTS, DomainConstraints};
 use panproto_protocols::raw_file;
@@ -71,6 +72,163 @@ fn a_two_hundred_line_file_maps_onto_itself() {
             "line {index} is not mapped to itself"
         );
     }
+}
+
+/// The network a file of `lines` lines searched against itself poses, at a
+/// memory budget large enough to hold its cost tables.
+fn file_network(lines: usize, mem_bytes: usize) -> Cfn {
+    let parsed = raw_file::parse_text(&text(lines), "sample.txt").expect("parse");
+    build_cfn(
+        &parsed,
+        &parsed,
+        &SearchOptions::default(),
+        &DomainConstraints::default(),
+        &NoEvidence,
+        DEFAULT_WEIGHTS,
+        mem_bytes,
+    )
+    .expect("a line-per-vertex parse poses")
+}
+
+/// Every line variable takes its own line, and nothing is dropped.
+fn assert_identity(cfn: &Cfn, best: &Assignment, lines: usize) {
+    assert_eq!(best.dropped(), 0, "the identity drops nothing");
+    assert!(
+        (cfn.quality_of(best) - 1.0).abs() < 1e-9,
+        "a file against itself is a perfect match: got {}",
+        cfn.quality_of(best)
+    );
+    let mut checked = 0usize;
+    for var in cfn.variable_ids() {
+        let variable = cfn.variable(var).expect("variable");
+        let value = best.get(var).expect("value");
+        assert_eq!(
+            variable.value_name(value).map(panproto_gat::Name::as_str),
+            Some(variable.name().as_str()),
+            "{var:?} is not mapped to itself"
+        );
+        checked += 1;
+    }
+    assert_eq!(
+        checked,
+        lines + 1,
+        "one file vertex and one vertex per line"
+    );
+}
+
+/// An eight hundred line file is answered exactly, and quickly.
+///
+/// This is the line the dispatcher used to break at. Exact inference over this
+/// network performs 1 281 602 operations and holds 1601 message entries, and
+/// takes a few milliseconds; the reading that priced a bucket at
+/// `d_max^(w + 1)` charged it 1 027 203 201, put it over the billion-operation
+/// budget at exactly eight hundred lines, and sent it to a search that did not
+/// answer. The assertion is therefore on the *route* as well as on the answer:
+/// a correct identity found by the fallback would still be the defect.
+#[test]
+fn an_eight_hundred_line_file_is_answered_by_exact_inference() {
+    let lines = 800;
+    let cfn = file_network(lines, DEFAULT_MEM_BYTES);
+    let budget = SearchBudget::default();
+
+    let (order, width) = choose_order(&cfn);
+    let cost = elimination_cost(&cfn, &order);
+    assert_eq!(width, 1, "a star is width one however many leaves it has");
+    assert_eq!(cost.entries, 1_601);
+    assert_eq!(cost.operations, 1_281_602);
+    assert!(
+        dispatch_plan(&cfn, &budget).exact,
+        "the priced cost is three orders of magnitude inside the budget"
+    );
+
+    let found = solve(&cfn, &budget);
+    assert!(matches!(found.path, SolverPath::Eliminate { width: 1 }));
+    assert!(found.proven_optimal);
+    assert_eq!(found.limit_hit, None);
+    assert_identity(&cfn, &found.best.expect("a file maps onto itself"), lines);
+}
+
+/// A two thousand line file is answered exactly too, once its tables fit.
+///
+/// The budget this raises is **not** the one the defect was about. A
+/// 2048-line self-search holds 12 589 058 cost table entries, which is
+/// 3n(n+1) + 2 for n = 2048 and comes to 100 MB, so the builder refuses it at
+/// the default 64 MiB and would refuse it whatever exact inference were priced
+/// at. That ceiling is a measurement of the dense binary tables the network is
+/// posed from, and moving it is a change of representation rather than of a
+/// cost model. What this fixes is the other half: given the tables, the
+/// elimination over them costs 8 392 706 operations, which is a hundredth of
+/// the budget, and the answer comes back exact.
+#[test]
+fn a_two_thousand_line_file_is_answered_by_exact_inference() {
+    let lines = 2048;
+    let cfn = file_network(lines, 256 * 1024 * 1024);
+    let budget = SearchBudget::default();
+
+    let (order, width) = choose_order(&cfn);
+    let cost = elimination_cost(&cfn, &order);
+    assert_eq!(width, 1);
+    assert_eq!(cost.entries, 4_097);
+    assert_eq!(cost.operations, 8_392_706);
+    assert!(cost.fits(&budget), "the default budget takes it whole");
+
+    let found = solve(&cfn, &budget);
+    assert!(matches!(found.path, SolverPath::Eliminate { width: 1 }));
+    assert!(found.proven_optimal);
+    assert_identity(&cfn, &found.best.expect("a file maps onto itself"), lines);
+}
+
+/// Where the two ceilings bind on this shape, and which binds first.
+///
+/// A file of `n` lines poses `3n(n + 1) + 2` cost table entries and eliminates
+/// in `2n(n + 1) + 2` operations over `2n + 1` message entries. Two of those
+/// three grow quadratically and the message tables do not, so the two that can
+/// bind are the builder's memory ceiling and the operation ceiling, and the
+/// builder's is reached first by a wide margin.
+///
+/// The margin is measured here at a one megabyte memory ceiling, where the
+/// builder refuses at 209 lines and the operation ceiling is 22 360 away, and
+/// stated arithmetically at the shipped defaults, where the builder refuses at
+/// 1672 lines and the operation ceiling is still 22 360. Measuring it at the
+/// shipped ceiling would mean posing two networks of some 1670 vertices whose
+/// domains are 1670 wide, and what that costs is the scoring rather than
+/// anything this asserts.
+///
+/// The consequence is worth stating plainly: **no file of this shape that can
+/// be posed at all is refused exact inference.**
+#[test]
+fn the_memory_ceiling_binds_long_before_the_operation_ceiling() {
+    let budget = SearchBudget::default();
+    let small = 1024 * 1024;
+
+    let posed = file_network(208, small);
+    let (order, _) = choose_order(&posed);
+    assert!(elimination_cost(&posed, &order).fits(&budget));
+
+    let parsed = raw_file::parse_text(&text(209), "sample.txt").expect("parse");
+    let refused = build_cfn(
+        &parsed,
+        &parsed,
+        &SearchOptions::default(),
+        &DomainConstraints::default(),
+        &NoEvidence,
+        DEFAULT_WEIGHTS,
+        small,
+    );
+    assert!(
+        refused.is_err(),
+        "209 lines needs more than a megabyte of cost tables, and 208 does not"
+    );
+
+    // The same two ceilings at the shipped defaults, in closed form.
+    let cells = u64::try_from(size_of::<Cost>()).expect("a cost cell is a few bytes");
+    let table_bytes = |n: u64| (3 * n * (n + 1) + 2) * cells;
+    let operations = |n: u64| 2 * n * (n + 1) + 2;
+    let memory = u64::try_from(budget.mem_bytes).expect("the budget is a byte count");
+    assert!(table_bytes(1_671) <= memory);
+    assert!(table_bytes(1_672) > memory);
+    assert!(operations(22_360) <= budget.op_budget);
+    assert!(operations(22_361) > budget.op_budget);
 }
 
 /// The domain of every line variable really is every line, at every width.

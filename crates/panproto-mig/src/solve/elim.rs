@@ -12,7 +12,16 @@
 //! Exactness needs one identity and nothing else: `⊕` distributes over `min`.
 //! Everything here is a consequence of it, including the fact that elimination
 //! is never approximate. It is only ever unaffordable, which is what
-//! [`order::fits_budget`](super::order::fits_budget) decides in advance.
+//! [`order::fits_budget`](super::order::fits_budget) decides in advance, off
+//! the same bucket plan this sweep runs.
+//!
+//! The `d^(w + 1)` and `d^w` above are the textbook figures, stated over a
+//! single `d` and the widest bucket. Neither is what a bucket actually costs:
+//! a bucket costs the product of the domains in its own scope, and on a star,
+//! where one endpoint of every message has two values, that product is `2 · d`
+//! rather than `d²`. The price the dispatcher reads is the sum of the true
+//! per-bucket products, which is why nothing outside this module raises a
+//! maximum domain to a power.
 //!
 //! # The two sweeps, and the names
 //!
@@ -228,50 +237,115 @@ impl<'a, S: Semiring> View<'a, S> {
 }
 
 // ---------------------------------------------------------------------------
-// Bucket placement
+// The plan
 // ---------------------------------------------------------------------------
 
-/// Which bucket every term of the network belongs to.
+/// Which bucket every term of the network belongs to, and the scope of the
+/// message each bucket sends.
+///
+/// Both are decided by scopes alone. No cost table entry decides which bucket a
+/// term lands in, and none decides how wide the message leaving it is, so the
+/// whole shape of the sweep is available before the sweep runs. That is what
+/// [`order::elimination_cost`](super::order::elimination_cost) prices, and it
+/// prices it off *this* structure rather than off a second reading of the same
+/// rules: the sweep consumes the plan, so the price cannot describe a sweep
+/// other than the one that will run.
 #[derive(Clone, Debug)]
-struct Placement {
-    /// Where each variable sits in the elimination sequence, by variable index.
-    position: Vec<usize>,
-    /// The terms of each bucket, by position in the elimination sequence.
+pub(super) struct Plan {
+    /// The terms of each bucket, by position in the elimination sequence, the
+    /// messages from earlier buckets included.
     buckets: Vec<Vec<Term>>,
+    /// `U_p`, the scope of the message each bucket sends, in ascending variable
+    /// order. Empty where the bucket produces a scalar instead.
+    scopes: Vec<Vec<VarId>>,
 }
 
-/// Place every input term in its bucket.
-///
-/// Definition 1: a term belongs to the bucket of the variable of its scope that
-/// is eliminated first, so that when that bucket is processed no later term
-/// mentions the variable being eliminated. Every term lands in exactly one
-/// bucket, and placement is linear in the total scope size.
-///
-/// # Panics
-///
-/// If `order` is not a permutation of the network's variables.
-fn place(cfn: &Cfn, order: &[VarId]) -> Placement {
-    let count = cfn.n_variables();
-    assert!(
-        is_permutation(order, count),
-        "an elimination order must list every variable of the network exactly once"
-    );
+impl Plan {
+    /// Place every term in its bucket and work out every message scope.
+    ///
+    /// Definition 1: a term belongs to the bucket of the variable of its scope
+    /// that is eliminated first, so that when that bucket is processed no later
+    /// term mentions the variable being eliminated. Every term lands in exactly
+    /// one bucket, and placement is linear in the total scope size.
+    ///
+    /// The message a bucket sends spans everything its terms mention but the
+    /// variable it eliminates, so its scope is known once the bucket's terms
+    /// are. Every variable of that scope is eliminated strictly later, which is
+    /// why one forward pass settles both the scopes and the placement of the
+    /// messages that carry them.
+    ///
+    /// # Panics
+    ///
+    /// If `order` is not a permutation of the network's variables.
+    pub(super) fn new(cfn: &Cfn, order: &[VarId]) -> Self {
+        let count = cfn.n_variables();
+        assert!(
+            is_permutation(order, count),
+            "an elimination order must list every variable of the network exactly once"
+        );
 
-    let mut position = vec![0usize; count];
-    for (index, var) in order.iter().enumerate() {
-        position[var.index()] = index;
+        let mut position = vec![0usize; count];
+        for (index, var) in order.iter().enumerate() {
+            position[var.index()] = index;
+        }
+
+        let mut buckets: Vec<Vec<Term>> = vec![Vec::new(); count];
+        for var in cfn.variable_ids() {
+            buckets[position[var.index()]].push(Term::Unary(var));
+        }
+        for (index, function) in cfn.functions().iter().enumerate() {
+            let target = earliest(function.scope(), &position).unwrap_or(0);
+            buckets[target].push(Term::Function(index));
+        }
+
+        let mut scopes: Vec<Vec<VarId>> = vec![Vec::new(); count];
+        for index in 0..count {
+            let eliminated = order[index];
+            // Taken out and put back so that the message this bucket sends can
+            // be placed in a later bucket while its own terms are being read.
+            let terms = std::mem::take(&mut buckets[index]);
+            let mut scope: Vec<VarId> = Vec::new();
+            for term in &terms {
+                extend_scope(&mut scope, cfn, &scopes, *term);
+            }
+            buckets[index] = terms;
+
+            scope.retain(|var| *var != eliminated);
+            scope.sort_unstable();
+            scope.dedup();
+            if let Some(target) = earliest(&scope, &position) {
+                buckets[target].push(Term::Message(index));
+            }
+            scopes[index] = scope;
+        }
+
+        Self { buckets, scopes }
     }
 
-    let mut buckets: Vec<Vec<Term>> = vec![Vec::new(); count];
-    for var in cfn.variable_ids() {
-        buckets[position[var.index()]].push(Term::Unary(var));
+    /// `U_p` for every bucket, by position in the elimination sequence.
+    pub(super) fn scopes(&self) -> &[Vec<VarId>] {
+        &self.scopes
     }
-    for (index, function) in cfn.functions().iter().enumerate() {
-        let target = earliest(function.scope(), &position).unwrap_or(0);
-        buckets[target].push(Term::Function(index));
-    }
+}
 
-    Placement { position, buckets }
+/// Add the variables a term constrains to a scope under construction.
+///
+/// A message's scope is read from the plan rather than from a table, which is
+/// what lets the scopes be worked out before anything is computed.
+fn extend_scope(out: &mut Vec<VarId>, cfn: &Cfn, scopes: &[Vec<VarId>], term: Term) {
+    match term {
+        Term::Unary(var) => out.push(var),
+        Term::Function(index) => {
+            if let Some(function) = cfn.functions().get(index) {
+                out.extend_from_slice(function.scope());
+            }
+        }
+        Term::Message(position) => {
+            if let Some(scope) = scopes.get(position) {
+                out.extend_from_slice(scope);
+            }
+        }
+    }
 }
 
 /// The position of the variable of a scope that is eliminated first.
@@ -288,92 +362,94 @@ fn earliest(scope: &[VarId], position: &[usize]) -> Option<usize> {
 
 /// What one sweep produced.
 struct Sweep<S> {
-    buckets: Vec<Vec<Term>>,
     messages: Vec<Option<Table<S>>>,
     optimum: S,
     width: usize,
     peak_cells: usize,
     total_cells: usize,
+    operations: u64,
 }
 
 /// Run the backward sweep in one algebra.
 ///
 /// Buckets are processed in elimination order. Each one absorbs its variable
-/// and sends one message to the bucket of the earliest-eliminated variable of
-/// the message's own scope, which is strictly later than its own, so the sweep
-/// terminates in one pass. A bucket whose message has an empty scope has
-/// produced a scalar instead; those accumulate into the constant, which is what
-/// the network's own `c_∅` joins to give the answer.
-fn run<S: Semiring>(cfn: &Cfn, order: &[VarId], placement: &Placement) -> Sweep<S> {
+/// and sends one message to the bucket the plan placed it in, which is strictly
+/// later than its own, so the sweep terminates in one pass. A bucket whose
+/// message has an empty scope has produced a scalar instead; those accumulate
+/// into the constant, which is what the network's own `c_∅` joins to give the
+/// answer.
+fn run<S: Semiring>(cfn: &Cfn, order: &[VarId], plan: &Plan) -> Sweep<S> {
     let count = order.len();
     let all_vars: Vec<VarId> = cfn.variable_ids().collect();
-    let mut buckets = placement.buckets.clone();
     let mut messages: Vec<Option<Table<S>>> = (0..count).map(|_| None).collect();
 
     let mut constant = S::UNIT;
     let mut width = 0usize;
     let mut peak_cells = 0usize;
     let mut total_cells = 0usize;
+    let mut operations = 0u64;
 
     for position in 0..count {
         let eliminated = order[position];
-        // Taken out and put back so that the message this bucket produces can
-        // be pushed into a later bucket while its own terms are being read.
-        let terms = std::mem::take(&mut buckets[position]);
-        let (scope, entries) = sweep_bucket::<S>(cfn, &all_vars, &messages, &terms, eliminated);
-        buckets[position] = terms;
+        let scope = &plan.scopes[position];
+        let (entries, spent) = sweep_bucket::<S>(
+            cfn,
+            all_vars.as_slice(),
+            &messages,
+            &plan.buckets[position],
+            eliminated,
+            scope,
+        );
 
         peak_cells = peak_cells.max(entries.len());
         total_cells += entries.len();
+        operations = operations.saturating_add(spent);
         width = width.max(scope.len());
 
         if scope.is_empty() {
             constant = constant.times(entries.first().copied().unwrap_or(S::ABSORB));
             continue;
         }
-        let target = earliest(&scope, &placement.position).unwrap_or(position);
-        buckets[target].push(Term::Message(position));
-        messages[position] = Some(Table { scope, entries });
+        messages[position] = Some(Table {
+            scope: scope.clone(),
+            entries,
+        });
     }
 
     Sweep {
-        buckets,
         messages,
         optimum: S::of(cfn.c_empty()).times(constant),
         width,
         peak_cells,
         total_cells,
+        operations,
     }
 }
 
 /// The layout of one bucket's loop nest.
 struct BucketPlan {
-    /// `U_p`, the message scope, in ascending variable order.
-    scope: Vec<VarId>,
     /// The slot count of each message scope variable.
     widths: Vec<usize>,
     /// How many entries the message has.
     length: usize,
-    /// Per term, the `(index into `scope`, stride)` pairs of the variables it
+    /// Per term, the `(index into the scope, stride)` pairs of the variables it
     /// shares with the message.
     joins: Vec<Vec<(usize, usize)>>,
     /// Per term, the stride of the variable being eliminated.
     own: Vec<usize>,
 }
 
-/// Work out `U_p` and the strides the nest will index with.
-fn plan_bucket<S: Semiring>(cfn: &Cfn, views: &[View<'_, S>], eliminated: VarId) -> BucketPlan {
-    let mut scope: Vec<VarId> = Vec::new();
-    for view in views {
-        for var in view.scope() {
-            if *var != eliminated {
-                scope.push(*var);
-            }
-        }
-    }
-    scope.sort_unstable();
-    scope.dedup();
-
+/// Work out the strides the nest over `U_p` will index with.
+///
+/// `scope` is `U_p`, taken from the [`Plan`] rather than recomputed here, which
+/// is what makes the message this bucket allocates the one the cost estimate
+/// priced.
+fn plan_bucket<S: Semiring>(
+    cfn: &Cfn,
+    views: &[View<'_, S>],
+    eliminated: VarId,
+    scope: &[VarId],
+) -> BucketPlan {
     let widths: Vec<usize> = scope.iter().map(|var| slots(cfn, *var)).collect();
     let length = widths
         .iter()
@@ -404,7 +480,6 @@ fn plan_bucket<S: Semiring>(cfn: &Cfn, views: &[View<'_, S>], eliminated: VarId)
     }
 
     BucketPlan {
-        scope,
         widths,
         length,
         joins,
@@ -412,7 +487,8 @@ fn plan_bucket<S: Semiring>(cfn: &Cfn, views: &[View<'_, S>], eliminated: VarId)
     }
 }
 
-/// Eliminate one variable, producing the message its bucket sends on.
+/// Eliminate one variable, producing the message its bucket sends on and the
+/// operations that cost.
 ///
 /// The nest is the reason peak transient allocation is `d^|U_p|` rather than
 /// `d^(|U_p| + 1)`. `cell` walks the message's own index space on the outside,
@@ -420,6 +496,11 @@ fn plan_bucket<S: Semiring>(cfn: &Cfn, views: &[View<'_, S>], eliminated: VarId)
 /// accumulator `total` and the `⊕` accumulator `best` living in registers. No
 /// table over `{X_p} ∪ U_p` is ever built, so the single `entries` allocation
 /// below is the whole memory cost of the bucket.
+///
+/// The operation count is incremented in the inner loop rather than derived
+/// from the loop bounds afterwards, so that it measures what the nest did
+/// rather than restating what it was meant to do. It is the number the cost
+/// estimate is checked against.
 ///
 /// # Panics
 ///
@@ -431,18 +512,20 @@ fn sweep_bucket<S: Semiring>(
     messages: &[Option<Table<S>>],
     terms: &[Term],
     eliminated: VarId,
-) -> (Vec<VarId>, Vec<S>) {
+    scope: &[VarId],
+) -> (Vec<S>, u64) {
     let views: Vec<View<'_, S>> = terms
         .iter()
         .map(|term| view(cfn, all_vars, messages, *term))
         .collect();
-    let plan = plan_bucket(cfn, &views, eliminated);
+    let plan = plan_bucket(cfn, &views, eliminated, scope);
 
     let variable = cfn.variable(eliminated);
     let domain = cfn.domain(eliminated).unwrap_or(Domain::EMPTY);
     let mut entries = vec![S::ABSORB; plan.length];
-    let mut counters = vec![0usize; plan.scope.len()];
+    let mut counters = vec![0usize; scope.len()];
     let mut bases = vec![0usize; views.len()];
+    let mut operations = 0u64;
 
     for cell in &mut entries {
         for (base, join) in bases.iter_mut().zip(&plan.joins) {
@@ -454,6 +537,7 @@ fn sweep_bucket<S: Semiring>(
 
         let mut best = S::ABSORB;
         for value in domain {
+            operations = operations.saturating_add(1);
             let Some(slot) = variable.and_then(|variable| variable.slot(value)) else {
                 continue;
             };
@@ -470,7 +554,7 @@ fn sweep_bucket<S: Semiring>(
         tick(&mut counters, &plan.widths);
     }
 
-    (plan.scope, entries)
+    (entries, operations)
 }
 
 /// Advance a mixed-radix odometer by one, last position fastest.
@@ -558,6 +642,7 @@ pub struct Buckets {
     width: usize,
     peak_cells: usize,
     total_cells: usize,
+    operations: u64,
 }
 
 impl Buckets {
@@ -613,11 +698,28 @@ impl Buckets {
     /// Every message entry the sweep produced, summed over buckets.
     ///
     /// The sum of [`Self::peak_cells`]'s quantity over every bucket, and
-    /// subject to the same reading.
+    /// subject to the same reading. Every message is held until [`decode`] has
+    /// read it, so this is also the resident working set, which is why it is
+    /// the quantity
+    /// [`order::elimination_cost`](super::order::elimination_cost) charges
+    /// memory for.
     #[inline]
     #[must_use]
     pub const fn total_cells(&self) -> usize {
         self.total_cells
+    }
+
+    /// Combine operations the sweep performed, counted in the inner loop.
+    ///
+    /// One per `(message cell, value of the eliminated variable)` pair, which
+    /// is the iteration the loop nest of a bucket runs and the quantity
+    /// [`order::elimination_cost`](super::order::elimination_cost) predicts. It
+    /// is counted rather than computed from the loop bounds so that a test
+    /// comparing the two compares a measurement against a prediction.
+    #[inline]
+    #[must_use]
+    pub const fn operations(&self) -> u64 {
+        self.operations
     }
 
     /// The scope of every term in one bucket, in the order they were placed.
@@ -736,7 +838,8 @@ fn offset_of(cfn: &Cfn, scope: &[VarId], values: &[ValId]) -> Option<usize> {
 /// back out of. Nothing is pruned and no bound is consulted, so the optimum is
 /// exact whatever budget the caller had in mind; the budget question is whether
 /// to call this at all, which
-/// [`order::fits_budget`](super::order::fits_budget) answers from the width.
+/// [`order::fits_budget`](super::order::fits_budget) answers from the same
+/// order, and off the same plan.
 ///
 /// # Panics
 ///
@@ -774,17 +877,18 @@ fn offset_of(cfn: &Cfn, scope: &[VarId], values: &[ValId]) -> Option<usize> {
 /// ```
 #[must_use]
 pub fn eliminate(cfn: &Cfn, order: &[VarId]) -> Buckets {
-    let placement = place(cfn, order);
-    let sweep = run::<Cost>(cfn, order, &placement);
+    let plan = Plan::new(cfn, order);
+    let sweep = run::<Cost>(cfn, order, &plan);
     Buckets {
         order: order.to_vec(),
         all_vars: cfn.variable_ids().collect(),
-        terms: sweep.buckets,
+        terms: plan.buckets,
         messages: sweep.messages,
         optimum: sweep.optimum,
         width: sweep.width,
         peak_cells: sweep.peak_cells,
         total_cells: sweep.total_cells,
+        operations: sweep.operations,
     }
 }
 
@@ -1044,8 +1148,8 @@ impl Walk<'_> {
 /// If `order` is not a permutation of the network's variables.
 #[must_use]
 pub fn count_solutions(cfn: &Cfn, order: &[VarId]) -> u128 {
-    let placement = place(cfn, order);
-    run::<Count>(cfn, order, &placement).optimum.0
+    let plan = Plan::new(cfn, order);
+    run::<Count>(cfn, order, &plan).optimum.0
 }
 
 // ---------------------------------------------------------------------------

@@ -242,7 +242,7 @@ fn measure(src: &Schema, tgt: &Schema) -> Shape {
         .collect();
 
     let hom = without_bottom(&span, budget.mem_bytes);
-    let (order, hom_width) = choose_order(&hom);
+    let (order, _hom_width) = choose_order(&hom);
     // `ProductVerdict` is non-exhaustive, so the wildcard is required rather
     // than chosen. It fails loudly: a fourth verdict is a change in what the
     // diagnostic reports, and folding it into one of these three would put a
@@ -259,7 +259,7 @@ fn measure(src: &Schema, tgt: &Schema) -> Shape {
     // reading the number would not be. The budget guard is a formality on this
     // corpus: the widths are the ones `lexicon_span_shapes.rs` records, and
     // every one of them prices inside the default budget.
-    let hom_count = if cartesian == Cartesian::NoProduct || !fits_budget(&hom, hom_width, &budget) {
+    let hom_count = if cartesian == Cartesian::NoProduct || !fits_budget(&hom, &order, &budget) {
         0
     } else {
         count_solutions(&hom, &order)

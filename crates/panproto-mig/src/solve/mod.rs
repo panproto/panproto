@@ -65,8 +65,8 @@ pub use mcsplit::{
     propagate_all_different, solve_iso,
 };
 pub use order::{
-    EliminationCost, Graph, choose_order, elimination_cost, fits_budget, induced_width,
-    min_fill_order, primal_graph, reverse_source_id_order,
+    EliminationCost, Graph, bucket_costs, choose_order, elimination_cost, fits_budget,
+    induced_width, min_fill_order, primal_graph, reverse_source_id_order,
 };
 
 /// A variable of the network, one per source vertex.
@@ -356,6 +356,15 @@ pub enum LimitKind {
     /// there is no default wall-clock budget and why hitting one is reported
     /// rather than silently folded into the answer.
     Time,
+    /// [`SearchBudget::op_budget`] was exhausted.
+    ///
+    /// The ceiling that bounds a search's *work* rather than its shape. A node
+    /// is not a unit of work, since filtering one node of a large network costs
+    /// what filtering a small network whole does, so this is the limit that
+    /// makes the time a search takes a function of the budget it was given.
+    /// Deterministic: the count is of elementary operations the filtering
+    /// performed, which is a property of the input and not of the machine.
+    Operations,
 }
 
 /// Something a caller should know about how a search was run.
@@ -416,14 +425,20 @@ pub enum SearchWarning {
 /// fitting to it is circular. Tune it against the memory the deployment has.
 pub const DEFAULT_MEM_BYTES: usize = 64 * 1024 * 1024;
 
-/// The number of combine operations exact inference may perform.
+/// The number of elementary operations one solve may perform.
+///
+/// It bounds both paths, in one currency: exact inference is refused when
+/// [`order::elimination_cost`] exceeds it, and the search
+/// that then runs stops when its filtering has spent it. So a caller sets what
+/// the answer may cost rather than what one algorithm may cost, and the
+/// question "which algorithm ran" does not change the ceiling.
 ///
 /// **calibration:** none. This is an engineering ceiling, not a calibrated
-/// value, chosen as the work a single search may do before the dispatcher
-/// prefers a bounded method, and no assignment's cost depends on it. Do not
-/// tune it against `crates/panproto-lens/tests/autolens_corpus.rs`: that corpus
-/// is synthetic and its expectations were themselves derived from engine
-/// behaviour, so fitting to it is circular.
+/// value, chosen as the work a single search may do, and no assignment's cost
+/// depends on it. Do not tune it against
+/// `crates/panproto-lens/tests/autolens_corpus.rs`: that corpus is synthetic
+/// and its expectations were themselves derived from engine behaviour, so
+/// fitting to it is circular.
 pub const DEFAULT_OP_BUDGET: u64 = 1_000_000_000;
 
 /// The node budget applied when a component is routed to a search path.
@@ -458,8 +473,14 @@ pub struct SearchBudget {
     /// dispatcher falls back to search.
     pub mem_bytes: usize,
 
-    /// Combine operations exact inference may perform before the dispatcher
-    /// falls back to search.
+    /// Elementary operations the solve may perform, whichever path it takes.
+    ///
+    /// Exact inference is priced against it in advance and refused when it
+    /// would exceed it; the search that then runs is charged against it as it
+    /// goes and stops on [`LimitKind::Operations`] when it has spent it. The
+    /// fallback can therefore not cost more than the exact inference it
+    /// replaced, which is what keeps a refusal from turning into a wait with no
+    /// end in sight.
     pub op_budget: u64,
 }
 

@@ -57,24 +57,22 @@
 
 use panproto_gat::Name;
 
-use rustc_hash::FxHashSet;
-
-use super::cfn::{Cfn, CfnBuilder, Domain};
+use super::cfn::{Cfn, CfnBuilder};
 use super::cost::Cost;
 use super::dfbb::SearchParameters;
 use super::elim::{decode, eliminate};
 use super::hbfs::{HbfsParameters, solve_hbfs};
 use super::order::{
-    EliminationCost, Graph, choose_order, elimination_cost, fits_budget, induced_width,
-    min_fill_order, primal_graph,
+    EliminationCost, Graph, bucket_costs, choose_order, elimination_cost, fits_budget,
+    induced_width, min_fill_order, primal_graph,
 };
 use super::{Assignment, SearchBudget, SearchWarning, SolveOutcome, SolverPath, ValId, VarId};
 
 /// Solve a network, choosing the algorithm from its shape and the budget.
 ///
 /// The network is split into its independent components; each is solved by
-/// bucket elimination when its induced width prices inside `budget`, and by
-/// hybrid best-first branch and bound when it does not. The answer is exact
+/// bucket elimination when [`elimination_cost`] prices it inside `budget`, and
+/// by hybrid best-first branch and bound when it does not. The answer is exact
 /// whenever every component proved optimality, which on the elimination path is
 /// always and on the search path is whenever no limit was hit.
 ///
@@ -83,6 +81,15 @@ use super::{Assignment, SearchBudget, SearchWarning, SolveOutcome, SolverPath, V
 /// [`SearchBudget::max_nodes`] bounds the search that runs when it is refused.
 /// Exact inference never consults the node budget, because it never prunes and
 /// so has no node to count.
+///
+/// The one budget that binds both paths is [`SearchBudget::op_budget`]. It
+/// prices exact inference in advance and it is charged against the search that
+/// replaces it as that search runs, so a component routed to the fallback
+/// spends at most what the exact inference it was refused would have. That is
+/// what makes the fallback bounded rather than merely different: a search that
+/// has spent the budget reports [`LimitKind::Operations`](super::LimitKind) and
+/// hands back the incumbent it has, and the caller can tell that from an answer
+/// because the outcome says so.
 ///
 /// A component routed to search contributes a
 /// [`SearchWarning::EliminationOutOfBudget`] naming the width and what exact
@@ -203,21 +210,38 @@ pub fn dispatch_plan(cfn: &Cfn, budget: &SearchBudget) -> DispatchPlan {
     if components.len() <= 1 {
         let (order, width) = choose_order(cfn);
         return DispatchPlan {
-            exact: fits_budget(cfn, width, budget),
+            exact: fits_budget(cfn, &order, budget),
             order,
             width,
         };
     }
 
     let mut order = Vec::with_capacity(cfn.n_variables());
+    let mut starts = Vec::with_capacity(components.len() + 1);
     let mut width = 0usize;
-    let mut exact = true;
     for component in &components {
         let (local, local_width) = component_order(cfn, &graph, component);
-        exact = exact && component_fits(cfn, component, local_width, budget);
         width = width.max(local_width);
+        starts.push(order.len());
         order.extend(local);
     }
+    starts.push(order.len());
+
+    // Each component is solved on its own, so each is priced on its own. The
+    // concatenated order eliminates one component whole before starting the
+    // next, and no cost function joins two components, so the buckets of a
+    // component are the buckets it would have had alone and its cost is the run
+    // of positions it occupies here.
+    let costs = bucket_costs(cfn, &order);
+    let exact = starts.windows(2).all(|bounds| {
+        costs
+            .get(bounds[0]..bounds[1])
+            .unwrap_or_default()
+            .iter()
+            .copied()
+            .fold(EliminationCost::ZERO, EliminationCost::plus)
+            .fits(budget)
+    });
     DispatchPlan {
         order,
         width,
@@ -265,69 +289,6 @@ fn component_order(cfn: &Cfn, graph: &Graph, component: &[VarId]) -> (Vec<VarId>
     (global, width)
 }
 
-/// Whether exact inference over one component fits the budget.
-///
-/// The same arithmetic [`elimination_cost`] does, over the component's own
-/// variable count, function count and widest domain rather than the whole
-/// network's, because that is what [`solve_part`] prices after [`decompose`].
-fn component_fits(cfn: &Cfn, component: &[VarId], width: usize, budget: &SearchBudget) -> bool {
-    let members: FxHashSet<VarId> = component.iter().copied().collect();
-    let domain = component
-        .iter()
-        .filter_map(|var| cfn.domain(*var))
-        .map(Domain::len)
-        .max()
-        .unwrap_or(0);
-    // A scope is a clique in the primal graph, so it lies wholly inside one
-    // component; its first variable decides which.
-    let functions = cfn
-        .functions()
-        .iter()
-        .filter(|function| {
-            function
-                .scope()
-                .first()
-                .is_some_and(|var| members.contains(var))
-        })
-        .count();
-
-    let cost = elimination_cost_of(component.len(), functions, domain, width);
-    let cell = u64::try_from(size_of::<Cost>()).unwrap_or(u64::MAX);
-    let memory = u64::try_from(budget.mem_bytes).unwrap_or(u64::MAX);
-    cost.entries.saturating_mul(cell) <= memory && cost.operations <= budget.op_budget
-}
-
-/// [`elimination_cost`]'s arithmetic, over counts rather than over a network.
-fn elimination_cost_of(
-    variables: usize,
-    functions: usize,
-    domain: usize,
-    width: usize,
-) -> EliminationCost {
-    let domain = u64::try_from(domain).unwrap_or(u64::MAX);
-    let variables = u64::try_from(variables).unwrap_or(u64::MAX);
-    let functions = u64::try_from(functions).unwrap_or(u64::MAX);
-    let exponent = u32::try_from(width).unwrap_or(u32::MAX);
-    EliminationCost {
-        entries: variables.saturating_mul(saturating_pow(domain, exponent)),
-        operations: functions
-            .saturating_add(variables)
-            .saturating_mul(saturating_pow(domain, exponent.saturating_add(1))),
-    }
-}
-
-/// `base^exponent`, saturating instead of overflowing.
-fn saturating_pow(base: u64, exponent: u32) -> u64 {
-    let mut total = 1u64;
-    for _ in 0..exponent {
-        total = total.saturating_mul(base);
-        if total == u64::MAX {
-            break;
-        }
-    }
-    total
-}
-
 /// The outcome of a network with no variables: the constant, and nothing to
 /// choose.
 fn constant_only(cfn: &Cfn) -> SolveOutcome {
@@ -350,14 +311,15 @@ fn constant_only(cfn: &Cfn) -> SolveOutcome {
     }
 }
 
-/// Solve one network whole, routed on its width against the budget.
+/// Solve one network whole, routed on what its elimination costs against the
+/// budget.
 fn solve_part(cfn: &Cfn, budget: &SearchBudget) -> SolveOutcome {
     let (order, width) = choose_order(cfn);
-    if fits_budget(cfn, width, budget) {
+    let refused = elimination_cost(cfn, &order);
+    if refused.fits(budget) {
         return eliminate_whole(cfn, order, width);
     }
 
-    let refused = elimination_cost(cfn, width);
     let parameters = HbfsParameters::default().with_search(
         SearchParameters::default()
             .with_width(width)

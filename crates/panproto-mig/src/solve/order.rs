@@ -5,8 +5,23 @@
 //! decision that fixes whether exact inference is affordable, and this module
 //! makes it: it builds the primal graph of a network, offers two deterministic
 //! orders over it, computes the induced width of an order exactly, takes the
-//! narrower of the two, and prices that width against a budget so the
+//! narrower of the two, and prices that order against a budget so the
 //! dispatcher can decide whether exact inference is affordable at all.
+//!
+//! # The width chooses the order; it does not price it
+//!
+//! `d^(w+1)` is an upper bound stated over one domain size and the widest
+//! bucket, and the two roles it plays here come apart. Comparing two orders
+//! needs only the exponent, so [`choose_order`] compares widths. Deciding
+//! whether to allocate needs the number itself, and the bound is loose by a
+//! factor of `d` on the shapes this engine sees: a record and a text file are
+//! both stars, and eliminating a leaf of a star leaves a bucket over the leaf
+//! and the hub, where the hub takes one vertex or `⊥`. So [`elimination_cost`]
+//! walks the elimination order and multiplies the domains each bucket actually
+//! spans. On an eight-hundred line file that is the difference between
+//! 1.3 million operations and a priced 1.03 billion, which is the difference
+//! between thirteen milliseconds of exact inference and a search that does not
+//! answer.
 //!
 //! # The order convention
 //!
@@ -34,8 +49,9 @@
 //! number and why [`induced_width`] computes Definition 4 exactly rather than
 //! reporting a heuristic's running maximum.
 
-use super::cfn::{Cfn, Variable};
+use super::cfn::{Cfn, Domain, Variable};
 use super::cost::Cost;
+use super::elim::Plan;
 use super::{SearchBudget, VarId};
 
 /// The number of vertices one word of a [`Bits`] holds.
@@ -390,8 +406,10 @@ pub fn primal_graph(cfn: &Cfn) -> Graph {
 ///
 /// The result is exactly the largest message arity
 /// [`eliminate`](super::elim::eliminate) will produce under the same order, so
-/// `d^width` entries and `d^(width + 1)` operations are the allocation and the
-/// work that follow from it.
+/// `d^width` entries and `d^(width + 1)` operations bound the allocation and
+/// the work that follow from it. They only bound them: what the sweep spends is
+/// [`elimination_cost`], which multiplies the domains of each bucket's own
+/// scope instead of raising the widest domain to the largest arity.
 ///
 /// # Panics
 ///
@@ -421,10 +439,11 @@ pub fn induced_width(graph: &Graph, order: &[VarId]) -> usize {
 /// fixed variable is not a dimension of any message, wherever it sits in the
 /// sequence.
 ///
-/// The width alone does not size an allocation here: slicing an observed
-/// variable out also removes its domain from the product, so a caller pairing
-/// this with [`elimination_cost`] gets an upper bound rather than the exact
-/// figure, since that helper reads one domain size for the whole network.
+/// The width alone does not size an allocation here, and neither does
+/// [`elimination_cost`]: that walks the order over the network as it stands, so
+/// on a network with variables already fixed it prices the buckets those
+/// variables are still dimensions of. Slicing them out is what an observed
+/// variable does, so the price is an over-estimate by exactly their domains.
 ///
 /// # Panics
 ///
@@ -641,60 +660,170 @@ fn fill_count(adjacency: &[Bits], vertex: usize) -> usize {
 // The budget, and the choice
 // ---------------------------------------------------------------------------
 
-/// What exact inference would spend at a given width.
+/// What exact inference spends.
 ///
-/// Both numbers saturate rather than wrap, so a width past anything affordable
-/// reports `u64::MAX` and reads as "over budget" rather than wrapping to a
-/// small number that would read as affordable.
+/// Both numbers saturate rather than wrap, so a network past anything
+/// affordable reports `u64::MAX` and reads as "over budget" rather than
+/// wrapping to a small number that would read as affordable.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct EliminationCost {
-    /// Cost table entries the messages would occupy, `n · d^w`.
+    /// Cost table entries the messages occupy, `∑_p ∏_{v ∈ U_p} |D_v|`.
+    ///
+    /// A message is sized in table slots, `⊥` included, since that is what the
+    /// sweep allocates, and it holds every message at once: [`decode`] reads
+    /// them all, so this is the resident working set rather than a peak.
+    ///
+    /// [`decode`]: super::elim::decode
     pub entries: u64,
-    /// Combine operations the elimination would perform,
-    /// `(r + n) · d^(w + 1)`.
+
+    /// Combine operations the elimination performs,
+    /// `∑_p ∏_{v ∈ U_p ∪ {X_p}} |D_v|`.
+    ///
+    /// One per `(message cell, value of the eliminated variable)` pair, which
+    /// is the iteration the loop nest of a bucket runs. The values are the ones
+    /// the eliminated variable still has, which on a network nothing has
+    /// narrowed is its slot count and on a narrowed one is fewer.
     pub operations: u64,
 }
 
-/// What exact inference over this network would spend at a given width.
-///
-/// The two exponents differ by one and are budgeted separately: a message
-/// spans `w` variables and a bucket's loop nest spans `w + 1`.
-#[must_use]
-pub fn elimination_cost(cfn: &Cfn, width: usize) -> EliminationCost {
-    let domain = u64::try_from(cfn.max_domain()).unwrap_or(u64::MAX);
-    let variables = u64::try_from(cfn.n_variables()).unwrap_or(u64::MAX);
-    let functions = u64::try_from(cfn.n_functions()).unwrap_or(u64::MAX);
-    let exponent = u32::try_from(width).unwrap_or(u32::MAX);
-    EliminationCost {
-        entries: variables.saturating_mul(saturating_pow(domain, exponent)),
-        operations: functions
-            .saturating_add(variables)
-            .saturating_mul(saturating_pow(domain, exponent.saturating_add(1))),
-    }
-}
+impl EliminationCost {
+    /// What an empty order spends, which is nothing.
+    pub const ZERO: Self = Self {
+        entries: 0,
+        operations: 0,
+    };
 
-/// Whether exact inference at a given width fits a budget.
-///
-/// Both ceilings must hold: the message tables must fit `mem_bytes` at
-/// [`Cost`]'s width, and the loop nest must fit `op_budget`.
-#[must_use]
-pub fn fits_budget(cfn: &Cfn, width: usize, budget: &SearchBudget) -> bool {
-    let cost = elimination_cost(cfn, width);
-    let cell = u64::try_from(size_of::<Cost>()).unwrap_or(u64::MAX);
-    let memory = u64::try_from(budget.mem_bytes).unwrap_or(u64::MAX);
-    cost.entries.saturating_mul(cell) <= memory && cost.operations <= budget.op_budget
-}
-
-/// `base^exponent`, saturating instead of overflowing.
-fn saturating_pow(base: u64, exponent: u32) -> u64 {
-    let mut total = 1u64;
-    for _ in 0..exponent {
-        total = total.saturating_mul(base);
-        if total == u64::MAX {
-            break;
+    /// The cost of doing both, saturating.
+    #[must_use]
+    pub const fn plus(self, other: Self) -> Self {
+        Self {
+            entries: self.entries.saturating_add(other.entries),
+            operations: self.operations.saturating_add(other.operations),
         }
     }
-    total
+
+    /// Whether this fits a budget.
+    ///
+    /// Both ceilings must hold: the message tables must fit `mem_bytes` at
+    /// [`Cost`]'s width, and the loop nests must fit `op_budget`.
+    #[must_use]
+    pub fn fits(self, budget: &SearchBudget) -> bool {
+        let cell = u64::try_from(size_of::<Cost>()).unwrap_or(u64::MAX);
+        let memory = u64::try_from(budget.mem_bytes).unwrap_or(u64::MAX);
+        self.entries.saturating_mul(cell) <= memory && self.operations <= budget.op_budget
+    }
+}
+
+/// What eliminating each variable of an order costs, position by position.
+///
+/// Eliminating `X_p` runs a loop nest over `U_p ∪ {X_p}`, where `U_p` is the
+/// scope of the message its bucket sends, and leaves a table over `U_p` behind.
+/// So the bucket costs `∏_{v ∈ U_p ∪ {X_p}} |D_v|` operations and
+/// `∏_{v ∈ U_p} |D_v|` entries, in the **actual** domain sizes of the variables
+/// in its own scope.
+///
+/// That is the whole reason nothing here raises a maximum domain to a power.
+/// `d_max^|U_p|` is an upper bound on the product, and on the shapes this engine
+/// sees it is loose by a factor of `d`: both a record and a text file are stars,
+/// eliminating a leaf leaves a bucket over `{leaf, hub}`, and the hub takes one
+/// vertex or `⊥`. The bucket costs `2 · d`, and a `d²` reading of it prices a
+/// millisecond of work as a billion operations.
+///
+/// The scopes come from the same plan the sweep runs, so this is a
+/// prediction of that code rather than a second model of it.
+///
+/// # Panics
+///
+/// If `order` is not a permutation of the network's variables, which is the
+/// precondition of the plan it is read off.
+#[must_use]
+pub fn bucket_costs(cfn: &Cfn, order: &[VarId]) -> Vec<EliminationCost> {
+    let plan = Plan::new(cfn, order);
+    order
+        .iter()
+        .zip(plan.scopes())
+        .map(|(eliminated, scope)| {
+            // The message is allocated one cell per slot, `⊥` included, and the
+            // nest walks the values the eliminated variable still has. The two
+            // agree on a network no consistency pass has narrowed and differ on
+            // one that has, so each is read where the sweep reads it.
+            let entries = scope
+                .iter()
+                .fold(1u64, |total, var| total.saturating_mul(slots_of(cfn, *var)));
+            let domain = cfn.domain(*eliminated).map_or(0, Domain::len);
+            EliminationCost {
+                entries,
+                operations: entries.saturating_mul(u64::try_from(domain).unwrap_or(u64::MAX)),
+            }
+        })
+        .collect()
+}
+
+/// What exact inference over this network spends under an order.
+///
+/// The sum of [`bucket_costs`], which is the sweep's whole cost: every entry it
+/// allocates and every combine operation it performs. It is not an upper bound
+/// on either.
+///
+/// # Panics
+///
+/// If `order` is not a permutation of the network's variables.
+///
+/// # Examples
+///
+/// ```
+/// use panproto_gat::Name;
+/// use panproto_mig::solve::cfn::CfnBuilder;
+/// use panproto_mig::solve::order::{choose_order, elimination_cost};
+/// use panproto_mig::{Cost, DEFAULT_WEIGHTS, VarId};
+///
+/// // A three-leaf star whose hub takes one target and whose leaves take three.
+/// let leaves = [Name::new("x"), Name::new("y"), Name::new("z")];
+/// let mut builder = CfnBuilder::new(
+///     vec![
+///         (Name::new("hub"), vec![Name::new("h")]),
+///         (Name::new("leaf.a"), leaves.to_vec()),
+///         (Name::new("leaf.b"), leaves.to_vec()),
+///         (Name::new("leaf.c"), leaves.to_vec()),
+///     ],
+///     DEFAULT_WEIGHTS,
+/// )?;
+/// for leaf in 1..4u32 {
+///     builder.add_function(&[VarId::new(0), VarId::new(leaf)], vec![Cost::BOT; 2 * 4])?;
+/// }
+/// let cfn = builder.build();
+///
+/// let (order, width) = choose_order(&cfn);
+/// let cost = elimination_cost(&cfn, &order);
+///
+/// // Each leaf bucket leaves a message over the hub's two slots and walks the
+/// // leaf's four values; the hub bucket then walks its own two.
+/// assert_eq!(width, 1);
+/// assert_eq!(cost.entries, 3 * 2 + 1);
+/// assert_eq!(cost.operations, 3 * 2 * 4 + 2);
+/// # Ok::<(), panproto_mig::solve::cfn::CfnError>(())
+/// ```
+#[must_use]
+pub fn elimination_cost(cfn: &Cfn, order: &[VarId]) -> EliminationCost {
+    bucket_costs(cfn, order)
+        .into_iter()
+        .fold(EliminationCost::ZERO, EliminationCost::plus)
+}
+
+/// Whether exact inference under an order fits a budget.
+///
+/// # Panics
+///
+/// If `order` is not a permutation of the network's variables.
+#[must_use]
+pub fn fits_budget(cfn: &Cfn, order: &[VarId], budget: &SearchBudget) -> bool {
+    elimination_cost(cfn, order).fits(budget)
+}
+
+/// How many table slots a variable spans, `⊥` included.
+fn slots_of(cfn: &Cfn, var: VarId) -> u64 {
+    let slots = cfn.variable(var).map_or(0, Variable::slots);
+    u64::try_from(slots).unwrap_or(u64::MAX)
 }
 
 /// The elimination order a search over this network will use, and its exact
@@ -767,7 +896,9 @@ mod tests {
     use super::*;
     use crate::solve::cfn::CfnBuilder;
     use crate::solve::cost::DEFAULT_WEIGHTS;
+    use crate::solve::elim::eliminate;
     use panproto_gat::Name;
+    use proptest::prelude::*;
 
     fn var(index: u32) -> VarId {
         VarId::new(index)
@@ -796,6 +927,31 @@ mod tests {
         let mut builder = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
         for scope in scopes {
             let scope: Vec<VarId> = scope.iter().copied().map(var).collect();
+            let length = builder.table_length(&scope).unwrap();
+            builder
+                .add_function(&scope, vec![Cost::BOT; length])
+                .unwrap();
+        }
+        builder.build()
+    }
+
+    /// A hub over one target and `leaves` leaves over `targets` targets each,
+    /// every leaf joined to the hub and to nothing else.
+    ///
+    /// The shape of a record and of a text file parsed one vertex to the line:
+    /// one object or file vertex, and many same-kind children that each see
+    /// every child the target has.
+    fn star(leaves: usize, targets: usize) -> Cfn {
+        let values: Vec<Name> = (0..targets)
+            .map(|index| Name::new(format!("t{index}")))
+            .collect();
+        let mut spec = vec![(Name::new("hub"), vec![Name::new("h")])];
+        for leaf in 0..leaves {
+            spec.push((Name::new(format!("leaf.{leaf:03}")), values.clone()));
+        }
+        let mut builder = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+        for leaf in 1..=leaves {
+            let scope = vec![var(0), var(u32::try_from(leaf).unwrap())];
             let length = builder.table_length(&scope).unwrap();
             builder
                 .add_function(&scope, vec![Cost::BOT; length])
@@ -1080,31 +1236,122 @@ mod tests {
     // -- The budget --------------------------------------------------------
 
     #[test]
-    fn the_elimination_cost_reads_the_two_exponents_apart() {
-        let cfn = network(&["a", "b", "c"], &[&[0, 1]]);
-        // Two slots per variable, three variables, one cost function.
-        let cost = elimination_cost(&cfn, 2);
-        assert_eq!(cost.entries, 3 * 4);
-        assert_eq!(cost.operations, (1 + 3) * 8);
+    fn a_star_is_priced_at_the_hub_rather_than_at_the_widest_domain() {
+        // Four leaves over eight targets each, one hub over one, which is the
+        // shape a record and a text file both have. Eliminating a leaf leaves a
+        // message over the hub alone: two entries, and nine values walked
+        // against them. The hub's own bucket then walks its two.
+        //
+        // The reading this replaced raised the widest domain to the width and
+        // called every one of those buckets `9² = 81` entries.
+        let cfn = star(4, 8);
+        let (order, width) = choose_order(&cfn);
+        assert_eq!(width, 1);
+
+        let cost = elimination_cost(&cfn, &order);
+        assert_eq!(cost.entries, 4 * 2 + 1);
+        assert_eq!(cost.operations, 4 * 2 * 9 + 2);
     }
 
     #[test]
-    fn an_unaffordable_width_saturates_rather_than_wrapping() {
-        let cfn = network(&["a", "b", "c"], &[&[0, 1]]);
-        let cost = elimination_cost(&cfn, 1_000);
+    fn a_path_is_priced_link_by_link() {
+        // Three variables over one target each in a chain, eliminated from an
+        // end. Each of the first two buckets leaves a message over its one
+        // surviving neighbour, so two entries and four operations; the last
+        // bucket is a scalar over its own two values.
+        let cfn = network(&["a", "b", "c"], &[&[0, 1], &[1, 2]]);
+        let order = order_of(&[2, 1, 0]);
+        assert_eq!(induced_width(&primal_graph(&cfn), &order), 1);
+
+        let per_bucket = bucket_costs(&cfn, &order);
+        assert_eq!(
+            per_bucket
+                .iter()
+                .map(|cost| (cost.entries, cost.operations))
+                .collect::<Vec<_>>(),
+            vec![(2, 4), (2, 4), (1, 2)]
+        );
+        assert_eq!(elimination_cost(&cfn, &order).entries, 5);
+        assert_eq!(elimination_cost(&cfn, &order).operations, 10);
+    }
+
+    #[test]
+    fn a_width_two_network_pays_the_square_only_where_it_is_wide() {
+        // A four-cycle, whose induced width is two under every order. The first
+        // bucket eliminated joins its two neighbours, so it leaves a table over
+        // both; the second then has one neighbour left, and the last two are a
+        // message over one variable and a scalar.
+        let cfn = network(&["a", "b", "c", "d"], &[&[0, 1], &[1, 2], &[2, 3], &[0, 3]]);
+        let order = order_of(&[0, 1, 2, 3]);
+        assert_eq!(induced_width(&primal_graph(&cfn), &order), 2);
+
+        let per_bucket = bucket_costs(&cfn, &order);
+        assert_eq!(
+            per_bucket
+                .iter()
+                .map(|cost| (cost.entries, cost.operations))
+                .collect::<Vec<_>>(),
+            vec![(4, 8), (4, 8), (2, 4), (1, 2)]
+        );
+        assert_eq!(elimination_cost(&cfn, &order).entries, 11);
+        assert_eq!(elimination_cost(&cfn, &order).operations, 22);
+    }
+
+    #[test]
+    fn an_unaffordable_network_saturates_rather_than_wrapping() {
+        // Sixty-four variables over sixty-three targets each, every one in one
+        // scope, so the first bucket eliminated spans the other sixty-three and
+        // its entry count is far past what a `u64` can hold.
+        let names: Vec<String> = (0..64).map(|index| format!("v{index:02}")).collect();
+        let borrowed: Vec<&str> = names.iter().map(String::as_str).collect();
+        let values: Vec<Name> = (0..63)
+            .map(|index| Name::new(format!("t{index}")))
+            .collect();
+        let spec = borrowed
+            .iter()
+            .map(|name| (Name::new(*name), values.clone()))
+            .collect();
+        let mut builder = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+        // A clique of scopes rather than one scope of sixty-four variables: a
+        // table over that scope has no length a `usize` can hold, and it is the
+        // *elimination* that has to saturate here rather than the builder.
+        for left in 0..64u32 {
+            for right in (left + 1)..64 {
+                builder
+                    .add_function(&[var(left), var(right)], vec![Cost::BOT; 64 * 64])
+                    .unwrap();
+            }
+        }
+        let cfn = builder.build();
+
+        let order: Vec<VarId> = (0..64u32).map(var).collect();
+        let cost = elimination_cost(&cfn, &order);
         assert_eq!(cost.entries, u64::MAX);
         assert_eq!(cost.operations, u64::MAX);
-        assert!(!fits_budget(&cfn, 1_000, &SearchBudget::default()));
+        assert!(!fits_budget(&cfn, &order, &SearchBudget::default()));
     }
 
     #[test]
-    fn a_tiny_budget_refuses_a_width_a_large_one_admits() {
+    fn a_tiny_budget_refuses_what_a_large_one_admits() {
         let cfn = network(&["a", "b", "c"], &[&[0, 1]]);
-        assert!(fits_budget(&cfn, 2, &SearchBudget::default()));
+        let (order, _) = choose_order(&cfn);
+        assert!(fits_budget(&cfn, &order, &SearchBudget::default()));
         let tight = SearchBudget::default().with_mem_bytes(8);
-        assert!(!fits_budget(&cfn, 2, &tight));
+        assert!(!fits_budget(&cfn, &order, &tight));
         let slow = SearchBudget::default().with_op_budget(1);
-        assert!(!fits_budget(&cfn, 2, &slow));
+        assert!(!fits_budget(&cfn, &order, &slow));
+    }
+
+    #[test]
+    fn the_price_is_what_the_sweep_spends() {
+        // The property the estimate exists to have, on one network here and on
+        // a hundred generated ones in the proptest below.
+        let cfn = star(6, 5);
+        let (order, _) = choose_order(&cfn);
+        let buckets = eliminate(&cfn, &order);
+        let cost = elimination_cost(&cfn, &order);
+        assert_eq!(cost.entries, u64::try_from(buckets.total_cells()).unwrap());
+        assert_eq!(cost.operations, buckets.operations());
     }
 
     // -- The choice --------------------------------------------------------
@@ -1126,8 +1373,9 @@ mod tests {
         // comfortably: fitting is not the test, being narrower is.
         let cfn = network(&["a", "b", "c", "zzz"], &[&[0, 3], &[1, 3], &[2, 3]]);
         let graph = primal_graph(&cfn);
-        assert_eq!(induced_width(&graph, &reverse_source_id_order(&cfn)), 3);
-        assert!(fits_budget(&cfn, 3, &SearchBudget::default()));
+        let hub_first = reverse_source_id_order(&cfn);
+        assert_eq!(induced_width(&graph, &hub_first), 3);
+        assert!(fits_budget(&cfn, &hub_first, &SearchBudget::default()));
 
         let (order, width) = choose_order(&cfn);
         assert_eq!(width, 1);
@@ -1151,8 +1399,9 @@ mod tests {
         let cfn = network(&borrowed, &scope_refs);
 
         let graph = primal_graph(&cfn);
-        assert_eq!(induced_width(&graph, &reverse_source_id_order(&cfn)), 18);
-        assert!(fits_budget(&cfn, 18, &SearchBudget::default()));
+        let hub_first = reverse_source_id_order(&cfn);
+        assert_eq!(induced_width(&graph, &hub_first), 18);
+        assert!(fits_budget(&cfn, &hub_first, &SearchBudget::default()));
 
         let (_, width) = choose_order(&cfn);
         assert_eq!(width, 1);
@@ -1174,5 +1423,176 @@ mod tests {
         let (order, width) = choose_order(&cfn);
         assert!(order.is_empty());
         assert_eq!(width, 0);
+    }
+
+    // -- The price against the sweep ---------------------------------------
+
+    /// A deterministic consumer of a pool of proptest-drawn numbers.
+    ///
+    /// The shape of a network depends on numbers drawn earlier in the same
+    /// draw, which a tuple of independent strategies cannot express. Reading
+    /// from a pool keeps every choice a shrinkable value rather than a seed.
+    struct Draw {
+        pool: Vec<u64>,
+        cursor: usize,
+    }
+
+    impl Draw {
+        fn new(pool: Vec<u64>) -> Self {
+            Self { pool, cursor: 0 }
+        }
+
+        fn take(&mut self, bound: u64) -> u64 {
+            if self.pool.is_empty() {
+                return 0;
+            }
+            let value = self.pool.get(self.cursor).copied().unwrap_or(0);
+            self.cursor = (self.cursor + 1) % self.pool.len();
+            value % bound.max(1)
+        }
+    }
+
+    /// A network over the given per-variable target counts, with a drawn set of
+    /// binary and ternary scopes and drawn entries.
+    ///
+    /// The entries are drawn rather than left at `⊥` because the sweep's inner
+    /// loop leaves the product early on `⊤`, so a network of finite costs alone
+    /// would never exercise that exit and a counter placed inside the term loop
+    /// would agree with the estimate anyway.
+    fn drawn_network(targets: &[usize], mut draw: Draw) -> Cfn {
+        let spec: Vec<(Name, Vec<Name>)> = targets
+            .iter()
+            .enumerate()
+            .map(|(index, count)| {
+                let values = (0..*count).map(|k| Name::new(format!("t{k}"))).collect();
+                (Name::new(format!("v{index:02}")), values)
+            })
+            .collect();
+        let mut builder = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+
+        for (index, count) in targets.iter().enumerate() {
+            let table: Vec<Cost> = (0..=*count).map(|_| drawn_cost(&mut draw)).collect();
+            builder
+                .add_unary_table(var(u32::try_from(index).unwrap()), &table)
+                .unwrap();
+        }
+
+        let count = targets.len();
+        let mut scopes: Vec<Vec<VarId>> = Vec::new();
+        for low in 0..count {
+            for high in (low + 1)..count {
+                if draw.take(4) == 0 {
+                    continue;
+                }
+                scopes.push(vec![
+                    var(u32::try_from(low).unwrap()),
+                    var(u32::try_from(high).unwrap()),
+                ]);
+            }
+        }
+        // A ternary scope is what makes a generated network reach width two and
+        // above, which a graph of binary scopes on so few variables often does
+        // not.
+        for low in 0..count.saturating_sub(2) {
+            if draw.take(3) != 0 {
+                continue;
+            }
+            scopes.push(vec![
+                var(u32::try_from(low).unwrap()),
+                var(u32::try_from(low + 1).unwrap()),
+                var(u32::try_from(low + 2).unwrap()),
+            ]);
+        }
+
+        for scope in scopes {
+            let Some(length) = builder.table_length(&scope) else {
+                continue;
+            };
+            let table: Vec<Cost> = (0..length).map(|_| drawn_cost(&mut draw)).collect();
+            // A scope offered twice is merged into the one already there, which
+            // is the builder's own contract and not a failure to generate.
+            builder.add_function(&scope, table).unwrap();
+        }
+        builder.build()
+    }
+
+    /// Hard one time in six, and a small finite cost otherwise.
+    fn drawn_cost(draw: &mut Draw) -> Cost {
+        if draw.take(6) == 0 {
+            Cost::TOP_SENTINEL
+        } else {
+            Cost::from_raw(draw.take(5))
+        }
+    }
+
+    /// A permutation of `count` variables, drawn.
+    ///
+    /// The order is drawn rather than chosen because the price is a statement
+    /// about an order, and the two orders the engine picks between are not the
+    /// only two it has to be right about.
+    fn drawn_order(count: usize, mut draw: Draw) -> Vec<VarId> {
+        let mut order: Vec<VarId> = (0..count)
+            .filter_map(|index| u32::try_from(index).ok().map(VarId::new))
+            .collect();
+        for index in (1..order.len()).rev() {
+            let other = usize::try_from(draw.take(u64::try_from(index + 1).unwrap())).unwrap();
+            order.swap(index, other);
+        }
+        order
+    }
+
+    fn arb_network_and_order() -> impl Strategy<Value = (Cfn, Vec<VarId>)> {
+        (
+            prop::collection::vec(1usize..=4, 2..=7),
+            prop::collection::vec(0u64..64, 96),
+            prop::collection::vec(0u64..64, 16),
+        )
+            .prop_map(|(targets, pool, shuffle)| {
+                let cfn = drawn_network(&targets, Draw::new(pool));
+                let order = drawn_order(cfn.n_variables(), Draw::new(shuffle));
+                (cfn, order)
+            })
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// The price is what the sweep spends, entry for entry and operation
+        /// for operation.
+        ///
+        /// This is the test that keeps the model honest. Both sides are
+        /// measured on the same network under the same order: the left from the
+        /// plan alone, the right from counters the sweep increments as it runs.
+        /// An estimate that drifted from the code it predicts fails here, which
+        /// is how the reading it replaced would have been caught.
+        #[test]
+        fn the_price_is_what_the_sweep_spends_on_a_generated_network(
+            (cfn, order) in arb_network_and_order(),
+        ) {
+            let buckets = eliminate(&cfn, &order);
+            let cost = elimination_cost(&cfn, &order);
+            prop_assert_eq!(cost.entries, u64::try_from(buckets.total_cells()).unwrap());
+            prop_assert_eq!(cost.operations, buckets.operations());
+        }
+
+        /// Bucket by bucket, not only in the sum.
+        ///
+        /// A sum can agree while the per-bucket numbers do not, and the
+        /// dispatcher reads per-component sums out of `bucket_costs`, so the
+        /// positions have to line up as well as the total.
+        #[test]
+        fn every_bucket_is_priced_at_the_message_it_leaves(
+            (cfn, order) in arb_network_and_order(),
+        ) {
+            let buckets = eliminate(&cfn, &order);
+            let costs = bucket_costs(&cfn, &order);
+            prop_assert_eq!(costs.len(), order.len());
+            for (position, cost) in costs.iter().enumerate() {
+                let entries = buckets
+                    .message_table(position)
+                    .map_or(1, <[Cost]>::len);
+                prop_assert_eq!(cost.entries, u64::try_from(entries).unwrap());
+            }
+        }
     }
 }

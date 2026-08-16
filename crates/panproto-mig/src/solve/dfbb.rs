@@ -414,6 +414,14 @@ pub struct BranchAndBound<'a> {
     /// The node ceiling, if there is one.
     node_budget: Option<u64>,
 
+    /// The ceiling on elementary operations the filtering may perform.
+    ///
+    /// The same figure [`elimination_cost`](super::order::elimination_cost) is
+    /// checked against, spent in the same currency, so a network the dispatcher
+    /// refused exact inference for is a network this search may spend that
+    /// refused work on and no more.
+    op_budget: u64,
+
     /// The wall-clock deadline, if there is one.
     deadline: Option<Instant>,
 
@@ -501,6 +509,7 @@ impl<'a> BranchAndBound<'a> {
             phase: vec![None; count],
             nodes: 0,
             node_budget: Some(parameters.budget.max_nodes.unwrap_or(DEFAULT_SEARCH_NODES)),
+            op_budget: parameters.budget.op_budget,
             deadline: None,
             limit_hit: None,
             backtracks: 0,
@@ -626,6 +635,18 @@ impl<'a> BranchAndBound<'a> {
     /// Returns the subtrees, which is empty when the node was closed outright
     /// or explored to exhaustion.
     pub fn explore(&mut self, node: &OpenNode, backtracks: u64) -> Vec<OpenNode> {
+        if self.over_budget() {
+            // Reaching a frontier node costs one filtering per decision that
+            // reaches it, and none of that is charged to a node until the dive
+            // begins. Testing here as well as in the dive is what holds the
+            // overshoot to one node's work rather than one node's *path*.
+            //
+            // The subtree is untouched, so it goes back on the frontier whole.
+            // Dropping it would leave the frontier covering less than the
+            // assignment space, and the frontier covering the space is the only
+            // reason its least bound is a lower bound at all.
+            return vec![node.clone()];
+        }
         self.net.reset(self.cub);
         self.path.clear();
         self.open.clear();
@@ -761,7 +782,33 @@ impl BranchAndBound<'_> {
     }
 
     /// Whether the budget has run out, recording which one did.
+    ///
+    /// The operation ceiling is the one that bounds the *work*, and the two
+    /// others do not. A node is not a unit of work: filtering one node of a
+    /// network of eight hundred variables reads a million cost table entries,
+    /// and reaching a node on the frontier replays its decisions, so a node
+    /// budget large enough to be useful on a small network is hours on a large
+    /// one. That was measured: ten million nodes on an eight-hundred leaf star
+    /// did not answer in ninety seconds, and a caller cannot tell a slow answer
+    /// from a hang.
+    ///
+    /// The count is [`Network::steps`], charged inside the equivalence
+    /// preserving transformations as they touch cells, so it is what the search
+    /// did rather than an estimate of what it would do. It is a property of the
+    /// search tree and so identical across runs, which a wall clock is not:
+    /// that is why [`SearchBudget::max_millis`] stays opt-in and unset here, and
+    /// why a run that stops on this ceiling stops at the same operation every
+    /// time.
+    ///
+    /// Charging is per elementary operation and the test is once per node and
+    /// once per frontier node taken, so a run overshoots by at most the
+    /// filtering of one node. It cannot stop below one root filtering, which is
+    /// what looking at the network once costs.
     fn over_budget(&mut self) -> bool {
+        if self.net.steps() > self.op_budget {
+            self.limit_hit = Some(LimitKind::Operations);
+            return true;
+        }
         if let Some(limit) = self.node_budget {
             if self.nodes > limit {
                 self.limit_hit = Some(LimitKind::Nodes);
