@@ -132,6 +132,24 @@ pub fn derive_migration(old: &Schema, new: &Schema, diff: &SchemaDiff) -> Migrat
 
     // If there are both removed and added vertices (potential renames),
     // try to find a better migration via homomorphism search.
+    //
+    // The `added` half of this guard means a change that only *removes*
+    // vertices never reaches the search, so a pure deletion is always reported
+    // as a deletion. That is deliberate but it is not free: a rename is a
+    // removal plus an addition only when the new name is absent from the old
+    // schema, and a change that renames `a` to `b` while `b` already existed,
+    // or that merges two vertices onto one surviving name, is a removal with no
+    // matching addition. Those read as deletions here.
+    //
+    // Dropping the `added` half would send every deletion-only change through a
+    // span search whose apex can only be a sub-schema of the old one, so the
+    // search would have to be asked a different question — which surviving
+    // vertex, if any, absorbed the removed one — rather than the correspondence
+    // question it answers now. What would settle it is a corpus of real schema
+    // histories with the intended answer labelled on the deletion-only commits;
+    // without one there is no way to tell a rename onto an existing name from
+    // an unrelated deletion, and guessing wrong turns a truthful "this field is
+    // gone" into a silent remap of its data.
     if !diff.removed_vertices.is_empty() && !diff.added_vertices.is_empty() {
         if let Some(enhanced) = try_hom_search_enhancement(old, new, &identity_mig) {
             return enhanced;

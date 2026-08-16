@@ -1822,6 +1822,7 @@ fn enqueue(queue: &mut [bool], var: VarId) {
 )]
 mod tests {
     use super::*;
+    use crate::solve::Assignment;
     use crate::solve::cfn::CfnBuilder;
     use crate::solve::cost::DEFAULT_WEIGHTS;
     use panproto_gat::Name;
@@ -2116,14 +2117,27 @@ mod tests {
         }
     }
 
-    /// A cost that is hard about one time in six and small otherwise.
-    fn drawn_cost(draw: &mut Draw) -> Cost {
-        if draw.take(6) == 0 {
+    /// A cost that is hard one time in `hard_in` and small otherwise.
+    ///
+    /// The rate is a parameter because the hard entries are what decide how far
+    /// a search gets before every branch is closed. At one in six the networks
+    /// are dense enough that a level usually closes the root outright, which is
+    /// what the cost-vector properties want and what a property about the nodes
+    /// of a search does not.
+    fn drawn_cost(draw: &mut Draw, hard_in: u64) -> Cost {
+        if draw.take(hard_in) == 0 {
             Cost::TOP_SENTINEL
         } else {
             cost(draw.take(5))
         }
     }
+
+    /// One time in six, the rate the cost-vector generators have always used.
+    const DENSE: u64 = 6;
+
+    /// One time in forty, which leaves enough assignments feasible for a search
+    /// to have to branch rather than close at the root.
+    const SPARSE: u64 = 40;
 
     /// A small network together with the `⊤` to solve it under.
     ///
@@ -2145,7 +2159,62 @@ mod tests {
             .prop_map(|((cfn, top), script)| (cfn, top, script))
     }
 
-    fn build_instance(reals: &[usize], mut draw: Draw) -> Cfn {
+    /// A network guaranteed to carry at least one binary cost function, at the
+    /// shape the per-transformation properties are stated over: at most six
+    /// variables and at most three values each, `⊥` counted.
+    ///
+    /// [`arb_instance`] may draw away every pair, and a network with no binary
+    /// function offers no site for `Project` or `Extend`. A property that
+    /// applied nothing on those cases would still report a pass, so the pair on
+    /// the first two variables is forced here.
+    fn arb_ept_instance() -> impl Strategy<Value = (Cfn, Cost, Vec<u64>)> {
+        (
+            prop::collection::vec(1usize..=2, 2..=6),
+            prop::collection::vec(0u64..64, 96),
+            4u64..24,
+            prop::collection::vec(0u64..64, 16),
+        )
+            .prop_map(|(reals, pool, top, script)| {
+                (
+                    build_instance_with(&reals, Draw::new(pool), true, DENSE),
+                    cost(top),
+                    script,
+                )
+            })
+    }
+
+    /// A network small enough to walk a whole branch and bound tree over while
+    /// brute forcing the subproblem at every node, and loose enough that the
+    /// tree has more than a root: at most four variables, at most three values
+    /// each, hard constraints at [`SPARSE`], and a `⊤` well above the costs so
+    /// that the bound has room to rise before it closes anything.
+    fn arb_node_instance() -> impl Strategy<Value = (Cfn, Cost)> {
+        (
+            prop::collection::vec(1usize..=2, 2..=4),
+            prop::collection::vec(0u64..64, 64),
+            16u64..48,
+        )
+            .prop_map(|(reals, pool, top)| {
+                (
+                    build_instance_with(&reals, Draw::new(pool), true, SPARSE),
+                    cost(top),
+                )
+            })
+    }
+
+    fn build_instance(reals: &[usize], draw: Draw) -> Cfn {
+        build_instance_with(reals, draw, false, DENSE)
+    }
+
+    /// The shared builder. `force_first_pair` keeps the function on variables
+    /// zero and one whatever the draw says, which is what makes a network from
+    /// [`arb_ept_instance`] offer every transformation a site.
+    fn build_instance_with(
+        reals: &[usize],
+        mut draw: Draw,
+        force_first_pair: bool,
+        hard_in: u64,
+    ) -> Cfn {
         let names: Vec<(Name, Vec<Name>)> = reals
             .iter()
             .enumerate()
@@ -2159,17 +2228,22 @@ mod tests {
 
         for (index, count) in reals.iter().enumerate() {
             let var = VarId::new(u32::try_from(index).unwrap());
-            let table: Vec<Cost> = (0..=*count).map(|_| drawn_cost(&mut draw)).collect();
+            let table: Vec<Cost> = (0..=*count)
+                .map(|_| drawn_cost(&mut draw, hard_in))
+                .collect();
             builder.add_unary_table(var, &table).unwrap();
         }
 
         for low in 0..reals.len() {
             for high in (low + 1)..reals.len() {
-                if draw.take(4) == 0 {
+                let forced = force_first_pair && low == 0 && high == 1;
+                if !forced && draw.take(4) == 0 {
                     continue;
                 }
                 let entries = (reals[low] + 1) * (reals[high] + 1);
-                let table: Vec<Cost> = (0..entries).map(|_| drawn_cost(&mut draw)).collect();
+                let table: Vec<Cost> = (0..entries)
+                    .map(|_| drawn_cost(&mut draw, hard_in))
+                    .collect();
                 builder
                     .add_function(
                         &[
@@ -2257,6 +2331,204 @@ mod tests {
         }
     }
 
+    /// Every `(function, variable, value)` `Project` can be applied at.
+    fn project_sites(network: &Network) -> Vec<(usize, VarId, ValId)> {
+        let mut sites = Vec::new();
+        for var in network.variable_ids() {
+            for &function in network.incident(var) {
+                for value in network.domain(var) {
+                    sites.push((function, var, value));
+                }
+            }
+        }
+        sites
+    }
+
+    /// Every `(variable, value, function)` `Extend` can be applied at.
+    ///
+    /// The same sites as `Project`'s, restricted to functions of arity two or
+    /// more, which is `Extend`'s own precondition.
+    fn extend_sites(network: &Network) -> Vec<(VarId, ValId, usize)> {
+        project_sites(network)
+            .into_iter()
+            .filter(|&(function, _, _)| network.scope(function).len() > 1)
+            .map(|(function, var, value)| (var, value, function))
+            .collect()
+    }
+
+    /// Pick one element of a non-empty list by the draw.
+    fn pick<T: Copy>(items: &[T], draw: &mut Draw) -> Option<T> {
+        if items.is_empty() {
+            return None;
+        }
+        let index = draw.take(items.len() as u64) as usize;
+        items.get(index).copied()
+    }
+
+    /// The values of every current domain, in the domain order.
+    ///
+    /// Written here rather than taken from the oracle because the oracle reads
+    /// a [`Cfn`]'s fixed domains and the subproblem beneath a search node is
+    /// defined by the [`Network`]'s current ones.
+    fn domain_lists(network: &Network) -> Vec<Vec<ValId>> {
+        network
+            .variable_ids()
+            .map(|var| network.domain(var).into_iter().collect())
+            .collect()
+    }
+
+    /// The least cost [`Cfn::evaluate`] gives any assignment inside `choices`.
+    ///
+    /// Scored against the pristine network, never against the transformed one:
+    /// the number a bound is compared against must owe nothing to the tables
+    /// the bound came out of. An empty domain leaves no assignment, which is
+    /// `⊤`.
+    fn subproblem_optimum(cfn: &Cfn, choices: &[Vec<ValId>]) -> Cost {
+        if choices.iter().any(Vec::is_empty) {
+            return Cost::TOP_SENTINEL;
+        }
+        let mut cursor = vec![0usize; choices.len()];
+        let mut best = Cost::TOP_SENTINEL;
+        loop {
+            let values: Vec<ValId> = cursor
+                .iter()
+                .zip(choices)
+                .map(|(slot, values)| values[*slot])
+                .collect();
+            best = best.min(cfn.evaluate(&Assignment::from_values(values)));
+
+            let mut position = choices.len();
+            loop {
+                if position == 0 {
+                    return best;
+                }
+                position -= 1;
+                cursor[position] += 1;
+                if cursor[position] < choices[position].len() {
+                    break;
+                }
+                cursor[position] = 0;
+            }
+        }
+    }
+
+    /// A depth-first branch and bound walk that checks the bound at every node.
+    ///
+    /// It branches the way [`BranchAndBound`](super::dfbb::BranchAndBound)
+    /// does (assign the first branchable variable to its first value, then
+    /// refute that value), and it filters each node the way that search's
+    /// `propagate` does, by resetting the contributions, setting `⊤` to the
+    /// current primal bound and enforcing. What it adds is the comparison the
+    /// search cannot make for itself: the true optimum of the subproblem
+    /// beneath each node, by exhaustive enumeration.
+    struct BoundWalk<'a> {
+        cfn: &'a Cfn,
+        level: ConsistencyLevel,
+        /// The primal bound. Fixed when `moving` is false, and lowered at every
+        /// improving leaf when it is true.
+        cub: Cost,
+        moving: bool,
+        /// A ceiling on the nodes one instance may spend, so that a wide draw
+        /// cannot turn one case into a long run.
+        budget: u32,
+        nodes: u32,
+        /// Nodes whose bound was actually compared, which is what keeps a walk
+        /// that closed at the root from reporting a pass.
+        checked: u32,
+    }
+
+    impl<'a> BoundWalk<'a> {
+        fn new(cfn: &'a Cfn, level: ConsistencyLevel, top: Cost, moving: bool) -> Self {
+            Self {
+                cfn,
+                level,
+                cub: top,
+                moving,
+                budget: 256,
+                nodes: 0,
+                checked: 0,
+            }
+        }
+
+        /// The first variable with a choice left, and the first value to try.
+        fn branch(network: &Network) -> Option<(VarId, ValId)> {
+            network
+                .variable_ids()
+                .find(|&var| network.domain(var).len() >= 2)
+                .and_then(|var| network.domain(var).into_iter().next().map(|v| (var, v)))
+        }
+
+        fn node(&mut self, network: &mut Network) -> Result<(), TestCaseError> {
+            if self.nodes >= self.budget {
+                return Ok(());
+            }
+            self.nodes += 1;
+
+            // The subproblem beneath this node is the one the decisions on the
+            // path name, so it is read *before* filtering. Reading it afterwards
+            // would let a value enforcement wrongly pruned leave the comparison
+            // that exists to catch exactly that.
+            let choices = domain_lists(network);
+            let optimum = subproblem_optimum(self.cfn, &choices);
+
+            network.reset_contributions();
+            network.set_top(self.cub);
+            let alive = network.enforce(self.level);
+            prop_assert!(
+                !network.budget_exhausted(),
+                "{} ran out of steps",
+                self.level.label()
+            );
+            self.checked += 1;
+
+            if !alive {
+                // Closing a node claims every assignment beneath it costs at
+                // least the bound it was closed against.
+                prop_assert!(
+                    optimum >= self.cub,
+                    "{} closed a node holding an assignment costing {:?} at ⊤ = {:?}",
+                    self.level.label(),
+                    optimum,
+                    self.cub
+                );
+                return Ok(());
+            }
+
+            prop_assert!(
+                network.c_empty() <= optimum,
+                "{} left a bound of {:?} above the subproblem optimum {:?}",
+                self.level.label(),
+                network.c_empty(),
+                optimum
+            );
+
+            let Some((var, value)) = Self::branch(network) else {
+                // Every domain is a singleton, so the node is one assignment.
+                if self.moving {
+                    let leaf = subproblem_optimum(self.cfn, &domain_lists(network));
+                    self.cub = self.cub.min(leaf);
+                }
+                return Ok(());
+            };
+
+            let saved = network.domains().clone();
+
+            let mark = network.mark();
+            network.assign(var, value);
+            self.node(network)?;
+            network.restore(mark);
+            network.set_domains(&saved);
+
+            let mark = network.mark();
+            network.refute(var, value);
+            self.node(network)?;
+            network.restore(mark);
+            network.set_domains(&saved);
+
+            Ok(())
+        }
+    }
+
     fn predicate_holds(network: &Network, level: ConsistencyLevel) -> bool {
         match level {
             ConsistencyLevel::Node => network.is_nc_star(),
@@ -2267,10 +2539,204 @@ mod tests {
         }
     }
 
+    /// The two generators written for the properties below produce the shapes
+    /// those properties need.
+    ///
+    /// Three of the properties assert only that costs did not move, which is
+    /// what a transformation that did nothing also reports, and two of them
+    /// walk a tree that could be one node deep. Sampling the generators and
+    /// counting is what keeps any of the five from passing over a domain that
+    /// stopped exercising the thing it names.
+    ///
+    /// The thresholds sit far below the rates these strategies are written to
+    /// produce, so a failure here means a strategy stopped reaching a shape
+    /// rather than that sampling varied.
+    #[test]
+    fn the_solver_generators_reach_the_cases_they_exist_for() {
+        use proptest::strategy::ValueTree;
+        use proptest::test_runner::TestRunner;
+
+        const DRAWS: usize = 128;
+        let mut runner = TestRunner::deterministic();
+
+        let instances = arb_ept_instance();
+        let mut moved_cells = 0usize;
+        let mut extend_saturated = 0usize;
+        for _ in 0..DRAWS {
+            let (cfn, top, script) = instances.new_tree(&mut runner).unwrap().current();
+            let mut network = Network::from_cfn(&cfn, top);
+            let mut draw = Draw::new(script);
+
+            // Every draw offers a site for each of the three.
+            assert!(!project_sites(&network).is_empty());
+            assert!(!extend_sites(&network).is_empty());
+            assert!(network.n_variables() >= 2);
+
+            // And a transformation applied at one of those sites does move
+            // cost, so the cost-vector properties are comparing a network
+            // against a network that changed.
+            let sites = project_sites(&network);
+            let (function, var, value) = pick(&sites, &mut draw).unwrap();
+            let alpha = network.min_over_tuples(function, var, value);
+            let before = network.cells().to_vec();
+            network.project(function, var, value, alpha);
+            if network.cells() != before.as_slice() {
+                moved_cells += 1;
+            }
+
+            // The saturation subterm fires with `α = ⊥`, which is the behaviour
+            // the module docs warn reads like a bug.
+            let sites = extend_sites(&network);
+            let (var, value, function) = pick(&sites, &mut draw).unwrap();
+            let before = network.cells().to_vec();
+            network.extend(var, value, function, Cost::BOT);
+            if network.cells() != before.as_slice() {
+                extend_saturated += 1;
+            }
+        }
+        assert!(
+            moved_cells > 32,
+            "Project moved cost on only {moved_cells} of {DRAWS} draws"
+        );
+        assert!(
+            extend_saturated > 8,
+            "Extend at ⊥ saturated a tuple on only {extend_saturated} of {DRAWS} draws"
+        );
+
+        // The bound walk has to descend, or it checks the root and nothing else.
+        let instances = arb_node_instance();
+        let mut total_nodes = 0u32;
+        let mut deepest = 0u32;
+        for _ in 0..DRAWS {
+            let (cfn, top) = instances.new_tree(&mut runner).unwrap().current();
+            let mut network = Network::from_cfn(&cfn, top);
+            let mut walk =
+                BoundWalk::new(&cfn, ConsistencyLevel::ExistentialDirectionalArc, top, true);
+            walk.node(&mut network).unwrap();
+            total_nodes += walk.checked;
+            deepest = deepest.max(walk.checked);
+        }
+        assert!(
+            total_nodes > u32::try_from(DRAWS).unwrap() * 4,
+            "the walk checked {total_nodes} nodes over {DRAWS} instances"
+        );
+        assert!(deepest > 8, "the deepest walk checked only {deepest} nodes");
+    }
+
     // -- the properties ----------------------------------------------------
 
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
+
+        /// `Project` preserves the cost of **every** assignment.
+        ///
+        /// `one_ept_preserves_the_cost_vector` draws which of the three to
+        /// apply and applies nothing when the draw names one the network cannot
+        /// offer, so it states the property over a random mixture rather than
+        /// over each transformation. These three state it per transformation
+        /// and assert that a site existed, so none of them can pass by having
+        /// done nothing.
+        ///
+        /// This is the highest-value shape of test available for this solver:
+        /// a transformation that shifted cost incorrectly would produce a wrong
+        /// optimum, and an outcome test run on a different instance would agree
+        /// with an oracle that had been handed the same corrupted network.
+        #[test]
+        fn project_preserves_the_whole_cost_vector((cfn, top, script) in arb_ept_instance()) {
+            let mut network = Network::from_cfn(&cfn, top);
+            let mut draw = Draw::new(script);
+            let sites = project_sites(&network);
+            let Some((function, var, value)) = pick(&sites, &mut draw) else {
+                prop_assert!(false, "the generator must offer a Project site");
+                return Ok(());
+            };
+            let alpha = fraction(network.min_over_tuples(function, var, value), draw.take(5));
+            let before = cost_vector(&network);
+            network.project(function, var, value, alpha);
+            prop_assert_eq!(before, cost_vector(&network));
+        }
+
+        /// The same for `Extend`, whose saturation subterm rewrites tuples even
+        /// when `α = ⊥`, so "changed nothing" is not the shape of a pass here.
+        #[test]
+        fn extend_preserves_the_whole_cost_vector((cfn, top, script) in arb_ept_instance()) {
+            let mut network = Network::from_cfn(&cfn, top);
+            let mut draw = Draw::new(script);
+            let sites = extend_sites(&network);
+            let Some((var, value, function)) = pick(&sites, &mut draw) else {
+                prop_assert!(false, "the generator must offer an Extend site");
+                return Ok(());
+            };
+            let alpha = fraction(network.unary_cost(var, value), draw.take(5));
+            let before = cost_vector(&network);
+            network.extend(var, value, function, alpha);
+            prop_assert_eq!(before, cost_vector(&network));
+        }
+
+        /// And for `UnaryProject`, the one transformation that writes `c_∅`,
+        /// hence the one whose error would show up directly as a wrong bound.
+        #[test]
+        fn unary_project_preserves_the_whole_cost_vector(
+            (cfn, top, script) in arb_ept_instance()
+        ) {
+            let mut network = Network::from_cfn(&cfn, top);
+            let mut draw = Draw::new(script);
+            let variables: Vec<VarId> = network.variable_ids().collect();
+            let Some(var) = pick(&variables, &mut draw) else {
+                prop_assert!(false, "the generator must offer a variable");
+                return Ok(());
+            };
+            let Some(most) = network.min_unary(var) else {
+                prop_assert!(false, "every variable of the generator has a domain");
+                return Ok(());
+            };
+            let alpha = fraction(most, draw.take(5));
+            let before = cost_vector(&network);
+            network.unary_project(var, alpha);
+            prop_assert_eq!(before, cost_vector(&network));
+        }
+
+        /// `c_∅` after enforcement is no greater than the true optimum of the
+        /// subproblem beneath the node, at every node of a search.
+        ///
+        /// This is what makes pruning sound, and it is the one claim an outcome
+        /// test cannot reach. A bound that is ever above the optimum of the
+        /// subtree beneath it prunes the subtree holding the optimum, and the
+        /// search then returns a plausible wrong answer: no assertion fires, no
+        /// domain empties, and an oracle run on the same instance agrees with
+        /// the reported cost of the assignment that was actually returned.
+        ///
+        /// Checked at a fixed `⊤`, so that every node's bound is compared
+        /// against the optimum of its own subproblem rather than against a
+        /// bound an incumbent had already lowered.
+        #[test]
+        fn the_bound_is_a_lower_bound_at_every_node((cfn, top) in arb_node_instance()) {
+            for level in ConsistencyLevel::ALL {
+                let mut network = Network::from_cfn(&cfn, top);
+                let mut walk = BoundWalk::new(&cfn, level, top, false);
+                walk.node(&mut network)?;
+                prop_assert!(walk.checked >= 1, "{} checked no node", level.label());
+            }
+        }
+
+        /// The same with the primal bound moving, which is the search as it
+        /// actually runs.
+        ///
+        /// A lowered `⊤` makes costs recorded under the old bound read as `⊤`
+        /// under the new one, which is the mechanism that turns an improving
+        /// solution into pruning power and the mechanism most likely to lose a
+        /// unit of cost on the way. Here a node closed at `⊤` also has to
+        /// justify itself: every assignment beneath it must cost at least the
+        /// bound it was closed against.
+        #[test]
+        fn the_bound_is_a_lower_bound_under_a_moving_top((cfn, top) in arb_node_instance()) {
+            for level in ConsistencyLevel::ALL {
+                let mut network = Network::from_cfn(&cfn, top);
+                let mut walk = BoundWalk::new(&cfn, level, top, true);
+                walk.node(&mut network)?;
+                prop_assert!(walk.checked >= 1, "{} checked no node", level.label());
+            }
+        }
 
         /// The definition of equivalence, literally: the cost of **every**
         /// assignment is unchanged by a transformation, not merely the least

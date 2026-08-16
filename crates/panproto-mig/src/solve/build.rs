@@ -113,6 +113,43 @@
 //! evidence. That is what makes the optimum monotone in how much evidence the
 //! caller supplies.
 //!
+//! # What the objective does not read
+//!
+//! [`Schema`] carries twenty public fields. The objective reads two of them,
+//! `vertices` and `edges`, and the hard constraints above read five more:
+//! `required`, `variants`, `recursion_points`, `spans` and `hyper_edges`. The
+//! remaining thirteen — among them `constraints`, `nsids`, `orderings`,
+//! `usage_modes`, `nominal`, `coercions`, `mergers`, `defaults` and `policies`
+//! — enter neither. The three adjacency indices are derived from `edges` and
+//! carry nothing of their own.
+//!
+//! `constraints` is the one that costs. Nothing here charges for mapping a
+//! vertex whose `maxLength` is 10 onto one whose `maxLength` is 3, so the
+//! search is indifferent between that mapping and an equally-scoring one that
+//! preserves the bound, and will return either. This is not a corner: over the
+//! 5852 ordered pairs of the measured schema corpus, **1537 pairs — 26.3% —
+//! have an
+//! optimal span that tightens at least one numeric constraint**, across 2589
+//! vertex mappings, the widest being a `maxLength` of 100 000 mapped onto one
+//! of 64.
+//!
+//! It is caught downstream rather than not at all:
+//! [`ExistenceError::ConstraintTightened`](crate::error::ExistenceError::ConstraintTightened)
+//! is raised when a proposed migration is checked. But a post hoc rejection
+//! arrives after the alternative has been discarded, so a pair with both a
+//! tightening and a non-tightening optimum can be reported as having no
+//! migration.
+//!
+//! Adding a constraint term is a unary cost like the other three and would cost
+//! the search nothing measurable. What is missing is its weight relative to a
+//! name match or an edge-name match, and that is the same question as the
+//! neighbouring deferred item that no cost weight has been fitted to data. A
+//! labelled corpus of schema pairs with the intended correspondences marked
+//! settles both: fit all five weights plus a constraint term, and read off
+//! whether preserving a bound is worth more or less than preserving a name.
+//! Guessing a weight here would move every reported quality on the 26.3% for a
+//! reason no measurement supports.
+//!
 //! **Three of them can add primal graph edges that are not schema edges.** A
 //! recursion point, a span and a hyper-edge signature each constrain a set of
 //! vertices that need not be joined by an edge, so the induced width of the

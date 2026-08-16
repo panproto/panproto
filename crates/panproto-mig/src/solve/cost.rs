@@ -384,6 +384,27 @@ pub fn quality_units(x: f64) -> u64 {
 ///
 /// Every weight here is a principled default rather than a calibrated value.
 /// None of them has been fitted to data.
+///
+/// # What would settle them
+///
+/// A corpus of ordered schema pairs with the intended vertex correspondences
+/// labelled by hand — the mapping a person who knew both schemas would write.
+/// The fit is then ordinary: choose the five weights maximising agreement
+/// between the search's optimal vertex map and the labels, over a held-out
+/// split, and report the agreement rate against the rate these defaults reach.
+/// Three further questions ride on the same corpus and cannot be answered
+/// without it: what the anchor weight should be, which decides whether
+/// alignment strategies steer the search or merely break its ties; whether a
+/// constraint-preservation term earns a weight, which the objective currently
+/// lacks; and whether `auto_lens`'s absolute quality floor should be
+/// renormalised or replaced.
+///
+/// Until that exists, changing any weight trades one unmeasured setting for
+/// another. What can be said now is the sensitivity: a perturbation moving 32
+/// of the 40 rows of `panproto-lens`'s `span_selection_by_case` snapshot left
+/// every floor in that corpus green, so the shape of the answer is not
+/// delicately balanced on these values, and the snapshot rather than the floors
+/// is what would catch a reweighting.
 #[derive(Copy, Clone, Debug, PartialEq)]
 pub struct CostWeights {
     name: f64,
@@ -742,6 +763,81 @@ mod tests {
         let _ = Cost::packed(3, 9, 4);
     }
 
+    /// The drop-field bound is checked, in every profile, at every radix the
+    /// encoding admits.
+    ///
+    /// `packed_rejects_a_drop_count_at_the_radix` pins the rejection at one
+    /// radix, and the encoding's soundness argument needs it at all of them.
+    /// [`coverage_radix`] returns a power of two in `[1, MAX_COVERAGE_RADIX]`,
+    /// which is thirty-three values, so this sweeps them rather than sampling
+    /// them: at every one, the largest legal drop count round trips, and the
+    /// first illegal one is refused rather than packed.
+    ///
+    /// The sweep also states the *necessity* of the bound at each radix, on raw
+    /// arithmetic rather than through [`Cost::packed`], so that what the check
+    /// prevents is recorded next to the check.
+    ///
+    /// The panic hook is silenced across the sweep and restored after it, since
+    /// thirty-two deliberate panics would otherwise bury the result in default
+    /// panic reports. It is global for that window, which is why the swap is
+    /// scoped to this one test rather than installed for the module.
+    #[test]
+    fn the_drop_bound_is_enforced_at_every_legal_radix() {
+        let previous = std::panic::take_hook();
+        std::panic::set_hook(Box::new(|_| {}));
+
+        let mut accepted = 0usize;
+        let mut refused = 0usize;
+        let mut unrepresentable = 0usize;
+        for exponent in 0..=32u32 {
+            let radix = 1u64 << exponent;
+            // Every one of these is a radix `coverage_radix` actually returns.
+            let vertices = if exponent == 0 {
+                0
+            } else {
+                1u32 << (exponent - 1)
+            };
+            assert_eq!(coverage_radix(vertices), radix, "exponent {exponent}");
+
+            // The largest legal drop count packs and reads back, even beside the
+            // largest legal quality.
+            let largest = u32::try_from(radix - 1).unwrap();
+            let packed = Cost::packed(COST_SCALE, largest, radix);
+            assert_eq!(packed.quality_part(radix), COST_SCALE, "radix {radix}");
+            assert_eq!(packed.drop_part(radix), u64::from(largest), "radix {radix}");
+            assert!(packed < Cost::TOP_SENTINEL, "radix {radix}");
+            accepted += 1;
+
+            // One past it is refused. At the widest radix no `u32` can express
+            // a drop count that large, so there the type is the check and there
+            // is nothing for the assertion to catch.
+            match u32::try_from(radix) {
+                Ok(at_the_bound) => {
+                    let caught = std::panic::catch_unwind(|| Cost::packed(0, at_the_bound, radix));
+                    assert!(caught.is_err(), "radix {radix} packed a drop count at it");
+                    refused += 1;
+                }
+                Err(_) => unrepresentable += 1,
+            }
+
+            // And what the refusal prevents: past the bound the drop field wraps
+            // to nothing and the quality field gains a unit it did not earn.
+            let corrupted = Cost::from_raw(radix);
+            assert_eq!(corrupted.drop_part(radix), 0, "radix {radix}");
+            assert_eq!(corrupted.quality_part(radix), 1, "radix {radix}");
+
+            // A quality above the scale is refused at every radix too, since it
+            // is the other half of what keeps the product inside a `u64`.
+            let caught = std::panic::catch_unwind(|| Cost::packed(COST_SCALE + 1, 0, radix));
+            assert!(caught.is_err(), "radix {radix} packed an oversized quality");
+        }
+
+        std::panic::set_hook(previous);
+        assert_eq!(accepted, 33);
+        assert_eq!(refused, 32);
+        assert_eq!(unrepresentable, 1);
+    }
+
     #[test]
     fn packed_round_trips() {
         let radix = coverage_radix(39);
@@ -1025,6 +1121,158 @@ mod property {
             })
     }
 
+    /// `(top, a, b, c)` with `a, b, c ⪯ top`, every component drawn from the
+    /// boundary clusters rather than uniformly.
+    ///
+    /// The uniform draw in [`arb_valuations`] states each axiom over the whole
+    /// interval, so it exercises the `⊕` saturation only by accident and it
+    /// reaches the `⊤` boundary exactly (`a = ⊤`, `a ⊕ b = ⊤` on the nose) with
+    /// probability that falls off as `1/k`. Every axiom below is therefore
+    /// stated twice, once over each domain: an implementation that is right in
+    /// the interior and wrong where the clamp bites would pass the interior form
+    /// alone.
+    fn arb_boundary_valuations() -> impl Strategy<Value = (Cost, Cost, Cost, Cost)> {
+        (
+            arb_boundary_raw(),
+            arb_boundary_raw(),
+            arb_boundary_raw(),
+            arb_boundary_raw(),
+        )
+            .prop_map(|(t, a, b, c)| {
+                let top = t.max(a).max(b).max(c);
+                (
+                    Cost::from_raw(top),
+                    Cost::from_raw(a),
+                    Cost::from_raw(b),
+                    Cost::from_raw(c),
+                )
+            })
+    }
+
+    /// `(top, u, v, w)` with `w ⪯ v ⪯ top` and `u ⪯ top`, drawn so that the two
+    /// saturating cases of Lemma 1.11 are each reached on a constant fraction of
+    /// the draws rather than by luck.
+    ///
+    /// Neither [`arb_fair_valuations`] nor [`arb_boundary_fair_valuations`]
+    /// targets them: the first draws uniformly, and the second clusters the raw
+    /// values without arranging any relation between `u ⊕ w` and `top`. The
+    /// three shapes are `v = ⊤`, `u ⊕ w ⪰ ⊤`, and both at once, which is where a
+    /// difference taken against an unsaturated `β` would come apart.
+    fn arb_saturating_fair_valuations() -> impl Strategy<Value = (Cost, Cost, Cost, Cost)> {
+        // `top ⪰ 1`, so that `top − w` below has room for a strictly positive
+        // `u` and the "saturates" shape is not silently the degenerate one.
+        let tops = prop_oneof![
+            2 => 1u64..=64u64,
+            2 => 1u64..=1_000_000u64,
+            3 => (u64::MAX - 1024)..=u64::MAX,
+            3 => 1u64..=u64::MAX,
+        ];
+        tops.prop_flat_map(|k| (Just(k), 0..=k, 0..=k, 0u8..3))
+            .prop_flat_map(|(k, v_or_u, w_seed, shape)| {
+                (Just(k), Just(v_or_u), Just(w_seed), Just(shape), 0..=k)
+            })
+            .prop_map(|(k, first, second, shape, spare)| {
+                let (v, w, u) = match shape {
+                    // `v = ⊤`, so `v ⊖ w` is `⊤` by the irreversibility clause
+                    // rather than by subtraction.
+                    0 => (k, first.min(k), spare),
+                    // `u ⊕ w ⪰ ⊤`, so the left side of the lemma clamps.
+                    1 => {
+                        let w = second.min(k);
+                        let v = w.max(first);
+                        (v, w, (k - w).saturating_add(spare).min(k))
+                    }
+                    // Both at once.
+                    _ => {
+                        let w = second.min(k);
+                        (k, w, (k - w).saturating_add(spare).min(k))
+                    }
+                };
+                (
+                    Cost::from_raw(k),
+                    Cost::from_raw(u),
+                    Cost::from_raw(v),
+                    Cost::from_raw(w),
+                )
+            })
+    }
+
+    /// Every radix [`coverage_radix`] can return, which is every power of two
+    /// from `1` to [`MAX_COVERAGE_RADIX`].
+    ///
+    /// [`arb_radix`] draws source vertex counts up to 63, so it reaches six of
+    /// the thirty-three legal radices and never the wide ones the packing
+    /// arithmetic was sized against. The exponent is drawn directly here so that
+    /// all thirty-three are equally likely.
+    fn arb_legal_radix() -> impl Strategy<Value = u64> {
+        (0u32..=32u32).prop_map(|exponent| 1u64 << exponent)
+    }
+
+    /// `(radix, q1, drops1, q2, drops2)` over the whole legal radix range, with
+    /// both drop counts below the radix and representable in a `u32`.
+    fn arb_wide_packed_pair() -> impl Strategy<Value = (u64, u64, u32, u64, u32)> {
+        arb_legal_radix().prop_flat_map(|radix| {
+            let top_drops = max_drops(radix);
+            (
+                Just(radix),
+                0..=COST_SCALE,
+                0..=top_drops,
+                0..=COST_SCALE,
+                0..=top_drops,
+            )
+        })
+    }
+
+    /// A `⊕`-aggregation the search can actually reach: a radix sized for
+    /// `vertices` source vertices, and a list of packed costs whose drop counts
+    /// sum to at most `vertices` and whose quality parts sum to at most
+    /// [`COST_SCALE`].
+    ///
+    /// Those two caps are the reachability argument in the module docs stated as
+    /// a generator. Each variable contributes at most one [`DROP_UNIT`] and the
+    /// transformations move cost rather than creating it, so no partial
+    /// aggregation can carry a drop count past `|V_s|`, and the weights are
+    /// normalised so no aggregation of quality can pass the scale. The budgets
+    /// are spent left to right, which keeps every choice a shrinkable draw.
+    fn arb_reachable_aggregation() -> impl Strategy<Value = (u64, Vec<(u64, u32)>)> {
+        let vertices = prop_oneof![
+            // The scale the corpus actually sits at, where the aggregation gets
+            // close enough to the radix for a carry to be a live question.
+            3 => 0u32..=64u32,
+            2 => 0u32..=4096u32,
+            // And the extreme the packing arithmetic was sized against.
+            1 => 0u32..=u32::MAX,
+        ];
+        (
+            vertices,
+            prop::collection::vec((0u64..=64, 0u32..=64), 1..=16),
+        )
+            .prop_map(|(vertices, raw)| {
+                let radix = coverage_radix(vertices);
+                let mut drops_left = vertices;
+                let mut quality_left = COST_SCALE;
+                // Each seed spends a fraction of what is left rather than an
+                // absolute amount, so the aggregation approaches its budget at
+                // every scale instead of only at the small ones. A seed of 64
+                // takes the whole remainder, which is what puts the running drop
+                // total right against the radix.
+                let addends = raw
+                    .into_iter()
+                    .map(|(q_seed, drop_seed)| {
+                        let q = (q_seed * (quality_left / 64)).min(quality_left);
+                        quality_left -= q;
+                        let drops =
+                            u32::try_from(u64::from(drop_seed) * u64::from(drops_left) / 64)
+                                .unwrap_or(drops_left)
+                                .min(drops_left);
+                        drops_left -= drops;
+                        (q, drops)
+                    })
+                    .collect();
+                (radix, addends)
+            })
+    }
+
     /// A vector of `(lower, upper)` cost pairs with `upper ⪰ lower` throughout,
     /// for the n-fold form of monotonicity.
     fn arb_monotone_vector() -> impl Strategy<Value = (Cost, Vec<(Cost, Cost)>)> {
@@ -1043,7 +1291,7 @@ mod property {
     }
 
     proptest! {
-        #![proptest_config(ProptestConfig::with_cases(256))]
+        #![proptest_config(ProptestConfig::with_cases(512))]
 
         #[test]
         fn combine_is_commutative((top, a, b, _c) in arb_valuations()) {
@@ -1251,8 +1499,211 @@ mod property {
         }
     }
 
+    /// The generators written for the boundary properties reach the cases they
+    /// exist to reach.
+    ///
+    /// Every property below passes trivially over a domain that never gets near
+    /// the clamp, so a strategy that drifted into producing only interior values
+    /// would turn its property green rather than red. This samples each one and
+    /// counts the shapes, which is the only thing standing between a boundary
+    /// property and a quiet vacuity.
+    ///
+    /// The thresholds are far below the rates the strategies are written to
+    /// produce, so this fails on a strategy that stopped reaching a shape rather
+    /// than on ordinary sampling variation.
+    #[test]
+    fn the_boundary_generators_reach_the_cases_they_exist_for() {
+        use proptest::strategy::ValueTree;
+        use proptest::test_runner::TestRunner;
+
+        const DRAWS: usize = 512;
+        let mut runner = TestRunner::deterministic();
+
+        let fair = arb_saturating_fair_valuations();
+        let mut v_at_top = 0usize;
+        let mut sum_saturates = 0usize;
+        for _ in 0..DRAWS {
+            let (top, u, v, w) = fair.new_tree(&mut runner).unwrap().current();
+            assert!(w <= v && v <= top && u <= top);
+            if v == top && top > Cost::BOT {
+                v_at_top += 1;
+            }
+            // A genuine saturation, not the trivial one where an operand was
+            // already `⊤`.
+            if u < top && w < top && u.combine(w, top) == top {
+                sum_saturates += 1;
+            }
+        }
+        assert!(v_at_top > 64, "v reached ⊤ on {v_at_top} of {DRAWS} draws");
+        assert!(
+            sum_saturates > 64,
+            "u ⊕ w saturated on {sum_saturates} of {DRAWS} draws"
+        );
+
+        let aggregation = arb_reachable_aggregation();
+        let mut against_the_bound = 0usize;
+        let mut several_terms = 0usize;
+        for _ in 0..DRAWS {
+            let (radix, addends) = aggregation.new_tree(&mut runner).unwrap().current();
+            let drops: u64 = addends.iter().map(|&(_, d)| u64::from(d)).sum();
+            let quality: u64 = addends.iter().map(|&(q, _)| q).sum();
+            assert!(drops < radix);
+            assert!(quality <= COST_SCALE);
+            if drops.saturating_mul(2) >= radix {
+                against_the_bound += 1;
+            }
+            if addends.len() > 1 && drops > 0 && quality > 0 {
+                several_terms += 1;
+            }
+        }
+        assert!(
+            against_the_bound > 64,
+            "the drop total reached half the radix on {against_the_bound} of {DRAWS} draws"
+        );
+        assert!(
+            several_terms > 64,
+            "only {several_terms} of {DRAWS} draws were multi-term aggregations"
+        );
+    }
+
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(512))]
+
+        // -- the five axioms, restated where the clamp bites -----------------
+
+        #[test]
+        fn combine_is_commutative_at_the_boundaries(
+            (top, a, b, _c) in arb_boundary_valuations()
+        ) {
+            prop_assert_eq!(a.combine(b, top), b.combine(a, top));
+        }
+
+        #[test]
+        fn combine_is_associative_at_the_boundaries(
+            (top, a, b, c) in arb_boundary_valuations()
+        ) {
+            prop_assert_eq!(
+                a.combine(b.combine(c, top), top),
+                a.combine(b, top).combine(c, top)
+            );
+        }
+
+        #[test]
+        fn bot_is_the_identity_at_the_boundaries((top, a, _b, _c) in arb_boundary_valuations()) {
+            prop_assert_eq!(a.combine(Cost::BOT, top), a);
+            prop_assert_eq!(Cost::BOT.combine(a, top), a);
+        }
+
+        #[test]
+        fn top_is_the_annihilator_at_the_boundaries((top, a, _b, _c) in arb_boundary_valuations()) {
+            prop_assert_eq!(a.combine(top, top), top);
+            prop_assert_eq!(top.combine(a, top), top);
+        }
+
+        #[test]
+        fn combine_is_monotone_at_the_boundaries((top, a, b, c) in arb_boundary_valuations()) {
+            let (worse, better) = if a >= b { (a, b) } else { (b, a) };
+            prop_assert!(worse.combine(c, top) >= better.combine(c, top));
+        }
+
+        /// Monotonicity where the axiom is least trivial: `⊤` itself as the
+        /// worse of the pair, and an addend that already saturates the sum.
+        ///
+        /// Stated separately from the clustered draw because these are the two
+        /// configurations in which a comparison written against the unclamped
+        /// sum rather than the clamped one still returns the right answer for
+        /// the wrong reason.
+        #[test]
+        fn combine_is_monotone_against_top((top, _a, b, c) in arb_boundary_valuations()) {
+            prop_assert!(top.combine(c, top) >= b.combine(c, top));
+            prop_assert_eq!(top.combine(c, top), top);
+            prop_assert!(b.combine(top, top) >= b.combine(c, top));
+        }
+
+        // -- fairness where the sum saturates --------------------------------
+
+        /// Lemma 1.11 and the two difference statements over draws that reach
+        /// `v = ⊤` and `u ⊕ w = ⊤` deliberately.
+        #[test]
+        fn fairness_holds_when_the_sum_saturates(
+            (top, u, v, w) in arb_saturating_fair_valuations()
+        ) {
+            prop_assert!(w <= v, "generator must satisfy the fairness precondition");
+            prop_assert_eq!(v.diff(w, top).combine(w, top), v);
+            prop_assert!(v.diff(w, top) <= v);
+            prop_assert_eq!(
+                u.combine(w, top).combine(v.diff(w, top), top),
+                u.combine(v, top)
+            );
+        }
+
+        /// The irreversibility clause, stated on its own: at `v = ⊤` the
+        /// difference is `⊤` for every `w`, so no transformation can walk a cost
+        /// back below the primal bound once it has reached it.
+        #[test]
+        fn top_is_irreversible_under_difference(
+            (top, _u, _v, w) in arb_saturating_fair_valuations()
+        ) {
+            prop_assert_eq!(top.diff(w, top), top);
+            prop_assert_eq!(top.diff(top, top), top);
+            // And a cost recorded under an earlier, larger bound reads as `⊤`
+            // under the current one rather than walking back below it.
+            let stale = Cost::from_raw(top.raw().saturating_add(w.raw()));
+            prop_assert_eq!(stale.diff(w, top), top);
+        }
+
+        // -- the packed encoding, over every legal radix ----------------------
+
+        #[test]
+        fn packed_round_trips_for_every_legal_radix(
+            (radix, q, drops, _q2, _d2) in arb_wide_packed_pair()
+        ) {
+            let cost = Cost::packed(q, drops, radix);
+            prop_assert_eq!(cost.quality_part(radix), q);
+            prop_assert_eq!(cost.drop_part(radix), u64::from(drops));
+            // No packed cost may reach `⊤`, at any legal radix: a quality term
+            // that could would be able to declare an assignment infeasible.
+            prop_assert!(cost < Cost::TOP_SENTINEL);
+        }
+
+        #[test]
+        fn packed_ord_is_lexicographic_for_every_legal_radix(
+            (radix, q1, drops1, q2, drops2) in arb_wide_packed_pair()
+        ) {
+            prop_assert_eq!(
+                Cost::packed(q1, drops1, radix).cmp(&Cost::packed(q2, drops2, radix)),
+                (q1, drops1).cmp(&(q2, drops2))
+            );
+        }
+
+        /// The no-carry precondition over a whole aggregation rather than over
+        /// one addition.
+        ///
+        /// The pairwise form leaves open the case the solver actually runs: a
+        /// fold of many packed costs, where each step is exact but the running
+        /// drop total is what approaches the radix. Folding a reachable
+        /// aggregation must leave the quality field carrying the sum of the
+        /// quality parts and nothing else.
+        #[test]
+        fn drops_never_carry_into_quality_for_any_reachable_sum(
+            (radix, addends) in arb_reachable_aggregation()
+        ) {
+            let mut total = Cost::BOT;
+            let mut quality = 0u64;
+            let mut drops = 0u64;
+            for &(q, d) in &addends {
+                total = total.combine(Cost::packed(q, d, radix), Cost::TOP_SENTINEL);
+                quality += q;
+                drops += u64::from(d);
+                // Exact at every prefix, not only at the end: a carry that
+                // happened and then cancelled would still be a wrong bound at
+                // the node where it happened.
+                prop_assert_eq!(total.quality_part(radix), quality);
+                prop_assert_eq!(total.drop_part(radix), drops);
+            }
+            prop_assert!(drops < radix, "the aggregation must stay inside the bound");
+            prop_assert!(total < Cost::TOP_SENTINEL);
+        }
 
         #[test]
         fn cost_never_wraps((top, a, b) in arb_boundary_case()) {

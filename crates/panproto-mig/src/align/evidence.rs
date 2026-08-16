@@ -924,6 +924,104 @@ mod tests {
         assert_eq!(buckets[Family::Coercion.index()], [StrategyTag::Coerce]);
     }
 
+    /// The fixed arity is what makes the score monotone in the pool, and a
+    /// firing-family normalisation would not be.
+    ///
+    /// The module docs assert this, and the tier ladder rests on it: a higher
+    /// stringency tier contributes a superset of the anchors, so a score that
+    /// could fall when an anchor is added would let a tier that knew more
+    /// return a worse optimum. What follows is the witness. One identifier
+    /// anchor near the top of its band is joined by one structural anchor near
+    /// the bottom of its own, which is the ordinary case rather than a
+    /// contrived one: the structural strategies are the ones a higher tier
+    /// turns on, and they sit in the low bands by construction.
+    ///
+    /// Under a mean normalised by the number of *firing* families the second
+    /// anchor drags the average down, so the pair reads strictly worse for
+    /// having been supported by one more family. Under the shipped divisor of
+    /// six it reads strictly better. Both directions are asserted, because the
+    /// point is not that the shipped aggregator happens to be monotone here
+    /// but that the alternative is not.
+    #[test]
+    fn a_firing_family_normalised_mean_would_not_be_monotone() {
+        /// The mean a firing-family normalisation would report.
+        fn firing_family_mean(per_family: [f64; 6]) -> f64 {
+            let firing: Vec<f64> = per_family.iter().copied().filter(|v| *v > 0.0).collect();
+            let Ok(count) = u32::try_from(firing.len()) else {
+                unreachable!("there are six families")
+            };
+            if count == 0 {
+                return 0.0;
+            }
+            firing.iter().sum::<f64>() / f64::from(count)
+        }
+
+        let identifier = anchor(
+            "a",
+            "X",
+            1.0,
+            StrategyTag::Exact,
+            Provenance::ExactIdentifier,
+        );
+        let structural = anchor("a", "X", 1.0, StrategyTag::Structural, Provenance::Inferred);
+
+        let before = aggregate(
+            std::slice::from_ref(&identifier),
+            AggregationPolicy::StrictPriority,
+        );
+        let after = aggregate(&[identifier, structural], AggregationPolicy::StrictPriority);
+
+        let Some(before_row) = before.get(&Name::from("a"), &Name::from("X")) else {
+            panic!("the table is silent on the pair its single anchor names")
+        };
+        let Some(after_row) = after.get(&Name::from("a"), &Name::from("X")) else {
+            panic!("the table is silent on the pair both its anchors name")
+        };
+
+        // The premise: exactly one family fires before, exactly two after, and
+        // the family that joined contributes strictly less than the one that
+        // was already there. Without this the two aggregators cannot disagree,
+        // and the assertions below would hold for the wrong reason.
+        assert_eq!(
+            before_row.per_family.iter().filter(|v| **v > 0.0).count(),
+            1
+        );
+        assert_eq!(after_row.per_family.iter().filter(|v| **v > 0.0).count(), 2);
+        assert!(
+            after_row.per_family[Family::Structure.index()]
+                < after_row.per_family[Family::Identifier.index()],
+            "the structural anchor must sit below the identifier anchor for the \
+             two aggregators to disagree"
+        );
+
+        assert!(
+            firing_family_mean(after_row.per_family) < firing_family_mean(before_row.per_family),
+            "a firing-family normalised mean was expected to fall from {} to {}",
+            firing_family_mean(before_row.per_family),
+            firing_family_mean(after_row.per_family),
+        );
+
+        assert!(
+            after_row.score > before_row.score,
+            "the shipped fixed arity mean fell from {} to {} on the pool a \
+             firing-family normalisation breaks on",
+            before_row.score,
+            after_row.score,
+        );
+
+        // The divisor is the whole of the difference, so it is asserted here
+        // rather than left to the reader: both scores are the family maxima
+        // over six, whatever fired.
+        assert_eq!(
+            before_row.score,
+            before_row.per_family.iter().sum::<f64>() / FAMILY_ARITY
+        );
+        assert_eq!(
+            after_row.score,
+            after_row.per_family.iter().sum::<f64>() / FAMILY_ARITY
+        );
+    }
+
     /// The one tag whose family the tag alone cannot decide.
     #[test]
     fn alias_family_follows_the_branch_provenance() {
@@ -1650,9 +1748,18 @@ mod property {
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
-        /// Lemma 4.2. Aggregating a superset of the anchors produces a score at
-        /// least as large for every pair, which is what the monotonicity of the
-        /// search optimum in the stringency tier rests on.
+        /// Lemma 4.2. Appending anchors to a pool produces a score at least as
+        /// large for every pair, which is what the monotonicity of the search
+        /// optimum in the stringency tier rests on.
+        ///
+        /// The extension is drawn from one anchor upward, so the atomic step
+        /// the induction runs on is inside the corpus rather than only its
+        /// closure. Per-family maxima are asserted alongside the score, because
+        /// they are the mechanism: each family reduces by `max`, which is
+        /// monotone in what it ranges over, and the fixed divisor then carries
+        /// that to the mean.
+        /// `a_firing_family_normalised_mean_would_not_be_monotone` is the
+        /// witness that the divisor is what does the carrying.
         #[test]
         fn aggregate_monotone_in_pool(
             pool in prop::collection::vec(arb_anchor(), 0..12),
@@ -1677,6 +1784,21 @@ mod property {
             }
             for (source, target, evidence) in small.rows() {
                 prop_assert!(large.score(source, target) >= evidence.score);
+
+                for family in FAMILIES {
+                    let index = family.index();
+                    let grown = large
+                        .get(source, target)
+                        .map_or(0.0, |row| row.per_family[index]);
+                    prop_assert!(
+                        grown >= evidence.per_family[index],
+                        "{}/{}: the {family:?} maximum fell from {} to {}",
+                        source.as_str(),
+                        target.as_str(),
+                        evidence.per_family[index],
+                        grown,
+                    );
+                }
             }
         }
 

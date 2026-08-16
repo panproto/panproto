@@ -4,6 +4,7 @@
 //! it into elementary endofunctors, maps each to a protolens, and
 //! composes the result.
 
+use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -639,6 +640,60 @@ fn resolve_seed_map(anchors: &[Anchor]) -> HashMap<Name, Name> {
 
 /// Merge `additional` (source → target name pairs) into `opts.hard_pins`
 /// without overwriting any existing entry.
+///
+/// # Why an inference goes into a field reserved for knowledge
+///
+/// [`SearchOptions::hard_pins`] is documented for mappings a caller *knows*,
+/// and a strategy proposal is a guess. The principled destination is the
+/// evidence table [`SpanSearch::with_evidence`] reads, where a proposal is a
+/// reward-only unary cost that changes which assignment is optimal without
+/// removing any other from the search. It is not routed there, and the reason
+/// is measured rather than assumed.
+///
+/// Evidence is scaled by [`CostWeights::anchor`], which is zero in
+/// `DEFAULT_WEIGHTS`, so routing the anchors there and changing nothing else
+/// would make them inert. Raising that weight renormalises the other four
+/// components downward, and the span's reported quality includes the anchor
+/// term, so every reported quality moves. Over the 5852 ordered pairs of the
+/// measured schema corpus at the balanced tier, the median reported quality
+/// falls by
+/// 0.0106 at an anchor weight of 0.05, 0.0203 at 0.10 and 0.0373 at 0.20.
+/// [`DEFAULT_QUALITY_FLOOR`] is an absolute 0.5 on that number, and 583 pairs
+/// sit at or above it today, so the shift pushes 96, 184 and 324 of those 583
+/// below the floor at the three weights. Each one newly triggers the overlap
+/// retry for a reason that has nothing to do with its alignment.
+///
+/// The benefit does not pay for that. Decomposing the change into its two
+/// halves over the same corpus: releasing the pins and steering with nothing
+/// accounts for all of it, raising apex coverage on 133 pairs and lowering it
+/// on none, and never lowering the quality, since the released search
+/// optimises over a superset. Evidence steering *on top of* released domains
+/// lowers coverage on 2 pairs and raises it on none, and lowers the structural
+/// quality on 17, 29 and 43 pairs at the three weights while raising it on
+/// none. That last comparison is against the structural objective, which is
+/// the only yardstick available and is circular: a non-structural term is of
+/// course worse by a structural measure. Whether an evidence-steered answer is
+/// a *better migration* is the open question, and no labelled data in this
+/// repository can answer it.
+///
+/// # What would settle it
+///
+/// A corpus of schema pairs with the intended vertex correspondences labelled
+/// by hand. Fit the five weights to maximise agreement with the labels, and
+/// read the anchor weight off the fit rather than picking one. The same corpus
+/// settles the neighbouring deferred item, that no cost weight has ever been
+/// fitted. Without it there is a measurement but no criterion.
+///
+/// Two consequences of the measurement are already acted on and need no
+/// calibration. First, `best_of_pinned_and_released` compares the two attempts
+/// on the objective rather than on coverage alone, so a pin can break a tie
+/// among optima but cannot cost objective value; its doc carries the numbers.
+/// Second, the anchor term can be removed from a reading exactly, without a
+/// second network: the reported quality is
+/// `(1 − w) · q_structural + w · c̄`, where `c̄` is the mean confidence over
+/// source vertices of the anchors the optimum followed, so `q_structural`
+/// recovers in `O(|V_src|)`. Whoever raises the anchor weight should subtract
+/// it rather than let the scale move.
 fn merge_seed_anchors(opts: &mut SearchOptions, additional: &HashMap<Name, Name>) {
     for (s, t) in additional {
         opts.hard_pins.entry(s.clone()).or_insert_with(|| t.clone());
@@ -669,8 +724,8 @@ fn release_strategy_pins(
     soft
 }
 
-/// Take the pinned answer, or the unpinned one when releasing the strategy
-/// pins covers more of the source.
+/// Take whichever of the pinned and released attempts is better on the
+/// objective, preferring the pinned one only when the two are equal on it.
 ///
 /// A strategy anchor is an inference, and
 /// [`SearchOptions::hard_pins`] is for what a caller *knows*: a pinned vertex
@@ -679,20 +734,41 @@ fn release_strategy_pins(
 /// answer says so — the span is optimal, `proven_optimal` is true, and the
 /// field is simply not in the lens.
 ///
-/// So comparing the two attempts on `Err` alone, which is what this used to do,
-/// never fires at a tier that allows spans: the span search answers `⊥` rather
-/// than refusing. Comparing them on coverage is what makes the release
-/// reachable, and it keeps the pins' benefit, since a pinned answer that covers
-/// at least as much is kept.
+/// # Why the comparison is on quality first
 ///
-/// The released search is only run when the pinned attempt failed or left part
-/// of the source unmapped, so a pair the anchors get right pays for one search.
+/// Releasing pins only ever *adds* values back to domains, so the released
+/// search optimises over a superset of the pinned search's feasible set and its
+/// optimum is therefore never worse on the objective. The objective is
+/// `(quality_cost, drops)` read lexicographically, so "never worse" means
+/// higher quality, or equal quality and fewer drops.
+///
+/// Comparing the two on coverage alone therefore kept an answer that could not
+/// be better and was sometimes strictly worse: a pair on which releasing raised
+/// the quality without changing how many vertices were mapped failed the test
+/// and the pinned answer was returned. Measured over the 5852 ordered pairs of
+/// the measured schema corpus at the balanced tier, releasing raised the
+/// quality on 199
+/// pairs and lowered it on none; on 66 of those 199 the coverage tied, so the
+/// worse answer was kept, forgoing a median of 0.0012 quality and as much as
+/// 0.3251. Nine of the 66 never reached the comparison at all, because a pinned
+/// answer that mapped every source vertex short-circuited it.
+///
+/// What the pins legitimately do is break a tie. Among assignments the
+/// objective scores equally, preferring the one the strategies endorse is free:
+/// it costs no objective value, and it is the whole of what a heuristic prior
+/// is entitled to. That is the `Equal` arm below.
+///
+/// # What this costs
+///
+/// The released search now runs whenever anything was pinned, where before it
+/// ran only on a failure or a shortfall. That is one extra span search per
+/// call. The searches share their anchor pool, which is the larger half of the
+/// work, so the added cost is the search alone.
 fn best_of_pinned_and_released<F>(
     pinned: Result<SearchResult, LensError>,
     pinned_opts: &SearchOptions,
     soft_opts: &SearchOptions,
     released: F,
-    source_vertices: usize,
 ) -> Result<SearchResult, LensError>
 where
     F: FnOnce() -> Result<SearchResult, LensError>,
@@ -703,14 +779,39 @@ where
         return pinned;
     }
     match pinned {
-        Ok(found) if found.mapped_vertices >= source_vertices => Ok(found),
         Ok(found) => Ok(match released() {
-            Ok(free) if free.mapped_vertices > found.mapped_vertices => free,
+            Ok(free) if beats_on_objective(&free, &found) => free,
             _ => found,
         }),
         Err(pinned_failure) => released().map_err(|_| pinned_failure),
     }
 }
+
+/// Whether `candidate` is strictly better than `incumbent` on the objective.
+///
+/// The objective the search minimises is the packed pair
+/// `(quality_cost, drops)`, read lexicographically. This reads the same pair
+/// with both signs flipped: higher quality wins, and among equal qualities more
+/// mapped source vertices wins. Nothing else enters, and in particular a tie on
+/// both leaves the incumbent in place, which is how the pins keep their
+/// tie-break role.
+///
+/// Quality is an `f64`, so the comparison is
+/// [`f64::total_cmp`] rather than `<`. The search cannot return a `NaN`
+/// quality — it is `1 − units / COST_SCALE` over a clamped integer — and
+/// comparing under a total order means the tie-break stays transitive whatever
+/// arrives here.
+fn beats_on_objective(candidate: &SearchResult, incumbent: &SearchResult) -> bool {
+    match candidate
+        .alignment_quality
+        .total_cmp(&incumbent.alignment_quality)
+    {
+        Ordering::Greater => true,
+        Ordering::Less => false,
+        Ordering::Equal => candidate.mapped_vertices > incumbent.mapped_vertices,
+    }
+}
+
 /// Generate a protolens chain and concrete lens from two schemas.
 ///
 /// # Pipeline
@@ -777,23 +878,17 @@ pub fn auto_generate(
         None,
         DEFAULT_QUALITY_FLOOR,
     );
-    let result = best_of_pinned_and_released(
-        pinned,
-        &search_opts,
-        &soft_opts,
-        || {
-            run_search(
-                src,
-                tgt,
-                protocol,
-                &effective,
-                &soft_opts,
-                None,
-                DEFAULT_QUALITY_FLOOR,
-            )
-        },
-        src.vertices.len(),
-    )?;
+    let result = best_of_pinned_and_released(pinned, &search_opts, &soft_opts, || {
+        run_search(
+            src,
+            tgt,
+            protocol,
+            &effective,
+            &soft_opts,
+            None,
+            DEFAULT_QUALITY_FLOOR,
+        )
+    })?;
 
     Ok(AutoLensResult {
         chain: result.chain,
@@ -807,6 +902,37 @@ pub fn auto_generate(
 /// Default alignment quality below which `auto_generate` triggers the
 /// overlap-fallback retry when `try_overlap` is enabled. `auto_generate_with_hints`
 /// accepts a `quality_threshold` override that shadows this constant.
+///
+/// # This reads a number that has no absolute scale
+///
+/// [`SchemaSpan::quality`](panproto_mig::SchemaSpan::quality) documents itself
+/// as "a ranking signal among spans over one source schema, and nothing else",
+/// with "no absolute reading of this number and no threshold on it is
+/// meaningful across pairs". Every denominator of the objective is fixed by the
+/// source schema, so a quality of 0.5 means one thing on a ten-vertex source
+/// and another on a forty-vertex one. This constant is exactly the threshold
+/// that doc rules out, applied across every pair a caller passes.
+///
+/// The consequence is not hypothetical. Over the 5852 ordered pairs of the
+/// measured schema corpus at the balanced tier, 583 sit at or above 0.5, and
+/// which
+/// pairs those are tracks source schema size as much as alignment goodness.
+/// The retry is a fallback rather than a verdict, so a wrong trigger costs an
+/// overlap search rather than a wrong answer, which is why this is recorded
+/// rather than removed.
+///
+/// # What would settle it
+///
+/// Two candidates, and choosing between them needs data rather than argument.
+/// Either normalise the quality by what the pair could have scored — the
+/// quality of the best span over that source against *itself*, which is
+/// computable and makes 1.0 mean "as good as this source can be matched" — or
+/// drop the absolute trigger and retry whenever the overlap search would add
+/// apex vertices the span search did not find, which is a comparison between
+/// two answers rather than against a constant. The first keeps a threshold and
+/// makes it comparable; the second removes the threshold. The labelled corpus
+/// that settles the cost weights would decide which retry policy recovers more
+/// intended correspondences.
 const DEFAULT_QUALITY_FLOOR: f64 = 0.5;
 
 struct SearchResult {
@@ -1016,23 +1142,17 @@ pub fn auto_generate_with_hints(
         Some(&merged_domain),
         quality_floor,
     );
-    let result = best_of_pinned_and_released(
-        pinned,
-        &search_opts,
-        &soft_opts,
-        || {
-            run_search(
-                src,
-                tgt,
-                protocol,
-                &effective,
-                &soft_opts,
-                Some(&merged_domain),
-                quality_floor,
-            )
-        },
-        src.vertices.len(),
-    )?;
+    let result = best_of_pinned_and_released(pinned, &search_opts, &soft_opts, || {
+        run_search(
+            src,
+            tgt,
+            protocol,
+            &effective,
+            &soft_opts,
+            Some(&merged_domain),
+            quality_floor,
+        )
+    })?;
 
     // Combine user anchors (as `UserHint`-tagged anchors) with the
     // strategy proposals so that downstream callers see the full set.

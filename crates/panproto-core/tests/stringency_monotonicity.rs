@@ -16,7 +16,19 @@
 //! grows. Evidence enters the objective through one reward-only unary term and
 //! through nothing else, so it can change which assignment is optimal and can
 //! never make a feasible assignment infeasible. Quality is therefore monotone
-//! non-decreasing in the tier, and apex size with it.
+//! non-decreasing in the pool, and apex size with it.
+//!
+//! The step from *pool* to *tier* is not free, and this is where the two claims
+//! come apart. A tier is not a superset of the tier below it: the two
+//! strategies named in the next section can withdraw a proposal, a withdrawn
+//! proposal is evidence lost, and an optimum that had been paying for that
+//! evidence rises. `tier_monotonicity.rs` in the integration suite exhibits a
+//! pair where exactly that happens, so "monotone in the tier" is false as a
+//! general statement and only the pool claim is a theorem. What licenses the
+//! tier comparisons below is therefore checked rather than assumed:
+//! `assert_evidence_grows` asserts that on these two fixtures the aggregated
+//! evidence really does dominate up the ladder, which is the hypothesis the
+//! quality assertions rest on.
 //!
 //! # Two strategies are exempt from the first claim, and cannot be otherwise
 //!
@@ -198,6 +210,34 @@ fn assert_pool_grows(pools: &[HashSet<(Name, Name, StrategyTag)>], pair: &str) {
     }
 }
 
+/// Assert that the aggregated evidence dominates up the ladder.
+///
+/// This is the hypothesis the quality assertions rest on, and the module docs
+/// say why it needs asserting: the pool claim tolerates two strategies
+/// withdrawing a proposal, and a withdrawal at a pair the search scores is
+/// evidence lost at that pair, which is enough for the optimum to rise. On
+/// these two fixtures no withdrawal lands on a scored pair, so the tier
+/// comparisons are licensed; on a fixture where one did, they would not be, and
+/// this says so rather than letting them pass by luck.
+fn assert_evidence_grows(tables: &[EvidenceTable], pair: &str) {
+    for (i, lower) in tables.iter().enumerate() {
+        for (j, higher) in tables.iter().enumerate().skip(i + 1) {
+            for (source, target, evidence) in lower.rows() {
+                let grown = higher.get(source, target).map_or(0.0, |row| row.score);
+                assert!(
+                    grown >= evidence.score,
+                    "{pair}: the evidence for {source} -> {target} fell from {:?} to {:?} \
+                     ({} then {grown}), so the quality assertions below are no longer licensed \
+                     on this fixture: the tier withdrew a proposal the objective was paying for",
+                    TIERS[i],
+                    TIERS[j],
+                    evidence.score,
+                );
+            }
+        }
+    }
+}
+
 /// Assert every per-tier property of the span, and every cross-tier one, for
 /// one schema pair.
 fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
@@ -212,12 +252,15 @@ fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
         pools.iter().map(|pool| pool_keys(pool)).collect();
     assert_pool_grows(&keys, pair);
 
-    let spans: Vec<SchemaSpan> = pools
+    let tables: Vec<EvidenceTable> = pools
         .iter()
-        .map(|pool| {
-            let table = aggregate(pool, AggregationPolicy::StrictPriority);
-            span_for(src, tgt, &protocol, &table, weights)
-        })
+        .map(|pool| aggregate(pool, AggregationPolicy::StrictPriority))
+        .collect();
+    assert_evidence_grows(&tables, pair);
+
+    let spans: Vec<SchemaSpan> = tables
+        .iter()
+        .map(|table| span_for(src, tgt, &protocol, table, weights))
         .collect();
 
     for (tier, span) in TIERS.iter().zip(&spans) {

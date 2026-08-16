@@ -51,8 +51,8 @@ use crate::error::SpanError;
 use crate::solve::build::{NoEvidence, build_cfn};
 use crate::solve::cost::{CostWeights, DEFAULT_WEIGHTS};
 use crate::solve::{
-    Assignment, Cfn, CfnBuilder, Cost, SearchBudget, all_optima, choose_order, eliminate,
-    fits_budget, solve, solve_epic, solve_iso, solve_monic,
+    Assignment, Cfn, CfnBuilder, Cost, SearchBudget, all_optima, dispatch_plan, eliminate, solve,
+    solve_epic, solve_iso, solve_monic,
 };
 use crate::span::{
     DEFAULT_OPTIMA_CAP, SchemaSpan, SpanSearch, bijective_edge_map, greedy_edge_map, image_map,
@@ -176,6 +176,36 @@ pub struct FoundMorphism {
     pub vertex_map: HashMap<Name, Name>,
 
     /// Edge mapping: source edge to target edge.
+    ///
+    /// # One edge to one edge, which is the length-1 fragment of a functor
+    ///
+    /// A functor between the free categories on two schemas sends a source edge
+    /// to a *path* in the target, of any length including zero. This sends it to
+    /// a single target edge, so the only functors expressible here are those
+    /// whose action on morphisms lands in the generators. Two consequences, both
+    /// live:
+    ///
+    /// 1. A source edge that corresponds to a composite in the target — a field
+    ///    the target reaches through an intermediate record, which is the shape
+    ///    of every flattening or nesting change — has no image, so
+    ///    [`find_morphisms`] reports no total morphism where one exists at
+    ///    length 2.
+    /// 2. A 1:n correspondence, one source field standing for several target
+    ///    fields, is not expressible at all, in either direction.
+    ///
+    /// Widening this to paths is not a change of type alone. The naturality
+    /// constraint the search enforces is stated over single target edges between
+    /// the images of an edge's endpoints, and over paths it becomes a
+    /// reachability question whose cost is not a table lookup; the objective's
+    /// edge-name preservation component has no reading on a path, since a path
+    /// has no name; and the search's variable set, one variable per source
+    /// vertex, does not name the intermediate vertices a path would traverse.
+    ///
+    /// What would settle the scope is a count of how much is lost: the fraction
+    /// of corpus pairs on which a length-2 target path would map a source edge
+    /// that no length-1 edge maps. That measurement needs no solver change, only
+    /// a reachability pass over each pair's target under the optimal vertex map,
+    /// and it decides whether the cost above buys anything.
     pub edge_map: HashMap<Edge, Edge>,
 
     /// Quality in `[0, 1]`, comparable only among morphisms out of one source
@@ -581,10 +611,17 @@ pub fn without_bottom(cfn: &Cfn, mem_bytes: usize) -> Cfn {
 /// Enumerating more than one needs the message tables exact inference leaves
 /// behind, so a network too wide for it contributes the single answer branch and
 /// bound found.
+///
+/// The order eliminated under is [`dispatch_plan`]'s, which is the order
+/// [`solve`] will follow, component by component where the network decomposes.
+/// Choosing one independently would not merely cost the decomposition: the
+/// tie-break among equally good assignments is stated relative to the order
+/// used, so this entry point and [`SpanSearch::run`] would name different
+/// canonical answers for one network.
 fn optimal_assignments(cfn: &Cfn, budget: &SearchBudget, limit: usize) -> Vec<Assignment> {
-    let (order, width) = choose_order(cfn);
-    if fits_budget(cfn, width, budget) {
-        let buckets = eliminate(cfn, &order);
+    let plan = dispatch_plan(cfn, budget);
+    if plan.exact {
+        let buckets = eliminate(cfn, &plan.order);
         return all_optima(cfn, &buckets, limit);
     }
     solve(cfn, budget).best.into_iter().collect()
@@ -1172,5 +1209,82 @@ mod tests {
                 "every other entry is untouched"
             );
         }
+    }
+
+    /// [`optimal_assignments`] names the same tied optimum [`solve`] does.
+    ///
+    /// The fixture is the one `solve::dispatch` uses for the same question, and
+    /// it is built so that the whole-network order and the per-component orders
+    /// genuinely disagree: component A is a star whose hub sorts last by name,
+    /// so on the whole graph min-fill beats descending name; component B is a
+    /// tied pair on which the two tie on width, so descending name keeps it.
+    /// Whole-network min-fill then settles B in the opposite sequence, and the
+    /// tie-break among equally good assignments is stated relative to that
+    /// sequence. Both answers are optima, so neither is wrong in isolation;
+    /// what would be wrong is this entry point and [`SpanSearch::run`] calling
+    /// different ones canonical.
+    #[test]
+    fn the_optima_of_a_decomposing_network_follow_the_dispatch_order() {
+        use crate::solve::{VarId, decode, primal_graph};
+
+        let names = ["a0", "a1", "a2", "a3", "a9hub", "b0", "b1"];
+        let spec: Vec<(Name, Vec<Name>)> = names
+            .iter()
+            .map(|name| (Name::from(*name), vec![Name::from("t0"), Name::from("t1")]))
+            .collect();
+        let mut b = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+
+        // Component A: a star on {a0..a3, a9hub}, every cost zero.
+        for leaf in 0..4u32 {
+            let scope = [VarId::new(leaf), VarId::new(4)];
+            let len = b.table_length(&scope).unwrap();
+            b.add_function(&scope, vec![Cost::BOT; len]).unwrap();
+        }
+
+        // Component B: b0 and b1 must differ and neither may drop, so the two
+        // ways of satisfying that tie exactly.
+        let pen = Cost::from_raw(100);
+        b.add_unary_table(VarId::new(5), &[Cost::BOT, Cost::BOT, pen])
+            .unwrap();
+        b.add_unary_table(VarId::new(6), &[Cost::BOT, Cost::BOT, pen])
+            .unwrap();
+        let mut table = vec![Cost::BOT; 9];
+        table[0] = Cost::TOP_SENTINEL; // (t0, t0)
+        table[4] = Cost::TOP_SENTINEL; // (t1, t1)
+        b.add_function(&[VarId::new(5), VarId::new(6)], table)
+            .unwrap();
+        let cfn = b.build();
+
+        assert_eq!(
+            primal_graph(&cfn).components().len(),
+            2,
+            "the fixture must decompose, or there is nothing to disagree about"
+        );
+
+        let budget = SearchBudget::default();
+        let plan = dispatch_plan(&cfn, &budget);
+        assert!(plan.exact, "both components price inside the budget");
+
+        // The fixture's premise: eliminating the whole network under one order
+        // settles the tie the other way.
+        let whole_order = crate::solve::choose_order(&cfn).0;
+        let whole = decode(&cfn, &eliminate(&cfn, &whole_order), &whole_order);
+        let dispatched = solve(&cfn, &budget).best.unwrap();
+        assert_eq!(
+            cfn.evaluate(&whole),
+            cfn.evaluate(&dispatched),
+            "both are optima"
+        );
+        assert_ne!(
+            whole, dispatched,
+            "the fixture must make the two orders disagree, or the assertion below holds for the wrong reason"
+        );
+
+        let found = optimal_assignments(&cfn, &budget, 1);
+        assert_eq!(
+            found.first(),
+            Some(&dispatched),
+            "the canonical answer is the one `solve` names, not the one a whole-network order names"
+        );
     }
 }

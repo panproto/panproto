@@ -1,4 +1,4 @@
-//! A wrong strategy anchor must not cost coverage.
+//! A wrong strategy anchor must cost neither coverage nor quality.
 //!
 //! Alignment strategies are heuristics, and their output is merged into
 //! [`SearchOptions::hard_pins`], whose contract reserves it for mappings a
@@ -10,8 +10,19 @@
 //!
 //! That is why the retry cannot be conditioned on the search erroring, which is
 //! what it used to be. At a tier that allows spans the search answers `⊥`
-//! rather than refusing, so the error arm never runs. Comparing the pinned and
-//! released attempts on what they *cover* is what makes the release reachable.
+//! rather than refusing, so the error arm never runs.
+//!
+//! Coverage is not the whole of it either. Releasing a pin only ever adds
+//! values back to a domain, so the released search optimises over a superset
+//! and its optimum is never worse on the objective — which is
+//! `(quality_cost, drops)` read lexicographically, quality first. A comparison
+//! that reads only the drop half keeps the pinned answer whenever releasing
+//! raises the quality without changing how many vertices were mapped. This
+//! file covers the coverage half. The quality half needs schemas the
+//! strategies get partly wrong, which a fixture small enough to write out by
+//! hand does not supply, so it lives in
+//! `tests/integration/tests/strategy_pins_never_cost_quality.rs` against a
+//! corpus pair.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 

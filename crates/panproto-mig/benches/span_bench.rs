@@ -21,10 +21,15 @@
 //! times [`SpanSearch::run`] alone. The figures above are whole-`auto_lens`
 //! wall times, which include anchoring, so the ratio between them and what
 //! these benchmarks print overstates the search's own improvement by whatever
-//! anchoring costs. Read them as a ceiling on the search rather than as a
-//! like-for-like speedup, and read the like-for-like figures off the corpus
-//! sweep in `crates/panproto-mig/tests/lexicon_sweep.rs`, which times the
-//! whole call. Allocation is not measured here at all: no bench in this file
+//! anchoring costs. Nothing in this repository times the whole call:
+//! `crates/panproto-mig/tests/lexicon_sweep.rs` also times
+//! [`SpanSearch::run`], and `auto_lens` lives in a crate this one cannot name.
+//! Anchoring is not a rounding error against the search. Measured on
+//! `post → profile`, evidence aggregation costs about 1.2 ms against the
+//! search's 0.87 ms, so a like-for-like figure is roughly twice what these
+//! benchmarks print. Read them as a ceiling on the search alone.
+//!
+//! Allocation is not measured here at all: no bench in this file
 //! installs [`divan::AllocProfiler`], because the per-allocation accounting it
 //! adds would eat the headroom `span_post_to_profile` holds against its
 //! sub-millisecond target. The byte figures quoted below are the prior
@@ -241,7 +246,9 @@ fn stride_sample(corpus: &[lexicons::Lexicon]) -> Vec<(usize, usize)> {
 /// The distribution rather than the mean is what the corpus claim is about, and
 /// divan reports a distribution over iterations rather than over pairs. The
 /// per-pair percentiles are therefore measured and asserted in
-/// `tests/lexicon_sweep.rs`, which times each pair separately.
+/// `tests/lexicon_sweep.rs`, which times each pair separately. It times the
+/// same region this does, [`SpanSearch::run`], so the two are comparable to
+/// each other and neither includes anchoring.
 #[divan::bench(sample_count = 10)]
 fn span_corpus_stride(bencher: Bencher) {
     let protocol = panproto_protocols::atproto::protocol();

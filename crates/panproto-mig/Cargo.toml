@@ -35,6 +35,13 @@ insta = { workspace = true }
 # protocol that parses it. Tests and benches only: `panproto-protocols` depends
 # on `panproto-schema` and not on this crate, so the dev-only edge is acyclic.
 panproto-protocols = { workspace = true }
+# Turns the `oracle` feature on for the crate's own test targets, so that
+# `tests/lexicon_oracle.rs` can reach `solve::oracle`. The module is gated on
+# `any(test, feature = "oracle")`, and `cfg(test)` covers the unit tests alone:
+# an integration test links the library as an ordinary dependent and sees the
+# module only when the feature is set. A dev-dependency cycle is the one cycle
+# Cargo permits, and it leaves the normal build untouched.
+panproto-mig = { path = ".", features = ["oracle"] }
 
 [[bench]]
 name = "span_bench"
