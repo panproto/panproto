@@ -703,41 +703,127 @@ pub type CfnInstance = (Protocol, Schema, Schema, CostWeights, Cfn);
 /// filter runs on the schema pair rather than on the built network, so a
 /// rejected draw costs no network construction.
 pub fn arb_small_cfn_instance() -> impl Strategy<Value = CfnInstance> {
-    arb_small_schema_pair()
-        .prop_filter(
-            "too few kind-compatible targets to make the search non-trivial",
-            |(_, src, tgt)| kind_filtered_space(src, tgt) >= MIN_ASSIGNMENT_SPACE,
-        )
-        .prop_flat_map(|(protocol, src, tgt)| {
-            let pairs = src.vertices.len() * tgt.vertices.len();
-            (
-                Just((protocol, src, tgt)),
-                arb_cost_weights(),
-                prop::collection::vec(prop::option::of(arb_weight_component()), pairs),
-            )
+    arb_small_cfn_instance_over(arb_small_schema_pair().boxed())
+}
+
+/// [`arb_small_cfn_instance`], over a source carrying the annotation maps
+/// that pose the apex well-formedness constraints.
+///
+/// [`SchemaBuilder`] has no method for `variants`, `spans` or
+/// `recursion_points`, so [`arb_small_schema_pair`] cannot draw a source
+/// carrying any of them, and a network built over such a pair has no
+/// binary function whose table holds `⊤`. That is the whole of what
+/// separates this strategy from that one, and it is the difference
+/// between a network the search's feasibility reasoning has nothing to
+/// read and one where it decides the answer.
+///
+/// The annotations are written onto the built source, exactly as a
+/// deserialised schema carries them. Each names live vertices: the
+/// coproduct's arms are the vertices after the first, every recursion
+/// point unfolds to its cyclic successor, and every span joins a vertex
+/// to that successor. Every edge is also made required at its source, so
+/// the required-edge constraint is posed as well as the three annotation
+/// ones. A source of one vertex carries no arms and no span, which is
+/// the degenerate case the floor filter below already mostly rejects.
+pub fn arb_small_annotated_cfn_instance() -> impl Strategy<Value = CfnInstance> {
+    let pair = arb_small_schema_pair()
+        .prop_map(|(protocol, src, tgt)| (protocol, annotate_small(src), tgt))
+        .boxed();
+    arb_small_cfn_instance_over(pair)
+}
+
+/// Pose every apex well-formedness constraint the schema's shape allows.
+fn annotate_small(mut schema: Schema) -> Schema {
+    let ids: Vec<Name> = schema.vertices.keys().cloned().collect();
+    let mut ids = ids;
+    ids.sort();
+    let Some(parent) = ids.first().cloned() else {
+        return schema;
+    };
+
+    let variants: Vec<Variant> = ids
+        .iter()
+        .skip(1)
+        .map(|id| Variant {
+            id: id.clone(),
+            parent_vertex: parent.clone(),
+            tag: None,
         })
-        .prop_filter_map(
-            "small schema pair with no buildable network",
-            |((protocol, src, tgt), raw, draw)| {
-                let weights = CostWeights::new(raw[0], raw[1], raw[2], raw[3], raw[4]).ok()?;
-                let evidence = DrawnEvidence(evidence_table(&src, &tgt, &draw));
-                let cfn = build_cfn(
-                    &src,
-                    &tgt,
-                    &SearchOptions::default(),
-                    &DomainConstraints::default(),
-                    &evidence,
-                    weights,
-                    panproto_mig::solve::DEFAULT_MEM_BYTES,
-                )
-                .ok()?;
-                Some((protocol, src, tgt, weights, cfn))
+        .collect();
+    if !variants.is_empty() {
+        schema.variants.insert(parent, variants);
+    }
+
+    for (position, id) in ids.iter().enumerate() {
+        let Some(next) = ids.get((position + 1) % ids.len()).cloned() else {
+            continue;
+        };
+        if next == *id {
+            continue;
+        }
+        schema.recursion_points.insert(
+            id.clone(),
+            RecursionPoint {
+                target_vertex: next.clone(),
             },
+        );
+        let span_id = Name::from(format!("sp{position}").as_str());
+        schema.spans.insert(
+            span_id.clone(),
+            Span {
+                id: span_id,
+                left: id.clone(),
+                right: next,
+            },
+        );
+    }
+
+    let edges: Vec<Edge> = schema.edges.keys().cloned().collect();
+    for edge in edges {
+        let at = edge.src.clone();
+        schema.required.entry(at).or_default().push(edge);
+    }
+    schema
+}
+
+/// The shared body of the two instance strategies.
+fn arb_small_cfn_instance_over(
+    pair: BoxedStrategy<(Protocol, Schema, Schema)>,
+) -> impl Strategy<Value = CfnInstance> {
+    pair.prop_filter(
+        "too few kind-compatible targets to make the search non-trivial",
+        |(_, src, tgt)| kind_filtered_space(src, tgt) >= MIN_ASSIGNMENT_SPACE,
+    )
+    .prop_flat_map(|(protocol, src, tgt)| {
+        let pairs = src.vertices.len() * tgt.vertices.len();
+        (
+            Just((protocol, src, tgt)),
+            arb_cost_weights(),
+            prop::collection::vec(prop::option::of(arb_weight_component()), pairs),
         )
-        .prop_filter(
-            "network too large for the brute force oracle",
-            |(_, _, _, _, cfn)| assignment_count(cfn) <= MAX_ORACLE_ASSIGNMENTS,
-        )
+    })
+    .prop_filter_map(
+        "small schema pair with no buildable network",
+        |((protocol, src, tgt), raw, draw)| {
+            let weights = CostWeights::new(raw[0], raw[1], raw[2], raw[3], raw[4]).ok()?;
+            let evidence = DrawnEvidence(evidence_table(&src, &tgt, &draw));
+            let cfn = build_cfn(
+                &src,
+                &tgt,
+                &SearchOptions::default(),
+                &DomainConstraints::default(),
+                &evidence,
+                weights,
+                panproto_mig::solve::DEFAULT_MEM_BYTES,
+            )
+            .ok()?;
+            Some((protocol, src, tgt, weights, cfn))
+        },
+    )
+    .prop_filter(
+        "network too large for the brute force oracle",
+        |(_, _, _, _, cfn)| assignment_count(cfn) <= MAX_ORACLE_ASSIGNMENTS,
+    )
 }
 
 /// The assignment space a kind-filtered network over this pair would

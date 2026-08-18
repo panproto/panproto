@@ -1,38 +1,39 @@
-//! What the maximum common sub-schema search does when its bound does not
-//! prune, and what it says about it.
+//! What the maximum common sub-schema search does on the shape its bound
+//! cannot see.
 //!
 //! The `iso` path is reached without a caller choosing it: `discover_overlap`
 //! sets `iso: true` and `find_span` builds a `SpanSearch` that never calls
-//! `with_budget`, so `DEFAULT_SEARCH_NODES` is the only ceiling. On a source
-//! carrying the annotation maps `SchemaBuilder` cannot set (variants, schema
-//! spans) the B1 bound stops pruning almost entirely and the search runs to
-//! that ceiling. Measured on the nine-vertex pair in
-//! `fuzz/artifacts/span_search`: ten million nodes, 562 prune events, about
-//! fifteen seconds, and no proof of optimality at the end.
+//! `with_budget`, so `DEFAULT_SEARCH_NODES` is the only ceiling. The B1 bound
+//! reads the objective and the capacity of a label class and nothing else, so
+//! on a source whose structure is carried by annotation maps rather than by
+//! arcs it has nothing to prune with: every binary function such a shape poses
+//! comes from an apex well-formedness constraint, whose table holds `⊤` and `⊥`
+//! and pays no reward, so both half charges are zero and the whole bound is the
+//! sum of the per-vertex maxima. That sum assumes all nine source vertices are
+//! mapped at once, where the eleven constraints admit one.
 //!
-//! That is a real cost and it is not repaired here, because every repair
-//! reachable from the budget was measured worse: a lower node cap returns the
-//! empty apex where the full run returns a three-vertex one, and a default
-//! wall-clock deadline makes the answer a function of the machine, which
-//! `the_span_is_a_function_of_the_pair` forbids. The bound is what needs work,
-//! and the diagnosis that reached this file, that the half charges over-charge,
-//! is measurably not the cause: every binary function this shape poses comes
-//! from an apex hard constraint and pays no reward at all, so both half charges
-//! are zero and the whole of the root bound is the sum of the per-vertex
-//! maxima. The slack is that this sum assumes all nine source vertices are
-//! mapped at once, where the eleven hard constraints admit three.
+//! Reading those constraints is what closes it. A vertex tied by `⊤` to one the
+//! search has already dropped can never be mapped, so it leaves the class it
+//! sits in, and the capacity the bound is stated over falls with it. The two
+//! numbers below are the same search on the same pair with and without that
+//! step, and they are three orders of magnitude apart:
 //!
-//! What is pinned here is therefore the contract rather than the performance:
-//! the ceiling is honoured, the shortfall is reported rather than absorbed, and
-//! the quality interval widens to say so. A budget far below the default keeps
-//! the test fast while exercising the same path; the shape is what matters, and
-//! it is the shape no builder-built schema can reach.
+//! | | nodes | wall time | answer | proved |
+//! |---|---|---|---|---|
+//! | capacity alone | 10,000,000 (the ceiling) | 60.5 s | nothing mapped | no |
+//! | reading the constraints | 102 | 1.2 ms | one vertex, strictly cheaper | yes |
+//!
+//! So this file pins the closure rather than the ceiling: the search finishes
+//! inside a budget far below the default, proves what it returns, and collapses
+//! its quality interval. A budget that cannot close any shape is exercised by
+//! `a_stopped_search_is_not_an_answer`, which is where the contract for a
+//! spent budget lives.
 
 #![allow(clippy::expect_used)]
 
 use panproto_gat::Name;
 use panproto_mig::hom_search::SearchOptions;
-use panproto_mig::solve::{LimitKind, SearchBudget, SolverPath};
+use panproto_mig::solve::{SearchBudget, SolverPath};
 use panproto_mig::span::SpanSearch;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder, Span, Variant};
 
@@ -111,13 +112,14 @@ fn annotation_dense() -> Schema {
     schema
 }
 
-/// The node ceiling is honoured, and the search says it stopped.
+/// The shape closes, and closes small.
 ///
-/// The assertion that matters is the conjunction. A search that stops without a
-/// proof and reports `proven_optimal: true` would be laundering a budget into a
-/// claim, which is the pattern three defects on this branch have taken.
+/// Twenty thousand nodes is the budget the unrepaired search could not close
+/// this in, and it is left here on purpose: it is two hundred times what the
+/// search now spends and still five hundred times less than the default, so a
+/// regression in either direction fails rather than passes slowly.
 #[test]
-fn a_search_that_spends_its_node_budget_says_so() {
+fn the_annotation_dense_shape_closes_well_inside_its_budget() {
     let protocol = protocol();
     let src = annotation_dense();
     let tgt = bare("b", 9);
@@ -136,29 +138,60 @@ fn a_search_that_spends_its_node_budget_says_so() {
         span.certificate.path
     );
     assert_eq!(
-        span.certificate.limit_hit,
-        Some(LimitKind::Nodes),
-        "twenty thousand nodes do not close this shape, which is the premise of \
-         everything below"
+        span.certificate.limit_hit, None,
+        "reading the hard constraints is what closes this shape, and a search \
+         that spends twenty thousand nodes on it is not reading them"
     );
     assert!(
-        !span.certificate.proven_optimal,
-        "a search that stopped on a budget has proved nothing, and saying \
-         otherwise turns a spent budget into a claim about the pair"
+        span.certificate.proven_optimal,
+        "a search that finished has proved its answer, and the quality \
+         interval below is only meaningful because it did"
     );
 
+    // Stated as a width rather than as an equality, because these are quotients
+    // of integer costs and comparing two of them for equality is the thing the
+    // float lint exists to refuse.
     let (low, high) = span.quality_bounds;
     assert!(
-        low <= span.quality && span.quality <= high,
-        "the reported quality must lie inside its own interval: {low} <= \
-         {} <= {high}",
-        span.quality
+        high - low <= f64::EPSILON,
+        "a proof collapses the interval; a spread of {} here would mean the \
+         bounds disagree with the flag beside them",
+        high - low
     );
+    assert!((low..=high).contains(&span.quality));
+}
+
+/// The apex it returns is a sub-schema of the source, and not the empty one.
+///
+/// The unrepaired search spent ten million nodes and returned the all-`⊥`
+/// mapping, so "it finishes" and "it finishes with something" are separate
+/// claims and both are made.
+#[test]
+fn the_apex_it_proves_is_not_the_empty_one() {
+    let protocol = protocol();
+    let src = annotation_dense();
+    let tgt = bare("b", 9);
+
+    let span = SpanSearch::new(&protocol)
+        .with_options(SearchOptions {
+            iso: true,
+            ..SearchOptions::default()
+        })
+        .run(&src, &tgt)
+        .expect("the span search is total");
+
     assert!(
-        low < high,
-        "an unproved answer must widen the interval rather than collapse it, \
-         since a collapsed interval is what `proven_optimal` means"
+        !span.apex.vertices.is_empty(),
+        "the eleven constraints rule out most of this source, and exactly one \
+         vertex survives them; an empty apex means the search gave up rather \
+         than answered"
     );
+    for name in span.apex.vertices.keys() {
+        assert!(
+            src.vertices.contains_key(name),
+            "the apex vertex {name} is not a source vertex"
+        );
+    }
 }
 
 /// And the same pair on the default and injective routes answers in the small

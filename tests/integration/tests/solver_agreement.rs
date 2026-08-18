@@ -199,7 +199,7 @@ mod exact_inference {
 /// [`propagate_all_different`]: panproto_mig::solve::mcsplit::propagate_all_different
 mod injective {
     use panproto_gat::Name;
-    use panproto_integration::arb_small_cfn_instance;
+    use panproto_integration::{arb_small_annotated_cfn_instance, arb_small_cfn_instance};
     use panproto_mig::solve::mcsplit::{
         HallOutcome, TargetId, ValueIndex, arc_descriptor, propagate_all_different, solve_iso,
     };
@@ -363,6 +363,48 @@ mod injective {
             prop_assert!(outcome.proven_optimal);
             prop_assert_eq!(outcome.lower_bound, outcome.upper_bound);
             prop_assert_eq!(outcome.path, SolverPath::Iso);
+        }
+
+        /// The same four claims, over sources carrying the apex constraints.
+        ///
+        /// The strategy above draws through `SchemaBuilder`, which has no way
+        /// to set `variants`, `spans` or `recursion_points`, so no source it
+        /// produces poses an apex well-formedness constraint. Its networks are
+        /// not free of `⊤` (measured over 200 draws, 147 carry one, from the
+        /// arc conditions), but none of them carries the shape the search's
+        /// requirement reasoning reads: a `⊤` that refuses one endpoint's `⊥`
+        /// outright rather than refusing a pair of images.
+        ///
+        /// This draws the same shapes and then writes the annotations on, so
+        /// that shape is present on every draw: a coproduct whose arms must be
+        /// kept with it, a recursion point and a span joining each vertex to its
+        /// successor, and every edge required at its source. Over the same 200
+        /// draws every network carries a binary `⊤` and the count of functions
+        /// holding one rises from at most 4 to at most 10. Because the
+        /// enumeration reads `⊤` from `Cfn::evaluate` and the search reads it
+        /// from the same tables by a different route, a disagreement here is
+        /// exactly the failure of pruning an assignment the network admits.
+        #[test]
+        fn oracle_agrees_with_mcsplit_under_apex_constraints(
+            (_, src, tgt, _, cfn) in arb_small_annotated_cfn_instance()
+        ) {
+            let pristine = cfn.clone();
+
+            let outcome = solve_iso(&cfn, &src, &tgt, &SearchBudget::default()).unwrap();
+            let (optimum, argmins) = iso_oracle(&cfn, &src, &tgt);
+
+            prop_assert!(optimum != Cost::TOP_SENTINEL);
+            prop_assert!(!argmins.is_empty());
+            prop_assert_eq!(outcome.upper_bound, optimum);
+
+            let best = outcome.best.as_ref().unwrap();
+            prop_assert_eq!(pristine.evaluate(best), outcome.upper_bound);
+            prop_assert!(argmins.contains(best));
+            prop_assert!(is_iso(&pristine, &src, &tgt, best));
+
+            prop_assert!(outcome.limit_hit.is_none());
+            prop_assert!(outcome.proven_optimal);
+            prop_assert_eq!(outcome.lower_bound, outcome.upper_bound);
         }
 
         /// The same inputs give the same answer, node count and bounds.

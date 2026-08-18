@@ -79,11 +79,19 @@
 //! function can pay for, so the reward decomposes into the per-pair increments
 //! the bound is stated over. The `⊤` escape is the apex well-formedness
 //! constraints — a required edge, a variant, a recursion point, a span, a
-//! hyper-edge signature — which forbid mapping one endpoint while dropping the
+//! hyper-edge signature, which forbid mapping one endpoint while dropping the
 //! other. Those are *feasibility*, and they are enforced exactly, by scoring
 //! every candidate incumbent with [`Cfn::evaluate`] and refusing an infeasible
-//! one. They never enter the bound, which is admissible over a superset of the
-//! feasible mappings and so stays admissible when they cut it down.
+//! one.
+//!
+//! They do not enter the bound's arithmetic, which is admissible over a
+//! superset of the feasible mappings and so stays admissible when they cut it
+//! down. They reach it through the classes instead. The search reads them
+//! against the vertices a node has already dropped and removes the ones no
+//! completion below can map, so `min(|G_l|,|H_l|)` counts what the constraints
+//! leave rather than what the labels alone allow. Without that step the two are
+//! the same number, and on a source whose structure is annotation maps rather
+//! than arcs the difference is three orders of magnitude of search.
 //!
 //! # Bound B1
 //!
@@ -168,6 +176,7 @@
 //! the whole network, and [`TargetId`] is the type that says so. The two
 //! numberings meet only at [`ValueIndex::global`] and [`ValueIndex::local`].
 
+use std::borrow::Cow;
 use std::time::Instant;
 
 use panproto_gat::Name;
@@ -774,6 +783,16 @@ struct BinaryFunction<'a> {
     table: &'a [Cost],
     /// The largest reward any feasible pair of images can earn here.
     max_reward: u64,
+    /// Whether every image `low` can take forbids `high` taking `⊥`.
+    ///
+    /// This is the apex well-formedness shape: a required edge, a coproduct
+    /// arm, a recursion point, a schema span or a hyper-edge signature all say
+    /// "keep this vertex only if you keep that one". Reading it costs one scan
+    /// of the table's bottom column at setup and buys the search the right to
+    /// stop descending as soon as the partner is gone.
+    low_requires_high: bool,
+    /// The mirror image, charged to the higher-numbered variable.
+    high_requires_low: bool,
 }
 
 /// Everything the search reads and never writes.
@@ -800,6 +819,11 @@ struct Instance<'a> {
     functions: Vec<BinaryFunction<'a>>,
     /// `incident[v]`: the other endpoint and the function index, per neighbour.
     incident: Vec<Vec<(u32, u32)>>,
+    /// `requires[v]`: the vertices no image of `v` may be chosen without.
+    ///
+    /// Ascending and deduplicated, so the closure that reads it is a function
+    /// of the network rather than of the order the functions were posed in.
+    requires: Vec<Vec<u32>>,
     /// `pair_h[t * rights + t']`: the largest reward any function can pay for
     /// that unordered pair of images. The `γ` side of the bound reads it.
     pair_h: Vec<u64>,
@@ -827,6 +851,7 @@ impl<'a> Instance<'a> {
         let (feasible, unary_reward) = unary_frame(cfn, &index, lefts, rights);
         let functions = binary_frame(cfn);
         let incident = incidence(lefts, &functions);
+        let requires = requirement_graph(lefts, &functions);
         let pair_h = target_pair_rewards(cfn, &index, &functions, rights);
 
         let mut interner: FxHashMap<Vec<(Dir, Name)>, u32> = FxHashMap::default();
@@ -862,6 +887,7 @@ impl<'a> Instance<'a> {
             right_descriptor,
             functions,
             incident,
+            requires,
             pair_h,
             degree,
             baseline,
@@ -1308,16 +1334,78 @@ fn binary_frame(cfn: &Cfn) -> Vec<BinaryFunction<'_>> {
                 .map(|entry| bottom.raw().saturating_sub(entry.raw()))
                 .max()
                 .unwrap_or(0);
-            Some(BinaryFunction {
+            let mut built = BinaryFunction {
                 low: low.raw(),
                 high: high.raw(),
                 high_slots,
                 bottom,
                 table: function.table(),
                 max_reward,
-            })
+                low_requires_high: false,
+                high_requires_low: false,
+            };
+            built.low_requires_high = requires_partner(cfn, &built, low, high);
+            built.high_requires_low = requires_partner(cfn, &built, high, low);
+            Some(built)
         })
         .collect()
+}
+
+/// Whether **every** image `subject` could take forbids `partner` taking `⊥`.
+///
+/// This is the one question the search asks of a hard constraint before it has
+/// chosen an image, so it has to hold for all of them: reading it as "some
+/// image forbids it" would cut branches that a different image keeps.
+///
+/// Values the unary function already refuses are skipped, since `subject` will
+/// never take one and a finite entry under one would only weaken the answer.
+/// A variable with no image at all answers `false`, because "requires" is a
+/// statement about mapping `subject`, and a `subject` that cannot be mapped
+/// makes no demand of anything.
+fn requires_partner(
+    cfn: &Cfn,
+    function: &BinaryFunction<'_>,
+    subject: VarId,
+    partner: VarId,
+) -> bool {
+    let Some(domain) = cfn.domain(subject) else {
+        return false;
+    };
+    let mut any = false;
+    for value in domain {
+        if value == ValId::BOTTOM
+            || cfn.unary_cost(subject, value).unwrap_or(Cost::TOP_SENTINEL) == Cost::TOP_SENTINEL
+        {
+            continue;
+        }
+        if !function.forbids_bottom(cfn, subject, value, partner) {
+            return false;
+        }
+        any = true;
+    }
+    any
+}
+
+/// Which vertices each source vertex cannot be mapped without.
+fn requirement_graph(lefts: usize, functions: &[BinaryFunction<'_>]) -> Vec<Vec<u32>> {
+    let mut requires = vec![Vec::new(); lefts];
+    for function in functions {
+        if function.low_requires_high {
+            if let Some(list) = requires.get_mut(function.low as usize) {
+                list.push(function.high);
+            }
+        }
+        if function.high_requires_low {
+            if let Some(list) = requires.get_mut(function.high as usize) {
+                list.push(function.low);
+            }
+        }
+    }
+    for list in &mut requires {
+        list.sort_unstable();
+        list.dedup();
+    }
+    requires
 }
 
 /// For each variable, the neighbours it shares a binary function with.
@@ -1400,6 +1488,33 @@ impl BinaryFunction<'_> {
             Some(entry)
         }
     }
+
+    /// Whether this function refuses `partner` taking `⊥` while `subject` takes
+    /// `value`.
+    ///
+    /// [`Self::entry`] answers `None` both for a `⊤` entry and for a slot the
+    /// table has no row for, and only the first is a constraint, so this reads
+    /// the entry itself rather than reusing that answer. A missing slot reports
+    /// `false`: a function that cannot be indexed forbids nothing, and treating
+    /// it as a refusal would cut branches no constraint rules out.
+    fn forbids_bottom(&self, cfn: &Cfn, subject: VarId, value: ValId, partner: VarId) -> bool {
+        let (low, low_value, high, high_value) = if subject.raw() == self.low {
+            (subject, value, partner, ValId::BOTTOM)
+        } else {
+            (partner, ValId::BOTTOM, subject, value)
+        };
+        let (Some(low_slot), Some(high_slot)) = (
+            cfn.variable(low)
+                .and_then(|variable| variable.slot(low_value)),
+            cfn.variable(high)
+                .and_then(|variable| variable.slot(high_value)),
+        ) else {
+            return false;
+        };
+        self.table
+            .get(low_slot * self.high_slots + high_slot)
+            .is_some_and(|entry| *entry == Cost::TOP_SENTINEL)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1445,6 +1560,9 @@ struct Search<'a> {
     best: Assignment,
     /// The incumbent's cost, from [`Cfn::evaluate`].
     best_cost: Cost,
+    /// Scratch for [`Self::settle`], reused so the closure allocates once
+    /// rather than once per node.
+    selectable: Vec<bool>,
     nodes: u64,
     max_nodes: u64,
     deadline: Option<Instant>,
@@ -1469,6 +1587,7 @@ impl<'a> Search<'a> {
             best_reward: 0,
             best,
             best_cost,
+            selectable: vec![false; instance.lefts],
             nodes: 0,
             max_nodes: budget.max_nodes.unwrap_or(DEFAULT_SEARCH_NODES),
             deadline: budget
@@ -1574,6 +1693,118 @@ impl<'a> Search<'a> {
         self.best_reward = self.reward;
     }
 
+    /// The classes with everything no completion below this node can map
+    /// removed, or `None` when no completion below it is feasible at all.
+    ///
+    /// # What it reads
+    ///
+    /// A source vertex is **dropped** at a node when it is neither mapped nor
+    /// in any class: the search reaches such a node only through the branch
+    /// that left it out, and nothing below re-selects it, so it is `⊥` in every
+    /// completion. A hard constraint that refuses `⊥` for it therefore refuses
+    /// every completion below, and that is the whole of what this reads.
+    ///
+    /// Two consequences, in the order they are taken:
+    ///
+    /// 1. **A mapped vertex whose partner has been dropped ends the node.** The
+    ///    check is exact rather than conservative, since the vertex already has
+    ///    an image and [`BinaryFunction::forbids_bottom`] can be asked about
+    ///    that image alone.
+    /// 2. **A selectable vertex that requires a dropped one is removed**, to a
+    ///    fixed point, because removing one can drop another that required it.
+    ///    Here the image is not yet chosen, so the question is the conservative
+    ///    [`Instance::requires`]: every image forbids the partner's `⊥`.
+    ///
+    /// # Why this is not a heuristic
+    ///
+    /// Both steps only ever remove work that cannot pay. For (1), every
+    /// completion below assigns the mapped vertex its image and the partner
+    /// `⊥`, which the function refuses, so [`Cfn::evaluate`] would refuse every
+    /// leaf; the node has no feasible completion and returning is not a choice
+    /// about which optimum to report. For (2), a removed vertex is `⊥` in every
+    /// *feasible* completion, so cutting straight to its drop branch loses no
+    /// optimum. That is what makes this exact where the module's `record`
+    /// passes over an infeasible mapping rather than rejecting it: `record`
+    /// meets implications that mapping more vertices can still satisfy, and
+    /// these are the implications nothing below can.
+    ///
+    /// # What it buys
+    ///
+    /// The bound reads `min(|G_l|,|H_l|)` as the capacity of a class, and that
+    /// count is what the hard constraints contradict: on the annotation-dense
+    /// pair in `fuzz/artifacts/span_search` the root bound assumes all nine
+    /// source vertices map at once where the eleven constraints admit far
+    /// fewer. Removing the vertices that cannot be mapped shrinks the very
+    /// count the bound is stated over, so the constraints reach the bound
+    /// through the classes rather than through a second bound stated beside it.
+    fn settle<'f>(&mut self, future: &'f [Bidomain]) -> Option<Cow<'f, [Bidomain]>> {
+        let instance = self.instance;
+        self.selectable.clear();
+        self.selectable.resize(instance.lefts, false);
+        for class in future {
+            for &member in &class.left {
+                self.selectable[member as usize] = true;
+            }
+        }
+
+        for &(left, image, _) in &self.mapping {
+            for &(other, function) in &instance.incident[left as usize] {
+                if self.image[other as usize].is_some() || self.selectable[other as usize] {
+                    continue;
+                }
+                let function = &instance.functions[function as usize];
+                let Some(value) = instance.index.local(VarId::new(left), TargetId(image)) else {
+                    continue;
+                };
+                if function.forbids_bottom(instance.cfn, VarId::new(left), value, VarId::new(other))
+                {
+                    return None;
+                }
+            }
+        }
+
+        let mut removed = false;
+        let mut changed = true;
+        while changed {
+            changed = false;
+            for variable in 0..instance.lefts {
+                if !self.selectable[variable] {
+                    continue;
+                }
+                let orphaned = instance.requires[variable].iter().any(|&other| {
+                    self.image[other as usize].is_none() && !self.selectable[other as usize]
+                });
+                if orphaned {
+                    self.selectable[variable] = false;
+                    removed = true;
+                    changed = true;
+                }
+            }
+        }
+
+        if !removed {
+            return Some(Cow::Borrowed(future));
+        }
+
+        let mut out: Vec<Bidomain> = Vec::with_capacity(future.len());
+        for class in future {
+            let left: Vec<u32> = class
+                .left
+                .iter()
+                .copied()
+                .filter(|&member| self.selectable[member as usize])
+                .collect();
+            if left.is_empty() {
+                continue;
+            }
+            out.push(Bidomain {
+                left,
+                right: class.right.clone(),
+            });
+        }
+        Some(Cow::Owned(out))
+    }
+
     /// Whether a limit has stopped the search.
     fn stopped(&mut self) -> bool {
         if self.limit_hit.is_some() {
@@ -1611,26 +1842,30 @@ impl Search<'_> {
     /// bound on the class's remaining reward and taking the smaller keeps both
     /// arguments.
     ///
-    /// It models the objective and the capacity of a class. It does not model
-    /// the hard constraints, beyond what `delta` sees of the pairs already
-    /// mapped, and that is where its slack is. On the nine-vertex pair in
-    /// `fuzz/artifacts/span_search`, whose source carries seven coproducts and
-    /// four schema spans, the root bound over-estimates the attainable reward by
-    /// 3.4 times, prunes 562 of ten million nodes, and leaves the search to
-    /// spend its whole node budget. The reason is measurable rather than
-    /// arguable: every binary function that shape poses is an apex hard
-    /// constraint, whose table carries `⊤` and `⊥` and pays no reward, so both
-    /// half charges are exactly zero and the bound is the bare sum of the
-    /// per-vertex maxima. That sum assumes all nine source vertices are mapped
-    /// at once; the eleven constraints admit three.
+    /// It models the objective and the capacity of a class, and it reads the
+    /// hard constraints only through the class sizes [`Search::settle`] hands
+    /// it and through what `delta` sees of the pairs already mapped. Nothing
+    /// here charges for a `⊤`, which is why the two live in separate places: a
+    /// bound that priced feasibility would have to prove its own admissibility
+    /// against every constraint shape the network can pose, where removing a
+    /// vertex that provably cannot be mapped needs no such argument and lands
+    /// in the same arithmetic.
     ///
-    /// Two repairs were measured and neither is one. Capping each half charge by
-    /// the capacity of the class its neighbours live in is sound and changes
-    /// nothing here, because the charges are already zero, while costing about
-    /// 30% in wall time. Lowering the node budget turns a three-vertex apex into
-    /// an empty one. What would tighten this is a bound that reads the hard
-    /// constraints, which is what [`crate::solve::consistency`] already computes
-    /// for the other paths.
+    /// The slack that leaves is real and worth stating. An apex hard constraint
+    /// pays no reward, so on a source whose structure is annotation maps rather
+    /// than arcs both half charges are exactly zero and this is the bare sum of
+    /// the per-vertex maxima: at the root of the nine-vertex pair in
+    /// `fuzz/artifacts/span_search` that sum assumes all nine source vertices
+    /// map at once, where the eleven constraints admit one. The root is where
+    /// nothing has been dropped yet and so the one place `settle` has nothing
+    /// to read, which is exactly why the reported lower bound of a stopped
+    /// search is the loosest number this module produces.
+    ///
+    /// Two tightenings of the arithmetic itself were measured and neither is
+    /// one. Capping each half charge by the capacity of the class its
+    /// neighbours live in is sound and changes nothing on that shape, because
+    /// the charges are already zero, while costing about 30% in wall time.
+    /// Lowering the node budget turns an answer into an empty apex.
     fn bound(&self, future: &[Bidomain]) -> Plan {
         let (live_left, live_right) = liveness(self.instance, future);
         let mut bound = self.reward;
@@ -1801,6 +2036,14 @@ impl Search<'_> {
             self.record();
         }
 
+        // The hard constraints, read against everything already dropped. This
+        // sits before the bound rather than after it because it shrinks the
+        // class sizes the bound is stated over.
+        let Some(settled) = self.settle(future) else {
+            return;
+        };
+        let future: &[Bidomain] = &settled;
+
         let plan = self.bound(future);
         debug_assert!(
             plan.bound >= self.reward,
@@ -1955,11 +2198,19 @@ pub fn solve_iso(
     budget: &SearchBudget,
 ) -> Result<SolveOutcome, IsoError> {
     let instance = Instance::new(cfn, src, tgt, budget.mem_bytes)?;
-    let root = instance.root();
+    let unsettled = instance.root();
 
     let mut search = Search::new(&instance, budget);
+    // The reported lower bound is the root's, so the root is settled here as
+    // well as inside the search: a vertex the hard constraints have already
+    // ruled out must not be counted into the bound a stopped search reports.
+    // Nothing is mapped yet, so the refusal arm cannot be taken.
+    let root = search
+        .settle(&unsettled)
+        .unwrap_or(Cow::Borrowed(&unsettled));
     search.warm_start(&root);
     let root_bound = search.bound(&root).bound;
+    let root = root.into_owned();
     search.search(&root);
 
     let upper_bound = search.best_cost;
@@ -1992,7 +2243,7 @@ mod tests {
     use crate::solve::cfn::CfnBuilder;
     use crate::solve::cost::DEFAULT_WEIGHTS;
     use crate::{DomainConstraints, SearchOptions};
-    use panproto_schema::{Protocol, SchemaBuilder};
+    use panproto_schema::{Protocol, SchemaBuilder, Variant};
 
     // -- fixtures ----------------------------------------------------------
 
@@ -2121,6 +2372,76 @@ mod tests {
             }
         }
         true
+    }
+
+    // -- the hard constraints ----------------------------------------------
+
+    /// A coproduct parent asks for its arms, and the search reads the ask.
+    ///
+    /// The requirement graph is the one thing [`Search::settle`] consults that
+    /// nothing else in the module builds, so it is pinned directly rather than
+    /// inferred from an answer. The direction matters: a parent cannot be kept
+    /// without its arms, while an arm carries no demand of its own, and a graph
+    /// with the edges reversed would drop exactly the mappings this one keeps.
+    #[test]
+    fn a_coproduct_parent_requires_its_arms_and_the_arms_require_nothing() {
+        let (src, tgt) = coproduct_pair();
+        let cfn = network(&src, &tgt);
+        let instance = Instance::new(&cfn, &src, &tgt, DEFAULT_MEM_BYTES).unwrap();
+
+        assert_eq!(
+            instance.requires,
+            vec![vec![1, 2], vec![], vec![]],
+            "the parent is variable 0 and its two arms are 1 and 2"
+        );
+    }
+
+    /// And reading it agrees with enumerating every mapping.
+    ///
+    /// Two targets cannot hold three distinct images, so keeping the parent is
+    /// impossible and the optimum keeps the two arms instead. The claim is that
+    /// the search finds that answer and that it is the one an enumeration over
+    /// the schemas finds, which is what says the requirement pruned no mapping
+    /// the network admits.
+    #[test]
+    fn keeping_the_parent_would_need_a_third_target_so_the_arms_are_kept_instead() {
+        let (src, tgt) = coproduct_pair();
+        let cfn = network(&src, &tgt);
+        let outcome = solve_iso(&cfn, &src, &tgt, &SearchBudget::default()).unwrap();
+        let (optimum, argmins) = iso_optimum(&cfn, &src, &tgt);
+
+        assert_eq!(outcome.upper_bound, optimum);
+        assert!(argmins.contains(outcome.best.as_ref().unwrap()));
+        assert!(outcome.proven_optimal);
+        assert_eq!(
+            mapping(&cfn, &outcome),
+            vec![
+                ("v1".to_owned(), "w1".to_owned()),
+                ("v2".to_owned(), "w0".to_owned())
+            ]
+        );
+    }
+
+    /// A coproduct of two arms against a target of two vertices.
+    fn coproduct_pair() -> (Schema, Schema) {
+        let mut src = schema(&[("v0", "object"), ("v1", "object"), ("v2", "object")], &[]);
+        src.variants.insert(
+            Name::from("v0"),
+            vec![
+                Variant {
+                    id: Name::from("v1"),
+                    parent_vertex: Name::from("v0"),
+                    tag: None,
+                },
+                Variant {
+                    id: Name::from("v2"),
+                    parent_vertex: Name::from("v0"),
+                    tag: None,
+                },
+            ],
+        );
+        let tgt = schema(&[("w0", "object"), ("w1", "object")], &[]);
+        (src, tgt)
     }
 
     // -- arc descriptors ---------------------------------------------------
