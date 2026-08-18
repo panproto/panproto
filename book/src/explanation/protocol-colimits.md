@@ -36,7 +36,7 @@ If a colimit step fails, registration panics with a message naming the failing i
 The colimit construction has three properties that matter for panproto:
 
 1. **Universality.** Any compatible pair of maps out of the input theories factors through the colimit. This property states the sense in which the result contains no unconstrained choice beyond the identifications requested by the span.
-2. **Checked inclusions.** `pushout_by_name` validates both inclusion morphisms with `check_morphism`; incompatible identifications return a `GatError`, which protocol registration turns into a named panic because built-in registration failure is a programming error.
+2. **Checked construction.** `pushout_by_name` builds each inclusion with `identity_inclusion`, which requires every shared sort and operation to be present in the target, and then checks that the two legs agree on what they share. Either failure returns a `GatError`, which protocol registration turns into a named panic because built-in registration failure is a programming error. Validating the inclusions as morphisms is a separate, opt-in check.
 3. **Reusable composition.** The same pushout implementation builds protocol theory groups and supplies the GAT-level construction used by later merge machinery.
 
 The merge operation in [schema version control](./vcs-semantics.md) is also a colimit (specifically a pushout); the same machinery powers both.

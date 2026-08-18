@@ -94,7 +94,7 @@ Pattern matching evaluates the scrutinee once, tries arms in order, extends the 
 
 ## Checked properties and boundaries
 
-For fixed input and configuration, evaluation follows one call-by-value order and returns before the configured step or depth budget is exceeded; list-producing operations also enforce `max_list_len`. `infer_type` and the builtin arity and argument checks reject some invalid expressions before evaluation.
+For fixed input and configuration, evaluation follows one call-by-value order and returns before the configured step or depth budget is exceeded; list-producing operations also enforce `max_list_len`. `infer_type` rejects some invalid expressions before evaluation, and it is the only check that runs then, since it ignores a builtin's argument vector entirely. The builtin arity and argument checks run *during* evaluation, inside `apply_builtin`, after the arguments have been evaluated.
 
 It does not currently support a general type-preservation claim. `infer_type` is deliberately best effort, returns `Any` for several constructs, and does not validate every subexpression of a builtin application. Likewise, the resource bounds establish termination of the evaluator invocation, not termination of an unbounded calculus obtained by removing those checks.
 

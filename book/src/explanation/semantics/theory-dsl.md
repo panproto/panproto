@@ -112,7 +112,7 @@ panproto relies on the finite presentation and preservation checks that this per
 
 ## Composition and verified boundaries
 
-Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The colimit constructor validates the inclusion morphisms, and callers can check a proposed alternative cocone through `ColimitResult::verify_universal`. Built-in protocol registration assembles its schema and instance theories from the registered building blocks.
+Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The colimit constructor checks cocone commutativity and deliberately does not run `check_morphism` on the inclusions, since a building-block instance theory may reference sorts only the schema theory it is paired with supplies. Callers can check a proposed alternative cocone through `ColimitResult::verify_universal`, which does validate the mediator. Built-in protocol registration assembles its schema and instance theories from the registered building blocks.
 
 The current checks establish well-formed sort and operation references, term typing for equations, morphism preservation, and sampled honesty for declared coercions on the checked compilation path. They do not establish confluence or termination for every directed rewrite system. Rewrite-system validation can produce warnings without rejecting an otherwise well-typed theory.
 

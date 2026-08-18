@@ -122,7 +122,7 @@ JavaScript reaches `panproto-core` through the `wasm-bindgen` boundary in `panpr
 
 ### Python boundary
 
-Python uses the native PyO3 bindings in `panproto-py` rather than WASM. Its default Rust feature is `group-core`, while the published wheel is built with `group-all` and exposes all 248 grammars recorded by the current feature manifest.
+Python uses the native PyO3 bindings in `panproto-py` rather than WASM. Its default Rust feature is `group-core`, and the published wheel is built with default features, so it ships the eleven core tree-sitter grammars; the other 250 of the 261 the feature manifest declares live in the companion `panproto-grammars-*` packs.
 
 ### C boundary
 

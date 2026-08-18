@@ -105,7 +105,7 @@ $$
 \llbracket t \rrbracket_T\, \sigma \;=\; \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr)
 $$
 
-When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. Typechecking, normalization, free-model enumeration, and instance compilation preserve state on failure. Loading needs a qualification: `cmd_load` inserts compiled theories and morphisms in loops, so a later insertion failure does not roll back earlier successful insertions from the same document.
+When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. Typechecking, normalization, free-model enumeration, and instance compilation preserve state on failure. Loading is atomic with respect to REPL state. `cmd_load` compiles the whole document before touching anything, and inserts only on success, so the post-state is either fully updated or unchanged; the insertions themselves cannot fail.
 
 `Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-cli/src/repl/engine.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/repl/engine.rs) implement these equations pointwise.
 
