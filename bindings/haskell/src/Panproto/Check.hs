@@ -255,9 +255,9 @@ data SchemaDiff = SchemaDiff
       orderChanges :: ![(Edge, Maybe Word32, Maybe Word32)]
     -- ^ Edge ordering changes: @(edge, old_position, new_position)@.
     , -- Recursion points
-      addedRecursionPoints :: ![RecursionPoint]
+      addedRecursionPoints :: ![(Text, RecursionPoint)]
     -- ^ Recursion points added in the new schema.
-    , removedRecursionPoints :: ![RecursionPoint]
+    , removedRecursionPoints :: ![(Text, RecursionPoint)]
     -- ^ Recursion points removed from the old schema.
     , modifiedRecursionPoints :: ![RecursionPointChange]
     -- ^ Recursion points whose target vertex changed.
@@ -546,8 +546,8 @@ schemaDiffEncoding d =
         <> kv "removed_variants" (encodeList encodeVariant d.removedVariants)
         <> kv "modified_variants" (encodeList encodeVariantChange d.modifiedVariants)
         <> kv "order_changes" (encodeList encodeOrderChange d.orderChanges)
-        <> kv "added_recursion_points" (encodeList encodeRecursionPoint d.addedRecursionPoints)
-        <> kv "removed_recursion_points" (encodeList encodeRecursionPoint d.removedRecursionPoints)
+        <> kv "added_recursion_points" (encodeList encodeMarkedRecursionPoint d.addedRecursionPoints)
+        <> kv "removed_recursion_points" (encodeList encodeMarkedRecursionPoint d.removedRecursionPoints)
         <> kv "modified_recursion_points" (encodeList encodeRecursionPointChange d.modifiedRecursionPoints)
         <> kv "usage_mode_changes" (encodeList encodeUsageModeChange d.usageModeChanges)
         <> kv "added_spans" (encodeList Enc.encodeString d.addedSpans)
@@ -623,8 +623,7 @@ encodeVariantChange vc =
 
 encodeRecursionPoint :: RecursionPoint -> Encoding
 encodeRecursionPoint r =
-    Enc.encodeMapLen 2
-        <> Enc.encodeString "mu_id" <> Enc.encodeString r.muId
+    Enc.encodeMapLen 1
         <> Enc.encodeString "target_vertex" <> Enc.encodeString r.targetVertex
 
 encodeRecursionPointChange :: RecursionPointChange -> Encoding
@@ -680,6 +679,15 @@ encodeTriple (a, b, c) =
 encodePair :: (Text, Text) -> Encoding
 encodePair (a, b) =
     Enc.encodeListLen 2 <> Enc.encodeString a <> Enc.encodeString b
+
+-- | Encode a @(marker vertex, RecursionPoint)@ as a CBOR 2-array.
+--
+-- The marker is the key the point is filed under in the schema, so a
+-- diff reports the two together and the point itself carries only what
+-- it unfolds to.
+encodeMarkedRecursionPoint :: (Text, RecursionPoint) -> Encoding
+encodeMarkedRecursionPoint (marker, point) =
+    Enc.encodeListLen 2 <> Enc.encodeString marker <> encodeRecursionPoint point
 
 -- | Encode an @Option<(String, String)>@: CBOR null for 'Nothing', a
 -- 2-array for 'Just'.
@@ -868,9 +876,9 @@ schemaDiffDecoder = decodeMapWith emptySchemaDiff onKey
         "modified_variants" -> (\v -> acc {modifiedVariants = v}) <$> decodeListOf decodeVariantChange
         "order_changes" -> (\v -> acc {orderChanges = v}) <$> decodeListOf decodeOrderChange
         "added_recursion_points" ->
-            (\v -> acc {addedRecursionPoints = v}) <$> decodeListOf decodeRecursionPoint
+            (\v -> acc {addedRecursionPoints = v}) <$> decodeListOf decodeMarkedRecursionPoint
         "removed_recursion_points" ->
-            (\v -> acc {removedRecursionPoints = v}) <$> decodeListOf decodeRecursionPoint
+            (\v -> acc {removedRecursionPoints = v}) <$> decodeListOf decodeMarkedRecursionPoint
         "modified_recursion_points" ->
             (\v -> acc {modifiedRecursionPoints = v}) <$> decodeListOf decodeRecursionPointChange
         "usage_mode_changes" ->
@@ -975,12 +983,10 @@ decodeVariantChange = decodeFields (T.empty, T.empty, Nothing, Nothing) build ha
         _ -> skipTerm >> pure acc
 
 decodeRecursionPoint :: Decoder s RecursionPoint
-decodeRecursionPoint = decodeFields (T.empty, T.empty) build handler
+decodeRecursionPoint = decodeFields T.empty RecursionPoint handler
   where
-    build (m, t) = RecursionPoint m t
-    handler acc@(m, t) key = case key of
-        "mu_id" -> (\v -> (v, t)) <$> Dec.decodeString
-        "target_vertex" -> (\v -> (m, v)) <$> Dec.decodeString
+    handler acc key = case key of
+        "target_vertex" -> Dec.decodeString
         _ -> skipTerm >> pure acc
 
 decodeRecursionPointChange :: Decoder s RecursionPointChange
@@ -1052,6 +1058,13 @@ decodeTriple = do
     pure (a, b, c)
 
 -- | Decode a @(String, String)@ CBOR 2-array.
+decodeMarkedRecursionPoint :: Decoder s (Text, RecursionPoint)
+decodeMarkedRecursionPoint = do
+    _ <- Dec.decodeListLenOrIndef
+    marker <- Dec.decodeString
+    point <- decodeRecursionPoint
+    pure (marker, point)
+
 decodePair :: Decoder s (Text, Text)
 decodePair = do
     _ <- Dec.decodeListLenOrIndef

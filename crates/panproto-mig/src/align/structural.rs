@@ -16,6 +16,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_and_constraints_compatible};
 
 /// Emit structural-match anchors at `Exploratory` tier.
@@ -78,6 +79,7 @@ pub fn structural_anchors(src: &Schema, tgt: &Schema, confidence_floor: f64) -> 
                 tgt: tgt_id.clone(),
                 confidence: score,
                 strategy: StrategyTag::Structural,
+                provenance: Provenance::Inferred,
                 explanation: format!(
                     "structural match (degree+kind-signature similarity {:.2}): {} ↔ {}",
                     score,

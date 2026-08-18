@@ -141,6 +141,48 @@ export interface CandidateResponse {
   readonly coerce_proposals: readonly CoerceProposal[];
 }
 
+/**
+ * Decoded shape of `auto_generate_span`'s MessagePack payload.
+ *
+ * A span always exists, so this type has no failure case: two schemas with
+ * nothing in common come back with an empty `apex_vertices` and an
+ * `apex_coverage` of zero, not an error.
+ */
+export interface SpanResponse {
+  /**
+   * The apex's vertex identifiers, sorted. The apex is the sub-schema of the
+   * source *induced* on these vertices, so this list and `apex_edges`
+   * determine it against a source the caller already holds; no handle is
+   * allocated and none has to be freed.
+   */
+  readonly apex_vertices: readonly string[];
+  /** The apex's edges, sorted. */
+  readonly apex_edges: readonly Edge[];
+  /** The right leg: source vertex identifier to target vertex identifier. */
+  readonly vertex_map: Readonly<Record<string, string>>;
+  /**
+   * How well the covered part matches, in `[0, 1]`. A ranking signal among
+   * spans over one source schema and nothing else: two spans over different
+   * sources are measured on different scales.
+   */
+  readonly quality: number;
+  /**
+   * `[lower, upper]` bracketing `quality`. The two are equal exactly when
+   * `proven_optimal` holds; when it does not, this interval separates
+   * "0.4, and nothing better exists" from "0.4, and the search ran out of
+   * budget".
+   */
+  readonly quality_bounds: readonly [number, number];
+  /** `apex_vertices.length / |source vertices|`, or one on an empty source. */
+  readonly apex_coverage: number;
+  /** Whether the search proved its answer optimal. */
+  readonly proven_optimal: boolean;
+  /** Whether the span is a total morphism, i.e. whether it covers the source. */
+  readonly is_total: boolean;
+  /** The apex's content digest, lower-case hexadecimal. */
+  readonly apex_digest: string;
+}
+
 // ---------------------------------------------------------------------------
 // Protocol
 // ---------------------------------------------------------------------------
@@ -235,9 +277,13 @@ export interface Variant {
   readonly tag?: string | undefined;
 }
 
-/** A recursion point (mu-binding site). */
+/**
+ * A recursion point (mu-binding site).
+ *
+ * The marker vertex is the key this is filed under in the schema's
+ * `recursion_points` map, and is deliberately not repeated here.
+ */
 export interface RecursionPoint {
-  readonly mu_id: string;
   readonly target_vertex: string;
 }
 
@@ -388,8 +434,8 @@ export interface FullSchemaDiff {
   readonly removed_variants: readonly Variant[];
   readonly modified_variants: readonly Record<string, unknown>[];
   readonly order_changes: readonly [Edge, number | null, number | null][];
-  readonly added_recursion_points: readonly RecursionPoint[];
-  readonly removed_recursion_points: readonly RecursionPoint[];
+  readonly added_recursion_points: readonly [string, RecursionPoint][];
+  readonly removed_recursion_points: readonly [string, RecursionPoint][];
   readonly modified_recursion_points: readonly Record<string, unknown>[];
   readonly usage_mode_changes: readonly [Edge, UsageMode, UsageMode][];
   readonly added_spans: readonly string[];
@@ -617,6 +663,16 @@ export interface WasmExports {
     schema2: number,
     top_n: number,
     stringency?: string,
+  ): Uint8Array;
+  /**
+   * The optimal span between two schemas. The returned bytes are
+   * MessagePack-encoded `SpanResponse`. `hints_bytes` is a MessagePack
+   * `Record<string, string>` of mappings the search may not reconsider.
+   */
+  auto_generate_span(
+    schema1: number,
+    schema2: number,
+    hints_bytes?: Uint8Array,
   ): Uint8Array;
   instantiate_protolens(chain: number, schema: number): number;
   protolens_complement_spec(chain: number, schema: number): Uint8Array;

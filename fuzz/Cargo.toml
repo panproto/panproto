@@ -1,0 +1,79 @@
+# The fuzz crate is deliberately NOT a member of the root workspace.
+#
+# The empty `[workspace]` table below makes this file its own workspace
+# root. Two gates depend on that:
+#
+#   * `cargo clippy --workspace --all-targets -- -D warnings` runs under
+#     `unsafe_code = "deny"`, and a `#![no_main]` libfuzzer target
+#     cannot satisfy that lint.
+#   * `.github/scripts/check_version_consistency.py` requires every
+#     member manifest to inherit `version.workspace = true`; a fuzz
+#     crate carries its own throwaway version instead.
+#
+# Do not add "fuzz" to the root `[workspace] members`.
+[package]
+name = "panproto-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+license = "MIT"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
+panproto-mig = { path = "../crates/panproto-mig" }
+panproto-schema = { path = "../crates/panproto-schema" }
+panproto-gat = { path = "../crates/panproto-gat" }
+panproto-protocols = { path = "../crates/panproto-protocols" }
+rustc-hash = "2"
+serde_json = "1"
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "cost_algebra"
+path = "fuzz_targets/cost_algebra.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "span_search"
+path = "fuzz_targets/span_search.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "induce"
+path = "fuzz_targets/induce.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "build_cfn"
+path = "fuzz_targets/build_cfn.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "consistency"
+path = "fuzz_targets/consistency.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_and_search"
+path = "fuzz_targets/parse_and_search.rs"
+test = false
+doc = false
+bench = false

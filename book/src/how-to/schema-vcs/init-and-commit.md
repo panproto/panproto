@@ -1,5 +1,7 @@
 # Init and commit
 
+Initialize a panproto repository, stage a schema, and record the first content-addressed commit.
+
 ## Prerequisites
 
 The `schema` CLI installed. A directory containing schema files (or a fresh directory you are about to populate).
@@ -14,7 +16,7 @@ schema commit -m "initial user schema"
 schema log                  # show history
 ```
 
-`init` creates a `.panproto/` directory analogous to `.git/`. `add` stages a schema; `commit` creates a content-addressed snapshot. The behaviour matches git for the parts that overlap.
+`init` creates a `.panproto/` directory analogous to `.git/`. `add` stages a schema; `commit` creates a content-addressed snapshot. The behavior matches git for the parts that overlap.
 
 To inspect the current state:
 

@@ -1,6 +1,6 @@
 # Breaking-change gate
 
-A breaking-change gate is a CI step that fails the build when a PR introduces a schema change panproto classifies as breaking. It runs against the diff between the PR's schema and the schema at `main`.
+A breaking-change gate fails CI when a pull request introduces a schema change that panproto classifies as breaking. The gate compares the proposed schema with the merge base on `main`.
 
 ## Prerequisites
 
@@ -13,7 +13,8 @@ A panproto repository under git. A CI system that can run shell commands.
 ```sh
 # In your CI script.
 git fetch origin main
-git show origin/main:schemas/user.json > /tmp/user-base.json
+base_commit=$(git merge-base HEAD origin/main)
+git show "$base_commit:schemas/user.json" > /tmp/user-base.json
 
 # Classify the change; exit 1 means breaking, exit 2 a usage or load error.
 schema compat /tmp/user-base.json schemas/user.json --protocol atproto
@@ -31,10 +32,18 @@ Either step's non-zero exit fails the build. To allow an explicit override, gate
 ```sh
 if git log -1 --format=%B | grep -q '\[breaking-change-acknowledged\]'; then
   schema compat /tmp/user-base.json schemas/user.json --protocol atproto || true
-  schema check ... --typecheck || true
+  schema check \
+    --src /tmp/user-base.json \
+    --tgt schemas/user.json \
+    --mapping migrations/user.json \
+    --typecheck || true
 else
   schema compat /tmp/user-base.json schemas/user.json --protocol atproto
-  schema check ... --typecheck
+  schema check \
+    --src /tmp/user-base.json \
+    --tgt schemas/user.json \
+    --mapping migrations/user.json \
+    --typecheck
 fi
 ```
 
@@ -51,6 +60,6 @@ Open a PR that adds a backward-compatible field; the gate passes. Open a PR that
 
 ## See also
 
-- [GitHub Actions](./github-actions.md) for a drop-in workflow.
+- [GitHub Actions](./github-actions.md) for a hosted workflow.
 - [Pre-commit hooks](./pre-commit-hooks.md) for catching breakage before push.
 - [Build a migration](../build-migration.md).

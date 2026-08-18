@@ -1,17 +1,24 @@
 //! Protocol-agnostic alignment strategies for auto-lens generation.
 //!
 //! Each strategy proposes **candidate anchors** (source-vertex ↔
-//! target-vertex pairs) that seed the CSP solver's [`SearchOptions::initial`].
-//! The CSP then validates every anchor against naturality constraints
-//! (edge-preserving morphism); no anchor is accepted merely because a
-//! heuristic suggested it. Confidence is a meta-score on the search, not
-//! a categorical property.
+//! target-vertex pairs). An anchor is a claim, not a decision: nothing in the
+//! pipeline treats one as a pin, an exclusion, or a search order. The pool is
+//! reduced to one score per pair by [`evidence::aggregate`], and that score
+//! enters the search as a single reward-only unary cost term. The *solver*
+//! then chooses, globally, subject to the hard constraints and the objective.
+//!
+//! # Priority is real
+//!
+//! Strategies are ranked by [`StrategyTag::priority`], and the ranking is
+//! honoured rather than consulted only on bit-exact ties: each tag owns a band
+//! of the `[0, 1]` interval ([`StrategyTag::band`]) and its raw confidence
+//! positions it inside that band. So an [`StrategyTag::Exact`] anchor at
+//! confidence 0.4 outranks a [`StrategyTag::TokenSimilarity`] anchor at 0.8,
+//! which is what the ordering has always claimed. Adjacent bands meet at a
+//! shared endpoint rather than being separated by a gap, so the guarantee is
+//! `≥` rather than `>`; [`StrategyTag::band`] says where that bites.
 //!
 //! # Stringency tiers
-//!
-//! Strategies are composed in priority order. Higher-priority strategies
-//! (exact, alias) win over lower-priority strategies when they propose
-//! conflicting anchors for the same source vertex.
 //!
 //! The `Stringency` level (in `panproto_lens`) selects which strategies
 //! run and at what thresholds: `Strict` runs only [`exact`]; `Balanced`
@@ -19,17 +26,22 @@
 //! thresholds and engages structural matching; `Exploratory` adds lossy
 //! retractions and LM priors.
 //!
-//! [`SearchOptions::initial`]: crate::SearchOptions::initial
-
-use std::collections::HashMap;
+//! Because the enabled set grows with the tier and every threshold falls with
+//! it, the anchor pool grows with the tier; because [`evidence::aggregate`] is
+//! monotone in the pool and the evidence term is the only tier-dependent part
+//! of the objective, the optimum a caller gets is non-decreasing in the tier.
 
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use evidence::{Family, Provenance, STRATEGY_COUNT};
+
 pub mod alias;
 pub mod coerce;
+pub mod defaults;
 pub mod description_similarity;
 pub mod edge_label;
+pub mod evidence;
 pub mod exact;
 pub mod neighborhood;
 pub mod structural;
@@ -109,84 +121,181 @@ pub struct Anchor {
     /// Target vertex ID.
     pub tgt: Name,
     /// Score in \[0.0, 1.0\]; higher = stronger proposal.
+    ///
+    /// Values outside the interval are not a contract violation the type can
+    /// prevent, and [`evidence::aggregate`] clamps rather than trusts: a
+    /// non-number drops the anchor entirely, and anything else is brought into
+    /// range before the provenance ceiling is applied.
     pub confidence: f64,
     /// Strategy that produced this anchor.
     pub strategy: StrategyTag,
+    /// What kind of input the evidence was read from, which caps how much
+    /// confidence it can claim.
+    ///
+    /// It is stamped by the emitting branch rather than derived from
+    /// [`Anchor::strategy`], because one strategy can emit from two branches
+    /// reading two different inputs: [`alias_anchors`] compares vertex
+    /// identifiers on its leaf branch and child edge labels on its composite
+    /// branch, and the tag cannot tell those apart. [`Family::of`] reads the
+    /// provenance for exactly that reason.
+    pub provenance: Provenance,
     /// Human-readable explanation, suitable for UI.
     pub explanation: String,
 }
 
-/// Resolve a set of proposed anchors into a single vertex map.
-///
-/// Anchors are ranked by `(confidence desc, strategy priority desc,
-/// source-name asc)`. Higher-priority strategies win over lower ones even
-/// at equal confidence, so a conflicting `Exact(0.9)` beats `Alias(0.9)`.
-/// Conflicts on the source side (two anchors proposing the same source
-/// vertex) are resolved by keeping the winner; conflicts on the target
-/// side in `monic` mode likewise keep the winner and drop the loser.
-///
-/// Returns a `(src → tgt)` map suitable for merging into
-/// `SearchOptions::initial`.
-#[must_use]
-pub fn resolve_anchors(anchors: &[Anchor], monic: bool) -> HashMap<Name, Name> {
-    // Drop malformed anchors with NaN confidence. `partial_cmp` on NaN
-    // returns `None`, and collapsing that to `Ordering::Equal` breaks
-    // strict-weak-ordering (transitivity fails): a NaN-confidence
-    // anchor would compare equal to every finite-confidence rival and
-    // could win the source slot purely on the strategy-priority
-    // tiebreaker. Filtering NaN out here is cheaper and more honest
-    // than trying to order it consistently; callers that observe this
-    // must produce finite scores.
-    let mut ranked: Vec<&Anchor> = anchors.iter().filter(|a| !a.confidence.is_nan()).collect();
-    ranked.sort_by(|a, b| {
-        // `total_cmp` provides a strict-weak order on the remaining
-        // finite-and-infinite confidences so the sort is deterministic
-        // across runs even under pathological inputs (signed zeros,
-        // ±∞). NaN has already been filtered out above.
-        b.confidence
-            .total_cmp(&a.confidence)
-            .then_with(|| strategy_priority(b.strategy).cmp(&strategy_priority(a.strategy)))
-            .then_with(|| a.src.as_str().cmp(b.src.as_str()))
-    });
-
-    let mut out: HashMap<Name, Name> = HashMap::new();
-    let mut used_targets: std::collections::HashSet<Name> = std::collections::HashSet::new();
-
-    for anchor in ranked {
-        if out.contains_key(&anchor.src) {
-            continue;
+impl StrategyTag {
+    /// Priority ordering over strategies. Higher is better.
+    ///
+    /// The numbers are spaced rather than consecutive so a new strategy can be
+    /// slotted between two existing ones without renumbering the table, and
+    /// only their *order* is read: [`StrategyTag::rank`] is the position in
+    /// that order, and the band arithmetic goes through the rank.
+    ///
+    /// **The table is uncalibrated.** It encodes a judgement about which kind
+    /// of evidence is stronger, not a measurement, and it has never been
+    /// validated against labelled data.
+    #[must_use]
+    pub const fn priority(self) -> u8 {
+        match self {
+            Self::UserHint => 100,
+            Self::Exact => 90,
+            Self::EdgeLabel => 85,
+            Self::ExactSuffix => 80,
+            Self::Alias => 70,
+            Self::TypeSignature => 60,
+            Self::WrapUnwrap => 55,
+            Self::TokenSimilarity => 50,
+            Self::DescriptionSimilarity => 45,
+            // Cross-kind bridges sit below same-kind heuristics: a token-match
+            // within the same kind is stronger evidence than a coercion across
+            // kinds.
+            Self::Coerce => 40,
+            Self::Neighborhood => 35,
+            Self::WlRefinement => 32,
+            Self::Structural => 30,
+            Self::Llm => 20,
         }
-        if monic && used_targets.contains(&anchor.tgt) {
-            continue;
-        }
-        out.insert(anchor.src.clone(), anchor.tgt.clone());
-        used_targets.insert(anchor.tgt.clone());
     }
 
-    out
-}
+    /// Position in descending priority order, from `0` for the strongest tag
+    /// to `13` for the weakest.
+    ///
+    /// This is the index into
+    /// [`PRIORITY_ORDER`](evidence::PRIORITY_ORDER), and it is what the band
+    /// arithmetic reads: the bands must partition `[0, 1]` exactly, which a
+    /// spaced priority table cannot do and a dense rank can.
+    #[must_use]
+    pub const fn rank(self) -> u32 {
+        match self {
+            Self::UserHint => 0,
+            Self::Exact => 1,
+            Self::EdgeLabel => 2,
+            Self::ExactSuffix => 3,
+            Self::Alias => 4,
+            Self::TypeSignature => 5,
+            Self::WrapUnwrap => 6,
+            Self::TokenSimilarity => 7,
+            Self::DescriptionSimilarity => 8,
+            Self::Coerce => 9,
+            Self::Neighborhood => 10,
+            Self::WlRefinement => 11,
+            Self::Structural => 12,
+            Self::Llm => 13,
+        }
+    }
 
-/// Priority ordering for resolving equal-confidence conflicts. Higher is
-/// better. Exact/UserHint trump heuristic strategies.
-const fn strategy_priority(tag: StrategyTag) -> u8 {
-    match tag {
-        StrategyTag::UserHint => 100,
-        StrategyTag::Exact => 90,
-        StrategyTag::EdgeLabel => 85,
-        StrategyTag::ExactSuffix => 80,
-        StrategyTag::Alias => 70,
-        StrategyTag::TypeSignature => 60,
-        StrategyTag::WrapUnwrap => 55,
-        StrategyTag::TokenSimilarity => 50,
-        StrategyTag::DescriptionSimilarity => 45,
-        // Cross-kind bridges sit below same-kind heuristics: a token-match
-        // within the same kind is stronger evidence than a coercion across
-        // kinds.
-        StrategyTag::Coerce => 40,
-        StrategyTag::Neighborhood => 35,
-        StrategyTag::WlRefinement => 32,
-        StrategyTag::Structural => 30,
-        StrategyTag::Llm => 20,
+    /// The **closed** interval of aggregated evidence this tag can occupy,
+    /// as `(lo, hi)`.
+    ///
+    /// The 14 tags cut `[0, 1]` into 14 bands of width `1/14` in descending
+    /// priority order, and their union is the whole interval. An anchor's
+    /// confidence, capped by its provenance, positions it *within* its band and
+    /// never outside it, which is what makes the priority ordering dominate
+    /// confidence rather than merely break ties under it.
+    ///
+    /// # The bands meet, they do not overlap
+    ///
+    /// Both endpoints are attainable. A tag reaches its `hi` at capped
+    /// confidence 1, and reaches its `lo` at capped confidence 0, so each `hi`
+    /// is bit-identical to the `lo` of the band above it: all 13 adjacent
+    /// boundaries coincide exactly. The bands are therefore closed intervals
+    /// that meet at their endpoints rather than half-open intervals that are
+    /// disjoint.
+    ///
+    /// Nothing about the ordering is lost by that, because no band's *interior*
+    /// is reachable from another tag: priority dominance holds as `≥`, and a
+    /// higher-priority anchor is never scored below a lower-priority one. What
+    /// is lost is strictness at the seam. A strongest possible claim by one tag
+    /// and a weakest possible claim by the tag above it aggregate to the same
+    /// number, so the `max` within a family selects a tie rather than the
+    /// higher-priority member. That case is reachable and not exotic:
+    /// [`adjust_anchors_by_required_sets`] clamps to exactly 0 and 1, which is
+    /// precisely where the seam is.
+    #[must_use]
+    pub fn band(self) -> (f64, f64) {
+        let rank = self.rank();
+        let count = f64::from(STRATEGY_COUNT);
+        (
+            f64::from(STRATEGY_COUNT - 1 - rank) / count,
+            f64::from(STRATEGY_COUNT - rank) / count,
+        )
+    }
+
+    /// The most aggregated evidence an anchor with this tag can ever carry,
+    /// which is the top of its [`StrategyTag::band`].
+    ///
+    /// This is the quantity priority dominance is stated over: for tags `a`
+    /// and `b` with `a.priority() > b.priority()`, every `a` anchor scores at
+    /// least `b.ceiling()`, whatever the two confidences are.
+    #[must_use]
+    pub fn ceiling(self) -> f64 {
+        self.band().1
+    }
+
+    /// Which input this tag's anchors are read from.
+    ///
+    /// [`Family::of`] is the function the aggregation actually uses: it agrees
+    /// with this one except on [`StrategyTag::Alias`], whose two emission
+    /// branches read two different inputs and are told apart by the anchor's
+    /// [`Anchor::provenance`]. This method reports the family of the leaf
+    /// branch, which is the one the tag is named for.
+    ///
+    /// # One family per tag, and why two candidates for a split did not get one
+    ///
+    /// The partition is total and each tag lands in exactly one family, which
+    /// is what makes the fixed-arity mean well defined. Two tags read inputs
+    /// that arguably straddle a family boundary, and both are filed whole:
+    ///
+    /// * [`StrategyTag::Neighborhood`] is seeded from an already-aligned
+    ///   parent, so the identifier and edge-label evidence that produced the
+    ///   seed is already counted in those families. Filing it under
+    ///   [`Family::Structure`] is what stops it being counted twice.
+    /// * [`StrategyTag::WrapUnwrap`] scores a correlated group of fields by how
+    ///   well their labels cover one another, so its confidence is entirely a
+    ///   label-coverage measure and [`Family::EdgeLabel`] is where it belongs.
+    ///   It selects a *parent* pair, which is why an identifier reading is
+    ///   tempting, but nothing about the parents' own identifiers enters the
+    ///   number.
+    ///
+    /// Splitting either would need a provenance that tells the branches apart,
+    /// as `Alias` has. Both stamp a single provenance unconditionally, so
+    /// [`Family::of`] could not act on a split even if one were wanted.
+    #[must_use]
+    pub const fn family(self) -> Family {
+        match self {
+            Self::UserHint => Family::UserHint,
+            Self::Exact | Self::ExactSuffix | Self::Alias | Self::TokenSimilarity => {
+                Family::Identifier
+            }
+            Self::EdgeLabel | Self::WrapUnwrap => Family::EdgeLabel,
+            Self::DescriptionSimilarity => Family::Documentation,
+            Self::TypeSignature
+            | Self::Neighborhood
+            | Self::WlRefinement
+            | Self::Structural
+            | Self::Llm => Family::Structure,
+            Self::Coerce => Family::Coercion,
+        }
     }
 }
 
@@ -269,10 +378,35 @@ pub fn vertex_is_required(schema: &Schema, vertex_id: &Name) -> bool {
 ///
 /// Confidences are clamped to `[0.0, 1.0]` so the adjustment cannot
 /// push a heuristic anchor above `Exact = 1.0` or below zero. The
-/// magnitude is small by design: it breaks ties without overwhelming
-/// the strategy-priority ordering honored by [`resolve_anchors`].
+/// magnitude is small by design: it moves an anchor within its
+/// [`StrategyTag::band`] and can never move it out of one, so it breaks
+/// ties without disturbing the priority ordering.
+///
+/// It can, however, land an anchor *on* a band boundary, since the clamp
+/// targets exactly the two endpoints where adjacent bands meet. That is a tie
+/// across bands rather than a reordering of them, and [`StrategyTag::band`]
+/// says what such a tie costs.
+///
+/// # User hints are exempt
+///
+/// [`StrategyTag::UserHint`] anchors are left untouched. A hint is a caller
+/// stating a correspondence, not a heuristic proposing one, so there is no tie
+/// for a tiebreak to settle; and because
+/// [`aggregate`](evidence::aggregate) folds the hint in with a `max` against
+/// its own capped confidence, a `-0.05` here would silently hand back 0.95 for
+/// a pair the caller asserted at 1.0. Requiredness disagreeing across the two
+/// schemas is a normal consequence of the schema change the caller is hinting
+/// through, so it is the most likely case rather than a rare one.
+///
+/// The adjustment is otherwise the same function of the anchor applied
+/// uniformly to the whole pool, so it commutes with the pool growing:
+/// aggregating an adjusted superset still dominates aggregating an adjusted
+/// subset.
 pub fn adjust_anchors_by_required_sets(anchors: &mut [Anchor], src: &Schema, tgt: &Schema) {
     for anchor in anchors.iter_mut() {
+        if anchor.strategy == StrategyTag::UserHint {
+            continue;
+        }
         let sr = vertex_is_required(src, &anchor.src);
         let tr = vertex_is_required(tgt, &anchor.tgt);
         let delta = match (sr, tr) {
@@ -339,6 +473,7 @@ mod required_tiebreak_tests {
             tgt: Name::from("d"),
             confidence: 0.5,
             strategy: StrategyTag::Alias,
+            provenance: Provenance::Synonym,
             explanation: String::new(),
         }];
         adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
@@ -354,6 +489,7 @@ mod required_tiebreak_tests {
             tgt: Name::from("d"),
             confidence: 0.5,
             strategy: StrategyTag::Alias,
+            provenance: Provenance::Synonym,
             explanation: String::new(),
         }];
         adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
@@ -369,10 +505,59 @@ mod required_tiebreak_tests {
             tgt: Name::from("d"),
             confidence: 0.5,
             strategy: StrategyTag::Alias,
+            provenance: Provenance::Synonym,
             explanation: String::new(),
         }];
         adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
         assert_eq!(anchors[0].confidence, 0.5);
+    }
+
+    /// A user hint is a caller's statement, not a proposal to be tiebroken.
+    ///
+    /// The one-sided case is the one that matters: a hint across a schema
+    /// change that made a field optional would otherwise be knocked to 0.95,
+    /// and since the hint reaches the score through a `max` against its own
+    /// capped confidence, the pair would read 0.95 rather than the 1.0 the
+    /// aggregation documents.
+    #[test]
+    fn a_user_hint_survives_the_required_set_tiebreak() {
+        let src = schema_with_required("p", "c", true);
+        let tgt = schema_with_required("q", "d", false);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 1.0,
+            strategy: StrategyTag::UserHint,
+            provenance: Provenance::UserSupplied,
+            explanation: "the caller said so".into(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert_eq!(
+            anchors[0].confidence, 1.0,
+            "the tiebreak must not move a hint"
+        );
+
+        let table = evidence::aggregate(&anchors, evidence::AggregationPolicy::StrictPriority);
+        let scored = table.get(&Name::from("c"), &Name::from("d")).unwrap();
+        assert_eq!(scored.score, 1.0, "a hinted pair reads 1.0");
+    }
+
+    /// And the both-required case, which moves in the other direction, is
+    /// equally exempt: a hint is not boosted either.
+    #[test]
+    fn a_user_hint_is_not_boosted_by_the_required_set_tiebreak() {
+        let src = schema_with_required("p", "c", true);
+        let tgt = schema_with_required("q", "d", true);
+        let mut anchors = vec![Anchor {
+            src: Name::from("c"),
+            tgt: Name::from("d"),
+            confidence: 0.6,
+            strategy: StrategyTag::UserHint,
+            provenance: Provenance::UserSupplied,
+            explanation: String::new(),
+        }];
+        adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
+        assert_eq!(anchors[0].confidence, 0.6);
     }
 
     #[test]
@@ -384,6 +569,7 @@ mod required_tiebreak_tests {
             tgt: Name::from("d"),
             confidence: 0.99,
             strategy: StrategyTag::Exact,
+            provenance: Provenance::ExactIdentifier,
             explanation: String::new(),
         }];
         adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
@@ -393,9 +579,8 @@ mod required_tiebreak_tests {
 
     #[test]
     fn matched_required_beats_mismatched_at_tie() {
-        // Two anchors pointing the same source at different targets;
-        // after the tiebreak, `resolve_anchors` must pick the required-
-        // matching one.
+        // Two anchors pointing the same source at different targets; after the
+        // tiebreak, selection must pick the required-matching one.
         let src = schema_with_required("p", "c", true);
         let p2 = proto();
         // Target with two children: `d` required, `e` optional.
@@ -427,6 +612,7 @@ mod required_tiebreak_tests {
                 tgt: Name::from("d"),
                 confidence: 0.7,
                 strategy: StrategyTag::Alias,
+                provenance: Provenance::Synonym,
                 explanation: String::new(),
             },
             Anchor {
@@ -434,13 +620,19 @@ mod required_tiebreak_tests {
                 tgt: Name::from("e"),
                 confidence: 0.7,
                 strategy: StrategyTag::Alias,
+                provenance: Provenance::Synonym,
                 explanation: String::new(),
             },
         ];
         adjust_anchors_by_required_sets(&mut anchors, &src, &tgt);
-        let resolved = resolve_anchors(&anchors, false);
+        let picked = evidence::aggregate(&anchors, evidence::AggregationPolicy::StrictPriority)
+            .select(
+                evidence::Cardinality::Strict,
+                evidence::RowFilter::relative_only(),
+            )
+            .to_map();
         assert_eq!(
-            resolved.get(&Name::from("c")).map(Name::as_str),
+            picked.get(&Name::from("c")).map(Name::as_str),
             Some("d"),
             "required-matching anchor must win the source slot"
         );
@@ -558,194 +750,290 @@ mod constraint_compat_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use evidence::{AggregationPolicy, Cardinality, RowFilter, aggregate};
 
-    fn anchor(src: &str, tgt: &str, confidence: f64, tag: StrategyTag) -> Anchor {
+    fn anchor(
+        src: &str,
+        tgt: &str,
+        confidence: f64,
+        tag: StrategyTag,
+        provenance: Provenance,
+    ) -> Anchor {
         Anchor {
             src: Name::from(src),
             tgt: Name::from(tgt),
             confidence,
             strategy: tag,
+            provenance,
             explanation: format!("{tag:?}: {src} ↔ {tgt}"),
         }
     }
 
+    /// One target per source, the way every caller that wants a map gets one.
+    fn picked(anchors: &[Anchor]) -> std::collections::HashMap<Name, Name> {
+        aggregate(anchors, AggregationPolicy::StrictPriority)
+            .select(Cardinality::Strict, RowFilter::relative_only())
+            .to_map()
+    }
+
     #[test]
-    fn resolve_prefers_exact_over_alias_at_equal_confidence() {
+    fn select_prefers_exact_over_alias_at_equal_confidence() {
         let anchors = vec![
-            anchor("a", "B", 0.9, StrategyTag::Alias),
-            anchor("a", "A", 0.9, StrategyTag::Exact),
+            anchor("a", "B", 0.9, StrategyTag::Alias, Provenance::Synonym),
+            anchor(
+                "a",
+                "A",
+                0.9,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
             Some("A"),
             "exact should beat alias at tied confidence"
         );
     }
 
+    /// The inversion the bands remove.
+    ///
+    /// Confidence used to be the primary key, so a `TokenSimilarity` anchor at
+    /// 0.8 took the slot from an `Exact` anchor at 0.4 and the documented
+    /// priority ordering was consulted only on bit-exact ties. Under the bands
+    /// the ordering is literally true: `Exact` owns `[0.8571, 0.9286]` and
+    /// `TokenSimilarity` owns `[0.4286, 0.5000]`, so no confidence can cross
+    /// between them.
     #[test]
-    fn resolve_prefers_higher_confidence() {
+    fn select_prefers_exact_over_token_similarity_despite_lower_confidence() {
         let anchors = vec![
-            anchor("a", "X", 0.4, StrategyTag::Exact),
-            anchor("a", "Y", 0.8, StrategyTag::TokenSimilarity),
+            anchor(
+                "a",
+                "X",
+                0.4,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor(
+                "a",
+                "Y",
+                0.8,
+                StrategyTag::TokenSimilarity,
+                Provenance::Derived,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
-        assert_eq!(resolved.get(&Name::from("a")).map(Name::as_str), Some("Y"));
-    }
-
-    #[test]
-    fn resolve_monic_drops_duplicate_targets() {
-        let anchors = vec![
-            anchor("a", "T", 0.9, StrategyTag::Exact),
-            anchor("b", "T", 0.8, StrategyTag::Alias),
-        ];
-        let resolved = resolve_anchors(&anchors, true);
-        assert_eq!(resolved.len(), 1);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
-            Some("T"),
-            "higher-confidence anchor keeps the target"
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
+            Some("X")
         );
     }
 
     #[test]
-    fn resolve_non_monic_allows_shared_targets() {
+    fn select_strict_drops_duplicate_targets() {
         let anchors = vec![
-            anchor("a", "T", 0.9, StrategyTag::Exact),
-            anchor("b", "T", 0.8, StrategyTag::Alias),
+            anchor(
+                "a",
+                "T",
+                0.9,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor("b", "T", 0.8, StrategyTag::Alias, Provenance::Synonym),
         ];
-        let resolved = resolve_anchors(&anchors, false);
-        assert_eq!(resolved.len(), 2);
+        let resolved = picked(&anchors);
+        assert_eq!(resolved.len(), 1);
+        assert_eq!(
+            resolved.get(&Name::from("a")).map(Name::as_str),
+            Some("T"),
+            "the stronger anchor keeps the target"
+        );
+    }
+
+    /// Many-to-one is no longer a selector mode.
+    ///
+    /// The old resolver took a `monic` flag and, when it was false, let several
+    /// sources share a target. Sharing a target is a property of the *morphism*
+    /// the search returns, decided by `SearchOptions::monic` against the whole
+    /// objective, so no cardinality here reproduces it: the strictly weaker
+    /// claim on a contested target loses under every mode.
+    #[test]
+    fn select_never_reproduces_the_old_many_to_one_fan_out() {
+        let anchors = vec![
+            anchor(
+                "a",
+                "T",
+                0.9,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor("b", "T", 0.8, StrategyTag::Alias, Provenance::Synonym),
+        ];
+        let table = aggregate(&anchors, AggregationPolicy::StrictPriority);
+        for cardinality in [
+            Cardinality::Strict,
+            Cardinality::Permissive,
+            Cardinality::default(),
+        ] {
+            assert_eq!(
+                table.select(cardinality, RowFilter::new(0.0, 1.0)).len(),
+                1,
+                "{cardinality:?} let the weaker claim share the target"
+            );
+        }
     }
 
     #[test]
-    fn resolve_prefers_type_signature_over_coerce_at_equal_confidence() {
+    fn select_prefers_type_signature_over_coerce_at_equal_confidence() {
         // Same-kind signature match ranks above cross-kind Coerce bridge.
         let anchors = vec![
-            anchor("a", "C", 0.7, StrategyTag::Coerce),
-            anchor("a", "T", 0.7, StrategyTag::TypeSignature),
+            anchor("a", "C", 0.7, StrategyTag::Coerce, Provenance::Inferred),
+            anchor(
+                "a",
+                "T",
+                0.7,
+                StrategyTag::TypeSignature,
+                Provenance::Inferred,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
             Some("T"),
             "TypeSignature must beat Coerce at tied confidence"
         );
     }
 
     #[test]
-    fn resolve_prefers_exact_over_coerce_at_equal_confidence() {
+    fn select_prefers_exact_over_coerce_at_equal_confidence() {
         let anchors = vec![
-            anchor("a", "C", 0.7, StrategyTag::Coerce),
-            anchor("a", "E", 0.7, StrategyTag::Exact),
+            anchor("a", "C", 0.7, StrategyTag::Coerce, Provenance::Inferred),
+            anchor(
+                "a",
+                "E",
+                0.7,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
             Some("E"),
             "Exact must beat Coerce at tied confidence"
         );
     }
 
     #[test]
-    fn resolve_monic_three_sources_one_target_keeps_highest_confidence() {
+    fn select_strict_three_sources_one_target_keeps_highest_confidence() {
         // Three sources all want the same target at different confidences.
-        // Under monic, only the highest-confidence source wins the target;
-        // the others are dropped entirely (they have no fallback anchor).
+        // Under the strictest cardinality only the strongest source wins the
+        // target; the others are dropped entirely, having no fallback anchor.
         let anchors = vec![
-            anchor("a", "T", 0.6, StrategyTag::Exact),
-            anchor("b", "T", 0.9, StrategyTag::Exact),
-            anchor("c", "T", 0.75, StrategyTag::Exact),
+            anchor(
+                "a",
+                "T",
+                0.6,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor(
+                "b",
+                "T",
+                0.9,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor(
+                "c",
+                "T",
+                0.75,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, true);
+        let resolved = picked(&anchors);
         assert_eq!(resolved.len(), 1);
         assert_eq!(
             resolved.get(&Name::from("b")).map(Name::as_str),
             Some("T"),
-            "highest confidence wins the target under monic"
+            "highest confidence wins the target within one band"
         );
         assert!(!resolved.contains_key(&Name::from("a")));
         assert!(!resolved.contains_key(&Name::from("c")));
     }
 
     #[test]
-    fn resolve_drops_nan_confidence_anchor() {
-        // A malformed anchor whose confidence is NaN must never win its
-        // source slot over a finite-confidence rival. Prior to the
-        // `partial_cmp → total_cmp` + NaN-filter fix, `partial_cmp`
-        // returned `None` for NaN and was collapsed to `Ordering::Equal`,
-        // so the strategy-priority tiebreaker could hand the slot to
-        // the NaN anchor purely because it had a higher-priority tag.
+    fn select_drops_nan_confidence_anchor() {
+        // A malformed anchor whose confidence is a non-number must never win
+        // its source slot over a rival with a real score, however strong its
+        // tag. `aggregate` drops it before the ceiling, the band, or the user
+        // hint override can read it.
         let anchors = vec![
-            anchor("a", "GOOD", 0.8, StrategyTag::Alias),
-            Anchor {
-                src: Name::from("a"),
-                tgt: Name::from("BAD"),
-                confidence: f64::NAN,
-                strategy: StrategyTag::UserHint,
-                explanation: "NaN confidence".into(),
-            },
+            anchor("a", "GOOD", 0.8, StrategyTag::Alias, Provenance::Synonym),
+            anchor(
+                "a",
+                "BAD",
+                f64::NAN,
+                StrategyTag::UserHint,
+                Provenance::UserSupplied,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
             Some("GOOD"),
-            "NaN-confidence anchor must be dropped even when its strategy tag outranks"
+            "a non-number confidence must be dropped even when its tag outranks"
         );
     }
 
     #[test]
-    fn resolve_all_nan_anchors_yields_empty_map() {
+    fn select_all_nan_anchors_yields_empty_map() {
         let anchors = vec![
-            Anchor {
-                src: Name::from("a"),
-                tgt: Name::from("X"),
-                confidence: f64::NAN,
-                strategy: StrategyTag::Exact,
-                explanation: String::new(),
-            },
-            Anchor {
-                src: Name::from("b"),
-                tgt: Name::from("Y"),
-                confidence: f64::NAN,
-                strategy: StrategyTag::Exact,
-                explanation: String::new(),
-            },
+            anchor(
+                "a",
+                "X",
+                f64::NAN,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor(
+                "b",
+                "Y",
+                f64::NAN,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
         ];
-        assert!(resolve_anchors(&anchors, false).is_empty());
-        assert!(resolve_anchors(&anchors, true).is_empty());
+        assert!(picked(&anchors).is_empty());
     }
 
+    /// An infinity is a confidence the old resolver ranked above every finite
+    /// rival, so a single malformed anchor could take any slot. It is now
+    /// clamped into `[0, 1]` and then capped by its provenance, so it competes
+    /// on its band like everything else and loses to a stronger tag.
     #[test]
-    fn resolve_handles_infinite_confidence_deterministically() {
-        // `+∞` is a finite-enough confidence to survive the NaN filter;
-        // it must beat every finite rival. `total_cmp` orders
-        // `+∞ > 1.0`, and `b.total_cmp(&a)` under descending sort ranks
-        // `+∞` first.
+    fn select_clamps_infinite_confidence() {
         let anchors = vec![
-            anchor("a", "X", 0.9, StrategyTag::Exact),
-            Anchor {
-                src: Name::from("a"),
-                tgt: Name::from("INF"),
-                confidence: f64::INFINITY,
-                strategy: StrategyTag::Alias,
-                explanation: String::new(),
-            },
+            anchor(
+                "a",
+                "X",
+                0.9,
+                StrategyTag::Exact,
+                Provenance::ExactIdentifier,
+            ),
+            anchor(
+                "a",
+                "INF",
+                f64::INFINITY,
+                StrategyTag::Alias,
+                Provenance::Synonym,
+            ),
         ];
-        let resolved = resolve_anchors(&anchors, false);
         assert_eq!(
-            resolved.get(&Name::from("a")).map(Name::as_str),
-            Some("INF"),
-            "+∞ confidence beats finite confidence under total_cmp"
+            picked(&anchors).get(&Name::from("a")).map(Name::as_str),
+            Some("X")
         );
     }
 
     #[test]
-    fn resolve_empty_anchors_returns_empty_map() {
-        let resolved = resolve_anchors(&[], false);
-        assert!(resolved.is_empty());
-        let resolved = resolve_anchors(&[], true);
-        assert!(resolved.is_empty());
+    fn select_empty_anchors_returns_empty_map() {
+        assert!(picked(&[]).is_empty());
     }
 
     #[test]
@@ -773,8 +1061,8 @@ mod tests {
             StrategyTag::Llm,
         ];
         for pair in ordered.windows(2) {
-            let hi = strategy_priority(pair[0]);
-            let lo = strategy_priority(pair[1]);
+            let hi = pair[0].priority();
+            let lo = pair[1].priority();
             assert!(
                 hi > lo,
                 "priority must strictly decrease: {:?}({hi}) !> {:?}({lo})",
@@ -805,7 +1093,42 @@ mod tests {
             (StrategyTag::Llm, 20),
         ];
         for (tag, expected) in tags {
-            assert_eq!(strategy_priority(tag), expected, "{tag:?}");
+            assert_eq!(tag.priority(), expected, "{tag:?}");
+        }
+    }
+
+    /// The bands are cut on the rank, so a rank that disagreed with the
+    /// priority table would silently invert the ordering the bands exist to
+    /// enforce.
+    #[test]
+    fn rank_is_the_position_in_priority_order() {
+        let mut position = 0u32;
+        for tag in evidence::PRIORITY_ORDER {
+            assert_eq!(tag.rank(), position, "{tag:?}");
+            position += 1;
+        }
+        assert_eq!(position, STRATEGY_COUNT);
+
+        for pair in evidence::PRIORITY_ORDER.windows(2) {
+            assert!(pair[0].rank() < pair[1].rank());
+            assert!(pair[0].priority() > pair[1].priority());
+        }
+    }
+
+    /// Every tag has a family, and the one tag whose branches read different
+    /// inputs is the only one whose family moves with the provenance.
+    #[test]
+    fn every_tag_has_a_family() {
+        for tag in evidence::PRIORITY_ORDER {
+            let default_family = tag.family();
+            for provenance in evidence::PROVENANCES {
+                let family = Family::of(tag, provenance);
+                if tag == StrategyTag::Alias && provenance == Provenance::DeclaredEdgeLabel {
+                    assert_eq!(family, Family::EdgeLabel);
+                } else {
+                    assert_eq!(family, default_family, "{tag:?}/{provenance:?}");
+                }
+            }
         }
     }
 }

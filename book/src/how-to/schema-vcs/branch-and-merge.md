@@ -1,5 +1,7 @@
 # Branch and merge
 
+Create a branch to isolate a schema change, then merge it back through panproto's schema-aware merge operation.
+
 ## Prerequisites
 
 A panproto repository with at least one commit ([Init and commit](./init-and-commit.md)).

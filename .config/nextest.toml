@@ -1,17 +1,33 @@
 # cargo-nextest configuration.
 #
 # The `ci` profile is used by the per-PR `Tests` job in
-# `.github/workflows/ci.yml`. It skips the two multi-minute full-corpus emit
-# gates, which round-trip every vendored grammar's entire upstream
-# `test/corpus/` and take ~30 minutes combined. Running them on every PR is
-# wasteful: the emitter code they exercise is stable, and they still run
+# `.github/workflows/ci.yml`. It skips the whole-corpus gates, which are the
+# tests that walk an entire committed corpus rather than a fixture:
+#
+#   * the three full-corpus emit gates, which round-trip every vendored
+#     grammar's entire upstream `test/corpus/` and take ~30 minutes combined,
+#     and
+#   * the span solver's oracle agreement sweep, which enumerates every
+#     assignment of both networks of every enumerable lexicon pair and takes
+#     ~160 seconds unoptimised, past the 60 second slow threshold below, and
+#   * the cross-process corpus span comparison, which runs the whole corpus in
+#     sixteen separate processes to show the span does not depend on the hash
+#     seed and takes ~7 minutes unoptimised. Its two fixture-sized siblings,
+#     `the_span_is_a_function_of_the_pair` and
+#     `span_is_the_same_in_every_process`, run on every PR in under two seconds
+#     and are what would catch a regression; the corpus run is the wider net.
+#     Its name is unique on purpose, since the filter below matches test names
+#     across every binary and the fixture siblings must stay lit.
+#
+# Running these on every PR is wasteful: the code they exercise is stable, and
+# they still run
 #
 #   * by default for local runs (`cargo nextest run`), and
 #   * on a schedule (and on demand) in the `corpus-gate` workflow,
 #
-# so the emit-verification guarantee stays enforced without blocking PR CI.
+# so both guarantees stay enforced without blocking PR CI.
 [profile.ci]
-default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified/)'
+default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified|every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration|every_corpus_pair_yields_the_same_span_in_every_process/)'
 
 # Kill a test that runs away instead of letting it hold the suite open.
 #
@@ -21,6 +37,6 @@ default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|str
 # rather than broken, which is the wrong signal.
 #
 # The bound applies to the `ci` profile, whose slowest observed test is
-# around four minutes; the multi-minute full-corpus emit gates are excluded
-# from this profile by `default-filter` above and so are unaffected.
+# around four minutes; the whole-corpus gates are excluded from this profile
+# by `default-filter` above and so are unaffected.
 slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }

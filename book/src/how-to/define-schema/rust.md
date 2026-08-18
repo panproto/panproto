@@ -6,7 +6,7 @@
 
 ## The task
 
-```rust,no_run
+```rust
 use panproto_core::protocols::atproto;
 use panproto_core::schema::SchemaBuilder;
 

@@ -168,7 +168,7 @@ pub fn emit_instance(
 /// and a CST complement that can be used for format-preserving emission.
 ///
 /// Returns `MessagePack`-encoded `(instance_bytes, complement_bytes)` tuple.
-/// The complement_bytes may be empty if the codec doesn't support format
+/// The `complement_bytes` may be empty if the codec doesn't support format
 /// preservation.
 ///
 /// Requires the `tree-sitter` feature on `panproto-io`.

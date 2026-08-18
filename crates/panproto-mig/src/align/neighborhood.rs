@@ -21,6 +21,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
 
+use super::evidence::Provenance;
 use super::{
     Anchor, StrategyTag, kinds_and_constraints_compatible, token_similarity::token_similarity,
 };
@@ -92,6 +93,7 @@ pub fn neighborhood_anchors(
                     tgt: t_child,
                     confidence: score,
                     strategy: StrategyTag::Neighborhood,
+                    provenance: Provenance::Inferred,
                     explanation: format!(
                         "neighborhood score {:.2}: {} child of seeded {} ↔ child of {}",
                         score,

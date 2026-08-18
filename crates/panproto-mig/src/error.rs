@@ -6,6 +6,9 @@
 
 use serde::{Deserialize, Serialize};
 
+use crate::solve::build::BuildError;
+use crate::solve::mcsplit::IsoError;
+
 /// Top-level migration error.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -25,6 +28,110 @@ pub enum MigError {
     /// Migration inversion failed.
     #[error("inversion failed: {0}")]
     Invert(#[from] InvertError),
+
+    /// A span search could not produce a span.
+    #[error("span search failed: {0}")]
+    Span(#[from] SpanError),
+}
+
+/// Why a span search could not produce a span.
+///
+/// None of these variants means "no morphism exists". The span search is total:
+/// leaving every source vertex out of the apex is always feasible, so the
+/// absence of a match is reported as an empty apex rather than as an error.
+/// What is reported here is a search that could not be posed or a result that
+/// is not a schema, both of which are defects rather than answers.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum SpanError {
+    /// The cost function network could not be built from the schema pair.
+    #[error("the search network could not be built: {source}")]
+    Build {
+        /// What the network builder refused.
+        #[from]
+        source: BuildError,
+    },
+
+    /// The apex is not a well-formed sub-schema of the source.
+    ///
+    /// This carries whatever validating the induced apex against the protocol
+    /// reported. Dangling references are one cause and the one the network
+    /// guards against, by forbidding the assignments whose apex would carry
+    /// one, so a dangling reference here does mean a hard constraint is
+    /// missing. It is not the only cause: validation also checks vertex kinds,
+    /// edge rules and constraint sorts, none of which the network models, and a
+    /// sub-schema of a source the protocol already rejects inherits the
+    /// parent's findings. The common case is therefore an invalid input rather
+    /// than a missing constraint, and the two are told apart by running
+    /// [`validate`](fn@panproto_schema::validate) on the source: if it reports
+    /// the same findings, the apex only surfaced them.
+    #[error("the apex is not a well-formed sub-schema of the source: {source}")]
+    Apex {
+        /// What inducing the apex reported.
+        #[from]
+        source: panproto_schema::SchemaError,
+    },
+
+    /// The total-morphism search stopped before reaching any complete
+    /// assignment, so whether one exists is unknown.
+    ///
+    /// Distinct from `Ok(vec![])`, which is the search finishing and finding
+    /// nothing. Branch and bound reaches complete assignments as it dives, so a
+    /// budget spent before the first leaf leaves it with no incumbent at all,
+    /// and the empty answer that would report is a claim the search never
+    /// established. A stop *after* a leaf is not reported here: that incumbent
+    /// is a genuine total morphism, only not a proven-optimal one.
+    #[error(
+        "the total-morphism search stopped on {limit:?} before reaching any complete \
+         assignment, so whether a total morphism exists is unknown"
+    )]
+    Stopped {
+        /// Which budget ran out.
+        limit: crate::solve::LimitKind,
+    },
+
+    /// The maximum common sub-schema search refused the network.
+    ///
+    /// Its reward frame has preconditions the network must meet, and it refuses
+    /// rather than silently optimising a different objective when one is
+    /// broken.
+    #[error("the maximum common sub-schema search refused the network: {source}")]
+    Iso {
+        /// The precondition of the reward frame the network broke.
+        #[from]
+        source: IsoError,
+    },
+
+    /// Surjectivity was asked of a span.
+    ///
+    /// [`SearchOptions::epic`](crate::SearchOptions::epic) is a property of a
+    /// *total* morphism and the span search cannot promise it: a span's right
+    /// leg is deliberately partial, the empty apex is always feasible, and
+    /// [`find_span`](crate::find_span) is documented never to refuse for want of
+    /// a match. Enforcing surjectivity would make it refuse, and ignoring the
+    /// flag would answer a different question than the one asked, so the
+    /// combination is rejected instead.
+    #[error(
+        "`epic` asks for a surjective vertex map, which is a property of a total \
+         morphism rather than of a span; use `find_morphisms` or \
+         `find_best_morphism` for a surjective total morphism"
+    )]
+    EpicIsNotASpanProperty,
+
+    /// The span's right leg identifies two apex vertices, so it has no pushout.
+    ///
+    /// A merge along the apex has to commute: an apex vertex must reach the
+    /// same merged vertex through either leg. A right leg that sends two apex
+    /// vertices to one target vertex makes that impossible, and the square that
+    /// comes back is not a cocone over the span it was asked about. Set
+    /// [`SearchOptions::iso`](crate::SearchOptions::iso), which is what
+    /// [`discover_overlap`](crate::discover_overlap) does, to search for a span
+    /// whose right leg is an embedding.
+    #[error(
+        "the span's right leg identifies two apex vertices, so merging along it \
+         would not commute; search with `iso` for a span that embeds"
+    )]
+    ContractingRightLeg,
 }
 
 /// A structured existence error detected by `check_existence`.

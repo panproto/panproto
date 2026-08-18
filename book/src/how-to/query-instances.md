@@ -1,6 +1,6 @@
 # Query instances
 
-A panproto instance is a graph of records. Queries filter and project that graph using the [expression language](../reference/expression-language.md).
+An instance query can filter records, select fields, or follow schema edges. Predicates and projections use the [expression language](../reference/expression-language.md).
 
 ## Prerequisites
 
@@ -13,16 +13,16 @@ A schema and an instance loaded against it. The expression-language reference fo
 `executeQuery` is exported from `@panproto/core`. Its signature is `executeQuery(query, instance, wasm)` (query first, instance second, WASM module third). The query keys are `anchor`, `predicate` (an `Expr` object, not a string), `projection` (string array), `groupBy`, `limit`, and `path`.
 
 ```ts
-import { executeQuery, parseExpr, ExprBuilder } from '@panproto/core';
+import { executeQuery, parseExpr } from '@panproto/core';
 
 const recent = executeQuery(
   {
     anchor: 'post',
-    predicate: parseExpr('post.created_at > "2024-01-01"'),
+    predicate: parseExpr('post.created_at > "2024-01-01"', p._wasm),
     projection: ['id', 'title'],
   },
   instance,
-  panproto._wasm,
+  p._wasm,
 );
 ```
 
@@ -36,7 +36,7 @@ Use the `path` field to traverse from the anchor before predicate matching:
 const userPosts = executeQuery(
   { anchor: 'user', path: ['authored'], projection: ['title'] },
   instance,
-  panproto._wasm,
+  p._wasm,
 );
 ```
 

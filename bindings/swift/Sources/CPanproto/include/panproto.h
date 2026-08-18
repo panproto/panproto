@@ -631,6 +631,10 @@ pp_handle_free (
  *  Arguments match [`pp_hom_find_morphisms`]. On success, `out`
  *  receives a CBOR-encoded `Option<FoundMorphismWire>`. Calls
  *  `hom_search::find_best_morphism`.
+ *
+ *  A CBOR `null` means no total morphism exists. A search that could not be
+ *  posed returns `PpStatus::Operation` instead, so a host is never told "no
+ *  morphism exists" about a pair the engine could not search.
  */
 int32_t
 pp_hom_find_best_morphism (
@@ -646,14 +650,56 @@ pp_hom_find_best_morphism (
  *  handles. `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
  *  `panproto_core::mig::hom_search::SearchOptions`. On success, `out`
  *  receives a CBOR-encoded `Vec<FoundMorphismWire>` (each with
- *  `vertex_map`, `edge_map`, and `quality`), already ranked by
- *  descending quality. Calls `hom_search::find_morphisms`.
+ *  `vertex_map`, `edge_map`, and `quality`). Calls
+ *  `hom_search::find_morphisms`.
+ *
+ *  # This returns the optima, not the whole hom-set
+ *
+ *  It returns the morphisms **attaining the optimum**, capped by
+ *  `max_results`, and nothing else. Every element therefore carries the same
+ *  quality, which is the maximum over all total morphisms, so the list is in
+ *  non-increasing quality order trivially and a host reading element zero gets
+ *  what it always got. A host that walked the list for a suboptimal
+ *  alternative will not find one: there is no k-best over distinct quality
+ *  levels. Empty means no total morphism exists, and only that: a search that
+ *  could not be posed returns `PpStatus::Operation` with the reason, rather
+ *  than an empty list under a success status.
  */
 int32_t
 pp_hom_find_morphisms (
     uint32_t src,
     uint32_t tgt,
     slice_ref_uint8_t opts,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Find the maximum span between two schemas.
+ *
+ *  `src` and `tgt` are [`Resource::Schema`](crate::handle::Resource) handles
+ *  and `protocol` is a [`Resource::Protocol`](crate::handle::Resource)
+ *  handle: the apex is a schema, a schema is well formed only against a
+ *  protocol, and inducing the apex re-validates it rather than assuming it,
+ *  so the protocol is an argument rather than something read off the source
+ *  (a schema stores only its protocol's name). `opts` is a CBOR-encoded
+ *  `SearchOptionsWire` and `constraints` a CBOR-encoded
+ *  `DomainConstraintsWire`; an empty CBOR map is a valid payload for either.
+ *  On success, `out` receives a CBOR-encoded `SchemaSpanWire`. Calls
+ *  `hom_search::find_span_constrained`.
+ *
+ *  # This never refuses for want of a match
+ *
+ *  Leaving every source vertex out of the apex is always feasible, so two
+ *  schemas with nothing in common get an empty apex, not an error. A non-`Ok`
+ *  status here means the search could not be posed or the induced apex is not
+ *  a schema, both of which are defects rather than answers.
+ */
+int32_t
+pp_hom_find_span (
+    uint32_t src,
+    uint32_t tgt,
+    uint32_t protocol,
+    slice_ref_uint8_t opts,
+    slice_ref_uint8_t constraints,
     Vec_uint8_t * out);
 
 /** \brief
@@ -704,6 +750,23 @@ int32_t
 pp_hom_morphism_to_migration (
     slice_ref_uint8_t morphism,
     uint32_t * out_handle);
+
+/** \brief
+ *  Read a span's apex as the identification list a pushout takes.
+ *
+ *  `span` is a CBOR-encoded `SchemaSpanWire`, as [`pp_hom_find_span`] wrote
+ *  it. On success, `out` receives a CBOR-encoded `SchemaOverlapWire`: the
+ *  right leg's two maps as `(source element, target element)` pairs, sorted
+ *  by key so that one span always yields the same bytes. Feeding those pairs
+ *  to a pushout merges `src` and `tgt` along the apex.
+ *
+ *  The left leg is an inclusion, so the apex's own identifiers *are* source
+ *  identifiers and the right leg alone carries the identification.
+ */
+int32_t
+pp_hom_span_to_overlap (
+    slice_ref_uint8_t span,
+    Vec_uint8_t * out);
 
 /** \brief
  *  Initialize the panproto-c runtime.

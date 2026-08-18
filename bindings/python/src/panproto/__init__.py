@@ -5,111 +5,112 @@ bidirectional migrations with lens laws, breaking change detection, instance
 I/O across 76 protocols, GAT operations, and schematic version control.
 """
 
+from panproto._native import AstParserRegistry as _AstParserRegistryNative
 from panproto._native import (
+    # VCS
+    BisectState,
     # Errors
     CheckError,
-    ExistenceCheckError,
-    ExprError,
-    GatError,
-    GitBridgeError,
-    IoError,
-    LensError,
-    MigrationError,
-    PanprotoError,
-    ParseError,
-    ProjectError,
-    SchemaValidationError,
-    VcsError,
+    # Check
+    CompatReport,
+    # Migration
+    CompiledMigration,
     # Schema types
     Complement,
     Constraint,
     Edge,
-    HyperEdge,
-    Protocol,
-    Schema,
-    SchemaBuilder,
-    Vertex,
-    # Protocol registry
-    define_protocol,
-    get_builtin_protocol,
-    list_builtin_protocols,
-    # Migration
-    CompiledMigration,
-    Migration,
-    MigrationBuilder,
-    add_field,
-    check_coverage,
-    check_existence,
-    compile_migration,
-    compose_migrations,
-    hoist_field,
-    invert_migration,
-    pipeline,
-    remove_field,
-    rename_field,
+    ExistenceCheckError,
+    # Expr
+    Expr,
+    ExprError,
     # Hom search + cascade
     FoundMorphism,
-    SchemaMorphism,
-    TheoryMorphism,
-    find_best_morphism,
-    find_morphisms,
-    induce_migration_from_theory,
-    induce_schema_morphism,
-    # Check
-    CompatReport,
-    SchemaDiff,
-    diff_and_classify,
-    diff_schemas,
+    GatError,
+    GitBridgeError,
+    # Git bridge
+    GitImportResult,
+    HyperEdge,
     # Instance
     Instance,
+    IoError,
     # I/O
     IoRegistry,
     # Lens
     Lens,
-    ProtolensChain,
-    auto_generate_lens,
-    auto_generate_lens_candidates,
+    LensError,
+    # Lexicon / schema-document parsing
+    LexiconProject,
+    Migration,
+    MigrationBuilder,
+    MigrationError,
     # GAT
     Model,
+    PanprotoError,
+    # Parse + ParseEmitLens
+    ParseEmitLens,
+    ParseError,
+    # Project (multi-file panproto projects)
+    ProjectBuilder,
+    ProjectError,
+    ProjectSchema,
+    Protocol,
+    ProtolensChain,
+    Repository,
+    Schema,
+    SchemaBuilder,
+    SchemaDiff,
+    SchemaMorphism,
+    SchemaSpan,
+    SchemaValidationError,
     Theory,
     TheoryBuilder,
+    TheoryMorphism,
+    VcsError,
+    VcsRepository,
+    Vertex,
+    add_field,
+    auto_generate_lens,
+    auto_generate_lens_candidates,
+    available_grammars,
+    build_project,
+    check_coverage,
+    check_existence,
     check_model,
     check_morphism,
     colimit_theories,
+    compile_migration,
+    compose_migrations,
     create_theory,
+    # Protocol registry
+    define_protocol,
+    diff_and_classify,
+    diff_schemas,
+    find_best_morphism,
+    find_morphisms,
+    find_span,
     free_model,
+    get_builtin_protocol,
+    git_import,
+    hoist_field,
+    induce_migration_from_theory,
+    induce_schema_morphism,
+    invert_migration,
+    list_builtin_protocols,
     migrate_model,
-    # Lexicon / schema-document parsing
-    LexiconProject,
     parse_atproto_lexicon,
+    parse_expr,
+    parse_project,
     parse_schema_bundle,
     parse_schema_bundle_project,
     parse_schema_document,
     parse_schema_source,
-    theory_of,
-    # Expr
-    Expr,
-    parse_expr,
-    pretty_print_expr,
-    # VCS
-    BisectState,
-    Repository,
-    VcsRepository,
-    # Parse + ParseEmitLens
-    ParseEmitLens,
-    available_grammars,
     parse_source_file,
-    # Project (multi-file panproto projects)
-    ProjectBuilder,
-    ProjectSchema,
-    build_project,
-    parse_project,
-    # Git bridge
-    GitImportResult,
-    git_import,
+    pipeline,
+    pretty_print_expr,
+    remove_field,
+    rename_field,
+    theory_of,
 )
-
-from panproto._native import AstParserRegistry as _AstParserRegistryNative
 
 _GRAMMAR_ENTRY_POINT_GROUP = "panproto.grammars"
 
@@ -141,7 +142,7 @@ def AstParserRegistry() -> _AstParserRegistryNative:  # noqa: N802
             if metadata_fn is None:
                 continue
             extras.extend(metadata_fn())
-        except Exception:  # noqa: BLE001
+        except Exception:
             # A broken companion shouldn't take down core panproto;
             # surface the failure as a warning and continue.
             import warnings
@@ -168,7 +169,8 @@ WasmError = PanprotoError
 # without an installed distribution), so `panproto.__version__` is
 # always defined.
 try:
-    from importlib.metadata import PackageNotFoundError, version as _pkg_version
+    from importlib.metadata import PackageNotFoundError
+    from importlib.metadata import version as _pkg_version
 
     try:
         __version__ = _pkg_version("panproto")
@@ -180,109 +182,111 @@ except ImportError:  # pragma: no cover  # Python < 3.8 (unsupported)
     __version__ = "0.0.0+unknown"
 
 __all__ = [
+    # Parse + ParseEmitLens
+    "AstParserRegistry",
+    # VCS
+    "BisectState",
     # Errors
     "CheckError",
-    "ExistenceCheckError",
-    "ExprError",
-    "GatError",
-    "GitBridgeError",
-    "IoError",
-    "LensError",
-    "MigrationError",
-    "PanprotoError",
-    "ParseError",
-    "ProjectError",
-    "SchemaValidationError",
-    "VcsError",
-    "WasmError",
+    # Check
+    "CompatReport",
+    # Migration
+    "CompiledMigration",
     # Schema
     "Complement",
     "Constraint",
     "Edge",
-    "HyperEdge",
-    "Protocol",
-    "Schema",
-    "SchemaBuilder",
-    "Vertex",
-    # Protocol registry
-    "define_protocol",
-    "get_builtin_protocol",
-    "list_builtin_protocols",
-    # Migration
-    "CompiledMigration",
-    "Migration",
-    "MigrationBuilder",
-    "add_field",
-    "check_coverage",
-    "check_existence",
-    "compile_migration",
-    "compose_migrations",
-    "hoist_field",
-    "invert_migration",
-    "pipeline",
-    "remove_field",
-    "rename_field",
+    "ExistenceCheckError",
+    # Expr
+    "Expr",
+    "ExprError",
     # Hom search + cascade
     "FoundMorphism",
-    "SchemaMorphism",
-    "TheoryMorphism",
-    "find_best_morphism",
-    "find_morphisms",
-    "induce_migration_from_theory",
-    "induce_schema_morphism",
-    # Check
-    "CompatReport",
-    "SchemaDiff",
-    "diff_and_classify",
-    "diff_schemas",
+    "GatError",
+    "GitBridgeError",
+    # Git bridge
+    "GitImportResult",
+    "HyperEdge",
     # Instance
     "Instance",
+    "IoError",
     # I/O
     "IoRegistry",
     # Lens
     "Lens",
-    "ProtolensChain",
-    "auto_generate_lens",
-    "auto_generate_lens_candidates",
+    "LensError",
+    # Lexicon / schema-document parsing
+    "LexiconProject",
+    "Migration",
+    "MigrationBuilder",
+    "MigrationError",
     # GAT
     "Model",
+    "PanprotoError",
+    "ParseEmitLens",
+    "ParseError",
+    # Project (multi-file panproto projects)
+    "ProjectBuilder",
+    "ProjectError",
+    "ProjectSchema",
+    "Protocol",
+    "ProtolensChain",
+    "Repository",
+    "Schema",
+    "SchemaBuilder",
+    "SchemaDiff",
+    "SchemaMorphism",
+    "SchemaSpan",
+    "SchemaValidationError",
     "Theory",
     "TheoryBuilder",
+    "TheoryMorphism",
+    "VcsError",
+    "VcsRepository",
+    "Vertex",
+    "WasmError",
+    # Meta
+    "__version__",
+    "add_field",
+    "auto_generate_lens",
+    "auto_generate_lens_candidates",
+    "available_grammars",
+    "build_project",
+    "check_coverage",
+    "check_existence",
     "check_model",
     "check_morphism",
     "colimit_theories",
+    "compile_migration",
+    "compose_migrations",
     "create_theory",
+    # Protocol registry
+    "define_protocol",
+    "diff_and_classify",
+    "diff_schemas",
+    "find_best_morphism",
+    "find_morphisms",
+    "find_span",
     "free_model",
+    "get_builtin_protocol",
+    "git_import",
+    "hoist_field",
+    "induce_migration_from_theory",
+    "induce_schema_morphism",
+    "invert_migration",
+    "list_builtin_protocols",
     "migrate_model",
-    # Lexicon / schema-document parsing
-    "LexiconProject",
     "parse_atproto_lexicon",
+    "parse_expr",
+    "parse_project",
     "parse_schema_bundle",
     "parse_schema_bundle_project",
     "parse_schema_document",
     "parse_schema_source",
-    "theory_of",
-    # Expr
-    "Expr",
-    "parse_expr",
-    "pretty_print_expr",
-    # VCS
-    "BisectState",
-    "Repository",
-    "VcsRepository",
-    # Parse + ParseEmitLens
-    "AstParserRegistry",
-    "ParseEmitLens",
-    "available_grammars",
     "parse_source_file",
-    # Project (multi-file panproto projects)
-    "ProjectBuilder",
-    "ProjectSchema",
-    "build_project",
-    "parse_project",
-    # Git bridge
-    "GitImportResult",
-    "git_import",
-    # Meta
-    "__version__",
+    "pipeline",
+    "pretty_print_expr",
+    "remove_field",
+    "rename_field",
+    "theory_of",
 ]

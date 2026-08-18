@@ -2,7 +2,7 @@
 
 ## In plain terms
 
-The REPL is the interactive surface for inspecting theories and terms: load a theory document, switch the active theory, ask for the type of a term, normalize a term under the directed equations, enumerate the free model. Every interactive command is a small operation on a stateful environment that holds the loaded theories, the loaded morphisms, and a pointer to the currently active theory.
+The REPL is the interactive surface for inspecting theories and terms. It can load a theory document, switch the active theory, infer the sort of a term, normalize under directed equations, and enumerate a bounded free model. A `Repl` value holds loaded theories, loaded morphisms, and an optional active-theory name.
 
 This page pins down what each command does, what state it touches, and what the bare-term-typecheck path means.
 
@@ -21,7 +21,9 @@ A line that does not begin with `:` is treated as a term and routed through the 
 
 ## Abstract syntax
 
-```rust,ignore
+The command model has the schematic shape below. The implementation dispatches directly from strings and does not export these enums, so the listing is not runnable Rust.
+
+```text
 pub enum ReplCommand {
     Load(PathBuf),
     Theories,
@@ -65,7 +67,7 @@ where $\llbracket \cdot \rrbracket_T$ is state-preserving: $\pi_1 \circ \llbrack
 
 ## Semantic equations
 
-Write $\sigma = (\theta, \mu, a)$ for a state and $\theta[n \mapsto T]$ for the obvious update. The equations:
+Write $\sigma = (\theta, \mu, a)$ for a state and $\theta[n \mapsto T]$ for the update that binds $n$ to $T$. With this notation, the command equations are:
 
 $$
 \begin{aligned}
@@ -103,23 +105,17 @@ $$
 \llbracket t \rrbracket_T\, \sigma \;=\; \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr)
 $$
 
-When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. When any auxiliary (`compile`, `typecheck_term`, `normalize`, `free_model`, `compile_instance`) returns an error, the outcome is $\mathsf{Error}(e)$ and the state is unchanged.
+When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. Typechecking, normalization, free-model enumeration, and instance compilation preserve state on failure. Loading is atomic with respect to REPL state. `cmd_load` compiles the whole document before touching anything, and inserts only on success, so the post-state is either fully updated or unchanged; the insertions themselves cannot fail.
 
 `Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-cli/src/repl/engine.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/repl/engine.rs) implement these equations pointwise.
 
 ## Soundness
 
-The REPL is a thin orchestration layer over the GAT engine and the theory DSL compiler. It introduces no new failure modes; every error it reports comes from one of:
+The REPL is an orchestration layer over the GAT engine and theory DSL compiler, but it renders most failures into `ReplOutcome` messages rather than exposing a typed sum of `LoadError` and `GatError` variants. Command parsing also contributes REPL-level messages for unknown commands, unknown theories, missing arguments, and malformed depth values.
 
-- `panproto_theory_dsl::LoadError` (during `:load` or `:instance`)
-- `panproto_gat::GatError` (during `:type`, `:normalize`, `:model`)
-- A REPL-level `UnknownCommand` / `UnknownTheory` for command-shape errors
+Normalization uses a fixed rewrite budget of 1,000 steps. Bare terms either produce a rendered type or a parse/type error. These paths are bounded by their underlying parsers and normalizer, but the implementation does not state a separate totality theorem for arbitrary input strings.
 
-State updates are atomic per line: a failed compile in `:load` rolls back the partial insertions before returning the error, so the post-state is either fully updated or unchanged.
-
-The bare-term path is total in the technical sense: every input string either parses and produces a `TypeOf` or `Error` outcome; the REPL does not deadlock or spin.
-
-## What is intentionally not modelled
+## What is intentionally not modeled
 
 - **Multi-line input.** Commands and terms are single-line. Continuations are the user's responsibility (concatenate into a single line before submission).
 - **Macro expansion.** There is no `:define` or `:macro`; the REPL is a pure inspection interface, not a programming environment.

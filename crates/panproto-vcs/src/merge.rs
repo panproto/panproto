@@ -1646,11 +1646,36 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     );
 
     // Rebuild precomputed indices.
+    //
+    // In sorted order, not in `edges.keys()` order. The merged edge set lives
+    // in a `HashMap`, so iterating it walks the buckets of that map's
+    // `RandomState`, which is seeded per process. Pushing in that order gives
+    // each index bucket a different arrangement of the same edges on every run,
+    // and a reader that takes a slice position rather than a value then answers
+    // differently run to run about one unchanged merge.
+    //
+    // This is defence in depth rather than the fix. `edge_image` is the reader
+    // that made the divergence observable and it now chooses by value, so the
+    // span is a function of the pair whether or not this loop sorts. What the
+    // sort buys is that the next positional reader is not bitten.
+    //
+    // It does not make the stored bytes a function of the schema, and nothing
+    // here could. `Schema` keeps `vertices`, `edges`, `outgoing`, `incoming` and
+    // `between` in `HashMap`s and serialising one walks those maps, so sorting
+    // what goes into a bucket does not settle the order the map is read out in.
+    // Measured: eight processes serialising one schema that never went through
+    // a merge produced eight distinct byte strings, against one constant
+    // `canonical_digest`. Settling that needs canonical serialisation of those
+    // fields, or dropping the derived indices from the wire form and rebuilding
+    // them on deserialise.
     let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for edge in edges.keys() {
+    let mut ordered_edges: Vec<&Edge> = edges.keys().collect();
+    ordered_edges.sort_unstable();
+
+    for edge in ordered_edges {
         outgoing
             .entry(edge.src.clone())
             .or_default()
@@ -1666,6 +1691,26 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     }
 
     let entries = three_way_merge_entries(base, ours, theirs, &vertices);
+
+    // A schema records each NSID twice, on the vertex and in `nsids`, and the
+    // two are merged by different rules: `merge_vertices` branches on kind
+    // changes and never looks at the NSID, while `merge_nsids` does a full
+    // three-way merge of the map. A side that adds an NSID to a vertex it does
+    // not otherwise touch therefore lands in the map alone, and the two copies
+    // of one fact then disagree — every reader of the vertex resolves it
+    // differently from every reader of the map, and the disagreement is baked
+    // into the commit's content address. `induce` asserts against it in debug
+    // builds; in release the schema simply carries the contradiction, and
+    // ATProto lexicon emission, which finds the root by `Vertex::nsid`, loses
+    // the NSID entirely.
+    //
+    // The map is authoritative: it is the copy that was merged with conflict
+    // detection, and every constructor writes a row for each vertex that has an
+    // NSID, so deriving the vertex's copy from it never erases one.
+    let mut vertices = vertices;
+    for (id, vertex) in &mut vertices {
+        vertex.nsid = nsids.get(id).cloned();
+    }
 
     let merged_schema = Schema {
         protocol: base.protocol.clone(),
@@ -2640,12 +2685,12 @@ fn merge_recursion_points(
     let ours_added: FxHashSet<&str> = diff_ours
         .added_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let ours_removed: FxHashSet<&str> = diff_ours
         .removed_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let ours_modified: FxHashSet<&str> = diff_ours
         .modified_recursion_points
@@ -2655,12 +2700,12 @@ fn merge_recursion_points(
     let theirs_added: FxHashSet<&str> = diff_theirs
         .added_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let theirs_removed: FxHashSet<&str> = diff_theirs
         .removed_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let theirs_modified: FxHashSet<&str> = diff_theirs
         .modified_recursion_points
@@ -3051,16 +3096,25 @@ fn merge_nsids(
 /// [`panproto_mig::discover_overlap`], then computes the categorical
 /// pushout via [`panproto_schema::schema_pushout`].
 ///
+/// `protocol` is what the discovered overlap is validated against. Overlap
+/// discovery induces a sub-schema, and a schema is only well formed relative
+/// to a protocol, so it re-validates rather than assuming. Callers with a
+/// stored protocol should pass it;
+/// [`protocol_for_schema`](crate::data_mig::protocol_for_schema) builds a
+/// minimal one from a schema's protocol name otherwise.
+///
 /// Returns the integrated schema together with morphisms embedding each
 /// input into the result.
 ///
 /// # Errors
 ///
-/// Returns [`crate::VcsError::NotImplemented`] if the underlying pushout fails
-/// (e.g., overlap references nonexistent vertices).
+/// Returns [`crate::VcsError::NotImplemented`] if overlap discovery fails or
+/// if the underlying pushout does (for instance because the overlap
+/// references nonexistent vertices).
 pub fn integrate_schemas(
     left: &Schema,
     right: &Schema,
+    protocol: &panproto_schema::Protocol,
 ) -> Result<
     (
         Schema,
@@ -3069,7 +3123,11 @@ pub fn integrate_schemas(
     ),
     crate::VcsError,
 > {
-    let overlap = panproto_mig::discover_overlap(left, right);
+    let overlap = panproto_mig::discover_overlap(left, right, protocol).map_err(|e| {
+        crate::VcsError::NotImplemented {
+            feature: format!("overlap discovery failed: {e}"),
+        }
+    })?;
     panproto_schema::schema_pushout(left, right, &overlap).map_err(|e| {
         crate::VcsError::NotImplemented {
             feature: format!("schema pushout failed: {e}"),

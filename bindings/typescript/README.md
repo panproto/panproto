@@ -67,6 +67,7 @@ const restored = lens.put(modifiedView, complement);
 | `Panproto.convert(rec, src, tgt)`| One-shot record conversion between two schema versions.                |
 | `Panproto.lens(src, tgt)`        | Build a `LensHandle` (bidirectional converter, `get` / `put`).         |
 | `Panproto.protolensChain(...)`   | Reusable protolens pipeline for batch conversion across many schemas.  |
+| `Panproto.span(src, tgt)`        | How much two schemas share, as a `SpanResponse`. Always answers: no alignment gives an empty apex, not an error. |
 | `Protocol`, `SchemaBuilder`, `BuiltSchema` | Fluent schema construction.                                  |
 | `FullDiffReport`, `CompatReport` | Structural diff plus backward-compat classification.                   |
 | `MigrationBuilder`, `CompiledMigration`, `LensHandle`, `ProtolensChainHandle`, `SymmetricLensHandle` | Hand-rolled migrations and lens handles. |

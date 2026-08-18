@@ -1,6 +1,6 @@
 # panproto for Swift
 
-Swift bindings for [panproto](https://github.com/panproto/panproto), linking `libpanproto_c`, the C ABI exposed by the [`panproto-c`](../../crates/panproto-c) crate. Every one of its 120 entry points is reachable: schemas, instances, migrations, lenses, theories, the expression language, compatibility checking, homomorphism search, graph fibers, datasets, version control, and the feature-gated parse, project, and git tiers.
+Swift bindings for [panproto](https://github.com/panproto/panproto), linking `libpanproto_c`, the C ABI exposed by the [`panproto-c`](../../crates/panproto-c) crate. Every one of its 122 entry points is reachable: schemas, instances, migrations, lenses, theories, the expression language, compatibility checking, homomorphism search, graph fibers, datasets, version control, and the feature-gated parse, project, and git tiers.
 
 The package targets macOS 14 and iOS 17, builds in Swift 6 language mode with strict concurrency, and resolves no dependency on an ordinary build. Building the documentation opts into one, the DocC plugin.
 
@@ -163,7 +163,7 @@ Do not expect the engine's bytes to be reproducible. Most schema and instance fi
 
 ## Feature-gated tiers
 
-The default `libpanproto_c` exports 103 of the 120 entry points. The `parse`, `project`, and `git` tiers need a library built with the matching cargo features, and a Swift build told to compile their shims in:
+The default `libpanproto_c` exports 105 of the 122 entry points. The `parse`, `project`, and `git` tiers need a library built with the matching cargo features, and a Swift build told to compile their shims in:
 
 ```sh
 PANPROTO_C_FEATURES=full ./bootstrap/dev-link.sh
@@ -177,7 +177,7 @@ Each tier is a package trait, and a trait defines a compilation condition of its
 ```
 Sources/
   CPanproto/           the vendored header, the gated declarations, and the module map
-  PanprotoFFI/         typed shims over all 120 entry points, as Raw.<name>
+  PanprotoFFI/         typed shims over all 122 entry points, as Raw.<name>
   PanprotoStructural/  CBOR/ and Wire/: the value layer, no FFI
                        PanprotoStructural.docc/: its documentation catalog
   Panproto/            the engine actor, the handles, the errors, the core domains

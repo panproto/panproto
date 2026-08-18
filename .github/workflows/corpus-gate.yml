@@ -1,9 +1,18 @@
 name: Corpus Gate
 
-# The full emit corpus gates (every vendored grammar's entire upstream
-# test/corpus round-tripped under the strict oracle) take ~30 minutes, so they
-# are excluded from per-PR CI (see the `ci` nextest profile in
-# `.config/nextest.toml`) and run here instead: nightly, and on demand.
+# The whole-corpus gates run here rather than on every PR, because each of them
+# walks a committed corpus end to end and is too slow for per-PR CI (see the
+# `ci` nextest profile in `.config/nextest.toml`): nightly, and on demand.
+#
+#   * The full emit corpus gates round-trip every vendored grammar's entire
+#     upstream test/corpus under the strict oracle, and take ~30 minutes.
+#   * The span solver's oracle agreement sweep enumerates every assignment of
+#     both networks of every enumerable lexicon pair and checks the solver's
+#     answer against the true optimum. ~160 seconds unoptimised.
+#   * The cross-process corpus span comparison searches every ordered corpus
+#     pair in sixteen separate processes and compares the whole span, so a
+#     result that varied with the hash seed would show up as a second digest.
+#     ~7 minutes unoptimised.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -14,7 +23,7 @@ permissions:
 
 jobs:
   corpus-gate:
-    name: Full emit corpus gate
+    name: Whole-corpus gates
     runs-on: ubuntu-latest
     timeout-minutes: 90
     steps:
@@ -35,3 +44,15 @@ jobs:
         run: |
           cargo nextest run -p panproto-parse --all-features \
             -E 'test(/corpus_verified_protocols_round_trip_full_corpus|strip_complement_canonical_section_is_structurally_faithful|long_tail_emit_is_verified/)'
+      # Unoptimised on purpose: the debug build keeps `debug_assert!` live, and
+      # the solver states several of its internal invariants that way.
+      - name: Run the corpus oracle agreement sweep
+        run: |
+          cargo nextest run -p panproto-mig \
+            -E 'test(every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration)'
+      # Sixteen child processes each rerun the whole corpus, so this needs the
+      # unoptimised build the step above already warmed.
+      - name: Run the cross-process corpus span comparison
+        run: |
+          cargo nextest run -p panproto-mig \
+            -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'

@@ -1,30 +1,130 @@
-//! Higher stringency tiers must align whatever lower tiers align.
+//! A higher stringency tier must not lose what a lower one found.
 //!
-//! [`Stringency`] documents that its tiers form a superset ladder, and
-//! the corpus in `panproto-lens` asserts that across its synthetic
-//! cases. Those cases are small enough that the anchor set barely
-//! changes between tiers, so they never exercised the way the ladder
-//! actually broke.
+//! [`Stringency`] documents that its tiers form a superset ladder: each one
+//! runs every alignment strategy the tier below it runs, and then some. Two
+//! claims follow, and this file asserts both on real `atproto` lexicons rather
+//! than on synthetic pairs small enough that the anchor pool barely moves
+//! between tiers.
 //!
-//! Two real `atproto` lexicons do. `app.bsky.feed.post` against
-//! `app.bsky.actor.profile` resolves 15 anchors at `Lenient` and 27 at
-//! `Exploratory`, and the higher set is a strict superset: no vertex
-//! changes its target. The ladder broke by addition. Two of the added
-//! anchors are jointly infeasible, either one alone being satisfiable,
-//! because together they require the source edge
-//! `body.facets:items --ref--> app.bsky.richtext.facet` to map to a
-//! target edge that does not exist. While anchors were pinned through
-//! `SearchOptions::initial`, which collapses a vertex's domain to
-//! exactly the pinned target, that left the CSP unsatisfiable and
-//! `Exploratory` reported no morphism on a pair `Lenient` aligned.
+//! First, the **anchor pool** grows with the tier. This is the claim that
+//! actually broke: strategy output used to reach the search as a domain
+//! collapse, so a tier that proposed more could search less, and two
+//! individually plausible anchors that were jointly infeasible turned a pair
+//! the lower tier aligned into "no morphism found".
+//!
+//! Second, the **span** the search returns does not get worse as the pool
+//! grows. Evidence enters the objective through one reward-only unary term and
+//! through nothing else, so it can change which assignment is optimal and can
+//! never make a feasible assignment infeasible. Quality is therefore monotone
+//! non-decreasing in the pool, and apex size with it.
+//!
+//! The step from *pool* to *tier* is not free, and this is where the two claims
+//! come apart. A tier is not a superset of the tier below it: the two
+//! strategies named in the next section can withdraw a proposal, a withdrawn
+//! proposal is evidence lost, and an optimum that had been paying for that
+//! evidence rises. `tier_monotonicity.rs` in the integration suite exhibits a
+//! pair where exactly that happens, so "monotone in the tier" is false as a
+//! general statement and only the pool claim is a theorem. What licenses the
+//! tier comparisons below is therefore checked rather than assumed:
+//! `assert_evidence_grows` asserts that on these two fixtures the aggregated
+//! evidence really does dominate up the ladder, which is the hypothesis the
+//! quality assertions rest on.
+//!
+//! # Two strategies are exempt from the first claim, and cannot be otherwise
+//!
+//! Most strategies take a *threshold* from the tier, so raising the tier only
+//! lowers a bar and their output can only grow. Two do not, and both were
+//! measured proposing at `Lenient` something they withhold at `Exploratory`:
+//!
+//! * [`StrategyTag::WlRefinement`] takes an *iteration count* from the tier,
+//!   two rounds below `Exploratory` and three at it. Each round of colour
+//!   refinement partitions the vertices more finely, so a pair that shares a
+//!   colour after two rounds can be separated by the third. The tier changes
+//!   the resolution of the comparison, not the bar it must clear.
+//! * [`StrategyTag::Neighborhood`] propagates outward from a *selection* over
+//!   the pool assembled so far, and selection is one-to-one. A larger pool can
+//!   therefore give a source vertex a different seed, and everything that
+//!   propagated from the old seed goes with it.
+//!
+//! So containment is asserted over the threshold-driven strategies, and
+//! separately those two are asserted to be the *only* exceptions. The second
+//! assertion is the sharper of the pair: a third strategy going non-monotone
+//! is a regression, and it is what this file would catch.
+//!
+//! # What is and is not non-trivial in the span assertions
+//!
+//! [`CostWeights`] ships with an anchor weight of **zero**. Under the shipped
+//! weights the evidence term is identically zero, so the four tiers minimise
+//! the same objective and return the *same span*: the monotonicity assertions
+//! would hold as equalities whatever the pools were, and could not fail. That
+//! invariance is worth asserting on its own, and
+//! `shipped_weights_make_the_span_tier_invariant` does, because it is the
+//! first of the three prohibitions the evidence encoding rests on. But it is
+//! not evidence for monotonicity.
+//!
+//! The monotonicity test therefore runs the search with the anchor term
+//! weighted into the objective, where the tier can reach the optimum at all.
+//! It bites: on both pairs the optimal quality cost strictly falls twice
+//! across the ladder, and the test refuses to pass if it stops doing so.
 
-use panproto_core::lens::{self, AutoLensConfig, Stringency};
+use std::collections::HashSet;
+use std::time::Instant;
+
+use panproto_core::gat::Name;
+use panproto_core::lens::{AutoLensConfig, Stringency, auto_lens};
+use panproto_core::mig::align::evidence::{AggregationPolicy, EvidenceTable, aggregate};
+use panproto_core::mig::{Anchor, CostWeights, SchemaSpan, SpanSearch, StrategyTag, quality_units};
 use panproto_core::protocols;
 use panproto_core::schema::{Protocol, Schema};
 
 const FEED_POST: &str = include_str!("../../../fixtures/atproto/lexicons/app.bsky.feed.post.json");
 const ACTOR_PROFILE: &str =
     include_str!("../../../fixtures/atproto/lexicons/app.bsky.actor.profile.json");
+const VERIFY_COERCION_LAWS: &str =
+    include_str!("../../../lexicons/dev/panproto/translate/verifyCoercionLaws.json");
+
+/// The four tiers in ascending order of what they will consider.
+const TIERS: [Stringency; 4] = [
+    Stringency::Strict,
+    Stringency::Balanced,
+    Stringency::Lenient,
+    Stringency::Exploratory,
+];
+
+/// The strategies whose tier knob is a resolution or a seed rather than a
+/// threshold, and whose output is therefore not monotone in the tier.
+///
+/// The module docs give the mechanism for each.
+const NON_THRESHOLD_STRATEGIES: [StrategyTag; 2] =
+    [StrategyTag::WlRefinement, StrategyTag::Neighborhood];
+
+/// What the whole monotonicity test may spend, in a release build.
+///
+/// The second pair below took 24 seconds and 48 million search nodes before
+/// the search became an exact optimiser over a cost function network. It now
+/// takes single-digit milliseconds per tier, and asserting a wall-clock bound
+/// is what lets this test run by default instead of carrying an `#[ignore]`.
+/// The bound is the point rather than a detail; it sits roughly three times
+/// above the measured cost, so it reports a regression rather than a slow
+/// machine.
+const RUNTIME_BUDGET_MS: u128 = 100;
+
+/// Weights under which the anchor term reaches the objective.
+///
+/// The four structural components keep their shipped ratios and the anchor
+/// term is given their combined weight, so after normalisation it carries half
+/// the objective. This is not a proposed default and nothing here has been
+/// calibrated. It exists so that the monotonicity assertions have something to
+/// bite on: at the shipped anchor weight of zero they are assertions of
+/// tier-invariance instead, which is what
+/// `shipped_weights_make_the_span_tier_invariant` asserts separately.
+#[expect(
+    clippy::expect_used,
+    reason = "a weight vector written as a literal is either valid or a defect in this file"
+)]
+fn anchor_weighted() -> CostWeights {
+    CostWeights::new(0.25, 0.25, 0.30, 0.20, 1.0).expect("literal weights are valid")
+}
 
 #[expect(
     clippy::expect_used,
@@ -35,45 +135,296 @@ fn lexicon(source: &str) -> Schema {
     protocols::atproto::parse_lexicon(&json).expect("lexicon parses as a schema")
 }
 
-fn aligns_at(src: &Schema, tgt: &Schema, tier: Stringency) -> bool {
-    let protocol = Protocol {
-        name: "atproto".into(),
-        ..Default::default()
-    };
+/// The raw anchor proposals the tier's strategies emit, before aggregation.
+fn anchor_pool(src: &Schema, tgt: &Schema, tier: Stringency) -> Vec<Anchor> {
     let config = AutoLensConfig {
         stringency: tier,
-        ..Default::default()
+        ..AutoLensConfig::default()
     };
-    lens::auto_generate(src, tgt, &protocol, &config).is_ok()
+    auto_lens::run_strategies_for_tests(src, tgt, &config).0
 }
 
-/// Ignored by default because it costs a couple of seconds in release
-/// and considerably more in debug, which is more than a unit test
-/// should spend.
+/// The pool as a set, keyed on what an anchor claims and which strategy
+/// claimed it.
 ///
-/// The cost is the soft-anchor retry. `find_best_morphism` enumerates
-/// the whole hom-set and ranks it, and a preference keeps a vertex's
-/// whole domain, so the number of complete assignments to score is
-/// large. `SOFT_ANCHOR_NODE_BUDGET` bounds it. Run this with:
+/// Confidence is deliberately out of the key. Several strategies scale their
+/// score by how far past the tier's threshold a pair landed, so the same pair
+/// from the same strategy carries different numbers at different tiers.
+/// Containment is a claim about which pairs are proposed, not about what they
+/// are worth.
+fn pool_keys(anchors: &[Anchor]) -> HashSet<(Name, Name, StrategyTag)> {
+    anchors
+        .iter()
+        .map(|anchor| (anchor.src.clone(), anchor.tgt.clone(), anchor.strategy))
+        .collect()
+}
+
+/// The integer quality cost the span reports, recovered from the reading it
+/// publishes.
 ///
-/// ```text
-/// cargo nextest run --release -p panproto-core -- --ignored
-/// ```
+/// The comparison across tiers is made on this rather than on the `f64`,
+/// because the objective is an integer fixed-point sum and two costs one unit
+/// apart are two distinct optima an `f64` comparison can report as equal.
+fn quality_cost(span: &SchemaSpan) -> u64 {
+    quality_units(1.0 - span.quality)
+}
+
+/// The optimal span for one evidence table.
+#[expect(
+    clippy::expect_used,
+    reason = "the span search refuses only on a malformed apex, which is a defect and not an answer"
+)]
+fn span_for(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    table: &EvidenceTable,
+    weights: CostWeights,
+) -> SchemaSpan {
+    SpanSearch::new(protocol)
+        .with_evidence(table)
+        .with_weights(weights)
+        .run(src, tgt)
+        .expect("the span search returns a span for every schema pair")
+}
+
+/// Assert that the pool grows with the tier, up to the two strategies whose
+/// tier knob is not a threshold.
+fn assert_pool_grows(pools: &[HashSet<(Name, Name, StrategyTag)>], pair: &str) {
+    for (i, lower) in pools.iter().enumerate() {
+        for (j, higher) in pools.iter().enumerate().skip(i + 1) {
+            for lost in lower.difference(higher) {
+                assert!(
+                    NON_THRESHOLD_STRATEGIES.contains(&lost.2),
+                    "{pair}: {:?} lost the proposal {} -> {} that {:?} makes, from {:?}. That \
+                     strategy reads the tier as a threshold, and raising a tier only lowers a \
+                     threshold, so its output cannot shrink",
+                    TIERS[j],
+                    lost.0,
+                    lost.1,
+                    TIERS[i],
+                    lost.2,
+                );
+            }
+        }
+    }
+}
+
+/// Assert that the aggregated evidence dominates up the ladder.
+///
+/// This is the hypothesis the quality assertions rest on, and the module docs
+/// say why it needs asserting: the pool claim tolerates two strategies
+/// withdrawing a proposal, and a withdrawal at a pair the search scores is
+/// evidence lost at that pair, which is enough for the optimum to rise. On
+/// these two fixtures no withdrawal lands on a scored pair, so the tier
+/// comparisons are licensed; on a fixture where one did, they would not be, and
+/// this says so rather than letting them pass by luck.
+fn assert_evidence_grows(tables: &[EvidenceTable], pair: &str) {
+    for (i, lower) in tables.iter().enumerate() {
+        for (j, higher) in tables.iter().enumerate().skip(i + 1) {
+            for (source, target, evidence) in lower.rows() {
+                let grown = higher.get(source, target).map_or(0.0, |row| row.score);
+                assert!(
+                    grown >= evidence.score,
+                    "{pair}: the evidence for {source} -> {target} fell from {:?} to {:?} \
+                     ({} then {grown}), so the quality assertions below are no longer licensed \
+                     on this fixture: the tier withdrew a proposal the objective was paying for",
+                    TIERS[i],
+                    TIERS[j],
+                    evidence.score,
+                );
+            }
+        }
+    }
+}
+
+/// Assert every per-tier property of the span, and every cross-tier one, for
+/// one schema pair.
+fn assert_span_monotone(src: &Schema, tgt: &Schema, pair: &str) {
+    let protocol = protocols::atproto::protocol();
+    let weights = anchor_weighted();
+
+    let pools: Vec<Vec<Anchor>> = TIERS
+        .iter()
+        .map(|tier| anchor_pool(src, tgt, *tier))
+        .collect();
+    let keys: Vec<HashSet<(Name, Name, StrategyTag)>> =
+        pools.iter().map(|pool| pool_keys(pool)).collect();
+    assert_pool_grows(&keys, pair);
+
+    let tables: Vec<EvidenceTable> = pools
+        .iter()
+        .map(|pool| aggregate(pool, AggregationPolicy::StrictPriority))
+        .collect();
+    assert_evidence_grows(&tables, pair);
+
+    let spans: Vec<SchemaSpan> = tables
+        .iter()
+        .map(|table| span_for(src, tgt, &protocol, table, weights))
+        .collect();
+
+    for (tier, span) in TIERS.iter().zip(&spans) {
+        // Both pairs are well inside the width the exact solver handles, so a
+        // search that did not prove its answer optimal fell back, and the
+        // fallback is what an exact optimiser exists to make unnecessary.
+        assert!(
+            span.certificate.proven_optimal,
+            "{pair} at {tier:?}: the search did not prove its answer optimal; it took the {:?} \
+             path and reported {:?}",
+            span.certificate.path, span.certificate.limit_hit,
+        );
+        // Feasibility is tier-invariant, so "a span exists" says nothing. That
+        // it covers something does.
+        assert!(
+            !span.apex.vertices.is_empty(),
+            "{pair} at {tier:?}: the optimal span has an empty apex, so the two schemas were \
+             found to share no vertex at all"
+        );
+        assert!(
+            span.certificate.legs_are_functorial,
+            "{pair} at {tier:?}: a leg of the span is not a schema morphism"
+        );
+    }
+
+    let mut strictly_better = 0usize;
+    for step in TIERS.iter().zip(&spans).collect::<Vec<_>>().windows(2) {
+        let (lower_tier, lower) = step[0];
+        let (higher_tier, higher) = step[1];
+        assert!(
+            quality_cost(higher) <= quality_cost(lower),
+            "{pair}: quality fell from {lower_tier:?} to {higher_tier:?} ({} -> {} in integer \
+             cost units). Evidence enters the objective as a reward-only unary cost, so a larger \
+             anchor pool cannot raise the optimum",
+            quality_cost(lower),
+            quality_cost(higher),
+        );
+        if quality_cost(higher) < quality_cost(lower) {
+            strictly_better += 1;
+        }
+        assert!(
+            higher.apex.vertices.len() >= lower.apex.vertices.len(),
+            "{pair}: the apex shrank from {lower_tier:?} to {higher_tier:?} ({} -> {} vertices)",
+            lower.apex.vertices.len(),
+            higher.apex.vertices.len(),
+        );
+    }
+
+    // Without this the comparisons above would pass on four identical spans,
+    // which is exactly the state the shipped anchor weight of zero puts them
+    // in. Both fixtures improve at two of the three steps.
+    assert!(
+        strictly_better >= 2,
+        "{pair}: the optimum improved at {strictly_better} of the three tier steps, so the \
+         monotonicity assertions above are close to vacuous on this pair. Either the evidence \
+         stopped reaching the objective or this fixture stopped discriminating between tiers"
+    );
+}
+
+/// The pair the ladder broke on, and the pair that used to dominate the
+/// runtime.
 #[test]
-#[ignore = "seconds, not milliseconds; see the comment above"]
-fn exploratory_aligns_whatever_lenient_aligns() {
+fn span_quality_is_monotone_across_tiers() {
+    let started = Instant::now();
+
     let post = lexicon(FEED_POST);
     let profile = lexicon(ACTOR_PROFILE);
+    assert_span_monotone(&post, &profile, "feed.post -> actor.profile");
 
+    // The pair above is the one whose anchor set went jointly infeasible; this
+    // one cost 24 seconds and 48 million search nodes under
+    // enumerate-then-sort.
+    let verify = lexicon(VERIFY_COERCION_LAWS);
+    assert_span_monotone(&post, &verify, "feed.post -> verifyCoercionLaws");
+
+    let elapsed = started.elapsed();
     assert!(
-        aligns_at(&post, &profile, Stringency::Lenient),
-        "the fixture pair no longer aligns at Lenient, so this test has stopped \
-         guarding anything; pick a pair that does"
+        cfg!(debug_assertions) || elapsed.as_millis() <= RUNTIME_BUDGET_MS,
+        "the whole test took {elapsed:?}, over the {RUNTIME_BUDGET_MS} ms budget. This pair cost \
+         24 seconds before the search became an exact optimiser, and the budget is what keeps it \
+         from drifting back"
     );
+}
+
+/// At the shipped anchor weight the four tiers return the same span.
+///
+/// This is not a restatement of the monotonicity assertions. It is the first
+/// prohibition the evidence encoding rests on: evidence never removes a value
+/// from a domain, so with the anchor term weighted at zero the four tiers
+/// minimise one objective over one feasible set, and the answer cannot depend
+/// on the tier however much the pool grows. It is also why
+/// `span_quality_is_monotone_across_tiers` weights the anchor term in: under
+/// the shipped weights its comparisons are equalities.
+#[test]
+fn shipped_weights_make_the_span_tier_invariant() {
+    let post = lexicon(FEED_POST);
+    let profile = lexicon(ACTOR_PROFILE);
+    let protocol = protocols::atproto::protocol();
+
+    // The anchor weight is the only route from the tier into the objective, and
+    // the claim is that it is literally zero rather than merely small, so the
+    // comparison is on the bit pattern.
+    assert_eq!(
+        CostWeights::default().anchor().to_bits(),
+        0.0_f64.to_bits(),
+        "the shipped anchor weight is no longer zero, so this test now asserts something \
+         stronger than it was written to assert. Read the module docs and decide which of the \
+         two claims it should make"
+    );
+
+    let pools: Vec<Vec<Anchor>> = TIERS
+        .iter()
+        .map(|tier| anchor_pool(&post, &profile, *tier))
+        .collect();
+
+    // The pools do differ, so the invariance below is a statement about the
+    // objective rather than about four tiers proposing the same thing.
     assert!(
-        aligns_at(&post, &profile, Stringency::Exploratory),
-        "Exploratory found no morphism on a pair Lenient aligns. A tier-exclusive \
-         alignment strategy has displaced an anchor the lower tier relied on, and \
-         the displacement is reaching the solver as a pin rather than a preference"
+        pool_keys(&pools[3]).len() > pool_keys(&pools[0]).len(),
+        "the pool did not grow across the ladder ({} -> {}), so this fixture no longer \
+         distinguishes tier-invariance from the tiers agreeing",
+        pool_keys(&pools[0]).len(),
+        pool_keys(&pools[3]).len(),
     );
+
+    let spans: Vec<SchemaSpan> = pools
+        .iter()
+        .map(|pool| {
+            let table = aggregate(pool, AggregationPolicy::StrictPriority);
+            span_for(&post, &profile, &protocol, &table, CostWeights::default())
+        })
+        .collect();
+
+    // Every assertion below compares one tier to another, so a defect that
+    // moves all four to the same place is invisible to them. Saturation is
+    // exactly that defect: an objective that drives the cost to either end of
+    // `[quality_units(0.0), quality_units(1.0)]` does so at every tier, and the
+    // cross-tier equalities then hold on a degenerate answer. One absolute
+    // reading rules it out. The measured cost on this pair sits near the middle
+    // of the range, so the bound is a check on degeneracy and not a threshold
+    // anything is tuned against.
+    for (tier, span) in TIERS.iter().zip(&spans) {
+        let cost = quality_cost(span);
+        assert!(
+            cost > quality_units(0.0) && cost < quality_units(1.0),
+            "the span at {tier:?} costs {cost}, which is an endpoint of the quality range. The \
+             tier comparisons below cannot see a defect that saturates every tier alike, so a \
+             saturated reading here means they are asserting nothing"
+        );
+    }
+
+    for (tier, span) in TIERS.iter().zip(&spans).skip(1) {
+        assert_eq!(
+            span.certificate.apex_digest, spans[0].certificate.apex_digest,
+            "the apex at {tier:?} differs from the one at {:?}, but with the anchor term \
+             weighted at zero the tier cannot reach the objective at all",
+            TIERS[0],
+        );
+        assert_eq!(
+            quality_cost(span),
+            quality_cost(&spans[0]),
+            "the quality at {tier:?} differs from the one at {:?} with the anchor term weighted \
+             at zero",
+            TIERS[0],
+        );
+    }
 }

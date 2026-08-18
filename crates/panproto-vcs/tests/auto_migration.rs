@@ -5,7 +5,7 @@
 //! `panproto_vcs` (rename detection, repository operations) to verify
 //! end-to-end migration workflows.
 
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::collections::{HashMap, HashSet};
 
@@ -18,8 +18,8 @@ use panproto_mig::{
     find_best_morphism, lift_wtype, lift_wtype_sigma, saturate_row_existence,
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder, Vertex, schema_pushout};
-use panproto_vcs::Repository;
 use panproto_vcs::rename_detect;
+use panproto_vcs::{Repository, Store};
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -146,7 +146,7 @@ fn auto_migrate_rename_workflow() {
 
     // Use find_best_morphism to discover the mapping
     let opts = SearchOptions::default();
-    let best = find_best_morphism(&v1, &v2, &opts);
+    let best = find_best_morphism(&v1, &v2, &opts).expect("the network poses");
     assert!(best.is_some(), "should find a morphism for rename");
 
     let morphism = best.unwrap();
@@ -213,7 +213,7 @@ fn discover_overlap_and_pushout_integration() {
     );
 
     // Discover the shared structure: both have object -> string with "name" edge
-    let overlap = discover_overlap(&schema_a, &schema_b);
+    let overlap = discover_overlap(&schema_a, &schema_b, &test_protocol()).unwrap();
 
     // Should find at least the object+string subgraph
     assert!(
@@ -498,7 +498,9 @@ fn full_pipeline_auto_morphism_to_lift() {
 
     // Discover the migration automatically
     let opts = SearchOptions::default();
-    let best = find_best_morphism(&old_schema, &new_schema, &opts).unwrap();
+    let best = find_best_morphism(&old_schema, &new_schema, &opts)
+        .expect("the network poses")
+        .unwrap();
     let mig = morphism_to_migration(&best);
 
     // Verify the morphism maps correctly
@@ -563,7 +565,7 @@ fn schema_pushout_with_overlap_and_lift() {
     );
 
     // Discover overlap: both have object + string with "name" edge
-    let overlap = discover_overlap(&schema_a, &schema_b);
+    let overlap = discover_overlap(&schema_a, &schema_b, &test_protocol()).unwrap();
     assert!(
         overlap.vertex_pairs.len() >= 2,
         "should find overlapping object+string vertices"
@@ -645,4 +647,398 @@ fn schema_pushout_with_overlap_and_lift() {
             node.anchor
         );
     }
+}
+
+// ===========================================================================
+// Test 7: auto-derived migrations never contract
+// ===========================================================================
+
+/// Is every source vertex sent to a distinct target?
+fn vertex_map_is_injective(mig: &Migration) -> bool {
+    let mut seen = HashSet::new();
+    mig.vertex_map
+        .values()
+        .all(|target| seen.insert(target.clone()))
+}
+
+/// Fixtures whose diffs invite the span search to contract.
+///
+/// Each is `(label, old, new)`. Every one pairs a rename the diff reads as a
+/// removal plus an addition with removals that have no counterpart, which is
+/// the shape that scores a contraction above the honest partial map when the
+/// search ranks candidates by coverage alone.
+fn contraction_bait() -> Vec<(&'static str, Schema, Schema)> {
+    vec![
+        (
+            // Rename one field, drop its three siblings. The contraction sends
+            // all four onto the renamed field.
+            "rename one, drop three",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("a", "string"),
+                    ("b", "string"),
+                    ("c", "string"),
+                    ("d", "string"),
+                ],
+                &[
+                    ("root", "a", "prop", "a"),
+                    ("root", "b", "prop", "b"),
+                    ("root", "c", "prop", "c"),
+                    ("root", "d", "prop", "d"),
+                ],
+            ),
+            build_schema(
+                &[("root", "object"), ("keep", "string")],
+                &[("root", "keep", "prop", "a")],
+            ),
+        ),
+        (
+            // Five integer fields retyped to string, with one integer field
+            // added. Only the added field is kind-compatible with the five, so
+            // the sole total morphism sends all five onto it.
+            "retype five, add one of the old kind",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("i1", "integer"),
+                    ("i2", "integer"),
+                    ("i3", "integer"),
+                    ("i4", "integer"),
+                    ("i5", "integer"),
+                ],
+                &[
+                    ("root", "i1", "prop", "fk"),
+                    ("root", "i2", "prop", "fk"),
+                    ("root", "i3", "prop", "fk"),
+                    ("root", "i4", "prop", "fk"),
+                    ("root", "i5", "prop", "fk"),
+                ],
+            ),
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("s1", "string"),
+                    ("s2", "string"),
+                    ("s3", "string"),
+                    ("s4", "string"),
+                    ("s5", "string"),
+                    ("z", "integer"),
+                ],
+                &[
+                    ("root", "s1", "prop", "fk"),
+                    ("root", "s2", "prop", "fk"),
+                    ("root", "s3", "prop", "fk"),
+                    ("root", "s4", "prop", "fk"),
+                    ("root", "s5", "prop", "fk"),
+                    ("root", "z", "prop", "z"),
+                ],
+            ),
+        ),
+        (
+            // A pure deletion: four of five fields go away and nothing is
+            // added. The contraction sends the four onto the survivor.
+            "drop four of five fields",
+            build_schema(
+                &[
+                    ("root", "object"),
+                    ("root.a", "string"),
+                    ("root.b", "string"),
+                    ("root.c", "string"),
+                    ("root.d", "string"),
+                    ("root.e", "string"),
+                ],
+                &[
+                    ("root", "root.a", "prop", "a"),
+                    ("root", "root.b", "prop", "b"),
+                    ("root", "root.c", "prop", "c"),
+                    ("root", "root.d", "prop", "d"),
+                    ("root", "root.e", "prop", "e"),
+                ],
+            ),
+            build_schema(
+                &[("root", "object"), ("root.a", "string")],
+                &[("root", "root.a", "prop", "a")],
+            ),
+        ),
+    ]
+}
+
+/// An auto-derived migration is injective on vertices.
+///
+/// Auto-derivation leaves `resolver` empty and directs the user to an explicit
+/// migration file when contraction resolution is needed, so a derived map that
+/// sends two old vertices to one new vertex is an unresolved contraction. Under
+/// `Pi` it is rejected as a non-injective vertex map; under `Sigma` it silently
+/// reproduces each contracted vertex's data under the shared target.
+#[test]
+fn auto_derived_migration_never_contracts() {
+    for (label, old, new) in contraction_bait() {
+        let d = panproto_check::diff::diff(&old, &new);
+        let mig = panproto_vcs::auto_mig::derive_migration(&old, &new, &d);
+
+        let mut pairs: Vec<(String, String)> = mig
+            .vertex_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        pairs.sort();
+        assert!(
+            vertex_map_is_injective(&mig),
+            "{label}: auto-derived migration contracts: {pairs:?}"
+        );
+    }
+}
+
+/// The contraction is what a total-morphism search offers on these pairs.
+///
+/// This is the fact that makes the previous test load-bearing rather than
+/// vacuous. On every fixture a total morphism exists, it covers every old
+/// vertex, it covers strictly more than the derived migration does, and it is a
+/// contraction. So a coverage-ranked second pass over `find_best_morphism`
+/// would find a candidate, clear a "derived map covers less than half" gate,
+/// pass `check_morphism`, and adopt the contraction. Staging runs no such pass:
+/// it takes `derive_migration` and stops.
+#[test]
+fn the_total_morphism_these_pairs_admit_is_a_contraction() {
+    for (label, old, new) in contraction_bait() {
+        let d = panproto_check::diff::diff(&old, &new);
+        let mig = panproto_vcs::auto_mig::derive_migration(&old, &new, &d);
+
+        let best = find_best_morphism(&old, &new, &SearchOptions::default())
+            .expect("the network poses")
+            .unwrap_or_else(|| panic!("{label}: expected a total morphism"));
+        assert_eq!(
+            best.vertex_map.len(),
+            old.vertex_count(),
+            "{label}: a total morphism covers every old vertex"
+        );
+        assert!(
+            best.vertex_map.len() > mig.vertex_map.len(),
+            "{label}: the total morphism must cover more than the derived map, \
+             or a coverage-ranked pass could not prefer it"
+        );
+        assert!(
+            mig.vertex_map.len() * 2 < old.vertex_count(),
+            "{label}: the derived map must fall under half, or the gate a \
+             second pass sits behind never opens"
+        );
+
+        let mut spliced = morphism_to_migration(&best);
+        spliced.hyper_edge_map.clone_from(&mig.hyper_edge_map);
+        spliced.label_map.clone_from(&mig.label_map);
+        assert!(
+            !vertex_map_is_injective(&spliced),
+            "{label}: the total morphism must be a contraction, or adopting it \
+             would be harmless and this fixture proves nothing"
+        );
+
+        let (dom, cod, morph) = panproto_mig::induced_theory_morphism(&old, &new, &spliced);
+        assert!(
+            panproto_gat::check_morphism(&morph, &dom, &cod).is_ok(),
+            "{label}: the contraction type-checks, so `check_morphism` is not \
+             what keeps it out of the stored migration"
+        );
+    }
+}
+
+/// The migration a commit stores is injective on vertices.
+///
+/// Same claim as `auto_derived_migration_never_contracts`, made of the object
+/// the repository actually writes rather than of the derivation in isolation,
+/// so that a recovery pass added between `derive_migration` and the store
+/// cannot reintroduce the contraction unnoticed.
+#[test]
+fn committed_migration_never_contracts() {
+    for (label, old, new) in contraction_bait() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut repo = Repository::init(dir.path()).unwrap();
+        repo.add(&old).unwrap();
+        repo.commit("old", "alice").unwrap();
+        repo.add(&new).unwrap();
+        let commit_id = repo.commit("new", "alice").unwrap();
+
+        let commit = match repo.store().get(&commit_id).unwrap() {
+            panproto_vcs::object::Object::Commit(c) => c,
+            other => panic!("{label}: expected Commit, got {}", other.type_name()),
+        };
+        let mig_id = commit
+            .migration_id
+            .unwrap_or_else(|| panic!("{label}: the second commit stores a migration"));
+        let stored = match repo.store().get(&mig_id).unwrap() {
+            panproto_vcs::object::Object::Migration { mapping, .. } => mapping,
+            other => panic!("{label}: expected Migration, got {}", other.type_name()),
+        };
+
+        let mut pairs: Vec<(String, String)> = stored
+            .vertex_map
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect();
+        pairs.sort();
+        assert!(
+            vertex_map_is_injective(&stored),
+            "{label}: the stored migration contracts: {pairs:?}"
+        );
+        assert!(
+            stored.resolver.is_empty(),
+            "{label}: auto-derivation supplies no contraction resolver, which \
+             is why the map above has to be injective"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// What an auto-derived migration may not do
+// ---------------------------------------------------------------------------
+
+/// A protocol with a `record` kind, for the rename-detection fixtures.
+fn record_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        schema_theory: "ThTest".into(),
+        instance_theory: "ThWType".into(),
+        edge_rules: vec![],
+        obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
+        constraint_sorts: vec![],
+        ..Protocol::default()
+    }
+}
+
+fn build_with(
+    proto: &Protocol,
+    vertices: &[(&str, &str)],
+    edges: &[(&str, &str, &str, &str)],
+) -> Schema {
+    let mut builder = SchemaBuilder::new(proto);
+    for (id, kind) in vertices {
+        builder = builder.vertex(id, kind, None::<&str>).unwrap();
+    }
+    for (src, tgt, kind, name) in edges {
+        builder = builder.edge(src, tgt, kind, Some(*name)).unwrap();
+    }
+    builder.build().unwrap()
+}
+
+/// A detected rename that disagrees on kind must not be pinned.
+///
+/// `detect_vertex_renames` scores 0.2 for matching incoming edge labels plus
+/// 0.2 for a short edit distance and never requires kind agreement, so
+/// `post.count: integer` and `post.counter: string` come back at 0.40. Pinned,
+/// `domain_of` keeps a pinned target only when the kinds match, so the vertex
+/// is left with `⊥` alone and the search drops it — even though
+/// `post.total: integer` was there to take it.
+#[test]
+fn a_kind_incompatible_rename_is_not_pinned() {
+    let proto = record_protocol();
+    let old = build_with(
+        &proto,
+        &[
+            ("post", "record"),
+            ("post.count", "integer"),
+            ("post.tag", "string"),
+        ],
+        &[
+            ("post", "post.count", "prop", "count"),
+            ("post", "post.tag", "prop", "tag"),
+        ],
+    );
+    let new = build_with(
+        &proto,
+        &[
+            ("post", "record"),
+            ("post.counter", "string"),
+            ("post.total", "integer"),
+        ],
+        &[
+            ("post", "post.counter", "prop", "count"),
+            ("post", "post.total", "prop", "total"),
+        ],
+    );
+
+    // The premise: the detector really does propose the kind-crossing rename.
+    let detected = rename_detect::detect_vertex_renames(&old, &new, 0.3);
+    assert!(
+        detected
+            .iter()
+            .any(|d| d.rename.old.as_ref() == "post.count"
+                && d.rename.new.as_ref() == "post.counter"),
+        "the fixture depends on this detection: {detected:?}"
+    );
+
+    let diff = panproto_check::diff::diff(&old, &new);
+    let migration = panproto_vcs::auto_mig::derive_migration(&old, &new, &diff);
+    assert!(
+        migration.vertex_map.contains_key("post.count"),
+        "an integer field with an integer counterpart was dropped by a \
+         kind-crossing pin: {:?}",
+        migration.vertex_map
+    );
+}
+
+/// An auto-derived migration's edge map must be injective.
+///
+/// `monic` is injectivity on vertices only, so the right leg of a monic span
+/// may still send two parallel source edges to one target edge. A stored
+/// migration that contracts on edges says two fields become one without saying
+/// how, and the lift then delivers both values under one name.
+#[test]
+fn an_auto_derived_migration_never_contracts_on_edges() {
+    let proto = record_protocol();
+    // Two parallel props between the same vertex pair on the old side, one on
+    // the new side, plus a vertex rename so the enhancement path is reached.
+    let old = build_with(
+        &proto,
+        &[("root", "record"), ("leaf", "string")],
+        &[("root", "leaf", "prop", "a"), ("root", "leaf", "prop", "b")],
+    );
+    let new = build_with(
+        &proto,
+        &[("root", "record"), ("leaf2", "string")],
+        &[("root", "leaf2", "prop", "a")],
+    );
+
+    let diff = panproto_check::diff::diff(&old, &new);
+    let migration = panproto_vcs::auto_mig::derive_migration(&old, &new, &diff);
+
+    let mut images: Vec<&Edge> = migration.edge_map.values().collect();
+    let before = images.len();
+    images.sort_unstable();
+    images.dedup();
+    assert_eq!(
+        images.len(),
+        before,
+        "two source edges share one image: {:?}",
+        migration.edge_map
+    );
+}
+
+/// A three-way merge must keep a vertex's NSID and the `nsids` map in step.
+///
+/// `merge_vertices` branches on kind changes and never looks at the NSID, while
+/// `merge_nsids` merges the map, so a side that adds an NSID to a vertex it
+/// does not otherwise touch lands in the map alone. The two copies of one fact
+/// then disagree, and the disagreement is baked into the commit's content
+/// address.
+#[test]
+fn a_three_way_merge_keeps_both_copies_of_an_nsid_in_step() {
+    let proto = test_protocol();
+    let base = SchemaBuilder::new(&proto)
+        .vertex("root", "object", None::<&str>)
+        .unwrap()
+        .build()
+        .unwrap();
+    let ours = base.clone();
+    let theirs = SchemaBuilder::new(&proto)
+        .vertex("root", "object", Some("com.example.root"))
+        .unwrap()
+        .build()
+        .unwrap();
+
+    let merged = panproto_vcs::merge::three_way_merge(&base, &ours, &theirs);
+    assert_eq!(
+        merged.merged_schema.vertices["root"].nsid.as_ref(),
+        merged.merged_schema.nsids.get("root"),
+        "the vertex's copy of the NSID and the map's copy must agree"
+    );
 }

@@ -12,7 +12,7 @@ A migration describes how to map one schema version to another: vertex A in the 
 
 Applying a migration has three modes, named after mathematical lifting operations. `restrict` drops everything in the data that the migration does not cover; it is the right operation when you want to project old records into a new, smaller schema. `lift_wtype` (also called the delta lift) remaps what the migration maps and preserves everything else. `lift_wtype_sigma` (the sigma lift, or left Kan extension) fills in new fields with computed defaults. The three modes give you control over exactly how much data is preserved or synthesized during a schema transition.
 
-For cases where you do not already know the migration, `hom_search` can discover candidate morphisms automatically using a backtracking constraint solver, and `discover_overlap` finds the largest sub-schema that two schemas share.
+For cases where you do not already know the migration, `hom_search` discovers one by exact optimisation over a cost function network: `find_span` is the entry point to reach for, because it never refuses for want of a match and answers with a span whose apex is the part of the source that found an image. `find_morphisms` is the total-morphism special case, and `discover_overlap` finds the largest sub-schema two schemas share.
 
 ## Quick example
 
@@ -40,8 +40,9 @@ let new_instance = lift_wtype(&compiled, &src_schema, &tgt_schema, &old_instance
 | `lift_functor` / `lift_functor_pi` | Delta and pi lifts for table-shaped (functor) instances |
 | `compose` | Combine two sequential migrations into a single migration |
 | `invert` | Construct the inverse of a bijective migration |
-| `hom_search` | Discover candidate migrations via backtracking constraint solving |
-| `find_morphisms` / `find_best_morphism` | Enumerate all candidates or return the highest-scoring one |
+| `hom_search` | Discover a migration by exact optimisation over a cost function network |
+| `find_span` / `SchemaSpan` | The primary route: a span `src <- apex -> tgt`, which never refuses for want of a match |
+| `find_morphisms` / `find_best_morphism` | The total-morphism case: the morphisms attaining the optimum, or the single best one |
 | `discover_overlap` | Find the largest sub-schema shared between two schemas |
 | `chase` | Enforce embedded dependencies by chasing constraints to fixpoint |
 | `cascade` | Derive schema morphisms from theory morphisms (output feeds into `factorize` for protolens generation) |
@@ -60,11 +61,13 @@ let new_instance = lift_wtype(&compiled, &src_schema, &tgt_schema, &old_instance
 | `align::wrap_unwrap_anchors` | Record-flattening/nesting anchors |
 | `align::structural_anchors` | Degree-signature anchors (Exploratory only) |
 | `align::coerce_anchors` / `CoerceAnchor` | Coerced-sort anchors backed by a `SortLensWitness` |
-| `align::resolve_anchors` | Collapse a list of anchor candidates to a final bijection with kind-and-constraint filtering |
+| `align::evidence::aggregate` / `EvidenceTable` | Reduce an anchor pool to one score per `(source, target)` pair: provenance ceiling, priority band, `max` within a family, fixed-arity mean across families |
+| `align::evidence::EvidenceTable::select` | Off the search path: pick pairs under a cardinality rule and a row filter, for explanations and for callers wanting a map |
+| `align::defaults` | Every numeric default the evidence pipeline introduces, each documented as a principled default rather than a calibrated value |
 | `align::kinds_compatible` | True if two vertex kinds are compatible (ignoring constraints) |
 | `align::kinds_and_constraints_compatible` | Stricter kinds-compatible that also requires matching constraint sets |
 | `align::vertex_is_required` / `adjust_anchors_by_required_sets` | Required-set tiebreak: prefers anchors that preserve required-vertex sets on both sides |
-| `align::Anchor` | Candidate correspondence carrying source, target, strategy, and score |
+| `align::Anchor` | Candidate correspondence carrying source, target, strategy, provenance, and score |
 | `StrategyTag` | Priority-ordered strategy tag: `Exact`, `ExactSuffix`, `EdgeLabel`, `Alias`, `TokenSimilarity`, `DescriptionSimilarity`, `TypeSignature`, `WrapUnwrap`, `Coerce`, `Neighborhood`, `WlRefinement`, `Structural` |
 | `coerce::SortLensWitness` / `WitnessLibrary` / `default_witness_library` | Directional sort-to-sort lens witnesses with a verified `CoercionClass` |
 | `coerce::witness_satisfies_lens_laws` / `witness_forward_fails_on` | Property-test helpers for sort coercion witnesses |

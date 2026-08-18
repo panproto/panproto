@@ -17,6 +17,7 @@ import type {
   Stringency,
   HintSpec,
   CandidateResponse,
+  SpanResponse,
 } from './types.js';
 import { WasmError } from './types.js';
 import { WasmHandle, createHandle } from './wasm.js';
@@ -133,6 +134,48 @@ export class ProtolensChainHandle implements Disposable {
     } catch (error) {
       throw new WasmError(
         `auto_generate_candidates failed: ${error instanceof Error ? error.message : String(error)}`,
+        { cause: error },
+      );
+    }
+  }
+
+  /**
+   * The optimal span between two schemas.
+   *
+   * Where {@link ProtolensChainHandle.autoGenerate} refuses when no
+   * alignment is found, this always answers: two schemas with nothing in
+   * common come back with an empty `apex_vertices` and an `apex_coverage`
+   * of zero. Read `is_total` to tell whether the span covers the whole
+   * source, which is the case a total morphism would have handled.
+   *
+   * The response is plain data: the apex arrives as its vertex and edge
+   * sets, not as a handle, so there is nothing to dispose.
+   *
+   * @param schema1 - The source schema
+   * @param schema2 - The target schema
+   * @param wasm - The WASM module
+   * @param hints - Source-to-target vertex mappings the caller knows. The
+   *   search may not reconsider them.
+   * @throws {@link WasmError} if the search network could not be posed or
+   *   the induced apex is not a well-formed schema. Neither means "no
+   *   morphism exists".
+   */
+  static autoGenerateSpan(
+    schema1: BuiltSchema,
+    schema2: BuiltSchema,
+    wasm: WasmModule,
+    hints?: Readonly<Record<string, string>>,
+  ): SpanResponse {
+    try {
+      const bytes = wasm.exports.auto_generate_span(
+        schema1._handle.id,
+        schema2._handle.id,
+        hints === undefined ? undefined : packToWasm(hints),
+      );
+      return unpackFromWasm<SpanResponse>(bytes);
+    } catch (error) {
+      throw new WasmError(
+        `auto_generate_span failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
     }

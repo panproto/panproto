@@ -88,6 +88,7 @@ export interface WasmGlueModule {
   instance_element_count: WasmExports['instance_element_count'];
   auto_generate_protolens: WasmExports['auto_generate_protolens'];
   auto_generate_candidates: WasmExports['auto_generate_candidates'];
+  auto_generate_span: WasmExports['auto_generate_span'];
   instantiate_protolens: WasmExports['instantiate_protolens'];
   protolens_complement_spec: WasmExports['protolens_complement_spec'];
   protolens_from_diff: WasmExports['protolens_from_diff'];
@@ -233,6 +234,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       instance_element_count: glue.instance_element_count,
       auto_generate_protolens: glue.auto_generate_protolens,
       auto_generate_candidates: glue.auto_generate_candidates,
+      auto_generate_span: glue.auto_generate_span,
       instantiate_protolens: glue.instantiate_protolens,
       protolens_complement_spec: glue.protolens_complement_spec,
       protolens_from_diff: glue.protolens_from_diff,

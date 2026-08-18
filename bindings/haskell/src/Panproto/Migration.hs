@@ -52,7 +52,9 @@ module Panproto.Migration
 
       -- * Codecs
     , encodeMigration
+    , migrationEncoding
     , decodeMigration
+    , migrationDecoder
 
       -- * Accessors
     , mapVertexId
@@ -487,8 +489,12 @@ class (SchemaBackend back, InstanceBackend back) => MigrationBackend back where
 -- @map_as_vec@ arrays of @[key, value]@ pairs, matching
 -- @crate::serde_helpers@.
 encodeMigration :: Migration -> LBS.ByteString
-encodeMigration m =
-    CBOR.toLazyByteString $
+encodeMigration = CBOR.toLazyByteString . migrationEncoding
+
+-- | The CBOR term 'encodeMigration' writes, for nesting a migration
+-- inside a larger term. A span carries its two legs this way.
+migrationEncoding :: Migration -> Encoding
+migrationEncoding m =
         Enc.encodeMapLen 7
             <> kv "vertex_map" (encodeTextMap Enc.encodeString m.vertexMap)
             <> kv "edge_map" (encodeEdgeKeyMap encodeEdge m.edgeMap)
@@ -583,6 +589,8 @@ decodeMigration bs =
             | LBS.null rest -> Right m
             | otherwise -> Left "trailing bytes after CBOR-encoded migration"
 
+-- | The element decoder 'decodeMigration' runs, for nesting a migration
+-- inside a larger CBOR term. A span carries its two legs this way.
 migrationDecoder :: Decoder s Migration
 migrationDecoder = do
     mapLen <- Dec.decodeMapLenOrIndef

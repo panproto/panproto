@@ -141,6 +141,20 @@ struct CanonicalCoercionSpec {
 }
 
 /// Canonical schema with `BTreeMap` fields, sorted `Vec`s, and no precomputed indices.
+///
+/// This form covers 17 of the [`Schema`]'s 21 fields. It omits `entries` and
+/// the three derived adjacency indices (`outgoing`, `incoming`, `between`),
+/// so two schemas that differ only in their pointing hash to the same
+/// [`ObjectId`].
+///
+/// The other canonical form in the tree is
+/// [`panproto_schema::canonical_bytes`], which covers all 21 fields,
+/// `entries` included, and therefore separates schemas this one identifies.
+/// Both choices are deliberate: for the VCS a change of pointing is not a
+/// change of schema content, whereas for a span apex the pointing is part of
+/// the apex's identity, since it is what an instance layer roots its data at.
+/// Use this form for VCS content addressing and the schema-crate encoding
+/// wherever the basepoints matter.
 #[derive(Serialize)]
 struct CanonicalSchema {
     protocol: String,

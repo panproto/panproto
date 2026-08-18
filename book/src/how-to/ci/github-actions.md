@@ -1,6 +1,6 @@
 # GitHub Actions
 
-A drop-in workflow for schema validation and breaking-change detection on every pull request.
+Add this workflow to validate schemas and classify compatibility on every pull request.
 
 ## Prerequisites
 
@@ -41,16 +41,15 @@ jobs:
       - name: Breaking-change gate
         run: |
           base=$(git merge-base origin/${{ github.base_ref }} HEAD)
-          git show $base:schemas/user.json > /tmp/base.json
+          git show "$base:schemas/user.json" > /tmp/base.json
+          schema compat /tmp/base.json schemas/user.json --protocol atproto
           schema check --src /tmp/base.json --tgt schemas/user.json \
             --mapping migrations/user.json --typecheck
-          schema lens generate --protocol atproto /tmp/base.json schemas/user.json \
-            --save /tmp/chain.json
 ```
 
 The `--protocol` flag is required for every per-file `schema validate`. There is no `--project` flag; per-file iteration is the supported pattern.
 
-Two jobs: validation and the breaking-change gate. Validation fails on a malformed schema; the gate fails on a breaking diff.
+The job has separate validation and breaking-change steps. Validation fails on a malformed schema; `schema compat` gives the gate its compatibility exit code, and `schema check --typecheck` rejects an invalid migration mapping.
 
 ## Verification
 
@@ -59,7 +58,7 @@ Push a PR and watch the workflow run. The validation step exits zero on a clean 
 ## Common mistakes
 
 - Omitting `fetch-depth: 0`. Shallow clones make the merge-base lookup fail; the gate then runs against the wrong base.
-- Pinning `panproto-cli` to a stale version. Use the latest installer; the protocol catalogue and existence-check rules evolve.
+- Pinning `panproto-cli` to a stale version. Use the latest installer; the protocol catalog and existence-check rules evolve.
 
 ## See also
 

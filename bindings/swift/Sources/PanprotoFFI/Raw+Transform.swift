@@ -606,8 +606,11 @@ extension Raw {
     /// `opts` is a CBOR-encoded `MorphismSearchOptions` mirroring
     /// `mig::hom_search::SearchOptions`; the buffer receives a
     /// CBOR-encoded `Vec<FoundMorphism>`, each entry carrying
-    /// `vertex_map`, `edge_map`, and `quality`, ranked by descending
-    /// quality.
+    /// `vertex_map`, `edge_map`, and `quality`.
+    ///
+    /// The entries are the morphisms attaining the optimum, capped by
+    /// `max_results`, so they all carry the same quality and an empty
+    /// array means no total morphism exists.
     ///
     /// `src` and `tgt` must be `Schema` handles.
     @inlinable
@@ -619,6 +622,52 @@ extension Raw {
         withPpSlice(opts) { opts in
             withPpOutBuffer { out in
                 pp_hom_find_morphisms(src, tgt, opts, out)
+            }
+        }
+    }
+
+    /// Find the maximum span between two schemas.
+    ///
+    /// `opts` is a CBOR-encoded `MorphismSearchOptions` and
+    /// `constraints` a CBOR-encoded `MorphismDomainConstraints`; an
+    /// empty CBOR map is a valid payload for either. The buffer receives
+    /// a CBOR-encoded `SchemaSpan`.
+    ///
+    /// The search is total: two schemas with nothing in common answer
+    /// with an empty apex rather than with a failing status.
+    ///
+    /// `src` and `tgt` must be `Schema` handles and `protocol` a
+    /// `Protocol` handle: the apex is a schema, a schema is well formed
+    /// only against a protocol, and inducing the apex re-validates it,
+    /// so the protocol cannot be read off the source, which stores only
+    /// its name.
+    @inlinable
+    public static func homFindSpan(
+        src: UInt32,
+        tgt: UInt32,
+        protocol protocolHandle: UInt32,
+        opts: Data,
+        constraints: Data
+    ) -> (status: RawStatus, bytes: Data) {
+        withPpSlices(opts, constraints) { opts, constraints in
+            withPpOutBuffer { out in
+                pp_hom_find_span(src, tgt, protocolHandle, opts, constraints, out)
+            }
+        }
+    }
+
+    /// Read a span's apex as the identification list a pushout takes.
+    ///
+    /// `span` is a CBOR-encoded `SchemaSpan`, as ``homFindSpan(src:tgt:protocol:opts:constraints:)``
+    /// wrote it; the buffer receives a CBOR-encoded `SchemaOverlap`
+    /// whose two pair arrays are sorted by key.
+    @inlinable
+    public static func homSpanToOverlap(
+        span: Data
+    ) -> (status: RawStatus, bytes: Data) {
+        withPpSlice(span) { span in
+            withPpOutBuffer { out in
+                pp_hom_span_to_overlap(span, out)
             }
         }
     }

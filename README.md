@@ -136,7 +136,8 @@ let schema = schema::SchemaBuilder::new(&proto)
     .build()?;
 
 // Auto-generate a lens between two schema versions
-let lens = panproto_lens::auto_generate(&src_schema, &tgt_schema)?;
+let result = panproto_lens::auto_generate(&src_schema, &tgt_schema, &proto, &Default::default())?;
+let lens = result.lens;
 let (view, complement) = panproto_lens::get(&lens, &instance)?;
 ```
 

@@ -1,10 +1,10 @@
 # Swift SDK reference
 
-The Swift binding lives at [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift) and is a [SwiftPM](https://www.swift.org/documentation/package-manager/) package. It links [`libpanproto_c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c), the C ABI exposed by the [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c) crate, and reaches every one of its 120 entry points: schemas, instances, migrations, lenses, the GAT layer, the expression language, compatibility checking, homomorphism search, graph fibers, datasets, I/O codecs, version control, and the feature-gated parse, project, and git tiers.
+The Swift binding lives at [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift) and is a [SwiftPM](https://www.swift.org/documentation/package-manager/) package. It links [`libpanproto_c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c), the C ABI exposed by the [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c) crate, and reaches every one of its 122 entry points: schemas, instances, migrations, lenses, the GAT layer, the expression language, compatibility checking, homomorphism search, graph fibers, datasets, I/O codecs, version control, and the feature-gated parse, project, and git tiers.
 
 ## Installation
 
-The package is not yet on a registry; install from this repository. See [Install the Swift SDK](../how-to/install/swift.md) for the bootstrap scripts, the XCFramework path, and the toolchain prerequisites.
+The package is not yet on a registry, so you need to install it from this repository. See [Install the Swift SDK](../how-to/install/swift.md) for the bootstrap scripts, the XCFramework path, and the toolchain prerequisites.
 
 ## Products
 
@@ -21,7 +21,7 @@ The package splits along the line between values and the engine, and again along
 
 `PanprotoStructural` imports no FFI module at all, which the package graph enforces: it depends on nothing but the standard library. Everything in it is a `Sendable`, `Hashable`, `Codable` value, including the CBOR codec that gives those values their wire form. A pipeline that only reads and rewrites schemas can link it alone and never start an engine.
 
-The three feature-gated products always exist in the package graph, so resolution does not depend on how the library was built. Each is selected by a package trait (`PANPROTO_PARSE`, `PANPROTO_PROJECT`, `PANPROTO_GIT`), and a trait defines a compilation condition of its own name, which is what the `#if` blocks in the gated sources read. Without its trait a module is empty, and the raw shims that would reference the absent symbols are compiled out. That matters because the default `libpanproto_c` exports 103 of the 120 entry points; referencing the other 17 unconditionally would make every default build fail to link.
+The three feature-gated products always exist in the package graph, so resolution does not depend on how the library was built. Each is selected by a package trait (`PANPROTO_PARSE`, `PANPROTO_PROJECT`, `PANPROTO_GIT`), and a trait defines a compilation condition of its own name, which is what the `#if` blocks in the gated sources read. Without its trait a module is empty, and the raw shims that would reference the absent symbols are compiled out. That matters because the default `libpanproto_c` exports 105 of the 122 entry points; referencing the other 17 unconditionally would make every default build fail to link.
 
 ## The engine actor
 
@@ -29,9 +29,9 @@ The three feature-gated products always exist in the package graph, so resolutio
 
 The reason is narrower than it looks. The slab that hands out handles is process-global and mutex-guarded, so a handle really is valid from any thread. What is thread-local is the *last-error slot*: a failing entry point stashes its `ErrorEnvelope` where only the calling thread can drain it, and `pp_last_error_take` on any other thread answers empty. Every error message the binding reports depends on the drain landing on the thread that failed.
 
-A serial `DispatchQueue` would give mutual exclusion but not thread identity, so that invariant would hold only as long as no call ever suspended between the failure and the drain. Pinning a thread makes it hold unconditionally, and costs one resident thread.
+A serial `DispatchQueue` would give mutual exclusion but not thread identity, so that invariant would hold only as long as no call ever suspended between the failure and the drain. Pinning a thread makes it hold unconditionally, and costs one resident thread. This declaration shows the isolation shape; the body of `migrateEverything` is application-specific rather than runnable here.
 
-```swift
+```text
 // Each call hops to the engine and back.
 let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
 let messages = try await schema.violations(against: atproto)
@@ -100,6 +100,34 @@ The value types conform to `Hashable` and `Sendable`, so they compare structural
 
 The Rust type stores three precomputed adjacency indices. The Swift value does not: they are derivable from the edge set, so the encoder recomputes them on the way out and the decoder ignores them on the way in, with `outgoingEdges(from:)`, `incomingEdges(to:)`, and `edges(between:and:)` as pure accessors. That keeps a decoded schema from carrying two representations of the same fact that could drift apart under mutation.
 
+## Morphism and span search
+
+The search splits across the two tiers the package is built on. `SchemaSpan`, `FoundMorphism`, `SchemaOverlap`, `MorphismSearchOptions`, `MorphismDomainConstraints`, and `MorphismCostWeights` are values in `PanprotoStructural`; the three methods that produce them hang off `SchemaHandle` in `Panproto` and are engine-isolated.
+
+`findSpan(to:in:options:constraints:)` is the one to reach for. It never refuses for want of a match, since leaving every source vertex out of the apex is a feasible answer, so two schemas with nothing in common answer with an empty apex rather than throwing.
+
+```swift
+let span = try await post.findSpan(to: profile, in: atproto)
+
+span.apexCoverage           // 0.777... : 7 of the 9 source vertices
+span.qualityLo              // equals span.qualityHi when provenOptimal
+if span.isTotal {
+    let morphism = span.asTotalMorphism
+}
+```
+
+The protocol handle is a parameter because the apex is a schema, a schema is well formed only against a protocol, and inducing the apex re-validates it rather than assuming it. A schema carries its protocol's name alone, so the protocol cannot be read back off the source handle.
+
+`SchemaSpan` carries the span itself in `apex`, `left`, and `right`, then the measurements flat rather than nested: `quality`, `qualityLo`, `qualityHi`, `apexCoverage`, `provenOptimal`, `isTotal`, `apexDigest` and `legsAreFunctorial`. The last two are what identifying a span takes: the digest together with the two leg maps is the span's identity, and there is no schema-digest entry point on the C ABI to recompute it from, so a Swift host that wants to dedupe or cache a span reads it here or not at all. Both carry defaults on the initializer, so a host encoding a span for `overlap()` without them still produces a payload the engine decodes. The two quality ends are equal exactly when `provenOptimal` holds, which is what separates a score nothing beats from a score the search ran out of budget before improving on. `quality` ranks spans over *one* source schema and nothing else, because every denominator of the objective is fixed by the source, so `apexCoverage` is read alongside it. `asTotalMorphism` is a computed property on the value and needs no engine; `overlap()` does, and gives the identification list a pushout takes.
+
+`MorphismSearchOptions` fixes the shape asked for (`monic`, `epic`, `iso`, `maxResults`, `hardPins`), and every field has a default, so an empty payload is valid. `epic` is honored by the two morphism methods and refused by `findSpan`, since surjectivity is a property of a total morphism and a span's right leg is deliberately partial. Where a vertex may land is a separate payload, `MorphismDomainConstraints`, which only `findSpan` takes.
+
+### What `findMorphisms` returns
+
+`findMorphisms(to:options:)` returns the morphisms **attaining the optimum**, and nothing else. The engine's cap of 1024 bounds every request rather than only `maxResults = 0`, so asking for more is answered with the cap and Swift has no flag saying so. Every element carries the same `quality`, so the first is what `findBestMorphism(to:options:)` answers with, and there is no second, worse tier to walk to.
+
+An empty array means that no total morphism exists, and only that: a search that could not be posed throws `PanprotoError.migration` instead, so the two are distinguishable. `findSpan(to:in:options:constraints:)` is the method that answers with what the two schemas do share. [Find a span between two schemas](../how-to/spans.md) walks that task end to end, and [Searching for a morphism](../explanation/morphism-search.md) sets out what the search is doing underneath.
+
 ## CBOR
 
 Every payload crossing the ABI is CBOR produced by [`ciborium`](https://docs.rs/ciborium) driven by [`serde`](https://serde.rs/), so `PanprotoStructural` ships a codec written against that data model rather than a general-purpose one. `CBOREncoder` and `CBORDecoder` conform to Swift's `Encoder` and `Decoder`, so ordinary `Codable` conformances work.
@@ -114,7 +142,7 @@ Decoding is tolerant in the ways a forward-compatible host has to be: indefinite
 
 ## Parity with the other SDKs
 
-The Swift binding reaches every one of the C ABI's 120 entry points, which is the same surface the Haskell binding consumes, so the two are at parity with each other and with the ABI.
+The Swift binding reaches every one of the C ABI's 122 entry points, which is the same surface the Haskell binding consumes, so the two are at parity with each other and with the ABI.
 
 The Python SDK is a superset of both, and the reason is architectural rather than a shortfall in either binding: [`panproto-py`](https://github.com/panproto/panproto/tree/main/crates/panproto-py) is a [PyO3](https://pyo3.rs/) extension linking `panproto-core` directly, so it reaches engine surfaces the ABI never exposed. Fifty-two members of the Python surface have no `pp_*` entry point behind them, in five groups:
 

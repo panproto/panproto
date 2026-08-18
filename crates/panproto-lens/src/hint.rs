@@ -19,7 +19,8 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
-use panproto_mig::DomainConstraints;
+use panproto_mig::align::defaults::W_ANCHOR;
+use panproto_mig::{CostWeights, DomainConstraints};
 use panproto_schema::Schema;
 
 /// Derive additional anchors from user-provided anchors via forward chaining.
@@ -171,7 +172,11 @@ fn reachable_from(schema: &Schema, start: &Name) -> HashSet<Name> {
 /// - `scope_constraints`: pairs of `(source_root, target_root)` for scope restrictions
 /// - `excluded_targets`: target vertex names to exclude from all domains
 /// - `excluded_sources`: source vertex names to exclude from search
-/// - `scoring_weights`: optional override for quality scoring weights
+/// - `scoring_weights`: optional override for the objective's component
+///   weights, as `[name, edge, prop, degree]`. A vector that is negative,
+///   non-finite or all zero is rejected by [`CostWeights::new`] and read as no
+///   override, since such a vector cannot order results by anything but its own
+///   payload.
 #[must_use]
 pub fn build_domain_constraints(
     src: &Schema,
@@ -184,7 +189,8 @@ pub fn build_domain_constraints(
     let mut constraints = DomainConstraints {
         excluded_targets: excluded_targets.iter().cloned().collect(),
         excluded_sources: excluded_sources.iter().cloned().collect(),
-        scoring_weights,
+        scoring_weights: scoring_weights
+            .and_then(|w| CostWeights::new(w[0], w[1], w[2], w[3], W_ANCHOR).ok()),
         ..DomainConstraints::default()
     };
 
@@ -224,10 +230,8 @@ pub struct HintParts {
     pub excluded_targets: Vec<String>,
     /// Source vertex names to exclude from the search.
     pub excluded_sources: Vec<String>,
-    /// Override quality scoring component weights.
+    /// Override the objective's component weights.
     pub scoring_weights: Option<[f64; 4]>,
-    /// Minimum name similarity for domain pruning.
-    pub name_similarity_threshold: Option<f64>,
 }
 
 /// Resolve hint parts into derived anchors and domain constraints.
@@ -237,8 +241,8 @@ pub struct HintParts {
 /// from scope/exclusion/preference data, and returns both.
 ///
 /// Construct `HintParts` from `HintSpec` using its accessor methods:
-/// `scoring_weights()`, `name_similarity_threshold()`, `scope_pairs()`,
-/// `excluded_target_names()`, `excluded_source_names()`.
+/// `scoring_weights()`, `scope_pairs()`, `excluded_target_names()`,
+/// `excluded_source_names()`.
 #[must_use]
 pub fn resolve_hints(
     parts: &HintParts,
@@ -269,7 +273,7 @@ pub fn resolve_hints(
         .map(|v| Name::from(v.as_str()))
         .collect();
 
-    let mut constraints = build_domain_constraints(
+    let constraints = build_domain_constraints(
         src,
         tgt,
         &scope_name_pairs,
@@ -277,13 +281,12 @@ pub fn resolve_hints(
         &excl_src,
         parts.scoring_weights,
     );
-    constraints.name_similarity_threshold = parts.name_similarity_threshold;
 
     (derived, constraints)
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
     use panproto_schema::{Protocol, SchemaBuilder};
@@ -535,10 +538,11 @@ mod tests {
             .insert(Name::from("root.other"));
 
         let results =
-            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints);
+            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
+                .unwrap();
 
         // All results should map root.name to root.name (root.other excluded)
-        for m in &results {
+        for m in &results.morphisms {
             assert_ne!(
                 m.vertex_map.get(&Name::from("root.name")).map(Name::as_str),
                 Some("root.other"),
@@ -547,13 +551,21 @@ mod tests {
         }
     }
 
+    /// An excluded source is answered by the span, not by the total search.
+    ///
+    /// A total morphism maps every source vertex, so a request for one that
+    /// also asks to omit part of its domain has no answer, and
+    /// `find_morphisms_constrained` says so by returning empty. That is the
+    /// honest reading, and it used to be answered with a partial map called a
+    /// morphism. `find_span_constrained` is the entry point for the question
+    /// actually being asked, and it returns the sub-schema the exclusion
+    /// leaves.
     #[test]
-    fn constrained_search_with_excluded_sources_finds_morphisms() {
-        use panproto_mig::{SearchOptions, find_morphisms_constrained};
+    fn an_excluded_source_is_answered_by_the_span() {
+        use panproto_mig::{SearchOptions, find_morphisms_constrained, find_span_constrained};
 
-        // Source has 3 vertices; we exclude "root.extra" (integer).
-        // Target has no integer vertex, so without exclusion a monic
-        // morphism cannot exist.
+        // The source carries an integer child the target has no vertex for, so
+        // no total morphism exists even before anything is excluded.
         let src = build_schema(
             &[
                 ("root", "object"),
@@ -570,44 +582,61 @@ mod tests {
             &[("root", "root.name", "prop", "name")],
         );
 
-        // Without exclusion, no morphism exists (root.extra is integer,
-        // no integer vertex in target).
         let unconstrained = find_morphisms_constrained(
             &src,
             &tgt,
             &SearchOptions::default(),
             &DomainConstraints::default(),
-        );
+        )
+        .expect("the network poses");
         assert!(
-            unconstrained.is_empty(),
-            "unconstrained search should find no morphism (root.extra has no compatible target)"
+            unconstrained.morphisms.is_empty(),
+            "no total morphism exists: root.extra has no compatible target"
         );
 
-        // With root.extra excluded, a morphism on the induced sub-schema exists.
         let mut constraints = DomainConstraints::default();
         constraints
             .excluded_sources
             .insert(Name::from("root.extra"));
 
-        let results =
-            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints);
-
         assert!(
-            !results.is_empty(),
-            "should find morphism on induced sub-schema with excluded source"
+            find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
+                .expect("the network poses")
+                .morphisms
+                .is_empty(),
+            "excluding a source leaves no total morphism, so this must stay empty"
         );
-        let m = &results[0];
+
+        let span = find_span_constrained(
+            &src,
+            &tgt,
+            &test_protocol(),
+            &SearchOptions::default(),
+            &constraints,
+        )
+        .unwrap_or_else(|e| panic!("the span search never refuses for want of a match: {e}"));
+
         assert_eq!(
-            m.vertex_map.get(&Name::from("root")).map(Name::as_str),
+            span.right
+                .vertex_map
+                .get(&Name::from("root"))
+                .map(Name::as_str),
             Some("root")
         );
         assert_eq!(
-            m.vertex_map.get(&Name::from("root.name")).map(Name::as_str),
+            span.right
+                .vertex_map
+                .get(&Name::from("root.name"))
+                .map(Name::as_str),
             Some("root.name")
         );
         assert!(
-            !m.vertex_map.contains_key(&Name::from("root.extra")),
-            "excluded source should not appear in morphism"
+            !span.apex.vertices.contains_key(&Name::from("root.extra")),
+            "an excluded source is left out of the apex"
+        );
+        assert!(
+            !span.is_total(),
+            "the span drops a vertex, so it is not total"
         );
     }
 

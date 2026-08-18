@@ -1,6 +1,6 @@
 # Install panproto
 
-panproto ships in four distributions, one per surface. Pick the one that matches what you are building.
+panproto has six user-facing distributions. Install only the command-line or language surface that the project uses.
 
 | Surface | Page | Package |
 |---|---|---|
@@ -11,7 +11,7 @@ panproto ships in four distributions, one per surface. Pick the one that matches
 | Haskell application | [Install the Haskell SDK](./haskell.md) | `panproto` (this repository) |
 | Swift application | [Install the Swift SDK](./swift.md) | `panproto` (this repository, SwiftPM) |
 
-The CLI and the language SDKs are independent: you can install any subset.
+The CLI and SDK packages are independent; installing one does not install the others.
 
 ## See also
 

@@ -2,8 +2,10 @@
 
 ## Rust code blocks in the book are compile-tested
 
-Every non-ignored `` ```rust `` code block under `book/src/**/*.md` is
-compiled via `rustdoc --test` on every CI run. The driver lives at
+Every `` ```rust `` code block under `book/src/**/*.md` is compiled via
+`rustdoc --test` on every CI run. There is no opt-out: the driver rejects
+`` ```rust,ignore `` outright, so a Rust fence either compiles or is
+relabelled `` ```text `` as the schematic listing it is. The driver lives at
 `xtask/src/bin/test-book.rs` and the dep set it can reference is the
 list in `crates/book-doctest-stub/Cargo.toml`.
 
@@ -23,7 +25,7 @@ build` step.
 |---|---|
 | `` ```rust `` | Compiled and executed by rustdoc. Use for simple snippets that have no runtime dependencies. |
 | `` ```rust,no_run `` | Compiled but not executed. Use for snippets that touch the filesystem, depend on external state, or are illustrative `main()` programs. Most book examples want this. |
-| `` ```rust,ignore `` | Skipped entirely. Reserve for snippets that show internal type definitions copied from the source (`pub enum Foo { ... }`) or contributor-only patterns (`use crate::theories;` inside a panproto-protocols submodule). |
+| `` ```rust,ignore `` | **Rejected.** The gate fails on it rather than skipping it. A listing that cannot compile, such as internal type definitions copied from the source (`pub enum Foo { ... }`) or a contributor-only pattern (`use crate::theories;` inside a panproto-protocols submodule), belongs in a `` ```text `` fence. |
 | `` ```text `` | Plain text. Not seen by rustdoc; use for pseudocode or output samples. |
 | `` ```sh `` / `` ```ts `` / `` ```python `` / etc. | Other languages. Not tested by the book-doctest job. |
 

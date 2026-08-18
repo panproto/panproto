@@ -1,159 +1,74 @@
 # Your first schema
 
-You will define a schema for a small data model (users with names and ages), validate it against the `atproto` protocol, and load some data through it. About ten minutes.
+The first diff showed that panproto can inspect an existing source file. This tutorial takes the next step: it builds the smallest useful `User` schema, parses two records, and catches a missing required field. Expect about eight minutes.
 
-By the end you will have: a working `panproto` setup, a schema you wrote, an instance of that schema parsed from a JSON file, and a sense of how the four pieces (protocol, schema, instance, validation) fit together.
+The walkthrough uses the [TypeScript](https://www.typescriptlang.org/) SDK. The [Python](../how-to/define-schema/python.md) and [Rust](../how-to/define-schema/rust.md) how-to guides present the same construction through their native APIs.
 
-We use `atproto` because it is the most fully-built-out protocol in the current registry; the same code shape applies to any of the [protocols](../reference/protocols.md) listed by `Panproto.listProtocols()`.
+## Set up the project
 
-No prior knowledge of category theory or schema theory is assumed. We use ordinary words for everything; if you want the formal treatment of any concept, the explanation chapters are linked at the end.
-
-## Setup
-
-Pick a language. The walkthrough uses TypeScript; the [Python](#python-version) and [Rust](#rust-version) versions are at the bottom.
+[Node.js](https://nodejs.org/) 20 or later is required by `@panproto/core`. Create a project and install the SDK plus [tsx](https://tsx.is/), which runs the TypeScript file directly:
 
 ```sh
-mkdir my-first-schema && cd my-first-schema
+mkdir -p my-first-schema/src
+cd my-first-schema
 npm init -y
-npm install @panproto/core
+npm install @panproto/core tsx
 ```
 
-## Step 1: load a protocol
+## Build and exercise the schema
 
-Create `src/main.ts`:
+Create `src/main.ts` with the complete program below:
 
 ```ts
 import { Panproto } from '@panproto/core';
 
 const p = await Panproto.init();
-const proto = p.protocol('atproto');
+const atproto = p.protocol('atproto');
 
-console.log('protocol:', proto.name);
-```
-
-Run it: `npx tsx src/main.ts`. You see `protocol: atproto` (using `Protocol.name`). The protocol object knows how to validate, parse, and emit schemas in its native form; it is the starting point for building schemas in this language.
-
-## Step 2: build a schema
-
-Add to `src/main.ts`:
-
-```ts
-const schema = proto.schema()
+const schema = atproto.schema()
   .vertex('user', 'object')
   .vertex('user.name', 'string')
   .vertex('user.age', 'integer')
   .edge('user', 'user.name', 'prop', { name: 'name' })
   .edge('user', 'user.age', 'prop', { name: 'age' })
-  .required('user', [{ src: 'user', tgt: 'user.name', kind: 'prop', name: 'name' }])
+  .required('user', [
+    { src: 'user', tgt: 'user.name', kind: 'prop', name: 'name' },
+  ])
   .build();
 
-console.log(
-  'vertices:', Object.keys(schema.vertices).length,
-  'edges:', schema.edges.length,
-);
+const alice = p.parseJson(schema, JSON.stringify({ name: 'Alice', age: 30 }));
+const missingName = p.parseJson(schema, JSON.stringify({ age: 30 }));
+
+console.log('Alice:', alice.validate());
+console.log('Missing name:', missingName.validate());
+console.log('JSON:', new TextDecoder().decode(alice.toJson()));
+
+schema[Symbol.dispose]();
+p[Symbol.dispose]();
 ```
 
-`.vertex()` declares a *vertex* (a kind, e.g. an `object` or a leaf `string`). `.edge()` declares an *edge* (a field, item, or variant). This schema says: a user is an object with a required string `name` and an optional integer `age`.
+*Listing 3.1: A complete schema construction and required-field check.*
 
-`.build()` validates the construction: required edges are present, every reference targets an existing vertex, the protocol's equations are satisfied. If anything is wrong, you get an error here, before any data is touched. The returned `BuiltSchema` carries `.vertices` (an `id -> Vertex` record), `.edges` (an array), and `.protocol`.
+Run it:
 
-## Step 3: parse and validate data
-
-Create `data/sample.json`:
-
-```json
-{ "name": "Alice", "age": 30 }
+```sh
+npx tsx src/main.ts
 ```
 
-Add to `src/main.ts`:
+The first validation passes, the second reports a missing `name` edge, and the final line emits Alice as JSON. The exact error includes an internal node identifier, but the stable part of the output is:
 
-```ts
-import { readFileSync } from 'node:fs';
-
-const bytes = readFileSync('data/sample.json');
-const instance = p.parseJson(schema, bytes);
-console.log('parsed:', new TextDecoder().decode(p.toJson(schema, instance)));
-
-const validation = instance.validate();
-console.log('valid?', validation.isValid, validation.errors);
+```text
+Alice: { isValid: true, errors: [] }
+Missing name: { isValid: false, errors: [ 'MissingRequiredEdge { ... }' ] }
+JSON: {"age":30,"name":"Alice"}
 ```
 
-Run it. You see the parsed record echoed back and `valid? true []`. `Panproto.parseJson(schema, bytes)` returns an `Instance` by walking the JSON against the schema graph (a non-integer `age`, or JSON not matching the schema's shape, raises during this call). `Panproto.toJson(schema, instance)` serialises it back out. `instance.validate()` runs the separate required-fields/constraints pass.
+## Read the program from the outside in
 
-## Step 4: catch a violation
+The `atproto` **protocol** supplies the permitted vertex kinds and edge rules. From those rules, the program builds a **schema** with one object vertex, two value vertices, and two property edges, then parses two **instances** against it. `validate()` checks those records, including the required-edge condition used here.
 
-Edit `data/sample.json` to remove `name`:
-
-```json
-{ "age": 30 }
-```
-
-Run again. The parse still succeeds (parsing only walks the structure that is present), but `validation.isValid` is now `false` and `validation.errors` carries `MissingRequiredEdge { ..., edge: "name (prop)" }`. Required-field enforcement is performed by `instance.validate()`, not by `parseJson` itself; run both whenever you want a hard check.
-
-## What you built
-
-Three things:
-
-1. A reference to a *protocol* (`atproto`).
-2. A *schema* (a graph of vertices and edges) within that protocol.
-3. *Instances* (data) parsed and validated against the schema.
-
-This same pattern works for every protocol panproto supports. Swap `'atproto'` for any other name in the built-in registry (`Panproto.listProtocols()` lists them), and the rest of the code is identical.
+`SchemaBuilder` is immutable in the TypeScript SDK: every call to `vertex`, `edge`, or `required` returns a new builder. `build()` sends the accumulated operations to the [WebAssembly](https://webassembly.org/) engine and returns a `BuiltSchema`. Both the SDK root and the built schema own WebAssembly resources, which is why the program disposes them explicitly.
 
 ## Next
 
-- [Your first migration](./your-first-migration.md) takes the same `user` schema, evolves it to v2, and lifts the existing data forward.
-- The plain-terms explanation of what schemas *are* is at [Schemas as theories](../explanation/schemas-as-theories.md).
-- The reference for the SDK surface you used is at [Reference: TypeScript SDK](../reference/sdk-typescript.md).
-
-## Python version
-
-```python
-import panproto
-
-proto = panproto.get_builtin_protocol("atproto")
-
-b = proto.schema()
-b.vertex("user", "object")
-b.vertex("user.name", "string")
-b.vertex("user.age", "integer")
-b.edge("user", "user.name", "prop", "name")
-b.edge("user", "user.age", "prop", "age")
-schema = b.build()
-
-io = panproto.IoRegistry()
-with open("data/sample.json", "rb") as f:
-    instance = io.parse("atproto", schema, f.read())
-print(instance.to_dict())
-```
-
-The Python builder uses statement-by-statement mutation (each `.vertex()` and `.edge()` mutates in place and returns `None`); chain syntax does not work. Parsing data through a protocol's codec goes through `IoRegistry().parse(protocol, schema, bytes)`. The full list of built-in protocols is `panproto.list_builtin_protocols()`.
-
-## Rust version
-
-`panproto-core` is a re-export facade over the sub-crates; there is no single `Panproto` entry-point struct. You compose the same flow directly from the sub-crates: build a `Schema` via `panproto_schema::SchemaBuilder`, validate it against a protocol from `panproto_protocols`, parse instances via `panproto_inst::parse_json`. The shape:
-
-```rust,no_run
-use panproto_core::{protocols, schema::SchemaBuilder, inst};
-
-fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let proto = protocols::atproto::protocol();
-
-    let schema = SchemaBuilder::new(&proto)
-        .vertex("user", "object", Some("app.example.user"))?
-        .vertex("user:name", "string", None)?
-        .vertex("user:age",  "integer", None)?
-        .edge("user", "user:name", "prop", Some("name"))?
-        .edge("user", "user:age",  "prop", Some("age"))?
-        .entry("user")
-        .build()?;
-
-    let bytes = std::fs::read("data/sample.json")?;
-    let json: serde_json::Value = serde_json::from_slice(&bytes)?;
-    let instance = inst::parse_json(&schema, "user", &json)?;
-    println!("{instance:?}");
-    Ok(())
-}
-```
-
-Method signatures track the underlying crates rather than a fluent facade; consult [docs.rs/panproto-schema](https://docs.rs/panproto-schema) and [docs.rs/panproto-inst](https://docs.rs/panproto-inst) for current arguments.
+[Your first migration](./your-first-migration.md) evolves this schema by renaming `age` to `years` and moves Alice forward without losing the original record. [Define a schema from TypeScript](../how-to/define-schema/typescript.md) covers additional builder operations, while [Schemas as theories](../explanation/schemas-as-theories.md) explains why panproto represents a schema as a graph.

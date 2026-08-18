@@ -36,7 +36,7 @@ assert not issues, issues
 ## Common mistakes
 
 - Chaining the builder calls. The Python `SchemaBuilder.vertex(...)` / `edge(...)` / `constraint(...)` methods mutate in place and return `None`; hold the builder in a variable and mutate it statement-by-statement, then call `.build()`.
-- Using a Python dict where the SDK expects a `Schema` handle. Conversion is deliberate; to materialise an `Instance` from bytes against a built `Schema`, use `panproto.IoRegistry().parse(protocol, schema, data)`.
+- Using a Python dict where the SDK expects a `Schema` handle. Conversion is deliberate; to materialize an `Instance` from bytes against a built `Schema`, use `panproto.IoRegistry().parse(protocol, schema, data)`.
 
 ## See also
 

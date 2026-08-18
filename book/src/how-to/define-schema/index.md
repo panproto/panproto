@@ -1,6 +1,6 @@
 # Define a schema
 
-A schema in panproto is a graph of vertices and edges, validated against a protocol's GAT. You can build one from any of the four surfaces, with the same outcome.
+Choose a surface according to where the schema enters the project. The CLI loads and inspects schema files; the five SDKs construct schemas inside an application.
 
 | Surface | Page |
 |---|---|
@@ -11,9 +11,9 @@ A schema in panproto is a graph of vertices and edges, validated against a proto
 | Haskell SDK | [From Haskell](./haskell.md) |
 | Swift SDK | [From Swift](./swift.md) |
 
-The CLI is the recommended starting point if you have an existing schema file (JSON Schema, Protobuf, ATProto Lexicon, ...) you want to load and inspect. The language SDKs are the recommended starting point if you are building schemas programmatically inside an application.
+Start with the CLI for an existing JSON Schema, Protobuf schema, or ATProto Lexicon. Start with a language SDK when the application constructs the schema programmatically.
 
 ## See also
 
-- [Reference: protocol catalogue](../../reference/protocols.md) for the list of supported protocols.
+- [Reference: protocol catalog](../../reference/protocols.md) for the list of supported protocols.
 - [Schemas as theories](../../explanation/schemas-as-theories.md) for the model.

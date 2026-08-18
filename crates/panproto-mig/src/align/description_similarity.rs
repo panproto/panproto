@@ -15,6 +15,7 @@
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{
     Anchor, StrategyTag, kinds_compatible,
     token_similarity::{char_ngram_cosine, token_jaccard, tokenize},
@@ -120,6 +121,7 @@ pub fn description_anchors(src: &Schema, tgt: &Schema, threshold: f64) -> Vec<An
                 tgt: tgt_id.clone(),
                 confidence: score,
                 strategy: StrategyTag::DescriptionSimilarity,
+                provenance: Provenance::Derived,
                 explanation: format!(
                     "description similarity {:.2}: {} ↔ {}",
                     score,

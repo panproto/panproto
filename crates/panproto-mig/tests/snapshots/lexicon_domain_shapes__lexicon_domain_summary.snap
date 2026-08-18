@@ -1,0 +1,14 @@
+---
+source: crates/panproto-mig/tests/lexicon_domain_shapes.rs
+expression: summary
+---
+- "population: 5852 ordered pairs over 77 lexicons, both directions, default search options and no evidence"
+- "no total morphism exists: 5117/5852 = 874pm"
+- "  because some source vertex has no kind-compatible target: 4950/5852 = 846pm"
+- "  because naturality empties it with every domain non-empty: 167/5852 = 29pm"
+- "largest single domain per pair, bottom excluded: min=1 p50=5 p95=12 max=18"
+- "domain size per source vertex over 74176 vertices, bottom excluded: min=0 p50=2 p95=9 max=18"
+- "hom-set is the full Cartesian product of the domains: 327/735 = 445pm of the pairs admitting a total morphism"
+- "  the same numerator against the wider denominator, the pairs whose every domain is non-empty: 327/902 = 363pm"
+- "the same question answered by comparing a count against a product: 327/735 = 445pm, of which 0 agree only because both readings saturate at the counting ceiling"
+- "induced width of the span network: w=1: 5168, w=2: 684"

@@ -1,8 +1,8 @@
 # Round-trip with format preservation
 
-When you parse a JSON, YAML, TOML, XML, or CSV file and emit it back without changes, panproto can guarantee `emit(parse(bytes)) == bytes` byte-for-byte. This requires the format-preserving codec, which uses tree-sitter grammars and a CST complement to capture whitespace, comments, and ordering.
+Choose the format-preserving codec for a JSON, YAML, TOML, XML, or CSV round trip that must satisfy `emit(parse(bytes)) == bytes`. The codec records whitespace, comments, and ordering in a CST complement.
 
-This page covers the structured-data path (JSON / YAML / TOML / XML / CSV). For source-code grammars (Rust, Python, Stan, BUGS, and 257 more), the emit path is `emit_pretty`, which derives spacing and dispatch from `grammar.json` structurally and exercises a per-protocol verification tier. See [Parse full ASTs](./parse-full-ast.md) and [Source-code emission](../explanation/emit-pretty.md). The two systems are independent and serve different formats; choose one based on what you are parsing.
+Source-code grammars use `emit_pretty` instead. Follow [Parse full ASTs](./parse-full-ast.md) for that procedure and [Source-code emission](../explanation/emit-pretty.md) for its model.
 
 ## Prerequisites
 
@@ -43,6 +43,6 @@ The byte equality is the verification. Property tests in CI check `emit(parse(b)
 
 ## See also
 
-- [Reference: protocol catalogue](../reference/protocols.md).
+- [Reference: protocol catalog](../reference/protocols.md).
 - [Convert data between formats](./convert-data.md).
 - [Parse full ASTs](./parse-full-ast.md) for tree-sitter parsing of source code.

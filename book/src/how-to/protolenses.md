@@ -1,6 +1,6 @@
 # Use protolenses
 
-A *protolens* is a schema-parameterised lens family: one declaration that produces a lens for *any* schema satisfying a precondition. Use protolenses when you want to apply the same transform across a fleet of related schemas without writing one lens per schema.
+A protolens applies the same transform to several schemas that satisfy one precondition. A single schema-parameterized declaration instantiates a lens for each matching schema.
 
 ## Prerequisites
 

@@ -627,7 +627,14 @@ pub(super) fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_cor
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for e in &compiled.surviving_edges {
+    // Sorted, because `surviving_edges` is a `HashSet` and its iteration order
+    // is seeded per process. The indices built here are slices, and a reader
+    // that takes a slice position rather than a value would otherwise answer
+    // differently on each run for one unchanged migration.
+    let mut ordered_edges: Vec<&Edge> = compiled.surviving_edges.iter().collect();
+    ordered_edges.sort_unstable();
+
+    for e in ordered_edges {
         edges.insert(e.clone(), e.kind.clone());
         outgoing.entry(e.src.clone()).or_default().push(e.clone());
         incoming.entry(e.tgt.clone()).or_default().push(e.clone());

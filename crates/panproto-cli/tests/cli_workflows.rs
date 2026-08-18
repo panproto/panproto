@@ -1180,6 +1180,78 @@ fn write_protocol_schema(dir: &Path, name: &str, protocol: &str, vertices: &[(&s
     std::fs::write(&path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
 }
 
+/// Write a schema with edges, for the cases the vertex-only helper cannot
+/// express.
+fn write_schema_with_edges(
+    dir: &Path,
+    name: &str,
+    protocol: &str,
+    vertices: &[(&str, &str)],
+    edges: &[(&str, &str, &str, &str)],
+) {
+    let mut verts = serde_json::Map::new();
+    for (id, kind) in vertices {
+        verts.insert(
+            id.to_string(),
+            serde_json::json!({ "id": id, "kind": kind, "nsid": null }),
+        );
+    }
+    let edge_entries: Vec<serde_json::Value> = edges
+        .iter()
+        .map(|(src, tgt, kind, edge_name)| {
+            serde_json::json!([
+                { "src": src, "tgt": tgt, "kind": kind, "name": edge_name },
+                kind
+            ])
+        })
+        .collect();
+    let mut outgoing: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut incoming: serde_json::Map<String, serde_json::Value> = serde_json::Map::new();
+    let mut between: Vec<serde_json::Value> = Vec::new();
+    for (src, tgt, kind, edge_name) in edges {
+        let edge = serde_json::json!({
+            "src": src, "tgt": tgt, "kind": kind, "name": edge_name
+        });
+        outgoing
+            .entry((*src).to_string())
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .unwrap()
+            .push(edge.clone());
+        incoming
+            .entry((*tgt).to_string())
+            .or_insert_with(|| serde_json::json!([]))
+            .as_array_mut()
+            .unwrap()
+            .push(edge.clone());
+        between.push(serde_json::json!([[src, tgt], [edge]]));
+    }
+
+    let schema = serde_json::json!({
+        "protocol": protocol,
+        "vertices": verts,
+        "edges": edge_entries,
+        "hyper_edges": {},
+        "constraints": {},
+        "required": {},
+        "nsids": {},
+        "variants": {},
+        "orderings": [],
+        "recursion_points": {},
+        "spans": {},
+        "usage_modes": [],
+        "nominal": {},
+        "outgoing": outgoing,
+        "incoming": incoming,
+        "between": between
+    });
+    std::fs::write(
+        dir.join(name),
+        serde_json::to_string_pretty(&schema).unwrap(),
+    )
+    .unwrap();
+}
+
 /// Write a migration JSON file (vertex-only, no edge mappings).
 fn write_migration(dir: &Path, name: &str, vertex_map: &[(&str, &str)]) {
     let vmap: serde_json::Map<String, serde_json::Value> = vertex_map
@@ -2909,6 +2981,276 @@ fn cli_lens_compile_auto_body_without_schemas_fails() {
             "--body-vertex",
             "main",
         ])
+        .assert()
+        .failure();
+}
+
+// ---------------------------------------------------------------------------
+// `schema auto-migrate`
+// ---------------------------------------------------------------------------
+//
+// The command runs one span search and the three flags form a strictness
+// ladder over its answer, so each test below fixes a schema pair and varies
+// only the flag. The pair that drops a field is the case the command exists
+// for: no total morphism maps it, and the span does.
+
+/// A source field whose kind the target has no vertex for cannot be mapped, so
+/// no total morphism exists. The default acceptance reports the span anyway,
+/// and says how much of the source it covers.
+#[test]
+fn cli_auto_migrate_reports_a_partial_span_by_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.name", "string"),
+            ("root.count", "integer"),
+        ],
+    );
+    write_protocol_schema(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[("root", "object"), ("root.name", "string")],
+    );
+
+    schema_cmd()
+        .args(["auto-migrate", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found span"))
+        .stdout(predicate::str::contains("Apex: 2 of 3 vertices"))
+        .stdout(predicate::str::contains("66.7% coverage"));
+}
+
+/// `--total` accepts only a span covering every source vertex, and says how
+/// far short the answer fell rather than reporting that nothing was found.
+#[test]
+fn cli_auto_migrate_total_refuses_a_partial_span_and_says_what_it_found() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[
+            ("root", "object"),
+            ("root.name", "string"),
+            ("root.count", "integer"),
+        ],
+    );
+    write_protocol_schema(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[("root", "object"), ("root.name", "string")],
+    );
+
+    schema_cmd()
+        .args(["auto-migrate", "--total", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("no total morphism exists"))
+        .stderr(predicate::str::contains("2 of 3 source vertices"));
+}
+
+/// `--total` asks whether a total morphism *exists*. The span search answers a
+/// different question, and its answer is no evidence about existence: span
+/// quality excludes the drop count while the objective is lexicographic in
+/// `(quality, drops)`, so dropping a vertex that only contributes mismatch cost
+/// wins outright. Reading a partial optimum as "no total morphism exists" is a
+/// false statement about the pair, not a conservative one.
+#[test]
+fn cli_auto_migrate_total_finds_a_morphism_the_optimal_span_is_not() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_schema_with_edges(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[("s_beta_1", "record"), ("s_epsilon_0", "string")],
+        &[("s_beta_1", "s_epsilon_0", "prop", "r")],
+    );
+    write_schema_with_edges(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[
+            ("t_alpha_0", "record"),
+            ("t_beta_1", "record"),
+            ("t_beta_2", "string"),
+            ("t_delta_3", "record"),
+        ],
+        &[
+            ("t_alpha_0", "t_delta_3", "prop", "r"),
+            ("t_beta_1", "t_beta_2", "prop", "q"),
+        ],
+    );
+
+    // The premise: without `--total` the optimal span is partial, covering one
+    // of the two source vertices.
+    schema_cmd()
+        .args(["auto-migrate", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 of 2 vertices"));
+
+    // And `--total` must find the total morphism that exists anyway.
+    schema_cmd()
+        .args(["auto-migrate", "--total", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("total morphism"))
+        .stdout(predicate::str::contains("s_beta_1 -> t_beta_1"))
+        .stdout(predicate::str::contains("s_epsilon_0 -> t_beta_2"));
+}
+
+/// A right leg that identifies two source vertices is reported, and on stderr
+/// so that `--json` stays pipeable.
+///
+/// Such a migration is an ordinary answer from the default search, and it is
+/// not one a lift can carry out: both fields' data would arrive under the
+/// survivor's name. Handing it over without a word is how the caller ends up
+/// running it.
+#[test]
+fn cli_auto_migrate_warns_when_the_right_leg_contracts() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_schema_with_edges(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[
+            ("post", "object"),
+            ("post.title", "string"),
+            ("post.subtitle", "string"),
+        ],
+        &[
+            ("post", "post.title", "prop", "title"),
+            ("post", "post.subtitle", "prop", "subtitle"),
+        ],
+    );
+    write_schema_with_edges(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[("post", "object"), ("post.heading", "string")],
+        &[("post", "post.heading", "prop", "heading")],
+    );
+
+    schema_cmd()
+        .args(["auto-migrate", "--json", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stderr(predicate::str::contains("not injective on vertices"))
+        .stdout(predicate::str::contains("vertex_map"));
+}
+
+/// A pair admitting a total morphism reports one, and `--total` accepts it. The
+/// heading distinguishes the two answers, so this is what pins the default path
+/// above to the partial case rather than to the wording alone.
+#[test]
+fn cli_auto_migrate_total_accepts_a_pair_that_maps_entirely() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[("root", "object"), ("root.name", "string")],
+    );
+    write_protocol_schema(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[("root", "object"), ("root.label", "string")],
+    );
+
+    schema_cmd()
+        .args(["auto-migrate", "--total", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Found total morphism"))
+        .stdout(predicate::str::contains("100.0% coverage"));
+}
+
+/// `--total` and `--span` are the two ends of one ladder and clap refuses them
+/// together, so neither can silently win.
+#[test]
+fn cli_auto_migrate_total_and_span_conflict() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(tmp.path(), "old.json", "atproto", &[("root", "object")]);
+    write_protocol_schema(tmp.path(), "new.json", "atproto", &[("root", "object")]);
+
+    schema_cmd()
+        .args(["auto-migrate", "--total", "--span", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .failure();
+}
+
+/// `--json` writes the span's right leg, a migration out of the apex, and
+/// nothing else on stdout.
+#[test]
+fn cli_auto_migrate_json_emits_the_right_leg() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(
+        tmp.path(),
+        "old.json",
+        "atproto",
+        &[("root", "object"), ("root.name", "string")],
+    );
+    write_protocol_schema(
+        tmp.path(),
+        "new.json",
+        "atproto",
+        &[("root", "object"), ("root.label", "string")],
+    );
+
+    let out = schema_cmd()
+        .args(["auto-migrate", "--json", "old.json", "new.json"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+
+    let migration: serde_json::Value = serde_json::from_slice(&out).unwrap();
+    assert!(
+        migration.get("vertex_map").is_some(),
+        "the right leg is a migration and must carry a vertex map: {migration}"
+    );
+}
+
+/// The apex is a schema, and a schema is well formed only against a protocol,
+/// so the command resolves the source schema's protocol and refuses a name it
+/// does not carry. `validate`, `integrate` and `check` already read it this
+/// way; this is the test that keeps `auto-migrate` reading it the same way.
+#[test]
+fn cli_auto_migrate_refuses_an_unresolvable_protocol() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_protocol_schema(
+        tmp.path(),
+        "old.json",
+        "not_a_registered_protocol",
+        &[("root", "object")],
+    );
+    write_protocol_schema(
+        tmp.path(),
+        "new.json",
+        "not_a_registered_protocol",
+        &[("root", "object")],
+    );
+
+    schema_cmd()
+        .args(["auto-migrate", "old.json", "new.json"])
+        .current_dir(tmp.path())
         .assert()
         .failure();
 }

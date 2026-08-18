@@ -2,9 +2,11 @@
 
 ## In plain terms
 
-panproto's vocabulary comes from the mathematics it implements, and inside the project the terms are load-bearing: they are what lets the implementation be checked against a precise specification. But you do not need the mathematics to use the tool, and you should not need a category theory course to read this book. This page translates each term once, in one line, into vocabulary a working developer already has. Every row links to the page where the term is defined properly.
+panproto uses mathematical terms where they distinguish operations that ordinary migration vocabulary tends to conflate. You do not need those definitions to run the tool. This page supplies a working translation for each term and links to the chapter that develops it.
 
-Two reading rules. First, the analogies below are approximations: good enough to read the how-to and tutorial quadrants fluently, not good enough to reason about edge cases. When an edge case matters, follow the link. Second, if a page in this book uses one of these terms without explanation, that is a defect; the [glossary](../glossary.md) has the formal definitions; this page has the informal ones.
+The translations are deliberately approximate. They are sufficient for the tutorials and how-to guides; the [glossary](../glossary.md) and linked explanation chapters give the distinctions needed for edge cases.
+
+*Prerequisites:* familiarity with schemas and data migration. This page is also the prerequisite for the intermediate path in the [explanation reading guide](./index.md).
 
 ## The table
 
@@ -16,11 +18,11 @@ Two reading rules. First, the analogies below are approximations: good enough to
 | **instance** | A data record conforming to a schema | A row; a JSON document |
 | **vertex / edge** | A type in a schema / a field connecting types | Nodes and arrows, if you drew your schema on a whiteboard |
 | **migration** (morphism) | The map saying where every part of the new schema comes from in the old one | The plan of a migration script, minus the script |
-| **lift** | Running a migration forward over data | `alembic upgrade` |
-| **restrict** | Reading the map backwards to see what the new schema requires from the old | The dependency check before the upgrade runs |
+| **lift** | Moving source data forward through a compiled migration | `alembic upgrade` |
+| **restrict** | Pulling target-side structure back along a migration | Projecting a new interface onto the source fields that support it |
 | **lens** | A two-way converter: a forward transform paired with a backward one that cannot drift apart | A serializer/deserializer pair, kept honest mechanically |
 | **complement** | The stash of whatever the forward direction dropped, kept so the backward direction can restore it | An undo buffer; `git stash` |
-| **round-trip laws** (GetPut, PutGet) | The checked promises that forward-then-back returns the original and back-then-forward returns the view | Property tests the tool runs for you |
+| **round-trip laws** (GetPut, PutGet, PutPut) | Equations relating the forward and backward directions | Properties exercised by runtime checks and generated tests |
 | **protolens** | A lens template that works on any schema matching a pattern, not one fixed pair | A generic function, where a lens is the monomorphic one |
 | **dependent optic** | A protolens step with a precondition on the schemas it applies to | A guard clause on the template |
 | **colimit** | Gluing several rulebooks together along their shared parts | Merging config fragments that share keys |
@@ -31,7 +33,7 @@ Two reading rules. First, the analogies below are approximations: good enough to
 
 For the CLI workflow (diff, generate, convert, verify) you need *lens*, *complement*, and *migration*, and the one-line versions above suffice. The tutorials use only those three. The how-to quadrant adds *protolens* and *protocol*. Only the explanation quadrant's formal sections, and the [semantics](./semantics/index.md) cluster in particular, use the rest of the vocabulary, and those pages restate each term before using it.
 
-Thus the cheapest reading order: tutorials with this page open in a second tab, how-to guides as needed, explanation pages when a term's one-line version stops being enough.
+The shortest route is to keep this page beside the tutorials, use the how-to guides as needed, and follow an explanation link when a one-line translation stops being enough.
 
 ## See also
 

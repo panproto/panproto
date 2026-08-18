@@ -79,7 +79,7 @@ fullSchema =
         , entries = ["post", "text"]
         , variants = HM.fromList [("post", [Variant {id = "img", parentVertex = "post", tag = Just "image"}])]
         , orderings = HM.fromList [(postText, 0), (postCreated, 1)]
-        , recursionPoints = HM.fromList [("mu", RecursionPoint {muId = "mu", targetVertex = "post"})]
+        , recursionPoints = HM.fromList [("mu", RecursionPoint {targetVertex = "post"})]
         , spans = HM.fromList [("sp", Span {id = "sp", left = "post", right = "text"})]
         , usageModes = HM.fromList [(postText, "Linear")]
         , nominal = HM.fromList [("post", True), ("text", False)]

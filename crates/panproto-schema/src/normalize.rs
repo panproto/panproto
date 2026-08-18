@@ -11,6 +11,7 @@ use panproto_gat::Name;
 use rustc_hash::{FxHashMap, FxHashSet};
 use smallvec::SmallVec;
 
+use crate::induce::ordered_edges;
 use crate::schema::{Edge, Schema, Vertex};
 
 /// The vertex kind that represents a reference indirection.
@@ -120,7 +121,12 @@ fn collapse_edges(
     let mut new_edges: Vec<Edge> = Vec::new();
     let mut used_refs: FxHashSet<Name> = FxHashSet::default();
 
-    for edge in schema.edges.keys() {
+    // Take the edge order from the schema's own index rather than from
+    // `schema.edges`, whose iteration order follows the hash seed: the
+    // collapsed list below fixes the bucket order of the rebuilt schema, so
+    // reading it off the edge map would make normalization's output vary
+    // between processes.
+    for edge in &ordered_edges(schema) {
         let src_vertex = schema.vertices.get(&edge.src);
         // Skip edges that originate FROM a ref vertex (they are part of
         // the chain and will be collapsed into the originating edge).
@@ -242,13 +248,12 @@ fn rebuild_schema(
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
 
-    // Filter policies: keep only those keyed by surviving vertex IDs.
-    let new_policies = schema
-        .policies
-        .iter()
-        .filter(|(id, _)| new_vertices.contains_key(*id))
-        .map(|(id, e)| (id.clone(), e.clone()))
-        .collect();
+    // `policies` is keyed by constraint sort name, not by vertex id, so
+    // collapsing a ref chain can never orphan an entry: the whole map carries
+    // over, exactly as `induce` carries it. Filtering it against the vertex set
+    // would delete every policy whose sort does not happen to spell a surviving
+    // vertex id, which is all of them on any ordinary schema.
+    let new_policies = schema.policies.clone();
 
     Schema {
         protocol: schema.protocol.clone(),
@@ -493,5 +498,44 @@ mod tests {
         let normalized = normalize(&schema);
         assert_eq!(normalized.vertex_count(), schema.vertex_count());
         assert_eq!(normalized.edge_count(), schema.edge_count());
+    }
+
+    /// `policies` is keyed by constraint sort name, so no ref collapse can
+    /// orphan one. A ref vertex is how every indirection a schema language
+    /// spells is represented, so filtering the map against the vertex set would
+    /// empty it on the ordinary schema rather than on a corner case.
+    #[test]
+    fn a_ref_collapse_keeps_every_policy() {
+        let proto = ref_protocol();
+        let schema = SchemaBuilder::new(&proto)
+            .vertex("A", "object", None)
+            .expect("A")
+            .vertex("R", "ref", None)
+            .expect("R")
+            .vertex("B", "string", None)
+            .expect("B")
+            .edge("A", "R", "prop", Some("x"))
+            .expect("A->R")
+            .edge("R", "B", "prop", None)
+            .expect("R->B")
+            .policy(
+                "maxLength",
+                panproto_expr::Expr::Lit(panproto_expr::Literal::Int(1)),
+            )
+            .build()
+            .expect("build");
+        assert_eq!(schema.policies.len(), 1);
+
+        let normalized = normalize(&schema);
+        assert!(
+            !normalized.has_vertex("R"),
+            "the collapse this test depends on did happen"
+        );
+        assert_eq!(
+            normalized.policies.len(),
+            1,
+            "a policy is keyed by a sort name, not a vertex id: got {:?}",
+            normalized.policies.keys().collect::<Vec<_>>()
+        );
     }
 }

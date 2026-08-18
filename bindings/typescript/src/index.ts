@@ -127,7 +127,8 @@ export type {
   EnrichmentSummary,
 } from './types.js';
 
-// Autolens surface: Stringency, HintSpec, candidate API, coerce proposals
+// Autolens surface: Stringency, HintSpec, candidate API, coerce proposals,
+// span search
 export type {
   Stringency,
   CoercionClass,
@@ -138,6 +139,7 @@ export type {
   LensCandidate,
   CoerceProposal,
   CandidateResponse,
+  SpanResponse,
 } from './types.js';
 
 // Types

@@ -223,20 +223,20 @@ public struct Ordering: Codable, Hashable, Sendable {
 /// denoting an infinite tree: unfolding the marker yields the target,
 /// and folding the target yields the marker back.
 public struct RecursionPoint: Codable, Hashable, Sendable {
-    /// The marker vertex id.
-    public var muId: Name
     /// The vertex the marker unfolds to.
     public var targetVertex: Name
 
-    /// Mark `muId` as a recursive reference to `targetVertex`.
-    public init(muId: Name, targetVertex: Name) {
-        self.muId = muId
+    /// Unfold the marker this is filed under to `targetVertex`.
+    ///
+    /// The marker vertex is the key this sits under in the schema's
+    /// `recursionPoints` map and is deliberately not repeated here, so the
+    /// two copies cannot disagree after decoding.
+    public init(targetVertex: Name) {
         self.targetVertex = targetVertex
     }
 
     /// The wire spelling of each field.
     private enum CodingKeys: String, CodingKey {
-        case muId = "mu_id"
         case targetVertex = "target_vertex"
     }
 }

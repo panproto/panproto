@@ -7,10 +7,15 @@ import PanprotoStructural
 // schemas that model the theory.
 //
 // Two ways of getting a migration meet here. A search asks what maps
-// exist between two schemas the host already has, ranks the answers,
-// and lowers one of them; the cascade starts a level up, from a morphism
-// between the theories, and derives the schema-level map from it. Both
-// end at a handle the migration and lens surfaces take.
+// exist between two schemas the host already has and lowers the best of
+// them; the cascade starts a level up, from a morphism between the
+// theories, and derives the schema-level map from it. Both end at a
+// handle the migration and lens surfaces take.
+//
+// The search answers in two shapes. A span says what the two schemas
+// share and always exists; a total morphism says every part of the
+// source has a home and usually does not. The span is the general
+// answer and the morphism the degenerate case of it.
 //
 // Every failure in this file reports ``PanprotoError/migration(_:)``:
 // the search lowers through `mig::hom_search`, the cascade through
@@ -19,27 +24,31 @@ import PanprotoStructural
 // MARK: - Searching for morphisms
 
 extension SchemaHandle {
-    /// Find every structure-preserving morphism from this schema into
-    /// `target`.
+    /// Find the best total morphisms from this schema into `target`.
     ///
-    /// A morphism sends each vertex of this schema to a vertex of
-    /// `target` and each edge to an edge, so that sources and targets
-    /// agree. The search is a constraint problem over those assignments,
-    /// and `options` is where its shape is fixed: whether the vertex map
-    /// has to be injective, surjective, or both, how many answers to
-    /// stop at, and which assignments to pin before the search starts.
+    /// A total morphism sends *every* vertex of this schema to a vertex
+    /// of `target` and every edge to an edge, so that sources and
+    /// targets agree. The search is a constraint problem over those
+    /// assignments, and `options` is where its shape is fixed: whether
+    /// the vertex map has to be injective, surjective, or both, how many
+    /// answers to stop at, and which assignments to pin before the
+    /// search starts.
     ///
-    /// Results arrive ranked by descending `FoundMorphism.quality`, so
-    /// the first is the one ``findBestMorphism(to:options:)`` would
-    /// return. An empty array means no assignment satisfied the
-    /// constraints, which is an ordinary answer rather than a failure.
+    /// The answers are the morphisms **attaining the optimum**, capped
+    /// by `MorphismSearchOptions.maxResults`, so every one of them
+    /// carries the same `FoundMorphism.quality` and the first is the one
+    /// ``findBestMorphism(to:options:)`` returns. There is no second,
+    /// worse tier to walk to: a host looking for a suboptimal
+    /// alternative will not find one here.
     ///
-    /// The search enumerates assignments, so its cost climbs steeply
-    /// with the number of vertices on either side; a schema of a few
-    /// dozen vertices is enough to make an unconstrained search long.
-    /// Pinning vertices through `MorphismSearchOptions.initial`, or
-    /// requiring a shape the engine can prune against, cuts the space
-    /// before the enumeration starts.
+    /// An empty array means no total morphism exists, which is the
+    /// ordinary case for two schemas that were not built from each
+    /// other. ``findSpan(to:in:options:constraints:)`` is the entry
+    /// point that answers with what the two schemas *do* share.
+    ///
+    /// Pinning vertices through `MorphismSearchOptions.hardPins`, or
+    /// requiring a shape the engine can prune against, cuts the search
+    /// space before the search starts.
     ///
     /// ```swift
     /// let candidates = try await post.findMorphisms(
@@ -50,10 +59,11 @@ extension SchemaHandle {
     ///
     /// - Parameters:
     ///   - target: The schema to map into.
-    ///   - options: The constraints the search runs under. The default
-    ///     is the engine's own: no shape requirement, no result limit,
+    ///   - options: The shape the search is asked for. The default is
+    ///     the engine's own: no shape requirement, no result limit,
     ///     nothing pinned.
-    /// - Returns: The morphisms found, best first.
+    /// - Returns: The optimal total morphisms, or an empty array when
+    ///   none exists.
     /// - Throws: ``PanprotoError/migration(_:)`` when either handle is
     ///   not a schema, or when the options will not encode.
     @PanprotoEngine
@@ -69,17 +79,19 @@ extension SchemaHandle {
             [FoundMorphism].self, from: result.bytes, .migration, operation)
     }
 
-    /// Find the single highest-quality morphism from this schema into
-    /// `target`.
+    /// Find the single highest-quality total morphism from this schema
+    /// into `target`.
     ///
     /// The search is the same one ``findMorphisms(to:options:)`` runs,
     /// under the same `options`; only the answer is narrowed. `nil`
-    /// means the constraints admit no morphism at all.
+    /// means no total morphism exists, not that the search failed;
+    /// ``findSpan(to:in:options:constraints:)`` answers the same pair
+    /// with the part that does map.
     ///
     /// - Parameters:
     ///   - target: The schema to map into.
-    ///   - options: The constraints the search runs under.
-    /// - Returns: The best morphism, or `nil` when none exists.
+    ///   - options: The shape the search is asked for.
+    /// - Returns: The best total morphism, or `nil` when none exists.
     /// - Throws: ``PanprotoError/migration(_:)`` when either handle is
     ///   not a schema, or when the options will not encode.
     @PanprotoEngine
@@ -93,6 +105,87 @@ extension SchemaHandle {
         try result.status.orThrow(.migration, operation)
         return try Payload.decode(
             FoundMorphism?.self, from: result.bytes, .migration, operation)
+    }
+
+    /// Find what this schema and `target` share, as a span.
+    ///
+    /// The answer is `self ← apex → target`: the apex is the largest
+    /// sub-schema of this schema that found a home in `target`, the left
+    /// leg is its inclusion back here, and the right leg is where it
+    /// lands. This never refuses for want of a match. Two schemas with
+    /// nothing in common answer with an empty apex, which is why this is
+    /// the entry point to reach for when
+    /// ``findBestMorphism(to:options:)`` returns `nil`.
+    ///
+    /// `protocol` is an argument because the apex is a schema, a schema
+    /// is well formed only against a protocol, and inducing the apex
+    /// re-validates it rather than assuming it. A schema stores only its
+    /// protocol's name, so the protocol cannot be read back off this
+    /// handle.
+    ///
+    /// ```swift
+    /// let span = try await post.findSpan(to: profile, in: atproto)
+    /// if span.isTotal {
+    ///     let morphism = span.asTotalMorphism
+    /// } else {
+    ///     print("covered \(span.apexCoverage) of the source")
+    /// }
+    /// ```
+    ///
+    /// - Parameters:
+    ///   - target: The schema to map into.
+    ///   - protocolHandle: The protocol the apex is validated against.
+    ///   - options: The shape the search is asked for.
+    ///   - constraints: Where each source vertex is allowed to land, and
+    ///     an optional override of the objective's weights.
+    /// - Returns: The maximum span between the two schemas.
+    /// - Throws: ``PanprotoError/migration(_:)`` when a handle is of the
+    ///   wrong kind, when a payload will not encode, or when the search
+    ///   could not be posed.
+    @PanprotoEngine
+    public func findSpan(
+        to target: SchemaHandle,
+        in protocolHandle: ProtocolHandle,
+        options: MorphismSearchOptions = MorphismSearchOptions(),
+        constraints: MorphismDomainConstraints = MorphismDomainConstraints()
+    ) throws(PanprotoError) -> SchemaSpan {
+        let operation = "SchemaHandle.findSpan"
+        let opts = try Payload.encode(options, .migration, operation)
+        let restrictions = try Payload.encode(constraints, .migration, operation)
+        let result = Raw.homFindSpan(
+            src: rawValue,
+            tgt: target.rawValue,
+            protocol: protocolHandle.rawValue,
+            opts: opts,
+            constraints: restrictions
+        )
+        try result.status.orThrow(.migration, operation)
+        return try Payload.decode(SchemaSpan.self, from: result.bytes, .migration, operation)
+    }
+}
+
+// MARK: - Merging along a span
+
+extension SchemaSpan {
+    /// The identification list a pushout takes.
+    ///
+    /// Each pair is `(source element, target element)`, and merging the
+    /// two schemas along them is what turns a span into one schema
+    /// carrying both. The pairs come from the right leg alone, because
+    /// the left leg is an inclusion and the apex's identifiers *are*
+    /// source identifiers.
+    ///
+    /// - Returns: The overlap, its two pair arrays sorted by key so that
+    ///   one span always yields the same list.
+    /// - Throws: ``PanprotoError/migration(_:)`` when the span will not
+    ///   encode.
+    @PanprotoEngine
+    public func overlap() throws(PanprotoError) -> SchemaOverlap {
+        let operation = "SchemaSpan.overlap"
+        let payload = try Payload.encode(self, .migration, operation)
+        let result = Raw.homSpanToOverlap(span: payload)
+        try result.status.orThrow(.migration, operation)
+        return try Payload.decode(SchemaOverlap.self, from: result.bytes, .migration, operation)
     }
 }
 

@@ -1,6 +1,6 @@
 # Use dependent optics
 
-A *dependent optic* is an optic-kind chosen by the schema edge it is applied at: a `prop` edge yields a Lens, an `item` edge yields a Traversal, a `variant` edge yields a Prism. Dependent optics let you write transforms that work uniformly across all three edge kinds, with the optic kind unified at instantiation.
+A dependent optic applies one transform uniformly to `prop`, `item`, and `variant` edges. Instantiation selects `Lens`, `Traversal`, or `Prism` from the edge kind.
 
 ## Prerequisites
 

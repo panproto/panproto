@@ -1,6 +1,6 @@
 # Pre-commit hooks
 
-A pre-commit hook runs schema validation before each `git commit`, so you catch malformed schemas before they enter the history. Optionally, it can also warn about breaking changes.
+A pre-commit hook rejects malformed staged schemas before they enter the history. The optional second check warns about breaking changes.
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ done
 # between the staged version and the upstream copy. Failure suggests
 # the change is breaking.
 for f in $changed; do
-  base_blob=$(git show :@{u}:"$f" 2>/dev/null) || continue
+  base_blob=$(git show "@{u}:$f" 2>/dev/null) || continue
   echo "$base_blob" > /tmp/base.json
   if ! schema lens generate --protocol atproto /tmp/base.json "$f" --save /tmp/chain.json 2>/dev/null; then
     echo "warning: $f introduces a breaking change (commit anyway? Ctrl-C to abort)"

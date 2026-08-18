@@ -299,14 +299,14 @@ impl PyProtolensChain {
     ) -> PyResult<Self> {
         use panproto_core::gat::Name;
 
-        let mut initial = std::collections::HashMap::new();
+        let mut hard_pins = std::collections::HashMap::new();
         for (src, tgt) in &hints {
-            initial.insert(Name::from(src.as_str()), Name::from(tgt.as_str()));
+            hard_pins.insert(Name::from(src.as_str()), Name::from(tgt.as_str()));
         }
         let mut config = AutoLensConfig {
             try_overlap: true,
             search_opts: panproto_core::mig::hom_search::SearchOptions {
-                initial,
+                hard_pins,
                 ..Default::default()
             },
             ..Default::default()
@@ -353,7 +353,6 @@ impl PyProtolensChain {
             excluded_targets: hint_spec.excluded_target_names(),
             excluded_sources: hint_spec.excluded_source_names(),
             scoring_weights: hint_spec.scoring_weights(),
-            name_similarity_threshold: hint_spec.name_similarity_threshold(),
         };
         let (derived, domain_constraints) =
             lens::hint::resolve_hints(&parts, &src_schema.inner, &tgt_schema.inner);

@@ -1,6 +1,6 @@
 # Version data alongside schemas
 
-panproto-vcs commits can carry data instances. When a branch's schema migrates, the data carried by its commits is automatically lifted forward by the migration's lens. This makes data evolution part of the schema history rather than a parallel concern.
+Stage data with its schema when repository operations must migrate both together. A later schema migration lifts the committed data through the associated lens.
 
 ## Prerequisites
 

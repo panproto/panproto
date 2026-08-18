@@ -80,6 +80,22 @@ pub enum SchemaError {
          use build_decorated for a decorated schema"
     )]
     LayoutConstraintsOnAbstractBuild,
+
+    /// [`induce`](crate::induce()) produced a sub-schema that fails
+    /// [`validate`](crate::validate) against the protocol it was cut from.
+    ///
+    /// Because induction never invents a vertex, an edge, a kind or a
+    /// constraint, every finding here is inherited from the parent schema:
+    /// either the parent was already invalid, or the cut exposed a
+    /// requirement whose endpoints did not survive.
+    #[error(
+        "induced sub-schema is invalid: {}",
+        .findings.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")
+    )]
+    InducedSchemaInvalid {
+        /// Every violation reported for the induced sub-schema.
+        findings: Vec<ValidationError>,
+    },
 }
 
 /// An error found during schema validation against a protocol.
@@ -121,6 +137,20 @@ pub enum ValidationError {
         /// The dangling edge description.
         edge: String,
     },
+
+    /// A recursion point names a vertex the schema does not have.
+    ///
+    /// Either end can dangle: the marker itself, which is the key the point is
+    /// filed under, or the vertex it unfolds to. Neither is caught anywhere
+    /// else, and inducing a sub-schema silently drops a marker whose ends it
+    /// cannot find, so without this check a schema carrying one validates
+    /// clean and then loses the marker with no diagnostic.
+    DanglingRecursionPoint {
+        /// The marker vertex, which is the key in `recursion_points`.
+        mu: String,
+        /// Which end is missing, for the message.
+        missing: String,
+    },
 }
 
 impl fmt::Display for ValidationError {
@@ -140,6 +170,12 @@ impl fmt::Display for ValidationError {
             }
             Self::DanglingRequiredEdge { vertex, edge } => {
                 write!(f, "vertex {vertex} has dangling required edge: {edge}")
+            }
+            Self::DanglingRecursionPoint { mu, missing } => {
+                write!(
+                    f,
+                    "recursion point {mu} names a vertex the schema does not have: {missing}"
+                )
             }
         }
     }

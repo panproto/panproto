@@ -61,9 +61,20 @@ features = ["pyo3/extension-module"]
 [tool.ruff]
 target-version = "py313"
 line-length = 99
+# The prose docs align the trailing comments in their examples into a column,
+# which reads better than the formatter's single space and is not code the
+# formatter has any other claim on.
+extend-exclude = ["docs", "README.md"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "SIM", "TCH", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+# A stub declares the parameter names the extension actually uses, and
+# `tests/test_stub_parity.py` fails if it declares any others. `Schema.vertex`
+# takes `id` and `IoRegistry.parse` takes `format` because `pyo3` says so, so
+# the builtin-shadowing rule has nothing here it could ask for.
+"src/panproto/_native.pyi" = ["A002"]
 
 [tool.pyright]
 pythonVersion = "3.13"

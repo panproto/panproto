@@ -101,7 +101,7 @@ struct HomomorphismTests {
             let anchored = try schemas.source.findMorphisms(
                 to: schemas.target,
                 options: MorphismSearchOptions(
-                    initial: [PostSchemaPair.record: PostSchemaPair.record]
+                    hardPins: [PostSchemaPair.record: PostSchemaPair.record]
                 )
             )
             #expect(!anchored.isEmpty)
@@ -127,6 +127,135 @@ struct HomomorphismTests {
             // answer written twice.
             #expect(try post.findMorphisms(to: profile).isEmpty)
             #expect(try post.findBestMorphism(to: profile) == nil)
+        }
+    }
+
+    // MARK: - Spans
+
+    @Test("a schema spans onto itself, which makes the span a total morphism")
+    func selfSpanIsTotal() async throws {
+        try await PanprotoEngine.run {
+            let schemas = try PostSchemaPair()
+            defer { schemas.release() }
+
+            let span = try schemas.source.findSpan(
+                to: schemas.source,
+                in: schemas.protocolHandle
+            )
+
+            #expect(span.isTotal)
+            #expect(span.apexCoverage == 1.0)
+            #expect(span.provenOptimal)
+            #expect(span.qualityLo <= span.quality)
+            #expect(span.quality <= span.qualityHi)
+            #expect(span.apex.vertices.count == 4)
+            // The left leg is an inclusion, so it is the identity on the
+            // apex and the right leg carries the whole identification.
+            #expect(span.left.vertexMap[PostSchemaPair.record] == PostSchemaPair.record)
+            #expect(span.right.vertexMap[PostSchemaPair.record] == PostSchemaPair.record)
+
+            let total = try #require(span.asTotalMorphism)
+            #expect(total.vertexMap == span.right.vertexMap)
+            #expect(total.quality == span.quality)
+        }
+    }
+
+    @Test("the span answers for a pair that admits no total morphism")
+    func spanAnswersWhereTheMorphismSearchCannot() async throws {
+        try await PanprotoEngine.run {
+            let schemas = try PostSchemaPair()
+            defer { schemas.release() }
+            let post = try lexiconSchema("schema-bsky-post")
+            let profile = try lexiconSchema("schema-bsky-profile")
+            defer {
+                post.release()
+                profile.release()
+            }
+
+            // The total-morphism search has nothing to say about this
+            // pair: no assignment covers the whole post lexicon.
+            #expect(try post.findBestMorphism(to: profile) == nil)
+
+            // The span says what they do share, and never refuses.
+            let span = try post.findSpan(to: profile, in: schemas.protocolHandle)
+            #expect(!span.isTotal)
+            #expect(span.asTotalMorphism == nil)
+            #expect((0.0..<1.0).contains(span.apexCoverage))
+            #expect(span.apex.vertices.count == span.right.vertexMap.count)
+            // The left leg is an inclusion, so it maps exactly the apex.
+            #expect(span.left.vertexMap.count == span.apex.vertices.count)
+        }
+    }
+
+    @Test("a span reads back as the identification list a pushout takes")
+    func spanReadsBackAsAnOverlap() async throws {
+        try await PanprotoEngine.run {
+            let schemas = try PostSchemaPair()
+            defer { schemas.release() }
+
+            let span = try schemas.source.findSpan(
+                to: schemas.target,
+                in: schemas.protocolHandle
+            )
+            let overlap = try span.overlap()
+
+            #expect(overlap.vertexPairs.count == span.right.vertexMap.count)
+            #expect(overlap.edgePairs.count == span.right.edgeMap.count)
+            for pair in overlap.vertexPairs {
+                #expect(span.right.vertexMap[pair.key] == pair.value)
+            }
+            // Sorted by key, so one span always yields the same list.
+            #expect(overlap.vertexPairs.map(\.key) == overlap.vertexPairs.map(\.key).sorted())
+        }
+    }
+
+    @Test("constraints keep a source vertex out of the apex")
+    func constraintsShrinkTheApex() async throws {
+        try await PanprotoEngine.run {
+            let schemas = try PostSchemaPair()
+            defer { schemas.release() }
+
+            let full = try schemas.source.findSpan(
+                to: schemas.source,
+                in: schemas.protocolHandle
+            )
+            #expect(full.isTotal)
+
+            let restricted = try schemas.source.findSpan(
+                to: schemas.source,
+                in: schemas.protocolHandle,
+                constraints: MorphismDomainConstraints(
+                    excludedSources: [PostSchemaPair.createdAt]
+                )
+            )
+            #expect(!restricted.isTotal)
+            #expect(restricted.right.vertexMap[PostSchemaPair.createdAt] == nil)
+            #expect(restricted.apexCoverage < full.apexCoverage)
+        }
+    }
+
+    @Test("a weight vector the engine refuses is reported, not ignored")
+    func unusableWeightsAreRefused() async throws {
+        try await PanprotoEngine.run {
+            let schemas = try PostSchemaPair()
+            defer { schemas.release() }
+
+            do {
+                _ = try schemas.source.findSpan(
+                    to: schemas.target,
+                    in: schemas.protocolHandle,
+                    constraints: MorphismDomainConstraints(
+                        scoringWeights: MorphismCostWeights(
+                            name: 0, edge: 0, prop: 0, degree: 0, anchor: 0
+                        )
+                    )
+                )
+                Issue.record("an all-zero weight vector was accepted")
+            } catch let error as PanprotoError {
+                #expect(error.domain == .migration)
+                #expect(error.detail.operation == "SchemaHandle.findSpan")
+                #expect(error.detail.status == .operation)
+            }
         }
     }
 

@@ -1,158 +1,107 @@
-# Expression language: denotational semantics
+# Expression language: operational meaning
 
 ## In plain terms
 
-The expression language `panproto-expr` is what you use to describe field-level transforms inside a migration ("the new `full_name` field is the old `first` plus a space plus the old `last`") and predicates inside a query ("only records where `created_at > '2024-01-01'`"). Everything in the language is pure: no IO, no mutation, no clock reads, no random numbers. Two expressions that look the same always do the same thing. Every expression terminates within a fixed number of evaluation steps.
-
-This page describes what those properties mean and what the evaluator actually computes.
+We use `panproto-expr` for pure value computations in field transforms and queries. For a fixed expression, environment, instance context, and resource configuration, evaluation is deterministic and performs no mutation or external input/output. It stops with an `ExprError` when a step, recursion-depth, or list-length limit is reached. The Haskell-style surface language lowers to an `Expr` abstract syntax tree; a lightweight classifier catches some mismatches but is not a proof system for the full language.
 
 ## Surface syntax
 
-The Haskell-style surface, parsed by `panproto-expr-parser`:
+The following grammar is a representative fragment, not the complete parser grammar:
 
 ```bnf
 expr  ::= literal
         | ident
-        | expr expr                    -- application
-        | "\\" ident "->" expr         -- lambda
+        | expr expr
+        | "\\" ident "->" expr
         | "let" ident "=" expr "in" expr
         | "if" expr "then" expr "else" expr
-        | "case" expr "of" alts        -- pattern match
-        | builtin "(" expr,... ")"     -- builtin application
-        | expr "." ident               -- field access
-        | expr "[" expr "]"            -- index
-literal ::= int | float | str | bool | "null"
-        | "[" expr,... "]"             -- list
-        | "{" ident ":" expr,... "}"   -- record
+        | "case" expr "of" alts
+        | expr "." ident
+        | expr "[" expr "]"
+literal ::= int | float | str | bool | "Nothing"
+          | "[" expr,... "]"
+          | "{" ident ["=" expr],... "}"
 ```
 
-The parser desugars `if c then a else b` to a `Match` over a boolean scrutinee with two arms, and `case e of ...` to a `Match` directly. There is no separate `If` or `Case` node in the abstract syntax.
+The optional expression in a record field permits punning: `{x}` means `{x = x}`. The full parser also handles operators, ranges, list comprehensions, `do` notation, and `where` clauses. It lowers those forms to the smaller abstract syntax described below. In particular, conditionals lower to `Match`; there is no `If` variant in `Expr`.
 
 ## Abstract syntax
 
-```rust,ignore
-pub enum Expr {
-    Var(Arc<str>),
-    Lam(Arc<str>, Box<Self>),
-    App(Box<Self>, Box<Self>),
-    Lit(Literal),
-    Record(Vec<(Arc<str>, Self)>),
-    List(Vec<Self>),
-    Field(Box<Self>, Arc<str>),
-    Index(Box<Self>, Box<Self>),
-    Match { scrutinee: Box<Self>, arms: Vec<(Pattern, Self)> },
-    Let { name: Arc<str>, value: Box<Self>, body: Box<Self> },
-    Builtin(BuiltinOp, Vec<Self>),
-}
+The current Rust enum has the schematic shape below; omitted module paths and derives make the listing non-runnable.
+
+```text
+Expr = Var(name)
+     | Lam(parameter, body)
+     | App(function, argument)
+     | Lit(literal)
+     | Record(fields)
+     | List(items)
+     | Field(record, name)
+     | Index(list, index)
+     | Match { scrutinee, arms }
+     | Let { name, value, body }
+     | Builtin(operation, arguments)
 ```
 
-`Match` covers both `if/then/else` and `case/of`; pattern matching is the only branching primitive. Each arm pairs a `Pattern` (whose variants include `Wildcard`, `Var`, `Lit`, `Record`, `List`, and `Constructor`) with a body expression. The full enum lives at [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
+`Match` tries arms in source order. Patterns include wildcards, variables, literals, records, lists, and constructors. The authoritative definitions are in [`crates/panproto-expr/src/expr.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/expr.rs).
 
-## Type system
+## Lightweight type classification
 
-The type-formation grammar:
-
-$$
-\tau \;::=\; \mathsf{Int} \mid \mathsf{Float} \mid \mathsf{Str} \mid \mathsf{Bool} \mid \mathsf{Null} \mid \mathsf{Any} \mid \mathsf{List}\,\tau \mid \mathsf{Record} \mid \tau \to \tau
-$$
-
-A typing context $\Gamma$ is a finite map from variable names to types. The typing relation $\Gamma \vdash e : \tau$ is defined inductively by the usual rules; selected:
+`ExprType` has seven cases:
 
 $$
-\frac{}{\Gamma \vdash n : \mathsf{Int}} \;(\text{T-Int})
-\qquad
-\frac{x : \tau \in \Gamma}{\Gamma \vdash x : \tau} \;(\text{T-Var})
-\qquad
-\frac{\Gamma, x : \tau_1 \vdash e : \tau_2}{\Gamma \vdash \lambda x.\,e : \tau_1 \to \tau_2} \;(\text{T-Lam})
+\tau \;::=\; \mathsf{Int} \mid \mathsf{Float} \mid \mathsf{Str} \mid \mathsf{Bool}
+\mid \mathsf{List} \mid \mathsf{Record} \mid \mathsf{Any}.
 $$
 
-$$
-\frac{\Gamma \vdash e_1 : \tau_1 \to \tau_2 \quad \Gamma \vdash e_2 : \tau_1}{\Gamma \vdash e_1\,e_2 : \tau_2} \;(\text{T-App})
-\qquad
-\frac{\Gamma \vdash e : \tau_1 \quad \Gamma, x : \tau_1 \vdash e' : \tau_2}{\Gamma \vdash \mathsf{let}\;x = e\;\mathsf{in}\;e' : \tau_2} \;(\text{T-Let})
-$$
+`List` does not record an element type, `Record` does not record field types, and the classifier has no function type. `Null`, byte values, and closures classify as `Any`.
 
-Builtin signatures have type schemes given in [reference/expression-language](../../reference/expression-language.md); each `Builtin(op, \overline{e})` rule plugs in $op$'s scheme and checks that the arguments match.
+The function `infer_type(e, env)` performs best-effort classification under an environment $\Gamma$ from variable names to `ExprType`. Literals, records, lists, variables, and builtins with declared result signatures receive specific cases. Lambdas, applications, field access, and index access return `Any`; a match uses the first arm's body; and a let extends the environment with the inferred class of its bound value. An unbound variable is an error.
 
-## Semantic domain
+`validate_coercion` accepts `Any` because the classifier cannot reject an opaque expression. Thus successful validation means that no detectable mismatch was found. It does not establish a typing judgment of the form $\Gamma \vdash e : \tau$, type preservation, or exhaustiveness.
 
-Let $\mathsf{Val}$ be the recursive sum
+## Evaluation domain
+
+Values are Rust `Literal`s: integers, floats, strings, booleans, null, bytes, lists, records, and closures. Write $V$ for this set and $E$ for `ExprError`. A configuration contains maximum steps, maximum recursion depth, and maximum output-list length. The evaluator can be modeled as
 
 $$
-\mathsf{Val} \;\cong\; \mathbb{Z} + \mathbb{R} + \mathsf{String} + \mathbb{B} + \{\star\} + \mathsf{List}(\mathsf{Val}) + \mathsf{Record}(\mathsf{Val}) + [\mathsf{Val} \rightharpoonup \mathsf{Val}]
+\mathsf{eval} : \mathsf{Expr} \times \mathsf{Env} \times \mathsf{Config}
+\longrightarrow V + E.
 $$
 
-interpreting `Null` as the singleton $\{\star\}$ and the function space as partial continuous maps. Lift to $\mathsf{Val}_\bot = \mathsf{Val} + \{\bot\}$ to adjoin a bottom for divergence under the step budget. Environments live in $\mathsf{Env} = \mathsf{Var} \rightharpoonup \mathsf{Val}$, and *ranked* environments in $\mathsf{Env}_n = \mathsf{Env} \times \mathbb{N}$ to track the remaining step budget.
+This error sum is more faithful to the implementation than a bottom element $\bot$: resource exhaustion is reported as a concrete `ExprError`, just like an unbound variable or an invalid builtin argument.
 
-## Semantic function
+## Call-by-value evaluation
 
-The denotational semantics is the family
+Evaluation is call by value. Each recursive call checks the depth bound, then consumes one step through `EvalState::tick`. Lists and records evaluate their components from left to right. A let evaluates its bound expression before extending the lexical environment, and an application evaluates the function and argument before applying a captured closure.
 
-$$
-\llbracket \cdot \rrbracket : \mathsf{Expr} \to \mathsf{Env}_n \to \mathsf{Val}_\bot
-$$
-
-defined by structural recursion on $\mathsf{Expr}$. Write $\rho_n = (\rho, n)$ and $\rho_n \!\downarrow\! 1 = (\rho, n - 1)$ for the budget decrement. The equations:
+Using $\rho[x \mapsto v]$ for environment extension, representative equations are:
 
 $$
 \begin{aligned}
-\llbracket \mathsf{Lit}(c) \rrbracket\, \rho_n        &= c \\
-\llbracket \mathsf{Var}(x) \rrbracket\, \rho_n        &= \rho(x) \\
-\llbracket \mathsf{Lam}(x, e) \rrbracket\, \rho_n     &= \lambda v.\, \llbracket e \rrbracket\,(\rho[x \mapsto v])_n \\
-\llbracket \mathsf{Let}(x, e_1, e_2) \rrbracket\, \rho_n
-                                                       &= \llbracket e_2 \rrbracket\,(\rho[x \mapsto \llbracket e_1 \rrbracket\,\rho_n])_{n-1} \\
-\llbracket \mathsf{App}(e_1, e_2) \rrbracket\, \rho_n
-                                                       &= (\llbracket e_1 \rrbracket\,\rho_n)\,(\llbracket e_2 \rrbracket\,\rho_n) \\
-\llbracket \mathsf{Match}(e, \overline{(p_i, b_i)}) \rrbracket\, \rho_n
-                                                       &= \mathsf{matchArms}(\llbracket e \rrbracket\,\rho_n,\ \overline{(p_i, b_i)},\ \rho_{n-1}) \\
-\llbracket \mathsf{List}(\overline{e}) \rrbracket\, \rho_n
-                                                       &= [\,\llbracket e_i \rrbracket\,\rho_n\,]_i \\
-\llbracket \mathsf{Field}(e, x) \rrbracket\, \rho_n
-                                                       &= (\llbracket e \rrbracket\,\rho_n).x \\
-\llbracket \mathsf{Index}(e, i) \rrbracket\, \rho_n
-                                                       &= (\llbracket e \rrbracket\,\rho_n)\,[\,\llbracket i \rrbracket\,\rho_n\,] \\
-\llbracket \mathsf{Builtin}(op, \overline{e}) \rrbracket\, \rho_n
-                                                       &= \mathsf{apply\_builtin}(op,\ \overline{\llbracket e_i \rrbracket\,\rho_n}) \\
-\llbracket e \rrbracket\, (\rho, 0)                   &= \bot \quad \text{(budget rule)}
+\mathsf{eval}(\mathsf{Var}(x), \rho) &= \rho(x), \\
+\mathsf{eval}(\mathsf{Lam}(x,e), \rho) &= \mathsf{closure}(x,e,\rho), \\
+\mathsf{eval}(\mathsf{Let}(x,e_1,e_2), \rho)
+  &= \mathsf{eval}(e_2,\rho[x \mapsto \mathsf{eval}(e_1,\rho)]), \\
+\mathsf{eval}(\mathsf{App}(e_1,e_2), \rho)
+  &= \mathsf{apply}(\mathsf{eval}(e_1,\rho),\mathsf{eval}(e_2,\rho)).
 \end{aligned}
 $$
 
-The budget rule fires before any equation if the remaining steps are zero; otherwise the relevant equation applies and the recursive sub-denotations are evaluated with the budget decremented. Operationally this is `EvalState::tick` in [`crates/panproto-expr/src/eval.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/eval.rs); when $\bot$ is returned the implementation surfaces `ExprError::StepLimitExceeded(max_steps)`.
+These equations suppress error propagation and the threaded resource state. The code passes one mutable budget through every subevaluation, so sibling expressions do not each receive a fresh copy of the original budget.
 
-The auxiliary $\mathsf{matchArms}$ is the standard pattern-match search: try each $(p_i, b_i)$ in order, attempting to unify $p_i$ against the scrutinee value; on the first success bind the pattern variables into $\rho$ and evaluate $b_i$; on exhaustion raise `NonExhaustiveMatch`. The auxiliary $\mathsf{apply\_builtin}$ is the partial function defined in [`crates/panproto-expr/src/builtin.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/builtin.rs).
+Pattern matching evaluates the scrutinee once, tries arms in order, extends the environment with bindings from the first matching pattern, and evaluates that arm. Exhaustion returns `NonExhaustiveMatch`. Higher-order list builtins apply captured closures through the same evaluator, while graph-traversal builtins require the instance-aware evaluation entry point.
 
-### Builtin side conditions
+## Checked properties and boundaries
 
-The builtins listed under [reference/expression-language](../../reference/expression-language.md) are individually total or partial. The partial ones return a non-$\bot$ error rather than $\bot$:
+For fixed input and configuration, evaluation follows one call-by-value order and returns before the configured step or depth budget is exceeded; list-producing operations also enforce `max_list_len`. `infer_type` rejects some invalid expressions before evaluation, and it is the only check that runs then, since it ignores a builtin's argument vector entirely. The builtin arity and argument checks run *during* evaluation, inside `apply_builtin`, after the arguments have been evaluated.
 
-- `Div`, `Mod` with zero divisor: `DivisionByZero`.
-- Integer arithmetic overflow: `Overflow` (`i64::checked_*`).
-- `*ToInt` / `*ToFloat` on unparseable input: `ParseError`.
-- List index out of bounds: `IndexOutOfBounds`; list operations past the configured maximum: `ListLengthExceeded`.
-- Record access on a missing field: `FieldNotFound`.
-- `Match` exhaustion: `NonExhaustiveMatch`.
-- `App` of a non-function value: `NotAFunction`.
+It does not currently support a general type-preservation claim. `infer_type` is deliberately best effort, returns `Any` for several constructs, and does not validate every subexpression of a builtin application. Likewise, the resource bounds establish termination of the evaluator invocation, not termination of an unbounded calculus obtained by removing those checks.
 
-Errors are distinct from $\bot$. $\bot$ models *resource exhaustion* (`StepLimitExceeded` and `DepthExceeded`); errors model *defined failure* and propagate as `Err(ExprError)` from the implementation.
-
-## Soundness
-
-The evaluator satisfies:
-
-- **Type preservation.** If $\Gamma \vdash e : \tau$ and $\rho \models \Gamma$ and $\rho \vdash e \Downarrow v$ with $v \neq \bot$, then $v \in \llbracket \tau \rrbracket$.
-- **Totality (within the budget).** For every well-typed $e$ and well-typed $\rho$, $\llbracket e \rrbracket_\rho$ terminates in finitely many steps with either a value or $\bot$.
-- **Determinism.** If $\rho \vdash e \Downarrow v_1$ and $\rho \vdash e \Downarrow v_2$ then $v_1 = v_2$.
-
-Type preservation is enforced by the type-checker in [`crates/panproto-expr/src/typecheck.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/typecheck.rs) and by builtin signatures rejecting ill-typed arguments. Totality follows from the budget rule. Determinism follows from the absence of mutation and IO.
-
-## What is intentionally not modelled
-
-- **Performance.** Two expressions can have the same denotation but very different cost. The semantics fixes only what is computed, not how much it costs.
-- **Step-budget tuning.** The budget is a parameter set at the outermost call. The semantics treats it as fixed; the language itself does not expose it.
-- **Floating-point determinism across architectures.** `Float` operations follow IEEE 754, but bit-level reproducibility across hardware is not guaranteed.
+The evaluator lives in [`crates/panproto-expr/src/eval.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/eval.rs), and the classifier lives in [`crates/panproto-expr/src/typecheck.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-expr/src/typecheck.rs).
 
 ## See also
 
-- [Reference: expression-language](../../reference/expression-language.md) for the builtin catalogue.
-- [How-to: apply field transforms](../../how-to/field-transforms.md) for usage.
-- [Lens DSL](./lens-dsl.md) for how `panproto-expr` appears inside lens specifications.
+- [Expression-language reference](../../reference/expression-language.md) for the builtin catalog.
+- [Apply field transforms](../../how-to/field-transforms.md) for usage.
+- [Lens DSL](./lens-dsl.md) for expressions inside lens specifications.

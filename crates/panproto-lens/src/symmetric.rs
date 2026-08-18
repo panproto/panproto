@@ -4,9 +4,8 @@
 //! that share a common complement. This module provides the span-based
 //! construction where the "middle" schema M serves as the shared state.
 
-use std::collections::HashMap;
-
 use panproto_inst::WInstance;
+use panproto_mig::hom_search::{SearchOptions, find_span};
 use panproto_schema::{Protocol, Schema};
 
 use crate::Lens;
@@ -259,69 +258,46 @@ impl SymmetricLens {
 
     /// Auto-generate a symmetric lens from two schemas.
     ///
-    /// Uses overlap discovery to find shared structure, then builds
-    /// protolens chains for each projection.
+    /// Runs one span search on the iso path and takes its apex as the middle
+    /// schema, then builds a protolens chain for each projection.
+    ///
+    /// # Why the apex rather than a hand-assembled restriction
+    ///
+    /// The middle schema is the apex of a span, and a span's apex is the
+    /// sub-schema of the source *induced* on the chosen vertices. Inducing
+    /// carries the non-edge structure and rebuilds the adjacency indices;
+    /// selecting vertices and edges by hand carries neither, so a middle
+    /// schema assembled that way answers every adjacency query with nothing
+    /// even though its edge map is populated, and silently drops entries,
+    /// required sets, variants and recursion points.
+    ///
+    /// The iso path is the one that applies: a merge along the middle needs the
+    /// right leg to be a mono, and only that path guarantees it.
     ///
     /// # Errors
     ///
-    /// Returns [`LensError::ProtolensError`] if no overlap is found or
-    /// if automatic lens generation fails for either direction.
+    /// Returns [`LensError::ProtolensError`] if the search fails, if the two
+    /// schemas share no induced sub-schema, or if automatic lens generation
+    /// fails for either direction.
     pub fn auto_symmetric(
         left: &Schema,
         right: &Schema,
         protocol: &Protocol,
         _config: &AutoLensConfig,
     ) -> Result<Self, LensError> {
-        use panproto_mig::overlap::discover_overlap;
+        let opts = SearchOptions {
+            iso: true,
+            ..SearchOptions::default()
+        };
+        let span = find_span(left, right, protocol, &opts)
+            .map_err(|e| LensError::ProtolensError(format!("overlap search failed: {e}")))?;
 
-        let overlap = discover_overlap(left, right);
-
-        if overlap.vertex_pairs.is_empty() {
+        if span.apex.vertices.is_empty() {
             return Err(LensError::ProtolensError(
                 "no overlap found between schemas".into(),
             ));
         }
-
-        // Build the overlap schema from the left schema restricted to
-        // overlapping vertices.
-        let mut overlap_vertices = HashMap::new();
-        let mut overlap_edges = HashMap::new();
-        for (src_id, _tgt_id) in &overlap.vertex_pairs {
-            if let Some(v) = left.vertices.get(src_id) {
-                overlap_vertices.insert(src_id.clone(), v.clone());
-            }
-        }
-        // Edges where both endpoints are in the overlap
-        for (edge, kind) in &left.edges {
-            if overlap_vertices.contains_key(&edge.src) && overlap_vertices.contains_key(&edge.tgt)
-            {
-                overlap_edges.insert(edge.clone(), kind.clone());
-            }
-        }
-
-        let overlap_schema = Schema {
-            protocol: left.protocol.clone(),
-            vertices: overlap_vertices,
-            edges: overlap_edges,
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between: HashMap::new(),
-        };
+        let overlap_schema = span.apex;
 
         // Generate protolens chains: overlap -> left and overlap -> right
         let config = AutoLensConfig::default();
@@ -398,5 +374,104 @@ mod tests {
             SymmetricLens::from_protolens_chains(&left_chain, &right_chain, &schema, &protocol)
                 .unwrap();
         assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
+    }
+
+    // -------------------------------------------------------------------
+    // `auto_symmetric`
+    // -------------------------------------------------------------------
+
+    fn auto_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec![
+                "record".into(),
+                "string".into(),
+                "alpha".into(),
+                "beta".into(),
+            ],
+            constraint_sorts: vec![],
+            ..Protocol::default()
+        }
+    }
+
+    fn one_field_record(protocol: &Protocol, root: &str, field: &str, label: &str) -> Schema {
+        panproto_schema::SchemaBuilder::new(protocol)
+            .vertex(root, "record", None::<&str>)
+            .unwrap()
+            .vertex(field, "string", None::<&str>)
+            .unwrap()
+            .edge(root, field, "prop", Some(label))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    /// A schema spans itself, and the middle is the whole of it.
+    #[test]
+    fn auto_symmetric_spans_a_schema_with_itself() {
+        let protocol = auto_protocol();
+        let schema = one_field_record(&protocol, "post", "post.text", "text");
+        let sym =
+            SymmetricLens::auto_symmetric(&schema, &schema, &protocol, &AutoLensConfig::default())
+                .unwrap();
+        assert_eq!(
+            sym.middle.vertices.len(),
+            schema.vertices.len(),
+            "a schema shares all of itself, so the apex is the whole schema"
+        );
+    }
+
+    /// Two schemas that share no vertex *name* still share structure, and the
+    /// span search finds it.
+    ///
+    /// This is the case that separates the span search from the overlap
+    /// discovery it replaced. `discover_overlap` matched on names and reported
+    /// nothing here; the span search minimises a cost function in which pairing
+    /// two kind-compatible records beats dropping both, so it answers with the
+    /// sub-schema they do share and `auto_symmetric` builds a lens over it.
+    #[test]
+    fn auto_symmetric_finds_a_middle_when_only_the_names_differ() {
+        let protocol = auto_protocol();
+        let left = one_field_record(&protocol, "post", "post.text", "text");
+        let right = one_field_record(&protocol, "profile", "profile.avatar", "avatar");
+        let sym =
+            SymmetricLens::auto_symmetric(&left, &right, &protocol, &AutoLensConfig::default())
+                .unwrap();
+        assert!(
+            !sym.middle.vertices.is_empty(),
+            "the two records are kind-compatible, so the optimal apex is not empty"
+        );
+    }
+
+    /// Refusal is reachable, and reaching it takes schemas that share no *kind*.
+    ///
+    /// An empty apex is always feasible, so this is the only shape that still
+    /// produces one: every pairing is infeasible and dropping everything is
+    /// what is left.
+    #[test]
+    fn auto_symmetric_refuses_when_the_two_schemas_share_no_kind() {
+        let protocol = auto_protocol();
+        let left = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("x", "alpha", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let right = panproto_schema::SchemaBuilder::new(&protocol)
+            .vertex("y", "beta", None::<&str>)
+            .unwrap()
+            .build()
+            .unwrap();
+        let outcome =
+            SymmetricLens::auto_symmetric(&left, &right, &protocol, &AutoLensConfig::default());
+        let Err(err) = outcome else {
+            panic!("no kind is shared, so there is no middle schema to hang the legs off");
+        };
+        assert!(
+            err.to_string().contains("no overlap found"),
+            "an empty apex must be reported as an absent overlap, got: {err}"
+        );
     }
 }

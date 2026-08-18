@@ -43,6 +43,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_schema::Schema;
 
+use super::evidence::Provenance;
 use super::{Anchor, StrategyTag, kinds_compatible, token_similarity};
 
 /// Emit anchors arising from wrap/unwrap pairings in either direction
@@ -158,6 +159,7 @@ fn push_anchor(
         tgt: tgt.clone(),
         confidence,
         strategy: StrategyTag::WrapUnwrap,
+        provenance: Provenance::Derived,
         explanation,
     });
 }

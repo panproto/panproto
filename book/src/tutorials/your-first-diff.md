@@ -1,114 +1,102 @@
 # Your first diff
 
-You will take two versions of a schema file, diff them, generate a migration between them, and convert a record from the old shape to the new one. Everything happens on the command line, with schema files you could have written before ever hearing of panproto. About ten minutes.
+A schema change should be inspectable before any data moves. In this tutorial, panproto compares two [ATProto](https://atproto.com/) Lexicon documents and reports that one field disappeared while another appeared. The first result takes about five minutes once the CLI is installed.
 
-By the end you will have: a diff that identifies exactly what changed, a generated bidirectional converter (a *lens*), a record converted forward through it, and a verification pass confirming the conversion loses nothing.
+You will create two versions of a `User` record and run one structural diff. The inputs remain ordinary Lexicon JSON rather than panproto's internal schema representation.
 
-You will not build a schema through the SDK, and you will not meet a vertex, an edge, or a theory. Those exist, and the later tutorials introduce them where they are needed; the core workflow does not require them.
+## Prerequisite
 
-## Prerequisites
+Install the `schema` binary by following [Install the CLI](../how-to/install/cli.md), then confirm that `schema --version` succeeds.
 
-The `schema` binary ([Install the CLI](../how-to/install/cli.md)). Nothing else.
+## Create two versions
 
-## Step 1: write version 1
+The following block creates a fresh directory, a small manifest that identifies the document protocol, and both input files:
 
-Create a working directory and a schema file. We use an ATProto lexicon here because `atproto` is the most fully-built-out protocol in the registry, but the file is ordinary JSON of a kind you may have seen on Bluesky's GitHub; the workflow is the same for the other [protocols](../reference/protocols.md).
+```sh
+mkdir -p panproto-first-diff
+cd panproto-first-diff
 
-`user-v1.json`:
+cat > panproto.toml <<'EOF'
+[workspace]
+name = "first-diff"
 
-```json
+[[package]]
+name = "lexicons"
+path = "."
+protocol = "atproto"
+EOF
+
+cat > user-v1.json <<'EOF'
 {
   "lexicon": 1,
   "id": "com.example.user",
   "defs": {
     "main": {
       "type": "record",
-      "description": "A user profile.",
       "key": "tid",
       "record": {
         "type": "object",
-        "required": ["name"],
         "properties": {
-          "name": { "type": "string", "maxLength": 640 },
-          "age": { "type": "integer", "minimum": 0 }
+          "name": { "type": "string" },
+          "age": { "type": "integer" }
         }
       }
     }
   }
 }
+EOF
+
+cat > user-v2.json <<'EOF'
+{
+  "lexicon": 1,
+  "id": "com.example.user",
+  "defs": {
+    "main": {
+      "type": "record",
+      "key": "tid",
+      "record": {
+        "type": "object",
+        "properties": {
+          "name": { "type": "string" },
+          "years": { "type": "integer" }
+        }
+      }
+    }
+  }
+}
+EOF
 ```
 
-Check that panproto can read it:
+*Listing 2.1: A manifest and two complete Lexicon inputs for the first structural diff.*
 
-```sh
-schema validate --protocol atproto user-v1.json
-```
+The two files differ by one field name: `age` became `years`.
 
-A zero exit code means the file parses and satisfies the protocol's rules.
+## Run the diff
 
-## Step 2: write version 2
-
-Copy the file to `user-v2.json` and make one change: rename `age` to `years` (in both `properties` and, if you made it required, in `required`). A rename is the awkward case for diffing: plain-text tools see it as a removal plus an addition.
-
-## Step 3: diff the two versions
+From `panproto-first-diff/`, run:
 
 ```sh
 schema diff user-v1.json user-v2.json
 ```
 
-The diff is structural, not textual: it reports the schema elements that changed, rather than the lines. As far as this diff can tell, `age` was removed and `years` was added. Now ask panproto to look harder:
+The command uses `panproto.toml` to select the ATProto document parser, then compares the resulting schema graphs. Its report includes a removed `com.example.user:body.age` vertex and an added `com.example.user:body.years` vertex, together with the corresponding property edges. That report establishes the structural removal/addition pair; the rename interpretation requires the second pass below.
+
+Rename detection is a second pass over that structural result:
 
 ```sh
 schema diff user-v1.json user-v2.json --detect-renames
 ```
 
-With rename detection on, the pair is reported as a likely rename instead of a removal plus an addition. The distinction matters: a removal is a breaking change, while a rename is migratable with no data loss.
+If a removed and added element clear the detector's similarity threshold, the command adds them to a `Detected renames` section with confidence scores. This score is evidence for a possible correspondence; [Your first migration](./your-first-migration.md) later records the correspondence explicitly.
 
-## Step 4: generate the migration
-
-```sh
-schema lens generate --protocol atproto user-v1.json user-v2.json --save chain.json
-```
-
-This produces a *lens*: a converter that runs in both directions. Forward takes v1 records to v2 shape; backward takes v2 records to v1 shape. The generated chain lands in `chain.json` as plain JSON. Open it if you are curious; it reads as a short list of steps, and for this schema pair the load-bearing step is the rename.
-
-Add `--explain` to see why the generator aligned the fields the way it did, with a confidence per step.
-
-## Step 5: convert a record
-
-Create `alice.json`:
-
-```json
-{ "$type": "com.example.user", "name": "Alice", "age": 30 }
-```
-
-Convert it:
+For a compact count rather than the element-by-element report, run:
 
 ```sh
-schema data convert --protocol atproto \
-  --from user-v1.json --to user-v2.json \
-  alice.json -o alice-v2.json
+schema diff user-v1.json user-v2.json --stat
 ```
 
-`alice-v2.json` contains the same record with `years` in place of `age`. Point the positional argument at a directory instead of a file and the same command converts a batch.
+The diff is structural in a precise sense: panproto compares parsed vertices, edges, and constraints rather than changed lines. The shared diff loader also accepts panproto schema JSON, source files supported by the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) registry, and manifest-backed directories.
 
-## Step 6: verify the round trip
+## Next
 
-panproto checks that the conversion loses nothing, rather than asking you to trust it:
-
-```sh
-schema lens verify --protocol atproto alice.json user-v2.json
-```
-
-Verification exercises the round-trip laws on your data: converting forward and then backward must return the record you started with. A pass means the migration is loss-free for the records you tested.
-
-## What you built
-
-A structural diff, a rename detected as a rename, a generated two-way migration, a converted record, and a mechanical check that nothing was lost. You wrote two JSON files and ran five commands; panproto generated the migration.
-
-## Where next
-
-- [Your first schema](./your-first-schema.md) introduces the SDK and the schema-construction API, for when you need to build or inspect schemas programmatically rather than from files.
-- [Schema version control basics](./schema-vcs-basics.md) turns the v1/v2 pair into a history with commits and branches.
-- [The vocabulary in plain terms](../explanation/decoder-ring.md) translates panproto's terms of art (lens, complement, morphism, and the rest), one line each.
-- [What panproto solves](../explanation/what-panproto-solves.md) is the plain-terms account of the problem this workflow addresses.
+[Your first schema](./your-first-schema.md) builds the same `User` model through the SDK and validates records against it. If the command line is your main interface, [Schema version control basics](./schema-vcs-basics.md) turns these source files into commits and branches. [The vocabulary in plain terms](../explanation/decoder-ring.md) defines *vertex*, *edge*, *migration*, and *lens* when you are ready for those names.

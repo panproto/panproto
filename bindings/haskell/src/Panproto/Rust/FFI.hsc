@@ -72,6 +72,8 @@ module Panproto.Rust.FFI
       -- * Hom search
     , pp_hom_find_morphisms_at
     , pp_hom_find_best_morphism_at
+    , pp_hom_find_span_at
+    , pp_hom_span_to_overlap_at
     , pp_hom_morphism_to_migration_at
     , pp_hom_induce_schema_morphism_at
     , pp_hom_induce_migration_from_theory_at
@@ -374,6 +376,25 @@ foreign import ccall safe "pp_hom_find_morphisms_at"
 foreign import ccall safe "pp_hom_find_best_morphism_at"
     pp_hom_find_best_morphism_at
         :: Word32 -> Word32 -> Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
+
+-- | Find the maximum span between two schemas (CBOR @SearchOptions@ and
+-- @DomainConstraints@ in, CBOR @SchemaSpan@ out). The third handle is
+-- the protocol the induced apex is validated against.
+foreign import ccall safe "pp_hom_find_span_at"
+    pp_hom_find_span_at
+        :: Word32
+        -> Word32
+        -> Word32
+        -> Ptr Word8
+        -> CSize
+        -> Ptr Word8
+        -> CSize
+        -> Ptr VecU8
+        -> IO CInt
+
+-- | Read a CBOR span's apex as the CBOR @SchemaOverlap@ a pushout takes.
+foreign import ccall safe "pp_hom_span_to_overlap_at"
+    pp_hom_span_to_overlap_at :: Ptr Word8 -> CSize -> Ptr VecU8 -> IO CInt
 
 -- | Convert a CBOR found-morphism into a fresh migration handle.
 foreign import ccall safe "pp_hom_morphism_to_migration_at"

@@ -2097,8 +2097,15 @@ fn prepare_root_node(
 ///
 /// # Errors
 ///
+/// An arc whose edge the migration named no image for keeps its own kind and
+/// name, and is dropped when the target carries no such edge between the
+/// remapped anchors. It is never given a different label: resolving by anchors
+/// alone would deliver the value under a sibling field's name.
+///
 /// Returns [`RestrictError::UnmappedAnchor`] if any source node's anchor is
-/// neither remapped nor surviving, [`RestrictError::RootPruned`] if the root
+/// neither remapped nor surviving, [`RestrictError::NonInjectiveVertexMap`] if
+/// two source anchors share a target anchor, since a W-instance cannot
+/// represent the merge that asks for, [`RestrictError::RootPruned`] if the root
 /// itself cannot be mapped, or another [`RestrictError`] variant if edge
 /// resolution fails.
 pub fn wtype_extend(
@@ -2124,13 +2131,74 @@ pub fn wtype_extend(
 /// # Errors
 ///
 /// Returns [`RestrictError::RootPruned`] if the root cannot be mapped, or
-/// another [`RestrictError`] variant if edge resolution fails.
+/// another [`RestrictError`] variant if edge resolution fails. Partiality is
+/// about which *nodes* travel, so [`RestrictError::NonInjectiveVertexMap`] is
+/// refused here too: the instance it describes is malformed rather than
+/// incomplete.
 pub fn wtype_extend_partial(
     instance: &WInstance,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
 ) -> Result<(WInstance, Vec<u32>), RestrictError> {
     wtype_extend_inner(instance, tgt_schema, migration, true)
+}
+
+/// The source anchors landing on each target anchor.
+///
+/// A vertex that survives without being remapped is its own fiber, so a target
+/// anchor reached both by a rename and by a survival is a contraction like any
+/// other.
+fn fiber_map(migration: &CompiledMigration) -> HashMap<Name, Vec<Name>> {
+    let mut fibers: HashMap<Name, Vec<Name>> = HashMap::new();
+    let remapped: FxHashSet<&Name> = migration.vertex_remap.values().collect();
+
+    for (source, target) in &migration.vertex_remap {
+        fibers
+            .entry(target.clone())
+            .or_default()
+            .push(source.clone());
+    }
+    for vertex in &migration.surviving_verts {
+        if !migration.vertex_remap.contains_key(vertex) && !remapped.contains(vertex) {
+            fibers
+                .entry(vertex.clone())
+                .or_default()
+                .push(vertex.clone());
+        }
+    }
+    fibers
+}
+
+/// The image of an arc whose edge the migration named no image for.
+///
+/// The resolver wins first: an entry there is a caller saying explicitly which
+/// target edge joins the two anchors. Failing that, the arc keeps its own kind
+/// and name, which the target must actually carry between the remapped
+/// anchors. `None` means the migration does not carry this arc, and the arc is
+/// dropped rather than given a sibling's label.
+///
+/// There is no unique-edge fallback, and its absence is the point.
+/// [`resolve_edge`] has one, which is right where a *contracted* arc has to
+/// land somewhere and wrong here, where the question is what an unmapped arc
+/// should be called: a source with parallel `a` and `b` arcs migrating onto a
+/// target that kept only `a` would send `b`'s value under `a`'s name.
+fn carry_edge(
+    tgt_schema: &Schema,
+    resolver: &HashMap<(Name, Name), Edge>,
+    parent_anchor: &Name,
+    child_anchor: &Name,
+    edge: &Edge,
+) -> Option<Edge> {
+    for ((key_src, key_tgt), resolved) in resolver {
+        if key_src == parent_anchor && key_tgt == child_anchor {
+            return Some(resolved.clone());
+        }
+    }
+    tgt_schema
+        .edges_between(parent_anchor.as_str(), child_anchor.as_str())
+        .iter()
+        .find(|candidate| candidate.kind == edge.kind && candidate.name == edge.name)
+        .cloned()
 }
 
 /// Shared implementation for [`wtype_extend`] and [`wtype_extend_partial`].
@@ -2144,6 +2212,27 @@ fn wtype_extend_inner(
     migration: &CompiledMigration,
     partial: bool,
 ) -> Result<(WInstance, Vec<u32>), RestrictError> {
+    // A contracting vertex map has no W-type image. Two source anchors sent to
+    // one target anchor ask for the subtrees under them to be merged, and a
+    // W-instance has no way to say that: the node it produces carries both sets
+    // of children side by side, so a record whose `title` and `subtitle` both
+    // migrate onto `heading` comes out with two arcs labelled `heading` out of
+    // one node. That is not an instance of the target schema, and no later pass
+    // rejects it, so it is refused here — the same guard `wtype_pi` applies, for
+    // the same reason.
+    //
+    // `Migration::resolver` does not authorise the merge. It is an edge
+    // disambiguation table, `(src anchor, tgt anchor) -> Edge`, not a rule for
+    // combining two values into one, and nothing in the lift path reads
+    // `Schema::mergers`.
+    for (target, sources) in fiber_map(migration) {
+        if sources.len() > 1 {
+            let mut sources = sources;
+            sources.sort_unstable();
+            return Err(RestrictError::NonInjectiveVertexMap { target, sources });
+        }
+    }
+
     // Check root can be mapped
     let mut dropped_nodes: Vec<u32> = Vec::new();
     let root_node = instance
@@ -2198,27 +2287,38 @@ fn wtype_extend_inner(
 
         if let Some(new_edge) = migration.edge_remap.get(edge) {
             new_arcs.push((parent, child, new_edge.clone()));
-        } else if migration.surviving_edges.contains(edge) {
-            // Edge survives unchanged, but anchors may have been remapped.
-            // Rebuild the edge with the remapped src/tgt vertex names.
-            let parent_anchor = &new_nodes[&parent].anchor;
-            let child_anchor = &new_nodes[&child].anchor;
-            if edge.src == *parent_anchor && edge.tgt == *child_anchor {
-                new_arcs.push((parent, child, edge.clone()));
-            } else {
-                // Anchors were remapped; resolve the edge in the target schema
-                let resolved =
-                    resolve_edge(tgt_schema, &migration.resolver, parent_anchor, child_anchor)?;
-                new_arcs.push((parent, child, resolved));
-            }
         } else {
-            // Edge not in surviving_edges or edge_remap; try to resolve
-            // from remapped anchors
+            // The migration named no image for this edge, so the arc carries
+            // its own label across: the target edge between the remapped
+            // anchors that agrees with it on kind *and* name.
+            //
+            // Resolving by anchors alone is how a wrong label gets invented.
+            // `resolve_edge` returns the unique target edge between two anchors
+            // whenever there is exactly one, so an arc whose edge was dropped
+            // comes back wearing a *sibling's* name and delivers its value
+            // under a field it was never sent to. A dropped field is a loss; a
+            // relabelled one is a lie, and nothing downstream can tell.
+            //
+            // The resolver still wins where a caller supplied one: that is an
+            // explicit instruction rather than a guess.
             let parent_anchor = &new_nodes[&parent].anchor;
             let child_anchor = &new_nodes[&child].anchor;
-            let resolved =
-                resolve_edge(tgt_schema, &migration.resolver, parent_anchor, child_anchor)?;
-            new_arcs.push((parent, child, resolved));
+            if migration.surviving_edges.contains(edge)
+                && edge.src == *parent_anchor
+                && edge.tgt == *child_anchor
+            {
+                // The edge survives and neither anchor moved, so it is already
+                // a target edge between the right two vertices.
+                new_arcs.push((parent, child, edge.clone()));
+            } else if let Some(carried) = carry_edge(
+                tgt_schema,
+                &migration.resolver,
+                parent_anchor,
+                child_anchor,
+                edge,
+            ) {
+                new_arcs.push((parent, child, carried));
+            }
         }
     }
 
@@ -2557,6 +2657,143 @@ mod tests {
         assert_eq!(result.schema_root, Name::from("article:body"));
         assert_eq!(result.nodes[&0].anchor, Name::from("article:body"));
         assert_eq!(result.nodes[&1].anchor, Name::from("article:body.text"));
+    }
+
+    /// A migration that sends two source anchors to one target anchor asks for
+    /// a merge a W-instance cannot represent, so the extension refuses instead
+    /// of emitting a node with two children under one field.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn extend_refuses_a_contracting_vertex_map() {
+        let inst = three_node_instance();
+        let tgt_edge = Edge {
+            src: "article:body".into(),
+            tgt: "article:body.one".into(),
+            kind: "prop".into(),
+            name: Some("one".into()),
+        };
+        let tgt_schema = make_test_schema(&["article:body", "article:body.one"], &[tgt_edge]);
+
+        // Both `text` and `createdAt` land on the single target field.
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("post:body"), Name::from("article:body"));
+        vertex_remap.insert(Name::from("post:body.text"), Name::from("article:body.one"));
+        vertex_remap.insert(
+            Name::from("post:body.createdAt"),
+            Name::from("article:body.one"),
+        );
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([
+                Name::from("article:body"),
+                Name::from("article:body.one"),
+            ]),
+            surviving_edges: HashSet::new(),
+            vertex_remap,
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        };
+
+        let refused = wtype_extend(&inst, &tgt_schema, &migration);
+        assert!(
+            matches!(refused, Err(RestrictError::NonInjectiveVertexMap { .. })),
+            "a contracting vertex map must be refused, not answered with a node \
+             carrying both values: got {refused:?}"
+        );
+
+        // The partial variant is about which *nodes* travel, so it refuses too.
+        assert!(matches!(
+            wtype_extend_partial(&inst, &tgt_schema, &migration),
+            Err(RestrictError::NonInjectiveVertexMap { .. })
+        ));
+    }
+
+    /// An arc whose edge the migration dropped must not be relabelled onto a
+    /// sibling's edge.
+    ///
+    /// Two parallel source arcs, `a` and `b`, between one vertex pair; the
+    /// target kept only `a`; the migration maps `a` and says nothing about `b`.
+    /// Resolving `b` from its remapped anchors finds the one edge that runs
+    /// between them, which is `a`, and delivers `b`'s value under `a`'s name.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn a_dropped_edge_is_not_relabelled_onto_a_sibling() {
+        let src_a = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+        let src_b = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("b".into()),
+        };
+        let tgt_a = Edge {
+            src: "root".into(),
+            tgt: "leaf2".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(
+            1,
+            Node::new(1, "leaf").with_value(FieldPresence::Present(Value::Str("A".into()))),
+        );
+        nodes.insert(
+            2,
+            Node::new(2, "leaf").with_value(FieldPresence::Present(Value::Str("B".into()))),
+        );
+        let inst = WInstance::new(
+            nodes,
+            vec![(0, 1, src_a.clone()), (0, 2, src_b)],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+
+        let tgt_schema = make_test_schema(&["root", "leaf2"], std::slice::from_ref(&tgt_a));
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("leaf"), Name::from("leaf2"));
+        let mut edge_remap = HashMap::new();
+        edge_remap.insert(src_a, tgt_a.clone());
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root"), Name::from("leaf2")]),
+            surviving_edges: HashSet::new(),
+            vertex_remap,
+            edge_remap,
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        };
+
+        let extended = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        let labelled_a = extended
+            .arcs
+            .iter()
+            .filter(|(_, _, edge)| *edge == tgt_a)
+            .count();
+        assert_eq!(
+            labelled_a, 1,
+            "only the arc the migration mapped may wear `a`: got {:?}",
+            extended.arcs
+        );
+        // `b`'s value went nowhere rather than arriving under `a`.
+        assert!(
+            !extended.arcs.iter().any(|(_, child, _)| *child == 2),
+            "the unmapped arc is dropped, not relabelled: {:?}",
+            extended.arcs
+        );
     }
 
     #[test]

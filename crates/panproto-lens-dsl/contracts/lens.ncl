@@ -196,7 +196,7 @@
   AutoSpec = {
     quality_threshold | Number | optional,
     enable_overlap | Bool | optional,
-    max_search_depth | Number | optional,
+    max_results | Number | optional,
     hints | HintSpec | optional,
   },
 

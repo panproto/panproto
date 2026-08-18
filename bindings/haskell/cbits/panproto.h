@@ -315,11 +315,11 @@ pp_expr_check (
 /** \brief
  *  Evaluate a functional expression against an environment.
  *
- *  `expr` is a CBOR-encoded [`panproto_expr::Expr`]; `env` is a
- *  CBOR-encoded `Vec<(String, panproto_expr::Literal)>`. On success,
- *  `out` receives the CBOR-encoded [`panproto_expr::Literal`] result.
- *  Calls [`panproto_expr::eval`] with the default
- *  [`panproto_expr::EvalConfig`] (step and depth limits).
+ *  `expr` is a CBOR-encoded [`panproto_core::expr::Expr`]; `env` is a
+ *  CBOR-encoded `Vec<(String, panproto_core::expr::Literal)>`. On success,
+ *  `out` receives the CBOR-encoded [`panproto_core::expr::Literal`] result.
+ *  Calls [`panproto_core::expr::eval`] with the default
+ *  [`panproto_core::expr::EvalConfig`] (step and depth limits).
  */
 int32_t
 pp_expr_eval_func (
@@ -352,9 +352,9 @@ pp_expr_eval_gat (
  *  Parse expression source text into a `panproto-expr` AST.
  *
  *  `source` is the UTF-8 source bytes. On success, `out` receives the
- *  CBOR-encoded [`panproto_expr::Expr`]. Tokenizes via
- *  [`panproto_expr_parser::tokenize`] then parses via
- *  [`panproto_expr_parser::parse`]; either failure maps to
+ *  CBOR-encoded [`panproto_core::expr::Expr`]. Tokenizes via
+ *  [`panproto_core::expr_parser::tokenize`] then parses via
+ *  [`panproto_core::expr_parser::parse`]; either failure maps to
  *  [`FfiError::Operation`].
  */
 int32_t
@@ -538,31 +538,6 @@ pp_gat_serialize_theory (
     Vec_uint8_t * out);
 
 /** \brief
- *  Import a git repository into a fresh on-disk VCS repository.
- *
- *  `repo_path` is the UTF-8 path to the git repository; `revspec` is the
- *  UTF-8 revision specifier to import (e.g. `"HEAD"`, `"main"`,
- *  `"HEAD~10..HEAD"`). On success, `out_handle` receives a fresh
- *  [`Resource::VcsRepo`](crate::handle::Resource) handle wrapping a
- *  `Repository` rooted at a process-lifetime temp directory, and `out`
- *  receives a CBOR-encoded `{ commit_count, head_id }` summary.
- *
- *  Opens the source repository with [`git2::Repository::open`] and walks
- *  it via `panproto_core::git::import_git_repo`, which writes the commit
- *  DAG into the new repository's `FsStore`. Both arguments are validated
- *  as UTF-8 at the boundary; a malformed path, an unopenable repository,
- *  a store init failure, or a failed walk surfaces as
- *  [`PpStatus::Operation`]. The out-handle slot is only written on
- *  success, so a failed call leaves it untouched.
- */
-int32_t
-pp_git_import (
-    slice_ref_uint8_t repo_path,
-    slice_ref_uint8_t revspec,
-    uint32_t * out_handle,
-    Vec_uint8_t * out);
-
-/** \brief
  *  Compute the shortest distance between two schemas in a lens graph.
  *
  *  `graph` is a CBOR-encoded `Vec<GraphEdge>`; `source_schema` and
@@ -671,14 +646,54 @@ pp_hom_find_best_morphism (
  *  handles. `opts` is a CBOR-encoded `SearchOptionsWire` mirroring
  *  `panproto_core::mig::hom_search::SearchOptions`. On success, `out`
  *  receives a CBOR-encoded `Vec<FoundMorphismWire>` (each with
- *  `vertex_map`, `edge_map`, and `quality`), already ranked by
- *  descending quality. Calls `hom_search::find_morphisms`.
+ *  `vertex_map`, `edge_map`, and `quality`). Calls
+ *  `hom_search::find_morphisms`.
+ *
+ *  # This returns the optima, not the whole hom-set
+ *
+ *  It returns the morphisms **attaining the optimum**, capped by
+ *  `max_results`, and nothing else. Every element therefore carries the same
+ *  quality, which is the maximum over all total morphisms, so the list is in
+ *  non-increasing quality order trivially and a host reading element zero gets
+ *  what it always got. A host that walked the list for a suboptimal
+ *  alternative will not find one: there is no k-best over distinct quality
+ *  levels. Empty means no total morphism exists.
  */
 int32_t
 pp_hom_find_morphisms (
     uint32_t src,
     uint32_t tgt,
     slice_ref_uint8_t opts,
+    Vec_uint8_t * out);
+
+/** \brief
+ *  Find the maximum span between two schemas.
+ *
+ *  `src` and `tgt` are [`Resource::Schema`](crate::handle::Resource) handles
+ *  and `protocol` is a [`Resource::Protocol`](crate::handle::Resource)
+ *  handle: the apex is a schema, a schema is well formed only against a
+ *  protocol, and inducing the apex re-validates it rather than assuming it,
+ *  so the protocol is an argument rather than something read off the source
+ *  (a schema stores only its protocol's name). `opts` is a CBOR-encoded
+ *  `SearchOptionsWire` and `constraints` a CBOR-encoded
+ *  `DomainConstraintsWire`; an empty CBOR map is a valid payload for either.
+ *  On success, `out` receives a CBOR-encoded `SchemaSpanWire`. Calls
+ *  `hom_search::find_span_constrained`.
+ *
+ *  # This never refuses for want of a match
+ *
+ *  Leaving every source vertex out of the apex is always feasible, so two
+ *  schemas with nothing in common get an empty apex, not an error. A non-`Ok`
+ *  status here means the search could not be posed or the induced apex is not
+ *  a schema, both of which are defects rather than answers.
+ */
+int32_t
+pp_hom_find_span (
+    uint32_t src,
+    uint32_t tgt,
+    uint32_t protocol,
+    slice_ref_uint8_t opts,
+    slice_ref_uint8_t constraints,
     Vec_uint8_t * out);
 
 /** \brief
@@ -729,6 +744,23 @@ int32_t
 pp_hom_morphism_to_migration (
     slice_ref_uint8_t morphism,
     uint32_t * out_handle);
+
+/** \brief
+ *  Read a span's apex as the identification list a pushout takes.
+ *
+ *  `span` is a CBOR-encoded `SchemaSpanWire`, as [`pp_hom_find_span`] wrote
+ *  it. On success, `out` receives a CBOR-encoded `SchemaOverlapWire`: the
+ *  right leg's two maps as `(source element, target element)` pairs, sorted
+ *  by key so that one span always yields the same bytes. Feeding those pairs
+ *  to a pushout merges `src` and `tgt` along the apex.
+ *
+ *  The left leg is an inclusion, so the apex's own identifiers *are* source
+ *  identifiers and the right leg alone carries the identification.
+ */
+int32_t
+pp_hom_span_to_overlap (
+    slice_ref_uint8_t span,
+    Vec_uint8_t * out);
 
 /** \brief
  *  Initialize the panproto-c runtime.
@@ -988,7 +1020,7 @@ pp_lens_check_put_get (
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
  *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
- *  `panproto_lens_dsl::{eval, compile}`.
+ *  `panproto_core::lens_dsl::{eval, compile}`.
  *
  *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
  *  boundary: Nickel evaluation requires a filesystem for its contract
@@ -999,6 +1031,29 @@ pp_lens_compile_document (
     slice_ref_uint8_t source,
     slice_ref_uint8_t format,
     slice_ref_uint8_t body_vertex,
+    uint32_t * out_handle);
+
+/** \brief
+ *  Compile a lens DSL document, resolving `compose` named references
+ *  against a bundle of sibling documents.
+ *
+ *  `source`, `format`, and `body_vertex` match
+ *  [`pp_lens_compile_document`]. `refs` is a CBOR-encoded
+ *  `map<string, string>` from each referenced lens `id` to its document
+ *  source (in the same `format`); a `compose` body's `ref` entries are
+ *  resolved against this map. On success, `out_handle` receives a fresh
+ *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  `panproto_core::lens_dsl::compile_with_refs`.
+ *
+ *  Nickel (`ncl`) is intentionally unsupported, matching
+ *  [`pp_lens_compile_document`].
+ */
+int32_t
+pp_lens_compile_document_with_refs (
+    slice_ref_uint8_t source,
+    slice_ref_uint8_t format,
+    slice_ref_uint8_t body_vertex,
+    slice_ref_uint8_t refs,
     uint32_t * out_handle);
 
 /** \brief
@@ -1222,260 +1277,6 @@ pp_mig_serialize_compiled (
     Vec_uint8_t * out);
 
 /** \brief
- *  List all available tree-sitter grammar languages enabled by feature
- *  flags.
- *
- *  On success, `out` receives a CBOR-encoded `Vec<String>` (sorted). The
- *  catalogue is registry-independent: it is read off a throwaway
- *  `ParserRegistry::new()`, which `panproto-parse` populates from
- *  `panproto_grammars::grammars()` (the set fixed by the compiled-in
- *  grammar group features). Reading it through a fresh registry keeps the
- *  list exactly in step with what `pp_parse_registry_new` would register,
- *  without `panproto-c` needing a direct `panproto-grammars` dependency.
- */
-int32_t
-pp_parse_available_grammars (
-    Vec_uint8_t * out);
-
-/** \brief
- *  Verify the `EmitParse` retraction on a schema.
- *
- *  `registry` is an AST-registry handle; `protocol` is the UTF-8
- *  protocol name; `schema` is a
- *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
- *  `out` receives the empty buffer when the law holds, or the
- *  divergence message bytes otherwise. Calls `check_emit_parse` against a
- *  `ParseEmitLens` bound to `protocol`.
- */
-int32_t
-pp_parse_check_emit_parse (
-    uint32_t registry,
-    slice_ref_uint8_t protocol,
-    uint32_t schema,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Verify the `ParseEmit` stability law on source bytes.
- *
- *  `registry` is an AST-registry handle; `protocol` is the UTF-8
- *  protocol name; `bytes` is the source to round-trip. On success,
- *  `out` receives the empty buffer when the law holds, or the
- *  divergence message bytes otherwise. Calls `check_parse_emit` against a
- *  `ParseEmitLens` bound to `protocol`.
- */
-int32_t
-pp_parse_check_parse_emit (
-    uint32_t registry,
-    slice_ref_uint8_t protocol,
-    slice_ref_uint8_t bytes,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Detect the language protocol for a file path.
- *
- *  `registry` is an AST-registry handle; `path` is the UTF-8 file path.
- *  On success, `out` receives the detected protocol name as UTF-8 bytes,
- *  or the empty buffer when no grammar claims the extension (mirroring
- *  the `Option<&str>` the core `detect_language` returns).
- */
-int32_t
-pp_parse_detect_language (
-    uint32_t registry,
-    slice_ref_uint8_t path,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Emit a schema back to source bytes via the parse-derived layout.
- *
- *  `registry` is an AST-registry handle; `protocol` is the UTF-8
- *  protocol name; `schema` is a
- *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
- *  `out` receives the source bytes. Calls `emit_with_protocol`.
- */
-int32_t
-pp_parse_emit (
-    uint32_t registry,
-    slice_ref_uint8_t protocol,
-    uint32_t schema,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Render a by-construction schema to source bytes via the grammar's
- *  production walker.
- *
- *  Arguments match [`pp_parse_emit`]; unlike that entry point, the
- *  schema need not carry parse-derived byte positions. Calls
- *  `emit_pretty_with_protocol`.
- */
-int32_t
-pp_parse_emit_pretty (
-    uint32_t registry,
-    slice_ref_uint8_t protocol,
-    uint32_t schema,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Parse a source file into a full-AST schema, language auto-detected
- *  from the path.
- *
- *  `registry` is an AST-registry handle; `path` is the UTF-8 file path
- *  (used for extension detection); `content` is the source bytes. On
- *  success, `out_handle` receives a fresh
- *  [`Resource::Schema`](crate::handle::Resource) handle.
- *
- *  An unrecognised extension, an unparseable source, or a non-UTF-8 path
- *  surfaces as [`PpStatus::Operation`]; a type-mismatched `registry`
- *  handle as [`PpStatus::TypeMismatch`]. The out-handle slot is written
- *  only on success.
- */
-int32_t
-pp_parse_file (
-    uint32_t registry,
-    slice_ref_uint8_t path,
-    slice_ref_uint8_t content,
-    uint32_t * out_handle);
-
-/** \brief
- *  List all protocol names registered in an AST registry.
- *
- *  `registry` is an AST-registry handle. On success, `out` receives a
- *  CBOR-encoded `Vec<String>` (sorted for a deterministic wire image, as
- *  the underlying `protocol_names` iterates an unordered map).
- */
-int32_t
-pp_parse_protocol_names (
-    uint32_t registry,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Construct a parser registry populated with all enabled grammars.
- *
- *  On success, `out_handle` receives a fresh
- *  [`Resource::AstRegistry`](crate::handle::Resource) handle wrapping a
- *  `ParserRegistry::new()`. The set of registered grammars is fixed by the
- *  crate's compiled-in grammar group features (the default `group-core`,
- *  or whatever the dependent build enables).
- */
-int32_t
-pp_parse_registry_new (
-    uint32_t * out_handle);
-
-/** \brief
- *  Parse source code with an explicit protocol name.
- *
- *  `registry` is an AST-registry handle; `protocol` is the UTF-8
- *  protocol name; `content` is the source bytes; `file_path` is the
- *  UTF-8 path recorded on the parsed schema. On success, `out_handle`
- *  receives a fresh [`Resource::Schema`](crate::handle::Resource)
- *  handle.
- *
- *  An unregistered protocol, an unparseable source, or non-UTF-8
- *  `protocol` / `file_path` surfaces as [`PpStatus::Operation`]. The
- *  out-handle slot is written only on success.
- */
-int32_t
-pp_parse_with_protocol (
-    uint32_t registry,
-    slice_ref_uint8_t protocol,
-    slice_ref_uint8_t content,
-    slice_ref_uint8_t file_path,
-    uint32_t * out_handle);
-
-/** \brief
- *  Recursively add all files in a directory to a project builder.
- *
- *  `builder` is a project-builder handle; `path` is the UTF-8 directory
- *  path. Mutates the builder in place via
- *  [`crate::handle::with_resource_mut`], dispatching to
- *  `ProjectBuilder::add_directory`, which walks the directory on the
- *  local filesystem (skipping hidden entries and the usual build-output
- *  directories) and reads each file's bytes with `std::fs`.
- *
- *  The path is validated as UTF-8 at the boundary; a malformed path, an
- *  unreadable directory, or a parse failure surfaces as
- *  [`PpStatus::Operation`].
- */
-int32_t
-pp_project_add_directory (
-    uint32_t builder,
-    slice_ref_uint8_t path);
-
-/** \brief
- *  Add a single file to a project builder.
- *
- *  `builder` is a [`Resource::ProjectBuilder`](crate::handle::Resource)
- *  handle; `path` is the UTF-8 file path; `content` is the file bytes.
- *  Mutates the builder in place via [`crate::handle::with_resource_mut`],
- *  dispatching to `ProjectBuilder::add_file`.
- *
- *  The path is validated as UTF-8 at the boundary; a malformed path or a
- *  parse failure surfaces as [`PpStatus::Operation`].
- */
-int32_t
-pp_project_add_file (
-    uint32_t builder,
-    slice_ref_uint8_t path,
-    slice_ref_uint8_t content);
-
-/** \brief
- *  Assemble a project builder into a unified project schema.
- *
- *  `builder` is a project-builder handle. On success, `out_handle`
- *  receives a fresh [`Resource::ProjectSchema`](crate::handle::Resource)
- *  handle and the builder is logically consumed: its slab slot is left
- *  holding a fresh empty builder (`ProjectBuilder::new`), so the handle
- *  stays valid but carries no accumulated files. This mirrors the Python
- *  reference, which swaps in a fresh builder before taking ownership for
- *  `ProjectBuilder::build`.
- *
- *  A failed assembly (no files added, or a coproduct failure) surfaces as
- *  [`PpStatus::Operation`] and leaves the out-handle slot untouched.
- */
-int32_t
-pp_project_build (
-    uint32_t builder,
-    uint32_t * out_handle);
-
-/** \brief
- *  Create an empty multi-file project builder.
- *
- *  On success, `out_handle` receives a fresh
- *  [`Resource::ProjectBuilder`](crate::handle::Resource) handle wrapping
- *  a `ProjectBuilder::new`. The out-handle slot is written only on
- *  success.
- */
-int32_t
-pp_project_builder_new (
-    uint32_t * out_handle);
-
-/** \brief
- *  Extract the file-to-protocol map from an assembled project.
- *
- *  `project` is a project-schema handle. On success, `out` receives a
- *  CBOR-encoded `HashMap<String, String>` mapping file paths (rendered
- *  via `Path::display`) to the protocol used to parse each, matching the
- *  Haskell `Panproto.Project.decodeProtocolMap` decoder.
- */
-int32_t
-pp_project_protocol_map (
-    uint32_t project,
-    Vec_uint8_t * out);
-
-/** \brief
- *  Extract the unified schema from an assembled project.
- *
- *  `project` is a [`Resource::ProjectSchema`](crate::handle::Resource)
- *  handle. On success, `out_handle` receives a fresh
- *  [`Resource::Schema`](crate::handle::Resource) handle for the
- *  coproduct schema (cloned out of the project). The out-handle slot is
- *  written only on success.
- */
-int32_t
-pp_project_schema_get (
-    uint32_t project,
-    uint32_t * out_handle);
-
-/** \brief
  *  Ingest a CBOR-encoded [`Protocol`] specification and register it
  *  in the slab.
  *
@@ -1648,7 +1449,7 @@ pp_registry_list_builtin (
  *
  *  `schema_handle` is a [`Resource::Schema`](crate::handle::Resource)
  *  handle; `from_kind` and `to_kind` are the UTF-8 source/target vertex
- *  kind names; `expr` is a CBOR-encoded `panproto_expr::Expr` coercion
+ *  kind names; `expr` is a CBOR-encoded `panproto_core::expr::Expr` coercion
  *  expression. On success, `out_handle` receives a fresh
  *  [`Resource::Schema`](crate::handle::Resource) handle with the
  *  coercion installed (as a `CoercionClass::Opaque` coercion with no

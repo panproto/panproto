@@ -40,7 +40,7 @@ import Panproto
 import PanprotoStructural
 
 let geojson = try await ProtocolHandle.builtin("geojson")
-let handle = try await SchemaHandle(post)
+let handle = try await SchemaHandle.define(post)
 let messages = try await handle.violations(against: geojson)
 
 if messages.isEmpty {
@@ -55,8 +55,8 @@ Both handles free themselves when they go out of scope. Call `release()` when yo
 To go the other way, ask a handle for its value:
 
 ```swift
-let roundTripped = try await handle.value()
-#expect(roundTripped.vertexCount == post.vertexCount)
+let roundTripped = try await handle.schema()
+precondition(roundTripped.vertexCount == post.vertexCount)
 ```
 
 ## Building through the engine instead
@@ -66,13 +66,13 @@ let roundTripped = try await handle.value()
 ```swift
 import Panproto
 
-var builder = SchemaBuilder()
-builder.vertex(id: "post", kind: "record")
-builder.vertex(id: "text", kind: "string")
-builder.edge(src: "post", tgt: "text", kind: "prop", name: "text")
+var builder = geojson.schemaBuilder()
+builder.vertex("post", kind: "record")
+builder.vertex("text", kind: "string")
+builder.edge(from: "post", to: "text", kind: "prop", name: "text")
 builder.entry("post")
 
-let built = try await builder.build(protocol: geojson)
+let built = try await builder.build()
 ```
 
 ## Parsing one instead of writing it
@@ -80,12 +80,16 @@ let built = try await builder.build(protocol: geojson)
 Most schemas are not written by hand. An atproto lexicon parses directly:
 
 ```swift
+import Foundation
+import Panproto
+import PanprotoStructural
+
 let lexicon = try Data(contentsOf: lexiconURL)
 let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
-print(try await schema.value().vertexCount, "vertices")
+print(try await schema.schema().vertexCount, "vertices")
 ```
 
 ## Next steps
 
-- [Build a migration](../build-migration/index.md) between two versions of this schema.
+- [Build a migration](../build-migration.md) between two versions of this schema.
 - [Swift SDK reference](../../reference/sdk-swift.md) for the engine actor, the handle taxonomy, and the error hierarchy.

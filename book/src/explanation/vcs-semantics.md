@@ -9,7 +9,7 @@ Two things make it different from git applied to the schema files themselves:
 1. **The diff and merge operate on the schema, not the text.** `schema diff` does not show you a unified diff of the JSON; it shows you what changed structurally: which vertices were added, which edges renamed, which constraints tightened. Merge does not three-way-merge the bytes; it merges the schema graph at the structural level, so you cannot end up with a syntactically valid but semantically broken schema after a merge.
 2. **Data and migrations are versioned alongside the schemas.** Every commit records a schema snapshot and (optionally) the data instances that conformed to it; migrations between schemas are stored as their own content-addressed objects, paired with the complements needed to invert them. Branches diverge with their data; merges reconcile both.
 
-The merge operation is the place where this gets interesting. Three-way text merge fails when both sides edit the same line. The schema-level analogue is two branches that both add a field with the same name but different types. panproto-vcs has a precise, well-defined operation for resolving this: the schemas are *pushed out* along their common ancestor. The result is the smallest schema containing both branches' additions, with the conflict surfaced as an explicit refinement constraint that the user resolves.
+The merge operation is the place where this gets interesting. Three-way text merge fails when both sides edit the same line. The schema-level analog is two branches that both add a field with the same name but different types. panproto-vcs has a precise, well-defined operation for resolving this: the schemas are *pushed out* along their common ancestor. The result is the smallest schema containing both branches' additions, with the conflict surfaced as an explicit refinement constraint that the user resolves.
 
 ## The DAG
 
@@ -27,7 +27,7 @@ panproto-vcs is structured exactly like git: a content-addressed DAG of immutabl
 | `Tag` | An annotated tag object pointing to another object. |
 | Branch | A mutable reference to a commit; lives under `.panproto/refs/heads/`. |
 
-Every object is content-addressed with a blake3 hash of its canonical serialisation. Refs (branches under `refs/heads/`, tags under `refs/tags/`) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
+Every object is content-addressed with a blake3 hash of its canonical serialization. Refs (branches under `refs/heads/`, tags under `refs/tags/`) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
 
 ## Validation at stage, commit, and merge
 
@@ -41,7 +41,7 @@ Schemas are also checked against their protocol's equations. When the schema's p
 
 A three-way merge in git is: take base $B$, ours $O$, theirs $T$, and produce a result $M$ that contains the changes from $O$ relative to $B$ and the changes from $T$ relative to $B$. When the changes overlap on the same line, conflict.
 
-The schema analogue: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants of $B$. The merge result $M$ is the *pushout* of $O$ and $T$ along $B$:
+The schema analog: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants of $B$. The merge result $M$ is the *pushout* of $O$ and $T$ along $B$:
 
 ```text
         B ------> O
@@ -53,7 +53,7 @@ The schema analogue: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants
 
 The pushout is the *unique smallest* schema containing both $O$ and $T$ and respecting their shared structure from $B$. "Unique smallest" is made precise by a *universal property*: any other schema $M'$ that also contains $O$ and $T$ admits a unique morphism from $M$ to $M'$.
 
-panproto-vcs does not just compute the pushout: at merge time it runs `vcs::merge::verify_pushout`, a cocone-level check that the generated migrations are total and that the two legs agree on every base vertex. A failure returns `VcsError::PushoutVerification` rather than a wrong result. The stronger vertex-level universal property, that the result mediates uniquely to a caller-supplied alternative cocone, is available on demand through `vcs::merge::verify_pushout_universal`, which schema merge does not itself call. The merge-time check is vertex level; coverage, deletion, and edge-level strengthening are planned (see [What panproto verifies](./what-is-verified.md)).
+panproto-vcs does not just compute the pushout: at merge time it runs `vcs::merge::verify_pushout`, a cocone-level check that the generated migrations are total, every merged vertex comes from one of the branches, surviving base vertices remain present, and the two paths agree on base vertices and edges. A failure returns `VcsError::PushoutVerification` rather than a wrong result. The stronger universal property, that the result mediates uniquely to a caller-supplied alternative cocone, is available on demand through `vcs::merge::verify_pushout_universal`, which schema merge does not itself call. That on-demand check constructs the mediator on vertices; edge-level factorization requires an extended alternative-cocone API (see [What panproto verifies](./what-is-verified.md)).
 
 For the formal pushout construction, the cocone definition, and exactly what is checked, see [Pushouts and merge](./semantics/pushouts-and-merge.md).
 
@@ -71,7 +71,7 @@ A consequence: history rewriting on a branch carrying data must lift the data th
 
 ## Related work
 
-Two threads sit directly behind panproto-vcs. The categorical-VCS lineage (Mimram and Di Giusto on patches as morphisms with merge as pushout [@mimramdigiusto2013categorical], Angiuli and colleagues' homotopical patch theory [@angiuli2014homotopical], Roundy's Darcs [@roundy2005darcs]) supplies the "merge is the pushout of the divergent patches against the common ancestor" semantics and the diagnosis of conflicts as failures of the pushout to exist. The schema-evolution lineage (Curino, Moon, and Zaniolo's PRISM workbench [@curinomoonzaniolo2008graceful] and Litt, van Hardenberg, and Henry's Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria]) supplies the engineering vocabulary: schema-modification operators with forward and backward mappings, quasi-inverses for the operators that lose information, and a directed graph of schema versions connected by lenses. panproto-vcs is the four-artifact unification of these lines, with the protocol theory, schema, data, and lens complement committed together into a single content-addressed DAG. See [Related work](./related-work.md#4-schema-versioning-as-structured-merge) for the full discussion.
+Two threads sit directly behind panproto-vcs. The categorical-VCS lineage (Mimram and Di Giusto on patches as morphisms with merge as pushout [@mimramdigiusto2013categorical], Angiuli and colleagues' homotopical patch theory [@angiuli2014homotopical], Roundy's Darcs [@roundy2005darcs]) supplies the "merge is the pushout of the divergent patches against the common ancestor" semantics and the diagnosis of conflicts as failures of the pushout to exist. The schema-evolution lineage (Curino, Moon, and Zaniolo's PRISM workbench [@curinomoonzaniolo2008graceful] and Litt, van Hardenberg, and Henry's Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria]) supplies the engineering vocabulary: schema-modification operators with forward and backward mappings, quasi-inverses for the operators that lose information, and a directed graph of schema versions connected by lenses. panproto-vcs is the four-artifact unification of these lines, with the protocol theory, schema, data, and lens complement committed together into a single content-addressed DAG. See [Related work](./related-work.md#schema-versioning-as-structured-merge) for the full discussion.
 
 ## See also
 

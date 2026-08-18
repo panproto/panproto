@@ -63,7 +63,9 @@ crates/panproto-py/src/vcs.rs	lexicon
 crates/panproto-schema/src/builder.rs	atproto
 crates/panproto-schema/src/builder.rs	bsky
 crates/panproto-schema/src/builder.rs	nsid
+crates/panproto-schema/src/canonical.rs	nsid
 crates/panproto-schema/src/colimit.rs	nsid
+crates/panproto-schema/src/induce.rs	nsid
 crates/panproto-schema/src/protocol.rs	atproto
 crates/panproto-schema/src/schema.rs	at-uri
 crates/panproto-schema/src/schema.rs	bsky
