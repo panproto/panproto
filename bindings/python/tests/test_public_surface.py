@@ -18,8 +18,14 @@ See GitHub issue #62 for the original report.
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import panproto
+
+if TYPE_CHECKING:
+    # A stub-only alias: `_native` is a compiled module and exports no such
+    # name at run time, which the `annotations` future import makes harmless.
+    from panproto._native import JsonValue
 
 
 def test_dir_panproto_is_not_empty() -> None:
@@ -228,12 +234,10 @@ def test_protocol_from_theories_bridges_user_theories() -> None:
     `schema_theory` is the given Theory's name, and `Protocol.schema()`
     returns a builder for that Protocol. End-to-end this enables the
     pipeline: Theory -> Protocol -> SchemaBuilder -> Schema -> Repository."""
-    spec = {
+    spec: dict[str, JsonValue] = {
         "name": "User",
         "extends": [],
-        "sorts": [
-            {"name": "User", "params": [], "kind": "Structural", "closure": "Open"}
-        ],
+        "sorts": [{"name": "User", "params": [], "kind": "Structural", "closure": "Open"}],
         "ops": [],
         "eqs": [],
         "directed_eqs": [],
@@ -260,12 +264,10 @@ def test_protocol_from_theories_accepts_theory_or_string() -> None:
     """The bridge accepts either a `Theory` object (in which case its
     `name` is used) or a bare string (treated as a theory name
     verbatim). Both must produce the same `Protocol`."""
-    spec = {
+    spec: dict[str, JsonValue] = {
         "name": "T",
         "extends": [],
-        "sorts": [
-            {"name": "T", "params": [], "kind": "Structural", "closure": "Open"}
-        ],
+        "sorts": [{"name": "T", "params": [], "kind": "Structural", "closure": "Open"}],
         "ops": [],
         "eqs": [],
         "directed_eqs": [],
@@ -285,9 +287,7 @@ def test_protocol_from_theories_separate_schema_and_instance_theories() -> None:
         {
             "name": "S",
             "extends": [],
-            "sorts": [
-                {"name": "S", "params": [], "kind": "Structural", "closure": "Open"}
-            ],
+            "sorts": [{"name": "S", "params": [], "kind": "Structural", "closure": "Open"}],
             "ops": [],
             "eqs": [],
             "directed_eqs": [],
@@ -298,9 +298,7 @@ def test_protocol_from_theories_separate_schema_and_instance_theories() -> None:
         {
             "name": "I",
             "extends": [],
-            "sorts": [
-                {"name": "I", "params": [], "kind": "Structural", "closure": "Open"}
-            ],
+            "sorts": [{"name": "I", "params": [], "kind": "Structural", "closure": "Open"}],
             "ops": [],
             "eqs": [],
             "directed_eqs": [],
@@ -320,4 +318,6 @@ def test_protocol_from_theories_rejects_bad_types() -> None:
     import pytest
 
     with pytest.raises(TypeError):
-        panproto.Protocol.from_theories(name="p", schema_theory=42)
+        # The wrong type is the point of the test, so the checker is told
+        # to expect it rather than the call being reshaped to satisfy it.
+        panproto.Protocol.from_theories(name="p", schema_theory=42)  # pyright: ignore[reportArgumentType]

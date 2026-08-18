@@ -5,11 +5,52 @@ migrations, check, instances, I/O, lenses, GAT, expressions, VCS,
 and the error hierarchy.
 """
 
+from __future__ import annotations
+
 import json
+from typing import TYPE_CHECKING
 
 import pytest
 
 import panproto
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    # A stub-only alias: `_native` is a compiled module and exports no such
+    # name at run time, which `from __future__ import annotations` above makes
+    # harmless.
+    from panproto._native import JsonValue
+
+
+# ---------------------------------------------------------------------------
+# Reading a `to_dict()` result
+# ---------------------------------------------------------------------------
+#
+# Everything the bindings hand back as JSON is typed `JsonValue`, a union of
+# seven shapes, so `d["k"]["j"]` is only well typed once `d["k"]` has been
+# narrowed. These three do the narrowing and assert the shape while they are
+# at it, which is stronger than indexing straight through: a field that
+# silently changed from a list to an object fails here with the type it found
+# rather than further down with an unrelated message.
+
+
+def obj(value: JsonValue) -> dict[str, JsonValue]:
+    """`value` as a JSON object."""
+    assert isinstance(value, dict), f"expected an object, got {type(value).__name__}"
+    return value
+
+
+def arr(value: JsonValue) -> list[JsonValue]:
+    """`value` as a JSON array."""
+    assert isinstance(value, list), f"expected an array, got {type(value).__name__}"
+    return value
+
+
+def text(value: JsonValue) -> str:
+    """`value` as a JSON string."""
+    assert isinstance(value, str), f"expected a string, got {type(value).__name__}"
+    return value
 
 
 # ---------------------------------------------------------------------------
@@ -45,14 +86,16 @@ class TestProtocolRegistry:
         assert len(proto.schema_theory) > 0
 
     def test_define_custom_protocol(self) -> None:
-        custom = panproto.define_protocol({
-            "name": "custom",
-            "schema_theory": "ThGraph",
-            "instance_theory": "ThWType",
-            "edge_rules": [],
-            "obj_kinds": ["node"],
-            "constraint_sorts": [],
-        })
+        custom = panproto.define_protocol(
+            {
+                "name": "custom",
+                "schema_theory": "ThGraph",
+                "instance_theory": "ThWType",
+                "edge_rules": [],
+                "obj_kinds": ["node"],
+                "constraint_sorts": [],
+            }
+        )
         assert custom.name == "custom"
 
 
@@ -236,20 +279,16 @@ class TestDiffAndClassify:
         s1, s2 = schemas
         diff = panproto.diff_schemas(s1, s2)
         d = diff.to_dict()
-        assert len(d["added_vertices"]) == 1
+        assert len(arr(d["added_vertices"])) == 1
 
-    def test_classify_compatible(
-        self, schemas: tuple[panproto.Schema, panproto.Schema]
-    ) -> None:
+    def test_classify_compatible(self, schemas: tuple[panproto.Schema, panproto.Schema]) -> None:
         s1, s2 = schemas
         proto = panproto.get_builtin_protocol("atproto")
         diff = panproto.diff_schemas(s1, s2)
         report = diff.classify(proto)
         assert report.compatible is True
 
-    def test_report_text(
-        self, schemas: tuple[panproto.Schema, panproto.Schema]
-    ) -> None:
+    def test_report_text(self, schemas: tuple[panproto.Schema, panproto.Schema]) -> None:
         s1, s2 = schemas
         proto = panproto.get_builtin_protocol("atproto")
         diff = panproto.diff_schemas(s1, s2)
@@ -362,11 +401,13 @@ class TestSpanSearch:
             assert lo == hi
 
     def test_anchors_are_honoured(
-        self, wide: panproto.Schema, narrow: panproto.Schema,
+        self,
+        wide: panproto.Schema,
+        narrow: panproto.Schema,
         protocol: panproto.Protocol,
     ) -> None:
         span = panproto.find_span(wide, narrow, protocol, {"t.id": "t.id"})
-        assert span.right.to_dict()["vertex_map"]["t.id"] == "t.id"
+        assert obj(span.right.to_dict()["vertex_map"])["t.id"] == "t.id"
 
     def test_to_dict_carries_the_certificate(
         self,
@@ -395,11 +436,12 @@ class TestSpanSearch:
         """Sorted so the overlap is a function of the span rather than of a
         hash seed."""
         pairs = panproto.find_span(wide, narrow, protocol).to_overlap()
-        assert pairs["vertex_pairs"] == sorted(pairs["vertex_pairs"])
+        # Each entry is a `(source, target)` pair, so the comparison is
+        # between lists of lists and the elements have to be narrowed too.
+        vertex_pairs = [[text(end) for end in arr(p)] for p in arr(pairs["vertex_pairs"])]
+        assert vertex_pairs == sorted(vertex_pairs)
 
-    def test_found_morphism_to_dict_carries_the_edge_map(
-        self, wide: panproto.Schema
-    ) -> None:
+    def test_found_morphism_to_dict_carries_the_edge_map(self, wide: panproto.Schema) -> None:
         """`vertex_map` alone does not determine the morphism: parallel
         edges between the same endpoints are distinguished only by the edge
         map."""
@@ -407,7 +449,7 @@ class TestSpanSearch:
         assert found is not None
         d = found.to_dict()
         assert "edge_map" in d
-        assert len(d["edge_map"]) == wide.edge_count
+        assert len(arr(d["edge_map"])) == wide.edge_count
 
 
 # ---------------------------------------------------------------------------
@@ -487,7 +529,7 @@ class TestMigration:
         mb.map_vertex("a", "b")
         mig = mb.build()
         d = mig.to_dict()
-        assert "b" in d["vertex_map"].values()
+        assert "b" in obj(d["vertex_map"]).values()
 
     def test_compile_migration(self) -> None:
         proto = panproto.get_builtin_protocol("atproto")
@@ -516,7 +558,7 @@ class TestMigration:
 
         composed = panproto.compose_migrations(m1, m2)
         d = composed.to_dict()
-        assert d["vertex_map"].get("a") == "c"
+        assert obj(d["vertex_map"]).get("a") == "c"
 
 
 # ---------------------------------------------------------------------------
@@ -531,10 +573,10 @@ class TestCompiledMigrationLens:
     is the step that does not scale on large schemas."""
 
     @staticmethod
-    def _pair() -> tuple[object, object, object]:
+    def _pair() -> tuple[panproto.Schema, panproto.Schema, panproto.CompiledMigration]:
         proto = panproto.get_builtin_protocol("atproto")
 
-        def build(nsid: str) -> object:
+        def build(nsid: str) -> panproto.Schema:
             b = proto.schema()
             b.vertex("r", "record", nsid)
             b.vertex("r:body", "object")
@@ -552,7 +594,7 @@ class TestCompiledMigrationLens:
         return src, tgt, compiled
 
     @staticmethod
-    def _instance(src: object) -> object:
+    def _instance(src: panproto.Schema) -> panproto.Instance:
         return panproto.Instance.from_json(src, "r:body", '{"text": "hello"}')
 
     def test_get_returns_a_real_complement(self) -> None:
@@ -598,9 +640,7 @@ class TestCompiledMigrationLens:
         _view, complement = lens.get(self._instance(src))
         assert isinstance(complement, panproto.Complement)
 
-    @pytest.mark.parametrize(
-        "check", ["check_laws", "check_get_put", "check_put_get"]
-    )
+    @pytest.mark.parametrize("check", ["check_laws", "check_get_put", "check_put_get"])
     def test_round_trip_laws_are_checkable(self, check: str) -> None:
         src, _tgt, compiled = self._pair()
         # Raises on violation; returning None is the pass condition.
@@ -625,7 +665,7 @@ class TestStringencyParsing:
     LensError naming the bad value and the valid tiers."""
 
     @staticmethod
-    def _identity_schemas() -> tuple[object, object]:
+    def _identity_schemas() -> tuple[panproto.Schema, panproto.Schema]:
         proto = panproto.get_builtin_protocol("atproto")
         b = proto.schema()
         b.vertex("t", "object")
@@ -773,80 +813,90 @@ class TestGat:
     """Tests for GAT theory operations."""
 
     def test_create_theory(self) -> None:
-        t = panproto.create_theory({
-            "name": "TestTheory",
-            "extends": [],
-            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        t = panproto.create_theory(
+            {
+                "name": "TestTheory",
+                "extends": [],
+                "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         assert t.name == "TestTheory"
         assert t.sort_count == 1
         assert t.op_count == 0
         assert t.eq_count == 0
 
     def test_theory_sorts_property(self) -> None:
-        t = panproto.create_theory({
-            "name": "T",
-            "extends": [],
-            "sorts": [
-                {"name": "X", "params": [], "kind": "Structural"},
-                {"name": "Y", "params": [], "kind": "Structural"},
-            ],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        t = panproto.create_theory(
+            {
+                "name": "T",
+                "extends": [],
+                "sorts": [
+                    {"name": "X", "params": [], "kind": "Structural"},
+                    {"name": "Y", "params": [], "kind": "Structural"},
+                ],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         sorts = t.sorts
         assert isinstance(sorts, list)
         assert len(sorts) == 2
 
     def test_theory_to_dict(self) -> None:
-        t = panproto.create_theory({
-            "name": "T",
-            "extends": [],
-            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        t = panproto.create_theory(
+            {
+                "name": "T",
+                "extends": [],
+                "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         d = t.to_dict()
         assert d["name"] == "T"
 
     def test_theory_repr(self) -> None:
-        t = panproto.create_theory({
-            "name": "Repr",
-            "extends": [],
-            "sorts": [],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        t = panproto.create_theory(
+            {
+                "name": "Repr",
+                "extends": [],
+                "sorts": [],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         r = repr(t)
         assert "Repr" in r
 
     def test_theory_from_json_dsl(self) -> None:
         # JSON surface of panproto-theory-dsl: a `theory` body. This is
         # the round-trip path users hand-author or machine-generate.
-        src = json.dumps({
-            "id": "dev.panproto.test.simple",
-            "description": "Trivial GAT for from_json round-trip.",
-            "theory": "ThSimple",
-            "sorts": [{"name": "A", "params": []}],
-            "ops": [
-                {
-                    "name": "id",
-                    "inputs": [{"name": "x", "sort": "A"}],
-                    "output": "A",
-                },
-            ],
-            "equations": [],
-        })
+        src = json.dumps(
+            {
+                "id": "dev.panproto.test.simple",
+                "description": "Trivial GAT for from_json round-trip.",
+                "theory": "ThSimple",
+                "sorts": [{"name": "A", "params": []}],
+                "ops": [
+                    {
+                        "name": "id",
+                        "inputs": [{"name": "x", "sort": "A"}],
+                        "output": "A",
+                    },
+                ],
+                "equations": [],
+            }
+        )
         t = panproto.Theory.from_json(src)
         assert t.name == "ThSimple"
         assert t.sort_count == 1
@@ -858,43 +908,45 @@ class TestGat:
         # original feature request (#73). Using the public API
         # exclusively here so we can ship the same expectation in
         # downstream Python projects.
-        src = json.dumps({
-            "id": "dev.panproto.test.stlc",
-            "description": "STLC core (subset).",
-            "theory": "STLC",
-            "sorts": [
-                {"name": "Ctx", "params": []},
-                {"name": "Ty", "params": []},
-                {
-                    "name": "Tm",
-                    "params": [
-                        {"name": "G", "sort": "Ctx"},
-                        {"name": "A", "sort": "Ty"},
-                    ],
-                },
-            ],
-            "ops": [
-                {
-                    "name": "arrow",
-                    "inputs": [
-                        {"name": "A", "sort": "Ty"},
-                        {"name": "B", "sort": "Ty"},
-                    ],
-                    "output": "Ty",
-                },
-                {
-                    "name": "lam",
-                    "inputs": [
-                        {"name": "G", "sort": "Ctx"},
-                        {"name": "A", "sort": "Ty"},
-                        {"name": "B", "sort": "Ty"},
-                        {"name": "body", "sort": "Tm(G, B)"},
-                    ],
-                    "output": "Tm(G, arrow(A, B))",
-                },
-            ],
-            "equations": [],
-        })
+        src = json.dumps(
+            {
+                "id": "dev.panproto.test.stlc",
+                "description": "STLC core (subset).",
+                "theory": "STLC",
+                "sorts": [
+                    {"name": "Ctx", "params": []},
+                    {"name": "Ty", "params": []},
+                    {
+                        "name": "Tm",
+                        "params": [
+                            {"name": "G", "sort": "Ctx"},
+                            {"name": "A", "sort": "Ty"},
+                        ],
+                    },
+                ],
+                "ops": [
+                    {
+                        "name": "arrow",
+                        "inputs": [
+                            {"name": "A", "sort": "Ty"},
+                            {"name": "B", "sort": "Ty"},
+                        ],
+                        "output": "Ty",
+                    },
+                    {
+                        "name": "lam",
+                        "inputs": [
+                            {"name": "G", "sort": "Ctx"},
+                            {"name": "A", "sort": "Ty"},
+                            {"name": "B", "sort": "Ty"},
+                            {"name": "body", "sort": "Tm(G, B)"},
+                        ],
+                        "output": "Tm(G, arrow(A, B))",
+                    },
+                ],
+                "equations": [],
+            }
+        )
         t = panproto.Theory.from_json(src)
         assert t.name == "STLC"
         assert t.sort_count == 3
@@ -905,15 +957,17 @@ class TestGat:
         assert lam["output"]["name"] == "Tm"
 
     def test_theory_to_json_round_trip_via_from_dict_json(self) -> None:
-        original = panproto.create_theory({
-            "name": "Roundtrip",
-            "extends": [],
-            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        original = panproto.create_theory(
+            {
+                "name": "Roundtrip",
+                "extends": [],
+                "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         emitted = original.to_json()
         recovered = panproto.Theory.from_dict_json(emitted)
         assert recovered.to_dict() == original.to_dict()
@@ -922,15 +976,17 @@ class TestGat:
         # YAML round-trip symmetric to the JSON pair. The flat shape is
         # the supported round-trip surface; the DSL surfaces (from_json
         # / from_yaml / from_nickel) are one-way compile paths.
-        original = panproto.create_theory({
-            "name": "YamlRoundtrip",
-            "extends": [],
-            "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
-            "ops": [],
-            "eqs": [],
-            "directed_eqs": [],
-            "policies": [],
-        })
+        original = panproto.create_theory(
+            {
+                "name": "YamlRoundtrip",
+                "extends": [],
+                "sorts": [{"name": "A", "params": [], "kind": "Structural"}],
+                "ops": [],
+                "eqs": [],
+                "directed_eqs": [],
+                "policies": [],
+            }
+        )
         emitted = original.to_yaml()
         assert isinstance(emitted, str) and emitted, "to_yaml emitted empty payload"
         recovered = panproto.Theory.from_dict_yaml(emitted)
@@ -954,12 +1010,14 @@ class TestGat:
         # A bundle document compiles to multiple theories and cannot
         # collapse to a single `Theory`; from_json must reject it
         # rather than silently picking one.
-        bundle = json.dumps({
-            "id": "x",
-            "description": "bundle",
-            "bundle": "b",
-            "theories": [],
-        })
+        bundle = json.dumps(
+            {
+                "id": "x",
+                "description": "bundle",
+                "bundle": "b",
+                "theories": [],
+            }
+        )
         with pytest.raises(panproto.GatError):
             panproto.Theory.from_json(bundle)
 
@@ -1019,9 +1077,14 @@ class TestGat:
         assert out["name"] == "Tm"
         # Last input is `Tm(b)` — also a dependent sort, second arg of
         # the (name, sort, implicit) triple.
-        body_input = lam["inputs"][-1]
+        # A triple crosses as a Python tuple rather than a list, so this
+        # narrows on both and indexes what they share.
+        inputs = lam["inputs"]
+        assert isinstance(inputs, (list, tuple))
+        body_input = inputs[-1]
+        assert isinstance(body_input, (list, tuple))
         assert isinstance(body_input[1], dict)
-        assert body_input[1]["name"] == "Tm"
+        assert obj(body_input[1])["name"] == "Tm"
 
     def test_theory_builder_op_validates_input_names(self) -> None:
         # When the caller passes input_names, it must be the same length
@@ -1181,7 +1244,7 @@ class TestVertexEdgeConstraint:
 # A minimal `pub.layers.*`-style record lexicon exercising value-kind
 # fields (string / integer / boolean), a refined string (`format`), an
 # array, and a reference to a sibling def.
-LEXICON = {
+LEXICON: dict[str, JsonValue] = {
     "lexicon": 1,
     "id": "pub.layers.example",
     "defs": {
@@ -1228,9 +1291,7 @@ class TestLexiconParsing:
         assert from_str.vertex_count == schema.vertex_count
         assert from_str.edge_count == schema.edge_count
 
-    def test_parsed_schema_validates_against_builtin(
-        self, schema: panproto.Schema
-    ) -> None:
+    def test_parsed_schema_validates_against_builtin(self, schema: panproto.Schema) -> None:
         # The issue's acceptance criterion: a parsed lexicon Schema
         # validates against the builtin atproto protocol.
         proto = panproto.get_builtin_protocol("atproto")
@@ -1244,9 +1305,7 @@ class TestLexiconParsing:
         with pytest.raises(panproto.SchemaValidationError):
             panproto.parse_atproto_lexicon({"lexicon": 1, "id": "x"})
 
-    def test_schema_classmethod_matches_function(
-        self, schema: panproto.Schema
-    ) -> None:
+    def test_schema_classmethod_matches_function(self, schema: panproto.Schema) -> None:
         via_classmethod = panproto.Schema.from_atproto_lexicon(LEXICON)
         assert via_classmethod.vertex_count == schema.vertex_count
 
@@ -1265,7 +1324,7 @@ class TestLexiconParsing:
         target, so the target carries no fields; bundling the two
         documents resolves it.
         """
-        referring = {
+        referring: dict[str, JsonValue] = {
             "lexicon": 1,
             "id": "local.bundle.referring",
             "defs": {
@@ -1285,7 +1344,7 @@ class TestLexiconParsing:
                 }
             },
         }
-        referenced = {
+        referenced: dict[str, JsonValue] = {
             "lexicon": 1,
             "id": "local.bundle.defs",
             "defs": {
@@ -1311,7 +1370,7 @@ class TestLexiconParsing:
         assert bundled.edge_count == direct.edge_count
 
     def test_parse_schema_bundle_project_partitions_and_lifts_cross_refs(self) -> None:
-        referring = {
+        referring: dict[str, JsonValue] = {
             "lexicon": 1,
             "id": "local.bundle.referring",
             "defs": {
@@ -1331,7 +1390,7 @@ class TestLexiconParsing:
                 }
             },
         }
-        referenced = {
+        referenced: dict[str, JsonValue] = {
             "lexicon": 1,
             "id": "local.bundle.defs",
             "defs": {
@@ -1356,13 +1415,13 @@ class TestLexiconParsing:
         # edge on the referencing file, not left inside its schema.
         cross = project.cross_file_edges()
         assert "referring.json" in cross
-        edge = cross["referring.json"][0]
+        edge = obj(arr(cross["referring.json"])[0])
         assert edge["kind"] == "ref"
-        assert edge["src"].startswith("referring.json::")
-        assert edge["tgt"].startswith("defs.json::")
+        assert text(edge["src"]).startswith("referring.json::")
+        assert text(edge["tgt"]).startswith("defs.json::")
 
-    def test_repository_add_project_stages_per_file_tree(self, tmp_path) -> None:
-        referenced = {
+    def test_repository_add_project_stages_per_file_tree(self, tmp_path: Path) -> None:
+        referenced: dict[str, JsonValue] = {
             "lexicon": 1,
             "id": "local.bundle.defs",
             "defs": {
@@ -1373,8 +1432,8 @@ class TestLexiconParsing:
             },
         }
 
-        def referring(*, required: bool) -> dict:
-            record = {
+        def referring(*, required: bool) -> dict[str, JsonValue]:
+            record: dict[str, JsonValue] = {
                 "type": "object",
                 "properties": {
                     "target": {
@@ -1403,7 +1462,7 @@ class TestLexiconParsing:
             [("referring.json", referring(required=False)), ("defs.json", referenced)],
         )
         first_index = repo.add_project(first, skip_verify=True)
-        first_root = first_index["staged"]["schema_id"]
+        first_root = obj(first_index["staged"])["schema_id"]
         repo.commit("first", "alice <a@example.com>")
 
         second = panproto.parse_schema_bundle_project(
@@ -1411,13 +1470,11 @@ class TestLexiconParsing:
             [("referring.json", referring(required=True)), ("defs.json", referenced)],
         )
         second_index = repo.add_project(second, skip_verify=True)
-        assert second_index["staged"]["schema_id"] != first_root
-        assert second_index["staged"]["migration_id"] is not None
+        assert obj(second_index["staged"])["schema_id"] != first_root
+        assert obj(second_index["staged"])["migration_id"] is not None
 
     def test_parse_schema_bundle_unknown_protocol_raises(self) -> None:
-        with pytest.raises(
-            (ValueError, panproto.SchemaValidationError), match="no bundle parser"
-        ):
+        with pytest.raises((ValueError, panproto.SchemaValidationError), match="no bundle parser"):
             panproto.parse_schema_bundle("nonexistent", [LEXICON])
 
     def test_theory_shape_mirrors_schema(self, schema: panproto.Schema) -> None:
@@ -1442,9 +1499,7 @@ class TestLexiconParsing:
         assert {"Val": "Int"} in kinds
         assert {"Val": "Bool"} in kinds
 
-    def test_refined_scalar_lives_on_schema_constraint(
-        self, schema: panproto.Schema
-    ) -> None:
+    def test_refined_scalar_lives_on_schema_constraint(self, schema: panproto.Schema) -> None:
         # The theory vocabulary cannot distinguish `datetime` from a plain
         # string, so the refinement rides the schema's `format` constraint
         # (which `parse_atproto_lexicon` populates) rather than the theory.
@@ -1456,9 +1511,7 @@ class TestLexiconParsing:
         ]
         assert "datetime" in formats
 
-    def test_reference_edge_distinguished_on_schema(
-        self, schema: panproto.Schema
-    ) -> None:
+    def test_reference_edge_distinguished_on_schema(self, schema: panproto.Schema) -> None:
         # Reference-versus-containment lives on `Edge.kind`: the `author`
         # ref produces a `ref` edge, distinct from the `prop` edges.
         edge_kinds = {e.kind for e in schema.edges}
@@ -1485,7 +1538,7 @@ class TestRepositoryDataAccess:
             b.edge("rec", name, "prop", name)
         return b.build()
 
-    def test_data_at_empty_for_data_less_commit(self, tmp_path) -> None:
+    def test_data_at_empty_for_data_less_commit(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         repo.commit("schema", "alice <a@example.com>")
@@ -1493,7 +1546,7 @@ class TestRepositoryDataAccess:
         # not an error.
         assert repo.data_at("HEAD") == []
 
-    def test_add_skip_verify_leaves_stage_pending(self, tmp_path) -> None:
+    def test_add_skip_verify_leaves_stage_pending(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         repo.commit("v1", "alice <a@example.com>")
@@ -1501,23 +1554,17 @@ class TestRepositoryDataAccess:
         # skip_verify stages without running GAT migration validation:
         # the derived migration is still recorded, but the stage is left
         # pending.
-        idx = repo.add(
-            self._schema(("a", "integer"), ("b", "string")), skip_verify=True
-        )
-        assert idx["staged"]["validation"] == "pending"
-        assert idx["staged"]["migration_id"] is not None
+        idx = repo.add(self._schema(("a", "integer"), ("b", "string")), skip_verify=True)
+        assert obj(idx["staged"])["validation"] == "pending"
+        assert obj(idx["staged"])["migration_id"] is not None
         # A default commit accepts the pending stage (non-blocking).
         repo.commit("v2", "alice <a@example.com>")
 
         # The default add still runs validation (not pending).
-        idx = repo.add(
-            self._schema(("a", "integer"), ("b", "string"), ("c", "string"))
-        )
-        assert idx["staged"]["validation"] == "valid"
+        idx = repo.add(self._schema(("a", "integer"), ("b", "string"), ("c", "string")))
+        assert obj(idx["staged"])["validation"] == "valid"
 
-    def test_data_at_reads_committed_data_without_moving_head(
-        self, tmp_path
-    ) -> None:
+    def test_data_at_reads_committed_data_without_moving_head(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         repo.commit("schema", "alice <a@example.com>")
@@ -1545,23 +1592,21 @@ class TestRepositoryDataAccess:
         assert len(repo.data_at("main")) == 1
         assert len(repo.data_at(cid)) == 1
 
-    def test_data_at_unknown_ref_raises(self, tmp_path) -> None:
+    def test_data_at_unknown_ref_raises(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         repo.commit("schema", "alice <a@example.com>")
         with pytest.raises(panproto.VcsError):
             repo.data_at("no-such-ref")
 
-    def test_create_annotated_tag_param_order_and_return(self, tmp_path) -> None:
+    def test_create_annotated_tag_param_order_and_return(self, tmp_path: Path) -> None:
         # The runtime order is (name, commit_id, author, message) and the
         # call returns the new tag object id, which the stub must reflect.
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         cid = repo.commit("schema", "alice <a@example.com>")
 
-        tid = repo.create_annotated_tag(
-            "v2", cid, "Tagger <t@example.com>", "release two"
-        )
+        tid = repo.create_annotated_tag("v2", cid, "Tagger <t@example.com>", "release two")
         assert isinstance(tid, str)
         assert len(tid) == 64
 
@@ -1570,7 +1615,7 @@ class TestRepositoryDataAccess:
         assert tag["tagger"] == "Tagger <t@example.com>"
         assert tag["message"] == "release two"
 
-    def test_commit_data_only_change(self, tmp_path) -> None:
+    def test_commit_data_only_change(self, tmp_path: Path) -> None:
         # A data-only stage (no schema change) commits instead of raising
         # NothingStaged, so commit and has_staged() agree.
         repo = panproto.Repository.init(str(tmp_path / "repo"))
@@ -1590,7 +1635,7 @@ class TestRepositoryDataAccess:
         assert datasets[0]["record_count"] == 2
         assert datasets[0]["key"] == "at://rec/1"
 
-    def test_add_data_key_defaults_to_path(self, tmp_path) -> None:
+    def test_add_data_key_defaults_to_path(self, tmp_path: Path) -> None:
         repo = panproto.Repository.init(str(tmp_path / "repo"))
         repo.add(self._schema(("a", "integer")))
         repo.commit("schema", "alice <a@example.com>")
@@ -1635,9 +1680,7 @@ class TestEmitPrettyGraft:
         ast.parse(reg.emit_pretty("python", parsed).decode())
 
         # Collect the class_definition subtree.
-        class_root = next(
-            v.id for v in parsed.vertices if v.kind == "class_definition"
-        )
+        class_root = next(v.id for v in parsed.vertices if v.kind == "class_definition")
         kind_of = {v.id: v.kind for v in parsed.vertices}
         seen = {class_root}
         frontier = [class_root]
@@ -1651,7 +1694,7 @@ class TestEmitPrettyGraft:
         # Graft the class onto a fresh module beside a hand-built `def f()`.
         sb = proto.schema()
         sb.vertex("mod", "module")
-        id_map = {}
+        id_map: dict[str, str] = {}
         for i, old in enumerate(seen):
             new = f"g_{i}"
             id_map[old] = new

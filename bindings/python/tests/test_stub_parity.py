@@ -90,9 +90,7 @@ def _declared_members() -> dict[str, set[str]]:
         if name in seen or name not in own:
             return set()
         inherited = seen | {name}
-        return own[name].union(
-            *(resolve(base, inherited) for base in bases[name]), set()
-        )
+        return own[name].union(*(resolve(base, inherited) for base in bases[name]), set())
 
     return {name: resolve(name, frozenset()) for name in own}
 
@@ -161,9 +159,7 @@ def test_the_stub_covers_every_runtime_class_member() -> None:
         if runtime_class is None:
             continue
         exposed = {
-            name
-            for name in dir(runtime_class)
-            if _is_public(name) and name not in inherited
+            name for name in dir(runtime_class) if _is_public(name) and name not in inherited
         }
         missing = sorted(exposed - declared[class_name])
         if missing:
@@ -171,6 +167,87 @@ def test_the_stub_covers_every_runtime_class_member() -> None:
     assert not undeclared, (
         f"members exposed by a runtime class that _native.pyi does not "
         f"declare, so calling them is a type error: {undeclared}"
+    )
+
+
+def _declared_dunders() -> dict[str, set[str]]:
+    """Every `__dunder__` each stub class declares, bases followed."""
+    own: dict[str, set[str]] = {}
+    bases: dict[str, list[str]] = {}
+    for node in _stub_tree().body:
+        if not isinstance(node, ast.ClassDef):
+            continue
+        own[node.name] = {
+            body.name
+            for body in node.body
+            if isinstance(body, ast.FunctionDef | ast.AsyncFunctionDef)
+            and body.name.startswith("__")
+        }
+        bases[node.name] = [b.id for b in node.bases if isinstance(b, ast.Name)]
+
+    def resolve(name: str, seen: frozenset[str]) -> set[str]:
+        if name in seen or name not in own:
+            return set()
+        inherited = seen | {name}
+        return own[name].union(*(resolve(base, inherited) for base in bases[name]), set())
+
+    return {name: resolve(name, frozenset()) for name in own}
+
+
+def _own_members(runtime_class: type) -> dict[str, object]:
+    """The class's own dictionary, typed.
+
+    `vars` hands back a `MappingProxyType` whose values are `Any`, and the
+    comprehension that reads it is under `reportUnknown*`, so the narrowing
+    happens here once rather than at the call site.
+    """
+    return dict(vars(runtime_class))
+
+
+def test_the_stub_declares_every_protocol_method_the_extension_adds() -> None:
+    """A `__dunder__` the extension adds and the stub omits is a type error.
+
+    The four tests above compare names through `_is_public`, which drops
+    every `__dunder__` before the comparison, so a protocol method the
+    extension implements is invisible to all of them. That is not a
+    cosmetic gap: `py.typed` makes the stub authoritative, and a class
+    whose stub has no `__len__` makes `len(x)` an error on a call that
+    returns a number. `Schema`, `Instance` and `ProtolensChain` each
+    implement `__len__` in `crates/panproto-py`.
+
+    The rule is "a callable dunder in the class's own `__dict__` that
+    neither `object` nor `BaseException` already carries", rather than a
+    list of protocol names, so a future `__iter__` or `__getitem__` is
+    covered without editing this test. Two exclusions do real work.
+    Reading the class's own dictionary rather than `dir` keeps out the
+    inherited exception machinery (`__cause__`, `__traceback__`) and the
+    class attributes every type has (`__module__`, `__dict__`), none of
+    which a stub declares. And a dunder `object` carries is excluded
+    because overriding one changes behaviour without changing what type
+    checks: `Vertex.__eq__` compares by value where `object.__eq__`
+    compares by identity, and both satisfy the same signature. `pyo3`
+    fills in all six rich-comparison slots from one `__eq__`, so that
+    exclusion is also what keeps `__lt__` off this list.
+    """
+    from_python = set(dir(object)) | set(dir(BaseException))
+    declared = _declared_dunders()
+    undeclared: dict[str, list[str]] = {}
+    for class_name in declared:
+        runtime_class = getattr(native, class_name, None)
+        if runtime_class is None:
+            continue
+        added = {
+            name
+            for name, member in _own_members(runtime_class).items()
+            if name.startswith("__") and callable(member) and name not in from_python
+        }
+        missing = sorted(added - declared[class_name])
+        if missing:
+            undeclared[class_name] = missing
+    assert not undeclared, (
+        f"protocol methods a runtime class implements that _native.pyi does "
+        f"not declare, so using them is a type error on code that runs: "
+        f"{undeclared}"
     )
 
 
