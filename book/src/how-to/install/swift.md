@@ -59,7 +59,7 @@ To depend on the package from another project, point `PANPROTO_SWIFT_XCFRAMEWORK
 
 ## Feature-gated tiers
 
-The default `libpanproto_c` exports 103 entry points. The `parse`, `project`, and `git` tiers add 17 more that are absent from that build, so reaching them takes a library built with the matching cargo features and a Swift build told to compile the gated shims in:
+The default `libpanproto_c` exports 105 entry points. The `parse`, `project`, and `git` tiers add 17 more that are absent from that build, so reaching them takes a library built with the matching cargo features and a Swift build told to compile the gated shims in:
 
 ```sh
 PANPROTO_C_FEATURES=full ./bootstrap/dev-link.sh
