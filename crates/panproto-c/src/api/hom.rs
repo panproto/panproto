@@ -360,7 +360,7 @@ struct SchemaOverlapWire {
 /// non-increasing quality order trivially and a host reading element zero gets
 /// what it always got. A host that walked the list for a suboptimal
 /// alternative will not find one: there is no k-best over distinct quality
-/// levels. Empty means no total morphism exists — and only that: a search that
+/// levels. Empty means no total morphism exists, and only that: a search that
 /// could not be posed returns `PpStatus::Operation` with the reason, rather
 /// than an empty list under a success status.
 #[must_use = "FFI status codes should not be discarded"]
