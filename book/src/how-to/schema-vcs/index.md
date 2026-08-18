@@ -1,12 +1,10 @@
 # Schema version control
 
-panproto-vcs is git for schemas: an immutable DAG of schema, migration, lens, and data objects with branches, tags, merges, and a content-addressed store. The CLI verbs match git: `init`, `add`, `commit`, `branch`, `merge`, `log`, `diff`.
-
-The four pages here cover the practical workflows.
+These guides put schemas, migrations, and associated data under panproto version control. Begin with repository creation and commits; add branching, data migration, or a git bridge only when the project needs that workflow.
 
 | Page | Purpose |
 |---|---|
-| [Init and commit](./init-and-commit.md) | Start a repository, stage and commit changes. |
+| [Initialize and commit](./init-and-commit.md) | Start a repository, then stage and commit schema changes. |
 | [Branch and merge](./branch-and-merge.md) | Diverge a feature branch, merge it back via pushout. |
 | [Version data alongside schemas](./data-versioning.md) | Carry data instances in commits and lift them through migrations automatically. |
 | [Bridge to git](./git-bridge.md) | Run panproto-vcs alongside git, or as a custom git remote. |

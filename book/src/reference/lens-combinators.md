@@ -1,12 +1,14 @@
 # Lens combinator reference
 
-A lens in panproto is a triple of functions over a source `S`, a view `V`, and a complement `C`:
+A lens in panproto is a triple of functions over a source $S$, a view $V$, and a complement $C$:
 
-```text
-get        : S -> V
-put        : S × V × C -> S
-complement : S -> C
-```
+$$
+\begin{aligned}
+\operatorname{get} &: S \to V \\
+\operatorname{put} &: S \times V \times C \to S \\
+\operatorname{complement} &: S \to C
+\end{aligned}
+$$
 
 Every constructor in `panproto-lens` produces a lens whose round-trip laws (`GetPut`, `PutGet`, `PutPut`) are verified by the property tests in [`panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs). The complement carries the data discarded by `get` so that `put` can restore it.
 
@@ -30,13 +32,13 @@ Composition follows the standard optics lattice: `Iso` is the identity, `Travers
 
 | Family | Module | Purpose |
 |---|---|---|
-| Asymmetric lenses | [`asymmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/asymmetric/) | Classical S → V transforms with put. |
-| Symmetric lenses | [`symmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/symmetric/) | A ↔ B transforms with shared complement. |
+| Asymmetric lenses | [`asymmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/asymmetric/) | Source-to-view transforms with `put`. |
+| Symmetric lenses | [`symmetric`](https://docs.rs/panproto-lens/latest/panproto_lens/symmetric/) | Bidirectional transforms with a shared complement. |
 | Composition | [`compose`](https://docs.rs/panproto-lens/latest/panproto_lens/compose/) | Sequential and parallel composition of lenses. |
 | Optics | [`optic`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/) | `OpticKind` enum (Iso, Lens, Prism, Affine, Traversal) and the composition lattice. |
 | Fibration | [`fibration`](https://docs.rs/panproto-lens/latest/panproto_lens/fibration/) | The Grothendieck fibration of lenses over schemas. |
 | Protolens | [`protolens`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/) | Schema-parameterized lens families with vertical and sequential composition. |
-| Enrichment registry | [`enrichment_registry`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/) | Cross-crate `LayoutEnricher` trait and registry for schema-level enrichment fibres (e.g. the parse / decorate / emit lens; see [Layout enrichment](../explanation/layout-enrichment.md)). |
+| Enrichment registry | [`enrichment_registry`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/) | Cross-crate `LayoutEnricher` trait and registry for schema-level enrichment fibers (e.g. the parse / decorate / emit lens; see [Layout enrichment](../explanation/layout-enrichment.md)). |
 | Laws | [`laws`](https://docs.rs/panproto-lens/latest/panproto_lens/laws/) | Property-test harness for the three lens laws. |
 
 ## Complement composition

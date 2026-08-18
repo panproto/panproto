@@ -1,6 +1,6 @@
 # Translate across protocols
 
-Cross-protocol translation moves schemas between schema languages: JSON Schema to Protobuf, ATProto Lexicon to GraphQL SDL, and so on. Translation is a migration whose source and target theories belong to different protocols.
+Cross-protocol translation applies when the source and target schemas belong to different schema languages, such as JSON Schema and Protobuf. The procedure constructs a migration through a theory shared by the two protocols.
 
 ## Prerequisites
 
@@ -10,9 +10,9 @@ Two protocols whose theories overlap on enough building-block theories that a co
 
 Cross-protocol translation runs through the colimit-of-theories construction in `panproto-protocols`. There is no single CLI subcommand that takes a source-protocol schema and emits a target-protocol schema directly; instead, the workflow is:
 
-1. **Compose the theory.** Use the theory DSL to declare a composition theory whose colimit covers both protocols, or rely on the built-in compositions for the protocol pair you want.
-2. **Generate a lens between schemas in the composed theory.** `schema lens generate` produces the chain; both schemas must be expressed against the composed theory.
-3. **Apply the lens to convert data.**
+1. Use the theory DSL to declare a composition theory whose colimit covers both protocols, or select a built-in composition for the protocol pair.
+2. Generate a lens between schemas in the composed theory with `schema lens generate`. Both schemas must be expressed against that theory.
+3. Apply the lens to convert the data.
 
 The theory DSL exposes a small library of named building-block theories via `builtin_resolver()`: `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`, `ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, `ThGraphInstance`. Whole-protocol theories (the per-protocol GATs that JSON Schema, Protobuf, ATProto, etc. compile to) are constructed in Rust inside `panproto-protocols`, not through the DSL.
 
@@ -75,5 +75,5 @@ schema data convert --protocol atproto \
 ## See also
 
 - [Convert data between formats](./convert-data.md).
-- [Reference: protocol catalogue](../reference/protocols.md).
+- [Reference: protocol catalog](../reference/protocols.md).
 - [Composing protocols by colimit](../explanation/protocol-colimits.md).

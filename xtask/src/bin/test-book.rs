@@ -12,6 +12,9 @@
 
 //! Test Rust code blocks in `book/src/**/*.md` via `rustdoc --test`.
 //!
+//! Every Rust fence must compile. The driver rejects `rust,ignore` so API drift
+//! cannot hide behind an opt-out; schematic listings belong in `text` fences.
+//!
 //! mdbook's own `mdbook test --library-path <dir>` cannot handle the
 //! workspace's deps directory (multiple candidates for each crate
 //! name confuse rustdoc's resolver). This driver does the legwork
@@ -121,11 +124,15 @@ fn main() {
     // 2. Walk book/src for Rust blocks and run rustdoc --test on each.
     let mut total = 0usize;
     let mut failed: Vec<String> = Vec::new();
-    let mut ignored = 0usize;
+    let mut disallowed = 0usize;
     let blocks = collect_blocks(&book_src);
     for block in &blocks {
         if block.ignored {
-            ignored += 1;
+            disallowed += 1;
+            failed.push(format!(
+                "{}\n`rust,ignore` is not allowed in the book; make the block compile or label schematic code as `text`.\n",
+                block.label(),
+            ));
             continue;
         }
         total += 1;
@@ -142,7 +149,7 @@ fn main() {
 
     println!();
     println!(
-        "test-book: {total} block(s) tested, {} failed, {ignored} ignored",
+        "test-book: {total} block(s) tested, {} failed, {disallowed} disallowed",
         failed.len(),
     );
     if !failed.is_empty() {
@@ -185,13 +192,6 @@ struct Block {
 impl Block {
     fn label(&self) -> String {
         format!("{}:{}", self.file.display(), self.line)
-    }
-    fn should_compile(&self) -> bool {
-        // rustdoc --test runs all blocks that aren't marked
-        // `ignore`. `no_run` compiles but doesn't execute, which is
-        // the behaviour we want for examples that touch the
-        // filesystem or invent variables at the top level.
-        !self.ignored
     }
 }
 
@@ -328,10 +328,6 @@ fn run_block(
     block: &Block,
     externs: &BTreeMap<String, PathBuf>,
 ) -> Result<(), String> {
-    if !block.should_compile() {
-        return Ok(());
-    }
-
     // Write a markdown file containing only this Rust block; rustdoc
     // accepts markdown and handles hidden-line (`# `) semantics.
     let tmp = repo_root
@@ -369,10 +365,16 @@ fn run_block(
         cmd.arg("--extern").arg(spec);
     }
     // The deps directory is on the library search path so transitive
-    // deps resolve. Multi-candidate ambiguity is avoided because we
-    // pass --extern for every name our examples actually use.
+    // deps resolve. Derive it from Cargo's artifacts rather than assuming
+    // the default `target/`; CI and local validation may set CARGO_TARGET_DIR.
+    // Multi-candidate ambiguity is avoided because we pass --extern for every
+    // name our examples actually use.
+    let deps_dir = externs
+        .values()
+        .find_map(|path| path.parent())
+        .ok_or_else(|| "no dependency artifact directory found".to_owned())?;
     cmd.arg("-L");
-    cmd.arg(repo_root.join("target").join("debug").join("deps"));
+    cmd.arg(deps_dir);
     cmd.arg(&tmp);
 
     let output = cmd.output().map_err(|e| format!("spawn rustdoc: {e}"))?;

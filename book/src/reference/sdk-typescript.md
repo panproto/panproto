@@ -68,9 +68,9 @@ The third argument is source-to-target vertex mappings the caller *knows*, which
 
 `quality` ranks spans over *one* source schema and nothing else, because every denominator of the objective is fixed by the source. `quality_bounds` brackets it, and its two ends are equal exactly when `proven_optimal` holds, which is what separates a score nothing beats from a score the search ran out of budget before improving on.
 
-### The `find_morphisms` contract change, and where TypeScript stands
+### Where the total-morphism search is, and is not
 
-The morphism search changed contract across the whole engine: `find_morphisms` now returns the morphisms attaining the optimum, bounded by an engine cap of 1024 that applies to every request, where it used to return the whole hom-set in descending quality. That is a silent behavioural break for the Rust, Python, Haskell, and Swift surfaces. TypeScript is unaffected only because it never exposed the total-morphism search: morphism search has no WASM analogue, and `Panproto.span` is the only entry point into it from this SDK. Code that reaches the search through the `schema auto-migrate` CLI, or through a sibling SDK in the same pipeline, is affected in the ordinary way.
+The total-morphism search has no WASM analog, so this SDK does not expose it: `Panproto.span` is the only entry into the search from TypeScript, and it answers with a span rather than with a list of total morphisms. The Rust, Python, Haskell and Swift surfaces do expose it, under an engine cap of 1024 that applies to every request. Code reaching the search through the `schema auto-migrate` CLI, or through a sibling SDK in the same pipeline, meets that surface in the ordinary way.
 
 ## Boundary characteristics
 

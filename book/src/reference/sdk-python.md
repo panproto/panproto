@@ -63,7 +63,7 @@ The package source is at [`bindings/python/`](https://github.com/panproto/panpro
 
 ## Morphism and span search
 
-`find_span` is the primary way to ask what two schemas share. It answers with a `SchemaSpan`, a span `src ← apex → tgt` whose apex is the sub-schema of `src` induced on the vertices the search gave a target, and it never refuses for want of a match: leaving every source vertex out of the apex is always feasible, so two schemas with nothing in common come back with an empty apex rather than with `None` or an exception.
+`find_span` returns a `SchemaSpan` of the form $\mathit{src} \leftarrow A \to \mathit{tgt}$, where the apex $A$ is the sub-schema of `src` induced on the vertices assigned a target. It does not return `None` or raise an exception merely because the schemas have nothing in common; that case produces an empty apex.
 
 ```python
 span = panproto.find_span(old, new, proto, anchors={"post": "post"}, monic=True)
@@ -79,8 +79,8 @@ if span.is_total:
 | Attribute of `SchemaSpan` | What it holds |
 |---|---|
 | `apex: Schema` | The sub-schema of `src` the search covered. |
-| `left: Migration` | `apex → src`, an inclusion. |
-| `right: Migration` | `apex → tgt`, which carries the whole identification. |
+| `left: Migration` | Inclusion from the apex into `src`. |
+| `right: Migration` | Assignment from the apex into `tgt`; this field carries the identification. |
 | `quality: float` | How well the covered part matches, in `[0, 1]`, with the drop count excluded. |
 | `quality_bounds: tuple[float, float]` | The interval bracketing `quality`. Its ends are equal exactly when `proven_optimal` holds. |
 | `apex_coverage: float` | The share of the source's vertices the apex covers, or one on an empty source. |
@@ -91,9 +91,9 @@ if span.is_total:
 
 `as_total_morphism()` returns a `FoundMorphism` when `is_total` holds and `None` otherwise, `to_overlap()` gives the sorted pair lists a pushout takes, and `to_dict()` flattens the whole span. `quality` ranks spans over *one* source schema and nothing else, because every denominator of the objective is fixed by `src`; read `apex_coverage` alongside it.
 
-### `find_morphisms` no longer returns the hom-set
+### What `find_morphisms` returns
 
-This is a silent behavioural change, so code that upgrades without reading this paragraph will get different answers from an unchanged call. `find_morphisms` used to return every total morphism, ranked by descending quality. It now returns the morphisms **attaining the optimum**, and nothing else. Every element carries the same quality, so `results[0]` is what it always was, and iterating further for a suboptimal alternative will not find one. The engine's cap of 1024 bounds every request rather than only `max_results=0`, so asking for more is answered with the cap. Python receives a plain list, so the flag the engine sets when the cap cut the answer short does not cross this surface; a caller that needs to tell a cut list from an exhausted one compares `len(results)` against 1024.
+`find_morphisms` returns the morphisms **attaining the optimum**, and nothing else. Every element carries the same quality, so `results[0]` is the best answer there is and iterating further for a suboptimal alternative will not find one. The engine's cap of 1024 bounds every request rather than only `max_results=0`, so asking for more is answered with the cap. Python receives a plain list, so the flag the engine sets when the cap cut the answer short does not cross this surface; a caller that needs to tell a cut list from an exhausted one compares `len(results)` against 1024.
 
 An empty list means that no total morphism exists, and only that. A search that could not be posed raises `MigrationError` instead, so the two are distinguishable; `find_span` is the function that answers with what the two schemas do share.
 

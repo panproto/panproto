@@ -1,6 +1,6 @@
 # Convert data between formats
 
-panproto's parse/migrate/emit pipeline converts data between any two protocols whose theories overlap. The intermediate is a `panproto-inst` instance graph; you do not need to write a transcoder per format pair.
+Data conversion between schemas in one protocol follows the parse/migrate/emit pipeline. It passes through a `panproto-inst` instance graph and does not require a format-pair transcoder.
 
 ## Prerequisites
 
@@ -27,13 +27,12 @@ Cross-protocol conversion goes through a composed theory; see [Translate across 
 ### From the SDKs
 
 ```ts
-const out = await p.convert(jsonBytes, {
-  from: srcSchema,
-  to: tgtSchema,
-});
+using lens = p.lens(srcSchema, tgtSchema);
+const { view, complement } = lens.getJson(inputRecord, "user:body");
+const out = view as Record<string, unknown>;
 ```
 
-`Panproto.convert(data, opts)` auto-generates a lens between the two `BuiltSchema` arguments, applies it forward, and returns the converted record. Pass `defaults` in `opts` to supply complement defaults for fields the source does not determine.
+`Panproto.lens(from, to)` auto-generates a lens between two `BuiltSchema` arguments. `getJson` accepts an ordinary JavaScript record and returns the converted view together with the complement needed for a backward update. Keep that complement if the application may call `putJson` later.
 
 ## Verification
 
@@ -53,6 +52,6 @@ Lens verification on test data exercises the three round-trip laws (GetPut, PutG
 
 ## See also
 
-- [Reference: protocol catalogue](../reference/protocols.md).
+- [Reference: protocol catalog](../reference/protocols.md).
 - [Round-trip with format preservation](./format-preserving.md).
 - [Translate across protocols](./cross-protocol.md).

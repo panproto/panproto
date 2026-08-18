@@ -1,6 +1,8 @@
 # Architecture
 
-panproto is a layered Rust workspace. The bottom layer is the GAT engine; everything else builds on it. The top layer is the surfaces (CLI, WASM, PyO3, C ABI) that downstream users actually call. Each layer depends only on layers below it; the dependency graph is acyclic.
+panproto is a Rust workspace with an acyclic Cargo dependency graph. We place the expression crate below the GAT engine because conflict policies and directed equations can contain expressions. Schema and instance code depends on both; most user-facing surfaces reach the higher operations through `panproto-core`.
+
+Read this chapter after [Schemas as theories](./schemas-as-theories.md) and [Migrations as morphisms](./migrations-as-morphisms.md). Use the graph as a boundary map and the [crate map](../reference/crate-map.md) for the crate-by-crate inventory.
 
 ## Layering
 
@@ -32,21 +34,25 @@ graph TD
         LENSDSL[panproto-lens-dsl]
         IO[panproto-io]
         PARSE[panproto-parse]
-        GRAMMARS[panproto-grammars<br/>+ grammars-{all,web,data,jvm,<br/>scripting,systems,functional,<br/>devops,mobile,music}]
+        GRAMMARS["panproto-grammars<br/>+ grammars-{all,web,data,jvm,<br/>scripting,systems,functional,<br/>devops,mobile,music}"]
     end
 
-    subgraph "Protocols and theories"
+    subgraph "DSLs and protocol definitions"
         PROTOS[panproto-protocols]
         THEORYDSL[panproto-theory-dsl]
-        EXPR[panproto-expr]
         EXPRPARSER[panproto-expr-parser]
+        DSLEVAL[panproto-dsl-eval]
     end
 
-    subgraph "Foundation"
+    subgraph "Theory and data model"
         GAT[panproto-gat]
         GATMACROS[panproto-gat-macros]
         SCHEMA[panproto-schema]
         INST[panproto-inst]
+    end
+
+    subgraph "Expression foundation"
+        EXPR[panproto-expr]
     end
 
     CLI --> CORE
@@ -87,14 +93,22 @@ graph TD
     PROTOS --> SCHEMA
     PROTOS --> INST
     THEORYDSL --> GAT
-    GATMACROS --> GAT
+    THEORYDSL --> SCHEMA
+    THEORYDSL --> PROTOS
+    THEORYDSL --> EXPR
+    THEORYDSL --> EXPRPARSER
+    THEORYDSL --> LENS
+    THEORYDSL --> DSLEVAL
 
     SCHEMA --> GAT
+    SCHEMA --> EXPR
     INST --> GAT
-    EXPR --> GAT
+    INST --> SCHEMA
+    INST --> EXPR
+    GAT --> EXPR
 ```
 
-The diagram shows the *direction* of dependency, not every individual edge. The full set is in the workspace [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml). The ten `panproto-grammars-*` pack crates are grouped together in the diagram: each is a leaf re-exporting a subset of the tree-sitter grammars under feature flags, consumed transitively by `panproto-parse`.
+An arrow points from a crate to one of its dependencies. The diagram omits many direct edges and feature-gated dependencies; each crate's `Cargo.toml` is authoritative. The ten `panproto-grammars-*` pack crates are grouped together: each re-exports a subset of tree-sitter grammars under feature flags.
 
 One arrow worth pointing out: `panproto-parse` depends on `panproto-lens`, not the other way around. The two crates meet through the `enrichment_registry` module in `panproto-lens`, a thin trait-and-registry pair the lens crate exposes for downstream crates to populate. `panproto-parse` installs an adapter for every parser it accepts so that protolens machinery in `panproto-lens` can dispatch grammar-driven enrichment synthesis without depending on tree-sitter. The mechanism is documented in [Layout enrichment](./layout-enrichment.md); the registry pattern keeps the lens crate grammar-agnostic and the dependency direction acyclic.
 
@@ -104,11 +118,11 @@ Three places in the system are *boundary layers* in the sense that they convert 
 
 ### WASM boundary
 
-`panproto-wasm` is the only crate that knows about `wasm-bindgen`. It exposes `panproto-core` to JavaScript through a slab of opaque integer handles, with MessagePack encoding for data crossing the boundary. The TypeScript SDK ([`@panproto/core`](https://www.npmjs.com/package/@panproto/core)) is a thin wrapper over the WASM exports; it adds the fluent builder ergonomics but no logic.
+JavaScript reaches `panproto-core` through the `wasm-bindgen` boundary in `panproto-wasm`. Structured data crosses that boundary as MessagePack, while a slab of opaque integer handles keeps Rust resources alive. The TypeScript SDK ([`@panproto/core`](https://www.npmjs.com/package/@panproto/core)) adds initialization, handle management, types, and higher-level operations.
 
 ### Python boundary
 
-`panproto-py` is the only crate that knows about PyO3. It exposes `panproto-core` to Python with native bindings (no WASM). The Python wheel ships eleven core tree-sitter grammars; the rest are in companion `panproto-grammars-*` packs.
+Python uses the native PyO3 bindings in `panproto-py` rather than WASM. Its default Rust feature is `group-core`, while the published wheel is built with `group-all` and exposes all 248 grammars recorded by the current feature manifest.
 
 ### C boundary
 
@@ -120,7 +134,7 @@ The `schema` binary's `--help` text is the source of truth for the CLI surface. 
 
 ## Versioning
 
-All workspace crates are versioned in lockstep at the workspace level (`workspace.package.version`). A release of `panproto-core 0.46.0` implies every panproto-* crate at 0.46.0. The TypeScript SDK and Python SDK follow the same version. See [Release process](https://github.com/panproto/panproto/blob/main/CHANGELOG.md) for cadence.
+All workspace crates read their version from `workspace.package.version` and are released in lockstep. The language SDKs follow the workspace release version. See the [changelog](https://github.com/panproto/panproto/blob/main/CHANGELOG.md) for release history.
 
 ## See also
 

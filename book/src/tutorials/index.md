@@ -1,13 +1,21 @@
 # Tutorials
 
-Tutorials walk through a complete example end-to-end. They assume no prior knowledge of panproto and no category-theoretic background. Each one ends with a working artifact you can run and modify.
+The fastest way into panproto is a five-minute [structural diff](../glossary.md#structural-diff "A structural diff records added, removed, and modified schema elements without classifying compatibility."). Once that command succeeds, the remaining tutorials extend the same `User` example from a [schema](../glossary.md#schema "A schema is a model of a protocol's schema theory.") to a [migration](../glossary.md#migration "A migration maps a source schema to a target schema and determines how instances move between them."), a version history, and a conversion between [protocols](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."). No category theory is required.
 
-If a tutorial mentions a concept by name without explaining it (a *lens*, a *protocol*, a *migration*), it links forward to the explanation page that defines it. You do not need to follow those links to finish the tutorial.
+Follow the beginner path in order:
 
-| Tutorial | What you build | Time |
-|---|---|---|
-| [Your first diff](./your-first-diff.md) | Two schema files diffed, a migration generated between them, and a record converted (CLI only, no SDK) | ~10 min |
-| [Your first schema](./your-first-schema.md) | A typed schema for a small data model in TypeScript, validated against a protocol | ~10 min |
-| [Your first migration](./your-first-migration.md) | A migration that adds a field, renames another, and lifts existing data forward | ~15 min |
-| [Schema version control basics](./schema-vcs-basics.md) | A schema repository with branches and a merge | ~20 min |
-| [Cross-protocol translation](./cross-protocol-translation.md) | A JSON Schema converted into a Protobuf definition with data round-tripped through both | ~20 min |
+1. [Your first diff](./your-first-diff.md) compares two ATProto Lexicon documents from the command line. This is the quick success path.
+2. [Your first schema](./your-first-schema.md) builds and validates the same model with the TypeScript SDK.
+3. [Your first migration](./your-first-migration.md) renames a field, converts a record, and checks the reverse trip.
+
+The next two tutorials branch from that foundation. [Schema version control basics](./schema-vcs-basics.md) is the intermediate path for commits, branches, and structural merge. [Cross-protocol translation](./cross-protocol-translation.md) is the advanced path for an explicit conversion between schemas registered under different protocols.
+
+| Tutorial | Result | Typical time |
+|---|---|---:|
+| [Your first diff](./your-first-diff.md) | One structural diff over two schema documents | 5 minutes |
+| [Your first schema](./your-first-schema.md) | A schema plus valid and invalid records | 8 minutes |
+| [Your first migration](./your-first-migration.md) | A checked rename with a round-trip assertion | 12 minutes |
+| [Schema version control basics](./schema-vcs-basics.md) | A repository with a branch and fast-forward merge | 12 minutes |
+| [Cross-protocol translation](./cross-protocol-translation.md) | A checked forward conversion from JSON Schema to an OpenAPI schema | 15 minutes |
+
+Tutorials are learning-oriented: each leaves you with a runnable result and explains only the concepts needed to produce it. The [how-to guides](../how-to/index.md) collect task-specific procedures, the [reference](../reference/index.md) records the complete interfaces, and the [explanation chapters](../explanation/index.md) develop the theory behind the commands.

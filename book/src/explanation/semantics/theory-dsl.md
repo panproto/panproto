@@ -1,167 +1,124 @@
-# Theory DSL: denotational semantics
+# Theory DSL: compilation semantics
 
 ## In plain terms
 
-The theory DSL is what you use to declare a new protocol's schema language. You write down the basic kinds of thing the protocol talks about (its *sorts*), the constructors that build them (its *operations*), and the equations they satisfy. The DSL compiles to a generalized algebraic theory (GAT) that the rest of panproto consumes uniformly.
+The theory DSL declares the sorts, operations, and equations that define a schema language. We compile those declarations to concrete `panproto_gat::Theory`, `TheoryMorphism`, and `Protocol` values so the rest of panproto can typecheck terms, validate morphisms, and compose theories independently of the source format.
 
-This page pins down what a GAT presentation is, what category it generates, and what counts as a valid presentation.
+The mathematical reading is a generalized algebraic theory (GAT) presentation. panproto implements the presentation and its checks directly. It does not construct a category-with-families object in Rust, so the account below distinguishes the conceptual model from the executable artifact.
+
+[Shared notation](./shared-notation.md) fixes the symbols used below, while [Schemas as theories](../schemas-as-theories.md) supplies the intermediate-level motivation for the compiler model.
 
 ## Surface syntax
 
-The Nickel surface (canonical authoring form). JSON and YAML surfaces are isomorphic via `serde`. Every document carries an `id`, a `description`, and exactly one body variant (theory, morphism, composition, protocol, bundle, class, instance, or inductive type).
-
-A bare theory body:
+Nickel is the canonical authoring form, while JSON and YAML deserialize to the same document types. The following document declares a small graph theory with identity edges:
 
 ```nickel
 {
-  id = "dev.example.thgraph",
-  description = "Directed multigraph with identity edges",
-  theory = "ThGraph",
+  id = "dev.example.identity-graph",
+  description = "Directed graph with identity edges",
+  theory = "IdentityGraph",
   sorts = [ { name = "Vertex" }, { name = "Edge" } ],
   ops = [
     { name = "src", inputs = [{ name = "e", sort = "Edge" }], output = "Vertex" },
     { name = "tgt", inputs = [{ name = "e", sort = "Edge" }], output = "Vertex" },
-    { name = "id",  inputs = [{ name = "v", sort = "Vertex" }], output = "Edge" },
+    { name = "id", inputs = [{ name = "v", sort = "Vertex" }], output = "Edge" },
   ],
   equations = [
-    { name = "src-id", lhs = "src(id(v))", rhs = "v", context = [{ name = "v", sort = "Vertex" }] },
-    { name = "tgt-id", lhs = "tgt(id(v))", rhs = "v", context = [{ name = "v", sort = "Vertex" }] },
+    { name = "src-id", lhs = "src(id(v))", rhs = "v" },
+    { name = "tgt-id", lhs = "tgt(id(v))", rhs = "v" },
   ],
 }
 ```
 
-The full grammar is in [`crates/panproto-theory-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-theory-dsl/src/document.rs).
+This is an illustrative custom theory, not the built-in `ThGraph`, which contains only `Vertex`, `Edge`, `src`, and `tgt`. The full document grammar is defined in [`crates/panproto-theory-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-theory-dsl/src/document.rs).
 
-## Abstract syntax
+## Document shapes
 
-```rust,ignore
-pub struct TheoryDocument {
-    pub id: String,
-    pub description: String,
-    pub body: TheoryBody,
-}
-
-pub enum TheoryBody {
-    Theory(TheorySpec),
-    Morphism(MorphismSpec),
-    Composition(CompositionBody),
-    Protocol(Box<ProtocolSpec>),
-    Bundle(Box<BundleSpec>),
-    Class(ClassSpec),
-    Instance(InstanceSpec),
-    Inductive(InductiveSpec),
-}
-
-pub struct TheorySpec {
-    pub theory: String,                       // theory name
-    pub extends: Vec<String>,                 // parent theories
-    pub imports: Vec<ImportSpec>,             // imports with optional aliases
-    pub sorts: Vec<SortSpec>,                 // sort declarations (with dependent params)
-    pub ops: Vec<OpSpec>,                     // operation declarations
-    pub equations: Vec<EquationSpec>,         // judgemental equalities
-    pub directed_equations: Vec<DirectedEqSpec>,  // rewrite rules
-    pub policies: Vec<PolicySpec>,            // conflict policies
-}
-```
-
-The DSL document compiles to `panproto_gat::Theory` (and, for non-`Theory` bodies, to `TheoryMorphism` or `Protocol`). The intermediate surface types (`TheorySpec`, `OpSpec`, etc.) are deserialisation targets, not the categorical objects; the categorical objects are the GAT types.
-
-## Sort, operation, and equation judgements
-
-A sort is well-formed in a theory context $\Theta$ when it appears in the sort list:
-
-$$
-\frac{S \in \mathsf{sorts}(\Theta)}{\Theta \vdash S\,\mathsf{sort}} \quad (\text{sort-wf})
-$$
-
-An operation is well-typed when its inputs are well-typed sorts and its output is a well-typed sort dependent on the inputs:
-
-$$
-\frac{
-  \Theta \vdash S_1\,\mathsf{sort} \;\;\cdots\;\; \Theta \vdash S_n\,\mathsf{sort}
-  \quad
-  \Theta, x_1 : S_1, \ldots, x_n : S_n \vdash T\,\mathsf{sort}
-}{
-  \Theta \vdash f : (x_1 : S_1, \ldots, x_n : S_n) \to T\,\mathsf{op}
-} \quad (\text{op-wf})
-$$
-
-An equation is well-formed when both sides type-check at the same sort under the same context:
-
-$$
-\frac{
-  \Theta; \Gamma \vdash t_1 : T \quad \Theta; \Gamma \vdash t_2 : T
-}{
-  \Theta \vdash t_1 = t_2 : T \,[\Gamma]\,\mathsf{eqn}
-} \quad (\text{eqn-wf})
-$$
-
-## Semantic domain
-
-The semantic universe is $\mathsf{CwF}$, the (2-)category of *categories with families* (Cartmell-style: contexts as objects, substitutions as morphisms, types and terms forming a presheaf over substitutions). The denotational semantics is the functor
-
-$$
-\llbracket \cdot \rrbracket : \mathsf{TheoryDocument} \to \mathsf{CwF}
-$$
-
-defined by case on the document body (with the bundle case mapping to a tuple of CwFs). For the bare theory case:
-
-$$
-\llbracket \mathsf{TheoryDocument}\{\mathsf{body} = \mathsf{Theory}(T)\} \rrbracket \;=\; \mathbf{CwF}(T)
-$$
-
-where $\mathbf{CwF}(T)$ is the *initial* CwF satisfying the sort, operation, and equation declarations of $T$. Initiality is the *semantic content* of the GAT construction: for every CwF $\mathcal{C}$ that interprets $T$'s sorts and operations and validates its equations, there is a unique structure-preserving functor $\mathbf{CwF}(T) \to \mathcal{C}$. The GAT presentation framework is due to Cartmell (@cartmell1986generalised), and the category-with-families packaging of dependent type theory is Dybjer's (@dybjer1996internal); the two compose to give the initial-model semantics used here.
-
-A *schema* in panproto is a model of $\mathbf{CwF}(T)$ in the CwF of finite sets and functions: equivalently, a CwF morphism $\mathbf{CwF}(T) \to \mathbf{FinSet}$.
-
-## Semantic equations for the body cases
-
-$$
-\begin{aligned}
-\llbracket \mathsf{Theory}(T) \rrbracket
-  &= \mathbf{CwF}(T) \\[2pt]
-\llbracket \mathsf{Morphism}(M : T_1 \to T_2) \rrbracket
-  &= F_M : \mathbf{CwF}(T_1) \to \mathbf{CwF}(T_2) \\[2pt]
-\llbracket \mathsf{Composition}(\mathsf{compose} = \{r, b, [c_1, \ldots, c_k]\}) \rrbracket
-  &= \mathbf{CwF}\bigl(\mathrm{colim}\,(b, c_1, \ldots, c_k)\bigr) \\[2pt]
-\llbracket \mathsf{Class}(C) \rrbracket
-  &= \mathbf{CwF}(\mathrm{class\text{-}to\text{-}theory}(C)) \\[2pt]
-\llbracket \mathsf{Instance}(I : C \to T) \rrbracket
-  &= F_I : \mathbf{CwF}(\mathrm{class\text{-}to\text{-}theory}(C)) \to \mathbf{CwF}(T) \\[2pt]
-\llbracket \mathsf{Inductive}(D) \rrbracket
-  &= \mathbf{CwF}(\mathrm{inductive\text{-}to\text{-}theory}(D)) \\[2pt]
-\llbracket \mathsf{Protocol}(P) \rrbracket
-  &= \bigl(\mathbf{CwF}(P.\mathsf{schema\_theory}),\,\mathbf{CwF}(P.\mathsf{instance\_theory}),\,\mathbf{Edge}(P)\bigr) \\[2pt]
-\llbracket \mathsf{Bundle}(B) \rrbracket
-  &= \prod_{x \in B} \llbracket x \rrbracket
-\end{aligned}
-$$
-
-where $\mathrm{colim}$ is the iterated pushout described under [Pushouts and merge](./pushouts-and-merge.md) and the auxiliary `class-to-theory` and `inductive-to-theory` are the desugarings implemented in `panproto-theory-dsl/src/compile_class.rs` and `compile_inductive.rs`.
-
-The interpretation of the composition body factors through the colimit construction in $\mathsf{Th}$: $\llbracket T_1 +_{S} T_2 \rrbracket = \llbracket T_1 \rrbracket +_{\llbracket S \rrbracket} \llbracket T_2 \rrbracket$, exploiting the fact that $\mathbf{CwF}$ preserves the relevant colimits.
-
-## Soundness and registration
-
-A protocol registration is the construction of a colimit diagram. If any pushout step in the diagram fails to satisfy the universal property (because two equations contradict on a shared sort), registration panics with a message naming the failing intermediate step:
+The deserialized Rust types have the schematic shape below; omitted derives, imports, boxes, and supporting types make the listing non-runnable.
 
 ```text
-panic: colimit ThGraph + ThConstraint over ThVertex failed:
-       equation `src(id(v)) = v` contradicts `src(id(v)) = source(v)`
+TheoryDocument { id, description, body }
+
+TheoryBody = Theory(TheorySpec)
+           | Morphism(MorphismSpec)
+           | Composition(CompositionBody)
+           | Protocol(ProtocolSpec)
+           | Bundle(BundleSpec)
+           | Class(ClassSpec)
+           | Instance(InstanceSpec)
+           | Inductive(InductiveSpec)
+
+TheorySpec { theory, extends, imports, sorts, ops,
+             equations, directed_equations, policies }
 ```
 
-This is a build-time bug in the theory composition; the panic is intentional. See [`crates/panproto-protocols/src/theories.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-protocols/src/theories.rs).
+`TheorySpec` and its supporting structs are source-level deserialization targets. Compilation turns a theory body into a `Theory`; other bodies may add morphisms, protocols, composition specifications, or several such values to a `CompiledTheorySet`.
 
-## What is intentionally not modelled
+## Well-formed presentations
 
-- **Higher dimensions.** The DSL is for 1-categorical GATs only. We do not model homotopical structure, 2-cells, or coherent equations.
-- **Infinitary signatures.** Operations have finite arity. There is no way to declare an operation that takes an unbounded list of arguments.
-- **Term rewriting decidability.** Equation orientation and confluence are the user's responsibility; the colimit construction does not check for a complete rewriting system.
+Let $\Theta$ be a theory context and $\Gamma$ a term context. A declared sort is available when it belongs to the presentation:
+
+$$
+\frac{S \in \mathsf{sorts}(\Theta)}{\Theta \vdash S\;\mathsf{sort}}
+\quad (\text{sort-wf}).
+$$
+
+An operation declaration is well formed when its input and output sort expressions are well formed, including dependent parameters:
+
+$$
+\frac{
+  \Theta \vdash S_1\;\mathsf{sort} \quad \cdots \quad \Theta \vdash S_n\;\mathsf{sort}
+  \quad
+  \Theta; x_1:S_1,\ldots,x_n:S_n \vdash T\;\mathsf{sort}
+}{
+  \Theta \vdash f:(x_1:S_1,\ldots,x_n:S_n)\to T\;\mathsf{op}
+}
+\quad (\text{op-wf}).
+$$
+
+An equation is well formed when both sides typecheck at the same sort:
+
+$$
+\frac{
+  \Theta;\Gamma \vdash t_1:T
+  \quad
+  \Theta;\Gamma \vdash t_2:T
+}{
+  \Theta \vdash t_1=t_2:T\;[\Gamma]\;\mathsf{eqn}
+}
+\quad (\text{eqn-wf}).
+$$
+
+`compile_theory_inner` constructs the `Theory` and then calls `panproto_gat::typecheck_theory`. Term-parse and typecheck failures are returned as `TheoryDslError`; JSON and YAML callers can use `compile_with_source` to attach a source span to a typecheck diagnostic.
+
+## Compilation by body variant
+
+Write $\mathsf{compile}(D,R)$ for compilation of document $D$ with resolver $R$. The result is a finite set of named theories, morphisms, protocols, and composition specifications:
+
+$$
+\mathsf{compile} : \mathsf{TheoryDocument} \times \mathsf{Resolver}
+\longrightarrow \mathsf{Result}(\mathsf{CompiledTheorySet},\mathsf{TheoryDslError}).
+$$
+
+The dispatcher handles eight bodies. It typechecks theories directly and checks resolved morphisms for preservation. Composition bodies resolve their pieces before computing a colimit, while protocol bodies compile their theories and edge rules. Class and inductive bodies desugar to theories; instances desugar to morphisms; bundles process definitions in dependency order.
+
+`compile` also sample-checks declared coercion laws using the default coercion registry. `compile_with_registry` substitutes caller-provided samples, while `compile_unchecked` skips this particular law check. A passing sample check is evidence for the sampled values, not a proof of the declared coercion class.
+
+## Mathematical interpretation
+
+Cartmell's account develops generalized algebraic theories as a categorical framework for algebraic structure (@cartmell1986generalised); categories with families provide a related packaging for dependent type theory (@dybjer1996internal). Under this presentation-based reading, a theory morphism interprets the sorts and operations of one presentation in another while preserving equations.
+
+panproto relies on the finite presentation and preservation checks that this perspective motivates. The runtime `Theory` type is a named collection of sorts, operations, undirected equations, directed equations, and policies with lookup indices. The implementation does not expose a `CwF` type, construct an initial CwF, or verify an equivalence between `Schema` and CwF morphisms into finite sets. Those are explanatory semantics rather than current executable claims.
+
+## Composition and verified boundaries
+
+Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The colimit constructor validates the inclusion morphisms, and callers can check a proposed alternative cocone through `ColimitResult::verify_universal`. Built-in protocol registration assembles its schema and instance theories from the registered building blocks.
+
+The current checks establish well-formed sort and operation references, term typing for equations, morphism preservation, and sampled honesty for declared coercions on the checked compilation path. They do not establish confluence or termination for every directed rewrite system. Rewrite-system validation can produce warnings without rejecting an otherwise well-typed theory.
 
 ## See also
 
-- [Pushouts and merge](./pushouts-and-merge.md) for the colimit construction and verified universal property.
-- [Composing protocols by colimit (plain-terms)](../protocol-colimits.md).
-- [Reference: protocol catalogue](../../reference/protocols.md).
-- [How-to: build a custom protocol](../../how-to/build-protocol.md).
-- @cartmell1986generalised for the original GAT formulation.
+- [Pushouts and merge](./pushouts-and-merge.md) for the colimit construction.
+- [Composing protocols by colimit](../protocol-colimits.md) for the built-in theory components.
+- [Protocol catalog](../../reference/protocols.md) for registered protocols.
+- [Build a custom protocol](../../how-to/build-protocol.md) for the operational workflow.

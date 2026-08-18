@@ -61,7 +61,7 @@
 - [Python SDK](./reference/sdk-python.md)
 - [Haskell SDK](./reference/sdk-haskell.md)
 - [Swift SDK](./reference/sdk-swift.md)
-- [Protocol catalogue](./reference/protocols.md)
+- [Protocol catalog](./reference/protocols.md)
 - [Expression language](./reference/expression-language.md)
 - [Lens combinators](./reference/lens-combinators.md)
 - [Configuration](./reference/configuration.md)

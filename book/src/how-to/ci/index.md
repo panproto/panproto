@@ -1,11 +1,11 @@
 # Continuous integration
 
-CI for panproto projects covers two questions: did this change validate, and did this change break compatibility?
+Add CI after schemas validate locally. The smallest useful gate classifies compatibility; local hooks and a hosted workflow apply the same checks earlier and on every pull request.
 
 | Page | Purpose |
 |---|---|
-| [Breaking-change gate](./breaking-change-gate.md) | Block PRs that introduce a breaking schema change unless explicitly acknowledged. |
-| [GitHub Actions](./github-actions.md) | Drop-in workflows for schema validation and breaking-change detection. |
+| [Breaking-change gate](./breaking-change-gate.md) | Fail CI when a schema change is classified as breaking unless the change is explicitly acknowledged. |
+| [GitHub Actions](./github-actions.md) | Run schema validation and compatibility classification on pull requests. |
 | [Pre-commit hooks](./pre-commit-hooks.md) | Run schema validation before each local commit. |
 
 ## See also

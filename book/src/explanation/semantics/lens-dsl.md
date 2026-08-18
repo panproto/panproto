@@ -2,11 +2,13 @@
 
 ## In plain terms
 
-A lens DSL spec is a recipe for building a bidirectional transform between two schemas. You declare which fields map to which (with optional value-level expressions), and the compiler produces a triple of functions that satisfies three round-trip laws by construction. This page pins down what the spec compiles to and what "satisfies the laws" means.
+A lens DSL specification is a recipe for a bidirectional transform between schemas. It can name field and sort edits, value-level expressions, compositions, or an automatic construction. The compiler produces a `CompiledLens` whose protolens chain can be instantiated at a concrete source schema. Lawfulness is then a property to check, not a consequence of deserialization alone.
+
+[Lenses and round-trip laws](../lenses-roundtrip.md) supplies complements and the three laws used here. [Expression language](./expression-language.md) supplies the value-level computations embedded in a lens specification.
 
 ## Surface syntax
 
-The Nickel surface (canonical authoring form). JSON and YAML surfaces are isomorphic via `serde`.
+Nickel is the canonical authoring form. JSON and YAML represent the same structures through `serde`.
 
 ```nickel
 {
@@ -26,7 +28,9 @@ Each step is a single-key object whose key selects the variant. The full step gr
 
 ## Abstract syntax
 
-```rust,ignore
+The listing below is a schematic inventory of document fields and step variants. It is `text` because supporting types, derives, imports, and representation details are omitted.
+
+```text
 pub struct LensDocument {
     pub id: String,
     pub description: String,
@@ -96,7 +100,7 @@ $$
 \mathsf{Lens}(S, V, C) \;=\; (S \to V) \times (S \times V \times C \to S) \times (S \to C)
 $$
 
-with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. The implementation in `panproto-lens` represents this triple by the `Lens` struct; the categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
+with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. This triple is a denotational interface. The concrete `panproto_lens::Lens` stores a compiled migration and its source and target schemas; its methods implement the forward, backward, and complement-producing behavior. The categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
 
 $$
 \llbracket \cdot \rrbracket : \mathsf{LensDocument} \to \mathsf{Sch} \to \mathsf{Lens}
@@ -116,15 +120,20 @@ $$
 \textbf{PutGet:} \quad \mathsf{get}(\mathsf{put}(s, v, c)) = v
 $$
 
+For PutPut, complement state may change after the first update. The checker therefore uses $c_0=\mathsf{complement}(s)$ and $c_1=\mathsf{complement}(\mathsf{put}(s,v_1,c_0))$:
+
 $$
-\textbf{PutPut:} \quad \mathsf{put}(\mathsf{put}(s, v_1, c), v_2, c) = \mathsf{put}(s, v_2, c)
+\textbf{PutPut:} \quad
+\mathsf{put}(\mathsf{put}(s,v_1,c_0),v_2,c_1)
+=
+\mathsf{put}(s,v_2,c_0).
 $$
 
-`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are deterministic runtime checkers: each takes a lens and a given instance, derives the views and complements it needs from that instance ($\mathsf{check\_put\_get}$ perturbs a single leaf value; $\mathsf{check\_put\_put}$ reuses one complement on both puts), and asserts the corresponding equation.
+`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are deterministic checkers for supplied inputs. `check_put_put` extracts the intermediate complement as shown above. These functions return evidence about a case; they do not quantify over all instances.
 
 ## Semantic equations
 
-For each step constructor, $\llbracket \cdot \rrbracket$ is a function $\mathsf{Step} \to \mathsf{Sch} \to \mathsf{Protolens}$, where a $\mathsf{Protolens}$ is a schema-parameterised lens (see [Protolens composition](./protolens-composition.md)). The document-level semantics is the left-to-right composition of the per-step semantics, applied to the source schema:
+For each step constructor, $\llbracket \cdot \rrbracket$ is a function $\mathsf{Step} \to \mathsf{Sch} \to \mathsf{Protolens}$, where a $\mathsf{Protolens}$ is a schema-parameterized lens (see [Protolens composition](./protolens-composition.md)). The document-level semantics is the left-to-right composition of the per-step semantics, applied to the source schema:
 
 $$
 \llbracket \mathsf{LensDocument}(\mathsf{id} = d,\, \mathsf{steps} = [s_1, \ldots, s_k]) \rrbracket\, S
@@ -156,34 +165,36 @@ $$
 \end{aligned}
 $$
 
-where $\varepsilon$ is the trivial complement (a singleton) and $\llbracket \cdot \rrbracket$ on the right-hand side of $\mathsf{ApplyExpr}$ is the [expression-language semantics](./expression-language.md). The remaining 15 step constructors follow the same pattern; the implementation of each lives under [`crates/panproto-lens-dsl/src/steps`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps).
+where $\varepsilon$ is the trivial complement (a singleton) and $\llbracket \cdot \rrbracket$ on the right-hand side of $\mathsf{ApplyExpr}$ is the [expression-language semantics](./expression-language.md). These equations are denotational sketches of representative behavior, not literal definitions of Rust function fields. The implementation of the step constructors lives under [`crates/panproto-lens-dsl/src/steps`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps).
 
 Composition between adjacent step semantics is gated at construction time by `protolens_composable`: see [Protolens composition](./protolens-composition.md). Compilation in the implementation is handled by `panproto_lens_dsl::compile`, which produces a `CompiledLens` carrying the `ProtolensChain` corresponding to $\llbracket \cdot \rrbracket\, S$ along with the value-level `FieldTransform`s extracted from any $\mathsf{ApplyExpr}$ steps.
 
 ## Complement composition
 
-Sequential composition of lenses requires composing their complements. `Complement::compose` is a *partial commutative monoid*:
+Sequential composition of lenses requires composing their complements. The `ComplementCompose` extension trait supplies a partial operation with the following checked cases:
 
 - **Identity.** The empty complement $\varepsilon$ satisfies $\varepsilon \cdot c = c \cdot \varepsilon = c$.
 - **Commutativity.** When defined, $c_1 \cdot c_2 = c_2 \cdot c_1$.
 - **Associativity.** When defined, $(c_1 \cdot c_2) \cdot c_3 = c_1 \cdot (c_2 \cdot c_3)$.
 - **Partiality:** $c_1 \cdot c_2$ is defined iff:
-  - $c_1$ and $c_2$ have the same source-schema fingerprint (otherwise `ComplementFingerprintMismatch`); and
+  - their source-schema fingerprints agree when both are nonzero (otherwise `ComplementFingerprintMismatch`); and
   - For every key $k$ in both, $c_1(k) = c_2(k)$ (otherwise `ComplementConflict` with the offending key).
 
-Pre-flight predicate: `Complement::is_compatible(c1, c2)`.
+The zero fingerprint is the unspecified case. The pre-flight predicate is `ComplementCompose::is_compatible`.
 
-The fingerprint is a 64-bit hash of the source schema (computed with the standard library's `DefaultHasher` in `panproto_lens::asymmetric::schema_fingerprint`), so complements computed against syntactically distinct but structurally equal schemas are still compatible.
+The fingerprint is a 64-bit hash computed by `panproto_lens::asymmetric::schema_fingerprint`. Compatibility means equality of the resulting nonzero fingerprints, not a proof that distinct schema values are isomorphic.
 
 ## Soundness
 
-The compilation function preserves lawfulness: if every step compiles to a lawful lens (which the combinator algebra guarantees), the composed result is lawful. The checks that back this are sampled, not exhaustive. The property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) run GetPut, PutGet, and PutPut over generated scenarios that span the identity and projection families, nested trees of depth three, lenses carrying vertex and edge remaps, and field-transform lenses, with the PutGet and PutPut views drawn from a view-mutation strategy rather than a single canned perturbation. The DSL side adds [`crates/panproto-lens-dsl/tests/step_laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/tests/step_laws.rs), which compiles a document per step constructor and runs the same runtime law checks on the instantiated chain. A `coerce_sort` step (and each `directed_equations` entry) is checked for honesty when the DSL compiles it: the declared coercion class's round-trip laws are run against sampled inputs of the source kind, and a class that fails on those samples is refused with `LensDslError::CoercionNotHonest`. Each of these is evidence, not proof; the samples that were tried do not certify a law for inputs that were not.
+Lawful lens composition preserves the three equations when its premises hold. The implementation supports that conditional claim with property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) and DSL step tests in [`crates/panproto-lens-dsl/tests/step_laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/tests/step_laws.rs). Those suites cover selected generated and constructed cases; they are not a universal proof for every step sequence.
+
+A `coerce_sort` step and directed equations are also checked for honesty against registered samples. A detected violation returns `LensDslError::CoercionNotHonest`. Passing means that the sampled values satisfied the declared round-trip class.
 
 The runtime checkers above remain deterministic smoke checks: they assert each law of a supplied lens on one instance, and they are not the sampling layer.
 
-## What is intentionally not modelled
+## What is intentionally not modeled
 
-- **Lossy migrations as full lenses.** A migration that drops information cannot satisfy GetPut. The DSL allows `DropField`, but the resulting object is a *partial* lens; the laws hold only on the surviving structure, and CI tests skip the GetPut law for steps annotated as lossy.
+- **Universal lawfulness of arbitrary documents.** Runtime and property checks cover supplied or generated cases. A document containing lossy or opaque transforms requires the corresponding scoped law claim; compilation alone is not a proof.
 - **Time complexity of `put`.** Some combinators have linear `put` cost in the size of the source; the semantics fixes the value, not the cost.
 - **Equivalence of two distinct DSL specs that compile to the same lens.** The DSL deliberately exposes step ordering even when steps commute; canonicalisation is left to the user.
 
@@ -192,5 +203,5 @@ The runtime checkers above remain deterministic smoke checks: they assert each l
 - [Reference: lens combinators](../../reference/lens-combinators.md) for the combinator algebra.
 - [How-to: write lenses in the lens DSL](../../how-to/lens-dsl.md).
 - [Lenses and round-trip laws (plain-terms version)](../lenses-roundtrip.md).
-- [Protolens composition](./protolens-composition.md) for schema-parameterised lenses.
+- [Protolens composition](./protolens-composition.md) for schema-parameterized lenses.
 - @foster2007combinators and @littvanhardenberghenry2020cambria.

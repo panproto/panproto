@@ -19,8 +19,14 @@ For the model that the commands operate on, see
 
 ## Discovering a migration
 
-`schema auto-migrate` runs one search over spans `old ← apex → new`, where the
-apex is the sub-schema of `old` whose vertices found a target in `new`. That
+`schema auto-migrate` runs one search over spans. Write the apex as $A$; the two
+legs have the shape
+
+$$
+\mathit{old} \xleftarrow{\ell} A \xrightarrow{r} \mathit{new}.
+$$
+
+The apex is the sub-schema of `old` whose vertices found a target in `new`. That
 search never refuses for want of a match: leaving every source vertex out of the
 apex is always feasible, so two schemas with nothing in common come back with an
 empty apex rather than with an error. Two of the three flags below therefore

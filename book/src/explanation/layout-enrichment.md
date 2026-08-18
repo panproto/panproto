@@ -2,15 +2,17 @@
 
 ## In plain terms
 
-When panproto parses source code, it does two things at once. It records the *structure* of the program (which nodes are children of which, what kinds they are) and it records the *layout* of the source (where each token started in the byte stream, what whitespace sat between adjacent tokens, which alternative the parser took at each branch point). The structure is what most downstream operations care about. The layout is what the emitter needs to render bytes back.
+When panproto parses source code, it retains both program *structure* and source *layout*: the former contains nodes, kinds, and parent-child relationships, while the latter contains byte positions, interstitial text, and parser choices needed by the emitter.
 
-The two parts live together in one schema, but they are separable: you can strip the layout and have a perfectly good abstract description of the program, or you can keep it and round-trip back to source bytes. `decorate` is the operation that takes the abstract description and rebuilds the layout on top.
+The two parts live in one schema but remain separable. Stripping layout yields an abstract description; retaining layout supports source reconstruction. `decorate` takes an abstract schema and synthesizes a canonical layout assignment.
 
-The reason this matters: any tool that wants to *generate* source code from a panproto schema (a code refactorer, a reverse bridge from a domain model to a target language, a migration that materialises a new file) needs to produce a schema with the layout fibre attached. Before `decorate`, generators had to manually populate the layout constraints: disguised string concatenation, brittle to grammar revisions. With `decorate`, the operation is mechanical: write the abstract content, hand it to a grammar, get a schema the emitter can render byte-for-byte.
+A generator needs layout constraints before `emit_pretty` can produce source bytes. `decorate` derives those constraints by emitting canonical bytes under a layout policy and parsing them again. It therefore supports canonical generation from abstract input. It does not recover formatting that was absent from that input; byte-for-byte preservation applies when an existing decorated schema retains the relevant layout evidence.
 
-This page is the categorical framing: the parse / emit pair as a Grothendieck-style fibration, the section law that ties `decorate` and `forget_layout` together, and the cross-crate registry that makes the parse-side machinery available to the lens layer. For the operational mechanics of the emitter itself (how it derives spacing, dispatches CHOICE alternatives, and resolves external tokens through the cassette system), see [Source-code emission](./emit-pretty.md).
+The chapter develops three levels of description: the concrete `decorate` operation, the tested section law, and a Grothendieck-style interpretation of layout as an enrichment. The last is a mathematical model of the implementation, not a claim that panproto verifies all fibration axioms. For the emitter mechanics, see [Source-code emission](./emit-pretty.md).
 
 ## The forgetful U and its section
+
+[Schemas as theories](./schemas-as-theories.md) supplies the schema vocabulary used here. Only the later fibration account requires familiarity with functors and fibers.
 
 Take a schema `S` produced by parsing some source bytes. Every vertex carries some constraints. Split them into two groups: the *layout* constraints (`start-byte`, `end-byte`, `interstitial-N`, `chose-alt-fingerprint`, `chose-alt-child-kinds`) and everything else (vertex kind, edges, `literal-value`, anonymous-token `field:*`, plus any protocol-defined sorts). The first group is parser-only metadata; the second is the abstract content of the program.
 
@@ -20,7 +22,7 @@ Stripping the first group is a function:
 forget_layout : DecoratedSchema → AbstractSchema
 ```
 
-Going the other way is harder. Given just the abstract content, you have to choose whitespace, choose which CHOICE alternative to dispatch through, and synthesise the byte spans. `decorate` is one canonical choice:
+Going the other way is harder. Given just the abstract content, you have to choose whitespace, choose which CHOICE alternative to dispatch through, and synthesize the byte spans. `decorate` is one canonical choice:
 
 ```text
 decorate : AbstractSchema × LayoutPolicy → DecoratedSchema
@@ -34,26 +36,26 @@ $$
 
 where `≅_kind` means equal up to vertex-id renaming and the kind / edge multiset.[^section-granularity] You can think of `decorate` as a one-sided inverse of `forget_layout`, picking a canonical representative of the parse-preimage at every abstract schema.
 
-The pair `(forget_layout, decorate)` is the schema-level version of the parse / emit pair. parsing is `bytes → DecoratedSchema`; emitting is `DecoratedSchema → bytes`. Composing both gives the round-trip:
+The pair `(forget_layout, decorate)` is the schema-level analog of parse and emit. Parsing has type `bytes → DecoratedSchema`; emitting has type `DecoratedSchema → bytes`. Composing decoration with emission gives canonical generation:
 
 $$
 \text{pretty}_p \;=\; \text{emit\_pretty} \circ \text{decorate}(\cdot, p)
 \;:\; \text{AbstractSchema} \to \text{bytes}.
 $$
 
-The image of `pretty` lands in the parse-preimage of its input modulo the same kind / edge multiset equivalence. This is the round-trip law that ships with the existing `ParseEmitLens` machinery, lifted to the typed-newtype level.
+Reparsing the image of `pretty` agrees with its abstract input at the same kind and edge-multiset granularity. The implementation tests this section property; it does not claim equality of vertex identifiers or recovery of an unavailable original layout.
 
 ## Layout as a Grothendieck-style enrichment
 
-Across the broader panproto type system, layout is one of several *enrichments* a schema can carry over its abstract base. The framing is the same one panproto already uses for coercions, with a Grothendieck fibration over the abstract schema and the layout data living in the fibre.
+Across the broader panproto type system, layout is one of several *enrichments* a schema can carry over its abstract base. The framing is the same one panproto already uses for coercions, with a Grothendieck fibration over the abstract schema and the layout data living in the fiber.
 
-The base of the fibration is the abstract schema. The fibre over each vertex is the layout data that vertex carries. The total space is the decorated schema. `forget_layout` is the cartesian projection back to the base. `decorate` is a section of that projection, picking out one chosen layout-data assignment for each vertex.
+In this interpretation, the base is the abstract schema, the fiber over each vertex is its layout data, and the total space is the decorated schema. `forget_layout` is modeled as projection to the base, while `decorate` chooses one layout assignment. The code checks the section law stated above. It does not construct cartesian lifts or mechanically establish a Grothendieck fibration.
 
-The `EnrichmentKind` enum in `panproto-gat` is the classifying tag. Today there is one variant, `Layout`. The infrastructure is shaped so other enrichments (provenance witnesses, refinement evidence, anything else that extends the schema without changing its underlying GAT theory) can slot in alongside without re-engineering the lens framework.
+The `EnrichmentKind` enum in `panproto-gat` is the classifying tag. It currently has one variant, `Layout`. Additional variants could represent other metadata layers without changing the underlying theory, but that is an extension point rather than an implemented catalog.
 
 Two pieces of machinery name this fibration directly:
 
-- `TheoryTransform::StripEnrichment(kind)` and `TheoryTransform::AddEnrichment { kind, enricher, policy }` describe the two directions at the protolens level. Their schema-level effect is to remove or attach the fibre constraints; their theory-level effect is identity (the underlying GAT is the same in both source and target).
+- `TheoryTransform::StripEnrichment(kind)` and `TheoryTransform::AddEnrichment { kind, enricher, policy }` describe the two directions at the protolens level. Their schema-level effect is to remove or attach the fiber constraints; their theory-level effect is identity (the underlying GAT is the same in both source and target).
 - `ComplementConstructor::Enrichment { kind, enricher }` names a registered synthesis driver in the complement vocabulary. This is metadata for the lens framework's chain-law reasoning; the driver itself lives behind the `LayoutEnricher` trait in `panproto-lens::enrichment_registry`, populated by `panproto-parse` at `ParserRegistry::new` time so the lens crate stays grammar-agnostic.
 
 ## The cross-crate registration mechanism
@@ -66,15 +68,15 @@ The registry is process-global, single-keyed, and tolerant of re-registration (t
 
 ## What the protolens does and does not do
 
-`parse_emit_protolens(grammar, policy)` returns a `Protolens` whose source endofunctor strips the layout fibre, whose target endofunctor adds it back via the registered driver, and whose complement constructor names the fibre. It composes with every other protolens in `panproto-lens` (vertical and horizontal composition both work) and contributes to chain-law reasoning.
+`parse_emit_protolens(grammar, policy)` returns a `Protolens` whose source endofunctor strips the layout fiber, whose target endofunctor adds it through the registered driver, and whose complement constructor names the fiber. The value can participate in vertical and sequential protolens composition subject to the compatibility checks described in [Protolens composition](./semantics/protolens-composition.md).
 
-What it does *not* do is plug into the WInstance-level get / put pair the way an elementary protolens does. The lens framework's `Complement` struct holds WInstance-level discarded data (dropped nodes, dropped arcs, contraction choices). It has no field for a per-vertex constraint fibre, and `Protolens::instantiate` produces a `Lens` whose source and target schemas differ in vertex IDs because the synthesis driver invents fresh ones. The schema-level shuffling happens in `apply_theory_transform_to_schema`; the operational byte-level entry points are on `ParserRegistry`.
+What it does *not* do is plug into the WInstance-level get / put pair the way an elementary protolens does. The lens framework's `Complement` struct holds WInstance-level discarded data (dropped nodes, dropped arcs, contraction choices). It has no field for a per-vertex constraint fiber, and `Protolens::instantiate` produces a `Lens` whose source and target schemas differ in vertex IDs because the synthesis driver invents fresh ones. The schema-level shuffling happens in `apply_theory_transform_to_schema`; the operational byte-level entry points are on `ParserRegistry`.
 
 That asymmetry is intentional. Parse and emit are conversions between bytes and schema-typed data structures; they are not WInstance lenses. The protolens captures the schema-level relationship that those byte-level operations sit over, and the operational API is where the byte-level work happens.
 
 ## Related work
 
-Two threads bear directly on the parse-emit fibration. The lens-based ancestry runs from @foster2007combinators through @bohannonfosterpiercepilkiewiczschmitt2008boomerang's resourceful lenses (dictionary skeletons, quasi-obliviousness) and @fosterpilkiewiczpierce2008quotient's quotient lenses (lenses modulo equivalences, canonizers via `lquot` and `rquot`), with @lutterkort2008augeas as the closest framework-level analogue. The grammar-based ancestry is @zhukozhanghu2015biyacc's BiYacc, whose reflective printer takes both the AST and the original concrete string. @jongevisser2012algorithm's token-stream-and-origin-tracking algorithm is the closest match to the byte-level reconstruction strategy panproto uses inside the layout enrichment driver. See [Related work](./related-work.md) for the full discussion.
+Two threads bear directly on the parse-emit fibration. The lens-based ancestry runs from @foster2007combinators through @bohannonfosterpiercepilkiewiczschmitt2008boomerang's resourceful lenses (dictionary skeletons, quasi-obliviousness) and @fosterpilkiewiczpierce2008quotient's quotient lenses (lenses modulo equivalences, canonizers via `lquot` and `rquot`), with @lutterkort2008augeas as the closest framework-level analog. The grammar-based ancestry is @zhukozhanghu2015biyacc's BiYacc, whose reflective printer takes both the AST and the original concrete string. @jongevisser2012algorithm's token-stream-and-origin-tracking algorithm is the closest match to the byte-level reconstruction strategy panproto uses inside the layout enrichment driver. See [Related work](./related-work.md) for the full discussion.
 
 ## See also
 

@@ -1,6 +1,6 @@
 # Configuration reference
 
-The project manifest is `panproto.toml` at the project root. It is read by `panproto-project::load_config` and consumed by every CLI subcommand that operates on a project rather than a single file.
+The project manifest is `panproto.toml` at the project root. `panproto_project::config::load_config` reads it; project-aware CLI paths use its exclusion patterns and per-package protocol overrides.
 
 ## Top-level shape
 
@@ -26,7 +26,7 @@ protocol = "avro"
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `name` | string | yes | Workspace identifier; used for VCS commits and emitted artifacts. |
+| `name` | string | yes | Human-readable workspace name. |
 | `exclude` | list of glob patterns | no | Globs to exclude from project assembly. Evaluated relative to the manifest directory. |
 
 ### `[[package]]`
@@ -41,7 +41,7 @@ One entry per schema package. Packages are assembled into a single project by sc
 
 ## Generating a manifest
 
-`schema init [PATH]` initialises a panproto repository in the given directory (default `.`). The repository's bookkeeping lives in `.panproto/`; the user-authored manifest is `panproto.toml` and is created by hand.
+`schema init [PATH]` initializes a panproto repository in the given directory (default `.`). The repository's bookkeeping lives in `.panproto/`; the user-authored manifest is `panproto.toml` and is created by hand.
 
 For programmatic creation, the `panproto-project` crate exposes `generate_config` and `serialize_config`.
 

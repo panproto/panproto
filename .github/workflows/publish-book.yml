@@ -52,7 +52,7 @@ jobs:
           fi
 
       - name: Test book Rust code blocks
-        # Compiles every non-ignored ```rust block in book/src/**/*.md
+        # Compiles every ```rust block in book/src/**/*.md and rejects `rust,ignore`
         # against the workspace, fixing API drift the moment it lands
         # instead of when a reader copies a stale snippet. Driver is
         # xtask/src/bin/test-book.rs; book-doctest-stub aggregates the

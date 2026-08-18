@@ -1,6 +1,6 @@
 # Parse full ASTs
 
-panproto can parse source code in 261 languages via tree-sitter and treat the full AST as a schema instance. The resulting instance can be queried, diffed, migrated, and version-controlled like any other schema.
+Full-AST parsing supports queries, diffs, migrations, and version control over a source file's tree-sitter syntax tree. The parser exposes 261 registered languages through the same schema-instance operations used for other data.
 
 ## Prerequisites
 
@@ -22,7 +22,7 @@ schema parse file src/main.rs > main.ast.json
 schema parse project . > project.ast.json
 ```
 
-Walks every recognised file in the project (default `.`), parses each with the appropriate grammar, and writes a single instance covering the whole project to stdout.
+Walks every recognized file in the project (default `.`), parses each with the appropriate grammar, and writes a single instance covering the whole project to stdout.
 
 ### Round-trip a single file
 
@@ -99,9 +99,9 @@ If a parser is already registered under `name`, it is dropped first (along with 
 
 ## Going the other way
 
-The schema you get back from `parse_with_protocol` carries a complete *layout fibre*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk driven by the structural acceptance predicate, a layered cassette system, and per-position interstitial scoring (see [Source-code emission](../explanation/emit-pretty.md) for the mechanics). The grammar walk produces structurally valid output for the verified set and best-effort output for the rest.
+The schema you get back from `parse_with_protocol` carries a complete *layout fiber*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk driven by the structural acceptance predicate, a layered cassette system, and per-position interstitial scoring (see [Source-code emission](../explanation/emit-pretty.md) for the mechanics). The grammar walk produces structurally valid output for the verified set and best-effort output for the rest.
 
-For generators that build a schema from scratch and want to render it to source bytes, see [Decorate an abstract schema](./decorate-schemas.md). The `decorate` operation takes an `AbstractSchema` (the hand-built half), attaches the layout fibre via a grammar walk, and returns a `DecoratedSchema` the emitter can render byte-for-byte.
+For generators that build a schema from scratch and want to render it to source bytes, see [Decorate an abstract schema](./decorate-schemas.md). The `decorate` operation takes an `AbstractSchema` (the hand-built half), attaches the layout fiber via a grammar walk, and returns a `DecoratedSchema` the emitter can render byte-for-byte.
 
 ### Verifying the emitter for a protocol
 
@@ -124,17 +124,17 @@ The 255 protocols currently in the `Verified` set are listed in [`crates/panprot
 
 ## Verification
 
-Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparseable spans. The verified guarantee is a round-trip up to the vertex-kind and edge-shape multiset: `emit(parse(bytes))` re-parses to the same abstract syntax tree, which `check_parse_emit` in `panproto_parse::parse_emit_lens` asserts. Interstitial preservation makes that emit reproduce the original whitespace byte-for-byte for most inputs, but some legitimately reformat (json re-indents arrays), so byte equality is not promised universally. `schema parse emit <file>` is the smoke test.
+Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparsable spans. The verified guarantee is a round-trip up to the vertex-kind and edge-shape multiset: `emit(parse(bytes))` re-parses to the same abstract syntax tree, which `check_parse_emit` in `panproto_parse::parse_emit_lens` asserts. Interstitial preservation makes that emit reproduce the original whitespace byte-for-byte for most inputs, but some legitimately reformat (json re-indents arrays), so byte equality is not promised universally. `schema parse emit <file>` is the smoke test.
 
 ## Common mistakes
 
-- Treating the AST as the source of truth for non-syntactic information. Type information, name resolution, control flow are not modelled by the auto-derived theories.
+- Treating the AST as the source of truth for non-syntactic information. Type information, name resolution, control flow are not modeled by the auto-derived theories.
 - Assuming language coverage. The 261-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
 
 ## See also
 
 - [Decorate an abstract schema](./decorate-schemas.md) for the put-direction of the parse / emit lens.
 - [Source-code emission](../explanation/emit-pretty.md) for the emitter's structural pipeline.
-- [Reference: protocol catalogue](../reference/protocols.md).
+- [Reference: protocol catalog](../reference/protocols.md).
 - [Round-trip with format preservation](./format-preserving.md).
 - [Layout enrichment](../explanation/layout-enrichment.md) for the categorical framing of the parse / decorate / emit pair.

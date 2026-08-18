@@ -134,7 +134,7 @@ jobs:
   book-doctest:
     name: Book Doctests
     runs-on: ubuntu-latest
-    # Compiles every non-ignored ```rust block in book/src/**/*.md
+    # Compiles every ```rust block in book/src/**/*.md and rejects `rust,ignore`
     # against the workspace, surfacing API drift as soon as it lands
     # rather than when a reader copies a stale snippet. Driver:
     # xtask/src/bin/test-book.rs.

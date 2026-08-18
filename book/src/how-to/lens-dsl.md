@@ -1,6 +1,6 @@
 # Write lenses in the lens DSL
 
-The lens DSL is a declarative way to specify a lens between two schemas. Specs are written in Nickel, JSON, or YAML and compile to the lens combinator algebra.
+The lens DSL stores a lens specification outside application code. Nickel, JSON, and YAML specifications compile to the same lens combinator algebra.
 
 ## Prerequisites
 
@@ -12,19 +12,23 @@ A pair of schemas to bridge. The `schema` CLI or [`panproto-lens-dsl`](https://g
 
 ```nickel
 # lenses/user-v1-to-v2.ncl
+let L = import "panproto/lens.ncl" in
 {
   id = "user.v1-to-v2",
   description = "Rename name fields and add display_name",
+  source = "dev.example.user.v1",
+  target = "dev.example.user.v2",
   steps = [
-    { rename_field = { from = "first_name", to = "given_name" } },
-    { rename_field = { from = "last_name",  to = "family_name" } },
+    { rename_field = { old = "first_name", new = "given_name" } },
+    { rename_field = { old = "last_name",  new = "family_name" } },
     { add_field = {
         name = "display_name",
-        default = "",
-        expr = "Concat(record.given_name, \" \", record.family_name)",
+        kind = "string",
+        fallback = "",
+        expr = "self.given_name ++ \" \" ++ self.family_name",
       } },
   ],
-}
+} | L.Lens
 ```
 
 Each step is a single-key object. The key picks the variant; the value carries its parameters. The DSL applies steps left-to-right against the source schema, producing a target schema and a `CompiledLens` between them. Full step grammar: [`crates/panproto-lens-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/src/document.rs).

@@ -29,7 +29,7 @@ Run `dev-link.sh` again after every change to `panproto-c`, to the C glue, or to
 ```sh
 git clone https://github.com/panproto/panproto.git
 cd panproto/bindings/haskell
-./bootstrap/fetch-bindist.sh           # downloads + stages the platform tarball
+./bootstrap/fetch-bindist.sh v0.71.0   # downloads + stages the platform tarball
 cabal build
 cabal test
 ```

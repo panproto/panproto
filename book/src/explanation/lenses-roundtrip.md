@@ -2,15 +2,17 @@
 
 ## In plain terms
 
-A lens is a pair of functions for moving between two shapes of data: one for going forward (often called *get*), one for going backward (often called *put*). The going-backward function is what makes a lens a lens rather than a one-way transform. It lets you take an edited new-shape record, push the edit back into the old-shape record, and recover whatever data the new shape did not have room for.
+Suppose a source record contains `name` and `age`, while its view contains only `name`. A backward update must preserve `age`; an unchanged view must restore the original source; and a second update must supersede the first. A lens coordinates the operations that satisfy these cases: a forward operation conventionally called *get* and a backward operation called *put*.
 
-The data the new shape does not have room for has to live somewhere during the round trip. In a panproto lens, it lives in a third value called the *complement*. You can think of it as a sidecar that holds whatever `get` discarded, so that `put` can put it back.
+That auxiliary information is the *complement*. It is a sidecar containing information discarded by `get` that `put` may need during reconstruction.
 
-A lens is *lawful* when it satisfies three round-trip identities. Roughly: getting then putting unchanged data is a no-op; putting then getting recovers exactly what you put in; and putting twice in a row is the same as putting just the second value. panproto checks these three laws in two layers. The first is property-based testing over generated scenarios: the identity and projection families, nested trees of depth three, lenses that remap vertices and edges, and lenses that carry field transforms, each run with the put-side views drawn from a mutation generator rather than one fixed perturbation. The second is a set of deterministic runtime checkers that assert each law of a given lens against a supplied instance. A lens that fails either layer is rejected. The property tests are sampling, not proof: they are evidence that the laws hold across the generated space, not a certificate for inputs outside it.
+A lens is *lawful* when it satisfies three round-trip identities. Roughly, getting and then putting an unchanged view is a no-op; putting and then getting recovers the supplied view; and two successive puts collapse to the second update. panproto exercises these laws in property tests over generated scenarios and exposes deterministic checkers for a supplied lens and instance. The property tests sample the generated space, while the runtime checkers report a result for the supplied case. Neither layer proves the laws for all possible inputs, and lens construction does not automatically run every checker.
 
-The reason lenses matter for panproto: every migration is a lens. The lift function is the *get* (forward) and the put function is the *backward* direction. Together they let you migrate data forward, edit the new data, and push it back to the old shape if you ever need to.
+In panproto, a compiled migration is wrapped by a `Lens` together with its source and target schemas. Its forward direction interprets the migration, while its backward direction combines an edited view with the complement produced from the source.
 
 ## The triple
+
+[Migrations as morphisms](./migrations-as-morphisms.md) supplies the forward map used below. The denotational interface presents three functions, while the concrete `Lens` type stores a compiled migration and its endpoint schemas.
 
 A lens between source `S` and view `V` with complement `C` is three functions:
 
@@ -28,23 +30,23 @@ For every lawful lens:
 
 1. **GetPut.** $put(s, get(s), complement(s)) = s$. Applying `get` to extract a view, then putting that view back without changes, returns the original source.
 2. **PutGet.** $get(put(s, v, c)) = v$. Putting a new view in returns that view when you read it back.
-3. **PutPut.** $put(put(s, v_1, c), v_2, c) = put(s, v_2, c)$. Two consecutive puts to the same complement collapse to the second put.
+3. **PutPut.** Two consecutive puts collapse to a direct put of the second view, with complement state threaded as the implementation specifies.
 
-`PutPut` is the third law. The runtime checker `panproto_lens::laws::check_put_put` applies two puts using the same complement on both sides and compares against the single second put. Reusing one complement means the check does not exercise the case where the two puts carry different complement values; that combination is left unexercised by the runtime check.
+The runtime checker `panproto_lens::laws::check_put_put` first extracts the original complement, applies the first view, extracts a second complement from that intermediate source, and uses the second complement for the sequential path. It compares that result with a direct second put from the original source and original complement. Thus the checker covers complement evolution across the intermediate update; it does not quantify over arbitrary caller-supplied complements.
 
 ## Complement composition
 
-When two lenses are composed, their complements need to combine. `Complement::compose` is a *partial commutative monoid*:
+When two lenses are composed, their complements need to combine. The `ComplementCompose` extension trait supplies `compose` and `is_compatible`, giving complements a checked partial composition:
 
 - It returns `Result<Complement, LensError>`.
-- Two complements compose only if they share the same source-schema fingerprint. Otherwise composition fails with `ComplementFingerprintMismatch`.
+- Two nonzero source-schema fingerprints must agree. A zero fingerprint acts as the unspecified case; conflicting nonzero fingerprints fail with `ComplementFingerprintMismatch`.
 - For overlapping keys, the two complements must agree on the value. Disagreement fails with `ComplementConflict`.
 
-This is the part of the lens machinery that prevents silent data loss. Earlier versions of panproto merged complements with a "first writer wins" rule; that rule could swallow disagreements between two paths through a lens diagram. The partial-monoid rule makes any such disagreement a hard error. Pre-flight check: `Complement::is_compatible`.
+This check prevents a composition from silently choosing between incompatible stored values. The pre-flight operation is `ComplementCompose::is_compatible`.
 
 ## Where lenses come from
 
-You almost never write a lens from scratch. They are produced by:
+Lenses enter the system through three paths:
 
 - **Migration compilation.** Every migration morphism compiles to a lens whose `get` is lift and whose `put` is the backward transform.
 - **The lens DSL** ([panproto-lens-dsl](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl)). A declarative spec in Nickel, JSON, or YAML compiles to the lens combinator algebra.
@@ -52,9 +54,9 @@ You almost never write a lens from scratch. They are produced by:
 
 ## Schema-level lenses: layout as an enrichment
 
-There is a second flavour of lens that lives one level up. parse / emit is not a WInstance lens; it is a relation between bytes and schemas, with `parse` recording the source layout into a fibre of constraints over each vertex and `emit_pretty` consuming that fibre to render bytes back. The relation has the shape of a lens at the schema level: stripping the layout fibre is the `get`, attaching it via a grammar walk is the `put`.
+There is a second flavor of lens that lives one level up. parse / emit is not a WInstance lens; it is a relation between bytes and schemas, with `parse` recording the source layout into a fiber of constraints over each vertex and `emit_pretty` consuming that fiber to render bytes back. The relation has the shape of a lens at the schema level: stripping the layout fiber is the `get`, attaching it via a grammar walk is the `put`.
 
-panproto names this construction explicitly. The `EnrichmentKind::Layout` tag in `panproto-gat` classifies the constraint sorts that make up the fibre. `TheoryTransform::StripEnrichment` and `TheoryTransform::AddEnrichment` are the two directions at the protolens level; their schema-level interpretation runs in `apply_theory_transform_to_schema` (strip drops the fibre constraints; add dispatches to a registered synthesis driver). The `ComplementConstructor::Enrichment` variant names the fibre and the driver in the complement vocabulary.
+panproto names this construction explicitly. The `EnrichmentKind::Layout` tag in `panproto-gat` classifies the constraint sorts that make up the fiber. `TheoryTransform::StripEnrichment` and `TheoryTransform::AddEnrichment` are the two directions at the protolens level; their schema-level interpretation runs in `apply_theory_transform_to_schema` (strip drops the fiber constraints; add dispatches to a registered synthesis driver). The `ComplementConstructor::Enrichment` variant names the fiber and the driver in the complement vocabulary.
 
 The schema-level lens does not plug into the WInstance-level `get` / `put` pair the way an elementary protolens does. The byte-level operational entry points live in `panproto-parse`: `ParserRegistry::decorate` for the put direction, `ParserRegistry::parse_with_protocol` for the get. The protolens captures the schema-level relationship those byte-level operations sit over; it composes with elementary protolenses for chain-law reasoning but is not the implementation of `decorate` or `parse`. See [Layout enrichment](./layout-enrichment.md) for the full treatment.
 

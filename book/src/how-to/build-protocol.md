@@ -1,6 +1,6 @@
 # Build a custom protocol
 
-A custom protocol is a new GAT plus a parser/emitter pair, registered with panproto so it can participate in the same diff/migrate/version-control workflow as the built-ins.
+A custom protocol is needed when panproto must parse, emit, compare, and migrate a schema language outside the built-in catalog. The implementation consists of a GAT, a parser/emitter pair, and registrations for the required surfaces.
 
 ## Prerequisites
 
@@ -13,20 +13,26 @@ Familiarity with [Schemas as theories](../explanation/schemas-as-theories.md) an
 The fastest path is the theory DSL ([`panproto-theory-dsl`](https://github.com/panproto/panproto/tree/main/crates/panproto-theory-dsl)):
 
 ```nickel
+let T = import "panproto/theory.ncl" in
 {
-  name = "MyProto",
-  components = ["ThGraph", "ThConstraint", "ThNamed"],
-  extensions = {
-    sorts = ["Permission"],
-    ops = [
-      { name = "perm_of", in = ["Edge"], out = "Permission" },
-    ],
-    eqns = [],
-  },
-}
+  id = "dev.example.my-proto-schema",
+  description = "A directed graph whose edges carry permissions",
+  theory = "ThMyProtoSchema",
+  sorts = [
+    T.simple "Vertex",
+    T.simple "Edge",
+    T.val_sort "Permission" "string",
+  ],
+  ops = [
+    T.unary "src" "Edge" "Vertex",
+    T.unary "tgt" "Edge" "Vertex",
+    T.unary "perm_of" "Edge" "Permission",
+  ],
+  equations = [],
+} | T.Theory
 ```
 
-`components` lists the building-block theories to compose by colimit. `extensions` adds sorts, operations, and equations on top of the colimit.
+This document declares the schema-side theory directly. Give every document a stable `id` and `description`; the `theory` field supplies the name used by registrations and later compositions. Use a `compose` document when the schema theory should instead be a colimit of existing theories.
 
 For finer control, declare the theory directly in Rust with the `class!` and `inductive!` macros from [`panproto-gat-macros`](https://github.com/panproto/panproto/tree/main/crates/panproto-gat-macros).
 
@@ -38,9 +44,9 @@ Each protocol provides a `Parser: Bytes -> Schema` and an `Emitter: Schema -> By
 
 ### Register
 
-Each protocol module exposes `protocol() -> Protocol` and `register_theories(&mut HashMap<String, Theory, _>)`:
+Each protocol module exposes `protocol() -> Protocol` and `register_theories(&mut HashMap<String, Theory, _>)`. The internal module skeleton below is repository code, not a standalone Rust program:
 
-```rust,ignore
+```text
 // crates/panproto-protocols/src/my_proto.rs
 use std::collections::HashMap;
 use panproto_gat::Theory;
@@ -73,10 +79,10 @@ Pick the `theories::register_*` helper that matches your theory shape (`register
 ## Verification
 
 ```sh
-cargo test -p panproto-protocols my_proto
+cargo nextest run -p panproto-protocols -E 'test(/my_proto/)'
 ```
 
-The standard property-test suite for protocols verifies parse/emit round-trip, schema validation against the theory, and migration existence between two scaffolded schemas.
+Add tests under the new protocol module with names containing `my_proto`; the command above runs that subset. At minimum, cover theory registration, schema validation, and a parse/emit round trip. Add a migration test when the protocol claims migration support.
 
 ## Common mistakes
 
@@ -85,6 +91,6 @@ The standard property-test suite for protocols verifies parse/emit round-trip, s
 
 ## See also
 
-- [Reference: protocol catalogue](../reference/protocols.md).
+- [Reference: protocol catalog](../reference/protocols.md).
 - [Theory DSL: denotational semantics](../explanation/semantics/theory-dsl.md).
 - [Composing protocols by colimit](../explanation/protocol-colimits.md).

@@ -1,6 +1,6 @@
 # Apply field transforms
 
-A *field transform* is a value-level expression applied during migration: a way to compute the new field's value from the old data. Transforms are written in the [expression language](../reference/expression-language.md).
+A field transform computes a target value that a vertex map alone cannot provide. Each transform is a value-level program in the [expression language](../reference/expression-language.md).
 
 ## Prerequisites
 
@@ -26,7 +26,7 @@ The mapping JSON consumed by `schema check` is a serialized [`Migration`](https:
 }
 ```
 
-`Migration` does carry an `expr_resolvers` field, keyed by the `(src_vertex, tgt_vertex)` pair a resolver bridges, and it is worth saying exactly what that field does today so nobody plans a migration around it. Its values are serialized [`Expr`](https://docs.rs/panproto-expr/latest/panproto_expr/enum.Expr.html) syntax trees rather than expression source, so a JSON string in that position fails to deserialize and `schema check` rejects the file before it looks at anything else. And the field is carried rather than consumed: [`compose`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compose.html) composes two migrations' resolvers and the version-control layer hashes them, while `compile` does not copy them onto the [`CompiledMigration`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/struct.CompiledMigration.html) that lift and restrict read. Nothing applies an expression resolver to a record.
+`Migration` carries an `expr_resolvers` field keyed by the `(src_vertex, tgt_vertex)` pair a resolver bridges. Its values are serialized [`Expr`](https://docs.rs/panproto-expr/latest/panproto_expr/enum.Expr.html) syntax trees rather than expression source, so a JSON string in that position fails to deserialize and `schema check` rejects the file before examining the mapping. The field is carried rather than consumed: [`compose`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compose.html) composes two migrations' resolvers and the version-control layer hashes them, while `compile` does not copy them onto the [`CompiledMigration`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/struct.CompiledMigration.html) that lift and restrict read. Nothing applies an expression resolver to a record.
 
 Value-level transforms that do run reach the engine as [`FieldTransform`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/enum.FieldTransform.html) entries on the compiled migration, which is the route the next section takes. Their backward direction comes from the lens and protolens layer rather than from the mapping file: pair an `ApplyExpr` field transform with its inverse on the corresponding `Protolens` step, or annotate a coercion on the schema and let the migration compiler emit both directions.
 
@@ -125,7 +125,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(json["lastName"], "Byron King");
 
     // The computed values live on the parent, so the migrated instance is a
-    // single node with no arcs: no child was materialised for either field.
+    // single node with no arcs: no child was materialized for either field.
     assert_eq!(migrated.node_count(), 1);
     assert!(migrated.arcs.is_empty());
 
@@ -146,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 The listing builds its `CompiledMigration` by hand, which is not how one usually arrives. The supported route from a `Migration` to a `CompiledMigration` is [`compile`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compile.html), which routes the value-level work it does know about through `op_term_assignments`, the coercions declared on the schema, and leaves `field_transforms` empty. So the two halves of this page do not join up: the mapping file cannot state the split, and the listing cannot be reached from the mapping file. Constructing the compiled form directly is what a caller does today to attach a transform, and `..CompiledMigration::default()` is the spelling to use so that a field added later does not break the call.
 
-Notice the two assertions on the shape of the result. `ComputeField` writes into the parent's `extra_fields`, and `to_json` serialises `extra_fields` after children so that a computed key shadows any child of the same name. The target schema declares `user.firstName` and `user.lastName` as vertices; the migrated instance carries them as keys on the parent object and materialises no child node for either. For a consumer reading JSON, which is the usual case, that is the shape it wanted. For a consumer walking the instance tree looking for a child under the `firstName` edge, it is not there.
+Notice the two assertions on the shape of the result. `ComputeField` writes into the parent's `extra_fields`, and `to_json` serializes `extra_fields` after children so that a computed key shadows any child of the same name. The target schema declares `user.firstName` and `user.lastName` as vertices; the migrated instance carries them as keys on the parent object and materializes no child node for either. For a consumer reading JSON, which is the usual case, that is the shape it wanted. For a consumer walking the instance tree looking for a child under the `firstName` edge, it is not there.
 
 ### Why the class is `Opaque`
 
@@ -199,7 +199,7 @@ Read `firstName` and `lastName` as a view of `name` rather than as fields in the
 ## Common mistakes
 
 - Expecting `expr_resolvers` in a mapping file to move data. It deserializes only as an `Expr` syntax tree, and nothing on the lift path reads it whatever it holds. Attach a `FieldTransform` to the compiled migration, or declare a coercion on the schema and let `compile` emit both directions.
-- Attaching a `ComputeField` to the field's own vertex. The expression environment is the fibre over a node, so a transform that reads sibling fields belongs on the parent. A transform on `user.name` sees `user.name`'s own children, which for a string vertex is nothing.
+- Attaching a `ComputeField` to the field's own vertex. The expression environment is the fiber over a node, so a transform that reads sibling fields belongs on the parent. A transform on `user.name` sees `user.name`'s own children, which for a string vertex is nothing.
 - Classifying a lossy computation `Iso` because the forward direction is correct. The class is a claim about the round trip. An `Iso` that does not round-trip turns a lens-law failure into a silent data change.
 - Indexing into a split without checking its length. The failure is per-record, and it takes the whole record's migration down with it.
 - Using IO or random functions in the expression. The language is bounded-pure; non-deterministic builtins are not exposed.

@@ -2,25 +2,29 @@
 
 ## In plain terms
 
-A migration is what gets you from version 3 of your schema to version 4, with all your existing version-3 data carried forward into version-4 shape. Hand-written migrations are usually a script that walks each record, renames fields, fills in defaults, drops what is no longer there.
+Version 3 of a schema stores a field called `age`. Version 4 stores the same number under the name `years`. Something has to write down that `age` becomes `years`, move every stored value across, and say whether each field version 4 insists on has anywhere to come from.
 
-panproto represents a migration as a structured map between the two schemas: for every vertex (record kind) in the old schema, where does it land in the new one; for every edge (field, item, variant), how is it derived. The structured map is called a *morphism*. Once you have a morphism, two operations follow:
+A migration is that written-down part, and nothing more. It is a plan, not a program: a list saying which piece of the old schema becomes which piece of the new one, plus, where a value needs changing on the way, an expression saying how. Separating the plan from the machinery that runs it is what lets the same plan be checked before any data moves, stored in version control, inverted, and composed with the next one.
 
-- **Restrict** moves the morphism backwards: it tells you what part of the old schema is needed to produce a given part of the new one.
-- **Lift** moves data forwards: it takes a record that conforms to the old schema and produces a record that conforms to the new one, using the morphism to know what to put where.
+Having the plan, there are two directions to move data in, and both are useful:
 
-Lift is the operation you usually want; restrict is the operation panproto uses internally to figure out which old fields are required for the migration to succeed. Both are total functions on the things they apply to; if a migration cannot be lifted (because some required input is missing), `panproto-check` says so up front rather than failing partway through.
+- **Lift** takes data written against the old schema and produces data against the new one. This is the migration proper.
+- **Restrict** goes the other way, reading new-schema data as though it were old-schema data. This is how a check answers "does the new schema require anything the old data cannot supply?" without moving anything.
 
-The map is not obliged to cover the whole old schema. A field with nowhere to go in the new schema has nowhere to go, and no amount of searching invents a home for it. panproto returns a *span* in that case: the part of the old schema that did find a home, paired with the two maps out of it. A migration that covers everything is then the special case, rather than the price of getting an answer at all.
+Not every field finds a home. If the old schema has a field the new one has no room for, no plan can place it, and pretending otherwise would mean inventing a destination. So the answer is a **span**: the part of the old schema that did find a home, together with the map back to the old schema and the map forward to the new one. Two schemas with nothing in common come back with an empty middle rather than an error, and a plan that happens to cover everything is just the case where the middle is the whole old schema.
 
 ## The formal picture
+
+The theory/model distinction from [Schemas as theories](./schemas-as-theories.md) makes restrict and lift precise: schemas become objects, migrations become maps, and instances move along those maps. Only the final two paragraphs require the language of functors and adjunctions.
 
 Schemas live in a category whose objects are schema theories and whose morphisms are theory morphisms. A *migration* from schema $S$ to schema $T$ is a morphism $f : S \to T$ in this category. The migration engine is split into two functors:
 
 - **Restrict** $\Delta_f : T\text{-Inst} \to S\text{-Inst}$: pulls a $T$-instance back to an $S$-instance along $f$. Used to check existence conditions: which $S$-records does $T$ require to be present?
 - **Lift** $\Sigma_f : S\text{-Inst} \to T\text{-Inst}$: pushes an $S$-instance forward to a $T$-instance along $f$. Used to actually migrate data.
 
-In panproto, $\Sigma_f$ and $\Delta_f$ are implemented as operations, not as a verified adjunction: lift is [`panproto-mig::lift`](https://docs.rs/panproto-mig/latest/panproto_mig/lift/) (built on [`panproto-inst::wtype_extend`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/fn.wtype_extend.html)) and restrict is [`panproto-inst::wtype_restrict`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/fn.wtype_restrict.html). The intended semantics is the adjunction $\Sigma_f \dashv \Delta_f$ on the categories of instances, following the convention in @spivakwisnesky2015relational, where $\Sigma_f$ is the dependent sum over the fibres of $f$ and $\Delta_f$ is its right adjoint by base change. That adjunction is scoped to migrations that are total on vertices, and its unit, counit, and hom-set bijection are not yet constructed or property-tested in code. What panproto actually checks before any data moves is `panproto-check`'s existence condition: whether every input a migration requires is present. This scoping can be restored to a tested-for-total-vertex-maps claim once the unit and counit are constructed and the hom bijection is property-tested.
+The explicit $\Sigma_f$ and $\Delta_f$ operations live in `panproto-inst::adjunction`. For set-valued `FInstance`s, the implementation constructs the unit, counit, and both hom-set transposes for total vertex maps, including maps that merge vertices. Property tests check both triangle identities and the hom-set bijection. For `WInstance`s, the corresponding construction is narrower: it requires total vertex-injective maps and edge-invertible structure. Within that scope, the code constructs the W-type unit, counit, and transposes and tests the same laws. These checks provide executable evidence for $\Sigma_f \dashv \Delta_f$ in the stated fragments; they are not a proof for arbitrary partial migrations.
+
+The public migration module keeps the operations distinct. `lift_wtype_sigma` invokes the W-type dependent-sum construction, `restrict_wtype_delta` invokes pullback, and the ordinary `lift_wtype` path interprets a compiled migration through the restriction-oriented W-type pipeline. Thus a caller choosing the categorical operation should use the explicit entry point rather than infer semantics from the word *lift*.
 
 A migration may also include a value-level transform: not just *where* a field comes from, but *how* its value is computed. These are written in the [expression language](./semantics/expression-language.md) and applied during lift.
 
@@ -28,7 +32,9 @@ A migration may also include a value-level transform: not just *where* a field c
 
 A *span* from $S$ to $T$ is a pair of morphisms out of a shared domain,
 
-$$S \xleftarrow{\;\ell\;} A \xrightarrow{\;r\;} T,$$
+$$
+S \xleftarrow{\;\ell\;} A \xrightarrow{\;r\;} T,
+$$
 
 whose shared domain $A$ is the **apex** and whose two arrows are the **legs** [@johnsonrosebrugh2014spans]. (Johnson and Rosebrugh write *peak* for what we are calling the apex; the two words name the same object.)
 
@@ -46,7 +52,7 @@ Classical span equivalence asks for an isomorphism between two apices commuting 
 
 Johnson and Rosebrugh themselves replace classical span equivalence with a weaker relation, on the grounds that the classical one is far too strong once the legs are lenses rather than bare morphisms. That weakening is a claim about lenses between apices. panproto does not attempt it at the schema layer, where there is no lens structure available to check it against.
 
-The bijection also explains a preference of the search that would otherwise read as an arbitrary tie-break: at equal quality it returns the largest apex. The part of the source that the apex leaves out is a complement in the sense of @bancilhonspyratos1981update, that is, the further view alongside which the user's own view determines the whole database, and it is the object on which their characterisation of translatable updates turns. Preferring the largest apex is the schema-level form of preferring the smallest complement. We are borrowing the vocabulary rather than importing the theorem, though: panproto's spans run between two schemas rather than between a database and a view of it, and no constant-complement result has been carried across that gap.
+The bijection also explains a preference of the search that would otherwise read as an arbitrary tie-break: at equal quality it returns the largest apex. The part of the source that the apex leaves out is a complement in the sense of @bancilhonspyratos1981update, that is, the further view alongside which the user's own view determines the whole database, and it is the object on which their characterization of translatable updates turns. Preferring the largest apex is the schema-level form of preferring the smallest complement. We are borrowing the vocabulary rather than importing the theorem, though: panproto's spans run between two schemas rather than between a database and a view of it, and no constant-complement result has been carried across that gap.
 
 ## Two apices, and why they are not the same object
 
@@ -64,7 +70,9 @@ The merged schema is the pushout, written $S \sqcup_A T$, and $i$ and $j$ are it
 
 Write $\mathrm{Mod}(S) = [S, \mathbf{Set}]$ for the category of instances of a schema. Because $\mathrm{Fun}(-, \mathbf{Set})$ carries colimits to limits,
 
-$$\mathrm{Mod}(S \sqcup_A T) \;\cong\; \mathrm{Mod}(S) \times_{\mathrm{Mod}(A)} \mathrm{Mod}(T),$$
+$$
+\mathrm{Mod}(S \sqcup_A T) \;\cong\; \mathrm{Mod}(S) \times_{\mathrm{Mod}(A)} \mathrm{Mod}(T),
+$$
 
 the pullback on the right being the category of pairs of instances, one on each side, that agree after restriction to the shared part. Restricting along the two pushout injections is thus a span of *get* functions, the forward direction of a [lens](./lenses-roundtrip.md), whose apex is the category of consistent pairs. That object is the *consistent triples* of @johnsonrosebrugh2014spans, defined there as an equalizer (their Proposition 9), and it is what a symmetric lens has for an apex.
 
@@ -72,7 +80,7 @@ It is a different object from $A$. Call $A$ the **schema apex** and $\mathrm{Mod
 
 The square imposes a precondition on the merge. An apex vertex has to reach the same merged vertex through either leg, and a right leg sending two apex vertices to one target vertex makes that impossible, since the merge identifies elements by a map keyed on the target element and a repeated key names only one preimage. A contracting right leg is an ordinary answer from the default search: a source with four string fields and a target with one produces one. `SchemaSpan::pushout` thus reports the contraction rather than returning a square that does not commute, and a caller who wants a symmetric lens out of the span runs the injective search, which rules the case out.
 
-Turning the intended adjunction of the previous section into a theorem would take a construction panproto does not yet have. @johnsonrosebrughwood2012lenses identify c-lenses with Grothendieck opfibrations and show that this supplies a universal solution to the view-update problem for functorial views. That is the shape the verified account would take. The code today has the pair of operations and the existence check, and nothing beyond them.
+The adjunction above does not by itself construct the symmetric lens associated with a merge. @johnsonrosebrughwood2012lenses identify c-lenses with Grothendieck opfibrations and show how that structure supplies a universal solution to the view-update problem for functorial views. panproto presently verifies the scoped data-migration adjunction and the lens laws as separate pieces. It does not formalize the cited equivalence between them.
 
 ## The length-1 fragment
 
@@ -82,13 +90,13 @@ panproto's [`SchemaMorphism`](https://docs.rs/panproto-schema/latest/panproto_sc
 
 The cost is that 1:n correspondences are not expressible as morphisms. A source field that ought to become three target fields, or that ought to be reached through a chain of two edges on the target side, has no morphism to be. panproto handles those at the value level instead, through [`FieldTransform::ComputeField`](https://docs.rs/panproto-inst/latest/panproto_inst/wtype/enum.FieldTransform.html), which writes a target key from an expression over the record's fields and carries an optional inverse expression together with a [`CoercionClass`](https://docs.rs/panproto-gat/latest/panproto_gat/enum.CoercionClass.html) recording what a round trip recovers. Absent an inverse, the class is `Projection` where the value is deterministically re-derivable and `Opaque` where it is not, and the complement then carries what the forward direction cannot reconstruct. The data moves correctly. The correspondence, though, has stopped being a statement in the schema category, so nothing at the schema layer can reason about it.
 
-The fragment is not the only place the implementation is narrower than the mathematics it sits in. First, the objective the span search minimises reads four of `Schema`'s twenty-one fields: `vertices`, `edges`, and the `outgoing` and `between` adjacency indices derived from `edges`. The `incoming` index is not among them, and the other seventeen fields never move a score. Five of the seventeen (required edges, variants, recursion points, spans, and hyper-edge signatures) enter as feasibility constraints and so decide which apices are well formed at all, while the remaining twelve are restricted by `induce` and are otherwise invisible to the search. Second, the weights trading the objective's four components off against one another have never been calibrated against a labelled corpus of correct alignments. They encode a judgement about what a good match looks like, and that judgement is so far untested.
+The fragment is not the only place the implementation is narrower than the mathematics it sits in. First, the objective the span search minimizes reads four of `Schema`'s twenty-one fields: `vertices`, `edges`, and the `outgoing` and `between` adjacency indices derived from `edges`. The `incoming` index is not among them, and the other seventeen fields never move a score. Five of the seventeen (required edges, variants, recursion points, spans, and hyper-edge signatures) enter as feasibility constraints and so decide which apices are well formed at all, while the remaining twelve are restricted by `induce` and are otherwise invisible to the search. Second, the weights trading the objective's four components off against one another have never been calibrated against a labeled corpus of correct alignments. They encode a judgment about what a good match looks like, and that judgment is so far untested.
 
 ## Compatibility tiers
 
 The shipped classifier sorts a migration into three tiers, recorded as the `classification` field on `CompatReport`. It reads a migration that already exists, whether that came from a mapping file or from a span search. The two non-breaking tiers split apart the case where nothing of consequence changed from the case where old data still lifts through a non-breaking change.
 
-| Tier | `classification` | Example | Lift behaviour |
+| Tier | `classification` | Example | Lift behavior |
 |---|---|---|---|
 | Fully compatible | `fully-compatible` | No breaking and no non-breaking changes; the two schemas agree in shape. | Total; old records lift unchanged. |
 | Backward compatible | `backward-compatible` | Add an optional field with a default, or add a required field whose value is computed from existing fields. | Total; old records lift, either unchanged or via the value-level transform. |

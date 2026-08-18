@@ -1,12 +1,12 @@
-# Protocol catalogue
+# Protocol catalog
 
-A *protocol* in panproto is a schema language: Avro, CDDL, OpenAPI, ATProto Lexicons, Parquet, FHIR, a Kubernetes CRD. Each one is defined by a pair of GATs (a schema theory and an instance theory) composed by colimit from reusable building-block theories. Every protocol provides both a parser (native format → `Schema`) and an emitter (`Schema` → native format), so panproto can round-trip data through any pair.
+A [*protocol*](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it.") in panproto is a schema language: [Avro](https://avro.apache.org/docs/current/specification/), [CDDL](https://www.rfc-editor.org/rfc/rfc8610.html), [OpenAPI](https://spec.openapis.org/oas/latest.html), [ATProto Lexicons](https://atproto.com/specs/lexicon), [Parquet](https://parquet.apache.org/docs/file-format/), [FHIR](https://hl7.org/fhir/), or a [Kubernetes CRD](https://kubernetes.io/docs/concepts/extend-kubernetes/api-extension/custom-resources/). Each one is defined by a [schema theory](../glossary.md#schema-theory "A schema theory specifies the structures and laws available to schemas for one protocol.") and an [instance theory](../glossary.md#instance-theory "An instance theory specifies how data may inhabit schemas for one protocol.") composed by [colimit](../glossary.md#colimit "A colimit combines theories over their explicitly shared parts.") from reusable [generalized algebraic theories (GATs)](../glossary.md#generalized-algebraic-theory-gat "A GAT is a named collection of dependent sorts, operations, and equations."). A protocol registration supplies a [parser](../glossary.md#parser "A parser reads a protocol's native schema representation into panproto's internal model.") from its native format to [`Schema`](../glossary.md#schema "A schema is a model of a protocol's schema theory.") and an [emitter](../glossary.md#emitter "An emitter writes panproto's internal schema model in a protocol's native representation.") in the reverse direction.
 
 For the model behind these registrations, see [Schemas as theories](../explanation/schemas-as-theories.md) and [Composing protocols by colimit](../explanation/protocol-colimits.md).
 
 ## Categories
 
-The built-in protocols are organised by category in `panproto-protocols`. Each category is a Rust submodule.
+The built-in protocols are organized by category in `panproto-protocols`. Each category is a Rust submodule.
 
 | Category | Module | Protocols |
 |---|---|---|
@@ -41,7 +41,7 @@ To add a custom protocol, see [Build a custom protocol](../how-to/build-protocol
 
 ## Source-code grammars and emit verification
 
-In addition to the schema-language protocols catalogued above, panproto ships 261 tree-sitter grammars under [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Each grammar registers a tree-sitter `Language` plus its `node-types.json` AST signature; the resulting parser walks source code into a full-AST schema, and `emit_pretty` renders the schema back to bytes via the structural pipeline described in [Source-code emission](../explanation/emit-pretty.md).
+In addition to the schema-language protocols cataloged above, panproto ships 261 tree-sitter grammars under [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Each grammar registers a tree-sitter `Language` plus its `node-types.json` AST signature; the resulting parser walks source code into a full-AST schema, and `emit_pretty` renders the schema back to bytes via the structural pipeline described in [Source-code emission](../explanation/emit-pretty.md).
 
 The emitter's correctness varies by grammar; [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports which tier each protocol falls into:
 

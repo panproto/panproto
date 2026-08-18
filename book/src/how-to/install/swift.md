@@ -78,16 +78,17 @@ swift build --traits PANPROTO_PARSE,PANPROTO_PROJECT,PANPROTO_GIT
 ## Verification
 
 ```swift
+import Foundation
 import Panproto
 import PanprotoStructural
 
-let names = try await ProtocolSpec.builtinNames()
+let names = try await ProtocolHandle.builtinNames()
 print(names.count, "builtin protocols")
 
 let atproto = try await ProtocolHandle.builtin("atproto")
 let lexicon = try Data(contentsOf: URL(fileURLWithPath: "app.bsky.feed.post.json"))
 let schema = try await SchemaHandle.parseAtprotoLexicon(lexicon)
-let value = try await schema.value()
+let value = try await schema.schema()
 print(value.protocolName, value.vertexCount, "vertices")
 
 let messages = try await schema.violations(against: atproto)

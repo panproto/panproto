@@ -1,6 +1,6 @@
 # Bridge to git
 
-panproto-vcs is independent of git, but most projects host their source in git. The bridge lets a panproto-vcs repository live alongside (or inside) a git one, and lets git remotes serve panproto histories.
+The git bridge stores a panproto repository beside a source repository and can translate history between the two systems.
 
 ## Prerequisites
 

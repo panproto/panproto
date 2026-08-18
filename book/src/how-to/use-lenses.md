@@ -1,6 +1,6 @@
 # Use lenses
 
-Every migration is a lens. The lens API gives you direct access to the bidirectional transform: `get` lifts data forward, `put` projects new data back to the old shape, `complement` records what `get` discarded so `put` can restore it.
+The lens API runs a migration in both directions. `get` lifts data forward, `put` projects an edited view back to the source shape, and the complement retains data needed for reconstruction.
 
 ## Prerequisites
 
@@ -8,16 +8,19 @@ A migration ([Build a migration](./build-migration.md)) or a hand-written lens v
 
 ## The task
 
-A `CompiledMigration` is itself a lens; reach for `LensHandle` only when you want a free-standing protolens chain.
+A `CompiledMigration` exposes the lens operations directly. `LensHandle` represents a concrete auto-generated or DSL-compiled lens, while `ProtolensChainHandle` represents a schema-parameterized chain.
 
 ```ts
-const { view, complement } = mig.get(oldRecord);
+const { view, complement } = mig.getJson(oldRecord, "user:body");
+const recordView = view as { age: number };
 
-const editedView = { ...view, age: view.age + 1 };
-const { data: updatedOld } = mig.put(editedView, complement);
+const editedView = { ...recordView, age: recordView.age + 1 };
+const updatedOld = mig.putJson(editedView, complement, "user:body") as {
+  age: number;
+};
 ```
 
-`mig.get` returns the forward view together with the complement (the data discarded by `get`); `mig.put` consumes them and returns a `LiftResult { data, ... }` reconstructed with the edit applied. The round-trip laws guarantee this is well-defined.
+`mig.getJson` returns the forward view together with the complement, which retains data discarded by the forward operation. `mig.putJson` consumes both values and reconstructs a JavaScript record with the edit applied. The law checks below test the round trip for a supplied instance.
 
 To compose two compiled migrations sequentially:
 
@@ -25,13 +28,19 @@ To compose two compiled migrations sequentially:
 const composed = p.compose(mig_ab, mig_bc);
 ```
 
-To compose two free-standing protolens chains:
+To compose two concrete `LensHandle` values:
 
 ```ts
-const composedChain = p.composeLenses(chainAB, chainBC);
+const composedLens = p.composeLenses(lensAB, lensBC);
 ```
 
-Both are methods on `Panproto`; composition fails (throws) if the intermediate schemas do not chain.
+To compose schema-parameterized chains, call the method on the first chain:
+
+```ts
+const composedChain = chainAB.compose(chainBC);
+```
+
+`Panproto.compose` and `Panproto.composeLenses` compose compiled migrations and concrete lenses, respectively. `ProtolensChainHandle.compose` handles protolens chains. Each operation throws if the intermediate schemas or theory transforms do not chain.
 
 ## Verification
 
