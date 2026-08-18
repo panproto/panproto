@@ -18,7 +18,7 @@ expr  ::= literal
         | "case" expr "of" alts
         | expr "." ident
         | expr "[" expr "]"
-literal ::= int | float | str | bool | "nothing"
+literal ::= int | float | str | bool | "Nothing"
           | "[" expr,... "]"
           | "{" ident ["=" expr],... "}"
 ```
@@ -56,7 +56,7 @@ $$
 
 `List` does not record an element type, `Record` does not record field types, and the classifier has no function type. `Null`, byte values, and closures classify as `Any`.
 
-The function `infer_type(e, \Gamma)` performs best-effort classification under an environment $\Gamma$ from variable names to `ExprType`. Literals, records, lists, variables, and builtins with declared result signatures receive specific cases. Lambdas, applications, field access, and index access return `Any`; a match uses the first arm's body; and a let extends the environment with the inferred class of its bound value. An unbound variable is an error.
+The function `infer_type(e, env)` performs best-effort classification under an environment $\Gamma$ from variable names to `ExprType`. Literals, records, lists, variables, and builtins with declared result signatures receive specific cases. Lambdas, applications, field access, and index access return `Any`; a match uses the first arm's body; and a let extends the environment with the inferred class of its bound value. An unbound variable is an error.
 
 `validate_coercion` accepts `Any` because the classifier cannot reject an opaque expression. Thus successful validation means that no detectable mismatch was found. It does not establish a typing judgment of the form $\Gamma \vdash e : \tau$, type preservation, or exhaustiveness.
 
