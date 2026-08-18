@@ -62,9 +62,10 @@ pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError, SpanError};
 pub use existence::{ExistenceReport, check_existence};
 pub use hom_search::{
-    DomainConstraints, FoundMorphism, SearchOptions, find_best_morphism,
-    find_best_morphism_constrained, find_morphisms, find_morphisms_constrained, find_span,
-    find_span_constrained, without_bottom,
+    DomainConstraints, FoundMorphism, MorphismList, SearchOptions, find_best_morphism,
+    find_best_morphism_budgeted, find_best_morphism_constrained, find_morphisms,
+    find_morphisms_budgeted, find_morphisms_constrained, find_span, find_span_constrained,
+    without_bottom,
 };
 pub use invert::invert;
 pub use lift::{

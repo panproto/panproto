@@ -542,7 +542,7 @@ mod tests {
                 .unwrap();
 
         // All results should map root.name to root.name (root.other excluded)
-        for m in &results {
+        for m in &results.morphisms {
             assert_ne!(
                 m.vertex_map.get(&Name::from("root.name")).map(Name::as_str),
                 Some("root.other"),
@@ -590,7 +590,7 @@ mod tests {
         )
         .expect("the network poses");
         assert!(
-            unconstrained.is_empty(),
+            unconstrained.morphisms.is_empty(),
             "no total morphism exists: root.extra has no compatible target"
         );
 
@@ -602,6 +602,7 @@ mod tests {
         assert!(
             find_morphisms_constrained(&src, &tgt, &SearchOptions::default(), &constraints)
                 .expect("the network poses")
+                .morphisms
                 .is_empty(),
             "excluding a source leaves no total morphism, so this must stay empty"
         );

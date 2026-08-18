@@ -457,7 +457,6 @@ fn decorate_rich(schema: &mut Schema, vertex_selectors: &[u8], edge_selectors: &
         schema.recursion_points.insert(
             id.clone(),
             RecursionPoint {
-                mu_id: id.clone(),
                 target_vertex: next.clone(),
             },
         );
@@ -1240,8 +1239,8 @@ mod tests {
                     prop_assert_eq!(&v.parent_vertex, parent);
                 }
             }
-            for rp in schema.recursion_points.values() {
-                prop_assert!(schema.vertices.contains_key(&rp.mu_id));
+            for (mu, rp) in &schema.recursion_points {
+                prop_assert!(schema.vertices.contains_key(mu));
                 prop_assert!(schema.vertices.contains_key(&rp.target_vertex));
             }
             for span in schema.spans.values() {

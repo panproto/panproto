@@ -225,8 +225,8 @@ fn referenced_vertices(apex: &Schema) -> Vec<Name> {
         names.push(coproduct.clone());
         names.extend(arms.iter().map(|arm| arm.parent_vertex.clone()));
     }
-    for point in apex.recursion_points.values() {
-        names.push(point.mu_id.clone());
+    for (mu, point) in &apex.recursion_points {
+        names.push(mu.clone());
         names.push(point.target_vertex.clone());
     }
     for span in apex.spans.values() {

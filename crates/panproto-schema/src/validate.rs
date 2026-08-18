@@ -15,8 +15,14 @@ use crate::schema::Schema;
 /// 2. All edges satisfy the protocol's edge rules.
 /// 3. All constraint sorts are recognized by the protocol.
 /// 4. All required edges reference vertices that exist.
+/// 5. All recursion points name vertices that exist, at both ends.
 ///
 /// Returns an empty vector if the schema is valid.
+///
+/// This is a report rather than a gate: nothing calls it on the way into a
+/// search, so a caller loading a schema from bytes has to run it. What it
+/// buys is that a dangling reference is named here instead of surfacing later
+/// as a part quietly missing from an induced sub-schema.
 #[must_use]
 pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
     let mut errors = Vec::new();
@@ -107,6 +113,27 @@ pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
                     edge: format!("{} -> {} ({})", req_edge.src, req_edge.tgt, req_edge.kind),
                 });
             }
+        }
+    }
+
+    // 5. Check recursion points name existing vertices at both ends.
+    //
+    // Inducing a sub-schema keeps a marker only when both ends survive, so a
+    // marker naming a vertex that was never there is dropped rather than
+    // reported, and the resulting apex looks complete. Reporting it here is
+    // what makes the difference visible before a search runs.
+    for (mu, point) in &schema.recursion_points {
+        if !schema.vertices.contains_key(mu) {
+            errors.push(ValidationError::DanglingRecursionPoint {
+                mu: mu.to_string(),
+                missing: mu.to_string(),
+            });
+        }
+        if !schema.vertices.contains_key(&point.target_vertex) {
+            errors.push(ValidationError::DanglingRecursionPoint {
+                mu: mu.to_string(),
+                missing: point.target_vertex.to_string(),
+            });
         }
     }
 

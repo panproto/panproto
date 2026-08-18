@@ -112,8 +112,9 @@ fn identity_pair_yields_the_identity_morphism() {
     // kind-respecting assignment, so the identity is not merely the best
     // answer, it is the only one. This fires if `domain_of` ever stops
     // filtering candidates by kind.
-    let all =
-        find_morphisms(&schema, &schema, &SearchOptions::default()).expect("the network poses");
+    let all = find_morphisms(&schema, &schema, &SearchOptions::default())
+        .expect("the network poses")
+        .morphisms;
     assert_eq!(
         all.len(),
         1,

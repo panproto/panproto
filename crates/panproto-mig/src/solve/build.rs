@@ -242,7 +242,7 @@ impl Evidence for NoEvidence {
 #[derive(Debug, Clone, PartialEq, thiserror::Error)]
 #[non_exhaustive]
 pub enum BuildError {
-    /// The network refused what the decomposition asked it to hold.
+    /// The network refused what the schema pair asked it to hold.
     ///
     /// In practice this is
     /// [`CfnError::OverMemoryBudget`]:
@@ -252,7 +252,7 @@ pub enum BuildError {
     /// measurement the caller can move. It is reported, never absorbed: a
     /// search that could not be posed is not the same answer as a search that
     /// found nothing, and the entry points keep the two apart.
-    #[error("the network could not hold the decomposition: {source}")]
+    #[error("the network could not hold the schema pair's cost tables: {source}")]
     Network {
         /// What the network refused.
         #[from]
@@ -305,6 +305,23 @@ pub enum EdgeMatch {
 /// the naturality constraint and the edge component of the objective are read
 /// off, so all three agree by sharing one function rather than by three
 /// implementations happening to match.
+///
+/// # Which parallel edge the fallback picks
+///
+/// Both stages choose by value rather than by position, so the answer is a
+/// function of the target's edge set and not of the order the target was built
+/// in. The first stage needs no tie-break: a schema stores its edges in a map
+/// keyed by the whole [`Edge`], so at most one target edge carries a given
+/// `(src, tgt, kind, name)`. The fallback does need one, since parallel edges
+/// of the same kind differ only in name, and it takes the least such edge.
+///
+/// Position would be the cheaper rule and it is the wrong one. The slice
+/// [`Schema::edges_between`] returns is in whatever order built the schema's
+/// index, and a schema assembled by iterating a [`HashMap`](std::collections::HashMap)
+/// carries that map's bucket order, which varies with the process. Picking the
+/// first candidate would therefore let the span's right leg vary from run to
+/// run on one unchanged pair of schemas, and the apex, which is canonical and
+/// sorts everything it reads, would stay byte-identical and hide it.
 #[must_use]
 pub fn edge_image<'t>(
     tgt: &'t Schema,
@@ -319,7 +336,8 @@ pub fn edge_image<'t>(
         .or_else(|| {
             candidates
                 .iter()
-                .find(|candidate| candidate.kind == edge.kind)
+                .filter(|candidate| candidate.kind == edge.kind)
+                .min()
         })
 }
 
@@ -651,8 +669,13 @@ impl<'a> Model<'a> {
 
     /// The unary cost of one value of one variable.
     ///
-    /// `None` is `⊥`, which takes the full penalty on every component plus one
-    /// [`DROP_UNIT`].
+    /// `None` is `⊥`, which takes the full penalty on every component **that has
+    /// mass** plus one [`DROP_UNIT`]. A component's per-unit share is the
+    /// reciprocal of what the source gives it to count, and `reciprocal(0)` is
+    /// `⊥`, so the edge component costs nothing over an edgeless source and the
+    /// Jaccard term is `⊥` for a source vertex outside `C_src`. That is what
+    /// makes the worst reachable quality a function of the source's shape rather
+    /// than a constant.
     fn unary_entry(
         &self,
         var: VarId,
@@ -945,11 +968,11 @@ fn add_recursion_constraints(
         model.src.recursion_points.iter().collect();
     points.sort_unstable_by(|left, right| left.0.as_str().cmp(right.0.as_str()));
 
-    for (_, point) in points {
+    for (mu, point) in points {
         add_pair(
             builder,
             model,
-            model.var(&point.mu_id),
+            model.var(mu),
             model.var(&point.target_vertex),
             implication,
         )?;
@@ -1616,7 +1639,6 @@ mod tests {
         src.recursion_points.insert(
             Name::from("mu"),
             RecursionPoint {
-                mu_id: Name::from("mu"),
                 target_vertex: Name::from("body"),
             },
         );
@@ -1963,7 +1985,6 @@ mod tests {
         src.recursion_points.insert(
             Name::from("mu"),
             RecursionPoint {
-                mu_id: Name::from("mu"),
                 target_vertex: Name::from("body"),
             },
         );

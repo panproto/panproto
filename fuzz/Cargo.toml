@@ -25,7 +25,13 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+arbitrary = { version = "1", features = ["derive"] }
 panproto-mig = { path = "../crates/panproto-mig" }
+panproto-schema = { path = "../crates/panproto-schema" }
+panproto-gat = { path = "../crates/panproto-gat" }
+panproto-protocols = { path = "../crates/panproto-protocols" }
+rustc-hash = "2"
+serde_json = "1"
 
 [profile.release]
 debug = 1
@@ -33,6 +39,41 @@ debug = 1
 [[bin]]
 name = "cost_algebra"
 path = "fuzz_targets/cost_algebra.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "span_search"
+path = "fuzz_targets/span_search.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "induce"
+path = "fuzz_targets/induce.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "build_cfn"
+path = "fuzz_targets/build_cfn.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "consistency"
+path = "fuzz_targets/consistency.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "parse_and_search"
+path = "fuzz_targets/parse_and_search.rs"
 test = false
 doc = false
 bench = false

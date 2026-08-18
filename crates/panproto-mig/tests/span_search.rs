@@ -141,8 +141,9 @@ fn a_total_morphism_is_the_degenerate_span() {
     assert_eq!(total.edge_map.len(), schema.edges.len());
 
     // And the total-morphism entry point agrees, because it is the same search.
-    let found =
-        find_morphisms(&schema, &schema, &SearchOptions::default()).expect("the network poses");
+    let found = find_morphisms(&schema, &schema, &SearchOptions::default())
+        .expect("the network poses")
+        .morphisms;
     assert!(!found.is_empty());
     assert!((found[0].quality - total.quality).abs() < 1e-12);
     assert_eq!(found[0].vertex_map, total.vertex_map);
@@ -159,6 +160,7 @@ fn a_pair_with_no_total_morphism_still_spans() {
     assert!(
         find_morphisms(&src, &tgt, &SearchOptions::default())
             .expect("the network poses")
+            .morphisms
             .is_empty(),
         "the counter has nowhere to go, so no total morphism exists"
     );

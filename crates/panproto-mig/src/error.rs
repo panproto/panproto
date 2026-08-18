@@ -54,14 +54,40 @@ pub enum SpanError {
 
     /// The apex is not a well-formed sub-schema of the source.
     ///
-    /// The hard constraints of the network are meant to make this unreachable:
-    /// they forbid exactly the assignments whose apex would carry a dangling
-    /// reference. Reaching it means a constraint is missing.
+    /// This carries whatever validating the induced apex against the protocol
+    /// reported. Dangling references are one cause and the one the network
+    /// guards against, by forbidding the assignments whose apex would carry
+    /// one, so a dangling reference here does mean a hard constraint is
+    /// missing. It is not the only cause: validation also checks vertex kinds,
+    /// edge rules and constraint sorts, none of which the network models, and a
+    /// sub-schema of a source the protocol already rejects inherits the
+    /// parent's findings. The common case is therefore an invalid input rather
+    /// than a missing constraint, and the two are told apart by running
+    /// [`validate`](fn@panproto_schema::validate) on the source: if it reports
+    /// the same findings, the apex only surfaced them.
     #[error("the apex is not a well-formed sub-schema of the source: {source}")]
     Apex {
         /// What inducing the apex reported.
         #[from]
         source: panproto_schema::SchemaError,
+    },
+
+    /// The total-morphism search stopped before reaching any complete
+    /// assignment, so whether one exists is unknown.
+    ///
+    /// Distinct from `Ok(vec![])`, which is the search finishing and finding
+    /// nothing. Branch and bound reaches complete assignments as it dives, so a
+    /// budget spent before the first leaf leaves it with no incumbent at all,
+    /// and the empty answer that would report is a claim the search never
+    /// established. A stop *after* a leaf is not reported here: that incumbent
+    /// is a genuine total morphism, only not a proven-optimal one.
+    #[error(
+        "the total-morphism search stopped on {limit:?} before reaching any complete \
+         assignment, so whether a total morphism exists is unknown"
+    )]
+    Stopped {
+        /// Which budget ran out.
+        limit: crate::solve::LimitKind,
     },
 
     /// The maximum common sub-schema search refused the network.

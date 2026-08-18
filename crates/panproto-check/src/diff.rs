@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_schema::{Constraint, Edge, RecursionPoint, Schema, UsageMode, Variant};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
@@ -70,10 +71,14 @@ pub struct SchemaDiff {
     pub order_changes: Vec<(Edge, Option<u32>, Option<u32>)>,
 
     // --- Recursion points ---
-    /// Recursion points added in the new schema.
-    pub added_recursion_points: Vec<RecursionPoint>,
-    /// Recursion points removed from the old schema.
-    pub removed_recursion_points: Vec<RecursionPoint>,
+    //
+    // Each carries the marker vertex alongside the point, because the marker is
+    // the key in `Schema::recursion_points` and a bare `RecursionPoint` names
+    // only what it unfolds to. Reporting an added or removed marker needs both.
+    /// Recursion points added in the new schema, as `(marker vertex, point)`.
+    pub added_recursion_points: Vec<(Name, RecursionPoint)>,
+    /// Recursion points removed from the old schema, as `(marker vertex, point)`.
+    pub removed_recursion_points: Vec<(Name, RecursionPoint)>,
     /// Recursion points whose target vertex changed.
     pub modified_recursion_points: Vec<RecursionPointChange>,
 
@@ -665,13 +670,17 @@ fn diff_recursion_points(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
                 }
             }
             None => {
-                result.added_recursion_points.push(new_rp.clone());
+                result
+                    .added_recursion_points
+                    .push((id.clone(), new_rp.clone()));
             }
         }
     }
     for (id, old_rp) in &old.recursion_points {
         if !new.recursion_points.contains_key(id) {
-            result.removed_recursion_points.push(old_rp.clone());
+            result
+                .removed_recursion_points
+                .push((id.clone(), old_rp.clone()));
         }
     }
 }
@@ -1272,7 +1281,6 @@ mod tests {
                 s.recursion_points.insert(
                     "mu1".into(),
                     RecursionPoint {
-                        mu_id: "mu1".into(),
                         target_vertex: "b".into(),
                     },
                 );
@@ -1288,7 +1296,6 @@ mod tests {
                 s.recursion_points.insert(
                     "mu1".into(),
                     RecursionPoint {
-                        mu_id: "mu1".into(),
                         target_vertex: "c".into(),
                     },
                 );
@@ -1522,17 +1529,21 @@ mod tests {
                 ..Default::default()
             },
             SchemaDiff {
-                added_recursion_points: vec![RecursionPoint {
-                    mu_id: "m".into(),
-                    target_vertex: "t".into(),
-                }],
+                added_recursion_points: vec![(
+                    "m".into(),
+                    RecursionPoint {
+                        target_vertex: "t".into(),
+                    },
+                )],
                 ..Default::default()
             },
             SchemaDiff {
-                removed_recursion_points: vec![RecursionPoint {
-                    mu_id: "m".into(),
-                    target_vertex: "t".into(),
-                }],
+                removed_recursion_points: vec![(
+                    "m".into(),
+                    RecursionPoint {
+                        target_vertex: "t".into(),
+                    },
+                )],
                 ..Default::default()
             },
             SchemaDiff {

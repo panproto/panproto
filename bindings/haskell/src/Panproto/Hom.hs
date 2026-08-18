@@ -459,10 +459,12 @@ defaultDomainConstraints =
 -- __Reading the quality.__ 'quality' ranks spans over /one source
 -- schema/ and nothing else: every denominator of the objective is fixed
 -- by the source, so two spans out of the same schema are comparable and
--- two spans out of different schemas are not. The two empty cases read
--- oppositely, an empty apex over a non-empty source scoring @0@ because
--- every vertex paid the drop cost and an empty apex over an empty source
--- scoring @1@ because nothing paid anything, so a caller ranking pairs
+-- two spans out of different schemas are not. An empty apex charges the
+-- full penalty on each component the source gives mass to, so its
+-- reading moves with the source's shape: @0@ over a source with at least
+-- one named edge, @0.30@ over a source whose edges are all unnamed,
+-- @0.55@ over an edgeless source, and @1@ over an empty source. All four
+-- say the same thing on four different scales, so a caller ranking pairs
 -- reads 'apexCoverage' alongside the score.
 data FoundSpan = FoundSpan
     { apex :: !Schema
@@ -489,6 +491,14 @@ data FoundSpan = FoundSpan
     , isTotal :: !Bool
     -- ^ Whether the apex is the whole source, which makes the span a
     -- total morphism.
+    , apexDigest :: !T.Text
+    -- ^ The apex's content digest, lower-case hex. Together with the two
+    -- leg maps this is the span's identity, which is what identifying,
+    -- deduping or caching a span takes. There is no schema-digest entry
+    -- point on the C ABI and the CBOR a host holds is not the digest's
+    -- pre-image, so this is the only way to obtain it.
+    , legsAreFunctorial :: !Bool
+    -- ^ Whether both legs passed the schema-morphism check.
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, ToJSON, FromJSON)
@@ -689,7 +699,7 @@ encodeCostWeights w =
 encodeFoundSpan :: FoundSpan -> LBS.ByteString
 encodeFoundSpan s =
     CBOR.toLazyByteString $
-        Enc.encodeMapLen 9
+        Enc.encodeMapLen 11
             <> kv "apex" (schemaEncoding s.apex)
             <> kv "left" (migrationEncoding s.left)
             <> kv "right" (migrationEncoding s.right)
@@ -699,6 +709,8 @@ encodeFoundSpan s =
             <> kv "apex_coverage" (Enc.encodeDouble s.apexCoverage)
             <> kv "proven_optimal" (Enc.encodeBool s.provenOptimal)
             <> kv "is_total" (Enc.encodeBool s.isTotal)
+            <> kv "apex_digest" (Enc.encodeString s.apexDigest)
+            <> kv "legs_are_functorial" (Enc.encodeBool s.legsAreFunctorial)
   where
     kv k v = Enc.encodeString k <> v
 
@@ -882,18 +894,26 @@ foundSpanDecoder = decodeFields initial' build handler
         , 0
         , False
         , False
+        , T.empty
+        , False
         )
-    build (ax, l, r, q, lo, hi, cov, po, tot) = FoundSpan ax l r q lo hi cov po tot
-    handler acc@(ax, l, r, q, lo, hi, cov, po, tot) key = case key of
-        "apex" -> (\v -> (v, l, r, q, lo, hi, cov, po, tot)) <$> schemaDecoder
-        "left" -> (\v -> (ax, v, r, q, lo, hi, cov, po, tot)) <$> migrationDecoder
-        "right" -> (\v -> (ax, l, v, q, lo, hi, cov, po, tot)) <$> migrationDecoder
-        "quality" -> (\v -> (ax, l, r, v, lo, hi, cov, po, tot)) <$> decodeDouble
-        "quality_lo" -> (\v -> (ax, l, r, q, v, hi, cov, po, tot)) <$> decodeDouble
-        "quality_hi" -> (\v -> (ax, l, r, q, lo, v, cov, po, tot)) <$> decodeDouble
-        "apex_coverage" -> (\v -> (ax, l, r, q, lo, hi, v, po, tot)) <$> decodeDouble
-        "proven_optimal" -> (\v -> (ax, l, r, q, lo, hi, cov, v, tot)) <$> Dec.decodeBool
-        "is_total" -> (\v -> (ax, l, r, q, lo, hi, cov, po, v)) <$> Dec.decodeBool
+    build (ax, l, r, q, lo, hi, cov, po, tot, dig, fun) =
+        FoundSpan ax l r q lo hi cov po tot dig fun
+    handler acc@(ax, l, r, q, lo, hi, cov, po, tot, dig, fun) key = case key of
+        "apex" -> (\v -> (v, l, r, q, lo, hi, cov, po, tot, dig, fun)) <$> schemaDecoder
+        "left" -> (\v -> (ax, v, r, q, lo, hi, cov, po, tot, dig, fun)) <$> migrationDecoder
+        "right" -> (\v -> (ax, l, v, q, lo, hi, cov, po, tot, dig, fun)) <$> migrationDecoder
+        "quality" -> (\v -> (ax, l, r, v, lo, hi, cov, po, tot, dig, fun)) <$> decodeDouble
+        "quality_lo" -> (\v -> (ax, l, r, q, v, hi, cov, po, tot, dig, fun)) <$> decodeDouble
+        "quality_hi" -> (\v -> (ax, l, r, q, lo, v, cov, po, tot, dig, fun)) <$> decodeDouble
+        "apex_coverage" -> (\v -> (ax, l, r, q, lo, hi, v, po, tot, dig, fun)) <$> decodeDouble
+        "proven_optimal" ->
+            (\v -> (ax, l, r, q, lo, hi, cov, v, tot, dig, fun)) <$> Dec.decodeBool
+        "is_total" -> (\v -> (ax, l, r, q, lo, hi, cov, po, v, dig, fun)) <$> Dec.decodeBool
+        "apex_digest" ->
+            (\v -> (ax, l, r, q, lo, hi, cov, po, tot, v, fun)) <$> Dec.decodeString
+        "legs_are_functorial" ->
+            (\v -> (ax, l, r, q, lo, hi, cov, po, tot, dig, v)) <$> Dec.decodeBool
         _ -> skipTerm >> pure acc
 
 schemaOverlapDecoder :: Decoder s SchemaOverlap

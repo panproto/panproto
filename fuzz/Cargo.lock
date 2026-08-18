@@ -22,6 +22,9 @@ name = "arbitrary"
 version = "1.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "c3d036a3c4ab069c7b410a2ce876bd74808d2d0888a82667669f8e783a898bf1"
+dependencies = [
+ "derive_arbitrary",
+]
 
 [[package]]
 name = "arrayref"
@@ -116,6 +119,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8b2a41393f66f16b0823bb79094d54ac5fbd34ab292ddafb9a0456ac9f87d201"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "derive_arbitrary"
+version = "1.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1e567bd82dcff979e4b03460c307b3cdc9e96fde3d73bed1496d2bc75d9dd62a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.119",
 ]
 
 [[package]]
@@ -268,8 +282,14 @@ dependencies = [
 name = "panproto-fuzz"
 version = "0.0.0"
 dependencies = [
+ "arbitrary",
  "libfuzzer-sys",
+ "panproto-gat",
  "panproto-mig",
+ "panproto-protocols",
+ "panproto-schema",
+ "rustc-hash",
+ "serde_json",
 ]
 
 [[package]]
@@ -309,6 +329,21 @@ dependencies = [
  "panproto-schema",
  "rustc-hash",
  "serde",
+ "smallvec",
+ "thiserror",
+]
+
+[[package]]
+name = "panproto-protocols"
+version = "0.71.0"
+dependencies = [
+ "blake3",
+ "panproto-gat",
+ "panproto-inst",
+ "panproto-schema",
+ "rustc-hash",
+ "serde",
+ "serde_json",
  "smallvec",
  "thiserror",
 ]

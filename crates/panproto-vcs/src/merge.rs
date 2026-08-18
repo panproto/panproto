@@ -1646,11 +1646,36 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     );
 
     // Rebuild precomputed indices.
+    //
+    // In sorted order, not in `edges.keys()` order. The merged edge set lives
+    // in a `HashMap`, so iterating it walks the buckets of that map's
+    // `RandomState`, which is seeded per process. Pushing in that order gives
+    // each index bucket a different arrangement of the same edges on every run,
+    // and a reader that takes a slice position rather than a value then answers
+    // differently run to run about one unchanged merge.
+    //
+    // This is defence in depth rather than the fix. `edge_image` is the reader
+    // that made the divergence observable and it now chooses by value, so the
+    // span is a function of the pair whether or not this loop sorts. What the
+    // sort buys is that the next positional reader is not bitten.
+    //
+    // It does not make the stored bytes a function of the schema, and nothing
+    // here could. `Schema` keeps `vertices`, `edges`, `outgoing`, `incoming` and
+    // `between` in `HashMap`s and serialising one walks those maps, so sorting
+    // what goes into a bucket does not settle the order the map is read out in.
+    // Measured: eight processes serialising one schema that never went through
+    // a merge produced eight distinct byte strings, against one constant
+    // `canonical_digest`. Settling that needs canonical serialisation of those
+    // fields, or dropping the derived indices from the wire form and rebuilding
+    // them on deserialise.
     let mut outgoing: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for edge in edges.keys() {
+    let mut ordered_edges: Vec<&Edge> = edges.keys().collect();
+    ordered_edges.sort_unstable();
+
+    for edge in ordered_edges {
         outgoing
             .entry(edge.src.clone())
             .or_default()
@@ -2660,12 +2685,12 @@ fn merge_recursion_points(
     let ours_added: FxHashSet<&str> = diff_ours
         .added_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let ours_removed: FxHashSet<&str> = diff_ours
         .removed_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let ours_modified: FxHashSet<&str> = diff_ours
         .modified_recursion_points
@@ -2675,12 +2700,12 @@ fn merge_recursion_points(
     let theirs_added: FxHashSet<&str> = diff_theirs
         .added_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let theirs_removed: FxHashSet<&str> = diff_theirs
         .removed_recursion_points
         .iter()
-        .map(|r| r.mu_id.as_str())
+        .map(|(mu, _)| mu.as_str())
         .collect();
     let theirs_modified: FxHashSet<&str> = diff_theirs
         .modified_recursion_points

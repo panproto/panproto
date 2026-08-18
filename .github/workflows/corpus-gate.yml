@@ -9,6 +9,10 @@ name: Corpus Gate
 #   * The span solver's oracle agreement sweep enumerates every assignment of
 #     both networks of every enumerable lexicon pair and checks the solver's
 #     answer against the true optimum. ~160 seconds unoptimised.
+#   * The cross-process corpus span comparison searches every ordered corpus
+#     pair in sixteen separate processes and compares the whole span, so a
+#     result that varied with the hash seed would show up as a second digest.
+#     ~7 minutes unoptimised.
 on:
   schedule:
     - cron: "0 6 * * *"
@@ -46,3 +50,9 @@ jobs:
         run: |
           cargo nextest run -p panproto-mig \
             -E 'test(every_enumerable_lexicon_pair_agrees_with_exhaustive_enumeration)'
+      # Sixteen child processes each rerun the whole corpus, so this needs the
+      # unoptimised build the step above already warmed.
+      - name: Run the cross-process corpus span comparison
+        run: |
+          cargo nextest run -p panproto-mig \
+            -E 'test(every_corpus_pair_yields_the_same_span_in_every_process)'

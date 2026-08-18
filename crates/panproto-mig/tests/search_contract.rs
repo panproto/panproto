@@ -193,7 +193,9 @@ fn epic_finds_a_surjection_the_unconstrained_optimum_is_not() {
     let src = schema(&["alpha", "beta"]);
     let tgt = schema(&["alpha", "zzzzzz"]);
 
-    let plain = find_morphisms(&src, &tgt, &SearchOptions::default()).expect("the network poses");
+    let plain = find_morphisms(&src, &tgt, &SearchOptions::default())
+        .expect("the network poses")
+        .morphisms;
     assert_eq!(plain.len(), 1, "the unconstrained optimum is unique");
     let images: std::collections::BTreeSet<&str> = plain[0]
         .vertex_map
@@ -211,7 +213,9 @@ fn epic_finds_a_surjection_the_unconstrained_optimum_is_not() {
         epic: true,
         ..SearchOptions::default()
     };
-    let onto = find_morphisms(&src, &tgt, &opts).expect("the network poses");
+    let onto = find_morphisms(&src, &tgt, &opts)
+        .expect("the network poses")
+        .morphisms;
     assert_eq!(
         onto.len(),
         1,
@@ -255,7 +259,9 @@ fn epic_agrees_between_find_best_and_find_morphisms() {
         epic: true,
         ..SearchOptions::default()
     };
-    let all = find_morphisms(&src, &tgt, &opts).expect("the network poses");
+    let all = find_morphisms(&src, &tgt, &opts)
+        .expect("the network poses")
+        .morphisms;
     let best = find_best_morphism(&src, &tgt, &opts).expect("the network poses");
     assert_eq!(
         all.is_empty(),
@@ -280,7 +286,8 @@ fn epic_agrees_between_find_best_and_find_morphisms() {
             ..SearchOptions::default()
         },
     )
-    .expect("the network poses");
+    .expect("the network poses")
+    .morphisms;
     assert_eq!(
         capped.len(),
         1,
@@ -302,6 +309,7 @@ fn epic_is_empty_when_the_source_is_smaller_than_the_target() {
     assert!(
         find_morphisms(&src, &tgt, &opts)
             .expect("the network poses")
+            .morphisms
             .is_empty(),
         "one source vertex cannot cover two targets"
     );

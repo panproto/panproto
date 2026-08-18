@@ -91,7 +91,12 @@ struct SearchOptionsWire {
     /// Require a bijective vertex map (an isomorphism).
     #[serde(default)]
     iso: bool,
-    /// Stop after this many morphisms; `0` means unlimited.
+    /// Stop after this many morphisms, up to the engine's own cap of 1024.
+    ///
+    /// `0` is not unlimited: it asks for everything the search enumerates,
+    /// which the same cap bounds. No value passed here is unbounded, because
+    /// the engine materialises one morphism per optimum and the count of
+    /// optima is not bounded by the schema pair's size.
     #[serde(default)]
     max_results: usize,
     /// Vertex mappings the caller knows and the search may not reconsider
@@ -241,16 +246,27 @@ impl DomainConstraintsWire {
 ///
 /// The span is `src ←left─ apex ─right→ tgt`. The apex is a `Schema` and the
 /// two legs are `Migration`s, all three of which derive `serde` and cross as
-/// themselves; the rest of the wire is the span's measurements, flattened out
-/// of the engine's certificate so that a host reads doubles and booleans
-/// rather than a nested record it has no other use for.
+/// themselves; the rest of the wire is a selection of the span's measurements,
+/// flattened so that a host reads doubles, booleans and a hex string rather
+/// than a nested record it has no other use for.
+///
+/// It is a selection rather than the whole certificate. Four of the
+/// certificate's fields cross: `proven_optimal`, `is_total` (which reads the
+/// leg shape), `apex_digest` and `legs_are_functorial`. The other six do not:
+/// `left_existence`, `right_existence`, `apex_pointed`, `path`,
+/// `tie_break_order` and `limit_hit` have no wire form here, so a host cannot
+/// tell a search the budget cut from one that finished.
 ///
 /// `quality` is a ranking signal among spans over one source schema and
 /// nothing else: every denominator of the objective is fixed by `src`, so
 /// comparing it across source schemas compares two different scales. An empty
-/// apex over a non-empty source reads `0.0` and an empty apex over an empty
-/// source reads `1.0`, which is why a host ranking pairs must read
-/// `apex_coverage` alongside it.
+/// apex charges the full penalty on each component the source gives mass to,
+/// and a source gives a component mass only when it has something for that
+/// component to measure, so the floor moves with the source's shape: `0.0` over
+/// a source with at least one named edge, `0.30` over a source whose edges are
+/// all unnamed, `0.55` over an edgeless source, and `1.0` over an empty source.
+/// Each is the worst reading on its own source's scale rather than a verdict,
+/// which is why a host ranking pairs must read `apex_coverage` alongside it.
 #[derive(Debug, Serialize, Deserialize)]
 struct SchemaSpanWire {
     /// The apex: the sub-schema of `src` the search gave targets to.
@@ -272,6 +288,24 @@ struct SchemaSpanWire {
     proven_optimal: bool,
     /// Whether the left leg is onto, which makes the span a total morphism.
     is_total: bool,
+    /// The apex's content digest, lower-case hex.
+    ///
+    /// Together with the two leg maps this is the span's identity, which is
+    /// what a host needs to dedupe or cache one. There is no schema-digest
+    /// entry point on this surface and the CBOR `pp_schema_to_cbor` hands out is
+    /// not the digest's pre-image, so a host cannot recompute it: without this
+    /// field it is unreachable rather than merely inconvenient.
+    ///
+    /// Defaulted on decode, because this struct is bidirectional.
+    /// `pp_hom_span_to_overlap` takes a span a host encoded, and hosts written
+    /// against the nine-field form must keep working.
+    #[serde(default)]
+    apex_digest: String,
+    /// Whether both legs passed the schema-morphism check.
+    ///
+    /// Defaulted on decode, for the same reason as `apex_digest`.
+    #[serde(default)]
+    legs_are_functorial: bool,
 }
 
 impl From<SchemaSpan> for SchemaSpanWire {
@@ -280,6 +314,8 @@ impl From<SchemaSpan> for SchemaSpanWire {
         Self {
             is_total: span.is_total(),
             proven_optimal: span.certificate.proven_optimal,
+            apex_digest: span.apex_digest_hex(),
+            legs_are_functorial: span.certificate.legs_are_functorial,
             apex: span.apex,
             left: span.left,
             right: span.right,
@@ -345,8 +381,11 @@ pub fn pp_hom_find_morphisms(
 
         let found = hom_search::find_morphisms(&src_schema, &tgt_schema, &options)
             .map_err(|e| FfiError::Operation(format!("find_morphisms: {e}")))?;
-        let wire_results: Vec<FoundMorphismWire> =
-            found.into_iter().map(FoundMorphismWire::from).collect();
+        let wire_results: Vec<FoundMorphismWire> = found
+            .morphisms
+            .into_iter()
+            .map(FoundMorphismWire::from)
+            .collect();
 
         let bytes = crate::canonical::encode(&wire_results)?;
         *out = bytes.into();

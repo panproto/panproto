@@ -251,7 +251,6 @@ fn push_annotations(out: &mut Vec<u8>, schema: &Schema) {
     push_len(out, recursion_points.len());
     for (mu, point) in recursion_points {
         push_name(out, mu);
-        push_name(out, &point.mu_id);
         push_name(out, &point.target_vertex);
     }
 
@@ -716,7 +715,6 @@ mod tests {
         schema.recursion_points.insert(
             Name::from("root"),
             RecursionPoint {
-                mu_id: Name::from("root"),
                 target_vertex: Name::from("leaf"),
             },
         );

@@ -426,6 +426,7 @@ pub fn find_morphisms(
     let found = hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
         .map_err(|e| MigrationError::new_err(format!("morphism search failed: {e}")))?;
     Ok(found
+        .morphisms
         .into_iter()
         .map(|m| PyFoundMorphism { inner: m })
         .collect())

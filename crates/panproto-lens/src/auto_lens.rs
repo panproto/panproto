@@ -1624,6 +1624,7 @@ fn candidates_from_search(
                 |dc| find_morphisms_constrained(src, tgt, search_opts, dc),
             )
             .map_err(|e| LensError::ProtolensError(format!("the morphism search failed: {e}")))?
+            .morphisms
     };
 
     if morphisms.is_empty() {
@@ -2228,6 +2229,7 @@ mod tests {
         assert!(
             find_morphisms(&src, &tgt, &SearchOptions::default())
                 .unwrap()
+                .morphisms
                 .is_empty(),
             "the fixture stopped posing the case: a total morphism exists, so a span tier \
              and a total tier would return the same thing here"

@@ -87,11 +87,31 @@ use super::{ValId, VarId};
 
 /// How hard a node is filtered before its lower bound is read.
 ///
-/// The levels are **not** totally ordered by strength, which is why this type
-/// carries no `Ord`. Arc consistency and directional arc consistency are
-/// incomparable: each has a witness the other does not detect. What does hold
-/// is `NC* ⪯ AC* ⪯ FDAC* ⪯ EDAC*` and `NC* ⪯ DAC* ⪯ FDAC*`, and the
-/// `c_∅ ordering` test pins that chain.
+/// Two orderings run through these levels and they do not agree, which is why
+/// this type carries no `Ord`.
+///
+/// As **properties** the levels nest: a network left by
+/// [`Network::enforce_fdac_star`] is both AC* and DAC*, and one left by
+/// [`Network::enforce_edac_star`] is FDAC*. That containment is pinned by the
+/// `enforcement_establishes_its_own_predicate` test.
+///
+/// As **bounds** only `NC* ⪯ AC* ⪯ FDAC* ⪯ EDAC*` and `NC* ⪯ DAC*` hold, and
+/// those are the links the `the_bound_is_ordered_by_level` test pins. A pair is
+/// ordered by bound only when the stronger level's enforcement begins with the
+/// weaker one's whole sequence, since no transformation lowers `c_∅`.
+/// Directional consistency shares a prefix with nothing above it:
+/// [`Network::enforce_dac_star`] runs `node_loop` then `directional_loop`,
+/// while every level above it runs `node_loop` then `arc_loop`, and the two
+/// diverge immediately. Closures are not unique, so a stronger property does
+/// not on its own imply a larger bound, and a network left by DAC* can carry a
+/// strictly larger `c_∅` than the same network left by FDAC*. The
+/// `dac_star_can_beat_fdac_star_on_the_bound` test exhibits a five-variable
+/// network where DAC* reaches 112 and FDAC* reaches `⊥`.
+///
+/// A caller wanting the largest bound available on a given instance therefore
+/// has to measure rather than read the chain. Enforcing two levels on separate
+/// copies and keeping the larger `c_∅` is sound, since each is a valid lower
+/// bound, but it is not what any single level does.
 #[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, Default)]
 pub enum ConsistencyLevel {
     /// Node consistency: every value is feasible against `c_∅`, and every
@@ -126,7 +146,12 @@ pub enum ConsistencyLevel {
 }
 
 impl ConsistencyLevel {
-    /// Every level, weakest first along the chain that is ordered.
+    /// Every level, in order of the work its enforcement does.
+    ///
+    /// Not in order of the bound reached: `DirectionalArc` sits at index 2 and
+    /// is not on the chain that is ordered by bound at all, so a caller reading
+    /// this array as a strength ranking would be reading the one entry that
+    /// does not have a rank.
     pub const ALL: [Self; 5] = [
         Self::Node,
         Self::Arc,
@@ -842,7 +867,12 @@ impl Network {
     /// stronger property does not on its own imply a larger bound; the shared
     /// prefix plus the fact that no transformation ever lowers `c_∅` does. The
     /// same reasoning does not order this level against directional consistency
-    /// alone, and the two are not compared.
+    /// alone, and the two are provably unordered rather than merely uncompared:
+    /// [`Self::enforce_dac_star`] runs `node_loop` then `directional_loop`, so
+    /// neither sequence is a prefix of the other, and this level's bound can be
+    /// the strictly smaller of the two. The
+    /// `dac_star_can_beat_fdac_star_on_the_bound` test exhibits a network where
+    /// it is `⊥` against DAC*'s 112.
     pub fn enforce_fdac_star(&mut self) -> bool {
         self.begin_enforcement();
         self.node_loop();
@@ -1834,6 +1864,91 @@ mod tests {
 
     const FIRST: VarId = VarId::new(0);
     const SECOND: VarId = VarId::new(1);
+
+    /// A network on which DAC* reaches a strictly larger bound than FDAC*.
+    ///
+    /// `DAC* ⪯ FDAC*` is the reading a level ranking invites, and it is false
+    /// in the direction that matters: FDAC* is the nominally stronger level, so
+    /// a caller picking it and expecting a bound at least as large gets `⊥`
+    /// here where DAC* gets 112. Only a comparison of the two bounds catches
+    /// that, so this test makes it rather than leaving the chain to imply it.
+    ///
+    /// Both readings are sound. Neither exceeds the true optimum and the
+    /// complete search returns the same answer at either level, so this costs
+    /// pruning rather than correctness. What it refutes is the ordering.
+    #[test]
+    fn dac_star_can_beat_fdac_star_on_the_bound() {
+        let spec = vec![
+            (Name::new("s0"), vec![Name::new("t0"), Name::new("t1")]),
+            (
+                Name::new("s1"),
+                vec![Name::new("t0"), Name::new("t1"), Name::new("t2")],
+            ),
+            (Name::new("s2"), vec![Name::new("t0")]),
+            (Name::new("s3"), vec![Name::new("t0"), Name::new("t1")]),
+            (
+                Name::new("s4"),
+                vec![Name::new("t0"), Name::new("t1"), Name::new("t2")],
+            ),
+        ];
+        let mut builder = CfnBuilder::new(spec, DEFAULT_WEIGHTS).unwrap();
+        let top = Cost::TOP_SENTINEL.raw();
+        let unary: [&[u64]; 5] = [
+            &[21845, 22015, 0],
+            &[0, 0, 0, 0],
+            &[0, 0],
+            &[0, 210, 0],
+            &[top, 0, 0, 0],
+        ];
+        for (index, table) in unary.iter().enumerate() {
+            let costs: Vec<Cost> = table.iter().copied().map(Cost::from_raw).collect();
+            builder
+                .add_unary_table(VarId::new(index as u32), &costs)
+                .unwrap();
+        }
+        let binary =
+            |raw: &[u64]| -> Vec<Cost> { raw.iter().copied().map(Cost::from_raw).collect() };
+        builder
+            .add_function(
+                &[VarId::new(2), VarId::new(3)],
+                binary(&[0, top, 0, top, 0, 0]),
+            )
+            .unwrap();
+        builder
+            .add_function(
+                &[VarId::new(0), VarId::new(3)],
+                binary(&[top, 0, top, 0, 0, 28909, top, 0, 112]),
+            )
+            .unwrap();
+        let cfn = builder.build();
+
+        let bound = |level| {
+            let mut network = Network::from_cfn(&cfn, Cost::TOP_SENTINEL);
+            network.enforce(level);
+            network.c_empty()
+        };
+        let directional = bound(ConsistencyLevel::DirectionalArc);
+        let full = bound(ConsistencyLevel::FullDirectionalArc);
+
+        assert_eq!(directional, cost(112));
+        assert_eq!(full, Cost::BOT);
+        assert!(
+            directional > full,
+            "the whole point of this fixture is that the nominally stronger \
+             level reaches the weaker bound: DAC* {directional:?}, FDAC* {full:?}"
+        );
+
+        // And FDAC* really did reach a closure, so this is not an enforcement
+        // that gave up early. The level holds afterwards; it is simply a
+        // different closure, and closures are not unique.
+        let mut network = Network::from_cfn(&cfn, Cost::TOP_SENTINEL);
+        assert!(network.enforce(ConsistencyLevel::FullDirectionalArc));
+        assert!(
+            network.is_fdac_star(),
+            "FDAC* must hold after enforcing it, or this fixture is showing a \
+             broken enforcement rather than an unordered pair"
+        );
+    }
 
     // -- the two saturation regressions -----------------------------------
 
@@ -2837,10 +2952,18 @@ mod tests {
             }
         }
 
-        /// The strength chain, as a comparison of the bound each level reaches.
+        /// The bound ordering, over exactly the pairs that have one.
         ///
-        /// `NC* ⪯ AC* ⪯ FDAC* ⪯ EDAC*` and `NC* ⪯ DAC* ⪯ FDAC*`. Arc and
-        /// directional consistency are incomparable, so they are not compared.
+        /// `NC* ⪯ AC* ⪯ FDAC* ⪯ EDAC*` and `NC* ⪯ DAC*`. Every other pair is
+        /// unordered by bound and is left uncompared here. Arc and directional
+        /// consistency each detect a witness the other does not, and
+        /// directional consistency is unordered against FDAC* and EDAC* as
+        /// well, since `enforce_fdac_star` shares its prefix with
+        /// `enforce_ac_star` rather than with `enforce_dac_star` and closures
+        /// are not unique. `dac_star_can_beat_fdac_star_on_the_bound` exhibits
+        /// the pair that has no order. The property containment that does hold
+        /// across all five is pinned by
+        /// `enforcement_establishes_its_own_predicate`.
         #[test]
         fn the_bound_is_ordered_by_level((cfn, top) in arb_instance()) {
             let bound = |level| {

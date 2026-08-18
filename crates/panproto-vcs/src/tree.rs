@@ -426,13 +426,12 @@ fn merge_enrichment_fields(
             out.orderings.insert(prefixed_edge(&prefix, edge), *pos);
         }
 
-        // recursion_points: mu_id and target_vertex are both vertex ids.
+        // recursion_points: the key is the marker vertex and target_vertex is
+        // a vertex id, so both are prefixed.
         for (mu, rp) in &schema.recursion_points {
-            let new_mu = name(&prefix, mu);
             out.recursion_points.insert(
-                new_mu.clone(),
+                name(&prefix, mu),
                 RecursionPoint {
-                    mu_id: new_mu,
                     target_vertex: name(&prefix, &rp.target_vertex),
                 },
             );
@@ -1036,7 +1035,6 @@ mod tests {
         s.recursion_points.insert(
             Name::from("a"),
             RecursionPoint {
-                mu_id: Name::from("a"),
                 target_vertex: Name::from("a"),
             },
         );

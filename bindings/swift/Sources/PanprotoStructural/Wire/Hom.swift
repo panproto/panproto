@@ -204,11 +204,13 @@ public struct MorphismDomainConstraints: Codable, Hashable, Sendable {
 /// ``quality`` ranks spans **over one source schema and nothing else**.
 /// Every denominator of the objective is fixed by the source, so two
 /// spans out of the same schema are comparable and two spans out of
-/// different schemas are not. The two empty cases read oppositely: an
-/// empty apex over a non-empty source is `0.0`, because every vertex
-/// paid the drop cost, and an empty apex over an empty source is `1.0`,
-/// because nothing paid anything. Both say the same thing, so a host
-/// ranking pairs reads ``apexCoverage`` alongside the score.
+/// different schemas are not. An empty apex charges the full penalty on
+/// each component the source gives mass to, so its reading moves with
+/// the source's shape: `0.0` over a source with at least one named edge,
+/// `0.30` over a source whose edges are all unnamed, `0.55` over an
+/// edgeless source, and `1.0` over an empty source. All four say the
+/// same thing on four different scales, so a host ranking pairs reads
+/// ``apexCoverage`` alongside the score.
 public struct SchemaSpan: Codable, Hashable, Sendable {
     /// The apex: the sub-schema of the source that found a target.
     public var apex: Schema
@@ -234,6 +236,15 @@ public struct SchemaSpan: Codable, Hashable, Sendable {
     /// Whether the apex is the whole source, which makes the span a
     /// total morphism.
     public var isTotal: Bool
+    /// The apex's content digest, lower-case hex.
+    ///
+    /// Together with the two leg maps this is the span's identity, which
+    /// is what identifying, deduping or caching a span takes. There is no
+    /// schema-digest entry point on the C ABI and the CBOR a host holds is
+    /// not the digest's pre-image, so this is the only way to obtain it.
+    public var apexDigest: String
+    /// Whether both legs passed the schema-morphism check.
+    public var legsAreFunctorial: Bool
 
     /// The wire keys, in Rust declaration order.
     private enum CodingKeys: String, CodingKey {
@@ -246,9 +257,16 @@ public struct SchemaSpan: Codable, Hashable, Sendable {
         case apexCoverage = "apex_coverage"
         case provenOptimal = "proven_optimal"
         case isTotal = "is_total"
+        case apexDigest = "apex_digest"
+        case legsAreFunctorial = "legs_are_functorial"
     }
 
     /// Describe a span.
+    ///
+    /// The last two arguments carry defaults, because the engine reads
+    /// them with `serde(default)`: a host that encodes a span for
+    /// `pp_hom_span_to_overlap` without them still produces a payload the
+    /// engine decodes.
     public init(
         apex: Schema,
         left: Migration,
@@ -258,7 +276,9 @@ public struct SchemaSpan: Codable, Hashable, Sendable {
         qualityHi: Double,
         apexCoverage: Double,
         provenOptimal: Bool,
-        isTotal: Bool
+        isTotal: Bool,
+        apexDigest: String = "",
+        legsAreFunctorial: Bool = false
     ) {
         self.apex = apex
         self.left = left
@@ -269,6 +289,8 @@ public struct SchemaSpan: Codable, Hashable, Sendable {
         self.apexCoverage = apexCoverage
         self.provenOptimal = provenOptimal
         self.isTotal = isTotal
+        self.apexDigest = apexDigest
+        self.legsAreFunctorial = legsAreFunctorial
     }
 
     /// The span as a total morphism, or `nil` when the apex is not the

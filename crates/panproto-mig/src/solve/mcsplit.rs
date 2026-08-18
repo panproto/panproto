@@ -1601,6 +1601,36 @@ impl<'a> Search<'a> {
 impl Search<'_> {
     /// The bound at this node, and the per-class `ρ` the vertex heuristic
     /// reads.
+    ///
+    /// # What it models, and what it does not
+    ///
+    /// Per class, the value is `min` of two sums: the `capacity` largest `ρ`,
+    /// one per source vertex, and the `capacity` largest `γ`, one per target.
+    /// Each entry is that vertex's best single increment plus half of the arc
+    /// rewards a completion could still pay around it, so each sum is an upper
+    /// bound on the class's remaining reward and taking the smaller keeps both
+    /// arguments.
+    ///
+    /// It models the objective and the capacity of a class. It does not model
+    /// the hard constraints, beyond what `delta` sees of the pairs already
+    /// mapped, and that is where its slack is. On the nine-vertex pair in
+    /// `fuzz/artifacts/span_search`, whose source carries seven coproducts and
+    /// four schema spans, the root bound over-estimates the attainable reward by
+    /// 3.4 times, prunes 562 of ten million nodes, and leaves the search to
+    /// spend its whole node budget. The reason is measurable rather than
+    /// arguable: every binary function that shape poses is an apex hard
+    /// constraint, whose table carries `⊤` and `⊥` and pays no reward, so both
+    /// half charges are exactly zero and the bound is the bare sum of the
+    /// per-vertex maxima. That sum assumes all nine source vertices are mapped
+    /// at once; the eleven constraints admit three.
+    ///
+    /// Two repairs were measured and neither is one. Capping each half charge by
+    /// the capacity of the class its neighbours live in is sound and changes
+    /// nothing here, because the charges are already zero, while costing about
+    /// 30% in wall time. Lowering the node budget turns a three-vertex apex into
+    /// an empty one. What would tighten this is a bound that reads the hard
+    /// constraints, which is what [`crate::solve::consistency`] already computes
+    /// for the other paths.
     fn bound(&self, future: &[Bidomain]) -> Plan {
         let (live_left, live_right) = liveness(self.instance, future);
         let mut bound = self.reward;

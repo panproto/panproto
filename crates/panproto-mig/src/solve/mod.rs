@@ -56,8 +56,8 @@ pub use cost::{
 pub use dfbb::{SearchParameters, solve_dfbb};
 pub use dispatch::{DispatchPlan, dispatch_plan, solve, solve_epic, solve_monic};
 pub use elim::{
-    Buckets, COUNT_CEILING, ProductVerdict, all_optima, count_solutions, decode, detect_product,
-    eliminate,
+    Buckets, COUNT_CEILING, EnumerationTrace, ProductVerdict, all_optima, all_optima_traced,
+    count_solutions, decode, detect_product, eliminate,
 };
 pub use hbfs::{BoundObservation, HbfsOutcome, HbfsParameters, solve_hbfs};
 pub use mcsplit::{
@@ -445,6 +445,15 @@ pub const DEFAULT_OP_BUDGET: u64 = 1_000_000_000;
 ///
 /// Exact inference ignores it: it never prunes, so it has no nodes to count.
 ///
+/// It bounds nodes, which is not the same as bounding work. A node costs what
+/// the bound and the refinement cost at that node, and neither is constant: on
+/// the maximum common sub-schema path this ceiling takes about fifteen seconds
+/// to reach on a nine-vertex pair whose source carries dense annotation maps,
+/// while the same pair answers in milliseconds on the other two routes. A
+/// caller that needs a wall-clock ceiling sets [`SearchBudget::max_millis`],
+/// and takes on the consequence that doing so makes the answer a function of
+/// the machine.
+///
 /// **calibration:** none. This is an engineering ceiling, not a calibrated
 /// value, and exhausting it is reported through
 /// [`SolveOutcome::limit_hit`] rather than absorbed, so it bounds effort
@@ -469,8 +478,40 @@ pub struct SearchBudget {
     /// it ran on, so it is opt-in, and when one is hit the outcome says so.
     pub max_millis: Option<u64>,
 
-    /// Bytes of message table exact inference may allocate before the
-    /// dispatcher falls back to search.
+    /// Bytes of table a solve may allocate, read at four sites, two of which
+    /// refuse and two of which fall back.
+    ///
+    /// It refuses at
+    /// [`CfnBuilder::with_mem_bytes`](crate::solve::CfnBuilder::with_mem_bytes),
+    /// which [`build_cfn`](crate::solve::build::build_cfn) poses every network
+    /// through: the figure bounds the *cost* tables, it is checked before
+    /// anything is allocated, and a pair whose tables do not fit comes back as
+    /// [`BuildError::Network`](crate::solve::build::BuildError::Network),
+    /// surfacing as [`SpanError::Build`](crate::SpanError::Build). It refuses
+    /// again on the iso path, where `mcsplit` sizes its dense frames against the
+    /// same figure and reports
+    /// [`IsoError::OverMemoryBudget`].
+    /// Neither refusal has a slower answer behind it, because every search
+    /// entry point takes an already-built `&Cfn`: a network that cannot be held
+    /// cannot be searched either.
+    ///
+    /// It falls back at [`EliminationCost::fits`],
+    /// which bounds the *message* tables bucket elimination would build and
+    /// routes the solve to branch and bound instead, contributing
+    /// [`SearchWarning::EliminationOutOfBudget`]. And it is re-posed, rather
+    /// than read afresh, by `dispatch`'s component decomposition and by
+    /// [`without_bottom`](crate::without_bottom), which rebuild parts of a
+    /// network the same figure already accepted; there the fallback is
+    /// unreachable by construction.
+    ///
+    /// The ordering is what a caller lowering this knob has to know: the build
+    /// ceiling binds first, so a figure below what the pair's cost tables need
+    /// is a refusal and never a slower answer. [`DEFAULT_MEM_BYTES`] is 64 MiB
+    /// and the measured schema corpus needs a few KiB, so on that corpus every
+    /// setting below the build floor refuses and none falls back. The fallback
+    /// is reachable on wide networks, where the message tables outgrow the cost
+    /// tables: an eight-variable clique of width seven routes to branch and
+    /// bound at every ceiling from 32 KiB to 16 MiB with `op_budget` untouched.
     pub mem_bytes: usize,
 
     /// Elementary operations the solve may perform, whichever path it takes.

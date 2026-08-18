@@ -91,7 +91,6 @@ fn assert_nothing_dangles(apex: &Schema) -> Result<(), TestCaseError> {
     }
     for (mu, point) in &apex.recursion_points {
         prop_assert!(has_vertex(mu));
-        prop_assert!(has_vertex(&point.mu_id));
         prop_assert!(has_vertex(&point.target_vertex));
     }
     for span in apex.spans.values() {

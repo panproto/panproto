@@ -198,16 +198,36 @@ pub struct SchemaSpan {
     /// [`reference_quality`](crate::quality::reference_quality) must compute
     /// that expression rather than hard-code a constant.
     ///
-    /// # The two empty cases read oppositely, and neither is a verdict
+    /// # The empty cases, and why none of them is a verdict
     ///
-    /// An empty apex over a non-empty source reads `0.0`, because every vertex
-    /// paid the drop cost and nothing paid a match cost. An empty apex over an
-    /// *empty* source reads `1.0`, because there was nothing to pay either. The
-    /// two are the same answer, "these schemas share nothing", and they are
-    /// numerically opposite, so a caller ranking pairs by this number must read
-    /// [`Self::apex_coverage`] alongside it. That is the concrete form of the
-    /// rule above: this is a ranking signal among spans over one source schema,
-    /// and comparing it across sources compares two different scales.
+    /// An empty apex costs every source vertex the full penalty on each
+    /// component that has mass, and a component has mass only when the source
+    /// gives it something to measure. Name and degree are normalised per source
+    /// vertex, so they always charge. The edge component is normalised per
+    /// source edge and the Jaccard component per source vertex with a named
+    /// outgoing edge, so a source with no edges charges neither and a source
+    /// whose edges are all unnamed charges only the first. Under the default
+    /// weights an empty apex therefore reads
+    ///
+    /// - `0.0` over a source with at least one named edge,
+    /// - `0.30` over a source whose edges are all unnamed,
+    /// - `0.55` over an edgeless source, and
+    /// - `1.0` over an empty source, since there was nothing to pay.
+    ///
+    /// The first is not the rule for every non-empty source, tempting as that
+    /// reading is: it is the reading of the one shape the measured schema
+    /// corpus happens to contain, so no corpus test can distinguish it from the
+    /// other two. `the_empty_apex_reads_its_own_scale` builds all four sources
+    /// and pins all four readings.
+    ///
+    /// Those readings are floors rather than verdicts. Each is the worst value
+    /// on its own source's scale, and the scale is narrower the less structure
+    /// the source carries, so "these two schemas share nothing" is `0.0` on one
+    /// source and `0.55` on another. This is why a caller ranking pairs must
+    /// read [`Self::apex_coverage`] alongside this number. That is the concrete
+    /// form of the rule above: this is a ranking signal among spans over one
+    /// source schema, and comparing it across sources compares two different
+    /// scales.
     pub quality: f64,
 
     /// `(lower, upper)` bracketing [`Self::quality`].
@@ -655,8 +675,23 @@ impl<'a> SpanSearch<'a> {
     ///
     /// [`SpanError::Build`] if the network could not be posed, [`SpanError::Iso`]
     /// if the iso path refused it, and [`SpanError::Apex`] if the induced apex is
-    /// not a well-formed schema. The last is unreachable from a feasible
-    /// assignment and reaching it means a hard constraint is missing.
+    /// not a well-formed schema.
+    ///
+    /// The last is reachable, and its usual cause is an invalid input rather
+    /// than a missing constraint. Inducing validates the apex against the
+    /// protocol and this search validates neither of its inputs, so a source
+    /// the protocol already rejects carries its own findings into every apex
+    /// that keeps an offending part, and the refusal is the source's rather
+    /// than the network's. Which of the two happens turns on where the optimum
+    /// lands: the same invalid source is answered whenever the optimum leaves
+    /// the offending part out, so this error is not a function of the source
+    /// alone. A caller wanting a refusal that is should run
+    /// [`validate`](fn@panproto_schema::validate) on its inputs first.
+    ///
+    /// A dangling reference is the one exception, and it does indict the
+    /// network: the five apex hard constraints exist precisely to forbid the
+    /// assignments whose apex would carry one. [`SpanError::Apex`] states which
+    /// findings are which.
     ///
     /// [`SpanError::EpicIsNotASpanProperty`] if
     /// [`SearchOptions::epic`](crate::SearchOptions::epic) is set. Surjectivity
@@ -1174,8 +1209,8 @@ fn signatures_survived_whole(src: &Schema, keep_v: &FxHashSet<Name>) -> bool {
 
 /// Whether every surviving fixpoint marker kept the vertex it unfolds to.
 fn fixpoints_kept_their_targets(src: &Schema, keep_v: &FxHashSet<Name>) -> bool {
-    src.recursion_points.values().all(|point| {
-        !keep_v.contains(&point.mu_id)
+    src.recursion_points.iter().all(|(mu, point)| {
+        !keep_v.contains(mu)
             || !holds(src, &point.target_vertex)
             || keep_v.contains(&point.target_vertex)
     })
@@ -1575,7 +1610,6 @@ mod tests {
         src.recursion_points.insert(
             Name::from("mu"),
             panproto_schema::RecursionPoint {
-                mu_id: Name::from("mu"),
                 target_vertex: Name::from("root"),
             },
         );

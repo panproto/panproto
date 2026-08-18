@@ -84,8 +84,8 @@ use crate::validate::validate;
 /// 2. `hyper_edges` is retained only when *every* `signature` value survives.
 ///    The hyper-edge id is its own key space and is never tested against
 ///    `keep_v`.
-/// 3. `recursion_points` is retained only when the key, `mu_id` and
-///    `target_vertex` all survive.
+/// 3. `recursion_points` is retained only when the key, which is the marker
+///    vertex, and `target_vertex` both survive.
 /// 4. `spans` is retained only when `left` and `right` both survive. The span
 ///    id is its own key space.
 /// 5. `coercions` is keyed by `(source_kind, target_kind)`, so it is filtered
@@ -126,11 +126,10 @@ use crate::validate::validate;
 /// # Panics
 ///
 /// In debug builds, panics if the surviving `nsids` map and the surviving
-/// [`Vertex::nsid`](crate::Vertex::nsid) fields disagree in either direction,
-/// and if a `recursion_points` entry is filed under a key other than its
-/// `mu_id`. Both are redundancies that every constructor in the tree keeps in
-/// step and that nothing else cross-checks, so a disagreement means a schema
-/// arrived by direct field mutation or by deserialisation.
+/// [`Vertex::nsid`](crate::Vertex::nsid) fields disagree in either direction.
+/// That is a redundancy every constructor in the tree keeps in step and that
+/// nothing else cross-checks, so a disagreement means a schema arrived by
+/// direct field mutation or by deserialisation.
 ///
 /// # Examples
 ///
@@ -547,36 +546,27 @@ fn induce_variants<S: BuildHasher>(
         .collect()
 }
 
-/// Retain a fixpoint marker only when its key, its `mu_id` and its
-/// `target_vertex` all survive.
+/// Retain a fixpoint marker only when its marker vertex and its
+/// `target_vertex` both survive.
 ///
-/// The key clause looks redundant beside the `mu_id` clause and is not: the
-/// map's key space is vertex id, so a key outside `keep_v` would be a dangling
-/// key even when the value it points at is intact. The two clauses coincide
-/// under the invariant that a marker is filed under its own `mu_id`, which
-/// every constructor in the tree maintains and which the debug assertion below
-/// pins.
+/// A marker has exactly two ends: the marker vertex, which is the key it is
+/// filed under, and the vertex it unfolds to. Both are tested, and there is
+/// nothing else to test, because [`RecursionPoint`] names the marker once.
 ///
-/// # Panics
-///
-/// In debug builds, if a marker is filed under a key other than its `mu_id`.
+/// A marker whose ends do not both survive is dropped rather than reported, and
+/// the sub-schema that results looks complete. That is deliberate: this is the
+/// restriction of a schema to a vertex set and a marker outside it is not part
+/// of the restriction. It is also why
+/// [`validate`](crate::validate) reports a marker naming a vertex the schema
+/// does not have, since that one is a defect in the input rather than a
+/// consequence of the cut.
 fn induce_recursion_points<S: BuildHasher>(
     recursion_points: &HashMap<Name, RecursionPoint>,
     keep_v: &HashSet<Name, S>,
 ) -> HashMap<Name, RecursionPoint> {
-    debug_assert!(
-        recursion_points
-            .iter()
-            .all(|(mu, point)| *mu == point.mu_id),
-        "induce: a recursion point is filed under a key other than its mu_id"
-    );
     recursion_points
         .iter()
-        .filter(|(mu, point)| {
-            keep_v.contains(*mu)
-                && keep_v.contains(&point.mu_id)
-                && keep_v.contains(&point.target_vertex)
-        })
+        .filter(|(mu, point)| keep_v.contains(*mu) && keep_v.contains(&point.target_vertex))
         .map(|(mu, point)| (mu.clone(), point.clone()))
         .collect()
 }
@@ -758,14 +748,12 @@ mod tests {
         schema.recursion_points.insert(
             Name::from("mu"),
             RecursionPoint {
-                mu_id: Name::from("mu"),
                 target_vertex: Name::from("root"),
             },
         );
         schema.recursion_points.insert(
             Name::from("mu-dangling"),
             RecursionPoint {
-                mu_id: Name::from("mu-dangling"),
                 target_vertex: Name::from("cut"),
             },
         );

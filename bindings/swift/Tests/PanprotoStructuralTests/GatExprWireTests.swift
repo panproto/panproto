@@ -825,7 +825,7 @@ struct HomWireTests {
         )
     }
 
-    @Test("a span writes all nine keys in declaration order")
+    @Test("a span writes all eleven keys in declaration order")
     func spanWritesEveryKey() throws {
         let encoded = try CBOREncoder().encode(sampleSpan)
         let reflected = try CBORDecoder().decode(CBORValue.self, from: encoded)
@@ -844,6 +844,8 @@ struct HomWireTests {
                 .textString("apex_coverage"),
                 .textString("proven_optimal"),
                 .textString("is_total"),
+                .textString("apex_digest"),
+                .textString("legs_are_functorial"),
             ]
         )
     }
@@ -893,7 +895,9 @@ struct HomWireTests {
             qualityHi: 0.75,
             apexCoverage: 1.0,
             provenOptimal: true,
-            isTotal: true
+            isTotal: true,
+            apexDigest: "6e2aca7255624dd1ca09a9c6edb727783d3906bf0bbbd18b48ec610e9e7c8d78",
+            legsAreFunctorial: true
         )
     }
 

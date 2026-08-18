@@ -277,9 +277,13 @@ export interface Variant {
   readonly tag?: string | undefined;
 }
 
-/** A recursion point (mu-binding site). */
+/**
+ * A recursion point (mu-binding site).
+ *
+ * The marker vertex is the key this is filed under in the schema's
+ * `recursion_points` map, and is deliberately not repeated here.
+ */
 export interface RecursionPoint {
-  readonly mu_id: string;
   readonly target_vertex: string;
 }
 

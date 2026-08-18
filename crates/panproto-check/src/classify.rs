@@ -692,14 +692,14 @@ pub fn classify(diff: &SchemaDiff, protocol: &Protocol) -> CompatReport {
     }
 
     // --- Recursion point changes ---
-    for rp in added_recursion_points {
+    for (mu, _) in added_recursion_points {
         breaking.push(BreakingChange::RecursionPointAdded {
-            mu_id: rp.mu_id.to_string(),
+            mu_id: mu.to_string(),
         });
     }
-    for rp in removed_recursion_points {
+    for (mu, _) in removed_recursion_points {
         breaking.push(BreakingChange::RecursionBroken {
-            mu_id: rp.mu_id.to_string(),
+            mu_id: mu.to_string(),
         });
     }
     for rpc in modified_recursion_points {
@@ -1424,19 +1424,23 @@ mod tests {
     #[test]
     fn recursion_point_add_remove_modify_breaking() {
         let added = SchemaDiff {
-            added_recursion_points: vec![RecursionPoint {
-                mu_id: "m".into(),
-                target_vertex: "t".into(),
-            }],
+            added_recursion_points: vec![(
+                "m".into(),
+                RecursionPoint {
+                    target_vertex: "t".into(),
+                },
+            )],
             ..SchemaDiff::default()
         };
         assert!(!classify(&added, &test_protocol()).compatible);
 
         let removed = SchemaDiff {
-            removed_recursion_points: vec![RecursionPoint {
-                mu_id: "m".into(),
-                target_vertex: "t".into(),
-            }],
+            removed_recursion_points: vec![(
+                "m".into(),
+                RecursionPoint {
+                    target_vertex: "t".into(),
+                },
+            )],
             ..SchemaDiff::default()
         };
         assert!(!classify(&removed, &test_protocol()).compatible);
@@ -1630,10 +1634,12 @@ mod tests {
             (
                 "added_recursion_points",
                 SchemaDiff {
-                    added_recursion_points: vec![RecursionPoint {
-                        mu_id: "m".into(),
-                        target_vertex: "t".into(),
-                    }],
+                    added_recursion_points: vec![(
+                        "m".into(),
+                        RecursionPoint {
+                            target_vertex: "t".into(),
+                        },
+                    )],
                     ..SchemaDiff::default()
                 },
             ),

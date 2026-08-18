@@ -99,10 +99,21 @@ pub struct Ordering {
 ///
 /// Marks a vertex as a recursive reference to another vertex,
 /// satisfying the fold-unfold law: `unfold(fold(v)) = v`.
+///
+/// The marker vertex is the key this is filed under in
+/// [`Schema::recursion_points`], and is deliberately not repeated here. Naming
+/// it twice would make the two copies independently settable, and
+/// deserialisation accepts whatever a file says: a schema filing a marker under
+/// one name while the marker claimed another would be a contradiction no
+/// constructor could rule out and every reader would have to pick a side.
+/// Inducing, validation, diffing, hashing and the protocol emitters key on the
+/// map; the search network and the span's right leg read the marker. With one
+/// copy they cannot disagree, which is a stronger guarantee than any check
+/// could give, since a check has to be run and this cannot be skipped.
+/// [`ValidationError::DanglingRecursionPoint`](crate::ValidationError) covers
+/// what remains, a marker naming a vertex the schema does not have.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct RecursionPoint {
-    /// The fixpoint marker vertex ID.
-    pub mu_id: Name,
     /// The target vertex this unfolds to.
     pub target_vertex: Name,
 }

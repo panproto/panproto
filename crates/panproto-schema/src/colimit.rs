@@ -394,10 +394,10 @@ fn assemble_pushout(
     // Recursion points
     let mut recursion_points = left.recursion_points.clone();
     for (id, rp) in &right.recursion_points {
+        // The marker vertex is the key, so renaming it is renaming the entry.
         let mid = resolve(right_rename, id);
-        recursion_points.entry(mid.clone()).or_insert_with(|| {
+        recursion_points.entry(mid).or_insert_with(|| {
             let mut rp2 = rp.clone();
-            rp2.mu_id = mid;
             rp2.target_vertex = resolve(right_rename, &rp2.target_vertex);
             rp2
         });
