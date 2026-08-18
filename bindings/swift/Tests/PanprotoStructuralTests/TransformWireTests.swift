@@ -101,8 +101,8 @@ struct SchemaDiffTests {
             VariantChange(id: "v", parentVertex: "p", oldTag: nil, newTag: "t")
         ]
         diff.orderChanges = [WireTriple(plainEdge, 0, nil)]
-        diff.addedRecursionPoints = [RecursionPoint(muId: "m", targetVertex: "a")]
-        diff.removedRecursionPoints = [RecursionPoint(muId: "n", targetVertex: "b")]
+        diff.addedRecursionPoints = [WirePair("m", RecursionPoint(targetVertex: "a"))]
+        diff.removedRecursionPoints = [WirePair("n", RecursionPoint(targetVertex: "b"))]
         diff.modifiedRecursionPoints = [
             RecursionPointChange(muId: "m", oldTarget: "a", newTarget: "b")
         ]

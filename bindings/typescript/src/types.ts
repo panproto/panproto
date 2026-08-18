@@ -434,8 +434,8 @@ export interface FullSchemaDiff {
   readonly removed_variants: readonly Variant[];
   readonly modified_variants: readonly Record<string, unknown>[];
   readonly order_changes: readonly [Edge, number | null, number | null][];
-  readonly added_recursion_points: readonly RecursionPoint[];
-  readonly removed_recursion_points: readonly RecursionPoint[];
+  readonly added_recursion_points: readonly [string, RecursionPoint][];
+  readonly removed_recursion_points: readonly [string, RecursionPoint][];
   readonly modified_recursion_points: readonly Record<string, unknown>[];
   readonly usage_mode_changes: readonly [Edge, UsageMode, UsageMode][];
   readonly added_spans: readonly string[];

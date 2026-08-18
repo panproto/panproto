@@ -188,9 +188,9 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
     /// on that side.
     public var orderChanges: [WireTriple<Edge, UInt32?, UInt32?>]
     /// Recursion points added in the new schema.
-    public var addedRecursionPoints: [RecursionPoint]
+    public var addedRecursionPoints: [WirePair<Name, RecursionPoint>]
     /// Recursion points removed from the old schema.
-    public var removedRecursionPoints: [RecursionPoint]
+    public var removedRecursionPoints: [WirePair<Name, RecursionPoint>]
     /// Recursion points whose target vertex changed.
     public var modifiedRecursionPoints: [RecursionPointChange]
     /// Usage mode changes, as the edge, its old mode, and its new mode.
@@ -358,11 +358,11 @@ public struct SchemaDiff: Codable, Hashable, Sendable {
             forKey: .orderChanges
         )
         self.addedRecursionPoints = try container.decode(
-            [RecursionPoint].self,
+            [WirePair<Name, RecursionPoint>].self,
             forKey: .addedRecursionPoints
         )
         self.removedRecursionPoints = try container.decode(
-            [RecursionPoint].self,
+            [WirePair<Name, RecursionPoint>].self,
             forKey: .removedRecursionPoints
         )
         self.modifiedRecursionPoints = try container.decode(

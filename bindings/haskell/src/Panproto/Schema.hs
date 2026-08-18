@@ -155,8 +155,10 @@ data Span = Span
 
 -- | A recursion point: a fixpoint marker vertex unfolding to a target.
 data RecursionPoint = RecursionPoint
-    { muId :: !Text
-    , targetVertex :: !Text
+    { targetVertex :: !Text
+    -- ^ The vertex the marker unfolds to. The marker itself is the key
+    -- this sits under in the schema's @recursionPoints@ map and is
+    -- deliberately not repeated, so the two cannot disagree on decode.
     }
     deriving stock (Eq, Show, Generic)
     deriving anyclass (NFData, Hashable, ToJSON, FromJSON)
@@ -379,8 +381,7 @@ encodeSpan sp =
 
 encodeRecursionPoint :: RecursionPoint -> Encoding
 encodeRecursionPoint r =
-    Enc.encodeMapLen 2
-        <> Enc.encodeString "mu_id" <> Enc.encodeString r.muId
+    Enc.encodeMapLen 1
         <> Enc.encodeString "target_vertex" <> Enc.encodeString r.targetVertex
 
 encodeMaybeText :: Maybe Text -> Encoding
@@ -580,12 +581,10 @@ decodeSpan = decodeFields (T.empty, T.empty, T.empty) build handler
         _ -> skipTerm >> pure acc
 
 decodeRecursionPoint :: Decoder s RecursionPoint
-decodeRecursionPoint = decodeFields (T.empty, T.empty) build handler
+decodeRecursionPoint = decodeFields T.empty RecursionPoint handler
   where
-    build (m, t) = RecursionPoint m t
-    handler acc@(m, t) key = case key of
-        "mu_id" -> (\v -> (v, t)) <$> Dec.decodeString
-        "target_vertex" -> (\v -> (m, v)) <$> Dec.decodeString
+    handler acc key = case key of
+        "target_vertex" -> Dec.decodeString
         _ -> skipTerm >> pure acc
 
 -- | Decode a CBOR map of fields, threading a tuple accumulator through

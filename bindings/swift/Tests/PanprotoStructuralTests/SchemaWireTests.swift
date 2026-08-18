@@ -276,7 +276,7 @@ struct SchemaElementWireTests {
 
     @Test("A recursion point names its marker and target")
     func recursionPointRoundTrips() throws {
-        let point = RecursionPoint(muId: "mu", targetVertex: "a")
+        let point = RecursionPoint(targetVertex: "a")
         #expect(try encodedHex(point) == Expected.recursionPoint)
         #expect(try roundTripped(point) == point)
     }
@@ -335,7 +335,7 @@ struct SchemaWireTests {
         )
         schema.addRequiredEdges([labeledEdge], for: "a")
         schema.variants["b"] = [Variant(id: "v0", parentVertex: "b", tag: "t")]
-        schema.recursionPoints["mu"] = RecursionPoint(muId: "mu", targetVertex: "a")
+        schema.recursionPoints["mu"] = RecursionPoint(targetVertex: "a")
         schema.spans["s"] = Span(id: "s", left: "a", right: "b")
         schema.nominal["a"] = true
         schema.coercions[WirePair("string", "int")] = CoercionSpec(
@@ -597,7 +597,7 @@ private enum Expected {
         + "65617868706f736974696f6e03"
 
     /// A recursion point.
-    static let recursionPoint = "a2656d755f6964626d756d7461726765745f7665727465786161"
+    static let recursionPoint = "a16d7461726765745f7665727465786161"
 
     /// A span.
     static let span = "a36269646173646c65667461616572696768746162"
