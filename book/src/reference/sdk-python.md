@@ -93,7 +93,7 @@ if span.is_total:
 
 ### `find_morphisms` no longer returns the hom-set
 
-This is a silent behavioural change, so code that upgrades without reading this paragraph will get different answers from an unchanged call. `find_morphisms` used to return every total morphism, ranked by descending quality. It now returns the morphisms **attaining the optimum**, capped by `max_results`, and nothing else. Every element carries the same quality, so `results[0]` is what it always was, and iterating further for a suboptimal alternative will not find one. A `max_results` of zero means every optimum the search enumerates up to the engine's own cap, rather than the whole hom-set.
+This is a silent behavioural change, so code that upgrades without reading this paragraph will get different answers from an unchanged call. `find_morphisms` used to return every total morphism, ranked by descending quality. It now returns the morphisms **attaining the optimum**, and nothing else. Every element carries the same quality, so `results[0]` is what it always was, and iterating further for a suboptimal alternative will not find one. The engine's cap of 1024 bounds every request rather than only `max_results=0`, so asking for more is answered with the cap. Python receives a plain list, so the flag the engine sets when the cap cut the answer short does not cross this surface; a caller that needs to tell a cut list from an exhausted one compares `len(results)` against 1024.
 
 An empty list means that no total morphism exists, and only that. A search that could not be posed raises `MigrationError` instead, so the two are distinguishable; `find_span` is the function that answers with what the two schemas do share.
 

@@ -70,7 +70,7 @@ The third argument is source-to-target vertex mappings the caller *knows*, which
 
 ### The `find_morphisms` contract change, and where TypeScript stands
 
-The morphism search changed contract across the whole engine: `find_morphisms` now returns the morphisms attaining the optimum, capped by `max_results`, where it used to return the whole hom-set in descending quality. That is a silent behavioural break for the Rust, Python, Haskell, and Swift surfaces. TypeScript is unaffected only because it never exposed the total-morphism search: morphism search has no WASM analogue, and `Panproto.span` is the only entry point into it from this SDK. Code that reaches the search through the `schema auto-migrate` CLI, or through a sibling SDK in the same pipeline, is affected in the ordinary way.
+The morphism search changed contract across the whole engine: `find_morphisms` now returns the morphisms attaining the optimum, bounded by an engine cap of 1024 that applies to every request, where it used to return the whole hom-set in descending quality. That is a silent behavioural break for the Rust, Python, Haskell, and Swift surfaces. TypeScript is unaffected only because it never exposed the total-morphism search: morphism search has no WASM analogue, and `Panproto.span` is the only entry point into it from this SDK. Code that reaches the search through the `schema auto-migrate` CLI, or through a sibling SDK in the same pipeline, is affected in the ordinary way.
 
 ## Boundary characteristics
 
