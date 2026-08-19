@@ -127,11 +127,12 @@ private func packageRelative(_ path: String) -> String {
 /// the pin are published together by the same job, so the pin describes
 /// exactly the artifact those sources need. In the workspace the sources
 /// track `main` and can be ahead of every published artifact, which is
-/// what happens whenever a release adds a C ABI export: at v0.71.0 the
-/// tag still pinned v0.70.1, whose header predates `pp_hom_find_span`,
-/// so a checkout that fell back to the pin failed with `cannot find
-/// 'pp_hom_find_span' in scope`. Falling back to a released artifact in a
-/// source checkout cannot be right, so this manifest does not.
+/// what happens whenever a release adds a C ABI export: the tag still
+/// names the previous release, whose header predates the new entry
+/// points, so a checkout that fell back to the pin failed to compile on
+/// a symbol that release did not carry. Falling back to a released
+/// artifact in a source checkout cannot be right, so this manifest does
+/// not.
 private let inWorkspace: Bool = {
     let crate =
         packageDirectory
