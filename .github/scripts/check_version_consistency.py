@@ -367,6 +367,13 @@ def pin_constant(name: str) -> re.Pattern[str]:
     )
 
 
+# A `pp_*` call inside a Swift shim body.
+FFI_CALL = re.compile(r"\b(pp_[a-z0-9_]+)\s*\(")
+
+# A `pp_*` declaration in the C header, which spells the return type on the
+# line above the name, as `cbindgen` emits it.
+FFI_DECL = re.compile(r"\n(?:int32_t|void)\s*\n(pp_[a-z0-9_]+)\s*\(")
+
 PIN_URL = pin_constant("releaseXCFrameworkURL")
 PIN_CHECKSUM = pin_constant("releaseXCFrameworkChecksum")
 
@@ -721,6 +728,113 @@ def check_swift_release_pin(expected: str) -> list[Mismatch]:
     )
 
 
+def symbols_missing_from(referenced: set[str], header: str) -> list[str]:
+    """Which of `referenced` the header does not declare, sorted.
+
+    Split out from the check so the self-test can drive it without a git
+    tree: the interesting logic is the comparison, and the rest is reading
+    a pin and shelling out to `git show`.
+    """
+    return sorted(referenced - set(FFI_DECL.findall(header)))
+
+
+def ungated_ffi_symbols() -> set[str]:
+    """Every `pp_*` the Swift shims call outside a trait-gated file.
+
+    A gated file compiles to an empty module when its trait is off, so a
+    symbol reachable only from one cannot break a default build. Everything
+    else is referenced unconditionally and has to be declared by whatever
+    header the build ends up importing.
+    """
+    root = ROOT / "bindings/swift/Sources/PanprotoFFI"
+    if not root.is_dir():
+        return set()
+    found: set[str] = set()
+    for path in sorted(root.glob("*.swift")):
+        text = path.read_text(encoding="utf-8")
+        # A file carrying a trait gate is compiled away when the trait is off.
+        if "#if PANPROTO_" in text:
+            continue
+        found.update(FFI_CALL.findall(text))
+    return found
+
+
+def pinned_release_header(tag: str) -> str | None:
+    """The C header as it stood at `tag`, or `None` if git cannot show it.
+
+    The published XCFramework carries its own `Headers/panproto.h`, copied
+    by `build-panproto-c-bindist.yml` from the crate at the tag it builds.
+    So the crate's header at that tag is the header a consumer resolving
+    the pin actually compiles against, and git can produce it without
+    touching the network.
+    """
+    proc = subprocess.run(
+        ["git", "show", f"{tag}:crates/panproto-c/include/panproto.h"],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+    )
+    return proc.stdout if proc.returncode == 0 else None
+
+
+def check_swift_pin_symbol_coverage() -> list[Mismatch]:
+    """The pinned artifact must declare every symbol the shims reference.
+
+    `classify_release_pin` governs *which* release the pin may name, and it
+    permits a lag on purpose, because `publish-swift.yml` rewrites the pin
+    only after the tag build attaches the artifact. That rule is about
+    version ordering and says nothing about whether the older artifact's
+    header covers the newer source's references.
+
+    It stopped being enough when a release added a C ABI export. At v0.71.0
+    the tag pinned the v0.70.1 artifact while `Raw+Transform.swift` called
+    `pp_hom_find_span` and `pp_hom_span_to_overlap` unconditionally, so a
+    consumer writing `from: "0.71.0"` got `cannot find 'pp_hom_find_span' in
+    scope`. The pin path resolves `CPanproto` as a `binaryTarget`, which
+    takes the vendored header out of the build entirely, so the artifact's
+    header is the only one that counts and the failure lands at compile
+    time rather than at the linker.
+
+    This closes that gap: for the release the pin names, every ungated
+    `pp_*` the shims call must appear in that release's header.
+    """
+    path = ROOT / SWIFT_PACKAGE
+    if not path.exists():
+        return []
+    url_match = PIN_URL.search(path.read_text(encoding="utf-8"))
+    if url_match is None or not url_match.group(1):
+        return []
+    shape = PIN_URL_SHAPE.match(url_match.group(1))
+    if shape is None:
+        return []
+    tag = shape.group(1)
+
+    header = pinned_release_header(tag)
+    if header is None:
+        # A pin naming a tag this clone does not carry is a different
+        # failure, and `classify_release_pin` is the check that owns it.
+        return []
+
+    missing = symbols_missing_from(ungated_ffi_symbols(), header)
+    if not missing:
+        return []
+    return [
+        Mismatch(
+            path=path,
+            field="releaseXCFrameworkURL",
+            found=f"{tag}, whose header declares neither " + ", ".join(missing),
+            expected=f"a release whose header declares {', '.join(missing)}",
+            note=(
+                "The XCFramework ships its own header, and the pin path resolves "
+                "CPanproto as a binaryTarget, so the vendored header is out of the "
+                "build. A consumer resolving this tag gets `cannot find "
+                f"'{missing[0]}' in scope` while compiling PanprotoFFI. Either pin a "
+                "release that carries the symbol, or put the shim behind a trait gate."
+            ),
+        )
+    ]
+
+
 def swift_documentation_files() -> list[Path]:
     """The files the release-tag scan covers, in a stable order."""
     out: list[Path] = []
@@ -868,6 +982,35 @@ def release_url(tag: str) -> str:
         "https://github.com/panproto/panproto/releases/download/"
         f"{tag}/panproto_c.xcframework.zip"
     )
+
+
+# (label, referenced symbols, header body, expected missing)
+COVERAGE_CASES: tuple[tuple[str, set[str], str, tuple[str, ...]], ...] = (
+    (
+        "header carries every symbol the shims call",
+        {"pp_hom_find_span", "pp_schema_to_cbor"},
+        "\nint32_t\npp_hom_find_span (\n\nvoid\npp_schema_to_cbor (\n",
+        (),
+    ),
+    (
+        "the v0.71.0 regression: two span entry points absent",
+        {"pp_hom_find_span", "pp_hom_span_to_overlap", "pp_schema_to_cbor"},
+        "\nvoid\npp_schema_to_cbor (\n",
+        ("pp_hom_find_span", "pp_hom_span_to_overlap"),
+    ),
+    (
+        "a header declaring more than the shims call is fine",
+        {"pp_schema_to_cbor"},
+        "\nint32_t\npp_hom_find_span (\n\nvoid\npp_schema_to_cbor (\n",
+        (),
+    ),
+    (
+        "a name appearing only in a comment does not count as declared",
+        {"pp_hom_find_span"},
+        "\n/** calls pp_hom_find_span (see above) */\nvoid\npp_other (\n",
+        ("pp_hom_find_span",),
+    ),
+)
 
 
 # (label, workspace, pinned tag, published tags or None, should fail)
@@ -1082,6 +1225,11 @@ def self_test(*, verbose: bool) -> int:
         elif not low.sort_key < high.sort_key:
             report("ordering", f"{lower} < {higher}", "compared the wrong way")
 
+    for label, referenced, header, expected in COVERAGE_CASES:
+        got = tuple(symbols_missing_from(referenced, header))
+        if got != expected:
+            report("coverage", label, f"expected {expected}, got {got}")
+
     for label, workspace, tag, tags, should_fail in LAG_CASES:
         published = (
             None
@@ -1129,7 +1277,13 @@ def self_test(*, verbose: bool) -> int:
         if match is None or match.group(1) != "PIN":
             report("pin pattern", variant, "did not yield the pinned value")
 
-    total = len(ORDER_CASES) + len(LAG_CASES) + len(SHAPE_CASES) + len(DOC_CASES)
+    total = (
+        len(ORDER_CASES)
+        + len(LAG_CASES)
+        + len(SHAPE_CASES)
+        + len(DOC_CASES)
+        + len(COVERAGE_CASES)
+    )
     total += len(PIN_LINE_VARIANTS)
     if failures:
         print(f"self-test FAILED: {failures} of {total} cases", file=sys.stderr)
@@ -1177,6 +1331,7 @@ def main() -> int:
     # against a permitted lag rather than against equality; the Swift
     # docs get no such licence.
     mismatches.extend(check_swift_release_pin(expected))
+    mismatches.extend(check_swift_pin_symbol_coverage())
     mismatches.extend(check_swift_doc_versions(expected))
 
     if mismatches:
