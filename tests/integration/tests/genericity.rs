@@ -110,9 +110,8 @@ const LANGUAGE_FRAGMENTS: &[&str] = &[
 /// of the generic-crate list, but the exception is made explicit here so the
 /// intent is obvious at the scan site. `panproto-py` is included because it is
 /// the pyo3 bridge to `CPython` and its identifiers (`to_python`, `from_python`)
-/// describe a genuine language boundary, analogous to `panproto-parse` and
-/// `panproto-llvm`.
-const LANGUAGE_ID_EXEMPT_CRATES: &[&str] = &["panproto-parse", "panproto-llvm", "panproto-py"];
+/// describe a genuine language boundary, analogous to `panproto-parse`.
+const LANGUAGE_ID_EXEMPT_CRATES: &[&str] = &["panproto-parse", "panproto-py"];
 
 /// Locate the workspace root relative to this test crate.
 fn workspace_root() -> PathBuf {

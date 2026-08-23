@@ -2,6 +2,17 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Removed
+
+- **The archived `panproto-jit` and `panproto-llvm` sources leave the tree** (`archive/`): 2,460 lines of Rust that no workspace member referenced and that nothing could build. The directory sat in neither `workspace.members` nor `workspace.exclude`, so `cargo metadata` inside either crate failed with "current package believes it's in a workspace when it's not", and both declared `version.workspace = true`, which cannot resolve outside the workspace. They were added already-archived and never touched again. The published 0.56.1 crates on crates.io are unaffected, and the source behind them remains reachable at the `v0.56.1` tag.
+- **Their two stale references** (`.github/workflows/ci.yml`, `tests/integration/tests/genericity.rs`): the `cargo-semver-checks` exclusion list named both crates, and `LANGUAGE_ID_EXEMPT_CRATES` exempted `panproto-llvm` from the language-identifier scan. Neither could match a workspace member any more. `panproto-c` stays excluded from semver checking, since it is still unpublished and the tool needs a baseline to diff against.
+
+### Fixed
+
+- **`panproto-dsl-eval` is semver-checked again** (`.github/workflows/ci.yml`): it was excluded on the grounds that it had never been published, but it has been on crates.io since 0.71.0, so the exclusion silently skipped the crate's public API in CI. Removing it puts the crate back under the gate; it passes its published baseline with 196 of 196 checks and needs no version change.
+
 ## [0.71.0] - 2026-08-18
 
 ### Security
