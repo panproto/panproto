@@ -391,16 +391,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      # panproto-jit and panproto-llvm pull in llvm-sys through inkwell
-      # behind optional features; cargo-semver-checks runs rustdoc for every
-      # member and the runner doesn't set LLVM_SYS_*_PREFIX for that nested
-      # invocation. They're thin FFI wrappers, not public-API-promise crates
-      # for SDK consumers, so we exclude them from semver checking.
-      #
-      # `panproto-c` and `panproto-dsl-eval` are excluded until their
-      # first publish lands on crates.io: cargo-semver-checks needs a
-      # baseline version to diff against, and a never-published crate
-      # has none.
+      # Every publishable workspace member is checked. Nothing is
+      # excluded: a crate that needs an exclusion here is either
+      # unpublished, in which case it wants `publish = false`, or it is
+      # published and belongs under the gate.
       - uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          exclude: panproto-jit,panproto-llvm,panproto-c,panproto-dsl-eval
