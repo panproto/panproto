@@ -1879,76 +1879,95 @@ mod tests {
     }
 
     impl RemoteClient for FakeRemoteClient {
-        async fn remote_pull(&self, store: &mut FsStore) -> Result<(), Box<dyn std::error::Error>> {
-            self.calls.borrow_mut().push(RemoteCall::Pull);
+        fn remote_pull(
+            &self,
+            store: &mut FsStore,
+        ) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> {
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
+                self.calls.borrow_mut().push(RemoteCall::Pull);
 
-            // Mimic `NodeClient::pull`: copy all server objects into the
-            // local store, then copy all server refs.
-            let server = self.server.borrow();
-            for id in server.list_objects()? {
-                if !store.has(&id) {
-                    let obj = server.get(&id)?;
-                    store.put(&obj)?;
+                // Mimic `NodeClient::pull`: copy all server objects into the
+                // local store, then copy all server refs.
+                let server = self.server.borrow();
+                for id in server.list_objects()? {
+                    if !store.has(&id) {
+                        let obj = server.get(&id)?;
+                        store.put(&obj)?;
+                    }
                 }
-            }
-            for (name, id) in server.list_refs("refs/")? {
-                store.set_ref(&name, id)?;
-            }
-            Ok(())
+                for (name, id) in server.list_refs("refs/")? {
+                    store.set_ref(&name, id)?;
+                }
+                Ok(())
+            })();
+            std::future::ready(result)
         }
 
-        async fn remote_push(&self, store: &FsStore) -> Result<(), Box<dyn std::error::Error>> {
-            // Snapshot the local state for the test to inspect later.
-            let object_ids: std::collections::BTreeSet<ObjectId> =
-                store.list_objects()?.into_iter().collect();
-            let mut refs = store.list_refs("refs/")?;
-            refs.sort_by(|a, b| a.0.cmp(&b.0));
-            self.calls.borrow_mut().push(RemoteCall::Push {
-                object_ids: object_ids.clone(),
-                refs: refs.clone(),
-            });
+        fn remote_push(
+            &self,
+            store: &FsStore,
+        ) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> {
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
+                // Snapshot the local state for the test to inspect later.
+                let object_ids: std::collections::BTreeSet<ObjectId> =
+                    store.list_objects()?.into_iter().collect();
+                let mut refs = store.list_refs("refs/")?;
+                refs.sort_by(|a, b| a.0.cmp(&b.0));
+                self.calls.borrow_mut().push(RemoteCall::Push {
+                    object_ids: object_ids.clone(),
+                    refs: refs.clone(),
+                });
 
-            // Actually mirror the objects and refs onto the server.
-            let mut server = self.server.borrow_mut();
-            for id in &object_ids {
-                if !server.has(id) {
-                    let obj: Object = store.get(id)?;
-                    server.put(&obj)?;
+                // Actually mirror the objects and refs onto the server.
+                let mut server = self.server.borrow_mut();
+                for id in &object_ids {
+                    if !server.has(id) {
+                        let obj: Object = store.get(id)?;
+                        server.put(&obj)?;
+                    }
                 }
-            }
-            for (name, id) in refs {
-                server.set_ref(&name, id)?;
-            }
-            Ok(())
+                for (name, id) in refs {
+                    server.set_ref(&name, id)?;
+                }
+                Ok(())
+            })();
+            std::future::ready(result)
         }
 
-        async fn remote_get_ref(
+        fn remote_get_ref(
             &self,
             ref_name: &str,
-        ) -> Result<Option<ObjectId>, Box<dyn std::error::Error>> {
-            self.calls.borrow_mut().push(RemoteCall::GetRef {
-                ref_name: ref_name.to_owned(),
-            });
-            Ok(self.server.borrow().get_ref(ref_name)?)
+        ) -> impl std::future::Future<Output = Result<Option<ObjectId>, Box<dyn std::error::Error>>>
+        {
+            let result: Result<Option<ObjectId>, Box<dyn std::error::Error>> = (|| {
+                self.calls.borrow_mut().push(RemoteCall::GetRef {
+                    ref_name: ref_name.to_owned(),
+                });
+                Ok(self.server.borrow().get_ref(ref_name)?)
+            })();
+            std::future::ready(result)
         }
 
-        async fn remote_set_ref(
+        fn remote_set_ref(
             &self,
             ref_name: &str,
             old_target: Option<&ObjectId>,
             new_target: &ObjectId,
             protocol: &str,
             commit_count: u64,
-        ) -> Result<(), Box<dyn std::error::Error>> {
-            self.calls.borrow_mut().push(RemoteCall::SetRef {
-                ref_name: ref_name.to_owned(),
-                old_target: old_target.copied(),
-                new_target: *new_target,
-                protocol: protocol.to_owned(),
-                commit_count,
-            });
-            self.server.borrow_mut().set_ref(ref_name, *new_target)?;
-            Ok(())
+        ) -> impl std::future::Future<Output = Result<(), Box<dyn std::error::Error>>> {
+            let result: Result<(), Box<dyn std::error::Error>> = (|| {
+                self.calls.borrow_mut().push(RemoteCall::SetRef {
+                    ref_name: ref_name.to_owned(),
+                    old_target: old_target.copied(),
+                    new_target: *new_target,
+                    protocol: protocol.to_owned(),
+                    commit_count,
+                });
+                self.server.borrow_mut().set_ref(ref_name, *new_target)?;
+                Ok(())
+            })();
+            std::future::ready(result)
         }
     }
 
