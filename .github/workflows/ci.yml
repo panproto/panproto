@@ -391,9 +391,8 @@ jobs:
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
-      # `panproto-c` is excluded until its first publish lands on
-      # crates.io: cargo-semver-checks needs a baseline version to diff
-      # against, and a never-published crate has none.
+      # Every publishable workspace member is checked. Nothing is
+      # excluded: a crate that needs an exclusion here is either
+      # unpublished, in which case it wants `publish = false`, or it is
+      # published and belongs under the gate.
       - uses: obi1kenobi/cargo-semver-checks-action@v2
-        with:
-          exclude: panproto-c
