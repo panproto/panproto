@@ -10,6 +10,7 @@
 
 use std::collections::HashMap;
 
+use panproto_gat::Name;
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
@@ -92,18 +93,26 @@ pub fn functor_restrict(
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
     let mut new_tables = HashMap::new();
-    let mut new_fks = HashMap::new();
+    let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
+    // Position of each source vertex's row block inside the concatenated
+    // target table, so foreign-key row indices survive the merge.
+    let mut row_offsets: HashMap<&str, usize> = HashMap::new();
 
     // For each surviving vertex, pull the table from the source.
     // vertex_remap maps src -> tgt, so invert to find all sources.
-    // When multiple source vertices map to the same target, collect all.
-    for tgt_vertex in &migration.surviving_verts {
-        let src_vertices: Vec<&str> = migration
+    // When multiple source vertices map to the same target, their tables are
+    // concatenated in source-name order so the result does not depend on hash
+    // iteration order.
+    let mut targets: Vec<&Name> = migration.surviving_verts.iter().collect();
+    targets.sort_unstable();
+    for tgt_vertex in targets {
+        let mut src_vertices: Vec<&str> = migration
             .vertex_remap
             .iter()
             .filter(|(_, v)| *v == tgt_vertex)
             .map(|(k, _)| &**k)
             .collect();
+        src_vertices.sort_unstable();
 
         let sources = if src_vertices.is_empty() {
             vec![&**tgt_vertex]
@@ -112,11 +121,12 @@ pub fn functor_restrict(
         };
 
         let mut combined_rows = Vec::new();
-        for src_vertex in &sources {
-            if let Some(rows) = instance.tables.get(*src_vertex) {
+        for src_vertex in sources {
+            row_offsets.insert(src_vertex, combined_rows.len());
+            if let Some(rows) = instance.tables.get(src_vertex) {
                 // Delta acts on values by substitution: each pulled row is
                 // rewritten by the source vertex's op-to-term assignments.
-                let assignments = migration.op_term_assignments.get(*src_vertex);
+                let assignments = migration.op_term_assignments.get(src_vertex);
                 for row in rows {
                     let mut new_row = row.clone();
                     if let Some(assignments) = assignments {
@@ -131,16 +141,37 @@ pub fn functor_restrict(
         }
     }
 
-    // Remap foreign keys for surviving edges
-    for (edge, pairs) in &instance.foreign_keys {
-        if let Some(new_edge) = migration.edge_remap.get(edge) {
-            if migration.surviving_verts.contains(&new_edge.src)
-                && migration.surviving_verts.contains(&new_edge.tgt)
+    // Remap foreign keys for surviving edges, offsetting each pair into the
+    // block its source and target rows occupy after concatenation. Source
+    // edges are visited in sorted order and edges colliding under
+    // `edge_remap` have their pair sets unioned rather than overwritten.
+    let mut src_edges: Vec<&Edge> = instance.foreign_keys.keys().collect();
+    src_edges.sort_unstable();
+    for edge in src_edges {
+        let Some(pairs) = instance.foreign_keys.get(edge) else {
+            continue;
+        };
+        let new_edge = if let Some(new_edge) = migration.edge_remap.get(edge) {
+            if !migration.surviving_verts.contains(&new_edge.src)
+                || !migration.surviving_verts.contains(&new_edge.tgt)
             {
-                new_fks.insert(new_edge.clone(), pairs.clone());
+                continue;
             }
+            new_edge.clone()
         } else if migration.surviving_edges.contains(edge) {
-            new_fks.insert(edge.clone(), pairs.clone());
+            edge.clone()
+        } else {
+            continue;
+        };
+
+        let src_offset = row_offsets.get(&*edge.src).copied().unwrap_or(0);
+        let tgt_offset = row_offsets.get(&*edge.tgt).copied().unwrap_or(0);
+        let entry = new_fks.entry(new_edge).or_default();
+        for (s, t) in pairs {
+            let remapped = (s + src_offset, t + tgt_offset);
+            if !entry.contains(&remapped) {
+                entry.push(remapped);
+            }
         }
     }
 
@@ -165,7 +196,7 @@ pub fn functor_extend(
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
     let mut new_tables = HashMap::new();
-    let mut new_fks = HashMap::new();
+    let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
 
     // Copy tables from source to their mapped names in the target.
     // vertex_remap maps src -> tgt. When multiple source vertices map
@@ -177,9 +208,16 @@ pub fn functor_extend(
     // with Value::Null.
 
     // First pass: collect rows per target vertex and track row offsets
-    // per source vertex for FK index offsetting.
+    // per source vertex for FK index offsetting. Source vertices are visited
+    // in name order so the concatenation, and the offsets derived from it, do
+    // not depend on hash iteration order.
     let mut row_offsets: HashMap<String, usize> = HashMap::with_capacity(instance.tables.len());
-    for (src_vertex, rows) in &instance.tables {
+    let mut src_vertices: Vec<&String> = instance.tables.keys().collect();
+    src_vertices.sort_unstable();
+    for src_vertex in src_vertices {
+        let Some(rows) = instance.tables.get(src_vertex) else {
+            continue;
+        };
         let tgt_vertex = migration
             .vertex_remap
             .get(src_vertex.as_str())
@@ -224,7 +262,12 @@ pub fn functor_extend(
 
     // Remap foreign keys, offsetting row indices by the cumulative row
     // count so they remain valid after concatenation.
-    for (edge, pairs) in &instance.foreign_keys {
+    let mut src_edges: Vec<&Edge> = instance.foreign_keys.keys().collect();
+    src_edges.sort_unstable();
+    for edge in src_edges {
+        let Some(pairs) = instance.foreign_keys.get(edge) else {
+            continue;
+        };
         let resolved_edge = migration.edge_remap.get(edge).map_or_else(
             || {
                 if migration.surviving_edges.contains(edge) {
@@ -239,11 +282,13 @@ pub fn functor_extend(
         if let Some(new_edge) = resolved_edge {
             let src_offset = row_offsets.get(&*edge.src).copied().unwrap_or(0);
             let tgt_offset = row_offsets.get(&*edge.tgt).copied().unwrap_or(0);
-            let offset_pairs: Vec<(usize, usize)> = pairs
-                .iter()
-                .map(|(s, t)| (s + src_offset, t + tgt_offset))
-                .collect();
-            new_fks.insert(new_edge, offset_pairs);
+            let entry: &mut Vec<(usize, usize)> = new_fks.entry(new_edge).or_default();
+            for (s, t) in pairs {
+                let remapped = (s + src_offset, t + tgt_offset);
+                if !entry.contains(&remapped) {
+                    entry.push(remapped);
+                }
+            }
         }
     }
 
@@ -398,5 +443,120 @@ mod tests {
         assert!(restricted.tables.contains_key("users"));
         assert!(!restricted.tables.contains_key("posts"));
         assert!(restricted.foreign_keys.is_empty());
+    }
+    /// Two source tables merged into one target: FK row indices must be
+    /// offset by each source block's position in the concatenation.
+    #[test]
+    fn functor_restrict_offsets_merged_foreign_keys() {
+        fn row(k: &str, v: &str) -> HashMap<String, Value> {
+            let mut r = HashMap::new();
+            r.insert(k.to_string(), Value::Str(v.into()));
+            r
+        }
+
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "fk".into(),
+            name: Some("link".into()),
+        };
+        let merged_edge = Edge {
+            src: "t".into(),
+            tgt: "t".into(),
+            kind: "fk".into(),
+            name: Some("link".into()),
+        };
+
+        let inst = FInstance::new()
+            .with_table("a", vec![row("n", "a0"), row("n", "a1")])
+            .with_table("b", vec![row("n", "b0"), row("n", "b1")])
+            .with_foreign_key(edge.clone(), vec![(1, 0)]);
+
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("t".into());
+        migration.vertex_remap.insert("a".into(), "t".into());
+        migration.vertex_remap.insert("b".into(), "t".into());
+        migration.edge_remap.insert(edge, merged_edge.clone());
+
+        let restricted =
+            functor_restrict(&inst, &migration).expect("functor_restrict should succeed");
+        let rows = restricted.tables.get("t").expect("merged table present");
+        assert_eq!(rows.len(), 4, "merged table concatenates both sources");
+
+        let pairs = restricted
+            .foreign_keys
+            .get(&merged_edge)
+            .expect("merged edge present");
+        let (s, t) = pairs[0];
+        assert_eq!(
+            rows[s].get("n"),
+            Some(&Value::Str("a1".into())),
+            "FK source index must still address the `a` row it came from",
+        );
+        assert_eq!(
+            rows[t].get("n"),
+            Some(&Value::Str("b0".into())),
+            "FK target index must be offset into the `b` block",
+        );
+    }
+
+    /// Distinct source edges identified by `edge_remap` contribute a union of
+    /// pairs, not a last-writer-wins overwrite, and the result is independent
+    /// of hash iteration order.
+    #[test]
+    fn functor_restrict_unions_collided_edges_deterministically() {
+        fn row(v: &str) -> HashMap<String, Value> {
+            let mut r = HashMap::new();
+            r.insert("n".to_string(), Value::Str(v.into()));
+            r
+        }
+        fn self_edge(v: &str) -> Edge {
+            Edge {
+                src: v.into(),
+                tgt: v.into(),
+                kind: "fk".into(),
+                name: Some("link".into()),
+            }
+        }
+
+        let build = || {
+            let inst = FInstance::new()
+                .with_table("a", vec![row("a0"), row("a1")])
+                .with_table("b", vec![row("b0"), row("b1")])
+                .with_foreign_key(self_edge("a"), vec![(0, 1)])
+                .with_foreign_key(self_edge("b"), vec![(0, 1)]);
+            let mut migration = CompiledMigration::default();
+            migration.surviving_verts.insert("t".into());
+            migration.vertex_remap.insert("a".into(), "t".into());
+            migration.vertex_remap.insert("b".into(), "t".into());
+            migration.edge_remap.insert(self_edge("a"), self_edge("t"));
+            migration.edge_remap.insert(self_edge("b"), self_edge("t"));
+            functor_restrict(&inst, &migration).expect("functor_restrict should succeed")
+        };
+
+        let first = build();
+        let pairs = first
+            .foreign_keys
+            .get(&self_edge("t"))
+            .expect("merged edge present");
+        assert_eq!(
+            pairs,
+            &vec![(0, 1), (2, 3)],
+            "both source edges contribute their own offset pairs",
+        );
+
+        for _ in 0..16 {
+            let again = build();
+            assert_eq!(
+                again.tables.get("t"),
+                first.tables.get("t"),
+                "merged table order must not depend on hash iteration order",
+            );
+            assert_eq!(
+                again.foreign_keys.get(&self_edge("t")),
+                first.foreign_keys.get(&self_edge("t")),
+                "merged foreign keys must not depend on hash iteration order",
+            );
+        }
     }
 }
