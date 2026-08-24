@@ -281,41 +281,33 @@ fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
     Theory::new(Arc::clone(&theory.name), sorts, ops, eqs)
 }
 
-/// Rename a sort throughout a theory (sort defs, sort param refs, op signatures).
+/// Rename a sort throughout a theory: its declaration, every dependent
+/// parameter reference (including the renamed sort's own parameters, which
+/// a self-dependent sort points back at), and every operation signature.
 fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(old), Arc::clone(new));
     let sorts: Vec<_> = theory
         .sorts
         .iter()
-        .map(|s| {
-            if s.name == *old {
-                Sort {
-                    name: Arc::clone(new),
-                    params: s.params.clone(),
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                }
+        .map(|s| Sort {
+            name: if s.name == *old {
+                Arc::clone(new)
             } else {
-                let mut rename_map = std::collections::HashMap::new();
-                rename_map.insert(Arc::clone(old), Arc::clone(new));
-                let params = s
-                    .params
-                    .iter()
-                    .map(|p| SortParam {
-                        name: Arc::clone(&p.name),
-                        sort: p.sort.rename_head(&rename_map),
-                    })
-                    .collect();
-                Sort {
-                    name: Arc::clone(&s.name),
-                    params,
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                }
-            }
+                Arc::clone(&s.name)
+            },
+            params: s
+                .params
+                .iter()
+                .map(|p| SortParam {
+                    name: Arc::clone(&p.name),
+                    sort: p.sort.rename_head(&rename_map),
+                })
+                .collect(),
+            kind: s.kind.clone(),
+            closure: s.closure.clone(),
         })
         .collect();
-    let mut rename_map = std::collections::HashMap::new();
-    rename_map.insert(Arc::clone(old), Arc::clone(new));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -465,38 +457,47 @@ fn filter_eqs_by_remaining_ops(eqs: &[Equation], ops: &[Operation]) -> Vec<Equat
         .collect()
 }
 
-/// Merge two sorts into one, renaming every reference in ops.
+/// Merge two sorts into one, renaming every reference to either.
 ///
-/// `sort_a` is kept (renamed to `merged_name`); `sort_b` is dropped.
-/// All op inputs/outputs that reference `sort_a` or `sort_b` are rewritten
-/// to `merged_name`.
+/// `sort_a` is kept (renamed to `merged_name`); `sort_b` is dropped. Every
+/// dependent parameter reference and every operation input and output that
+/// names either sort is rewritten to `merged_name`, the kept sort's own
+/// parameters included.
 fn apply_merge_sorts(
     theory: &Theory,
     sort_a: &Arc<str>,
     sort_b: &Arc<str>,
     merged_name: &Arc<str>,
 ) -> Theory {
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(sort_a), Arc::clone(merged_name));
+    rename_map.insert(Arc::clone(sort_b), Arc::clone(merged_name));
     let sorts: Vec<_> = theory
         .sorts
         .iter()
         .filter_map(|s| {
-            if s.name == *sort_a {
-                Some(Sort {
-                    name: Arc::clone(merged_name),
-                    params: s.params.clone(),
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                })
-            } else if s.name == *sort_b {
-                None
-            } else {
-                Some(s.clone())
+            if s.name == *sort_b {
+                return None;
             }
+            Some(Sort {
+                name: if s.name == *sort_a {
+                    Arc::clone(merged_name)
+                } else {
+                    Arc::clone(&s.name)
+                },
+                params: s
+                    .params
+                    .iter()
+                    .map(|p| SortParam {
+                        name: Arc::clone(&p.name),
+                        sort: p.sort.rename_head(&rename_map),
+                    })
+                    .collect(),
+                kind: s.kind.clone(),
+                closure: s.closure.clone(),
+            })
         })
         .collect();
-    let mut rename_map = std::collections::HashMap::new();
-    rename_map.insert(Arc::clone(sort_a), Arc::clone(merged_name));
-    rename_map.insert(Arc::clone(sort_b), Arc::clone(merged_name));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -1254,6 +1255,56 @@ mod tests {
             vec!["base", "base"],
             "renamed op must be referenced by its new name: {:?}",
             loop_op.output,
+        );
+    }
+
+    #[test]
+    fn rename_sort_rewrites_its_own_dependent_parameters() {
+        // `Slice(of: Slice)` is dependent on itself; renaming it must
+        // rewrite the parameter reference too.
+        let theory = Theory::new(
+            "Sliced",
+            vec![crate::sort::Sort::dependent(
+                "Slice",
+                vec![SortParam::new("of", "Slice")],
+            )],
+            vec![],
+            vec![],
+        );
+        let renamed = apply_rename_sort(&theory, &Arc::from("Slice"), &Arc::from("Segment"));
+        let Some(sort) = renamed.find_sort("Segment") else {
+            panic!("the sort survives the rename: {:?}", renamed.sorts);
+        };
+        assert_eq!(
+            &**sort.params[0].sort.head(),
+            "Segment",
+            "the parameter must follow the rename: {:?}",
+            sort.params,
+        );
+    }
+
+    #[test]
+    fn merge_sorts_rewrites_the_kept_sorts_dependent_parameters() {
+        // Merging `A` and `B` must rewrite `A`'s own parameter reference to
+        // `B`, not just the references held by other declarations.
+        let theory = Theory::new(
+            "Pair",
+            vec![
+                crate::sort::Sort::dependent("A", vec![SortParam::new("b", "B")]),
+                crate::sort::Sort::simple("B"),
+            ],
+            vec![],
+            vec![],
+        );
+        let merged = apply_merge_sorts(&theory, &Arc::from("A"), &Arc::from("B"), &Arc::from("AB"));
+        let Some(sort) = merged.find_sort("AB") else {
+            panic!("the merged sort exists: {:?}", merged.sorts);
+        };
+        assert_eq!(
+            &**sort.params[0].sort.head(),
+            "AB",
+            "the parameter must follow the merge: {:?}",
+            sort.params,
         );
     }
 }
