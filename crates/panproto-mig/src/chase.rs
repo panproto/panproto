@@ -65,6 +65,20 @@ pub enum ChaseError {
     },
 }
 
+impl ChaseError {
+    /// Whether running the chase again with a larger budget could
+    /// succeed.
+    ///
+    /// A saturation that ran out of iterations may reach its fixpoint
+    /// with more of them. An equality conflict is a property of the
+    /// instance and the dependencies together, so it recurs at every
+    /// budget.
+    #[must_use]
+    pub const fn is_retryable(&self) -> bool {
+        matches!(self, Self::NonTermination(_))
+    }
+}
+
 /// Returns `true` if the given row matches all of the required column-value pairs.
 fn row_matches(row: &HashMap<String, Value>, required: &HashMap<String, Value>) -> bool {
     required
