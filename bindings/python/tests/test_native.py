@@ -744,6 +744,44 @@ class TestAstParserRegistryOverride:
                 node_types=b"",
             )
 
+    def test_companion_tags_query_must_be_utf8(self) -> None:
+        """A companion's tags query is checked, not trusted.
+
+        The bytes come from a third-party package, and an unchecked
+        conversion would hand tree-sitter's query compiler a ``str``
+        whose contents are not UTF-8. The check has to run before the
+        language pointer is touched, so the deliberately bogus
+        ``language_ptr`` below is never dereferenced: registration is
+        refused first, and the constructor turns the refusal into a
+        warning naming the grammar.
+        """
+        import ctypes
+        import warnings
+
+        from panproto import _native
+
+        node_types = ctypes.create_string_buffer(b"[]")
+        # 0xff and 0xfe cannot begin a valid UTF-8 sequence.
+        tags = ctypes.create_string_buffer(b"\xff\xfe(identifier) @name")
+
+        entry = {
+            "name": "notutf8grammar",
+            "extensions": ["notutf8grammar"],
+            "language_ptr": 0xDEADBEEF,
+            "node_types_ptr": ctypes.addressof(node_types),
+            "node_types_len": 2,
+            "tags_query_ptr": ctypes.addressof(tags),
+            "tags_query_len": len(tags.raw) - 1,
+        }
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            reg = _native.AstParserRegistry(extra_grammars=[entry])
+
+        messages = [str(w.message) for w in caught]
+        assert any("tags_query is not valid UTF-8" in m for m in messages), messages
+        assert "notutf8grammar" not in reg.protocol_names()
+
     def test_rejects_shared_handle(self) -> None:
         # `lens(...)` clones the registry's Arc, blocking override until
         # the lens handle is dropped.

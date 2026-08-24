@@ -37,9 +37,13 @@ impl PyAstParserRegistry {
     /// `name`, `extensions`, `language_ptr`, `node_types_ptr`,
     /// `node_types_len`, and the optional `tags_query_ptr` /
     /// `tags_query_len` / `grammar_json_ptr` / `grammar_json_len`
-    /// pairs. The `*_ptr` values are raw C pointers cast to integers;
-    /// the companion is responsible for ensuring the underlying
-    /// memory has process-lifetime extent (`&'static` in Rust terms).
+    /// pairs. The `*_ptr` values are raw C pointers cast to integers,
+    /// `language_ptr` being the `TSLanguage *` a `tree_sitter_<name>()`
+    /// entry point returns rather than the address of that function;
+    /// the companion is responsible for ensuring the underlying memory
+    /// has process-lifetime extent (`&'static` in Rust terms). The
+    /// `tags_query_*` bytes are checked for UTF-8 before use; the rest
+    /// are read on the companion's word.
     #[new]
     #[pyo3(signature = (extra_grammars = None))]
     fn new(extra_grammars: Option<Vec<Bound<'_, pyo3::types::PyDict>>>) -> Self {
@@ -157,9 +161,15 @@ impl PyAstParserRegistry {
     /// outside the panproto release cadence. The caller compiles the
     /// grammar themselves (typically via ``tree-sitter build``) and
     /// loads the resulting shared library; ``language_ptr`` is the
-    /// integer address of the ``tree_sitter_<name>`` function obtained
-    /// via ``ctypes`` / ``cffi``. The byte payloads are owned by Python
-    /// here and leaked into ``'static`` storage on the Rust side.
+    /// ``TSLanguage *`` that library's ``tree_sitter_<name>()`` function
+    /// **returns**, cast to an integer, not the address of the function
+    /// itself. With ``ctypes`` that is
+    /// ``ctypes.cast(lib.tree_sitter_<name>(), ctypes.c_void_p).value``
+    /// after declaring ``lib.tree_sitter_<name>.restype = ctypes.c_void_p``;
+    /// passing the function's own address instead makes tree-sitter read
+    /// a language struct out of executable code. The byte payloads are
+    /// owned by Python here and leaked into ``'static`` storage on the
+    /// Rust side.
     ///
     /// If a parser is already registered under ``name``, it is dropped
     /// first (along with any extension mappings that targeted it); the
@@ -200,9 +210,9 @@ impl PyAstParserRegistry {
         })?;
 
         // Same transmute the extra_grammars path uses; the user is
-        // responsible for the pointer's validity (it must point at the
-        // `tree_sitter_<name>` function of a loaded grammar shared
-        // library).
+        // responsible for the pointer's validity (it must be the
+        // `TSLanguage *` that a loaded grammar library's
+        // `tree_sitter_<name>()` function returned).
         let language: tree_sitter::Language =
             unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
 
@@ -474,6 +484,26 @@ fn register_external_from_metadata(
         )));
     }
 
+    // The tags query is the one payload the companion hands over as
+    // text. Its bytes come from a third-party package, so they are
+    // checked rather than assumed: an unchecked conversion would hand
+    // tree-sitter's query compiler a `&str` whose contents are not
+    // UTF-8, which is undefined behaviour. The check runs before any
+    // `&'static` allocation is leaked and before the language pointer
+    // is used, so a rejected entry costs nothing and touches nothing.
+    let tags_query: Option<&'static str> = match tags_query_ptr {
+        Some(p) => {
+            let slice: &'static [u8] =
+                unsafe { std::slice::from_raw_parts(p as *const u8, tags_query_len) };
+            Some(std::str::from_utf8(slice).map_err(|e| {
+                PyValueError::new_err(format!(
+                    "grammar {name:?}: tags_query is not valid UTF-8 ({e})"
+                ))
+            })?)
+        }
+        None => None,
+    };
+
     let LeakedMetadata {
         name: leaked_name,
         extensions: leaked_extensions,
@@ -488,10 +518,6 @@ fn register_external_from_metadata(
     };
     let node_types: &'static [u8] =
         unsafe { std::slice::from_raw_parts(node_types_ptr as *const u8, node_types_len) };
-    let tags_query: Option<&'static str> = tags_query_ptr.map(|p| unsafe {
-        let slice = std::slice::from_raw_parts(p as *const u8, tags_query_len);
-        std::str::from_utf8_unchecked(slice)
-    });
     let grammar_json: Option<&'static [u8]> = grammar_json_ptr
         .map(|p| unsafe { std::slice::from_raw_parts(p as *const u8, grammar_json_len) });
 
