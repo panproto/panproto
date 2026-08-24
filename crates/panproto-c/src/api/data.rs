@@ -44,7 +44,7 @@ pub fn pp_data_store_dataset(
     out_handle: &mut u32,
 ) -> i32 {
     guard(|| {
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         // The store input is raw JSON, not CBOR: decode with serde_json.
         let json_value: serde_json::Value = serde_json::from_slice(data_json.as_slice())
@@ -128,7 +128,7 @@ pub fn pp_data_migrate_forward(
     guard(|| {
         let ds = handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.clone()))?;
         let (src, tgt) = handle::with_two_resources(src_schema, tgt_schema, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let protocol = protocol_for_schema(&src);
@@ -211,7 +211,7 @@ pub fn pp_data_migrate_backward(
     guard(|| {
         let ds = handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.clone()))?;
         let (src, tgt) = handle::with_two_resources(src_schema, tgt_schema, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let protocol = protocol_for_schema(&src);
@@ -277,7 +277,7 @@ pub fn pp_data_check_staleness(
     guard(|| {
         let data_schema_id =
             handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.schema_id))?;
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         let target_schema_id = vcs::hash::hash_schema(&schema)
             .map_err(|e| FfiError::Operation(format!("hash schema: {e}")))?;

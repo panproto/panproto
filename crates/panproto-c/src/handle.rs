@@ -1,28 +1,42 @@
 //! Process-global slab allocator for opaque FFI handles.
 //!
 //! Mirrors the design of `panproto_wasm::slab` (see
-//! `crates/panproto-wasm/src/slab.rs`). Resources live in a
-//! `Vec<Option<Resource>>`; freed slots are reused. Handles are `u32`
-//! indices.
+//! `crates/panproto-wasm/src/slab.rs`). Handles are `u32` indices into a
+//! table of slots; a freed slot goes on a free list and is handed back
+//! out by the next allocation.
 //!
 //! The C ABI never exposes the [`Resource`] enum; callers see only
 //! `u32` and rely on the panproto-c API to dispatch to the right
 //! variant. Each entry point validates the resource type at the slab
 //! boundary and returns [`FfiError::TypeMismatch`] on mismatch.
 //!
-//! Slab state is process-global and guarded by a [`Mutex`]: a handle
-//! allocated by one OS thread is valid from any other. This is required
-//! for correctness, not just throughput. Host runtimes call across the
-//! C ABI on a pool of OS threads (GHC's threaded RTS migrates a Haskell
-//! thread between OS threads across `safe` foreign calls), so a
-//! thread-local table would make a handle created on one call invisible
-//! on the next. The lock is held only for the duration of the slab
-//! access (a short clone/projection, or an engine call that never
-//! re-enters the slab), so it never deadlocks and serializes only the
-//! handle-table operations themselves. Each entry point's `Mutex::lock`
-//! recovers from poisoning (a panic caught by [`crate::panic::guard`]
-//! leaves the `Vec` structurally intact), so one panicking operation
-//! cannot brick the table.
+//! # Two levels of locking
+//!
+//! Slab state is process-global: a handle allocated by one OS thread is
+//! valid from any other. This is required for correctness, not just
+//! throughput. Host runtimes call across the C ABI on a pool of OS
+//! threads (GHC's threaded RTS migrates a Haskell thread between OS
+//! threads across `safe` foreign calls), so a thread-local table would
+//! make a handle created on one call invisible on the next.
+//!
+//! The *table* lock and the *resource* locks are separate. The table
+//! lock covers allocation, freeing, and the index lookup that turns a
+//! handle into a slot; it is never held while an entry point runs engine
+//! work. Each slot then carries its own [`Mutex`], taken for as long as
+//! the caller borrows the resource. A VCS commit that writes to disk
+//! therefore blocks only other calls on that same repository, not every
+//! schema lookup in the process.
+//!
+//! Calls that borrow several resources at once take the slot locks in
+//! ascending handle order and lock a repeated handle only once, so two
+//! such calls can never deadlock against each other and a caller that
+//! passes the same handle twice gets one shared borrow rather than a
+//! self-deadlock.
+//!
+//! Every lock recovers from poisoning: a panic caught by
+//! [`crate::panic::guard`] leaves both the table and the resource it was
+//! touching structurally intact, so one panicking operation cannot brick
+//! the slab.
 //!
 //! Tests rely on `cargo nextest`'s per-test process isolation for a
 //! fresh table per test; running under `cargo test` (one process,
@@ -126,6 +140,26 @@ impl Resource {
     pub fn as_schema(&self) -> Result<&Schema, FfiError> {
         match self {
             Self::Schema(s) => Ok(s),
+            _ => Err(FfiError::TypeMismatch {
+                expected: "Schema",
+                actual: self.type_name(),
+            }),
+        }
+    }
+
+    /// Share the [`Schema`] a [`Resource::Schema`] slot holds.
+    ///
+    /// Returns a clone of the slot's `Arc`, so an entry point that needs
+    /// the schema after the slab borrow ends pays a refcount bump rather
+    /// than a deep copy of every vertex, edge, span, and coercion map.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`FfiError::TypeMismatch`] when the variant is not
+    /// [`Resource::Schema`].
+    pub fn as_schema_arc(&self) -> Result<Arc<Schema>, FfiError> {
+        match self {
+            Self::Schema(s) => Ok(Arc::clone(s)),
             _ => Err(FfiError::TypeMismatch {
                 expected: "Schema",
                 actual: self.type_name(),
@@ -357,49 +391,120 @@ impl Resource {
     }
 }
 
-static SLAB: Mutex<Vec<Option<Resource>>> = Mutex::new(Vec::new());
+/// One occupied slab slot: a resource behind its own lock.
+///
+/// The `Arc` lets a lookup hand the slot out and release the table lock
+/// before the caller starts using the resource.
+type Slot = Arc<Mutex<Resource>>;
 
-/// Lock the global slab, recovering the guard if a previous holder
+/// The handle table.
+///
+/// `slots` is indexed by handle. `free` holds the handles whose slots
+/// are empty, so allocation is O(1) rather than a scan for the first
+/// hole.
+struct Table {
+    slots: Vec<Option<Slot>>,
+    free: Vec<u32>,
+}
+
+impl Table {
+    const fn new() -> Self {
+        Self {
+            slots: Vec::new(),
+            free: Vec::new(),
+        }
+    }
+}
+
+static SLAB: Mutex<Table> = Mutex::new(Table::new());
+
+/// Lock the handle table, recovering the guard if a previous holder
 /// panicked. A panic inside an access closure (caught by
-/// [`crate::panic::guard`]) poisons the mutex, but the `Vec` of slots is
-/// structurally sound, so taking the inner guard is safe and keeps the
-/// table usable for subsequent calls.
-fn lock_slab() -> MutexGuard<'static, Vec<Option<Resource>>> {
+/// [`crate::panic::guard`]) poisons the mutex, but the table is
+/// structurally sound, so taking the inner guard is safe and keeps it
+/// usable for subsequent calls.
+fn lock_table() -> MutexGuard<'static, Table> {
     SLAB.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
-/// Project a live resource out of a locked slab, or [`FfiError::InvalidHandle`].
-fn slot(slab: &[Option<Resource>], handle: u32) -> Result<&Resource, FfiError> {
-    slab.get(handle as usize)
+/// Lock one resource, with the same poison recovery as the table.
+fn lock_resource(slot: &Slot) -> MutexGuard<'_, Resource> {
+    slot.lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+}
+
+/// Look a handle up in the table, cloning out its slot.
+///
+/// The table lock is released when this returns, so the caller holds
+/// only the resource's own lock while it works.
+fn find(handle: u32) -> Result<Slot, FfiError> {
+    lock_table()
+        .slots
+        .get(handle as usize)
         .and_then(Option::as_ref)
+        .map(Arc::clone)
         .ok_or(FfiError::InvalidHandle { handle })
 }
 
-/// Mutable counterpart of [`slot`].
-fn slot_mut(slab: &mut [Option<Resource>], handle: u32) -> Result<&mut Resource, FfiError> {
-    slab.get_mut(handle as usize)
-        .and_then(Option::as_mut)
+/// Lock the given slots, taking each distinct handle exactly once and in
+/// ascending handle order.
+///
+/// The order makes acquisition deterministic across threads, so two
+/// calls sharing slots cannot deadlock against each other; taking a
+/// repeated handle once keeps a caller that passes the same handle twice
+/// from deadlocking against itself.
+fn lock_in_order(entries: &[(u32, Slot)]) -> Vec<(u32, MutexGuard<'_, Resource>)> {
+    let mut order: Vec<&(u32, Slot)> = entries.iter().collect();
+    order.sort_by_key(|(handle, _)| *handle);
+    order.dedup_by_key(|(handle, _)| *handle);
+    order
+        .into_iter()
+        .map(|(handle, slot)| (*handle, lock_resource(slot)))
+        .collect()
+}
+
+/// Project the guard taken for `handle` out of a [`lock_in_order`]
+/// result.
+///
+/// # Errors
+///
+/// Returns [`FfiError::InvalidHandle`] if `handle` was not among the
+/// locked entries, which cannot happen for a handle this call locked.
+fn borrow<'g>(
+    guards: &'g [(u32, MutexGuard<'_, Resource>)],
+    handle: u32,
+) -> Result<&'g Resource, FfiError> {
+    guards
+        .iter()
+        .find(|(locked, _)| *locked == handle)
+        .map(|(_, guard)| &**guard)
         .ok_or(FfiError::InvalidHandle { handle })
 }
 
 /// Allocate a resource and return its handle.
 ///
-/// Reuses a freed slot when one is available; otherwise pushes onto
-/// the end of the slab.
+/// Reuses a freed slot when the free list has one; otherwise appends.
+/// If the table has grown to the largest index a `u32` handle can name,
+/// the returned handle is one no lookup resolves, so the caller sees an
+/// invalid-handle error rather than a silently truncated index.
 #[must_use]
-#[allow(clippy::cast_possible_truncation)] // u32 indices; >4B resources is unrealistic.
 pub fn alloc(resource: Resource) -> u32 {
-    let mut slab = lock_slab();
-    for (i, slot) in slab.iter_mut().enumerate() {
-        if slot.is_none() {
-            *slot = Some(resource);
-            return i as u32;
+    let slot: Slot = Arc::new(Mutex::new(resource));
+    let mut table = lock_table();
+    if let Some(handle) = table.free.pop() {
+        if let Some(entry) = table.slots.get_mut(handle as usize) {
+            *entry = Some(slot);
+            return handle;
         }
     }
-    let handle = slab.len() as u32;
-    slab.push(Some(resource));
-    handle
+    match u32::try_from(table.slots.len()) {
+        Ok(handle) if handle < u32::MAX => {
+            table.slots.push(Some(slot));
+            handle
+        }
+        _ => u32::MAX,
+    }
 }
 
 /// Read access to a resource by handle.
@@ -412,11 +517,12 @@ pub fn with_resource<T>(
     handle: u32,
     f: impl FnOnce(&Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let slab = lock_slab();
-    f(slot(&slab, handle)?)
+    let slot = find(handle)?;
+    let guard = lock_resource(&slot);
+    f(&guard)
 }
 
-/// Read access to two resources by handle, under one slab lock.
+/// Read access to two resources by handle.
 ///
 /// # Errors
 ///
@@ -427,8 +533,9 @@ pub fn with_two_resources<T>(
     h2: u32,
     f: impl FnOnce(&Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let slab = lock_slab();
-    f(slot(&slab, h1)?, slot(&slab, h2)?)
+    let entries = [(h1, find(h1)?), (h2, find(h2)?)];
+    let guards = lock_in_order(&entries);
+    f(borrow(&guards, h1)?, borrow(&guards, h2)?)
 }
 
 /// Mutable access to a resource by handle.
@@ -444,11 +551,12 @@ pub fn with_resource_mut<T>(
     handle: u32,
     f: impl FnOnce(&mut Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let mut slab = lock_slab();
-    f(slot_mut(&mut slab, handle)?)
+    let slot = find(handle)?;
+    let mut guard = lock_resource(&slot);
+    f(&mut guard)
 }
 
-/// Read access to three resources by handle, in a single slab borrow.
+/// Read access to three resources by handle.
 ///
 /// Used by domains that take three handles at once (theory colimit
 /// over a shared base).
@@ -463,26 +571,42 @@ pub fn with_three_resources<T>(
     h3: u32,
     f: impl FnOnce(&Resource, &Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let slab = lock_slab();
-    f(slot(&slab, h1)?, slot(&slab, h2)?, slot(&slab, h3)?)
+    let entries = [(h1, find(h1)?), (h2, find(h2)?), (h3, find(h3)?)];
+    let guards = lock_in_order(&entries);
+    f(
+        borrow(&guards, h1)?,
+        borrow(&guards, h2)?,
+        borrow(&guards, h3)?,
+    )
 }
 
 /// Free a resource, marking the slot reusable.
 ///
 /// Calling on an out-of-range or already-freed handle is a no-op
-/// (double-free is safe).
+/// (double-free is safe). The resource itself is dropped after the table
+/// lock is released, so a destructor that takes time or touches disk
+/// does not hold up other handle operations.
 pub fn free(handle: u32) {
-    let mut slab = lock_slab();
-    let idx = handle as usize;
-    if idx < slab.len() {
-        slab[idx] = None;
-    }
+    let dropped = {
+        let mut table = lock_table();
+        match table.slots.get_mut(handle as usize) {
+            Some(entry @ Some(_)) => {
+                let taken = entry.take();
+                table.free.push(handle);
+                taken
+            }
+            _ => None,
+        }
+    };
+    drop(dropped);
 }
 
 /// Test-only: drop every resource in the slab and reset its length.
 #[cfg(test)]
 pub fn reset() {
-    lock_slab().clear();
+    let mut table = lock_table();
+    table.slots.clear();
+    table.free.clear();
 }
 
 #[cfg(test)]
@@ -543,6 +667,45 @@ mod tests {
             incoming: HashMap::new(),
             between: HashMap::new(),
         }
+    }
+
+    #[test]
+    fn schema_lookup_shares_the_slot_allocation() {
+        reset();
+        let h = alloc(Resource::Schema(Arc::new(test_schema())));
+
+        let first = with_resource(h, Resource::as_schema_arc).unwrap();
+        let second = with_resource(h, Resource::as_schema_arc).unwrap();
+
+        // Both lookups must hand back the slot's own allocation. A deep
+        // copy here would cost a full traversal of every vertex, edge,
+        // span, and coercion map on each call.
+        assert!(
+            Arc::ptr_eq(&first, &second),
+            "two lookups of one handle returned separate schema allocations"
+        );
+        let slot_shared = with_resource(h, |r| {
+            let held = r.as_schema_arc()?;
+            Ok(Arc::ptr_eq(&held, &first))
+        })
+        .unwrap();
+        assert!(slot_shared, "the lookup did not share the slot's schema");
+
+        free(h);
+    }
+
+    #[test]
+    fn non_schema_handle_rejected_by_schema_arc() {
+        reset();
+        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
+        match with_resource(h, Resource::as_schema_arc) {
+            Err(FfiError::TypeMismatch { expected, actual }) => {
+                assert_eq!(expected, "Schema");
+                assert_eq!(actual, "Protocol");
+            }
+            other => panic!("expected TypeMismatch, got {:?}", other.map(|_| ())),
+        }
+        free(h);
     }
 
     #[test]
@@ -777,5 +940,58 @@ mod tests {
         for w in workers {
             w.join().expect("worker thread panicked");
         }
+    }
+
+    #[test]
+    fn a_borrow_may_span_another_handles_borrow() {
+        reset();
+        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
+        // Borrowing one resource must not lock every other handle in the
+        // process. An entry point that reaches back into the slab for a
+        // second, unrelated resource has to make progress; under a
+        // single table-wide lock held for the whole borrow it cannot.
+        let both = with_resource(h1, |p| {
+            let proto = p.as_protocol()?.name.clone();
+            let schema = with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))?;
+            Ok(format!("{proto}/{schema}"))
+        })
+        .unwrap();
+        assert_eq!(both, "test/test");
+        free(h1);
+        free(h2);
+    }
+
+    #[test]
+    fn slow_work_on_one_handle_does_not_stall_another() {
+        reset();
+        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let (borrowed_tx, borrowed_rx) = std::sync::mpsc::channel::<()>();
+        let (finished_tx, finished_rx) = std::sync::mpsc::channel::<String>();
+
+        // The worker allocates and uses a handle of its own while the
+        // main thread is still inside a borrow. Engine work and disk I/O
+        // happen inside such a borrow, so a table lock held across it
+        // would serialize every unrelated call in the process; here that
+        // shows up as the worker never finishing.
+        let worker = std::thread::spawn(move || {
+            borrowed_rx.recv().expect("main thread borrowed h1");
+            let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
+            let name = with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))
+                .expect("worker handle valid");
+            free(h2);
+            finished_tx.send(name).expect("main thread still listening");
+        });
+
+        let reported = with_resource(h1, |p| {
+            let _ = p.as_protocol()?;
+            borrowed_tx.send(()).expect("worker still listening");
+            Ok(finished_rx.recv().expect("worker made progress"))
+        })
+        .unwrap();
+
+        worker.join().expect("worker thread panicked");
+        assert_eq!(reported, "test");
+        free(h1);
     }
 }

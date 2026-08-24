@@ -202,7 +202,7 @@ pub fn pp_query_execute(
         let instance: WInstance = crate::canonical::decode(instance.as_slice())?;
 
         // The anchoring schema must be a live schema handle.
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, handle::Resource::as_schema_arc)?;
 
         let matches = inst::execute_query(&query, &instance, &schema);
 
