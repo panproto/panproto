@@ -166,6 +166,14 @@ pub fn dependencies_from_schema(schema: &Schema) -> Vec<EmbeddedDependency> {
         }
     }
 
+    // The requirement table is a hash map, so the dependencies come out in
+    // whatever order it enumerates. Order them by the pair they relate, so the
+    // list — and everything the chase derives by walking it — is a function of
+    // the schema.
+    deps.sort_by(|a, b| {
+        (&a.pattern_vertex, &a.consequence_vertex).cmp(&(&b.pattern_vertex, &b.consequence_vertex))
+    });
+
     deps
 }
 
@@ -307,13 +315,20 @@ fn outermost_op(term: &Term) -> Option<String> {
     }
 }
 
-/// Find the first vertex in a schema whose kind matches the given sort name.
+/// Name the vertex that stands for a sort: the least by ID among the schema's
+/// vertices of that kind.
+///
+/// A schema may hold many vertices of one kind, so this is a choice rather
+/// than a lookup, and taking the least keeps the derived dependencies a
+/// function of the schema rather than of its vertex table's layout.
 fn find_vertex_by_kind(schema: &Schema, sort_name: &str) -> Option<String> {
     schema
         .vertices
         .values()
-        .find(|v| v.kind.as_str() == sort_name)
-        .map(|v| v.id.to_string())
+        .filter(|v| v.kind.as_str() == sort_name)
+        .map(|v| v.id.as_str())
+        .min()
+        .map(ToOwned::to_owned)
 }
 
 // ===========================================================================
