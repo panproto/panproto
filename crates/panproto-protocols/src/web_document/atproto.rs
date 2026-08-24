@@ -253,6 +253,13 @@ fn prefix_name(path: &std::path::Path, name: &str) -> Name {
 /// Build a per-file schema holding only the vertices in `owned` and the
 /// edges in `internal`, recomputing the adjacency indices from the
 /// retained edges.
+///
+/// Every field is filtered to the file's own structure. A bundle's
+/// hyper-edges, spans, coercions, and policies describe the whole
+/// bundle, and copying them into each file would give every document a
+/// full set: a hyper-edge over vertices the file does not have, a span
+/// between two other files' vertices, and one copy of the bundle's
+/// coercions and policies per file.
 fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge>) -> Schema {
     fn by_vertex<V: Clone>(map: &HashMap<Name, V>, owned: &HashSet<Name>) -> HashMap<Name, V> {
         map.iter()
@@ -287,11 +294,30 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
             .push(edge.clone());
     }
 
+    // A hyper-edge belongs to this file when every vertex it names does;
+    // one reaching outside cannot be instantiated here.
+    let hyper_edges: HashMap<Name, panproto_schema::HyperEdge> = m
+        .hyper_edges
+        .iter()
+        .filter(|(_, h)| h.signature.values().all(|v| owned.contains(v)))
+        .map(|(k, h)| (k.clone(), h.clone()))
+        .collect();
+
+    // The kinds this file's vertices actually carry. Coercions are keyed
+    // by a pair of kinds and policies by a sort name, so this is what
+    // decides which of them the file has any use for.
+    let kinds: HashSet<&Name> = m
+        .vertices
+        .iter()
+        .filter(|(id, _)| owned.contains(*id))
+        .map(|(_, v)| &v.kind)
+        .collect();
+
     Schema {
         protocol: m.protocol.clone(),
         vertices: by_vertex(&m.vertices, owned),
         edges,
-        hyper_edges: m.hyper_edges.clone(),
+        hyper_edges,
         constraints: by_vertex(&m.constraints, owned),
         required: by_vertex(&m.required, owned),
         nsids: by_vertex(&m.nsids, owned),
@@ -309,7 +335,12 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
             .map(|(e, p)| (e.clone(), *p))
             .collect(),
         recursion_points: by_vertex(&m.recursion_points, owned),
-        spans: m.spans.clone(),
+        spans: m
+            .spans
+            .iter()
+            .filter(|(_, span)| owned.contains(&span.left) && owned.contains(&span.right))
+            .map(|(k, span)| (k.clone(), span.clone()))
+            .collect(),
         usage_modes: m
             .usage_modes
             .iter()
@@ -317,10 +348,20 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
             .map(|(e, u)| (e.clone(), u.clone()))
             .collect(),
         nominal: by_vertex(&m.nominal, owned),
-        coercions: m.coercions.clone(),
+        coercions: m
+            .coercions
+            .iter()
+            .filter(|((from, to), _)| kinds.contains(from) && kinds.contains(to))
+            .map(|(pair, spec)| (pair.clone(), spec.clone()))
+            .collect(),
         mergers: by_vertex(&m.mergers, owned),
         defaults: by_vertex(&m.defaults, owned),
-        policies: m.policies.clone(),
+        policies: m
+            .policies
+            .iter()
+            .filter(|(sort, _)| kinds.contains(*sort))
+            .map(|(sort, expr)| (sort.clone(), expr.clone()))
+            .collect(),
         outgoing,
         incoming,
         between,
@@ -1098,6 +1139,114 @@ fn edge_rules() -> Vec<EdgeRule> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A bundle's hyper-edges, spans, coercions, and policies describe
+    /// the bundle. Each per-file schema must carry only its own share of
+    /// them, not a copy of the whole set.
+    #[test]
+    fn a_per_file_schema_carries_only_its_own_structure() {
+        use panproto_schema::{HyperEdge, Span, Vertex};
+
+        let mine = Name::from("doc.a#main");
+        let theirs = Name::from("doc.b#main");
+
+        let vertex = |id: &Name, kind: &str| Vertex {
+            id: id.clone(),
+            kind: Name::from(kind),
+            nsid: None,
+        };
+
+        let mut monolith = Schema {
+            protocol: "atproto".into(),
+            vertices: HashMap::from([
+                (mine.clone(), vertex(&mine, "object")),
+                (theirs.clone(), vertex(&theirs, "blob")),
+            ]),
+            edges: HashMap::new(),
+            hyper_edges: HashMap::new(),
+            constraints: HashMap::new(),
+            required: HashMap::new(),
+            nsids: HashMap::new(),
+            entries: Vec::new(),
+            variants: HashMap::new(),
+            orderings: HashMap::new(),
+            recursion_points: HashMap::new(),
+            spans: HashMap::new(),
+            usage_modes: HashMap::new(),
+            nominal: HashMap::new(),
+            coercions: HashMap::new(),
+            mergers: HashMap::new(),
+            defaults: HashMap::new(),
+            policies: HashMap::new(),
+            outgoing: HashMap::new(),
+            incoming: HashMap::new(),
+            between: HashMap::new(),
+        };
+        monolith.hyper_edges.insert(
+            Name::from("fan"),
+            HyperEdge {
+                id: Name::from("fan"),
+                kind: Name::from("fan"),
+                signature: HashMap::from([
+                    (Name::from("parent"), mine.clone()),
+                    (Name::from("child"), theirs.clone()),
+                ]),
+                parent_label: Name::from("parent"),
+            },
+        );
+        monolith.spans.insert(
+            Name::from("across"),
+            Span {
+                id: Name::from("across"),
+                left: mine.clone(),
+                right: theirs.clone(),
+            },
+        );
+        monolith.coercions.insert(
+            (Name::from("blob"), Name::from("blob")),
+            panproto_schema::CoercionSpec {
+                forward: panproto_expr::Expr::Var(std::sync::Arc::from("x")),
+                inverse: None,
+                class: panproto_gat::CoercionClass::Iso,
+            },
+        );
+        monolith.policies.insert(
+            Name::from("blob"),
+            panproto_expr::Expr::Var(std::sync::Arc::from("x")),
+        );
+
+        let owned = HashSet::from([mine.clone()]);
+        let file = retain_file_schema(&monolith, &owned, &HashSet::new());
+
+        assert!(
+            file.hyper_edges.is_empty(),
+            "a hyper-edge naming another file's vertex must not be copied in: {:?}",
+            file.hyper_edges,
+        );
+        assert!(
+            file.spans.is_empty(),
+            "a span between this file and another must not be copied in: {:?}",
+            file.spans,
+        );
+        assert!(
+            file.coercions.is_empty(),
+            "a coercion between kinds this file does not carry must not be copied in: {:?}",
+            file.coercions.keys().collect::<Vec<_>>(),
+        );
+        assert!(
+            file.policies.is_empty(),
+            "a policy on a sort this file does not carry must not be copied in: {:?}",
+            file.policies.keys().collect::<Vec<_>>(),
+        );
+
+        // What the file does own still comes through.
+        let owned_both = HashSet::from([mine, theirs]);
+        let whole = retain_file_schema(&monolith, &owned_both, &HashSet::new());
+        assert_eq!(whole.hyper_edges.len(), 1);
+        assert_eq!(whole.spans.len(), 1);
+        assert_eq!(whole.coercions.len(), 1);
+        assert_eq!(whole.policies.len(), 1);
+    }
 
     #[test]
     fn protocol_creates_valid_definition() {
