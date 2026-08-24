@@ -156,16 +156,13 @@ fn eval_inner(
         Expr::Lit(lit) => Ok(lit.clone()),
 
         Expr::Lam(param, body) => {
-            // Lambdas evaluate to closures, capturing the current environment.
-            // This enables proper lexical scoping and first-class functions.
-            let captured: Vec<(Arc<str>, Literal)> = env
-                .iter()
-                .map(|(k, v)| (Arc::clone(k), v.clone()))
-                .collect();
+            // Lambdas evaluate to closures over the scope they were written
+            // in, which gives lexical scoping and first-class functions. The
+            // scope is shared, not copied.
             Ok(Literal::Closure {
                 param: Arc::clone(param),
                 body: body.clone(),
-                env: captured,
+                env: env.clone(),
             })
         }
 
@@ -280,7 +277,7 @@ fn curried_builtin(op: BuiltinOp, mut surface: Vec<Expr>) -> Literal {
     Literal::Closure {
         param: builtin_param(first_missing),
         body: Box::new(body),
-        env: Vec::new(),
+        env: Env::new(),
     }
 }
 
@@ -410,14 +407,9 @@ fn apply_closure(
 ) -> Result<Literal, ExprError> {
     match func {
         Literal::Closure { param, body, env } => {
-            // Reconstruct the captured environment.
-            let mut closure_env: Env = env
-                .iter()
-                .map(|(k, v)| (Arc::clone(k), v.clone()))
-                .collect();
-            // Bind the parameter to the argument.
-            closure_env = closure_env.extend(Arc::clone(param), arg.clone());
-            // Evaluate the body in the extended environment.
+            // Bind the parameter in the captured scope and evaluate the body
+            // there. This is the beta-reduction step of call-by-value.
+            let closure_env = env.extend(Arc::clone(param), arg.clone());
             eval_inner(body, &closure_env, depth + 1, state)
         }
         _ => Err(ExprError::NotAFunction),

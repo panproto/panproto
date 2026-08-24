@@ -39,8 +39,11 @@ pub enum Literal {
         param: Arc<str>,
         /// The body expression (serialized as the AST).
         body: Box<crate::Expr>,
-        /// Captured environment bindings at the point of closure creation.
-        env: Vec<(Arc<str>, Self)>,
+        /// The scope captured at the point of closure creation.
+        ///
+        /// Shared rather than copied, so producing a closure costs the same
+        /// however wide the scope it closes over is.
+        env: crate::Env,
     },
 }
 

@@ -591,7 +591,7 @@ fn push_literal(out: &mut Vec<u8>, literal: &Literal) {
             push_arc_str(out, param);
             push_expr(out, body);
             push_len(out, env.len());
-            for (name, value) in env {
+            for (name, value) in env.iter() {
                 push_arc_str(out, name);
                 push_literal(out, value);
             }
