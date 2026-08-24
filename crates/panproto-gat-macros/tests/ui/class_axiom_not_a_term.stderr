@@ -1,0 +1,5 @@
+error: expected identifier
+ --> tests/ui/class_axiom_not_a_term.rs:6:20
+  |
+6 |         axiom bad: 1 + 2 = eq(x, x);
+  |                    ^

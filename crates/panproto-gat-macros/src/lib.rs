@@ -148,10 +148,14 @@ fn term_ast_to_tokens(term: &TermAst) -> TokenStream2 {
 }
 
 /// AST for an equational axiom: `axiom name: lhs = rhs;`.
+///
+/// Both sides are parsed as terms from the tokens themselves, so each
+/// identifier keeps the span it was written at and a malformed side is
+/// reported by `syn` at the offending token.
 struct AxiomItem {
     name: Ident,
-    lhs: TokenStream2,
-    rhs: TokenStream2,
+    lhs: TermAst,
+    rhs: TermAst,
 }
 
 enum ClassBodyItem {
@@ -176,9 +180,9 @@ impl Parse for ClassBodyItem {
             input.parse::<Ident>()?;
             let name: Ident = input.parse()?;
             input.parse::<Token![:]>()?;
-            let lhs = parse_until_eq(input)?;
+            let lhs: TermAst = input.parse()?;
             input.parse::<Token![=]>()?;
-            let rhs = parse_until_semi(input)?;
+            let rhs: TermAst = input.parse()?;
             input.parse::<Token![;]>()?;
             return Ok(Self::Axiom(AxiomItem { name, lhs, rhs }));
         }
@@ -193,30 +197,6 @@ impl Parse for ClassBodyItem {
         input.parse::<Token![;]>()?;
         Ok(Self::Sig(SigItem { name, args, output }))
     }
-}
-
-fn parse_until_eq(input: ParseStream<'_>) -> syn::Result<TokenStream2> {
-    let mut out = TokenStream2::new();
-    while !input.is_empty() && !input.peek(Token![=]) {
-        let tt: proc_macro2::TokenTree = input.parse()?;
-        out.extend(std::iter::once(tt));
-    }
-    if input.is_empty() {
-        return Err(input.error("expected `=` in axiom"));
-    }
-    Ok(out)
-}
-
-fn parse_until_semi(input: ParseStream<'_>) -> syn::Result<TokenStream2> {
-    let mut out = TokenStream2::new();
-    while !input.is_empty() && !input.peek(Token![;]) {
-        let tt: proc_macro2::TokenTree = input.parse()?;
-        out.extend(std::iter::once(tt));
-    }
-    if input.is_empty() {
-        return Err(input.error("expected `;` at end of axiom"));
-    }
-    Ok(out)
 }
 
 struct ClassInput {
@@ -327,30 +307,8 @@ pub fn class(input: TokenStream) -> TokenStream {
                 rhs,
             }) => {
                 let ax_name_str = ax_name.to_string();
-                let lhs_str = lhs.to_string();
-                let rhs_str = rhs.to_string();
-                let lhs_tokens = match term_tokens(&lhs_str) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return syn::Error::new(
-                            ax_name.span(),
-                            format!("axiom lhs parse error: {e}"),
-                        )
-                        .to_compile_error()
-                        .into();
-                    }
-                };
-                let rhs_tokens = match term_tokens(&rhs_str) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return syn::Error::new(
-                            ax_name.span(),
-                            format!("axiom rhs parse error: {e}"),
-                        )
-                        .to_compile_error()
-                        .into();
-                    }
-                };
+                let lhs_tokens = term_ast_to_tokens(&lhs);
+                let rhs_tokens = term_ast_to_tokens(&rhs);
                 eq_inits.push(quote! {
                     ::panproto_gat::Equation::new(
                         #ax_name_str,
@@ -949,104 +907,4 @@ pub fn inductive(input: TokenStream) -> TokenStream {
         }
     };
     expanded.into()
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Compile-time term parsing for axiom lhs/rhs
-// ═══════════════════════════════════════════════════════════════════
-
-/// Parse a term source string into a `quote!`-able construction of a
-/// `panproto_gat::Term`.
-fn term_tokens(s: &str) -> Result<TokenStream2, String> {
-    let s = s.trim();
-    if s.is_empty() {
-        return Err("empty term".to_owned());
-    }
-    match s.find('(') {
-        None => {
-            // Bare variable.
-            validate_ident(s)?;
-            Ok(quote! {
-                ::panproto_gat::Term::Var(::std::sync::Arc::from(#s))
-            })
-        }
-        Some(paren) => {
-            let op = s[..paren].trim();
-            validate_ident(op)?;
-            let inner = &s[paren + 1..];
-            let close =
-                find_matching_paren(inner).ok_or_else(|| format!("unclosed paren in {s:?}"))?;
-            let args_str = &inner[..close];
-            let trailing = inner[close + 1..].trim();
-            if !trailing.is_empty() {
-                return Err(format!("trailing input after `)` in {s:?}: {trailing:?}"));
-            }
-            let args = split_top_commas(args_str)
-                .into_iter()
-                .map(term_tokens)
-                .collect::<Result<Vec<_>, _>>()?;
-            Ok(quote! {
-                ::panproto_gat::Term::App {
-                    op: ::std::sync::Arc::from(#op),
-                    args: ::std::vec![ #( #args ),* ],
-                }
-            })
-        }
-    }
-}
-
-fn validate_ident(s: &str) -> Result<(), String> {
-    let mut chars = s.chars();
-    let first = chars.next().ok_or_else(|| "empty identifier".to_owned())?;
-    if !(first.is_ascii_alphabetic() || first == '_') {
-        return Err(format!("identifier {s:?} must start with a letter or `_`"));
-    }
-    for c in chars {
-        if !(c.is_ascii_alphanumeric() || c == '_') {
-            return Err(format!("identifier {s:?} contains invalid char {c:?}"));
-        }
-    }
-    Ok(())
-}
-
-fn find_matching_paren(s: &str) -> Option<usize> {
-    let mut depth = 1i32;
-    for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => {
-                depth -= 1;
-                if depth == 0 {
-                    return Some(i);
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-fn split_top_commas(s: &str) -> Vec<&str> {
-    let mut parts = Vec::new();
-    let mut depth = 0i32;
-    let mut start = 0;
-    for (i, c) in s.char_indices() {
-        match c {
-            '(' => depth += 1,
-            ')' => depth -= 1,
-            ',' if depth == 0 => {
-                let p = s[start..i].trim();
-                if !p.is_empty() {
-                    parts.push(p);
-                }
-                start = i + 1;
-            }
-            _ => {}
-        }
-    }
-    let tail = s[start..].trim();
-    if !tail.is_empty() {
-        parts.push(tail);
-    }
-    parts
 }
