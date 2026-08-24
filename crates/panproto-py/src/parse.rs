@@ -91,10 +91,12 @@ impl PyAstParserRegistry {
 
     /// Parse a source file into a full-AST schema.
     /// The language is auto-detected from the file extension.
-    fn parse_file(&self, path: &str, content: &[u8]) -> PyResult<PySchema> {
-        let schema = self
-            .inner
-            .parse_file(std::path::Path::new(path), content)
+    ///
+    /// Runs with the GIL released, so parsing several files from a
+    /// Python thread pool uses several cores.
+    fn parse_file(&self, py: Python<'_>, path: &str, content: &[u8]) -> PyResult<PySchema> {
+        let schema = py
+            .detach(|| self.inner.parse_file(std::path::Path::new(path), content))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: std::sync::Arc::new(schema),
@@ -102,15 +104,18 @@ impl PyAstParserRegistry {
     }
 
     /// Parse source code with a specific protocol name.
+    ///
+    /// Runs with the GIL released, so parsing several sources from a
+    /// Python thread pool uses several cores.
     fn parse_with_protocol(
         &self,
+        py: Python<'_>,
         protocol: &str,
         content: &[u8],
         file_path: &str,
     ) -> PyResult<PySchema> {
-        let schema = self
-            .inner
-            .parse_with_protocol(protocol, content, file_path)
+        let schema = py
+            .detach(|| self.inner.parse_with_protocol(protocol, content, file_path))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: std::sync::Arc::new(schema),
@@ -125,9 +130,10 @@ impl PyAstParserRegistry {
     }
 
     /// Emit a schema back to source code bytes.
-    fn emit(&self, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
-        self.inner
-            .emit_with_protocol(protocol, &schema.inner)
+    ///
+    /// Runs with the GIL released.
+    fn emit(&self, py: Python<'_>, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| self.inner.emit_with_protocol(protocol, &schema.inner))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
@@ -135,10 +141,14 @@ impl PyAstParserRegistry {
     /// grammar.json production walker. Unlike :meth:`emit`, does not
     /// require the schema to carry parse-derived byte positions or
     /// interstitial constraints.
-    fn emit_pretty(&self, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
-        self.inner
-            .emit_pretty_with_protocol(protocol, &schema.inner)
-            .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
+    ///
+    /// Runs with the GIL released.
+    fn emit_pretty(&self, py: Python<'_>, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            self.inner
+                .emit_pretty_with_protocol(protocol, &schema.inner)
+        })
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
     /// Build a parse/emit lens for ``protocol`` against this registry.
@@ -251,10 +261,14 @@ pub struct PyParseEmitLens {
 #[pymethods]
 impl PyParseEmitLens {
     /// Forward direction: source bytes → schema.
-    fn parse(&self, source: &[u8]) -> PyResult<PySchema> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        let schema = lens
-            .parse(source)
+    ///
+    /// Runs with the GIL released.
+    fn parse(&self, py: Python<'_>, source: &[u8]) -> PyResult<PySchema> {
+        let schema = py
+            .detach(|| {
+                let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+                lens.parse(source)
+            })
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: Arc::new(schema),
@@ -262,28 +276,40 @@ impl PyParseEmitLens {
     }
 
     /// Backward direction: schema → canonical source bytes (no complement).
-    fn emit(&self, schema: &PySchema) -> PyResult<Vec<u8>> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        lens.emit(&schema.inner)
-            .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
+    ///
+    /// Runs with the GIL released.
+    fn emit(&self, py: Python<'_>, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            lens.emit(&schema.inner)
+        })
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
     /// Verify the `EmitParse` retraction on ``schema``. Returns
     /// ``None`` on success, or a human-readable string describing the
     /// divergence on failure.
-    fn check_emit_parse(&self, schema: &PySchema) -> Option<String> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        check_emit_parse(&lens, &schema.inner)
-            .err()
-            .map(|e| e.to_string())
+    ///
+    /// Runs with the GIL released.
+    fn check_emit_parse(&self, py: Python<'_>, schema: &PySchema) -> Option<String> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            check_emit_parse(&lens, &schema.inner)
+                .err()
+                .map(|e| e.to_string())
+        })
     }
 
     /// Verify the `ParseEmit` stability law on ``bytes``. Returns
     /// ``None`` on success, or a human-readable string describing the
     /// divergence on failure.
-    fn check_parse_emit(&self, bytes: &[u8]) -> Option<String> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        check_parse_emit(&lens, bytes).err().map(|e| e.to_string())
+    ///
+    /// Runs with the GIL released.
+    fn check_parse_emit(&self, py: Python<'_>, bytes: &[u8]) -> Option<String> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            check_parse_emit(&lens, bytes).err().map(|e| e.to_string())
+        })
     }
 
     /// Strip byte-position constraints from a schema, returning a copy.
@@ -318,11 +344,16 @@ impl PyParseEmitLens {
 }
 
 /// Parse a file using the default parser registry (convenience function).
+///
+/// Runs with the GIL released; building the registry dominates, so
+/// prefer :class:`AstParserRegistry` when parsing more than one file.
 #[pyfunction]
-fn parse_source_file(path: &str, content: &[u8]) -> PyResult<PySchema> {
-    let registry = ParserRegistry::new();
-    let schema = registry
-        .parse_file(std::path::Path::new(path), content)
+fn parse_source_file(py: Python<'_>, path: &str, content: &[u8]) -> PyResult<PySchema> {
+    let schema = py
+        .detach(|| {
+            let registry = ParserRegistry::new();
+            registry.parse_file(std::path::Path::new(path), content)
+        })
         .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
     Ok(PySchema {
         inner: std::sync::Arc::new(schema),

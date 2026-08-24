@@ -801,6 +801,90 @@ class TestAstParserRegistryOverride:
 
 
 # ---------------------------------------------------------------------------
+# GIL release around native work
+# ---------------------------------------------------------------------------
+
+
+class TestGilRelease:
+    """The long native operations must not hold the interpreter lock."""
+
+    def test_parsing_lets_other_python_threads_run(self) -> None:
+        """A parse in flight must not starve the rest of the interpreter.
+
+        The measurement is relative rather than absolute so it says the
+        same thing on any machine and in any build profile: count how
+        much pure-Python work a spinning thread gets through while a
+        parse runs, and compare it against the same interval spent in
+        ``time.sleep``, which releases the lock by definition. A parse
+        that holds the lock scores a fraction of a percent of the sleep
+        baseline; one that releases it scores the same order of
+        magnitude.
+        """
+        import threading
+        import time
+
+        reg = panproto.AstParserRegistry()
+        if "python" not in reg.protocol_names():
+            pytest.skip("this build has no python grammar")
+
+        source = b"".join(
+            f"def f_{i}(a, b):\n    return a + b * {i}\n\n".encode() for i in range(200)
+        )
+        # Warm up: grammar construction and theory extraction happen once.
+        reg.parse_with_protocol("python", source, "warm.py")
+
+        # Size the sample so the measurement window is long enough to
+        # dwarf thread-scheduling noise in either build profile.
+        rounds = 1
+        while True:
+            start = time.perf_counter()
+            for _ in range(rounds):
+                reg.parse_with_protocol("python", source, "sample.py")
+            window = time.perf_counter() - start
+            if window >= 0.2 or rounds >= 512:
+                break
+            rounds *= 4
+
+        ticks = 0
+        stop = threading.Event()
+
+        def spin() -> None:
+            nonlocal ticks
+            while not stop.is_set():
+                ticks += 1
+
+        spinner = threading.Thread(target=spin)
+        spinner.start()
+        try:
+            # Baseline: the lock is demonstrably released for `window`.
+            time.sleep(0.05)
+            ticks = 0
+            start = time.perf_counter()
+            time.sleep(window)
+            asleep = time.perf_counter() - start
+            baseline = ticks
+
+            ticks = 0
+            start = time.perf_counter()
+            for _ in range(rounds):
+                reg.parse_with_protocol("python", source, "measured.py")
+            parsing = time.perf_counter() - start
+            during = ticks
+        finally:
+            stop.set()
+            spinner.join()
+
+        # Normalize for any drift between the two windows.
+        rate_asleep = baseline / asleep
+        rate_parsing = during / parsing
+        assert rate_parsing > rate_asleep * 0.2, (
+            f"python made {rate_parsing:.0f} iterations/s during parsing but "
+            f"{rate_asleep:.0f} iterations/s while sleeping: the parse is "
+            f"holding the interpreter lock"
+        )
+
+
+# ---------------------------------------------------------------------------
 # Expression language
 # ---------------------------------------------------------------------------
 
