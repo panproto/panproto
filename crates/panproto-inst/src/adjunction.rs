@@ -43,8 +43,19 @@
 //! Merging maps are rejected by [`w_delta`] with
 //! [`AdjunctionError::NonInjectiveVertexMap`]; the functor-side functions
 //! handle them.
+//!
+//! # What `F` is defined on
+//!
+//! A compiled migration states a vertex's image in one of two ways: it names
+//! the image, or it lets the vertex survive under its own name. Both
+//! transports read the domain of `F` that way, so a vertex `Sigma_F` carries
+//! forward is a vertex `Delta_F` reads back and the unit has a codomain at
+//! every table of `X`. An instance carrying a table at a vertex that is
+//! neither — a vertex `F` says nothing about — is refused by [`f_sigma`] with
+//! [`AdjunctionError::VertexOutsideDomain`] rather than passed through under
+//! its own name into an instance the counit could not come back from.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
@@ -97,6 +108,14 @@ pub enum AdjunctionError {
     )]
     AnchorOutsideImage(Name),
 
+    /// The instance carries a table at a vertex the migration is not defined
+    /// on, so `Sigma_F` has nowhere to send its rows.
+    #[error(
+        "vertex `{0}` is neither remapped nor surviving, so the migration is \
+         not defined on it and the pushforward has no image for its rows"
+    )]
+    VertexOutsideDomain(Name),
+
     /// The underlying left Kan extension ([`wtype_extend`]) failed.
     #[error("Sigma (left Kan extension) failed: {0}")]
     Sigma(#[from] RestrictError),
@@ -139,18 +158,57 @@ fn map_edge(migration: &CompiledMigration, edge: &Edge) -> Edge {
         })
 }
 
-/// Invert the vertex map, failing when two source vertices share an image.
+/// The source vertices `F` is defined on.
+///
+/// A migration states a vertex's image either by naming it — an entry in
+/// `vertex_remap` — or by letting the vertex survive under its own name, which
+/// it says by listing the vertex among the surviving vertices and naming no
+/// image for it. Both are in the domain, and `map_vertex` sends each to its
+/// image. A surviving vertex that is some other vertex's image is a target of
+/// `F`, not a source, and is in the domain only if it is also a key.
+///
+/// This is the same reading of a compiled migration that [`wtype_extend`] and
+/// its fiber map take, so `Sigma_F` and `Delta_F` agree on which vertices they
+/// travel between.
+fn source_vertices(migration: &CompiledMigration) -> BTreeSet<Name> {
+    let images: HashSet<&Name> = migration.vertex_remap.values().collect();
+    let mut domain: BTreeSet<Name> = migration.vertex_remap.keys().cloned().collect();
+    for vertex in &migration.surviving_verts {
+        if !migration.vertex_remap.contains_key(vertex) && !images.contains(vertex) {
+            domain.insert(vertex.clone());
+        }
+    }
+    domain
+}
+
+/// The source edges `F` is defined on, read the same way as
+/// [`source_vertices`] reads vertices.
+fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
+    let images: HashSet<&Edge> = migration.edge_remap.values().collect();
+    let mut domain: BTreeSet<Edge> = migration.edge_remap.keys().cloned().collect();
+    for edge in &migration.surviving_edges {
+        if !migration.edge_remap.contains_key(edge) && !images.contains(edge) {
+            domain.insert(edge.clone());
+        }
+    }
+    domain
+}
+
+/// Invert the vertex map over its whole domain, failing when two source
+/// vertices share an image.
 fn invert_vertex_map(
     migration: &CompiledMigration,
 ) -> Result<HashMap<Name, Name>, AdjunctionError> {
-    let mut inverse: HashMap<Name, Name> = HashMap::with_capacity(migration.vertex_remap.len());
-    for (src, tgt) in &migration.vertex_remap {
+    let domain = source_vertices(migration);
+    let mut inverse: HashMap<Name, Name> = HashMap::with_capacity(domain.len());
+    for src in domain {
+        let tgt = map_vertex(migration, &src);
         if let Some(existing) = inverse.insert(tgt.clone(), src.clone()) {
-            if existing != *src {
+            if existing != src {
                 return Err(AdjunctionError::NonInjectiveVertexMap {
                     first: existing,
-                    second: src.clone(),
-                    target: tgt.clone(),
+                    second: src,
+                    target: tgt,
                 });
             }
         }
@@ -158,15 +216,18 @@ fn invert_vertex_map(
     Ok(inverse)
 }
 
-/// Invert the edge map, failing when two source edges share an image.
+/// Invert the edge map over its whole domain, failing when two source edges
+/// share an image.
 fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>, AdjunctionError> {
-    let mut inverse: HashMap<Edge, Edge> = HashMap::with_capacity(migration.edge_remap.len());
-    for (src, tgt) in &migration.edge_remap {
+    let domain = source_edges(migration);
+    let mut inverse: HashMap<Edge, Edge> = HashMap::with_capacity(domain.len());
+    for src in domain {
+        let tgt = map_edge(migration, &src);
         if let Some(existing) = inverse.insert(tgt.clone(), src.clone()) {
-            if existing != *src {
+            if existing != src {
                 return Err(AdjunctionError::NonInjectiveEdgeMap {
-                    src: tgt.src.clone(),
-                    tgt: tgt.tgt.clone(),
+                    src: tgt.src,
+                    tgt: tgt.tgt,
                 });
             }
         }
@@ -310,6 +371,27 @@ struct SigmaImage {
     groups: HashMap<String, Vec<(String, usize)>>,
 }
 
+/// Check that every table of `x` sits at a vertex the migration is defined
+/// on.
+///
+/// `Sigma_F` is a transport along `F`, so a table at a vertex outside `F`'s
+/// domain has no image to travel to. Carrying it across under its own name
+/// would put a table in `Sigma_F X` that `Delta_F` never reads back, and the
+/// unit at that vertex would have no codomain.
+fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), AdjunctionError> {
+    let domain = source_vertices(migration);
+    let outside = x
+        .tables
+        .keys()
+        .filter(|vertex| !domain.contains(&Name::from(vertex.as_str())))
+        .min();
+    outside.map_or(Ok(()), |vertex| {
+        Err(AdjunctionError::VertexOutsideDomain(Name::from(
+            vertex.as_str(),
+        )))
+    })
+}
+
 /// Compute `Sigma_F X` and its coproduct layout.
 ///
 /// Source vertices are visited in sorted order so the block offsets are
@@ -359,9 +441,15 @@ fn sigma_layout(x: &FInstance, migration: &CompiledMigration) -> SigmaImage {
 ///
 /// For each target vertex `t` it forms the coproduct of the source tables in
 /// its fibre `F^{-1}(t)`, offsetting foreign keys into the concatenation.
-#[must_use]
-pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> FInstance {
-    sigma_layout(x, migration).instance
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// at a vertex the migration neither remaps nor lets survive, so `F` names no
+/// image for its rows.
+pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance, AdjunctionError> {
+    check_domain(x, migration)?;
+    Ok(sigma_layout(x, migration).instance)
 }
 
 /// `Delta_F` for set-valued functor instances: precomposition.
@@ -370,18 +458,31 @@ pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> FInstance {
 /// each source edge `e` a copy of the target foreign key `F(e)`. This is
 /// total and stays within the functor category even for merging maps, where
 /// a merged table is duplicated into each source vertex of its fibre.
+///
+/// The source vertices are the whole domain of `F` — the vertices the
+/// migration remaps together with those it lets survive under their own name
+/// — so a vertex that travels through `Sigma_F` travels back through
+/// `Delta_F`.
 #[must_use]
 pub fn f_delta(y: &FInstance, migration: &CompiledMigration) -> FInstance {
-    let mut tables = HashMap::with_capacity(migration.vertex_remap.len());
-    for (source, target) in &migration.vertex_remap {
+    let domain_vertices = source_vertices(migration);
+    let mut tables = HashMap::with_capacity(domain_vertices.len());
+    for source in domain_vertices {
+        let target = map_vertex(migration, &source);
         let rows = y.tables.get(target.as_str()).cloned().unwrap_or_default();
         tables.insert(source.to_string(), rows);
     }
 
-    let mut foreign_keys = HashMap::with_capacity(migration.edge_remap.len());
-    for (source_edge, target_edge) in &migration.edge_remap {
-        let pairs = y.foreign_keys.get(target_edge).cloned().unwrap_or_default();
-        foreign_keys.insert(source_edge.clone(), pairs);
+    let domain_edges = source_edges(migration);
+    let mut foreign_keys = HashMap::with_capacity(domain_edges.len());
+    for source_edge in domain_edges {
+        let target_edge = map_edge(migration, &source_edge);
+        let pairs = y
+            .foreign_keys
+            .get(&target_edge)
+            .cloned()
+            .unwrap_or_default();
+        foreign_keys.insert(source_edge, pairs);
     }
 
     FInstance {
@@ -394,8 +495,16 @@ pub fn f_delta(y: &FInstance, migration: &CompiledMigration) -> FInstance {
 ///
 /// Each row `i` of `X.table(s)` maps to its copy at `offset(s) + i` inside
 /// the coproduct table `Sigma_F(X).table(F s) = Delta_F(Sigma_F X).table(s)`.
-#[must_use]
-pub fn f_unit(x: &FInstance, migration: &CompiledMigration) -> FInstanceHom {
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// the migration is not defined on, exactly as [`f_sigma`] does.
+pub fn f_unit(
+    x: &FInstance,
+    migration: &CompiledMigration,
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_domain(x, migration)?;
     let sigma = sigma_layout(x, migration);
     let row_maps = x
         .tables
@@ -405,7 +514,7 @@ pub fn f_unit(x: &FInstance, migration: &CompiledMigration) -> FInstanceHom {
             (source.clone(), (0..rows.len()).map(|i| base + i).collect())
         })
         .collect();
-    FInstanceHom::new(row_maps)
+    Ok(FInstanceHom::new(row_maps))
 }
 
 /// The counit `eps_Y : Sigma_F(Delta_F Y) -> Y` of the functor adjunction.
@@ -437,12 +546,17 @@ pub fn f_counit(y: &FInstance, migration: &CompiledMigration) -> FInstanceHom {
 ///
 /// Concretely, `(psi g).table(s)` at row `i` is `g.table(F s)` at row
 /// `offset(s) + i`.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// the migration is not defined on, exactly as [`f_sigma`] does.
 pub fn f_transpose_left(
     g: &FInstanceHom,
     x: &FInstance,
     migration: &CompiledMigration,
-) -> FInstanceHom {
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_domain(x, migration)?;
     let sigma = sigma_layout(x, migration);
     let row_maps = x
         .tables
@@ -462,7 +576,7 @@ pub fn f_transpose_left(
             (source.clone(), map)
         })
         .collect();
-    FInstanceHom::new(row_maps)
+    Ok(FInstanceHom::new(row_maps))
 }
 
 /// Transpose `Hom_S(X, Delta_F Y) -> Hom_T(Sigma_F X, Y)`, sending a
@@ -471,12 +585,17 @@ pub fn f_transpose_left(
 ///
 /// Concretely, `(phi f).table(t)` at row `offset(s) + i` is `f.table(s)` at
 /// row `i`, for the source vertex `s` owning that block of the coproduct.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// the migration is not defined on, exactly as [`f_sigma`] does.
 pub fn f_transpose_right(
     f: &FInstanceHom,
     x: &FInstance,
     migration: &CompiledMigration,
-) -> FInstanceHom {
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_domain(x, migration)?;
     let sigma = sigma_layout(x, migration);
     let row_maps = sigma
         .instance
@@ -496,7 +615,7 @@ pub fn f_transpose_right(
             (target.clone(), map)
         })
         .collect();
-    FInstanceHom::new(row_maps)
+    Ok(FInstanceHom::new(row_maps))
 }
 
 #[cfg(test)]
@@ -614,7 +733,7 @@ mod tests {
             .with_table("a", vec![row(1), row(2)])
             .with_table("b", vec![row(3)])
             .with_table("c", vec![row(9)]);
-        let sigma = f_sigma(&x, &m);
+        let sigma = f_sigma(&x, &m).expect("sigma");
         // a (2 rows) and b (1 row) merge into t (3 rows); c becomes u.
         assert_eq!(sigma.tables.get("t").map(Vec::len), Some(3));
         assert_eq!(sigma.tables.get("u").map(Vec::len), Some(1));
@@ -630,14 +749,14 @@ mod tests {
             .with_foreign_key(edge("a", "c", "ea"), vec![(0, 0), (1, 0)])
             .with_foreign_key(edge("b", "c", "eb"), vec![(0, 0)]);
 
-        let sigma = f_sigma(&x, &m);
+        let sigma = f_sigma(&x, &m).expect("sigma");
         let delta_sigma = f_delta(&sigma, &m);
-        let unit = f_unit(&x, &m);
+        let unit = f_unit(&x, &m).expect("unit");
         unit.check(&x, &delta_sigma)
             .expect("unit is a valid homomorphism into Delta(Sigma X)");
 
         // First triangle identity: phi(eta_X) = id on Sigma X.
-        let phi_unit = f_transpose_right(&unit, &x, &m);
+        let phi_unit = f_transpose_right(&unit, &x, &m).expect("transpose");
         assert_eq!(phi_unit, FInstanceHom::identity(&sigma));
 
         let y = FInstance::new()
@@ -645,14 +764,14 @@ mod tests {
             .with_table("u", vec![row(7)])
             .with_foreign_key(edge("t", "u", "e"), vec![(0, 0), (1, 0)]);
         let delta_y = f_delta(&y, &m);
-        let sigma_delta_y = f_sigma(&delta_y, &m);
+        let sigma_delta_y = f_sigma(&delta_y, &m).expect("sigma");
         let counit = f_counit(&y, &m);
         counit
             .check(&sigma_delta_y, &y)
             .expect("counit is a valid homomorphism onto Y");
 
         // Second triangle identity: psi(eps_Y) = id on Delta Y.
-        let psi_counit = f_transpose_left(&counit, &delta_y, &m);
+        let psi_counit = f_transpose_left(&counit, &delta_y, &m).expect("transpose");
         assert_eq!(psi_counit, FInstanceHom::identity(&delta_y));
     }
 
@@ -722,6 +841,97 @@ mod tests {
         let y = WInstance::new(nodes, vec![], vec![], 0, "t".into());
         let err = w_delta(&y, &m).expect_err("merging map has no W-type pullback");
         assert!(matches!(err, AdjunctionError::NonInjectiveVertexMap { .. }));
+    }
+
+    // -- identity by omission --------------------------------------------
+
+    /// A migration renaming `a` to `t` and leaving `c` to survive under its
+    /// own name, which it states by listing `c` among the surviving vertices
+    /// and naming no image for it.
+    fn omission_migration() -> CompiledMigration {
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("a"), Name::from("t"));
+
+        let mut edge_remap = HashMap::new();
+        edge_remap.insert(edge("a", "c", "ea"), edge("t", "c", "ea"));
+
+        CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("t"), Name::from("c")]),
+            surviving_edges: HashSet::from([edge("t", "c", "ea")]),
+            vertex_remap,
+            edge_remap,
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        }
+    }
+
+    fn omission_source() -> FInstance {
+        FInstance::new()
+            .with_table("a", vec![row(1), row(2)])
+            .with_table("c", vec![row(9)])
+            .with_foreign_key(edge("a", "c", "ea"), vec![(0, 0), (1, 0)])
+    }
+
+    #[test]
+    fn f_delta_reindexes_the_vertices_surviving_by_omission() {
+        let m = omission_migration();
+        let x = omission_source();
+        let sigma = f_sigma(&x, &m).expect("every table of X is anchored in the domain");
+        let delta_sigma = f_delta(&sigma, &m);
+        assert_eq!(
+            delta_sigma.tables.get("c").map(Vec::len),
+            Some(1),
+            "a vertex surviving under its own name is reindexed like any other",
+        );
+        let unit = f_unit(&x, &m).expect("the unit is defined on X");
+        unit.check(&x, &delta_sigma)
+            .expect("unit is a valid homomorphism into Delta(Sigma X)");
+    }
+
+    #[test]
+    fn f_transposes_invert_each_other_over_omission() {
+        let m = omission_migration();
+        let x = omission_source();
+        let sigma = f_sigma(&x, &m).expect("sigma");
+        let unit = f_unit(&x, &m).expect("unit");
+        let phi_unit = f_transpose_right(&unit, &x, &m).expect("transpose");
+        assert_eq!(phi_unit, FInstanceHom::identity(&sigma));
+    }
+
+    #[test]
+    fn f_sigma_refuses_a_table_outside_the_domain() {
+        let m = omission_migration();
+        let x = omission_source().with_table("stray", vec![row(4)]);
+        let err = f_sigma(&x, &m).expect_err("`stray` is neither remapped nor surviving");
+        assert!(matches!(err, AdjunctionError::VertexOutsideDomain(v) if v == "stray"));
+    }
+
+    #[test]
+    fn w_delta_inverts_a_vertex_surviving_by_omission() {
+        let m = omission_migration();
+        let tgt = schema_of(&["t", "c"], &[edge("t", "c", "ea")]);
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "a"));
+        nodes.insert(
+            1,
+            Node::new(1, "c").with_value(FieldPresence::Present(Value::Str("x".into()))),
+        );
+        let x = WInstance::new(
+            nodes,
+            vec![(0, 1, edge("a", "c", "ea"))],
+            vec![],
+            0,
+            "a".into(),
+        );
+        let sigma = w_sigma(&x, &tgt, &m).expect("sigma");
+        let round = w_delta(&sigma, &m).expect("delta inverts sigma on the whole domain");
+        assert_eq!(round.nodes[&0].anchor, Name::from("a"));
+        assert_eq!(round.nodes[&1].anchor, Name::from("c"));
+        w_unit(&x).check(&x, &round).expect("unit checks");
     }
 
     // -- property tests --------------------------------------------------
@@ -859,19 +1069,19 @@ mod tests {
                 let FScenario { x, y, migration } = scenario;
 
                 // Unit and its triangle: phi(eta_X) = id on Sigma X.
-                let sigma_x = f_sigma(&x, &migration);
+                let sigma_x = f_sigma(&x, &migration).expect("the generated instance is anchored in the migration's domain");
                 let delta_sigma_x = f_delta(&sigma_x, &migration);
-                let unit = f_unit(&x, &migration);
+                let unit = f_unit(&x, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert!(unit.check(&x, &delta_sigma_x).is_ok());
-                let phi_unit = f_transpose_right(&unit, &x, &migration);
+                let phi_unit = f_transpose_right(&unit, &x, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert_eq!(phi_unit, FInstanceHom::identity(&sigma_x));
 
                 // Counit and its triangle: psi(eps_Y) = id on Delta Y.
                 let delta_y = f_delta(&y, &migration);
-                let sigma_delta_y = f_sigma(&delta_y, &migration);
+                let sigma_delta_y = f_sigma(&delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
                 let counit = f_counit(&y, &migration);
                 prop_assert!(counit.check(&sigma_delta_y, &y).is_ok());
-                let psi_counit = f_transpose_left(&counit, &delta_y, &migration);
+                let psi_counit = f_transpose_left(&counit, &delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert_eq!(psi_counit, FInstanceHom::identity(&delta_y));
             }
 
@@ -885,7 +1095,7 @@ mod tests {
                 // Direction 1. A valid g : Sigma X -> Y_g, built as the
                 // inclusion of Sigma X into a copy of itself with every
                 // table's rows (and foreign keys) duplicated once.
-                let sigma_x = f_sigma(&x, &migration);
+                let sigma_x = f_sigma(&x, &migration).expect("the generated instance is anchored in the migration's domain");
                 let mut y_g = FInstance::new();
                 for (t, rows) in &sigma_x.tables {
                     let mut doubled = rows.clone();
@@ -903,10 +1113,10 @@ mod tests {
                 prop_assert!(g.check(&sigma_x, &y_g).is_ok());
 
                 let delta_y_g = f_delta(&y_g, &migration);
-                let psi_g = f_transpose_left(&g, &x, &migration);
+                let psi_g = f_transpose_left(&g, &x, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert!(psi_g.check(&x, &delta_y_g).is_ok());
                 // Round-trip phi . psi = id.
-                let phi_psi_g = f_transpose_right(&psi_g, &x, &migration);
+                let phi_psi_g = f_transpose_right(&psi_g, &x, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert_eq!(phi_psi_g, g);
 
                 // Direction 2. A valid f : X_f -> Delta Y with X_f = Delta Y
@@ -914,11 +1124,11 @@ mod tests {
                 let delta_y = f_delta(&y, &migration);
                 let f = FInstanceHom::identity(&delta_y);
                 prop_assert!(f.check(&delta_y, &delta_y).is_ok());
-                let phi_f = f_transpose_right(&f, &delta_y, &migration);
-                let sigma_delta_y = f_sigma(&delta_y, &migration);
+                let phi_f = f_transpose_right(&f, &delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
+                let sigma_delta_y = f_sigma(&delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert!(phi_f.check(&sigma_delta_y, &y).is_ok());
                 // Round-trip psi . phi = id.
-                let psi_phi_f = f_transpose_left(&phi_f, &delta_y, &migration);
+                let psi_phi_f = f_transpose_left(&phi_f, &delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
                 prop_assert_eq!(psi_phi_f, f);
             }
         }
