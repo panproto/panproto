@@ -43,10 +43,19 @@ pub struct CstComplement {
     pub format: String,
     /// The full CST Schema from tree-sitter parsing.
     pub cst_schema: Schema,
-    /// Maps `WInstance` node IDs to the CST vertex names that hold their
-    /// literal values. Used by injection to update the CST when the
-    /// `WInstance` is modified.
-    pub node_to_cst_value: HashMap<u32, Name>,
+    /// Maps `WInstance` node IDs to the ordered run of CST vertices whose
+    /// literal text, concatenated, is the node's value. Used by injection to
+    /// update the CST when the `WInstance` is modified.
+    ///
+    /// A scalar occupies one vertex. A string does not: tree-sitter splits
+    /// `"x\ny"` into alternating `string_content` and `escape_sequence`
+    /// children, and the value lives across all of them. Injection writes the
+    /// re-encoded value into the first vertex of the run and empties the rest,
+    /// which is well defined only because every vertex carries the source span
+    /// it covers — an emptied vertex still consumes its original bytes, so the
+    /// segments it used to share the value with do not replay behind the new
+    /// text.
+    pub node_to_cst_value: HashMap<u32, Vec<Name>>,
     /// Maps `WInstance` node IDs to the CST vertex names of the structural
     /// node (object, pair, array element) for structural reconstruction.
     pub node_to_cst_struct: HashMap<u32, Name>,
@@ -73,7 +82,7 @@ struct ExtractState {
     nodes: HashMap<u32, Node>,
     arcs: Vec<(u32, u32, Edge)>,
     next_id: u32,
-    node_to_cst_value: HashMap<u32, Name>,
+    node_to_cst_value: HashMap<u32, Vec<Name>>,
     node_to_cst_struct: HashMap<u32, Name>,
 }
 
@@ -214,104 +223,167 @@ fn classify_content_kind(kind: &str) -> ContentClass {
     }
 }
 
-/// Get the `string_content` literal from a CST `string` vertex.
-fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
-    let edges = cst.outgoing_edges(string_vertex);
-    if edges.is_empty() {
-        return None;
-    }
-
-    // Walk every child of the string vertex in source order. Tree-sitter
-    // splits an escaped JSON string into a sequence of `string_content`
-    // text fragments and `escape_sequence` nodes; the first non-empty
-    // child carries only the prefix before the first escape, so the
-    // previous "first child only" lookup truncated every string with
-    // an escape in it.
-    //
-    // Unicode escapes (` `) are split further by the grammar:
-    // `escape_sequence` captures only the first two bytes (`\u`) and
-    // the four hex digits land in the next `string_content` text
-    // segment. We peek-ahead in that case, decode the codepoint, and
-    // skip the consumed prefix.
-    let mut children: Vec<&panproto_schema::Edge> = edges.iter().collect();
-    children.sort_by_key(|e| {
-        cst.constraints
-            .get(&e.tgt)
-            .and_then(|cs| {
-                cs.iter()
-                    .find(|c| c.sort.as_ref() == "start-byte")
-                    .and_then(|c| c.value.parse::<usize>().ok())
-            })
-            .unwrap_or(0)
-    });
-
-    let mut out = String::new();
-    let mut saw_content = false;
-    let mut hex_skip: usize = 0;
-    for edge in children {
-        match cst_vertex_kind(cst, &edge.tgt).as_deref() {
-            Some("string_content") => {
-                if let Some(text) = literal_value(cst, &edge.tgt) {
-                    let body = if hex_skip > 0 && hex_skip <= text.len() {
-                        let consumed = &text[..hex_skip];
-                        if let Some(c) = u32::from_str_radix(consumed, 16)
-                            .ok()
-                            .and_then(char::from_u32)
-                        {
-                            out.push(c);
-                        }
-                        &text[hex_skip..]
-                    } else {
-                        text.as_str()
-                    };
-                    hex_skip = 0;
-                    out.push_str(body);
-                    saw_content = true;
-                }
-            }
-            Some("escape_sequence") => {
-                if let Some(raw) = literal_value(cst, &edge.tgt) {
-                    let bytes = raw.as_bytes();
-                    if bytes.len() == 2 && bytes[0] == b'\\' && bytes[1] == b'u' {
-                        // Defer emission until the next string_content
-                        // child contributes the four hex digits.
-                        hex_skip = 4;
-                    } else {
-                        out.push_str(&decode_json_escape(&raw));
-                    }
-                    saw_content = true;
-                }
-            }
-            _ => {}
-        }
-    }
-    if saw_content { Some(out) } else { None }
+/// The ordered run of CST vertices whose text makes up a JSON string's
+/// body, in source order.
+///
+/// Tree-sitter splits an escaped string into alternating `string_content`
+/// and `escape_sequence` children, so `"x\ny"` is three vertices, not one.
+/// The value lives across the whole run, which is what both extraction and
+/// injection have to address.
+fn json_string_segments(cst: &Schema, string_vertex: &str) -> Vec<Name> {
+    let mut segments: Vec<(usize, Name)> = cst
+        .outgoing_edges(string_vertex)
+        .iter()
+        .filter(|e| {
+            matches!(
+                cst_vertex_kind(cst, &e.tgt).as_deref(),
+                Some("string_content" | "escape_sequence")
+            )
+        })
+        .map(|e| {
+            let start = cst
+                .constraints
+                .get(&e.tgt)
+                .and_then(|cs| {
+                    cs.iter()
+                        .find(|c| c.sort.as_ref() == "start-byte")
+                        .and_then(|c| c.value.parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            (start, e.tgt.clone())
+        })
+        .collect();
+    segments.sort_by_key(|&(start, _)| start);
+    segments.into_iter().map(|(_, name)| name).collect()
 }
 
-/// Decode a JSON escape sequence (the raw bytes captured by
-/// tree-sitter, e.g. `\n`, `\"`) to the escaped character.
+/// Get the decoded value of a CST `string` vertex.
 ///
-/// `\uXXXX` escapes are NOT handled here because the JSON tree-sitter
-/// grammar splits them across an `escape_sequence` (just `\u`) and a
-/// trailing `string_content` text segment carrying the four hex
-/// digits; [`json_string_value`] handles that join with lookahead.
-/// Unrecognised forms fall back to the original bytes.
-fn decode_json_escape(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    if bytes.len() < 2 || bytes[0] != b'\\' {
-        return raw.to_owned();
+/// The segments' raw texts are concatenated first and decoded as one body.
+/// Decoding segment by segment cannot see a surrogate pair, which is the
+/// only way JSON can spell an astral character: the grammar splits
+/// `😀` into four separate children, and neither half of the pair
+/// is a character on its own.
+fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
+    let segments = json_string_segments(cst, string_vertex);
+    if segments.is_empty() {
+        return None;
     }
-    match bytes[1] {
-        b'"' => "\"".to_owned(),
-        b'\\' => "\\".to_owned(),
-        b'/' => "/".to_owned(),
-        b'b' => "\u{0008}".to_owned(),
-        b'f' => "\u{000C}".to_owned(),
-        b'n' => "\n".to_owned(),
-        b'r' => "\r".to_owned(),
-        b't' => "\t".to_owned(),
-        _ => raw.to_owned(),
+    let mut raw = String::new();
+    for segment in &segments {
+        if let Some(text) = literal_value(cst, segment) {
+            raw.push_str(&text);
+        }
     }
+    Some(decode_json_string_body(&raw))
+}
+
+/// Decode the body of a JSON string (the bytes between the quotes) into the
+/// text it denotes.
+///
+/// `\uXXXX` escapes are decoded with surrogate pairing: a high surrogate
+/// followed by a low surrogate combines into the astral character the pair
+/// encodes. A surrogate with no partner is not a character, so its escape is
+/// kept verbatim rather than dropped — the byte-faithful emit path replays
+/// the original text for an unedited value, and a caller inspecting the
+/// value sees what the source actually said.
+fn decode_json_string_body(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let Some((_, esc)) = chars.next() else {
+            // A trailing backslash is not an escape; keep it.
+            out.push('\\');
+            continue;
+        };
+        match esc {
+            '"' => out.push('"'),
+            '\\' => out.push('\\'),
+            '/' => out.push('/'),
+            'b' => out.push('\u{0008}'),
+            'f' => out.push('\u{000C}'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'u' => decode_json_unicode_escape(raw, &mut chars, &mut out),
+            other => {
+                // Not a JSON escape; keep both characters as written.
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    out
+}
+
+/// Decode one `\uXXXX` escape whose `\u` the caller has consumed, appending
+/// the character it denotes to `out`.
+fn decode_json_unicode_escape(
+    raw: &str,
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    out: &mut String,
+) {
+    use std::fmt::Write as _;
+
+    let Some(unit) = take_hex4(raw, chars) else {
+        // Fewer than four hex digits follow: not an escape after all.
+        out.push_str("\\u");
+        return;
+    };
+    if let Some(c) = char::from_u32(unit) {
+        out.push(c);
+        return;
+    }
+    // A surrogate. Pair it with the next escape when that one is the
+    // matching low half.
+    if (0xD800..=0xDBFF).contains(&unit) {
+        if let Some(low) = take_low_surrogate(raw, chars) {
+            let combined = 0x1_0000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+            if let Some(c) = char::from_u32(combined) {
+                out.push(c);
+                return;
+            }
+        }
+    }
+    let _ = write!(out, "\\u{unit:04x}");
+}
+
+/// Consume the four hex digits of a `\uXXXX` escape whose `\u` is already
+/// consumed. Returns `None` — having consumed nothing — when fewer than four
+/// hex digits follow.
+fn take_hex4(raw: &str, chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> Option<u32> {
+    let &(start, _) = chars.peek()?;
+    let digits = raw.get(start..start + 4)?;
+    if !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    for _ in 0..4 {
+        chars.next();
+    }
+    u32::from_str_radix(digits, 16).ok()
+}
+
+/// Consume a following `\uXXXX` escape when it encodes a low surrogate,
+/// returning its code unit. Leaves the iterator untouched otherwise, so a
+/// high surrogate followed by anything else stays unpaired.
+fn take_low_surrogate(
+    raw: &str,
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> Option<u32> {
+    let &(start, _) = chars.peek()?;
+    let hex = raw.get(start..start + 6)?.strip_prefix("\\u")?;
+    let unit = u32::from_str_radix(hex, 16).ok()?;
+    if !(0xDC00..=0xDFFF).contains(&unit) {
+        return None;
+    }
+    for _ in 0..6 {
+        chars.next();
+    }
+    Some(unit)
 }
 
 /// Parse a numeric string to a `Value`.
@@ -434,8 +506,9 @@ fn extract_json_value(
         ),
         "string" => {
             let text = json_string_value(cst, cst_vertex).unwrap_or_default();
-            if let Some(sc) = cst_child_by_edge_kind(cst, cst_vertex, "child_of") {
-                state.node_to_cst_value.insert(node_id, sc.clone());
+            let segments = json_string_segments(cst, cst_vertex);
+            if !segments.is_empty() {
+                state.node_to_cst_value.insert(node_id, segments);
             }
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Str(text)));
@@ -444,27 +517,35 @@ fn extract_json_value(
         }
         "number" => {
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex).with_value(parse_json_number(&text));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "true" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Bool(true)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "false" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Bool(false)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "null" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex).with_value(FieldPresence::Null);
             state.nodes.insert(node_id, node);
             Ok(())
@@ -573,6 +654,69 @@ fn extract_json_object(
     Ok(())
 }
 
+/// Extract a JSON object without schema guidance, synthesising one `prop`
+/// edge per pair.
+fn extract_json_object_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let node = Node::new(node_id, anchor);
+    let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
+    for pair_name in pairs {
+        if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
+            continue;
+        }
+        let Some(key) = extract_pair_key(cst, pair_name) else {
+            continue;
+        };
+        let Some(value_vertex) = cst_child_by_edge_kind(cst, pair_name, "value") else {
+            continue;
+        };
+        let child_anchor = format!("{anchor}:{key}");
+        let child_id = state.alloc_id();
+        extract_json_value_open(cst, value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "prop".into(),
+            name: Some(Name::from(key.as_str())),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    state.nodes.insert(node_id, node);
+    Ok(())
+}
+
+/// Extract a JSON array without schema guidance, synthesising one `item`
+/// edge per element.
+fn extract_json_array_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+    for child_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "item".into(),
+            name: Some("item".into()),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
 /// Extract a JSON value without schema guidance (for open schemas).
 fn extract_json_value_open(
     cst: &Schema,
@@ -585,54 +729,13 @@ fn extract_json_value_open(
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
     match kind.as_str() {
-        "object" => {
-            let node = Node::new(node_id, anchor);
-            let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for pair_name in pairs {
-                if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
-                    continue;
-                }
-                if let Some(key) = extract_pair_key(cst, pair_name) {
-                    if let Some(value_vertex) = cst_child_by_edge_kind(cst, pair_name, "value") {
-                        let child_anchor = format!("{anchor}:{key}");
-                        let child_id = state.alloc_id();
-                        extract_json_value_open(cst, value_vertex, &child_anchor, child_id, state)?;
-                        let synth_edge = Edge {
-                            src: Name::from(anchor),
-                            tgt: Name::from(child_anchor.as_str()),
-                            kind: "prop".into(),
-                            name: Some(Name::from(key.as_str())),
-                        };
-                        state.arcs.push((node_id, child_id, synth_edge));
-                    }
-                }
-            }
-            state.nodes.insert(node_id, node);
-            Ok(())
-        }
-        "array" => {
-            let mut node = Node::new(node_id, anchor);
-            node.shape = NodeShape::List;
-            state.nodes.insert(node_id, node);
-            let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for child_name in &children {
-                let child_anchor = format!("{anchor}:items");
-                let child_id = state.alloc_id();
-                extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
-                let synth_edge = Edge {
-                    src: Name::from(anchor),
-                    tgt: Name::from(child_anchor.as_str()),
-                    kind: "item".into(),
-                    name: Some("item".into()),
-                };
-                state.arcs.push((node_id, child_id, synth_edge));
-            }
-            Ok(())
-        }
+        "object" => extract_json_object_open(cst, cst_vertex, anchor, node_id, state),
+        "array" => extract_json_array_open(cst, cst_vertex, anchor, node_id, state),
         "string" => {
             let text = json_string_value(cst, cst_vertex).unwrap_or_default();
-            if let Some(sc) = cst_child_by_edge_kind(cst, cst_vertex, "child_of") {
-                state.node_to_cst_value.insert(node_id, sc.clone());
+            let segments = json_string_segments(cst, cst_vertex);
+            if !segments.is_empty() {
+                state.node_to_cst_value.insert(node_id, segments);
             }
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Str(text)));
@@ -640,34 +743,44 @@ fn extract_json_value_open(
             Ok(())
         }
         "number" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
             let node = Node::new(node_id, anchor).with_value(parse_json_number(&text));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "true" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Bool(true)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "false" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Bool(false)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "null" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, anchor).with_value(FieldPresence::Null);
             state.nodes.insert(node_id, node);
             Ok(())
         }
         _ => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Str(text)));
@@ -806,42 +919,41 @@ pub fn inject_json_cst(
 
     for (&node_id, node) in &instance.nodes {
         if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
-                // For strings the CST may store the value across multiple
-                // child segments (text + escape_sequence + ...). The
-                // tracked `node_to_cst_value` points at the first
-                // segment only; updating it with the fully decoded text
-                // would either truncate (when the new text is shorter
-                // than the original token) or lose escape style (when
-                // it is the same value but written ` ` vs
-                // literally). When the parsed string still matches the
-                // instance value, skip the inject so the original
-                // bytes survive untouched.
-                if let Value::Str(s) = match presence {
-                    FieldPresence::Present(v) => v,
-                    _ => &Value::Null,
-                } {
-                    if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
-                        if let Some(original) = json_string_value(&cst, struct_vertex) {
-                            if &original == s {
-                                continue;
-                            }
+            let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
+                continue;
+            };
+            let Some(head) = segments.first() else {
+                continue;
+            };
+            // A string's original spelling is not recoverable from the parsed
+            // value: an escaped and an unescaped form denote the same text, and
+            // re-encoding would pick one of them. When the CST still decodes to
+            // the instance's value nothing has changed, so leave the original
+            // bytes untouched.
+            if let Value::Str(s) = match presence {
+                FieldPresence::Present(v) => v,
+                _ => &Value::Null,
+            } {
+                if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
+                    if let Some(original) = json_string_value(&cst, struct_vertex) {
+                        if &original == s {
+                            continue;
                         }
                     }
                 }
-                // Non-string scalars (numbers, bools, null) likewise carry a
-                // canonical lexical form in the CST leaf that does NOT survive
-                // a round-trip through the parsed `Value`: `1e10`, `-0`, and
-                // big integers beyond f64 precision all re-serialize to a
-                // different (yet value-equal) token. When the leaf's original
-                // text still decodes to the instance value, the value is
-                // unchanged, so leave the original bytes untouched.
-                if json_scalar_unchanged(&cst, cst_vertex, presence) {
-                    continue;
-                }
-                let new_text = field_presence_to_json_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
             }
+            // Non-string scalars (numbers, bools, null) likewise carry a
+            // canonical lexical form in the CST leaf that does NOT survive
+            // a round-trip through the parsed `Value`: `1e10`, `-0`, and
+            // big integers beyond f64 precision all re-serialize to a
+            // different (yet value-equal) token. When the leaf's original
+            // text still decodes to the instance value, the value is
+            // unchanged, so leave the original bytes untouched.
+            if json_scalar_unchanged(&cst, head, presence) {
+                continue;
+            }
+            let new_text = field_presence_to_json_text(presence);
+            set_value_run(&mut cst, segments, &new_text);
         }
     }
 
@@ -971,6 +1083,27 @@ fn update_literal_value(cst: &mut Schema, vertex: &Name, new_text: &str) {
                 }
             }
         }
+    }
+}
+
+/// Write `new_text` across the run of CST vertices that carried a value.
+///
+/// The whole value goes into the run's first vertex and every later vertex
+/// is emptied. Replay decides coverage from each vertex's recorded source
+/// span, so an emptied vertex still consumes the bytes it used to occupy:
+/// the segments that used to spell the rest of the value neither replay
+/// behind the new text nor leave a hole for the following token to slide
+/// into. Writing only the first vertex — which is what a single-vertex
+/// mapping amounts to — instead appends the old tail to the new value, so
+/// editing `"x\ny"` produced `"x\ny-perturbed\ny"`.
+fn set_value_run(cst: &mut Schema, run: &[Name], new_text: &str) {
+    let mut segments = run.iter();
+    let Some(head) = segments.next() else {
+        return;
+    };
+    update_literal_value(cst, head, new_text);
+    for tail in segments {
+        update_literal_value(cst, tail, "");
     }
 }
 
@@ -1130,7 +1263,7 @@ fn extract_xml_element(
                     {
                         state
                             .node_to_cst_value
-                            .insert(node_id, text_children[0].clone());
+                            .insert(node_id, vec![text_children[0].clone()]);
                     }
                 }
             }
@@ -1272,7 +1405,7 @@ fn emit_mixed_content(
         // so leave it unmapped and let the preserving emit replay it
         // verbatim (byte-faithful) rather than overwriting the first leaf.
         if let Some(first) = single_chardata {
-            state.node_to_cst_value.insert(seg_id, first);
+            state.node_to_cst_value.insert(seg_id, vec![first]);
         }
         let edge = Edge {
             src: Name::from(domain_vertex),
@@ -1445,9 +1578,9 @@ pub fn inject_xml_cst(
     for (&node_id, node) in &instance.nodes {
         // Update text content via node_to_cst_value mapping
         if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
+            if let Some(segments) = complement.node_to_cst_value.get(&node_id) {
                 let new_text = field_presence_to_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
+                set_value_run(&mut cst, segments, &new_text);
             }
         }
 
@@ -1648,7 +1781,9 @@ fn extract_yaml_value(
                         .find_map(|e| literal_value(cst, &e.tgt))
                 })
                 .unwrap_or_default();
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex).with_value(parse_yaml_scalar(&text));
             state.nodes.insert(node_id, node);
             Ok(())
@@ -1851,18 +1986,21 @@ pub fn inject_yaml_cst(
 
     for (&node_id, node) in &instance.nodes {
         if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
+            if let Some(segments) = complement.node_to_cst_value.get(&node_id) {
                 let new_text = field_presence_to_yaml_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
-                // YAML scalars may have the literal in a child node too;
-                // check and update children.
-                let child_vertices: Vec<_> = cst
-                    .outgoing_edges(cst_vertex)
-                    .iter()
-                    .map(|e| e.tgt.clone())
-                    .collect();
-                for child in &child_vertices {
-                    update_literal_value(&mut cst, child, &new_text);
+                set_value_run(&mut cst, segments, &new_text);
+                // A YAML scalar's text can sit on a child node rather than
+                // on the scalar vertex itself, so the run's head carries the
+                // value down one level as well.
+                if let Some(head) = segments.first() {
+                    let child_vertices: Vec<_> = cst
+                        .outgoing_edges(head)
+                        .iter()
+                        .map(|e| e.tgt.clone())
+                        .collect();
+                    for child in &child_vertices {
+                        update_literal_value(&mut cst, child, &new_text);
+                    }
                 }
             }
         }
@@ -1923,7 +2061,7 @@ pub fn extract_tabular_cst(
     // Track CST vertex for each cell: keyed by (row_index, col_index)
     // encoded as a u32 node ID = row_index * 10000 + col_index.
     // This is stored in node_to_cst_value for injection.
-    let mut cell_to_cst: HashMap<u32, Name> = HashMap::new();
+    let mut cell_to_cst: HashMap<u32, Vec<Name>> = HashMap::new();
     let mut rows = Vec::new();
 
     for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
@@ -1941,7 +2079,7 @@ pub fn extract_tabular_cst(
             let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
             // Map to the leaf that owns the text, not the wrapper field, so
             // injection can actually rewrite the value.
-            cell_to_cst.insert(cell_key, deepest_literal_vertex(cst, field_name));
+            cell_to_cst.insert(cell_key, vec![deepest_literal_vertex(cst, field_name)]);
         }
         rows.push(row);
     }
@@ -2006,8 +2144,8 @@ pub fn inject_tabular_cst(
                     };
                     #[allow(clippy::cast_possible_truncation)]
                     let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
-                    if let Some(cst_vertex) = complement.node_to_cst_value.get(&cell_key) {
-                        update_literal_value(&mut cst, cst_vertex, &text);
+                    if let Some(segments) = complement.node_to_cst_value.get(&cell_key) {
+                        set_value_run(&mut cst, segments, &text);
                     }
                 }
             }
@@ -2074,5 +2212,46 @@ mod tests {
         assert_eq!(FormatKind::Xml.grammar_name(), "xml");
         assert_eq!(FormatKind::Yaml.grammar_name(), "yaml");
         assert_eq!(FormatKind::Csv.grammar_name(), "csv");
+    }
+
+    /// A surrogate pair is the only way a JSON source can spell an astral
+    /// character. Decoding each `\uXXXX` on its own yields two lone
+    /// surrogates, neither of which is a character, so the emoji used to
+    /// disappear from the extracted value entirely.
+    #[test]
+    fn surrogate_pairs_decode_to_the_astral_character() {
+        assert_eq!(decode_json_string_body(r"x\ud83d\ude00y"), "x\u{1F600}y");
+        assert_eq!(decode_json_string_body(r"\ud83d\ude00"), "\u{1F600}");
+        assert_eq!(
+            decode_json_string_body(r"a\ud83dz\ude00b"),
+            "a\\ud83dz\\ude00b",
+            "surrogates separated by other text are not a pair"
+        );
+    }
+
+    /// A surrogate with no partner denotes no character at all. Keeping its
+    /// escape text is what lets the caller see what the source said, where
+    /// dropping it silently loses bytes.
+    #[test]
+    fn a_lone_surrogate_keeps_its_escape_text() {
+        assert_eq!(decode_json_string_body(r"x\ud83dy"), r"x\ud83dy");
+        assert_eq!(decode_json_string_body(r"x\ude00y"), r"x\ude00y");
+    }
+
+    #[test]
+    fn simple_escapes_and_bmp_escapes_decode() {
+        assert_eq!(decode_json_string_body(r"x\ny"), "x\ny");
+        assert_eq!(decode_json_string_body(r#"a\tb\\c\"d"#), "a\tb\\c\"d");
+        assert_eq!(decode_json_string_body(r"caf\u00e9"), "caf\u{e9}");
+        assert_eq!(decode_json_string_body("plain"), "plain");
+    }
+
+    /// A backslash that starts nothing the grammar recognises is text, not
+    /// an escape, and must survive rather than be swallowed.
+    #[test]
+    fn unrecognised_escapes_survive_verbatim() {
+        assert_eq!(decode_json_string_body(r"a\qb"), r"a\qb");
+        assert_eq!(decode_json_string_body(r"trailing\"), "trailing\\");
+        assert_eq!(decode_json_string_body(r"short\u01"), r"short\u01");
     }
 }
