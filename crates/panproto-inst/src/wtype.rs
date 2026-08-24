@@ -28,6 +28,21 @@ use crate::fan::Fan;
 use crate::metadata::Node;
 use crate::value::Value;
 
+/// A resolver entry: the hyper-edge a shape retargets to, and the label
+/// remapping its children take.
+pub type HyperResolverEntry = (Name, HashMap<Name, Name>);
+
+/// A fan shape: a hyper-edge ID with the sorted, deduplicated label set that
+/// selects one of that hyper-edge's resolver entries.
+pub type FanShape = (Name, Vec<Name>);
+
+/// The compiled hyper-edge contraction table.
+///
+/// Maps a fan shape — a hyper-edge ID together with the sorted, deduplicated
+/// set of child labels the fan carries — to the target hyper-edge ID and the
+/// label remapping that shape's children take.
+pub type HyperResolverTable = HashMap<FanShape, HyperResolverEntry>;
+
 /// A compiled migration specification (minimal version for panproto-inst).
 ///
 /// The full `CompiledMigration` lives in `panproto-mig`. This type provides
@@ -44,8 +59,14 @@ pub struct CompiledMigration {
     pub edge_remap: HashMap<Edge, Edge>,
     /// Binary contraction resolver: (`src_anchor`, `tgt_anchor`) to resolved edge.
     pub resolver: HashMap<(Name, Name), Edge>,
-    /// Hyper-edge contraction resolver.
-    pub hyper_resolver: HashMap<Name, (Name, HashMap<Name, Name>)>,
+    /// Hyper-edge contraction resolver, keyed by fan shape.
+    ///
+    /// The key is a hyper-edge ID paired with the sorted, deduplicated set of
+    /// child labels the fan carries, so one hyper-edge may retarget
+    /// differently per shape. The value is the target hyper-edge ID and the
+    /// label remapping to apply to that shape's children.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
+    pub hyper_resolver: HyperResolverTable,
     /// Value-level field transforms applied to surviving nodes' `extra_fields`.
     ///
     /// Keyed by source vertex anchor. Each entry is a list of field operations
@@ -755,6 +776,7 @@ impl CompiledMigration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WInstance {
     /// All nodes keyed by their numeric ID.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub nodes: HashMap<u32, Node>,
     /// Arcs: (`parent_id`, `child_id`, `schema_edge`).
     pub arcs: Vec<(u32, u32, Edge)>,
@@ -765,8 +787,10 @@ pub struct WInstance {
     /// Schema vertex that the root node is anchored to.
     pub schema_root: Name,
     /// Precomputed parent map: `child_id` -> `parent_id`.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub parent_map: HashMap<u32, u32>,
     /// Precomputed children map: `parent_id` -> child IDs.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub children_map: HashMap<u32, SmallVec<u32, 4>>,
 }
 
@@ -955,6 +979,123 @@ pub fn resolve_edge(
 // Step 5: Fan reconstruction (retained for testing)
 // ---------------------------------------------------------------------------
 
+/// The canonical label-set component of a `hyper_resolver` key: sorted and
+/// deduplicated, so a fan's shape is independent of child insertion order.
+#[must_use]
+pub fn canonical_label_shape<I, S>(labels: I) -> Vec<Name>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut shape: Vec<Name> = labels.into_iter().map(|l| Name::from(l.as_ref())).collect();
+    shape.sort_unstable();
+    shape.dedup();
+    shape
+}
+
+/// Borrowed resolver entries grouped under the target hyper-edge they produce.
+type BackwardIndex<'a> = FxHashMap<&'a str, Vec<(&'a FanShape, &'a HyperResolverEntry)>>;
+
+/// Fan-shape lookup over a compiled migration's hyper-edge resolver.
+///
+/// Building the index once and querying it per fan keeps resolution linear in
+/// the number of fans, and it makes both directions total orders rather than
+/// scans whose answer would depend on the table's iteration order.
+pub struct FanResolver<'a> {
+    table: &'a HyperResolverTable,
+    /// Hyper-edge ID to its sole entry, recorded only for hyper-edges that
+    /// carry exactly one shape. A fan matching no shape exactly still resolves
+    /// when its hyper-edge has a single unambiguous retarget; when several
+    /// shapes compete, nothing is chosen, since picking one would depend on
+    /// table order.
+    sole_forward: FxHashMap<&'a str, Option<&'a HyperResolverEntry>>,
+    /// Target hyper-edge ID to every entry that retargets onto it, ordered by
+    /// source key so the backward direction is a function of the table.
+    backward: BackwardIndex<'a>,
+}
+
+impl<'a> FanResolver<'a> {
+    /// Index a compiled migration's hyper-edge resolver.
+    #[must_use]
+    pub fn new(migration: &'a CompiledMigration) -> Self {
+        let mut sole_forward: FxHashMap<&'a str, Option<&'a HyperResolverEntry>> =
+            FxHashMap::default();
+        let mut backward: BackwardIndex<'a> = FxHashMap::default();
+
+        for (key, entry) in &migration.hyper_resolver {
+            sole_forward
+                .entry(key.0.as_str())
+                .and_modify(|slot| *slot = None)
+                .or_insert(Some(entry));
+            backward
+                .entry(entry.0.as_str())
+                .or_default()
+                .push((key, entry));
+        }
+        for candidates in backward.values_mut() {
+            candidates.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        }
+
+        Self {
+            table: &migration.hyper_resolver,
+            sole_forward,
+            backward,
+        }
+    }
+
+    /// Select the entry that governs a fan carrying `shape`, where
+    /// `full_shape` is the fan's shape before any children were pruned.
+    ///
+    /// `shape` is tried first, since restriction has already dropped the
+    /// pruned children; `full_shape` is tried next, so a resolver written
+    /// against the unrestricted source still applies; failing both, the
+    /// hyper-edge's sole entry applies when it has exactly one.
+    #[must_use]
+    pub fn resolve(
+        &self,
+        hyper_edge_id: &str,
+        shape: &[Name],
+        full_shape: &[Name],
+    ) -> Option<&'a HyperResolverEntry> {
+        let he = Name::from(hyper_edge_id);
+        if let Some(entry) = self.table.get(&(he.clone(), shape.to_vec())) {
+            return Some(entry);
+        }
+        if full_shape != shape
+            && let Some(entry) = self.table.get(&(he, full_shape.to_vec()))
+        {
+            return Some(entry);
+        }
+        self.sole_forward.get(hyper_edge_id).copied().flatten()
+    }
+
+    /// Select the entry that produced a fan now carrying `shape` under the
+    /// target hyper-edge `hyper_edge_id`, returning the source hyper-edge ID
+    /// alongside it.
+    ///
+    /// Preference goes to the entry whose label remapping carries its own
+    /// shape exactly onto `shape`; where none does, the least entry in source
+    /// key order applies, so the answer is a function of the table.
+    #[must_use]
+    pub fn resolve_backward(
+        &self,
+        hyper_edge_id: &str,
+        shape: &[Name],
+    ) -> Option<(&'a Name, &'a HyperResolverEntry)> {
+        let candidates = self.backward.get(hyper_edge_id)?;
+        let exact = candidates.iter().find(|((_, source_shape), (_, labels))| {
+            let image = canonical_label_shape(source_shape.iter().map(|label| {
+                labels
+                    .get(label)
+                    .map_or_else(|| label.as_str(), Name::as_str)
+            }));
+            image == shape
+        });
+        let ((source_he, _), entry) = exact.or_else(|| candidates.first())?;
+        Some((source_he, entry))
+    }
+}
+
 /// Reconstruct fans after restriction.
 ///
 /// # Errors
@@ -969,6 +1110,7 @@ pub fn reconstruct_fans(
     _tgt_schema: &Schema,
 ) -> Result<Vec<Fan>, RestrictError> {
     let mut result = Vec::new();
+    let resolver = FanResolver::new(migration);
 
     for fan in &instance.fans {
         if !surviving.contains(&fan.parent) {
@@ -986,8 +1128,11 @@ pub fn reconstruct_fans(
             continue;
         }
 
+        let surviving_shape = canonical_label_shape(surviving_children.keys());
+        let full_shape = canonical_label_shape(fan.children.keys());
+
         if let Some((new_he_id, label_map)) =
-            migration.hyper_resolver.get(fan.hyper_edge_id.as_str())
+            resolver.resolve(&fan.hyper_edge_id, &surviving_shape, &full_shape)
         {
             let mut new_children = HashMap::new();
             for (old_label, &node_id) in &surviving_children {

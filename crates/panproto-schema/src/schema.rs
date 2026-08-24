@@ -52,6 +52,7 @@ pub struct HyperEdge {
     /// Hyper-edge kind.
     pub kind: Name,
     /// Maps label names to vertex IDs.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub signature: HashMap<Name, Name>,
     /// The label that identifies the parent vertex.
     pub parent_label: Name,
@@ -171,17 +172,22 @@ pub struct Schema {
     /// The protocol this schema belongs to.
     pub protocol: String,
     /// Vertices keyed by their ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub vertices: HashMap<Name, Vertex>,
     /// Edges keyed by the edge itself, value is the edge kind.
     #[serde(with = "crate::serde_helpers::map_as_vec")]
     pub edges: HashMap<Edge, Name>,
     /// Hyper-edges keyed by their ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub hyper_edges: HashMap<Name, HyperEdge>,
     /// Constraints per vertex ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub constraints: HashMap<Name, Vec<Constraint>>,
     /// Required edges per vertex ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub required: HashMap<Name, Vec<Edge>>,
     /// NSID mapping: vertex ID to NSID string.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub nsids: HashMap<Name, Name>,
     /// Declared entry vertices.
     ///
@@ -201,23 +207,23 @@ pub struct Schema {
     pub entries: Vec<Name>,
 
     /// Coproduct variants per union vertex ID.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub variants: HashMap<Name, Vec<Variant>>,
     /// Edge ordering positions (edge → position index).
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub orderings: HashMap<Edge, u32>,
     /// Recursion points (fixpoint markers).
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub recursion_points: HashMap<Name, RecursionPoint>,
     /// Spans connecting pairs of vertices.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub spans: HashMap<Name, Span>,
     /// Edge usage modes (default: `Structural` for all).
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub usage_modes: HashMap<Edge, UsageMode>,
     /// Whether each vertex uses nominal identity (`true`) or
     /// structural identity (`false`). Absent = structural.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub nominal: HashMap<Name, bool>,
 
     // -- enrichment fields --
@@ -225,19 +231,21 @@ pub struct Schema {
     #[serde(default, with = "crate::serde_helpers::map_as_vec_default")]
     pub coercions: HashMap<(Name, Name), CoercionSpec>,
     /// Merger expressions: `vertex_id` to merger expression.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub mergers: HashMap<Name, panproto_expr::Expr>,
     /// Default value expressions: `vertex_id` to default expression.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub defaults: HashMap<Name, panproto_expr::Expr>,
     /// Conflict resolution policy expressions: `sort_name` to policy expression.
-    #[serde(default)]
+    #[serde(default, with = "crate::serde_helpers::sorted_map")]
     pub policies: HashMap<Name, panproto_expr::Expr>,
 
     // -- precomputed indices --
     /// Outgoing edges per vertex ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub outgoing: HashMap<Name, SmallVec<Edge, 4>>,
     /// Incoming edges per vertex ID.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub incoming: HashMap<Name, SmallVec<Edge, 4>>,
     /// Edges between a specific `(src, tgt)` pair.
     #[serde(with = "crate::serde_helpers::map_as_vec")]

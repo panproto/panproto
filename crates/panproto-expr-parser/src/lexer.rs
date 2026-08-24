@@ -100,12 +100,14 @@ fn insert_layout(input: &str, raw: &[Spanned]) -> Vec<Spanned> {
 
     let mut result = Vec::with_capacity(raw.len());
     let mut indent_stack: Vec<usize> = vec![0]; // column stack
-    let mut prev_line = line_of(input, 0);
+    let mut cursor = Cursor::new();
+    let mut prev_line = 0;
     let mut prev_end = 0;
 
     for spanned in raw {
-        let cur_line = line_of(input, spanned.span.start);
-        let cur_col = col_of(input, spanned.span.start);
+        cursor.advance_to(input, spanned.span.start);
+        let cur_line = cursor.line;
+        let cur_col = cursor.column();
 
         // If we moved to a new line, check indentation.
         if cur_line > prev_line {
@@ -177,15 +179,49 @@ fn insert_layout(input: &str, raw: &[Spanned]) -> Vec<Spanned> {
     result
 }
 
-/// Get the 0-indexed line number for a byte offset.
-fn line_of(input: &str, offset: usize) -> usize {
-    input[..offset].bytes().filter(|&b| b == b'\n').count()
+/// A line-and-column position walked forward through the source.
+///
+/// The layout pass reads every token's position in ascending offset order, so
+/// the cursor advances over each byte of the input exactly once across the
+/// whole pass. Recomputing a position from the start of the input instead
+/// would make the pass quadratic in the source's length.
+struct Cursor {
+    /// Byte offset the cursor has advanced to.
+    offset: usize,
+    /// 0-indexed line number at `offset`.
+    line: usize,
+    /// Byte offset of the start of the line holding `offset`.
+    line_start: usize,
 }
 
-/// Get the 0-indexed column (byte offset from start of line) for a byte offset.
-fn col_of(input: &str, offset: usize) -> usize {
-    let line_start = input[..offset].rfind('\n').map_or(0, |pos| pos + 1);
-    offset - line_start
+impl Cursor {
+    const fn new() -> Self {
+        Self {
+            offset: 0,
+            line: 0,
+            line_start: 0,
+        }
+    }
+
+    /// Advance to `target`, counting the lines crossed on the way.
+    ///
+    /// `target` is never behind the cursor: the token stream is in ascending
+    /// offset order.
+    fn advance_to(&mut self, input: &str, target: usize) {
+        let target = target.max(self.offset).min(input.len());
+        for (index, byte) in input.as_bytes()[self.offset..target].iter().enumerate() {
+            if *byte == b'\n' {
+                self.line += 1;
+                self.line_start = self.offset + index + 1;
+            }
+        }
+        self.offset = target;
+    }
+
+    /// The 0-indexed column: bytes from the start of the current line.
+    const fn column(&self) -> usize {
+        self.offset - self.line_start
+    }
 }
 
 #[cfg(test)]

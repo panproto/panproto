@@ -2215,6 +2215,7 @@ dependencies = [
  "panproto-gat",
  "panproto-schema",
  "proptest",
+ "rmp-serde",
  "rustc-hash",
  "serde",
  "serde_json",

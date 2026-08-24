@@ -513,6 +513,7 @@ fn winstance_graph_builtin(
     args: &[Literal],
     context: Option<u32>,
 ) -> Result<Literal, panproto_expr::ExprError> {
+    crate::instance_env::check_graph_builtin_arity(op, args)?;
     match op {
         BuiltinOp::Edge => {
             let node_id = resolve_node_ref(&args[0], context)?;
@@ -592,6 +593,7 @@ fn ginstance_graph_builtin(
     args: &[Literal],
     context: Option<u32>,
 ) -> Result<Literal, panproto_expr::ExprError> {
+    crate::instance_env::check_graph_builtin_arity(op, args)?;
     match op {
         BuiltinOp::Edge => {
             let node_id = resolve_node_ref(&args[0], context)?;
@@ -680,6 +682,7 @@ fn finstance_graph_builtin(
     args: &[Literal],
     context: Option<u32>,
 ) -> Result<Literal, panproto_expr::ExprError> {
+    crate::instance_env::check_graph_builtin_arity(op, args)?;
     match op {
         BuiltinOp::Edge => {
             let element_id = resolve_node_ref(&args[0], context)?;

@@ -371,13 +371,30 @@ pub fn parse_lexicon_project(docs: &[LexiconDoc]) -> Result<LexiconProject, Prot
     }
     // An out-of-set ref target is an opaque placeholder owned by no
     // document; keep it in the file that references it so it stays a
-    // (genuinely external) placeholder there rather than vanishing.
+    // (genuinely external) placeholder there rather than vanishing. When
+    // several documents reference one such target it can live in only one of
+    // them, and the claim is settled on a total order — target name, then the
+    // referencing document's position in the input — rather than on whichever
+    // edge the monolith's edge table hands over first.
+    let doc_order: HashMap<&PathBuf, usize> = docs
+        .iter()
+        .enumerate()
+        .map(|(index, d)| (&d.path, index))
+        .collect();
+    let mut claims: Vec<(Name, usize, PathBuf)> = Vec::new();
     for edge in monolith.edges.keys() {
-        if !owner.contains_key(&edge.tgt) {
-            if let Some(src_path) = owner.get(&edge.src).cloned() {
-                owner.insert(edge.tgt.clone(), src_path);
-            }
+        if owner.contains_key(&edge.tgt) {
+            continue;
         }
+        let Some(src_path) = owner.get(&edge.src) else {
+            continue;
+        };
+        let position = doc_order.get(src_path).copied().unwrap_or(usize::MAX);
+        claims.push((edge.tgt.clone(), position, src_path.clone()));
+    }
+    claims.sort_unstable();
+    for (target, _, path) in claims {
+        owner.entry(target).or_insert(path);
     }
 
     // Partition edges into per-file internal sets and cross-file edges.
@@ -404,6 +421,12 @@ pub fn parse_lexicon_project(docs: &[LexiconDoc]) -> Result<LexiconProject, Prot
                 .or_default()
                 .push(prefixed);
         }
+    }
+
+    // The lifted edges are read back as a sequence, so put them in edge order
+    // rather than the order the monolith's edge table produced them.
+    for edges in cross_file_edges.values_mut() {
+        edges.sort_unstable();
     }
 
     // Build each document's per-file schema from the vertices it owns and

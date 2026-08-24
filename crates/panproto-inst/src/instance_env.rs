@@ -1,91 +1,23 @@
 //! Instance-aware expression evaluation.
 //!
-//! The standard `panproto_expr::eval` has no access to the instance graph.
-//! The graph traversal builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`,
-//! `Anchor`) require an instance context to resolve. This module provides:
+//! The graph traversal builtins (`edge`, `children`, `has_edge`, `edge_count`,
+//! `anchor`) read an instance, which `panproto_expr::eval` does not hold. This
+//! module supplies it as a [`panproto_expr::BuiltinResolver`], so those
+//! builtins answer wherever they appear in an expression rather than only at
+//! its root:
 //!
 //! - [`eval_with_instance`]: evaluates against a [`WInstance`] directly
 //! - [`eval_with_element_ops`]: evaluates against any [`ElementOps`]
 //!   implementor (polymorphic over all instance shapes)
-//!
-//! Both intercept graph builtins and fall through to the standard
-//! evaluator for everything else.
 
 use std::sync::Arc;
 
-use panproto_expr::{BuiltinOp, EvalConfig, Expr, Literal};
+use panproto_expr::{BuiltinOp, BuiltinResolver, EvalConfig, Expr, ExprError, Literal};
 use panproto_gat::Name;
 
 use crate::element_ops::ElementOps;
 use crate::value::Value;
 use crate::wtype::WInstance;
-
-/// Evaluate an expression with access to an instance graph.
-///
-/// Graph traversal builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`,
-/// `Anchor`) are resolved against the provided instance. All other
-/// expressions delegate to `panproto_expr::eval`.
-///
-/// The `context_node_id` determines which node is the "current" node
-/// for graph traversal. Pass `None` to disable graph traversal.
-///
-/// # Errors
-///
-/// Returns `panproto_expr::ExprError` on evaluation failure.
-pub fn eval_with_instance(
-    expr: &Expr,
-    env: &panproto_expr::Env,
-    config: &EvalConfig,
-    instance: &WInstance,
-    context_node_id: Option<u32>,
-) -> Result<Literal, panproto_expr::ExprError> {
-    match expr {
-        Expr::Builtin(op, args) if is_graph_builtin(*op) => {
-            // Evaluate arguments first via standard eval.
-            let mut eval_args = Vec::with_capacity(args.len());
-            for arg in args {
-                eval_args.push(eval_with_instance(
-                    arg,
-                    env,
-                    config,
-                    instance,
-                    context_node_id,
-                )?);
-            }
-            apply_graph_builtin(*op, &eval_args, instance, context_node_id)
-        }
-        _ => panproto_expr::eval(expr, env, config),
-    }
-}
-
-/// Evaluate an expression with graph builtins resolved via [`ElementOps`].
-///
-/// This is the polymorphic version of [`eval_with_instance`]: it works
-/// with any instance shape that implements [`ElementOps`]. Graph traversal
-/// builtins are delegated to `T::eval_graph_builtin`; all other expressions
-/// fall through to `panproto_expr::eval`.
-///
-/// # Errors
-///
-/// Returns `panproto_expr::ExprError` on evaluation failure.
-pub fn eval_with_element_ops<T: ElementOps>(
-    expr: &Expr,
-    env: &panproto_expr::Env,
-    config: &EvalConfig,
-    instance: &T,
-    context: Option<u32>,
-) -> Result<Literal, panproto_expr::ExprError> {
-    match expr {
-        Expr::Builtin(op, args) if is_graph_builtin(*op) => {
-            let mut eval_args = Vec::with_capacity(args.len());
-            for arg in args {
-                eval_args.push(eval_with_element_ops(arg, env, config, instance, context)?);
-            }
-            instance.eval_graph_builtin(*op, &eval_args, context)
-        }
-        _ => panproto_expr::eval(expr, env, config),
-    }
-}
 
 /// Check if a builtin is a graph traversal operation.
 const fn is_graph_builtin(op: BuiltinOp) -> bool {
@@ -99,26 +31,122 @@ const fn is_graph_builtin(op: BuiltinOp) -> bool {
     )
 }
 
+/// Reject a graph builtin applied to the wrong number of arguments, before any
+/// argument is read.
+///
+/// # Errors
+///
+/// Returns [`ExprError::ArityMismatch`] when `args` is not the length
+/// `op.arity()` declares.
+pub fn check_graph_builtin_arity(op: BuiltinOp, args: &[Literal]) -> Result<(), ExprError> {
+    let expected = op.arity();
+    if args.len() == expected {
+        return Ok(());
+    }
+    Err(ExprError::ArityMismatch {
+        op: format!("{op:?}"),
+        expected,
+        got: args.len(),
+    })
+}
+
+/// Answers the graph builtins against a [`WInstance`].
+struct InstanceResolver<'a> {
+    instance: &'a WInstance,
+    context_node_id: Option<u32>,
+}
+
+impl BuiltinResolver for InstanceResolver<'_> {
+    fn handles(&self, op: BuiltinOp) -> bool {
+        is_graph_builtin(op)
+    }
+
+    fn apply(&self, op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
+        apply_graph_builtin(op, args, self.instance, self.context_node_id)
+    }
+}
+
+/// Answers the graph builtins against any [`ElementOps`] instance shape.
+struct ElementOpsResolver<'a, T: ElementOps> {
+    instance: &'a T,
+    context: Option<u32>,
+}
+
+impl<T: ElementOps> BuiltinResolver for ElementOpsResolver<'_, T> {
+    fn handles(&self, op: BuiltinOp) -> bool {
+        is_graph_builtin(op)
+    }
+
+    fn apply(&self, op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError> {
+        check_graph_builtin_arity(op, args)?;
+        self.instance.eval_graph_builtin(op, args, self.context)
+    }
+}
+
+/// Evaluate an expression with access to an instance graph.
+///
+/// Graph traversal builtins (`edge`, `children`, `has_edge`, `edge_count`,
+/// `anchor`) are resolved against the provided instance at every depth; all
+/// other expressions evaluate exactly as `panproto_expr::eval` evaluates them.
+///
+/// The `context_node_id` determines which node is the "current" node
+/// for graph traversal. Pass `None` to disable graph traversal.
+///
+/// # Errors
+///
+/// Returns `panproto_expr::ExprError` on evaluation failure.
+pub fn eval_with_instance(
+    expr: &Expr,
+    env: &panproto_expr::Env,
+    config: &EvalConfig,
+    instance: &WInstance,
+    context_node_id: Option<u32>,
+) -> Result<Literal, ExprError> {
+    let resolver = InstanceResolver {
+        instance,
+        context_node_id,
+    };
+    panproto_expr::eval_with_resolver(expr, env, config, &resolver)
+}
+
+/// Evaluate an expression with graph builtins resolved via [`ElementOps`].
+///
+/// This is the polymorphic version of [`eval_with_instance`]: it works
+/// with any instance shape that implements [`ElementOps`]. Graph traversal
+/// builtins are delegated to `T::eval_graph_builtin` at every depth; all other
+/// expressions evaluate exactly as `panproto_expr::eval` evaluates them.
+///
+/// # Errors
+///
+/// Returns `panproto_expr::ExprError` on evaluation failure.
+pub fn eval_with_element_ops<T: ElementOps>(
+    expr: &Expr,
+    env: &panproto_expr::Env,
+    config: &EvalConfig,
+    instance: &T,
+    context: Option<u32>,
+) -> Result<Literal, ExprError> {
+    let resolver = ElementOpsResolver { instance, context };
+    panproto_expr::eval_with_resolver(expr, env, config, &resolver)
+}
+
 /// Evaluate a graph traversal builtin against an instance.
 fn apply_graph_builtin(
     op: BuiltinOp,
     args: &[Literal],
     instance: &WInstance,
     context_node_id: Option<u32>,
-) -> Result<Literal, panproto_expr::ExprError> {
+) -> Result<Literal, ExprError> {
+    check_graph_builtin_arity(op, args)?;
     match op {
         BuiltinOp::Edge => {
-            // edge(node_ref, edge_kind) → child value
+            // edge(node_ref, edge_kind) yields the first matching child value
             let node_id = resolve_node_ref(&args[0], context_node_id)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
+            let edge_kind = args[1].as_str().ok_or_else(|| ExprError::TypeError {
+                expected: "string".into(),
+                got: args[1].type_name().into(),
+            })?;
             let edge_name = Name::from(edge_kind);
-            // Find the first arc matching this node and edge kind.
             for &(src, tgt, ref edge) in &instance.arcs {
                 if src == node_id && edge.kind == edge_name {
                     return Ok(node_to_literal(instance, tgt));
@@ -127,7 +155,7 @@ fn apply_graph_builtin(
             Ok(Literal::Null)
         }
         BuiltinOp::Children => {
-            // children(node_ref) → [child values]
+            // children(node_ref) yields every child value
             let node_id = resolve_node_ref(&args[0], context_node_id)?;
             let mut children = Vec::new();
             for &(src, tgt, _) in &instance.arcs {
@@ -138,15 +166,12 @@ fn apply_graph_builtin(
             Ok(Literal::List(children))
         }
         BuiltinOp::HasEdge => {
-            // has_edge(node_ref, edge_kind) → bool
+            // has_edge(node_ref, edge_kind) yields whether such an arc leaves the node
             let node_id = resolve_node_ref(&args[0], context_node_id)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
+            let edge_kind = args[1].as_str().ok_or_else(|| ExprError::TypeError {
+                expected: "string".into(),
+                got: args[1].type_name().into(),
+            })?;
             let edge_name = Name::from(edge_kind);
             let found = instance
                 .arcs
@@ -155,7 +180,7 @@ fn apply_graph_builtin(
             Ok(Literal::Bool(found))
         }
         BuiltinOp::EdgeCount => {
-            // edge_count(node_ref) → int
+            // edge_count(node_ref) yields how many arcs leave the node
             let node_id = resolve_node_ref(&args[0], context_node_id)?;
             let count = instance
                 .arcs
@@ -166,7 +191,7 @@ fn apply_graph_builtin(
             Ok(Literal::Int(count as i64))
         }
         BuiltinOp::Anchor => {
-            // anchor(node_ref) → string
+            // anchor(node_ref) yields the schema vertex the node sits over
             let node_id = resolve_node_ref(&args[0], context_node_id)?;
             instance
                 .nodes
@@ -175,7 +200,9 @@ fn apply_graph_builtin(
                     Ok(Literal::Str(node.anchor.as_ref().into()))
                 })
         }
-        _ => Ok(Literal::Null),
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -183,19 +210,15 @@ fn apply_graph_builtin(
 ///
 /// Accepts either an integer (direct node ID) or the string `"self"`
 /// (resolved to `context_node_id`).
-fn resolve_node_ref(
-    lit: &Literal,
-    context_node_id: Option<u32>,
-) -> Result<u32, panproto_expr::ExprError> {
+fn resolve_node_ref(lit: &Literal, context_node_id: Option<u32>) -> Result<u32, ExprError> {
     match lit {
-        Literal::Int(id) => u32::try_from(*id).map_err(|_| panproto_expr::ExprError::TypeError {
+        Literal::Int(id) => u32::try_from(*id).map_err(|_| ExprError::TypeError {
             expected: "non-negative int fitting u32".into(),
             got: format!("{id}"),
         }),
-        Literal::Str(s) if s == "self" => context_node_id.ok_or_else(|| {
-            panproto_expr::ExprError::UnboundVariable("self (no context node)".into())
-        }),
-        _ => Err(panproto_expr::ExprError::TypeError {
+        Literal::Str(s) if s == "self" => context_node_id
+            .ok_or_else(|| ExprError::UnboundVariable("self (no context node)".into())),
+        _ => Err(ExprError::TypeError {
             expected: "int or \"self\"".into(),
             got: lit.type_name().into(),
         }),

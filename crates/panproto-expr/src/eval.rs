@@ -33,21 +33,60 @@ impl Default for EvalConfig {
     }
 }
 
+/// A source of answers for builtins this evaluator cannot compute on its own.
+///
+/// The graph traversal builtins read an instance, which the pure evaluator
+/// does not hold. A resolver plugs that context in at every point a builtin is
+/// applied — not only at the root of the expression — so a graph builtin
+/// nested under a comparison, a binding, a lambda, or a comprehension answers
+/// exactly as it would at the top.
+pub trait BuiltinResolver {
+    /// Whether this resolver answers for `op`. Operations it declines are
+    /// computed by [`apply_builtin`](crate::builtin::apply_builtin).
+    fn handles(&self, op: BuiltinOp) -> bool;
+
+    /// Answer `op` on already-evaluated arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExprError`] when the arguments are of the wrong number or
+    /// type, or when the operation fails against the context.
+    fn apply(&self, op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>;
+}
+
+/// The resolver in force when none is supplied: it answers for nothing, so
+/// every builtin is computed purely.
+struct NoResolver;
+
+impl BuiltinResolver for NoResolver {
+    fn handles(&self, _op: BuiltinOp) -> bool {
+        false
+    }
+
+    fn apply(&self, op: BuiltinOp, _args: &[Literal]) -> Result<Literal, ExprError> {
+        Err(ExprError::NoInstanceContext {
+            op: format!("{op:?}"),
+        })
+    }
+}
+
 /// Mutable evaluation state tracking resource consumption.
-struct EvalState {
+struct EvalState<'a> {
     steps_remaining: u64,
     max_steps: u64,
     max_depth: u32,
     max_list_len: usize,
+    resolver: &'a dyn BuiltinResolver,
 }
 
-impl EvalState {
-    const fn new(config: &EvalConfig) -> Self {
+impl<'a> EvalState<'a> {
+    const fn new(config: &EvalConfig, resolver: &'a dyn BuiltinResolver) -> Self {
         Self {
             steps_remaining: config.max_steps,
             max_steps: config.max_steps,
             max_depth: config.max_depth,
             max_list_len: config.max_list_len,
+            resolver,
         }
     }
 
@@ -67,7 +106,26 @@ impl EvalState {
 /// Returns [`ExprError`] on type mismatches, unbound variables,
 /// step/depth limit exceeded, or runtime errors.
 pub fn eval(expr: &Expr, env: &Env, config: &EvalConfig) -> Result<Literal, ExprError> {
-    let mut state = EvalState::new(config);
+    eval_with_resolver(expr, env, config, &NoResolver)
+}
+
+/// Evaluate an expression, routing the builtins `resolver` claims through it.
+///
+/// The resolver is consulted wherever a builtin is applied, at any depth, so a
+/// context-dependent builtin behaves the same nested as it does at the root.
+///
+/// # Errors
+///
+/// Returns [`ExprError`] on type mismatches, unbound variables,
+/// step/depth limit exceeded, or runtime errors, including any the resolver
+/// itself reports.
+pub fn eval_with_resolver(
+    expr: &Expr,
+    env: &Env,
+    config: &EvalConfig,
+    resolver: &dyn BuiltinResolver,
+) -> Result<Literal, ExprError> {
+    let mut state = EvalState::new(config, resolver);
     eval_inner(expr, env, 0, &mut state)
 }
 
@@ -75,7 +133,7 @@ fn eval_inner(
     expr: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if depth > state.max_depth {
         return Err(ExprError::DepthExceeded(state.max_depth));
@@ -83,24 +141,28 @@ fn eval_inner(
     state.tick()?;
 
     match expr {
-        Expr::Var(name) => env
-            .get(name)
-            .cloned()
-            .ok_or_else(|| ExprError::UnboundVariable(name.to_string())),
+        // The builtins form a scope beneath the environment: a lexical
+        // binding of the same name shadows one, and a free variable naming a
+        // builtin denotes that builtin as a value, curried over its arity.
+        Expr::Var(name) => env.get(name).cloned().map_or_else(
+            || {
+                BuiltinOp::from_name(name)
+                    .map(builtin_as_value)
+                    .ok_or_else(|| ExprError::UnboundVariable(name.to_string()))
+            },
+            Ok,
+        ),
 
         Expr::Lit(lit) => Ok(lit.clone()),
 
         Expr::Lam(param, body) => {
-            // Lambdas evaluate to closures, capturing the current environment.
-            // This enables proper lexical scoping and first-class functions.
-            let captured: Vec<(Arc<str>, Literal)> = env
-                .iter()
-                .map(|(k, v)| (Arc::clone(k), v.clone()))
-                .collect();
+            // Lambdas evaluate to closures over the scope they were written
+            // in, which gives lexical scoping and first-class functions. The
+            // scope is shared, not copied.
             Ok(Literal::Closure {
                 param: Arc::clone(param),
                 body: body.clone(),
-                env: captured,
+                env: env.clone(),
             })
         }
 
@@ -152,6 +214,12 @@ fn eval_inner(
             eval_inner(body, &new_env, depth + 1, state)
         }
 
+        Expr::Builtin(op, args) if args.len() < op.arity() => {
+            // A builtin given fewer arguments than it takes is a function of
+            // the rest, exactly as a partially applied lambda is.
+            eval_partial_builtin(*op, args, env, depth, state)
+        }
+
         Expr::Builtin(op, args) => {
             // Special handling for higher-order builtins (Map, Filter, Fold,
             // FlatMap) and for Range, which needs the list-length budget:
@@ -168,11 +236,77 @@ fn eval_inner(
                         .iter()
                         .map(|a| eval_inner(a, env, depth + 1, state))
                         .collect();
-                    apply_builtin(*op, &evaluated?)
+                    let evaluated = evaluated?;
+                    if state.resolver.handles(*op) {
+                        state.resolver.apply(*op, &evaluated)
+                    } else {
+                        apply_builtin(*op, &evaluated)
+                    }
                 }
             }
         }
     }
+}
+
+/// The name a builtin's `n`-th curried parameter binds.
+///
+/// The double underscore keeps these out of the way of surface identifiers,
+/// which the lexer does not admit with that prefix.
+fn builtin_param(index: usize) -> Arc<str> {
+    Arc::from(format!("__builtin_arg{index}"))
+}
+
+/// The function a builtin denotes once `supplied` arguments are in hand: a
+/// closure taking the rest one at a time, in surface order.
+///
+/// Arguments sit in surface order until the call is saturated, so the
+/// permutation into [`Expr::Builtin`] order is applied once, on the complete
+/// list inside the closure's body.
+fn curried_builtin(op: BuiltinOp, mut surface: Vec<Expr>) -> Literal {
+    let arity = op.arity();
+    let first_missing = surface.len();
+    for index in first_missing..arity {
+        surface.push(Expr::Var(builtin_param(index)));
+    }
+
+    let mut body = Expr::Builtin(op, op.surface_args_to_expr_args(surface));
+    // Wrap innermost-last: `\a_k -> ... -> \a_{n-1} -> op a_0 ... a_{n-1}`.
+    for index in (first_missing + 1..arity).rev() {
+        body = Expr::Lam(builtin_param(index), Box::new(body));
+    }
+    Literal::Closure {
+        param: builtin_param(first_missing),
+        body: Box::new(body),
+        env: Env::new(),
+    }
+}
+
+/// The value a builtin's bare name denotes: the builtin curried over its whole
+/// argument list.
+fn builtin_as_value(op: BuiltinOp) -> Literal {
+    curried_builtin(op, Vec::new())
+}
+
+/// Evaluate an under-saturated builtin to the function of its missing
+/// arguments.
+///
+/// The arguments already supplied are evaluated here, at the point the partial
+/// application is written, and carried into the closure as literals; the rest
+/// are abstracted over. Arguments sit in surface order until the call is
+/// saturated, so the permutation into `Expr::Builtin` order is applied once,
+/// on the complete list inside the closure's body.
+fn eval_partial_builtin(
+    op: BuiltinOp,
+    args: &[Expr],
+    env: &Env,
+    depth: u32,
+    state: &mut EvalState<'_>,
+) -> Result<Literal, ExprError> {
+    let mut surface = Vec::with_capacity(op.arity());
+    for arg in args {
+        surface.push(Expr::Lit(eval_inner(arg, env, depth + 1, state)?));
+    }
+    Ok(curried_builtin(op, surface))
 }
 
 /// Evaluate a range: `range(start, stop)` -> `[start, ..., stop]`.
@@ -191,7 +325,7 @@ fn eval_range(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -250,7 +384,7 @@ fn eval_app(
     arg: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     // Evaluate the function expression to a value.
     let func_val = eval_inner(func, env, depth + 1, state)?;
@@ -269,18 +403,13 @@ fn apply_closure(
     func: &Literal,
     arg: &Literal,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     match func {
         Literal::Closure { param, body, env } => {
-            // Reconstruct the captured environment.
-            let mut closure_env: Env = env
-                .iter()
-                .map(|(k, v)| (Arc::clone(k), v.clone()))
-                .collect();
-            // Bind the parameter to the argument.
-            closure_env = closure_env.extend(Arc::clone(param), arg.clone());
-            // Evaluate the body in the extended environment.
+            // Bind the parameter in the captured scope and evaluate the body
+            // there. This is the beta-reduction step of call-by-value.
+            let closure_env = env.extend(Arc::clone(param), arg.clone());
             eval_inner(body, &closure_env, depth + 1, state)
         }
         _ => Err(ExprError::NotAFunction),
@@ -298,7 +427,7 @@ fn eval_index(
     idx_expr: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let val = eval_inner(expr, env, depth + 1, state)?;
     let idx = eval_inner(idx_expr, env, depth + 1, state)?;
@@ -330,7 +459,7 @@ fn eval_match(
     arms: &[(Pattern, Expr)],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let val = eval_inner(scrutinee, env, depth + 1, state)?;
     for (pattern, body) in arms {
@@ -350,7 +479,7 @@ fn eval_map(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -387,7 +516,7 @@ fn eval_filter(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -430,7 +559,7 @@ fn eval_fold(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 3 {
         return Err(ExprError::ArityMismatch {
@@ -466,7 +595,7 @@ fn eval_flat_map(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -515,7 +644,7 @@ fn apply_lambda(
     arg: &Literal,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let func_val = eval_inner(func_expr, env, depth + 1, state)?;
     apply_closure(&func_val, arg, depth, state)
@@ -531,7 +660,7 @@ fn apply_lambda_2(
     arg2: &Literal,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let func_val = eval_inner(func_expr, env, depth + 1, state)?;
     let partial = apply_closure(&func_val, arg1, depth, state)?;
