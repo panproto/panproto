@@ -348,27 +348,53 @@ fn apply_drop_op(theory: &Theory, name: &Arc<str>) -> Theory {
     Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
 }
 
-/// Rename an operation throughout a theory (op defs and equation terms).
+/// Rename an operation throughout a theory: its declaration, every
+/// equation term, and every reference inside a dependent sort's argument
+/// terms, whether those sit on a sort declaration's parameters or on an
+/// operation's signature.
 fn apply_rename_op(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let mut op_map = std::collections::HashMap::new();
+    op_map.insert(Arc::clone(old), Arc::clone(new));
+    let no_sort_rename = std::collections::HashMap::new();
+
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .map(|s| Sort {
+            name: Arc::clone(&s.name),
+            params: s
+                .params
+                .iter()
+                .map(|p| SortParam {
+                    name: Arc::clone(&p.name),
+                    sort: p.sort.apply_maps(&no_sort_rename, &op_map),
+                })
+                .collect(),
+            kind: s.kind.clone(),
+            closure: s.closure.clone(),
+        })
+        .collect();
+
     let ops: Vec<_> = theory
         .ops
         .iter()
-        .map(|o| {
-            if o.name == *old {
-                Operation {
-                    name: Arc::clone(new),
-                    inputs: o.inputs.clone(),
-                    output: o.output.clone(),
-                }
+        .map(|o| Operation {
+            name: if o.name == *old {
+                Arc::clone(new)
             } else {
-                o.clone()
-            }
+                Arc::clone(&o.name)
+            },
+            inputs: o
+                .inputs
+                .iter()
+                .map(|(n, s, imp)| (Arc::clone(n), s.apply_maps(&no_sort_rename, &op_map), *imp))
+                .collect(),
+            output: o.output.apply_maps(&no_sort_rename, &op_map),
         })
         .collect();
-    let mut op_map = std::collections::HashMap::new();
-    op_map.insert(Arc::clone(old), Arc::clone(new));
+
     let eqs: Vec<_> = theory.eqs.iter().map(|eq| eq.rename_ops(&op_map)).collect();
-    Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
+    Theory::new(Arc::clone(&theory.name), sorts, ops, eqs)
 }
 
 /// Apply a pullback (sort/op renaming) from a theory morphism.
@@ -1180,5 +1206,54 @@ mod tests {
         assert_eq!(result.sorts.len(), 1);
         assert_eq!(result.ops.len(), 0); // f and a0 reference A
         assert_eq!(result.eqs.len(), 0); // law uses f which was dropped
+    }
+
+    #[test]
+    fn rename_op_rewrites_dependent_sort_argument_terms() {
+        // `loop_ : Hom(pt(), pt())` must follow a rename of `pt`.
+        let theory = Theory::new(
+            "Pointed",
+            vec![
+                crate::sort::Sort::simple("Pt"),
+                crate::sort::Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Pt"), SortParam::new("b", "Pt")],
+                ),
+            ],
+            vec![
+                Operation::new("pt", vec![], "Pt"),
+                Operation::new(
+                    "loop_",
+                    vec![],
+                    crate::sort::SortExpr::app(
+                        "Hom",
+                        vec![
+                            crate::eq::Term::constant("pt"),
+                            crate::eq::Term::constant("pt"),
+                        ],
+                    ),
+                ),
+            ],
+            vec![],
+        );
+        let renamed = apply_rename_op(&theory, &Arc::from("pt"), &Arc::from("base"));
+        let Some(loop_op) = renamed.find_op("loop_") else {
+            panic!("loop_ survives the rename");
+        };
+        let heads: Vec<&str> = loop_op
+            .output
+            .args()
+            .iter()
+            .filter_map(|t| match t {
+                crate::eq::Term::App { op, .. } => Some(&**op),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            heads,
+            vec!["base", "base"],
+            "renamed op must be referenced by its new name: {:?}",
+            loop_op.output,
+        );
     }
 }
