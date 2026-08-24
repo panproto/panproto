@@ -51,7 +51,7 @@ impl Store for MemStore {
     }
 
     fn put(&mut self, object: &Object) -> Result<ObjectId, VcsError> {
-        let id = compute_object_id(object)?;
+        let id = hash::object_id(object)?;
         self.objects.entry(id).or_insert_with(|| object.clone());
         Ok(id)
     }
@@ -125,26 +125,6 @@ impl Store for MemStore {
             reversed.truncate(n);
         }
         Ok(reversed)
-    }
-}
-
-/// Compute the `ObjectId` for any [`Object`].
-fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
-    match object {
-        Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
-        Object::Commit(commit) => hash::hash_commit(commit),
-        Object::Tag(tag) => hash::hash_tag(tag),
-        Object::DataSet(dataset) => hash::hash_dataset(dataset),
-        Object::Complement(complement) => hash::hash_complement(complement),
-        Object::Protocol(protocol) => hash::hash_protocol(protocol),
-        Object::Expr(expr) => hash::hash_expr(expr),
-        Object::EditLog(edit_log) => hash::hash_edit_log(edit_log),
-        Object::Theory(theory) => hash::hash_theory(theory),
-        Object::TheoryMorphism(morphism) => hash::hash_theory_morphism(morphism),
-        Object::CstComplement(cst_comp) => hash::hash_cst_complement(cst_comp),
-        Object::FileSchema(file) => hash::hash_file_schema(file),
-        Object::SchemaTree(tree) => hash::hash_schema_tree(tree),
-        Object::FlatSchema(schema) => hash::hash_schema(schema),
     }
 }
 
