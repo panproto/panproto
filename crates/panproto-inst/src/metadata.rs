@@ -73,6 +73,7 @@ pub struct Node {
     /// Discriminator for union-typed vertices (e.g., `"$type"` value).
     pub discriminator: Option<Name>,
     /// Extra fields preserved for round-trip fidelity.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub extra_fields: HashMap<String, Value>,
     /// Position in an ordered collection (if any).
     #[serde(default)]
@@ -87,7 +88,7 @@ pub struct Node {
     #[serde(default)]
     pub shape: NodeShape,
     /// Out-of-band annotations (metadata distinct from data).
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub annotations: HashMap<String, Value>,
 }
 

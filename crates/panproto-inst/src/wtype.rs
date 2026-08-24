@@ -776,6 +776,7 @@ impl CompiledMigration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WInstance {
     /// All nodes keyed by their numeric ID.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub nodes: HashMap<u32, Node>,
     /// Arcs: (`parent_id`, `child_id`, `schema_edge`).
     pub arcs: Vec<(u32, u32, Edge)>,
@@ -786,8 +787,10 @@ pub struct WInstance {
     /// Schema vertex that the root node is anchored to.
     pub schema_root: Name,
     /// Precomputed parent map: `child_id` -> `parent_id`.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub parent_map: HashMap<u32, u32>,
     /// Precomputed children map: `parent_id` -> child IDs.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub children_map: HashMap<u32, SmallVec<u32, 4>>,
 }
 

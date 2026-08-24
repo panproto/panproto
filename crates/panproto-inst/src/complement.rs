@@ -37,14 +37,17 @@ use crate::value::{FieldPresence, Value};
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Complement {
     /// Nodes from the source that do not appear in the target view.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub dropped_nodes: HashMap<u32, Node>,
     /// Arcs from the source that do not appear in the target view.
     pub dropped_arcs: Vec<(u32, u32, Edge)>,
     /// Fans from the source whose parent or children were dropped.
     pub dropped_fans: Vec<Fan>,
     /// Resolver decisions made during ancestor contraction.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
     pub contraction_choices: HashMap<(u32, u32), Edge>,
     /// Original parent mapping before contraction.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub original_parent: HashMap<u32, u32>,
     /// Fingerprint of the source schema at projection time, used by the
     /// backward direction to validate that the complement matches the lens's
@@ -54,13 +57,13 @@ pub struct Complement {
     /// Pre-transform `extra_fields` for nodes that had `field_transforms`
     /// applied. Used by the backward direction to restore original field
     /// values.
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_nested_map")]
     pub original_extra_fields: HashMap<u32, HashMap<String, Value>>,
     /// Exact edge used for every arc in the view, keyed by
     /// `(parent_id, child_id)`. This makes the backward direction
     /// deterministic when the source schema has parallel edges between the
     /// same vertex pair, ensuring the cartesian lift is unique.
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
     pub arc_edges: HashMap<(u32, u32), Edge>,
     /// The source instance's arcs in order, as `(parent_id, child_id)`.
     ///
@@ -79,21 +82,21 @@ pub struct Complement {
     /// Pre-coercion `node.value` for nodes that had `__value__` field
     /// transforms applied. Used by the backward direction to restore the
     /// original leaf value.
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub original_values: HashMap<u32, Option<FieldPresence>>,
     /// View node ids synthesized during forward evaluation by the nest-style
     /// `expansion_path` mechanism. These nodes exist in the view (to satisfy
     /// the target schema's multi-hop path) but have no counterpart in the
     /// source instance. The backward direction drops them when reconstructing
     /// the source.
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_set")]
     pub synthesized_nodes: HashSet<u32>,
     /// For each dropped node, the surviving node it contracted into (its
     /// nearest surviving ancestor). Populated by the restrict pipeline's
     /// ancestor contraction; the fiber of a target node is its direct
     /// preimage together with every source node recorded here as contracted
     /// into it.
-    #[serde(default)]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub contracted_into: HashMap<u32, u32>,
 }
 

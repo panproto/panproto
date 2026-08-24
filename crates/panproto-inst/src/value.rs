@@ -105,11 +105,12 @@ pub enum Value {
         /// The type identifier.
         type_: String,
         /// Opaque fields.
+        #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
         fields: HashMap<String, Self>,
     },
     /// An unknown record value: a finite product of name/value pairs.
     /// Used for schema-unanchored objects that must round-trip.
-    Unknown(HashMap<String, Self>),
+    Unknown(#[serde(with = "panproto_schema::serde_helpers::sorted_map")] HashMap<String, Self>),
     /// An ordered list of values: the free-monoid list object over
     /// `Value`. Used for schema-unanchored arrays and for transforms
     /// that operate on ordered collections carried in `extra_fields`.
