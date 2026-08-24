@@ -1,140 +1,123 @@
 # Parse full ASTs
 
-Full-AST parsing supports queries, diffs, migrations, and version control over a source file's tree-sitter syntax tree. The parser exposes 261 registered languages through the same schema-instance operations used for other data.
+Full-AST parsing converts source code into a panproto `Schema` derived from its tree-sitter syntax tree. The available languages are the grammars compiled into the current binary or SDK package.
 
 ## Prerequisites
 
-The `schema` CLI, or the Rust SDK with the `full-parse` feature enabled. For the Python SDK, the relevant grammar pack (the wheel ships eleven core languages; install `panproto-grammars-functional`, `-web`, `-systems`, etc. for more).
+The `schema` CLI or the Rust SDK with `full-parse`. The default `panproto-parse` build enables the eleven-language core grammar group; feature groups and companion Python packages can add more, up to the full grammar catalog.
 
-## The task
-
-### Single file
+## Inspect a file from the CLI
 
 ```sh
-schema parse file src/main.rs > main.ast.json
+schema parse file src/main.rs
 ```
 
-`schema parse file <PATH>` writes the AST as a JSON instance against an auto-derived GAT theory for the language to stdout. Redirect to a file as needed.
+The command prints a summary containing the detected language and the vertex and edge counts. It does not serialize the AST schema to stdout.
 
-### Whole project
+To inspect a directory:
 
 ```sh
-schema parse project . > project.ast.json
+schema parse project .
 ```
 
-Walks every recognized file in the project (default `.`), parses each with the appropriate grammar, and writes a single instance covering the whole project to stdout.
+This command builds a project schema and prints aggregate counts plus the detected protocol for each recognized path. It also does not emit project-schema JSON. Use the Rust or Python API when the caller needs the `Schema` value itself.
 
-### Round-trip a single file
+## Check source replay
 
 ```sh
-schema parse emit src/main.rs
+schema parse emit src/main.rs > /tmp/main.replayed.rs
+cmp src/main.rs /tmp/main.replayed.rs
 ```
 
-Parses then emits, useful for confirming a clean round-trip through the format-preserving codec.
+`parse emit` parses the file and calls the parse-side emitter on the resulting schema. It writes only the emitted bytes to stdout, which makes the `cmp` check reliable.
 
-### From Rust
+## Parse from Rust
 
 ```rust,no_run
+use std::path::Path;
 use panproto_core::parse::ParserRegistry;
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-let registry = ParserRegistry::new();
-let schema = registry.parse_with_protocol(
-    "rust",
-    std::fs::read("src/main.rs")?.as_slice(),
-    "src/main.rs",
-)?;
-# let _ = schema;
-# Ok(()) }
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let source = std::fs::read("src/main.rs")?;
+    let registry = ParserRegistry::new();
+
+    let schema = registry.parse_file(Path::new("src/main.rs"), &source)?;
+    println!("{} vertices", schema.vertex_count());
+
+    let explicit = registry.parse_with_protocol(
+        "rust",
+        &source,
+        "src/main.rs",
+    )?;
+    assert_eq!(schema.vertex_count(), explicit.vertex_count());
+    Ok(())
+}
 ```
 
-`panproto_core::parse` is the re-export of `panproto-parse`. `ParserRegistry::new()` populates with every grammar enabled at build time; for a specific file path, `registry.parse_file(path, content)` auto-detects the language by extension.
+`parse_file(path, content)` detects the protocol from the path extension and returns `ParseError::UnknownLanguage` for an unregistered extension. `parse_with_protocol(protocol, content, file_path)` bypasses extension detection but still requires a registered protocol.
 
-### From Python
+## Parse from Python
 
 ```python
+from pathlib import Path
 import panproto
 
-reg = panproto.AstParserRegistry()
-schema = reg.parse_with_protocol("python", source_bytes, "src/app.py")
+source = Path("src/app.py").read_bytes()
+registry = panproto.AstParserRegistry()
+schema = registry.parse_file("src/app.py", source)
+
+print(len(schema.vertices), len(schema.edges))
+print(registry.protocol_names())
 ```
 
-Companion grammar packs install additional languages: `pip install panproto-grammars-functional`, `-web`, `-systems`, etc.
+The core Python wheel discovers installed `panproto-grammars-*` companion packages when `panproto.AstParserRegistry()` is constructed. Install the group that contains the required language before creating the registry; for instance, `panproto-grammars-functional` adds Haskell, OCaml, and related grammars.
 
-### Read anonymous-token field values
+## Read anonymous-token fields
 
-A tree-sitter rule of the form `field('<name>', choice('+', '-', '*', '/'))` attaches a field name to an *unnamed* token alternative. The walker captures the matched token's text as a `field:<name>` constraint on the parent vertex; `Schema::field_text` is the supported accessor:
-
-```python
-schema = reg.parse_with_protocol("qvr", b"let y = log(x)", "demo.qvr")
-let_call = next(v.id for v in schema.vertices if v.kind == "let_call")
-schema.field_text(let_call, "func")   # -> "log"
-```
-
-The Rust equivalent is `Schema::field_text(vertex_id, name) -> Option<&str>`. Named-node field children continue to surface as edges; this accessor is specifically for the anonymous-token field case.
-
-### Override a registered grammar at runtime
-
-Grammar authors iterating on a grammar's `parser.c` / `grammar.json` / `node-types.json` outside the panproto release cadence can swap in a freshly-compiled grammar mid-process. Compile the grammar via `tree-sitter build`, load the resulting shared library with `ctypes`, and pass the integer address of the `tree_sitter_<name>` symbol to `override_grammar`:
+Named tree-sitter children appear as schema edges. When a grammar attaches a field name to an unnamed token alternative, the walker stores the token text as a `field:<name>` constraint on the parent. Use `Schema.field_text` to read it:
 
 ```python
-import ctypes
-import panproto
-
-lib = ctypes.CDLL("./build/qvr.dylib")
-language_ptr = ctypes.cast(lib.tree_sitter_qvr, ctypes.c_void_p).value
-
-reg = panproto.AstParserRegistry()
-reg.override_grammar(
-    name="qvr",
-    extensions=["qvr"],
-    language_ptr=language_ptr,
-    node_types=open("./grammars/qvr/src/node-types.json", "rb").read(),
-    grammar_json=open("./grammars/qvr/src/grammar.json", "rb").read(),
+schema = registry.parse_with_protocol(
+    "qvr",
+    b"let y = log(x)",
+    "demo.qvr",
 )
-schema = reg.parse_with_protocol("qvr", source_bytes, "demo.qvr")  # uses the new grammar
+let_call = next(v.id for v in schema.vertices if v.kind == "let_call")
+assert schema.field_text(let_call, "func") == "log"
 ```
 
-If a parser is already registered under `name`, it is dropped first (along with any extension mappings). Cannot run while a `ParseEmitLens` produced by `reg.lens(...)` is alive: drop outstanding lens handles, or construct a fresh registry, first. The byte payloads are leaked into `'static` storage on the Rust side (intended for dev-time work, not production).
+The Rust accessor is `Schema::field_text(vertex_id, field_name) -> Option<&str>`.
 
-## Going the other way
+## Verify pretty emission before relying on it
 
-The schema you get back from `parse_with_protocol` carries a complete *layout fiber*: byte spans, the whitespace between every pair of adjacent tokens, and discriminators recording which CHOICE alternative the parser took at each branch point. The emitter consumes those constraints to render bytes back. A schema you build by hand from `SchemaBuilder` carries none of them; `emit_pretty_with_protocol` falls back to a grammar walk driven by the structural acceptance predicate, a layered cassette system, and per-position interstitial scoring (see [Source-code emission](../explanation/emit-pretty.md) for the mechanics). The grammar walk produces structurally valid output for the verified set and best-effort output for the rest.
-
-For generators that build a schema from scratch and want to render it to source bytes, see [Decorate an abstract schema](./decorate-schemas.md). The `decorate` operation takes an `AbstractSchema` (the hand-built half), attaches the layout fiber via a grammar walk, and returns a `DecoratedSchema` the emitter can render byte-for-byte.
-
-### Verifying the emitter for a protocol
-
-Before relying on `emit_pretty_with_protocol` in a downstream pipeline, ask the registry which tier the protocol falls into:
+`emit_pretty_with_protocol` renders a schema without replaying its original layout. Query the protocol's verification tier first:
 
 ```rust,no_run
-use panproto_parse::{EmitVerificationStatus, ParserRegistry};
+use panproto_core::parse::{EmitVerificationStatus, ParserRegistry};
 
-# fn main() -> Result<(), Box<dyn std::error::Error>> {
-let reg = ParserRegistry::new();
-match reg.emit_verification_status("python") {
-    EmitVerificationStatus::Verified => { /* round-trips its full corpus */ }
-    EmitVerificationStatus::Generic  => { /* registered, but unverified */ }
-    EmitVerificationStatus::Unsupported => { /* not registered */ }
+let registry = ParserRegistry::new();
+match registry.emit_verification_status("rust") {
+    EmitVerificationStatus::Verified => {}
+    EmitVerificationStatus::Generic => {
+        eprintln!("pretty emission has no protocol-specific verification claim");
+    }
+    EmitVerificationStatus::Unsupported => {
+        eprintln!("pretty emission is unavailable for this protocol");
+    }
 }
-# Ok(()) }
 ```
 
-The 255 protocols currently in the `Verified` set are listed in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs) under `VERIFIED_EMIT_PROTOCOLS`. A protocol earns the tier by round-tripping its grammar author's full `test/corpus/` under the strict `emit_corpus_audit` oracle (`emit(parse(emit(s))) == emit(s)` plus vertex-kind and edge-shape multiset preservation on every entry), or by being pinned to a quivers transpile backend test.
+`Verified` records coverage by repository tests on representative input or a protocol corpus. It is not a proof over every byte sequence. Use `schema parse emit` on the actual files that enter a pipeline.
 
-## Verification
+## Limitations
 
-Tree-sitter parsing is total: every byte sequence parses into *some* AST, with error nodes inserted around unparsable spans. The verified guarantee is a round-trip up to the vertex-kind and edge-shape multiset: `emit(parse(bytes))` re-parses to the same abstract syntax tree, which `check_parse_emit` in `panproto_parse::parse_emit_lens` asserts. Interstitial preservation makes that emit reproduce the original whitespace byte-for-byte for most inputs, but some legitimately reformat (json re-indents arrays), so byte equality is not promised universally. `schema parse emit <file>` is the smoke test.
-
-## Common mistakes
-
-- Treating the AST as the source of truth for non-syntactic information. Type information, name resolution, control flow are not modeled by the auto-derived theories.
-- Assuming language coverage. The 261-language list is in [`crates/panproto-grammars/`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars). Languages not in the list have no parser.
+- The AST schema contains syntactic structure. It does not add type checking, name resolution, or control-flow information.
+- The CLI parse-inspection commands print summaries, not serializable schema values.
+- Tree-sitter may include error nodes for malformed source, and panproto's schema construction can still fail. Do not treat parsing as an unconditional total operation.
+- Language availability depends on build features and installed grammar packs. Query `protocol_names()` rather than relying on the maximum catalog size.
 
 ## See also
 
-- [Decorate an abstract schema](./decorate-schemas.md) for the put-direction of the parse / emit lens.
-- [Source-code emission](../explanation/emit-pretty.md) for the emitter's structural pipeline.
-- [Reference: protocol catalog](../reference/protocols.md).
-- [Round-trip with format preservation](./format-preserving.md).
-- [Layout enrichment](../explanation/layout-enrichment.md) for the categorical framing of the parse / decorate / emit pair.
+- [Decorate an abstract schema](./decorate-schemas.md) for rendering a layout-free schema.
+- [Source-code emission](../explanation/emit-pretty.md) for replay and pretty-emission paths.
+- [Rust SDK](../reference/sdk-rust.md#feature-flags) for feature selection.

@@ -21,7 +21,7 @@ const schema = proto.schema()
   .build();
 ```
 
-`p.protocol(name)` loads the named protocol's theory. `proto.schema()` returns a `SchemaBuilder`. Each `.vertex()` call adds a vertex (record kind) with optional constraints; each `.edge()` call adds an edge (field, item, or variant) between vertices. `.build()` validates the constructed schema against the protocol's theory and returns a `Schema` handle.
+`p.protocol(name)` loads the named protocol. `proto.schema()` returns an immutable `SchemaBuilder`: each operation returns a new builder containing the added structure. `.build()` sends those operations to WebAssembly, where vertex and edge rules are checked, and returns a `BuiltSchema` handle. Run the separate validation pass below to check constraint sorts and other finished-schema conditions.
 
 ## Verification
 
@@ -34,8 +34,8 @@ if (!result.isValid) throw new Error(JSON.stringify(result.issues));
 
 ## Common mistakes
 
-- Calling `.build()` before all required edges are added. The validation runs eagerly; missing required structure raises immediately.
-- Re-using a builder after `.build()`. Builders are single-shot; create a new one for each schema.
+- Ignoring the builder returned by `.vertex()` or `.edge()`. Builders are immutable, so the original value does not acquire the operation.
+- Treating `.build()` as equation verification. It constructs a schema and enforces builder-level checks; `schema.validate(proto)` is the finished-schema structural validation pass.
 - Treating the returned `Schema` handle as a plain object. It is an opaque handle into the WASM heap; pass it to subsequent SDK calls, do not introspect it directly.
 
 ## See also

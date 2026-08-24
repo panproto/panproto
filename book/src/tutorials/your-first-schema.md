@@ -1,6 +1,6 @@
 # Your first schema
 
-The first diff showed that panproto can inspect an existing source file. This tutorial takes the next step: it builds the smallest useful `User` schema, parses two records, and catches a missing required field. Expect about eight minutes.
+The first diff showed that panproto can inspect an existing source file. This tutorial builds a small `User` schema, parses two records, and catches a missing required field.
 
 The walkthrough uses the [TypeScript](https://www.typescriptlang.org/) SDK. The [Python](../how-to/define-schema/python.md) and [Rust](../how-to/define-schema/rust.md) how-to guides present the same construction through their native APIs.
 
@@ -43,6 +43,8 @@ console.log('Alice:', alice.validate());
 console.log('Missing name:', missingName.validate());
 console.log('JSON:', new TextDecoder().decode(alice.toJson()));
 
+alice[Symbol.dispose]();
+missingName[Symbol.dispose]();
 schema[Symbol.dispose]();
 p[Symbol.dispose]();
 ```

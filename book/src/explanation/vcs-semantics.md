@@ -1,82 +1,67 @@
 # Schema version control semantics
 
-## In plain terms
+`panproto-vcs` stores immutable schema-related objects in a content-addressed directed acyclic graph (DAG). Mutable branch and tag references point into that graph. Its command vocabulary includes familiar operations such as `init`, `add`, `commit`, `branch`, `merge`, `log`, and `diff`, but the stored objects and merge algorithm operate on parsed schema structure rather than lines of source text.
 
-panproto-vcs is git, but for schemas. It tracks a history of schemas the way git tracks a history of source files: commits, branches, tags, merges, diffs, blame. The CLI verbs are the same (`init`, `add`, `commit`, `branch`, `merge`, `log`, `diff`).
+This distinction changes the form of a conflict. A text merge reports overlapping edits to lines. A schema merge compares vertices, edges, constraints, and the other fields of the common representation, then reports incompatible structural edits as typed conflict values. Syntax and protocol validation still run separately; structural merge alone does not guarantee that every merged schema is valid.
 
-Two things make it different from git applied to the schema files themselves:
+## Objects and references
 
-1. **The diff and merge operate on the schema, not the text.** `schema diff` does not show you a unified diff of the JSON; it shows you what changed structurally: which vertices were added, which edges renamed, which constraints tightened. Merge does not three-way-merge the bytes; it merges the schema graph at the structural level, so you cannot end up with a syntactically valid but semantically broken schema after a merge.
-2. **Data and migrations are versioned alongside the schemas.** Every commit records a schema snapshot and (optionally) the data instances that conformed to it; migrations between schemas are stored as their own content-addressed objects, paired with the complements needed to invert them. Branches diverge with their data; merges reconcile both.
+Every object identifier is a BLAKE3 digest of the object's canonical serialization. Objects are stored under `.panproto/objects/`, branch references under `.panproto/refs/heads/`, and tag references under `.panproto/refs/tags/`.
 
-The merge operation is the place where this gets interesting. Three-way text merge fails when both sides edit the same line. The schema-level analog is two branches that both add a field with the same name but different types. panproto-vcs has a precise, well-defined operation for resolving this: the schemas are *pushed out* along their common ancestor. The result is the smallest schema containing both branches' additions, with the conflict surfaced as an explicit refinement constraint that the user resolves.
-
-## The DAG
-
-panproto-vcs is structured exactly like git: a content-addressed DAG of immutable objects.
-
-| Object | What it holds |
+| Object | Contents |
 |---|---|
-| `FileSchema` / `SchemaTree` / `FlatSchema` | A schema at a point in time, in per-file, tree, or migration-endpoint form. |
-| `Migration` | A morphism between two schemas, identified by their object IDs. |
-| `Complement` | The complement data needed to invert a data migration. |
-| `DataSet` | A set of instances conforming to a specific schema. |
-| `CstComplement` | The format-preserving CST data for byte-identical reconstruction. |
-| `Protocol` / `Theory` / `TheoryMorphism` / `Expr` / `EditLog` | Supporting objects referenced by commits and migrations. |
-| `Commit` | A pointer to a schema, an optional pointer to data, a parent commit list, an author, a message. |
-| `Tag` | An annotated tag object pointing to another object. |
-| Branch | A mutable reference to a commit; lives under `.panproto/refs/heads/`. |
+| `FileSchema`, `SchemaTree`, `FlatSchema` | Per-file schema content, a tree root used by commits, and a flattened migration endpoint. |
+| `Migration` | A map between identified source and target schemas. |
+| `Complement`, `CstComplement` | Saved data for inverse migration and concrete-syntax reconstruction. |
+| `DataSet` | Instances associated with a particular schema. |
+| `Protocol`, `Theory`, `TheoryMorphism`, `Expr`, `EditLog` | Protocol and transformation metadata referenced by other objects. |
+| `Commit` | A `SchemaTree` root, parent commits, protocol and author metadata, and identifiers for associated migrations, data, complements, edit logs, theories, and renames. |
+| `Tag` | An annotated reference to another stored object. |
 
-Every object is content-addressed with a blake3 hash of its canonical serialization. Refs (branches under `refs/heads/`, tags under `refs/tags/`) live under `.panproto/refs/`. Objects live under `.panproto/objects/`. The structural similarity to `.git/` is intentional: the existing mental model transfers.
+A branch is a mutable reference rather than an immutable object. A commit may have more than one parent, so the commit relation forms a DAG rather than a simple sequence.
 
-## Validation at stage, commit, and merge
+## Validation at stage and commit
 
-A commit records a schema, and usually a migration from the previous schema together with the data carried forward through it. Before any of these is written, panproto-vcs checks the schema and the migration, and the checks block the operation rather than warn.
+Migration validation checks that mapped vertex and edge identifiers exist at both endpoints and that each mapped edge lands between the images of its source endpoints. The same structural obligation is checked during migration compilation, where a failure is reported as `NotAMorphism`. By default, migration errors make staged content invalid and block commit with `VcsError::ValidationFailed`.
 
-A migration is checked as a theory morphism on the fragment it maps: its vertex map must reference vertices that exist in the source and target schemas, and each mapped edge must land on the images of its own endpoints rather than on any pair of mapped vertices. A migration that violates this is recorded as a migration error, which marks the staged schema invalid and makes `commit` and `merge` fail with `VcsError::ValidationFailed`. The same morphism obligation is enforced earlier, at migration compile time, where `mig::compile` derives the induced theory morphism and validates it with `check_morphism`, failing with `NotAMorphism` when the mapped fragment is not structure-preserving. The single bypass is `CommitOptions.skip_verify`, which suppresses the staged check for a deliberate override.
+Verification can be bypassed deliberately at two points. `AddOptions::skip_verify` permits an object to remain pending at stage time, and `CommitOptions::skip_verify` bypasses the commit-time check. These options weaken the repository invariant and should be treated as explicit overrides rather than ordinary workflow.
 
-Schemas are also checked against their protocol's equations. When the schema's protocol is registered with a theory carrying equations, as `atproto` is on the CLI path, the schema is read as a set-theoretic model and its equations are checked at commit and at merge; a violation blocks with `VcsError::ValidationFailed`. The equation check is bounded: it enumerates at most 10,000 variable assignments per equation, and an equation whose assignment space exceeds that bound raises `ModelCheckLimitExceeded` naming the equation rather than passing as if satisfied. When no theory is registered for the protocol, the commit records an advisory note that no equations were checked, and the structural checks still run.
+When a registered protocol theory contains equations, model validation checks the schema against them. The evaluator considers at most 10,000 variable assignments for an equation; exceeding that bound returns `ModelCheckLimitExceeded` instead of accepting the equation. If no theory is registered, validation records an advisory that no equations were checked while retaining the available structural checks. The current foundational theories and the built-in ATProto composition do not themselves supply equations, so the presence of a registered theory does not imply that an equation check has substantive cases.
 
-## Merge as pushout
+## Structural three-way merge
 
-A three-way merge in git is: take base $B$, ours $O$, theirs $T$, and produce a result $M$ that contains the changes from $O$ relative to $B$ and the changes from $T$ relative to $B$. When the changes overlap on the same line, conflict.
+Let $B$ be a common base and $O$ and $T$ the schemas on the two branches. The categorical account reads merge as a pushout of the divergent changes over their base [@mimramdigiusto2013categorical]:
 
-The schema analog: $B$, $O$, $T$ are schemas; $O$ and $T$ are both descendants of $B$. The merge result $M$ is the *pushout* of $O$ and $T$ along $B$:
+$$
+\begin{CD}
+ B @>>> O \\
+ @VVV @VVV \\
+ T @>>> M.
+\end{CD}
+$$
 
-```text
-        B ------> O
-        |         |
-        |         |
-        v         v
-        T ------> M
-```
+The implementation constructs $M$ with a field-by-field structural three-way merge. Compatible additions and modifications are combined. Incompatible edits become `MergeConflict` variants, and conflicted elements retain their base values until the caller supplies a resolution. `apply_resolutions` requires a choice of ours or theirs for every reported conflict and then verifies the resulting square.
 
-The pushout is the *unique smallest* schema containing both $O$ and $T$ and respecting their shared structure from $B$. "Unique smallest" is made precise by a *universal property*: any other schema $M'$ that also contains $O$ and $T$ admits a unique morphism from $M$ to $M'$.
+The routine `verify_pushout` checks the generated cocone: both branch maps must be total, every merged vertex must come from a branch, surviving base vertices must remain present, and the two paths from the base must agree on mapped vertices and edges. A failure returns `VcsError::PushoutVerification`. This is a cocone check, not a complete runtime proof of the universal property.
 
-panproto-vcs does not just compute the pushout: at merge time it runs `vcs::merge::verify_pushout`, a cocone-level check that the generated migrations are total, every merged vertex comes from one of the branches, surviving base vertices remain present, and the two paths agree on base vertices and edges. A failure returns `VcsError::PushoutVerification` rather than a wrong result. The stronger universal property, that the result mediates uniquely to a caller-supplied alternative cocone, is available on demand through `vcs::merge::verify_pushout_universal`, which schema merge does not itself call. That on-demand check constructs the mediator on vertices; edge-level factorization requires an extended alternative-cocone API (see [What panproto verifies](./what-is-verified.md)).
+`verify_pushout_universal` provides an additional on-demand check against a caller-supplied alternative cocone. It constructs and checks a mediator on vertices. The current API does not establish edge-level factorization, and ordinary merge does not call this verifier. [Pushouts and merge](./semantics/pushouts-and-merge.md) states the distinction formally.
 
-For the formal pushout construction, the cocone definition, and exactly what is checked, see [Pushouts and merge](./semantics/pushouts-and-merge.md).
+Merge also computes a pullback overlap to recognize additions shared by both branches. If that computation fails, the result stores a `pullback_error` and the CLI reports it. The failure is not interpreted as an empty overlap.
 
-## Conflicts
+## Data associated with history
 
-A merge conflict arises when the pushout would introduce an inconsistency: two branches add a field with the same name but incompatible types, or one branch removes a vertex the other branch still references. Conflicts are reported as explicit objects (rather than text markers) and resolved by editing the conflict descriptor.
+Commits may reference data sets and migration complements. During merge, data from both parents is lifted to the merged schema, fresh complement objects are recorded, and duplicate migrated data sets are removed. Rebase and cherry-pick similarly lift the replayed commit's data and verify the relevant migration square. These operations follow the schema-evolution account of migrations connected by lenses in Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria].
 
-Resolution is exhaustive over the conflict variants. Choosing a side for a conflict copies that side's element into the resolved schema, or deletes it, for every conflict kind the merge can raise; there is no silent fall-through that would return a resolved conflict at its base value. Where a merge computes the pullback overlap of the two branches to detect shared additions, a failure of that computation is recorded on the merge result (`pullback_error`) and surfaced by the CLI, rather than folded into an empty overlap that would read as "no shared additions".
-
-## Data versioning
-
-Commits can carry data instances. When a branch's schema migrates, the data carried by its commits is automatically lifted forward by the migration's lens. Branches can therefore diverge in both schema and data; merging both kinds of divergence in one operation is what `schema merge` does.
-
-A consequence: history rewriting on a branch carrying data must lift the data through the rewritten history rather than copy it verbatim. This is what `rebase`, `merge`, and `cherry-pick` do, and what `amend` and `commit` preserve: each carries versioned data through the schema change by running the forward migration generated from that change's lens, applying `data_mig::migrate_forward` with the stored complements to lift every affected record. The data moves with the schema; it does not sit inert.
+Ordinary commit records data that was staged for that commit; it does not automatically copy or migrate all data from the previous commit. Amend preserves existing data identifiers unless the caller stages replacements. A schema change made through either operation thus does not by itself imply that associated data was transformed.
 
 ## Related work
 
-Two threads sit directly behind panproto-vcs. The categorical-VCS lineage (Mimram and Di Giusto on patches as morphisms with merge as pushout [@mimramdigiusto2013categorical], Angiuli and colleagues' homotopical patch theory [@angiuli2014homotopical], Roundy's Darcs [@roundy2005darcs]) supplies the "merge is the pushout of the divergent patches against the common ancestor" semantics and the diagnosis of conflicts as failures of the pushout to exist. The schema-evolution lineage (Curino, Moon, and Zaniolo's PRISM workbench [@curinomoonzaniolo2008graceful] and Litt, van Hardenberg, and Henry's Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria]) supplies the engineering vocabulary: schema-modification operators with forward and backward mappings, quasi-inverses for the operators that lose information, and a directed graph of schema versions connected by lenses. panproto-vcs is the four-artifact unification of these lines, with the protocol theory, schema, data, and lens complement committed together into a single content-addressed DAG. See [Related work](./related-work.md#schema-versioning-as-structured-merge) for the full discussion.
+The categorical account of patches and merge also includes homotopical patch theory [@angiuli2014homotopical] and Darcs [@roundy2005darcs]. Work on schema evolution includes the PRISM workbench and its schema-modification operators [@curinomoonzaniolo2008graceful]. panproto combines these ideas with content-addressed storage for protocols, schemas, data, migrations, and complements. [Related work](./related-work.md#schema-versioning-as-structured-merge) gives the broader comparison.
 
 ## See also
 
 - [Init and commit](../how-to/schema-vcs/init-and-commit.md) for the practical workflow.
-- [Branch and merge](../how-to/schema-vcs/branch-and-merge.md).
+- [Branch and merge](../how-to/schema-vcs/branch-and-merge.md) for conflict handling.
 - [Bridge to git](../how-to/schema-vcs/git-bridge.md) for using panproto-vcs alongside git.
 - [Pushouts and merge](./semantics/pushouts-and-merge.md) for the formal model.
-- [What panproto verifies](./what-is-verified.md) for what schema merge checks at merge time.
+- [What panproto verifies](./what-is-verified.md) for merge-time checks.

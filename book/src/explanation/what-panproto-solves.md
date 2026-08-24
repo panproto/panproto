@@ -1,29 +1,31 @@
 # What panproto solves
 
-## In plain terms
+Changing a schema usually creates a corresponding data problem. A renamed field may require only a direct correspondence, while a split record or retired variant may require a default, a value transform, or saved information. When those decisions live only in migration scripts, it can be difficult to compare them with the schemas that they connect.
 
-Changing the shape of data usually creates a second task: mapping existing records into the new shape. A renamed field may be routine, while a split record or a retired variant can require stored information, defaults, or an explicit value transform. Hand-written migration code tends to scatter those decisions across scripts that are difficult to compare with the schemas they connect.
+panproto represents a schema change as structured data. It can compare two schemas, classify their compatibility, compile a migration between them, and apply that migration to schema-typed data. The same representations support histories of schema objects and structural three-way merge. The [protocol catalog](../reference/protocols.md) records the formats for which parsers or other protocol support are registered.
 
-panproto reads two schemas, computes a structural difference, and can compile an executable migration artifact between them. The compatibility classifier reports a change as fully compatible, backward compatible, or breaking. The same structural operations also support schema history through git-style commands and work across the formats listed in the [protocol catalog](../reference/protocols.md).
-
-The common representation is the **protocol-theory model**: each schema language supplies theories that describe its schema and instance structure, while each parsed schema supplies the concrete vertices, edges, and constraints those theories govern. The rest of this quadrant develops that model from migrations through merge.
+These operations depend on the **protocol-theory model**. A protocol identifies the theories used to describe its schema and instance structure. A parsed schema supplies the concrete types, fields, constraints, and related metadata governed by those theories. [Schemas as theories](./schemas-as-theories.md) develops this distinction.
 
 *Prerequisites:* familiarity with fields, records, and schema versions. No category theory is assumed.
 
-## The three concrete jobs
+## Compare and classify schema changes
 
-panproto groups three jobs that are often handled separately:
+A structural diff records additions, removals, renames, and modifications. The compatibility classifier then assigns the report one of three classifications: fully compatible, backward compatible, or breaking. A `CompatReport` retains the classification together with its breaking and non-breaking findings, which allows a CI job to reject changes under a chosen policy.
 
-1. **Diff and classify schema changes.** Given two versions of a schema, identify what was added, removed, renamed, or had its type changed; classify the overall change as fully compatible, backward compatible, or breaking (the shipped `CompatReport` carries a `classification` tier alongside a `breaking` list, a `non_breaking` list, and a `compatible` boolean); and surface the result in a way CI can gate on.
-2. **Compile the migration.** Produce a structured transform that lifts old records to the new shape. When the transform drops source information, a complement can retain that information for the backward direction. Runtime checks and property tests exercise the round-trip laws, with the limits described in [What panproto verifies](./what-is-verified.md).
-3. **Version-control schemas as first-class objects.** Record commits, branches, merges, diffs, blame, and tags over schema objects. Structural merge can surface schema conflicts as typed descriptors instead of line-oriented conflict markers.
+## Compile and apply migrations
 
-## What it does not solve
+A migration records correspondences from a source schema to a target schema together with any required value transforms. Compilation checks that the correspondence preserves the relevant schema structure before producing the tables used to transform data. If a forward transformation discards source information, a lens may retain that information in a complement for a later backward update. [Migrations as morphisms](./migrations-as-morphisms.md) describes compilation and data movement; [Lenses and round-trip laws](./lenses-roundtrip.md) describes complements and the available law checks.
 
-panproto does not write application logic, validate behavior that the schema does not express, or replace a database. It operates between schema documents and schema-typed data. Its outputs are structural reports and migration artifacts, not deployment infrastructure.
+## Record and merge schema histories
+
+The version-control layer stores schemas, migrations, data sets, and related metadata as content-addressed objects. Its commands expose commits, branches, tags, diffs, blame, and structural merge over those objects. When two branches make incompatible structural changes, merge returns typed conflict descriptions for explicit resolution. [Schema version control semantics](./vcs-semantics.md) gives the details and limits of this construction.
+
+## Scope
+
+panproto does not supply application behavior that a schema leaves unspecified, deploy a migration, or replace a database. It operates on schema documents and schema-typed data. Its outputs include structural reports, compiled migrations, converted data, and repository objects.
 
 ## See also
 
-- [Schemas as theories](./schemas-as-theories.md) for the structure that lets the same workflow apply across schema languages.
-- [Migrations as morphisms](./migrations-as-morphisms.md) for the model behind generated migrations.
-- [Schema version control semantics](./vcs-semantics.md) for the merge story.
+- [Schemas as theories](./schemas-as-theories.md) for the common representation used across schema languages.
+- [Migrations as morphisms](./migrations-as-morphisms.md) for the structure and execution of migrations.
+- [Schema version control semantics](./vcs-semantics.md) for structural history and merge.

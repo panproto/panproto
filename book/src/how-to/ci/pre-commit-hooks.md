@@ -1,6 +1,6 @@
 # Pre-commit hooks
 
-A pre-commit hook rejects malformed staged schemas before they enter the history. The optional second check warns about breaking changes.
+A pre-commit hook rejects malformed staged schemas before they enter the history. This example validates the bytes in the index, so an unstaged working-tree edit cannot change the result.
 
 ## Prerequisites
 
@@ -17,21 +17,20 @@ set -euo pipefail
 
 changed=$(git diff --cached --name-only --diff-filter=ACM | grep -E '^schemas/.*\.json$' || true)
 [ -z "$changed" ] && exit 0
+staged_file=$(mktemp)
+base_file=$(mktemp)
+trap 'rm -f "$staged_file" "$base_file"' EXIT
 
-for f in $changed; do
-  schema validate --protocol atproto "$f"
-done
+while IFS= read -r f; do
+  git show ":$f" > "$staged_file"
+  schema validate --protocol atproto "$staged_file"
 
-# Optional breaking-change warning: try to auto-generate a chain
-# between the staged version and the upstream copy. Failure suggests
-# the change is breaking.
-for f in $changed; do
-  base_blob=$(git show "@{u}:$f" 2>/dev/null) || continue
-  echo "$base_blob" > /tmp/base.json
-  if ! schema lens generate --protocol atproto /tmp/base.json "$f" --save /tmp/chain.json 2>/dev/null; then
-    echo "warning: $f introduces a breaking change (commit anyway? Ctrl-C to abort)"
+  # Optional warning against the tracked upstream copy.
+  if git show "@{u}:$f" > "$base_file" 2>/dev/null && \
+     ! schema compat "$base_file" "$staged_file" --protocol atproto; then
+    echo "warning: compatibility check failed for $f" >&2
   fi
-done
+done <<< "$changed"
 ```
 
 `chmod +x .git/hooks/pre-commit` installs it.
@@ -56,11 +55,11 @@ The hook receives the staged file paths as positional arguments; the `--protocol
 
 ## Verification
 
-Stage a malformed schema and try to commit; the hook rejects. Fix the schema and commit again; the hook passes.
+Stage a malformed schema and try to commit. The hook rejects it. After the schema is fixed, the next commit passes.
 
 ## Common mistakes
 
-- Hook stalls on missing `schema` binary. Wrap the invocation in a `command -v schema || exit 0` to fall back gracefully on machines without the CLI.
+- Silently skipping a missing `schema` binary. Prefer a failing hook with an installation message; CI remains the authoritative gate when contributors may bypass hooks.
 - Validating every file on every commit. The script above scopes to staged `schemas/*.json` only; broader scopes are noisy.
 
 ## See also

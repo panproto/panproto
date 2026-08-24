@@ -1,6 +1,6 @@
 # Schema version control basics
 
-Two schema files record two states; a repository records how those states relate over time. In this tutorial, the `schema` CLI commits a TypeScript interface, creates a feature branch, and merges the branch back into `main`. The path takes about twelve minutes and does not require the SDK.
+Two schema files record two states; a repository records how those states relate over time. In this tutorial, the `schema` CLI commits a TypeScript interface, creates a feature branch, and merges the branch back into `main`.
 
 ## Prerequisite
 
@@ -29,7 +29,7 @@ schema log --oneline
 
 *Listing 5.1: Initializing a repository and committing a parsed TypeScript schema.*
 
-`schema add` parses `src/user.ts` through the tree-sitter registry and stages the resulting schema graph. The commit stores that graph under `.panproto/`; the source file remains an ordinary TypeScript file.
+`schema add` parses `src/user.ts` through the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) registry and stages the resulting schema graph. The commit stores that graph under `.panproto/`; the source file remains an ordinary TypeScript file. Run `schema add` from the repository root so the command can find `.panproto/`.
 
 ## Commit the rename
 
@@ -81,7 +81,7 @@ schema log --oneline
 
 `main` has not moved since the branch was created, so this merge is a fast-forward. The command reports `Merge successful.` and moves the `main` ref to the feature commit.
 
-There is one deliberate difference from [git](https://git-scm.com/): `schema checkout` moves the schema-history ref but does not rewrite `src/user.ts`. Panproto stores and merges parsed schemas; your editor, build system, or an explicit emit step remains responsible for working-source files.
+There is one operational difference from [git](https://git-scm.com/): `schema checkout` moves the schema-history ref but does not rewrite `src/user.ts`. Panproto stores and merges parsed schemas; your editor, build system, or an explicit emit step remains responsible for working-source files. `schema log --graph` currently accepts `--graph` but renders the ordinary log, so the examples use `--oneline`.
 
 ## Next
 

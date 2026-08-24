@@ -1,16 +1,14 @@
 # Theory DSL: compilation semantics
 
-## In plain terms
+The theory DSL declares the sorts, operations, and equations of a schema language. Compilation produces concrete `panproto_gat::Theory`, `TheoryMorphism`, and `Protocol` values used by term typechecking, morphism checking, and theory composition.
 
-The theory DSL declares the sorts, operations, and equations that define a schema language. We compile those declarations to concrete `panproto_gat::Theory`, `TheoryMorphism`, and `Protocol` values so the rest of panproto can typecheck terms, validate morphisms, and compose theories independently of the source format.
-
-The mathematical reading is a generalized algebraic theory (GAT) presentation. panproto implements the presentation and its checks directly. It does not construct a category-with-families object in Rust, so the account below distinguishes the conceptual model from the executable artifact.
+The mathematical reading is a generalized algebraic theory (GAT) presentation. The Rust implementation stores and checks finite presentations. The categorical interpretation below is not represented by a runtime data type.
 
 [Shared notation](./shared-notation.md) fixes the symbols used below, while [Schemas as theories](../schemas-as-theories.md) supplies the intermediate-level motivation for the compiler model.
 
 ## Surface syntax
 
-Nickel is the canonical authoring form, while JSON and YAML deserialize to the same document types. The following document declares a small graph theory with identity edges:
+[Nickel](https://nickel-lang.org/) is the canonical authoring form; JSON and YAML deserialize to the same document types. The following document declares a small graph theory with identity edges:
 
 ```nickel
 {
@@ -34,7 +32,7 @@ This is an illustrative custom theory, not the built-in `ThGraph`, which contain
 
 ## Document shapes
 
-The deserialized Rust types have the schematic shape below; omitted derives, imports, boxes, and supporting types make the listing non-runnable.
+The deserialized Rust types have the following schematic shape. The listing omits representation details and is not runnable Rust.
 
 ```text
 TheoryDocument { id, description, body }
@@ -52,11 +50,11 @@ TheorySpec { theory, extends, imports, sorts, ops,
              equations, directed_equations, policies }
 ```
 
-`TheorySpec` and its supporting structs are source-level deserialization targets. Compilation turns a theory body into a `Theory`; other bodies may add morphisms, protocols, composition specifications, or several such values to a `CompiledTheorySet`.
+`TheorySpec` and its supporting structs are deserialization targets. A theory body produces one theory. Other body variants may produce morphisms, protocols, composition specifications, or a bundle containing several definitions.
 
 ## Well-formed presentations
 
-Let $\Theta$ be a theory context and $\Gamma$ a term context. A declared sort is available when it belongs to the presentation:
+Let $\Theta$ be the set of declarations already available in the theory and $\Gamma$ a term-variable context. A sort $S$ is well formed when it is declared in $\Theta$:
 
 $$
 \frac{S \in \mathsf{sorts}(\Theta)}{\Theta \vdash S\;\mathsf{sort}}
@@ -89,7 +87,7 @@ $$
 \quad (\text{eqn-wf}).
 $$
 
-`compile_theory_inner` constructs the `Theory` and then calls `panproto_gat::typecheck_theory`. Term-parse and typecheck failures are returned as `TheoryDslError`; JSON and YAML callers can use `compile_with_source` to attach a source span to a typecheck diagnostic.
+`compile_theory_inner` constructs a `Theory` and calls `panproto_gat::typecheck_theory`. Term parsing and typechecking failures are returned as `TheoryDslError`. `compile_with_source` can attach a span found in JSON or YAML source to a typecheck diagnostic; Nickel evaluation does not retain source positions for this path.
 
 ## Compilation by body variant
 
@@ -100,21 +98,21 @@ $$
 \longrightarrow \mathsf{Result}(\mathsf{CompiledTheorySet},\mathsf{TheoryDslError}).
 $$
 
-The dispatcher handles eight bodies. It typechecks theories directly and checks resolved morphisms for preservation. Composition bodies resolve their pieces before computing a colimit, while protocol bodies compile their theories and edge rules. Class and inductive bodies desugar to theories; instances desugar to morphisms; bundles process definitions in dependency order.
+The dispatcher handles the eight variants shown above. Theory, class, and inductive bodies produce theories; morphism and instance bodies produce morphisms checked by `check_morphism`. Composition bodies resolve their inputs and replay specified colimit steps. Protocol bodies compile their theories and edge rules. Bundles process definitions in dependency order.
 
 `compile` also sample-checks declared coercion laws using the default coercion registry. `compile_with_registry` substitutes caller-provided samples, while `compile_unchecked` skips this particular law check. A passing sample check is evidence for the sampled values, not a proof of the declared coercion class.
 
 ## Mathematical interpretation
 
-Cartmell's account develops generalized algebraic theories as a categorical framework for algebraic structure (@cartmell1986generalised); categories with families provide a related packaging for dependent type theory (@dybjer1996internal). Under this presentation-based reading, a theory morphism interprets the sorts and operations of one presentation in another while preserving equations.
+Cartmell develops generalized algebraic theories as a categorical framework for algebraic structure [@cartmell1986generalised]. A category with families (CwF) gives a related categorical model of dependent type theory [@dybjer1996internal]. In the finite-presentation interpretation used here, a theory morphism maps the sorts and operations of one presentation into another while preserving signatures and equations.
 
-panproto relies on the finite presentation and preservation checks that this perspective motivates. The runtime `Theory` type is a named collection of sorts, operations, undirected equations, directed equations, and policies with lookup indices. The implementation does not expose a `CwF` type, construct an initial CwF, or verify an equivalence between `Schema` and CwF morphisms into finite sets. Those are explanatory semantics rather than current executable claims.
+The runtime `Theory` type is a named collection of sorts, operations, undirected equations, directed equations, and policies with lookup indices. The implementation does not expose a `CwF` type, construct an initial CwF, or verify an equivalence between schemas and CwF morphisms into finite sets.
 
 ## Composition and verified boundaries
 
-Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The colimit constructor checks cocone commutativity and deliberately does not run `check_morphism` on the inclusions, since a building-block instance theory may reference sorts only the schema theory it is paired with supplies. Callers can check a proposed alternative cocone through `ColimitResult::verify_universal`, which does validate the mediator. Built-in protocol registration assembles its schema and instance theories from the registered building blocks.
+Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The `colimit` constructor checks cocone commutativity but does not run `check_morphism` on its inclusions, since a building-block instance theory may refer to sorts supplied only by the schema theory with which it is later combined. `ColimitResult::verify_universal` validates a constructed mediator for one caller-supplied alternative cocone. Built-in protocol registration assembles schema and instance theories from registered building blocks.
 
-The current checks establish well-formed sort and operation references, term typing for equations, morphism preservation, and sampled honesty for declared coercions on the checked compilation path. They do not establish confluence or termination for every directed rewrite system. Rewrite-system validation can produce warnings without rejecting an otherwise well-typed theory.
+Compilation checks sort and operation references, types both sides of equations, validates resolved morphisms, and tests declared coercion laws on registered samples unless `compile_unchecked` is used. Passing a finite coercion sample is evidence, not proof. Rewrite-system analysis can print warnings about confluence or termination, but those warnings do not reject an otherwise well-typed theory. No compilation path proves confluence or termination for every directed rewrite system.
 
 ## See also
 

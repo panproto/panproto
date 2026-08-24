@@ -2,7 +2,7 @@
 
 A structural diff records that `age` disappeared and `years` appeared. A migration adds the missing information: those two fields correspond. This tutorial declares that correspondence, checks it, converts Alice, and asserts that the reverse trip restores the original record.
 
-Continue in the `my-first-schema/` project from [Your first schema](./your-first-schema.md). The complete example takes about twelve minutes.
+Continue in the `my-first-schema/` project from [Your first schema](./your-first-schema.md).
 
 ## Build both schemas and the mapping
 

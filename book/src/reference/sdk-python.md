@@ -1,108 +1,108 @@
 # Python SDK reference
 
-The Python SDK is published as [`panproto`](https://pypi.org/project/panproto/) on PyPI. It uses native PyO3 bindings, not WASM.
-
-## Installation
+The [Python](https://www.python.org/) package is [`panproto`](https://pypi.org/project/panproto/). It requires Python 3.13 or later and contains a native [PyO3](https://pyo3.rs/) extension.
 
 ```sh
-pip install panproto
+python -m pip install panproto
 ```
 
-Python 3.13 or newer is required. The wheel ships with eleven core tree-sitter grammars (Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, Rust). Additional grammar packs are available as separately-installable companions:
+## Module surface
 
-| Pack | Languages |
+Public names are re-exported from `panproto`; there is no umbrella engine class. The package source lists those names in [`panproto.__all__`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py), and the shipped `_native.pyi` file is the signature authority for the extension.
+
+| Domain | Principal names |
 |---|---|
-| `panproto-grammars-functional` | Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, Racket |
-| `panproto-grammars-web` | HTML, CSS, SCSS, Vue, Svelte, Astro, ... |
-| `panproto-grammars-systems` | Zig, Nim, V, Crystal, ... |
-| `panproto-grammars-jvm` | Scala, Kotlin, Groovy, ... |
-| `panproto-grammars-scripting` | Lua, Perl, R, Julia, ... |
-| `panproto-grammars-data` | SQL dialects, GraphQL, JSON variants, ... |
-| `panproto-grammars-devops` | Terraform, Dockerfile, Helm, ... |
-| `panproto-grammars-mobile` | Swift, Objective-C, Dart, ... |
-| `panproto-grammars-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal, Strudel |
-| `panproto-grammars-all` | Umbrella package containing every pack above. |
+| Protocols and schemas | `get_builtin_protocol`, `list_builtin_protocols`, `define_protocol`, `Protocol`, `SchemaBuilder`, `Schema` |
+| Schema parsing | `parse_atproto_lexicon`, `parse_schema_document`, `parse_schema_bundle`, `parse_schema_source` |
+| Migrations | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `CompiledMigration` |
+| Morphism search | `find_span`, `find_morphisms`, `find_best_morphism`, `SchemaSpan`, `FoundMorphism` |
+| Checking | `diff_schemas`, `diff_and_classify`, `check_existence`, `check_coverage` |
+| Lenses | `Lens`, `ProtolensChain`, `auto_generate_lens`, `auto_generate_lens_candidates` |
+| Instances and I/O | `Instance`, `IoRegistry` |
+| GATs | `Theory`, `TheoryBuilder`, `TheoryMorphism`, `Model`, `colimit_theories` |
+| Expressions | `Expr`, `parse_expr`, `pretty_print_expr` |
+| Version control | `Repository`, `VcsRepository`, `BisectState` |
+| Full-AST parsing | `AstParserRegistry`, `ParseEmitLens`, `parse_source_file`, `available_grammars` |
+| Projects and git | `ProjectBuilder`, `ProjectSchema`, `parse_project`, `build_project`, `git_import` |
 
-Each pack auto-registers its grammars with `panproto.AstParserRegistry()` on import.
+## Builder contracts
 
-## Top-level surface
+Python builders mutate in place. Their mutation methods return `None`, except where `_native.pyi` declares a fluent return type.
 
 ```python
-import panproto
-
-proto = panproto.get_builtin_protocol("atproto")
-b = proto.schema()
-b.vertex("post", "record", "app.bsky.feed.post")
-b.vertex("post:body", "object")
-b.edge("post", "post:body", "record-schema")
-schema = b.build()
+class SchemaBuilder:
+    def vertex(self, id: str, kind: str, nsid: str | None = ..., /) -> None: ...
+    def edge(
+        self,
+        src: str,
+        tgt: str,
+        kind: str,
+        name: str | None = ...,
+    ) -> None: ...
+    def constraint(self, vertex_id: str, sort: str, value: str) -> None: ...
+    def build(self) -> Schema: ...
 ```
 
-There is no `Panproto` umbrella class; the entry points are free functions on the `panproto` module. The full re-export list (errors, schema types, protocol registry, migration, check, instance, I/O, lens, GAT, expression-language, VCS, parse, project, git bridge) is in [`bindings/python/src/panproto/__init__.py`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py). Selected entry points:
+`TheoryBuilder.sort`, `TheoryBuilder.op`, and `TheoryBuilder.eq` return the builder and may be chained. Check `_native.pyi` before assuming that a builder follows either convention.
 
-| Surface | Entry point |
-|---|---|
-| Protocol registry | `get_builtin_protocol(name)`, `list_builtin_protocols()`, `define_protocol(...)` |
-| Schema construction | `Protocol.schema()` returns a `SchemaBuilder`. Each `.vertex(id, kind)` / `.edge(src, tgt, kind, name=None)` / `.constraint(vid, sort, value)` mutates the builder in place and returns `None`; call `.build()` on the final builder. Chain syntax is a TypeScript-only convenience; Python is statement-by-statement. |
-| Migration | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `pipeline` |
-| Morphism and span search | `find_span`, `find_morphisms`, `find_best_morphism`, and the `SchemaSpan` / `FoundMorphism` result classes |
-| Check | `diff_and_classify`, `diff_schemas`, `check_existence`, `check_coverage` |
-| Lens | `Lens`, `ProtolensChain` (with `from_dsl_json` / `from_dsl_yaml` / `from_dsl_nickel` / `from_dsl_path` loaders), `auto_generate_lens`, `auto_generate_lens_candidates` |
-| GAT | `Theory` (with `from_json` / `from_yaml` / `from_nickel` / `from_path` DSL loaders and `to_yaml` / `from_dict_yaml` for the flat-shape round-trip), `TheoryBuilder`, `Model`, `colimit_theories`, `free_model`, `migrate_model`, `check_model`, `check_morphism` |
-| Schema | `Schema.constraints_for(vertex_id)` lists every constraint; `Schema.field_text(vertex_id, field_name)` reads the text of a tree-sitter `field('<name>', anonymous-token)` child |
-| Expression language | `Expr`, `parse_expr`, `pretty_print_expr` |
-| VCS | `Repository`, `VcsRepository`, `BisectState` |
-| Parse | `parse_source_file`, `available_grammars`, `ParseEmitLens`, `AstParserRegistry()` (with `.override_grammar(name, extensions, language_ptr, node_types, ...)` for dev-time grammar swapping) |
-| Project | `ProjectBuilder`, `parse_project`, `build_project` |
-
-Full API reference, including every method signature, lives at the dedicated mkdocs site:
-
-- [Python SDK reference](https://panproto.dev/python/) (mkdocs)
-
-The package source is at [`bindings/python/`](https://github.com/panproto/panproto/tree/main/bindings/python).
-
-## Morphism and span search
-
-`find_span` returns a `SchemaSpan` of the form $\mathit{src} \leftarrow A \to \mathit{tgt}$, where the apex $A$ is the sub-schema of `src` induced on the vertices assigned a target. It does not return `None` or raise an exception merely because the schemas have nothing in common; that case produces an empty apex.
+## Morphism search
 
 ```python
-span = panproto.find_span(old, new, proto, anchors={"post": "post"}, monic=True)
+find_span(
+    src: Schema,
+    tgt: Schema,
+    protocol: Protocol,
+    anchors: dict[str, str] | None = None,
+    monic: bool = False,
+    epic: bool = False,
+    iso: bool = False,
+) -> SchemaSpan
 
-print(span.apex_coverage)      # 0.777... : 7 of the 9 source vertices
-print(span.quality_bounds)     # (0.812, 0.812) when proven_optimal
-if span.is_total:
-    morphism = span.as_total_morphism()
+find_morphisms(
+    src: Schema,
+    tgt: Schema,
+    anchors: dict[str, str] | None = None,
+    monic: bool = False,
+    epic: bool = False,
+    iso: bool = False,
+    max_results: int = 0,
+) -> list[FoundMorphism]
 ```
 
-`protocol` is a positional argument because the apex is a schema, and a schema is well formed only against a protocol; inducing the apex re-validates it rather than assuming it, and a `Schema` carries its protocol's name alone. `anchors` are mappings the caller *knows*, which the search may not reconsider. Setting `epic=True` raises `MigrationError`, since surjectivity is a property of a total morphism and a span's right leg is deliberately partial.
+`find_span` returns an empty apex when the schemas share no vertices. It requires a protocol because the induced apex is validated before it is returned. `epic=True` raises `MigrationError` for span search; surjectivity is defined for the total-morphism functions.
 
-| Attribute of `SchemaSpan` | What it holds |
+`find_morphisms` returns total morphisms attaining the optimum. An empty list means that no total morphism exists, whereas a search failure raises `MigrationError`. The Python list does not carry the Rust `MorphismList.truncated` field, so this binding cannot report whether the engine stopped enumerating tied optima at its cap.
+
+## Grammar packs
+
+`AstParserRegistry()` constructs a native registry and adds grammars advertised through installed `panproto.grammars` entry points. Discovery occurs when the factory is called; importing a companion package is not required.
+
+| Package | Group |
 |---|---|
-| `apex: Schema` | The sub-schema of `src` the search covered. |
-| `left: Migration` | Inclusion from the apex into `src`. |
-| `right: Migration` | Assignment from the apex into `tgt`; this field carries the identification. |
-| `quality: float` | How well the covered part matches, in `[0, 1]`, with the drop count excluded. |
-| `quality_bounds: tuple[float, float]` | The interval bracketing `quality`. Its ends are equal exactly when `proven_optimal` holds. |
-| `apex_coverage: float` | The share of the source's vertices the apex covers, or one on an empty source. |
-| `proven_optimal: bool` | Whether the search proved its answer optimal. |
-| `is_total: bool` | Whether the apex is the whole source, which makes the span a total morphism. |
-| `legs_are_functorial: bool` | Whether both legs passed the functoriality check. |
-| `apex_digest: str` | The apex's content digest, lower-case hexadecimal. |
+| `panproto-grammars-functional` | Functional languages |
+| `panproto-grammars-web` | Web languages |
+| `panproto-grammars-systems` | Systems languages |
+| `panproto-grammars-jvm` | JVM languages |
+| `panproto-grammars-scripting` | Scripting languages |
+| `panproto-grammars-data` | Data and schema languages |
+| `panproto-grammars-devops` | Build and operations languages |
+| `panproto-grammars-mobile` | Mobile languages |
+| `panproto-grammars-music` | Music languages |
+| `panproto-grammars-all` | Aggregate pack |
 
-`as_total_morphism()` returns a `FoundMorphism` when `is_total` holds and `None` otherwise, `to_overlap()` gives the sorted pair lists a pushout takes, and `to_dict()` flattens the whole span. `quality` ranks spans over *one* source schema and nothing else, because every denominator of the objective is fixed by `src`; read `apex_coverage` alongside it.
+`panproto._native.AstParserRegistry` bypasses companion discovery and constructs the registry supplied by the core extension alone.
 
-### What `find_morphisms` returns
+## Ownership, errors, and typing
 
-`find_morphisms` returns the morphisms **attaining the optimum**, and nothing else. Every element carries the same quality, so `results[0]` is the best answer there is and iterating further for a suboptimal alternative will not find one. The engine's cap of 1024 bounds every request rather than only `max_results=0`, so asking for more is answered with the cap. Python receives a plain list, so the flag the engine sets when the cap cut the answer short does not cross this surface; a caller that needs to tell a cut list from an exhausted one compares `len(results)` against 1024.
+PyO3 objects follow Python reference ownership. The public stub exposes no `dispose`, `release`, or `close` method for schema, migration, lens, theory, repository, parser, or project objects.
 
-An empty list means that no total morphism exists, and only that. A search that could not be posed raises `MigrationError` instead, so the two are distinguishable; `find_span` is the function that answers with what the two schemas do share.
+`PanprotoError` is the common exception base. Domain subclasses include `SchemaValidationError`, `MigrationError`, `LensError`, `CheckError`, `ExistenceCheckError`, `ExprError`, `GatError`, `IoError`, `VcsError`, `ParseError`, `ProjectError`, and `GitBridgeError`.
 
-## Type stubs
-
-The package ships `_native.pyi` so that signatures are visible to type checkers (mypy, pyright). Stub signatures are kept in lockstep with the PyO3 runtime by CI.
+The wheel includes `py.typed` and `_native.pyi`. Repository tests compare the stub's public declarations with the loaded extension and check callable signatures, so generated documentation should follow the stub rather than infer signatures from Rust names.
 
 ## See also
 
-- [Install the Python SDK](../how-to/install/python.md).
-- [Define a schema from Python](../how-to/define-schema/python.md).
-- [Find a span between two schemas](../how-to/spans.md), and [Searching for a morphism](../explanation/morphism-search.md) for what the search is doing.
+- [Install the Python SDK](../how-to/install/python.md)
+- [Define a schema from Python](../how-to/define-schema/python.md)
+- [Find a span between two schemas](../how-to/spans.md)
+- [Python binding source](https://github.com/panproto/panproto/tree/main/bindings/python)

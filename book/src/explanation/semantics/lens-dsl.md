@@ -1,8 +1,6 @@
 # Lens DSL: denotational semantics
 
-## In plain terms
-
-A lens DSL specification is a recipe for a bidirectional transform between schemas. It can name field and sort edits, value-level expressions, compositions, or an automatic construction. The compiler produces a `CompiledLens` whose protolens chain can be instantiated at a concrete source schema. Lawfulness is then a property to check, not a consequence of deserialization alone.
+A lens DSL document describes a bidirectional transformation between schemas. A document may contain field or sort edits, value-level expressions, a composition, a symmetric pair of pipelines, or a schema-dependent generated body. Compilation produces a `CompiledLens` containing a protolens chain and any value-level field transforms. Deserialization and compilation do not establish the lens laws for every instance.
 
 [Lenses and round-trip laws](../lenses-roundtrip.md) supplies complements and the three laws used here. [Expression language](./expression-language.md) supplies the value-level computations embedded in a lens specification.
 
@@ -88,9 +86,9 @@ pub enum Step {
 }
 ```
 
-The top-level type is `LensDocument`, not `LensSpec`. The document carries `source` and `target` NSID fields naming the two schemas and exactly one body variant: `steps`, `rules`, `compose`, `symmetric`, `auto`, or `from_diff`. A `directed_equations` modifier may accompany a body, appending oriented rewrites to the compiled chain.
+The top-level type is `LensDocument`. Its `source` and `target` fields are schema identifiers, and exactly one of `steps`, `rules`, `compose`, `symmetric`, `auto`, or `from_diff` must be present. A `directed_equations` modifier may accompany that body and appends oriented rewrites to the compiled chain.
 
-Compilation has two entry points. `compile` is schema-independent: it handles the schema-parametric bodies (`steps`, `rules`, `compose`, `symmetric`) and rejects `auto` and `from_diff`, which need a concrete source and target schema, with `LensDslError::AutoRequiresSchemas`. `compile_with_schemas` handles those two as well, running the auto-generation engine for `auto` and `diff_to_protolens` for `from_diff`. It also verifies the compiled chain against the declared `target`: the chain is instantiated at the source schema and the NSID of its output schema is compared against `target`, yielding `LensDslError::TargetMismatch` on divergence. The schema-independent path cannot run that comparison, since it has no schema to instantiate against.
+Compilation has two entry points. `compile` handles the schema-parametric bodies and rejects `auto` and `from_diff` with `LensDslError::AutoRequiresSchemas`. `compile_with_schemas` also handles those generated bodies. For every nonsymmetric body, it instantiates the chain at the supplied source schema and compares the declared target with the NSID of the output schema's primary entry. A mismatch yields `LensDslError::TargetMismatch`. The check is skipped when the declared target is empty or the output schema has no primary-entry NSID, so successful compilation does not always verify the target identifier.
 
 ## Semantic domain
 
@@ -100,17 +98,20 @@ $$
 \mathsf{Lens}(S, V, C) \;=\; (S \to V) \times (S \times V \times C \to S) \times (S \to C)
 $$
 
-with elements written as triples $(\mathsf{get},\, \mathsf{put},\, \mathsf{complement})$. This triple is a denotational interface. The concrete `panproto_lens::Lens` stores a compiled migration and its source and target schemas; its methods implement the forward, backward, and complement-producing behavior. The categorical model is the standard asymmetric-lens construction of @foster2007combinators with complements after @littvanhardenberghenry2020cambria. The semantic function
+with elements written as triples $(\mathsf{get},\mathsf{put},\mathsf{complement})$. The concrete `panproto_lens::Lens` stores source and target schemas, a compiled migration, and field transforms; the functions in the triple describe the behavior of its `get` and `put` operations. This is the asymmetric-lens model of @foster2007combinators, with complements used in the style of @littvanhardenberghenry2020cambria.
+
+For a steps body, compilation is better described as a function into a schema-parameterized chain and a map of field transforms:
 
 $$
-\llbracket \cdot \rrbracket : \mathsf{LensDocument} \to \mathsf{Sch} \to \mathsf{Lens}
+\mathsf{compile}_{\mathsf{steps}} : \mathsf{LensDocument}
+\to \mathsf{ProtolensChain}\times\mathsf{FieldTransforms}.
 $$
 
-takes a document and a source schema and returns a concrete lens. (The target schema and the complement type are determined by the document and the source.)
+Instantiating the chain at a source schema produces a concrete lens. `auto` and `from_diff` require the source schema, target schema, and protocol during compilation as well.
 
 ## The three laws
 
-A lens $l = (\mathsf{get}, \mathsf{put}, \mathsf{complement})$ is *lawful* iff for all $s \in S$ and $v \in V$:
+A lens $l=(\mathsf{get},\mathsf{put},\mathsf{complement})$ is *lawful* when the following equations hold for the relevant source values and views.
 
 $$
 \textbf{GetPut:} \quad \mathsf{put}(s, \mathsf{get}(s), \mathsf{complement}(s)) = s
@@ -120,7 +121,7 @@ $$
 \textbf{PutGet:} \quad \mathsf{get}(\mathsf{put}(s, v, c)) = v
 $$
 
-For PutPut, complement state may change after the first update. The checker therefore uses $c_0=\mathsf{complement}(s)$ and $c_1=\mathsf{complement}(\mathsf{put}(s,v_1,c_0))$:
+For PutPut, complement state may change after the first update. The checker thus uses $c_0=\mathsf{complement}(s)$ and $c_1=\mathsf{complement}(\mathsf{put}(s,v_1,c_0))$:
 
 $$
 \textbf{PutPut:} \quad
@@ -129,18 +130,18 @@ $$
 \mathsf{put}(s,v_2,c_0).
 $$
 
-`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` are deterministic checkers for supplied inputs. `check_put_put` extracts the intermediate complement as shown above. These functions return evidence about a case; they do not quantify over all instances.
+`panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` check supplied instances deterministically. `check_put_put` obtains the intermediate complement $c_1$ as shown above. The checkers compare complete instance structure through the crate's instance-equivalence predicate, but each invocation covers only its supplied case.
 
 ## Semantic equations
 
-For each step constructor, $\llbracket \cdot \rrbracket$ is a function $\mathsf{Step} \to \mathsf{Sch} \to \mathsf{Protolens}$, where a $\mathsf{Protolens}$ is a schema-parameterized lens (see [Protolens composition](./protolens-composition.md)). The document-level semantics is the left-to-right composition of the per-step semantics, applied to the source schema:
+Schema-level steps compile to protolenses, which are schema-parameterized lenses described in [Protolens composition](./protolens-composition.md). Value-level `apply_expr` and `compute_field` steps instead compile to `FieldTransform` values keyed by the body vertex. An `add_field` step contributes a schema-level protolens and, when it has an expression, a `ComputeField` transform. The steps are processed from left to right.
 
 $$
 \llbracket \mathsf{LensDocument}(\mathsf{id} = d,\, \mathsf{steps} = [s_1, \ldots, s_k]) \rrbracket\, S
   \;=\; \llbracket s_k \rrbracket\,S_{k-1}\ \mathbin{;}\ \cdots\ \mathbin{;}\ \llbracket s_1 \rrbracket\,S_0
 $$
 
-where $S_0 = S$ and $S_i = \mathsf{target}(\llbracket s_i \rrbracket\,S_{i-1})$. The composition operator $\mathbin{;}$ is the sequential lens composition
+Here $S_0=S$, and $S_i$ is the target schema after step $s_i$ is applied to $S_{i-1}$. The semicolon denotes sequential lens composition:
 
 $$
 \begin{aligned}
@@ -150,53 +151,21 @@ $$
 \end{aligned}
 $$
 
-For a representative subset of steps:
-
-$$
-\begin{aligned}
-\llbracket \mathsf{RemoveField}\{f\} \rrbracket\, S &=
-  \mathsf{drop}_{f}\,\bigl(\mathsf{get}=\mathsf{forget}_f,\ \mathsf{complement}=\mathsf{capture}_f,\ \mathsf{put}=\mathsf{restore}_f\bigr) \\[2pt]
-\llbracket \mathsf{RenameField}\{f \mapsto g\} \rrbracket\, S &=
-  \bigl(\mathsf{get} = \mathsf{rename}_{f \mapsto g},\ \mathsf{complement} = \varepsilon,\ \mathsf{put} = \mathsf{rename}_{g \mapsto f}\bigr) \\[2pt]
-\llbracket \mathsf{AddField}\{f, d\} \rrbracket\, S &=
-  \bigl(\mathsf{get} = \mathsf{insert}_{f, d},\ \mathsf{complement} = \varepsilon,\ \mathsf{put} = \mathsf{forget}_f\bigr) \\[2pt]
-\llbracket \mathsf{ApplyExpr}\{e_{\to}, e_{\leftarrow}\} \rrbracket\, S &=
-  \bigl(\mathsf{get} = \llbracket e_{\to} \rrbracket,\ \mathsf{complement} = \mathsf{snapshot},\ \mathsf{put} = \llbracket e_{\leftarrow} \rrbracket\bigr)
-\end{aligned}
-$$
-
-where $\varepsilon$ is the trivial complement (a singleton) and $\llbracket \cdot \rrbracket$ on the right-hand side of $\mathsf{ApplyExpr}$ is the [expression-language semantics](./expression-language.md). These equations are denotational sketches of representative behavior, not literal definitions of Rust function fields. The implementation of the step constructors lives under [`crates/panproto-lens-dsl/src/steps`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps).
-
-Composition between adjacent step semantics is gated at construction time by `protolens_composable`: see [Protolens composition](./protolens-composition.md). Compilation in the implementation is handled by `panproto_lens_dsl::compile`, which produces a `CompiledLens` carrying the `ProtolensChain` corresponding to $\llbracket \cdot \rrbracket\, S$ along with the value-level `FieldTransform`s extracted from any $\mathsf{ApplyExpr}$ steps.
+The [step compiler](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl/src/steps) is the authoritative mapping from every `Step` variant to these two outputs. Adjacent schema-level steps must satisfy `protolens_composable`; [Protolens composition](./protolens-composition.md) gives the exact predicate.
 
 ## Complement composition
 
-Sequential composition of lenses requires composing their complements. The `ComplementCompose` extension trait supplies a partial operation with the following checked cases:
-
-- **Identity.** The empty complement $\varepsilon$ satisfies $\varepsilon \cdot c = c \cdot \varepsilon = c$.
-- **Commutativity.** When defined, $c_1 \cdot c_2 = c_2 \cdot c_1$.
-- **Associativity.** When defined, $(c_1 \cdot c_2) \cdot c_3 = c_1 \cdot (c_2 \cdot c_3)$.
-- **Partiality:** $c_1 \cdot c_2$ is defined iff:
-  - their source-schema fingerprints agree when both are nonzero (otherwise `ComplementFingerprintMismatch`); and
-  - For every key $k$ in both, $c_1(k) = c_2(k)$ (otherwise `ComplementConflict` with the offending key).
-
-The zero fingerprint is the unspecified case. The pre-flight predicate is `ComplementCompose::is_compatible`.
+Sequential composition combines complements through the partial operation supplied by `ComplementCompose`. The empty complement $\varepsilon$ is a two-sided identity. Property tests check commutativity and associativity on generated compatible complements. Composition rejects two nonzero, unequal source fingerprints with `ComplementFingerprintMismatch`; it rejects incompatible values stored under the same keyed complement field with `ComplementConflict`. Vector and set-like fields are merged with deduplication. `ComplementCompose::is_compatible` tests whether composition would succeed without allocating the result.
 
 The fingerprint is a 64-bit hash computed by `panproto_lens::asymmetric::schema_fingerprint`. Compatibility means equality of the resulting nonzero fingerprints, not a proof that distinct schema values are isomorphic.
 
-## Soundness
+## Checks and limits
 
-Lawful lens composition preserves the three equations when its premises hold. The implementation supports that conditional claim with property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) and DSL step tests in [`crates/panproto-lens-dsl/tests/step_laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/tests/step_laws.rs). Those suites cover selected generated and constructed cases; they are not a universal proof for every step sequence.
+Lawful lens composition preserves the three equations when its premises hold. Property tests in [`crates/panproto-lens/src/laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens/src/laws.rs) and constructed DSL cases in [`crates/panproto-lens-dsl/tests/step_laws.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/tests/step_laws.rs) test selected generated inputs and step constructors. Finite generated samples do not prove lawfulness for every document or instance.
 
 A `coerce_sort` step and directed equations are also checked for honesty against registered samples. A detected violation returns `LensDslError::CoercionNotHonest`. Passing means that the sampled values satisfied the declared round-trip class.
 
-The runtime checkers above remain deterministic smoke checks: they assert each law of a supplied lens on one instance, and they are not the sampling layer.
-
-## What is intentionally not modeled
-
-- **Universal lawfulness of arbitrary documents.** Runtime and property checks cover supplied or generated cases. A document containing lossy or opaque transforms requires the corresponding scoped law claim; compilation alone is not a proof.
-- **Time complexity of `put`.** Some combinators have linear `put` cost in the size of the source; the semantics fixes the value, not the cost.
-- **Equivalence of two distinct DSL specs that compile to the same lens.** The DSL deliberately exposes step ordering even when steps commute; canonicalisation is left to the user.
+The runtime checkers test one supplied case at a time, while property tests cover generated cases. Documents containing lossy or opaque transforms require scoped law claims; compilation alone does not prove them lawful. The semantics fixes the result of `put`, not its running time, and preserves step order without defining an equivalence on distinct documents that compile to the same lens.
 
 ## See also
 

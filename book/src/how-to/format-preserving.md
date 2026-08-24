@@ -28,13 +28,13 @@ assert_eq!(out, bytes);
 # Ok(()) }
 ```
 
-The complement carries the CST data that the schema does not see. `emit_wtype_preserving` reconstructs the byte-for-byte original from `(instance, complement)`. Constructors exist for each supported format: `UnifiedCodec::json`, `xml`, `yaml`, `toml`, `csv`, and `tsv`.
+The complement carries the CST data that the schema does not see. `emit_wtype_preserving` reconstructs the byte-for-byte original from `(instance, complement)`. Constructors exist for JSON, XML, YAML, TOML, and CSV. `UnifiedCodec::tsv` additionally requires the table-vertex name.
 
-Without the `tree-sitter` feature these constructors are compiled out. For code that must run in either build, the registry exposes `parse_wtype_preserving_or_canonical` and `emit_wtype_preserving_or_canonical`, which delegate to the preserving codecs when the feature is present and otherwise return canonical output with a stderr notice, so a caller learns the build cannot honor the request rather than silently receiving reformatted data.
+Without the `tree-sitter` feature these constructors are compiled out. For code that must run in either build, `ProtocolRegistry` exposes `parse_wtype_preserving_or_canonical` and `emit_wtype_preserving_or_canonical`. They delegate to preserving codecs when the feature is present and otherwise return canonical output; the fallback parse prints a notice, while fallback emit prints one only when a complement was supplied.
 
 ## Verification
 
-The byte equality is the verification. Property tests in CI check `emit(parse(b)) == b` against a corpus of real-world JSON, YAML, TOML, XML, and CSV files.
+The byte equality is the verification. Property tests in CI check `emit(parse(b)) == b` against a corpus of JSON, YAML, TOML, XML, and CSV files.
 
 ## Common mistakes
 

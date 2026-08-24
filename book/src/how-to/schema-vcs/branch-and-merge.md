@@ -19,32 +19,33 @@ schema checkout main
 schema merge feature/add-handle
 ```
 
-`merge` runs the pushout construction over the schema graphs at HEAD, the merging branch's HEAD, and their common ancestor. The result is the smallest schema containing both branches' changes.
+`merge` uses the current commit, the named branch, and their common ancestor. A fast-forward moves the current branch. A divergent merge combines compatible structural changes and records a two-parent commit unless `--no-commit` or `--squash` changes that behavior.
 
-If the pushout's universal property fails (because the two branches' changes contradict on a shared substructure), `merge` raises `UniversalFactorizationFailure` and produces a conflict object instead of an unsafe result.
+If both branches make incompatible changes to the same structure, the command prints the detected conflicts and exits nonzero. The current CLI does not persist an editable conflict descriptor.
 
-To resolve a conflict:
+Resolve the source schemas on one branch, commit that resolution, and rerun the merge:
 
 ```sh
-schema status              # lists conflict objects
-schema show <conflict>     # inspect the contradiction
-# edit the conflict descriptor
-schema add <conflict>
-schema commit -m "resolve conflict"
+schema checkout feature/add-handle
+# edit user.json to incorporate the intended result
+schema add user.json
+schema commit -m "resolve merge inputs"
+schema checkout main
+schema merge feature/add-handle
 ```
 
 ## Verification
 
 ```sh
-schema log --graph
+schema log
 ```
 
-shows the DAG with the merge commit visible. The merge commit has two parents (HEAD and the merged branch's HEAD).
+shows a `Merge:` line for a two-parent merge commit. The `--graph` option is accepted but currently ignored by the renderer.
 
 ## Common mistakes
 
-- Editing schemas while on the wrong branch. `schema status` always shows the current branch; check it before editing.
-- Treating conflict objects as text. They are structured descriptions of an irreconcilable categorical equation; resolution is by selecting one side or extending the schema, not by editing JSON in place.
+- Expecting checkout to rewrite source files. It moves the repository ref only. Edit or regenerate working files explicitly.
+- Looking for a saved conflict object after a failed merge. Capture the printed conflict details; the CLI does not yet provide an interactive continuation flow.
 
 ## See also
 

@@ -17,26 +17,25 @@ git add .panproto/
 git commit -m "snapshot panproto state"
 ```
 
-panproto-vcs's content-addressed objects are deterministic, so storing them in git works (no merge conflicts inside `.panproto/objects/`).
+The object names are content hashes, so unchanged objects deduplicate. Git can still report conflicts in refs or other mutable files under `.panproto/`; do not edit stored object contents by hand.
 
 ### Bidirectional translation
 
-`schema git import` reads a git repository's history and produces a corresponding panproto-vcs DAG; `schema git export` does the reverse:
+`schema git export` writes the current panproto history into a destination git repository:
 
 ```sh
-schema git import path/to/git-repo HEAD
 schema git export path/to/output-git-repo --repo .
 ```
 
-The import range can be any git revspec (`HEAD`, `main`, `HEAD~10..HEAD`). The export takes the current panproto repository and writes a git mirror.
+`schema git import path/to/git-repo HEAD` currently imports into an in-memory store, prints the imported count and temporary panproto ID, then exits without updating `.panproto/`. Use it only as a diagnostic until the command accepts a persistent destination. Export opens `--repo`, creates or opens the destination, and writes the current `HEAD`.
 
 ### git-remote helper
 
-The `panproto-git-remote` crate registers a custom git remote helper that exposes a panproto-vcs repository to git clients (so `git clone panproto://path/to/repo` works). The helper is separate from `schema git`; install the binary and configure git accordingly. See [`crates/panproto-git-remote`](https://github.com/panproto/panproto/tree/main/crates/panproto-git-remote).
+The `panproto-git-remote` crate ships `git-remote-panproto`, a remote helper for a panproto node reached over XRPC. After installing that binary, a node URL has the form `panproto://did:plc:abc123/repository-name`; a local filesystem path is not a valid substitute. See [`crates/panproto-git-remote`](https://github.com/panproto/panproto/tree/main/crates/panproto-git-remote).
 
 ### Merge bridging
 
-A git merge that touches `.panproto/objects/` will not preserve panproto's structural merge guarantees, since git merges the bytes. The supported pattern is to do schema-level work in panproto and then `schema git export` the result. There is no automatic git-merge-to-pushout translation in the CLI; the merge must originate in `schema merge` to get the universal-property-checked pushout.
+A git merge that touches `.panproto/` merges files, not schemas. Perform schema-level work with `schema merge`, then export the resulting history. The CLI has no automatic translation from a git merge to a structural schema merge.
 
 ## Verification
 
@@ -45,11 +44,11 @@ schema status
 git status
 ```
 
-Both should be clean. A clean panproto status with a dirty git status is normal (you may have untracked files git knows about that panproto does not). The reverse is not.
+Inspect both outputs independently. Panproto status concerns its current branch and staged schema; git status concerns files in the host repository. Either side can be dirty while the other is clean.
 
 ## Common mistakes
 
-- Three-way text-merging `.panproto/objects/` files. The store is content-addressed; the bytes are correct or wrong, never partially. Resolve via `schema rebase` or by re-running the merge inside panproto with `schema merge`, then re-export to git with `schema git export`.
+- Three-way text-merging `.panproto/objects/` files. Re-run the schema operation in panproto, then export the result.
 - Mixing the two modes. Choose sidecar or remote-bridge per project; mixing creates ambiguity about which DAG is the source of truth.
 
 ## See also
