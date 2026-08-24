@@ -95,7 +95,32 @@ pub enum CstExtractError {
     /// Domain schema mismatch.
     #[error("domain schema mismatch: {0}")]
     SchemaMismatch(String),
+
+    /// The CST nests deeper than extraction is willing to descend.
+    ///
+    /// Extraction walks the CST recursively, so unbounded nesting would
+    /// exhaust the thread's stack and abort the process rather than fail.
+    #[error("CST nesting exceeds the {limit}-level extraction limit")]
+    NestingTooDeep {
+        /// The depth limit that was exceeded.
+        limit: usize,
+    },
 }
+
+/// How deeply CST extraction descends before it refuses to go further.
+///
+/// The extractors recurse over the CST, and a CST arrives from a parser fed
+/// by whatever bytes a caller had. Descending without a bound turns deeply
+/// nested input into a stack overflow, which aborts the process with a signal
+/// no caller can catch; the bound turns it into
+/// [`CstExtractError::NestingTooDeep`] instead. It sits inside the smallest
+/// stack the extractors run on — an unoptimised build on a two-megabyte test
+/// thread, where they reach a little over two hundred levels — and far above
+/// what real documents nest to. It matches the parser's own nesting bound, so
+/// a document the parser accepts is one extraction can finish. A regression
+/// test extracts at exactly this depth, so a change that grows an extractor's
+/// frame is caught rather than discovered in the field.
+pub const MAX_EXTRACT_DEPTH: usize = 128;
 
 /// Accumulated state during CST extraction.
 struct ExtractState {
@@ -104,6 +129,8 @@ struct ExtractState {
     next_id: u32,
     node_to_cst_value: HashMap<u32, Vec<Name>>,
     node_to_cst_struct: HashMap<u32, Name>,
+    /// How many recursive descents are currently on the stack.
+    depth: usize,
 }
 
 impl ExtractState {
@@ -114,6 +141,7 @@ impl ExtractState {
             next_id: 0,
             node_to_cst_value: HashMap::new(),
             node_to_cst_struct: HashMap::new(),
+            depth: 0,
         }
     }
 
@@ -121,6 +149,32 @@ impl ExtractState {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    /// Claim one more level of descent, refusing past [`MAX_EXTRACT_DEPTH`].
+    ///
+    /// Every cycle in the extractors' call graph passes through a function
+    /// that opens with this and closes with [`Self::leave`], so bounding
+    /// those bounds the whole descent. The pair is written out at each site
+    /// rather than wrapped around a closure because a wrapper is itself a
+    /// stack frame, and the frames are what the bound exists to ration.
+    const fn enter(&mut self) -> Result<(), CstExtractError> {
+        if self.depth >= MAX_EXTRACT_DEPTH {
+            return Err(CstExtractError::NestingTooDeep {
+                limit: MAX_EXTRACT_DEPTH,
+            });
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    /// Release the level claimed by [`Self::enter`].
+    ///
+    /// Called on the way out of a descent that finished. A descent that
+    /// failed aborts the whole extraction, so its level is never released
+    /// and never needed again.
+    const fn leave(&mut self) {
+        self.depth -= 1;
     }
 }
 
@@ -494,7 +548,9 @@ pub fn extract_json_cst(
     Ok((instance, complement))
 }
 
-/// Recursively extract a JSON value node from the CST into a `WInstance` node.
+/// Recursively extract a JSON value node from the CST into a `WInstance`
+/// node, one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 fn extract_json_value(
     cst: &Schema,
     domain_schema: &Schema,
@@ -503,12 +559,13 @@ fn extract_json_value(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex)
         .ok_or_else(|| CstExtractError::VertexNotFound(cst_vertex.to_string()))?;
 
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "object" => extract_json_object(
             cst,
             domain_schema,
@@ -578,7 +635,9 @@ fn extract_json_value(
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 /// Extract a JSON object from CST, matching keys to domain schema edges.
@@ -738,7 +797,8 @@ fn extract_json_array_open(
     Ok(())
 }
 
-/// Extract a JSON value without schema guidance (for open schemas).
+/// Extract a JSON value without schema guidance (for open schemas), one
+/// level deeper than the caller and no deeper than [`MAX_EXTRACT_DEPTH`].
 fn extract_json_value_open(
     cst: &Schema,
     cst_vertex: &Name,
@@ -746,10 +806,11 @@ fn extract_json_value_open(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "object" => extract_json_object_open(cst, cst_vertex, anchor, node_id, state),
         "array" => extract_json_array_open(cst, cst_vertex, anchor, node_id, state),
         "string" => {
@@ -808,7 +869,9 @@ fn extract_json_value_open(
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 /// Extract a JSON array from CST.
@@ -1197,6 +1260,9 @@ fn find_first_element_child(cst: &Schema, parent: &str) -> Option<Name> {
     None
 }
 
+/// Recursively extract an XML element from the CST into a `WInstance`
+/// node, one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 #[allow(clippy::too_many_lines)]
 fn extract_xml_element(
     cst: &Schema,
@@ -1206,6 +1272,7 @@ fn extract_xml_element(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let mut node = Node::new(node_id, domain_vertex);
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
@@ -1378,6 +1445,7 @@ fn extract_xml_element(
     }
 
     state.nodes.insert(node_id, node);
+    state.leave();
     Ok(())
 }
 
@@ -1802,6 +1870,8 @@ const YAML_WRAPPER_DEPTH: usize = 8;
 /// Mirrors [`extract_json_value_open`]: containers become nodes with one
 /// synthesised edge per child, so the shape of an open-schema YAML document
 /// survives into the instance instead of collapsing to a bare root.
+/// One level deeper than the caller, and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 fn extract_yaml_value_open(
     cst: &Schema,
     cst_vertex: &Name,
@@ -1809,11 +1879,12 @@ fn extract_yaml_value_open(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "block_mapping" | "flow_mapping" => {
             extract_yaml_mapping_open(cst, cst_vertex, anchor, node_id, state)
         }
@@ -1829,7 +1900,9 @@ fn extract_yaml_value_open(
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 /// Extract a YAML mapping with no schema guidance, synthesising one `prop`
@@ -1901,6 +1974,9 @@ fn yaml_scalar_text(cst: &Schema, cst_vertex: &Name) -> String {
     literal_text_deep(cst, cst_vertex)
 }
 
+/// Recursively extract a YAML value from the CST into a `WInstance` node,
+/// one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 fn extract_yaml_value(
     cst: &Schema,
     domain_schema: &Schema,
@@ -1909,11 +1985,12 @@ fn extract_yaml_value(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "block_mapping" | "flow_mapping" => extract_yaml_mapping(
             cst,
             domain_schema,
@@ -1939,7 +2016,9 @@ fn extract_yaml_value(
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 fn extract_yaml_mapping(
