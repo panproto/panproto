@@ -106,14 +106,18 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
 
         // --- Type inspection ---
         BuiltinOp::TypeOf | BuiltinOp::IsNull | BuiltinOp::IsList => apply_inspection(op, args),
-        // Graph traversal builtins require an instance context.
-        // In the standard evaluator (no instance), they return Null.
-        // Use `panproto_inst::instance_env` for instance-aware evaluation.
+        // Graph traversal builtins read an instance, which this evaluator
+        // does not hold. Answering `null` would make "no such edge" and "no
+        // graph was consulted" indistinguishable, so the caller is told
+        // instead. Supply a resolver — `panproto_inst::eval_with_instance`
+        // and `eval_with_element_ops` do — to make these answer.
         BuiltinOp::Edge
         | BuiltinOp::Children
         | BuiltinOp::HasEdge
         | BuiltinOp::EdgeCount
-        | BuiltinOp::Anchor => Ok(Literal::Null),
+        | BuiltinOp::Anchor => Err(ExprError::NoInstanceContext {
+            op: format!("{op:?}"),
+        }),
     }
 }
 

@@ -33,21 +33,60 @@ impl Default for EvalConfig {
     }
 }
 
+/// A source of answers for builtins this evaluator cannot compute on its own.
+///
+/// The graph traversal builtins read an instance, which the pure evaluator
+/// does not hold. A resolver plugs that context in at every point a builtin is
+/// applied — not only at the root of the expression — so a graph builtin
+/// nested under a comparison, a binding, a lambda, or a comprehension answers
+/// exactly as it would at the top.
+pub trait BuiltinResolver {
+    /// Whether this resolver answers for `op`. Operations it declines are
+    /// computed by [`apply_builtin`](crate::builtin::apply_builtin).
+    fn handles(&self, op: BuiltinOp) -> bool;
+
+    /// Answer `op` on already-evaluated arguments.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExprError`] when the arguments are of the wrong number or
+    /// type, or when the operation fails against the context.
+    fn apply(&self, op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprError>;
+}
+
+/// The resolver in force when none is supplied: it answers for nothing, so
+/// every builtin is computed purely.
+struct NoResolver;
+
+impl BuiltinResolver for NoResolver {
+    fn handles(&self, _op: BuiltinOp) -> bool {
+        false
+    }
+
+    fn apply(&self, op: BuiltinOp, _args: &[Literal]) -> Result<Literal, ExprError> {
+        Err(ExprError::NoInstanceContext {
+            op: format!("{op:?}"),
+        })
+    }
+}
+
 /// Mutable evaluation state tracking resource consumption.
-struct EvalState {
+struct EvalState<'a> {
     steps_remaining: u64,
     max_steps: u64,
     max_depth: u32,
     max_list_len: usize,
+    resolver: &'a dyn BuiltinResolver,
 }
 
-impl EvalState {
-    const fn new(config: &EvalConfig) -> Self {
+impl<'a> EvalState<'a> {
+    const fn new(config: &EvalConfig, resolver: &'a dyn BuiltinResolver) -> Self {
         Self {
             steps_remaining: config.max_steps,
             max_steps: config.max_steps,
             max_depth: config.max_depth,
             max_list_len: config.max_list_len,
+            resolver,
         }
     }
 
@@ -67,7 +106,26 @@ impl EvalState {
 /// Returns [`ExprError`] on type mismatches, unbound variables,
 /// step/depth limit exceeded, or runtime errors.
 pub fn eval(expr: &Expr, env: &Env, config: &EvalConfig) -> Result<Literal, ExprError> {
-    let mut state = EvalState::new(config);
+    eval_with_resolver(expr, env, config, &NoResolver)
+}
+
+/// Evaluate an expression, routing the builtins `resolver` claims through it.
+///
+/// The resolver is consulted wherever a builtin is applied, at any depth, so a
+/// context-dependent builtin behaves the same nested as it does at the root.
+///
+/// # Errors
+///
+/// Returns [`ExprError`] on type mismatches, unbound variables,
+/// step/depth limit exceeded, or runtime errors, including any the resolver
+/// itself reports.
+pub fn eval_with_resolver(
+    expr: &Expr,
+    env: &Env,
+    config: &EvalConfig,
+    resolver: &dyn BuiltinResolver,
+) -> Result<Literal, ExprError> {
+    let mut state = EvalState::new(config, resolver);
     eval_inner(expr, env, 0, &mut state)
 }
 
@@ -75,7 +133,7 @@ fn eval_inner(
     expr: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if depth > state.max_depth {
         return Err(ExprError::DepthExceeded(state.max_depth));
@@ -168,7 +226,12 @@ fn eval_inner(
                         .iter()
                         .map(|a| eval_inner(a, env, depth + 1, state))
                         .collect();
-                    apply_builtin(*op, &evaluated?)
+                    let evaluated = evaluated?;
+                    if state.resolver.handles(*op) {
+                        state.resolver.apply(*op, &evaluated)
+                    } else {
+                        apply_builtin(*op, &evaluated)
+                    }
                 }
             }
         }
@@ -191,7 +254,7 @@ fn eval_range(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -250,7 +313,7 @@ fn eval_app(
     arg: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     // Evaluate the function expression to a value.
     let func_val = eval_inner(func, env, depth + 1, state)?;
@@ -269,7 +332,7 @@ fn apply_closure(
     func: &Literal,
     arg: &Literal,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     match func {
         Literal::Closure { param, body, env } => {
@@ -298,7 +361,7 @@ fn eval_index(
     idx_expr: &Expr,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let val = eval_inner(expr, env, depth + 1, state)?;
     let idx = eval_inner(idx_expr, env, depth + 1, state)?;
@@ -330,7 +393,7 @@ fn eval_match(
     arms: &[(Pattern, Expr)],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let val = eval_inner(scrutinee, env, depth + 1, state)?;
     for (pattern, body) in arms {
@@ -350,7 +413,7 @@ fn eval_map(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -387,7 +450,7 @@ fn eval_filter(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -430,7 +493,7 @@ fn eval_fold(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 3 {
         return Err(ExprError::ArityMismatch {
@@ -466,7 +529,7 @@ fn eval_flat_map(
     args: &[Expr],
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     if args.len() != 2 {
         return Err(ExprError::ArityMismatch {
@@ -515,7 +578,7 @@ fn apply_lambda(
     arg: &Literal,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let func_val = eval_inner(func_expr, env, depth + 1, state)?;
     apply_closure(&func_val, arg, depth, state)
@@ -531,7 +594,7 @@ fn apply_lambda_2(
     arg2: &Literal,
     env: &Env,
     depth: u32,
-    state: &mut EvalState,
+    state: &mut EvalState<'_>,
 ) -> Result<Literal, ExprError> {
     let func_val = eval_inner(func_expr, env, depth + 1, state)?;
     let partial = apply_closure(&func_val, arg1, depth, state)?;

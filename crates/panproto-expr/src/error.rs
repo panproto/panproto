@@ -82,6 +82,19 @@ pub enum ExprError {
     #[error("float not representable as integer: {0}")]
     FloatNotRepresentable(String),
 
+    /// A builtin that reads an instance graph was evaluated without one.
+    ///
+    /// The graph traversal builtins (`edge`, `children`, `has_edge`,
+    /// `edge_count`, `anchor`) have no meaning apart from an instance. Reach
+    /// them through `panproto_inst::eval_with_instance` or
+    /// `panproto_inst::eval_with_element_ops`, or supply any other
+    /// [`BuiltinResolver`](crate::eval::BuiltinResolver).
+    #[error("{op} needs an instance to traverse, and evaluation was given none")]
+    NoInstanceContext {
+        /// The builtin operation that needs an instance.
+        op: String,
+    },
+
     /// A builtin operation reached a category handler that does not implement it.
     ///
     /// The top-level dispatch in [`apply_builtin`](crate::builtin::apply_builtin)
