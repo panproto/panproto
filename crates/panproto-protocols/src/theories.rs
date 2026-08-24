@@ -1,4 +1,4 @@
-//! Shared component theory definitions (5 building blocks).
+//! Shared component theory definitions (11 building blocks).
 //!
 //! These are the building-block GATs that protocols compose via colimit
 //! to form their schema and instance theories. Each function returns
@@ -13,16 +13,29 @@
 //! 2. **Equation well-typedness**: both sides of every equation have the
 //!    same output sort under the declared operations.
 //! 3. **No tautological equations**: `lhs ≠ rhs` syntactically for all equations.
+//! 4. **Rewrite-system soundness**: the directed rewrite system is locally
+//!    confluent and LPO-terminating, checked at registration.
 //!
 //! ## Inventory
 //!
-//! | # | Theory | Sorts | Eqs | Category |
-//! |---|--------|-------|-----|----------|
-//! | 1 | ThGraph | 2 | 0 | Schema shape |
-//! | 2 | ThConstraint | 2 | 0 | Schema modifier |
-//! | 3 | ThMulti | 3 | 0 | Schema modifier |
-//! | 4 | ThWType | 3 | 0 | Instance shape |
-//! | 5 | ThMeta | 3 | 0 | Instance modifier |
+//! | #  | Theory | Category |
+//! |----|--------|----------|
+//! | 1  | `ThGraph` | Schema shape |
+//! | 2  | `ThConstraint` | Schema modifier |
+//! | 3  | `ThMulti` | Schema modifier |
+//! | 4  | `ThWType` | Instance shape |
+//! | 5  | `ThMeta` | Instance modifier |
+//! | 6  | `ThSimpleGraph` | Schema shape |
+//! | 7  | `ThHypergraph` | Schema shape |
+//! | 8  | `ThInterface` | Schema shape |
+//! | 9  | `ThFunctor` | Instance shape |
+//! | 10 | `ThFlat` | Instance shape |
+//! | 11 | `ThGraphInstance` | Instance shape |
+//!
+//! The registration helpers in the middle of this module compose these into
+//! the schema/instance theory pair each protocol group uses, and the
+//! composition specs below them are the declarative recipe for the same
+//! colimits.
 
 use panproto_gat::{CompositionSpec, CompositionStep, Operation, Sort, SortParam, Theory};
 
@@ -742,7 +755,7 @@ pub fn constrained_graph_instance_specs(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Private theory helpers (used only by registration functions above)
+// Building blocks the registration helpers above compose
 // ═══════════════════════════════════════════════════════════════════
 
 /// `ThSimpleGraph`: simple graph (no parallel edges).

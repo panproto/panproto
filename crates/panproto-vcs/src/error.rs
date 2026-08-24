@@ -174,8 +174,10 @@ pub enum VcsError {
         got: String,
     },
 
-    /// A version-control square failed to commute: migrating a data set forward
-    /// and back through a schema change did not reconstruct the original.
+    /// Migrating a data set forward through a schema change and back
+    /// through its complement did not reconstruct the original, so the
+    /// migration loses data the complement did not record and no square
+    /// around it commutes.
     #[error("non-commuting square: {detail}")]
     SquareNonCommuting {
         /// Which data set diverged, and how.
