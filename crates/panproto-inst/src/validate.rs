@@ -2,15 +2,17 @@
 //!
 //! Checks axioms I1-I7 from the theory:
 //! - I1: All node anchors exist in the schema
-//! - I2: All arc edges exist in the schema
+//! - I2: All arc edges exist in the schema and their endpoints agree with
+//!   the anchors of the nodes they connect
 //! - I3: Root exists in node set
 //! - I4: All nodes reachable from root
 //! - I5: Required edges present
 //! - I6: Parent map consistency
 //! - I7: Fan validity
 
-use std::collections::{HashSet, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 
+use panproto_gat::Name;
 use panproto_schema::Schema;
 
 use crate::attributes::{AttributeSchema, AttributeViolation};
@@ -73,8 +75,68 @@ fn check_anchors(schema: &Schema, instance: &WInstance, errors: &mut Vec<Validat
     }
 }
 
-/// I2: Verify all arc edges exist in the schema.
+/// The family of vertices an arc endpoint may legitimately be anchored at.
+///
+/// A union vertex stands for each of its coproduct variants, and a recursion
+/// point stands for the vertex it unfolds to, so an arc declared between
+/// union or recursion-point vertices connects nodes anchored at members of
+/// those families. `AnchorFamilies` closes the variant and recursion-point
+/// relations in both directions and answers whether an anchor lies in the
+/// same family as an arc endpoint.
+struct AnchorFamilies<'a> {
+    related: HashMap<&'a Name, Vec<&'a Name>>,
+}
+
+impl<'a> AnchorFamilies<'a> {
+    fn new(schema: &'a Schema) -> Self {
+        let mut related: HashMap<&'a Name, Vec<&'a Name>> = HashMap::new();
+        let mut link = |a: &'a Name, b: &'a Name| {
+            related.entry(a).or_default().push(b);
+            related.entry(b).or_default().push(a);
+        };
+        for (union_vertex, variants) in &schema.variants {
+            for variant in variants {
+                link(union_vertex, &variant.id);
+                if &variant.parent_vertex != union_vertex {
+                    link(&variant.parent_vertex, &variant.id);
+                }
+            }
+        }
+        for (point, unfolding) in &schema.recursion_points {
+            link(point, &unfolding.target_vertex);
+        }
+        Self { related }
+    }
+
+    /// Whether `anchor` sits in the same variant/recursion family as
+    /// `endpoint`.
+    fn accepts(&self, endpoint: &Name, anchor: &Name) -> bool {
+        if endpoint == anchor {
+            return true;
+        }
+        let mut seen: HashSet<&Name> = HashSet::from([endpoint]);
+        let mut queue: VecDeque<&Name> = VecDeque::from([endpoint]);
+        while let Some(current) = queue.pop_front() {
+            let Some(neighbours) = self.related.get(current) else {
+                continue;
+            };
+            for neighbour in neighbours {
+                if *neighbour == anchor {
+                    return true;
+                }
+                if seen.insert(neighbour) {
+                    queue.push_back(neighbour);
+                }
+            }
+        }
+        false
+    }
+}
+
+/// I2: Verify all arc edges exist in the schema and that each arc's
+/// endpoints agree with the anchors of the nodes it connects.
 fn check_edges(schema: &Schema, instance: &WInstance, errors: &mut Vec<ValidationError>) {
+    let families = AnchorFamilies::new(schema);
     for &(parent, child, ref edge) in &instance.arcs {
         if !schema.edges.contains_key(edge) {
             errors.push(ValidationError::InvalidEdge {
@@ -83,6 +145,31 @@ fn check_edges(schema: &Schema, instance: &WInstance, errors: &mut Vec<Validatio
                 detail: format!(
                     "edge {} -> {} ({}) not in schema",
                     edge.src, edge.tgt, edge.kind
+                ),
+            });
+            continue;
+        }
+        if let Some(node) = instance.nodes.get(&parent)
+            && !families.accepts(&edge.src, &node.anchor)
+        {
+            errors.push(ValidationError::InvalidEdge {
+                parent,
+                child,
+                detail: format!(
+                    "arc uses edge {} -> {} ({}) but parent node {parent} is anchored at {}",
+                    edge.src, edge.tgt, edge.kind, node.anchor
+                ),
+            });
+        }
+        if let Some(node) = instance.nodes.get(&child)
+            && !families.accepts(&edge.tgt, &node.anchor)
+        {
+            errors.push(ValidationError::InvalidEdge {
+                parent,
+                child,
+                detail: format!(
+                    "arc uses edge {} -> {} ({}) but child node {child} is anchored at {}",
+                    edge.src, edge.tgt, edge.kind, node.anchor
                 ),
             });
         }
@@ -387,6 +474,94 @@ mod tests {
             errors
                 .iter()
                 .any(|e| matches!(e, ValidationError::UnreachableNode { node_id: 99 }))
+        );
+    }
+
+    /// An arc whose edge exists in the schema but whose endpoints contradict
+    /// the anchors of the nodes it connects is not a well-formed tree.
+    #[test]
+    fn arc_endpoints_must_match_node_anchors() {
+        let schema = test_schema();
+        let mut inst = valid_3_node_instance();
+        // Re-target the `name` arc at node 2, which is anchored at `str2`
+        // while the edge declares `str1`.
+        inst.arcs[0].1 = 2;
+        inst.parent_map.insert(2, 0);
+        let errors = validate_wtype(&schema, &inst);
+        assert!(
+            errors.iter().any(|e| matches!(
+                e,
+                ValidationError::InvalidEdge {
+                    parent: 0,
+                    child: 2,
+                    ..
+                }
+            )),
+            "expected an endpoint mismatch, got: {errors:?}",
+        );
+    }
+
+    /// A union vertex stands for its variants, so an arc into the union may
+    /// connect a node anchored at a variant.
+    #[test]
+    fn variant_anchors_satisfy_a_union_endpoint() {
+        let mut schema = test_schema();
+        schema.vertices.insert(
+            "str1_variant".into(),
+            panproto_schema::Vertex {
+                id: "str1_variant".into(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        schema.variants.insert(
+            "str1".into(),
+            vec![panproto_schema::Variant {
+                id: "str1_variant".into(),
+                parent_vertex: "str1".into(),
+                tag: None,
+            }],
+        );
+
+        let mut inst = valid_3_node_instance();
+        if let Some(node) = inst.nodes.get_mut(&1) {
+            node.anchor = panproto_gat::Name::from("str1_variant");
+        }
+        let errors = validate_wtype(&schema, &inst);
+        assert!(
+            errors.is_empty(),
+            "a variant of the declared endpoint is a valid anchor, got: {errors:?}",
+        );
+    }
+
+    /// A recursion point stands for the vertex it unfolds to, so an arc into
+    /// the recursion point may connect a node anchored at that vertex.
+    #[test]
+    fn recursion_point_anchors_satisfy_the_unfolded_endpoint() {
+        let mut schema = test_schema();
+        schema.vertices.insert(
+            "str1_rec".into(),
+            panproto_schema::Vertex {
+                id: "str1_rec".into(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        schema.recursion_points.insert(
+            "str1_rec".into(),
+            panproto_schema::RecursionPoint {
+                target_vertex: "str1".into(),
+            },
+        );
+
+        let mut inst = valid_3_node_instance();
+        if let Some(node) = inst.nodes.get_mut(&1) {
+            node.anchor = panproto_gat::Name::from("str1_rec");
+        }
+        let errors = validate_wtype(&schema, &inst);
+        assert!(
+            errors.is_empty(),
+            "the unfolding of a recursion point is a valid anchor, got: {errors:?}",
         );
     }
 }
