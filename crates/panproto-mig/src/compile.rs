@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;
 
@@ -103,12 +104,29 @@ pub fn compile(
     // Step 4: Copy resolver tables.
     let resolver = migration.resolver.clone();
 
-    // Step 5: Build hyper-resolver (convert key format).
-    let mut hyper_resolver = HashMap::new();
-    for ((he_id, _labels), (tgt_he_id, label_map)) in &migration.hyper_resolver {
-        // The inst-level CompiledMigration uses he_id -> (new_id, label_map).
-        // We flatten the labels key since the inst crate indexes by he_id.
-        hyper_resolver.insert(he_id.clone(), (tgt_he_id.clone(), label_map.clone()));
+    // Step 5: Build the hyper-resolver, one entry per fan shape.
+    //
+    // A hyper-edge may carry several resolver entries that differ only in
+    // which child labels the fan holds, so the compiled table keeps the full
+    // (hyper-edge, label-set) key. Label sets are canonicalized — sorted and
+    // deduplicated — so that a fan matches on its shape rather than on the
+    // order in which the specification happened to list its labels.
+    let mut hyper_resolver = panproto_inst::HyperResolverTable::new();
+    for ((he_id, labels), (tgt_he_id, label_map)) in &migration.hyper_resolver {
+        let shape = panproto_inst::canonical_label_shape(labels.iter().map(Name::as_str));
+        let value = (tgt_he_id.clone(), label_map.clone());
+        if let Some(existing) = hyper_resolver.get(&(he_id.clone(), shape.clone())) {
+            if *existing != value {
+                return Err(ExistenceError::WellFormedness {
+                    message: format!(
+                        "hyper_resolver has conflicting entries for hyper-edge {he_id} \
+                         with label set {shape:?}"
+                    ),
+                });
+            }
+            continue;
+        }
+        hyper_resolver.insert((he_id.clone(), shape), value);
     }
 
     Ok(CompiledMigration {

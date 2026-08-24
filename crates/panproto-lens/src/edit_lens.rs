@@ -965,64 +965,58 @@ impl EditLens {
     }
 
     fn remap_fan_forward(&self, fan: &panproto_inst::Fan) -> panproto_inst::Fan {
-        let new_he_id = if let Some((new_id, _)) =
-            self.compiled.hyper_resolver.get(fan.hyper_edge_id.as_str())
-        {
-            new_id.to_string()
-        } else {
-            fan.hyper_edge_id.clone()
+        let shape = panproto_inst::canonical_label_shape(fan.children.keys());
+        let resolver = panproto_inst::FanResolver::new(&self.compiled);
+        let Some((new_id, label_map)) = resolver.resolve(&fan.hyper_edge_id, &shape, &shape) else {
+            return fan.clone();
         };
 
-        let new_children = if let Some((_, label_map)) =
-            self.compiled.hyper_resolver.get(fan.hyper_edge_id.as_str())
-        {
-            fan.children
-                .iter()
-                .map(|(label, &node_id)| {
-                    let new_label = label_map
-                        .get(label.as_str())
-                        .map_or_else(|| label.clone(), std::string::ToString::to_string);
-                    (new_label, node_id)
-                })
-                .collect()
-        } else {
-            fan.children.clone()
-        };
+        let new_children = fan
+            .children
+            .iter()
+            .map(|(label, &node_id)| {
+                let new_label = label_map
+                    .get(label.as_str())
+                    .map_or_else(|| label.clone(), std::string::ToString::to_string);
+                (new_label, node_id)
+            })
+            .collect();
 
         panproto_inst::Fan {
-            hyper_edge_id: new_he_id,
+            hyper_edge_id: new_id.to_string(),
             parent: fan.parent,
             children: new_children,
         }
     }
 
     fn remap_fan_backward(&self, fan: &panproto_inst::Fan) -> panproto_inst::Fan {
-        // Reverse remap: check if any hyper_resolver entry maps to this fan's ID.
-        for (old_id, (new_id, label_map)) in &self.compiled.hyper_resolver {
-            if new_id.as_ref() == fan.hyper_edge_id.as_str() {
-                let reverse_labels: HashMap<String, String> = label_map
-                    .iter()
-                    .map(|(k, v)| (v.to_string(), k.to_string()))
-                    .collect();
-                let children = fan
-                    .children
-                    .iter()
-                    .map(|(label, &node_id)| {
-                        let old_label = reverse_labels
-                            .get(label)
-                            .cloned()
-                            .unwrap_or_else(|| label.clone());
-                        (old_label, node_id)
-                    })
-                    .collect();
-                return panproto_inst::Fan {
-                    hyper_edge_id: old_id.to_string(),
-                    parent: fan.parent,
-                    children,
-                };
-            }
+        let shape = panproto_inst::canonical_label_shape(fan.children.keys());
+        let resolver = panproto_inst::FanResolver::new(&self.compiled);
+        let Some((old_id, (_, label_map))) = resolver.resolve_backward(&fan.hyper_edge_id, &shape)
+        else {
+            return fan.clone();
+        };
+
+        let reverse_labels: HashMap<String, String> = label_map
+            .iter()
+            .map(|(k, v)| (v.to_string(), k.to_string()))
+            .collect();
+        let children = fan
+            .children
+            .iter()
+            .map(|(label, &node_id)| {
+                let old_label = reverse_labels
+                    .get(label)
+                    .cloned()
+                    .unwrap_or_else(|| label.clone());
+                (old_label, node_id)
+            })
+            .collect();
+        panproto_inst::Fan {
+            hyper_edge_id: old_id.to_string(),
+            parent: fan.parent,
+            children,
         }
-        fan.clone()
     }
 
     // -- Private helpers: field translation --
