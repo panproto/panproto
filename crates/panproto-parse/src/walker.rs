@@ -41,8 +41,28 @@ const BLOCK_KINDS: &[&str] = &[
     "module_body",
 ];
 
+/// How deeply the walk descends before it refuses to go further.
+///
+/// Tree-sitter parses arbitrarily deep nesting happily, but the walk that
+/// turns its tree into a schema is recursive, and a recursive descent past
+/// the thread's stack does not fail — it aborts the process with a signal no
+/// caller can catch. A parser that a hostile or merely malformed input can
+/// take down is not usable at a library boundary, so the walk carries its own
+/// bound and reports [`ParseError::NestingTooDeep`] instead.
+///
+/// The value sits inside the smallest stack the walk runs on — an unoptimised
+/// build on a two-megabyte test thread, where the walk reaches roughly four
+/// hundred levels — and far above what source nests to in practice. It also
+/// matches what CST extraction can descend in that same stack, so a document
+/// this walk accepts is one the codec above it can finish. A regression test
+/// walks a tree at exactly this depth, so a change that grows the walk's
+/// frame is caught rather than discovered in the field. Raise it through
+/// [`WalkerConfig::max_depth`] for input that genuinely needs more, on a
+/// stack that can take it.
+pub const DEFAULT_MAX_NESTING_DEPTH: usize = 128;
+
 /// Configuration for the walker, allowing per-language customization.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct WalkerConfig {
     /// Additional node kinds that contain ordered statement sequences.
     ///
@@ -56,17 +76,33 @@ pub struct WalkerConfig {
     pub capture_comments: bool,
     /// Whether to capture whitespace/formatting as constraints.
     pub capture_formatting: bool,
+    /// How deeply the walk descends before returning
+    /// [`ParseError::NestingTooDeep`]. Defaults to
+    /// [`DEFAULT_MAX_NESTING_DEPTH`].
+    pub max_depth: usize,
+}
+
+impl Default for WalkerConfig {
+    fn default() -> Self {
+        Self {
+            extra_block_kinds: Vec::new(),
+            capture_comments: false,
+            capture_formatting: false,
+            max_depth: DEFAULT_MAX_NESTING_DEPTH,
+        }
+    }
 }
 
 impl WalkerConfig {
     /// Construct a config with formatting and comment capture enabled (the
-    /// common default; [`WalkerConfig::default`] returns all-false).
+    /// common default; [`WalkerConfig::default`] captures neither).
     #[must_use]
     pub const fn standard() -> Self {
         Self {
             extra_block_kinds: Vec::new(),
             capture_comments: true,
             capture_formatting: true,
+            max_depth: DEFAULT_MAX_NESTING_DEPTH,
         }
     }
 }
@@ -96,6 +132,57 @@ pub struct AstWalker<'a> {
     /// during the tree walk. Derived from a [`ScopeDetector`] run over the
     /// full source before the walk begins.
     scope_map: BTreeMap<(usize, usize), NamedScope>,
+}
+
+/// The schema under construction, held so the recursive walk can pass a
+/// reference to it rather than move it.
+///
+/// [`SchemaBuilder`]'s API is fluent: every step consumes the builder and
+/// returns it. A recursive walk that threads the builder by value therefore
+/// materialises an argument copy and a return copy of an eight-hundred-byte
+/// struct at every one of the dozen-odd step sites in each frame, and those
+/// slots all stay live while the walk descends. A few dozen levels of nesting
+/// was enough to exhaust the stack, and a stack overflow aborts the process
+/// on a signal no caller can handle.
+///
+/// [`BuilderCell::map`] and [`BuilderCell::try_map`] move the builder out of
+/// the cell and back in inside their own frame, which pops before the walk
+/// descends, so a walk frame holds a pointer instead.
+struct BuilderCell(Option<SchemaBuilder>);
+
+impl BuilderCell {
+    const fn new(builder: SchemaBuilder) -> Self {
+        Self(Some(builder))
+    }
+
+    /// Replace the builder with the result of `step`.
+    fn map(&mut self, step: impl FnOnce(SchemaBuilder) -> SchemaBuilder) {
+        if let Some(builder) = self.0.take() {
+            self.0 = Some(step(builder));
+        }
+    }
+
+    /// Replace the builder with the result of `step`, or propagate its error.
+    fn try_map<E>(
+        &mut self,
+        step: impl FnOnce(SchemaBuilder) -> Result<SchemaBuilder, E>,
+    ) -> Result<(), E> {
+        let Some(builder) = self.0.take() else {
+            return Ok(());
+        };
+        self.0 = Some(step(builder)?);
+        Ok(())
+    }
+
+    /// Take the builder back out of the cell.
+    ///
+    /// A step that returns an error leaves the cell empty, and such a step
+    /// aborts the walk before it reaches here.
+    fn into_builder(self) -> Result<SchemaBuilder, ParseError> {
+        self.0.ok_or_else(|| ParseError::SchemaConstruction {
+            reason: "a failed build step left the schema builder empty".to_owned(),
+        })
+    }
 }
 
 impl<'a> AstWalker<'a> {
@@ -144,17 +231,21 @@ impl<'a> AstWalker<'a> {
     ///
     /// # Errors
     ///
-    /// Returns [`ParseError::SchemaConstruction`] if schema building fails.
+    /// Returns [`ParseError::SchemaConstruction`] if schema building fails,
+    /// or [`ParseError::NestingTooDeep`] if the tree nests deeper than
+    /// [`WalkerConfig::max_depth`].
     pub fn walk(&self, tree: &tree_sitter::Tree, file_path: &str) -> Result<Schema, ParseError> {
         let mut id_gen = IdGenerator::new(file_path);
-        let builder = SchemaBuilder::new(self.protocol);
+        let mut cell = BuilderCell::new(SchemaBuilder::new(self.protocol));
         let root = tree.root_node();
 
-        let builder = self.walk_node(root, builder, &mut id_gen, None, None)?;
+        self.walk_node(root, &mut cell, &mut id_gen, None, None, 0)?;
 
-        builder.build().map_err(|e| ParseError::SchemaConstruction {
-            reason: e.to_string(),
-        })
+        cell.into_builder()?
+            .build()
+            .map_err(|e| ParseError::SchemaConstruction {
+                reason: e.to_string(),
+            })
     }
 
     /// Look up a node's named-scope entry, if any.
@@ -163,14 +254,26 @@ impl<'a> AstWalker<'a> {
     }
 
     /// Recursively walk a single node, emitting vertices and edges.
+    ///
+    /// `depth` counts the nodes already on the descent, root included, and
+    /// bounds the recursion at [`WalkerConfig::max_depth`].
     fn walk_node(
         &self,
         node: tree_sitter::Node<'_>,
-        mut builder: SchemaBuilder,
+        cell: &mut BuilderCell,
         id_gen: &mut IdGenerator,
         parent_vertex_id: Option<&str>,
         field_name: Option<&str>,
-    ) -> Result<SchemaBuilder, ParseError> {
+        depth: usize,
+    ) -> Result<(), ParseError> {
+        if depth > self.config.max_depth {
+            return Err(ParseError::NestingTooDeep {
+                limit: self.config.max_depth,
+                kind: node.kind().to_owned(),
+                byte: node.start_byte(),
+            });
+        }
+
         // Skip anonymous tokens (punctuation, keywords like `{`, `}`, `,`, etc.).
         // Error-recovery MISSING anonymous tokens (a zero-width `}`, `)`, `,`,
         // or keyword tree-sitter *inserts* to recover) are anonymous too, so
@@ -178,7 +281,7 @@ impl<'a> AstWalker<'a> {
         // `walk_children_with_interstitials`, which scans every node's children
         // for them before the named-child walk (which also skips them).
         if !node.is_named() {
-            return Ok(builder);
+            return Ok(());
         }
 
         let kind = node.kind();
@@ -239,11 +342,12 @@ impl<'a> AstWalker<'a> {
             "node"
         };
 
-        builder = builder
-            .vertex(&vertex_id, effective_kind, None)
-            .map_err(|e| ParseError::SchemaConstruction {
-                reason: format!("vertex '{vertex_id}' ({kind}): {e}"),
-            })?;
+        cell.try_map(|b| {
+            b.vertex(&vertex_id, effective_kind, None)
+                .map_err(|e| ParseError::SchemaConstruction {
+                    reason: format!("vertex '{vertex_id}' ({kind}): {e}"),
+                })
+        })?;
 
         // Emit edge from parent to this node. The edge kind is the
         // tree-sitter field name this node was reached through, which the
@@ -254,16 +358,18 @@ impl<'a> AstWalker<'a> {
         if let Some(parent_id) = parent_vertex_id {
             let edge_kind = field_name.unwrap_or("child_of");
 
-            builder = builder
-                .edge(parent_id, &vertex_id, edge_kind, None)
-                .map_err(|e| ParseError::SchemaConstruction {
-                    reason: format!("edge {parent_id} -> {vertex_id} ({edge_kind}): {e}"),
-                })?;
+            cell.try_map(|b| {
+                b.edge(parent_id, &vertex_id, edge_kind, None).map_err(|e| {
+                    ParseError::SchemaConstruction {
+                        reason: format!("edge {parent_id} -> {vertex_id} ({edge_kind}): {e}"),
+                    }
+                })
+            })?;
         }
 
         // Store byte range for position-aware emission.
-        builder = builder.constraint(&vertex_id, "start-byte", &node.start_byte().to_string());
-        builder = builder.constraint(&vertex_id, "end-byte", &node.end_byte().to_string());
+        cell.map(|b| b.constraint(&vertex_id, "start-byte", &node.start_byte().to_string()));
+        cell.map(|b| b.constraint(&vertex_id, "end-byte", &node.end_byte().to_string()));
 
         // Capture any leading bytes that precede the document root. Tree-sitter
         // excludes leading `extra` tokens (a UTF-8 BOM, an awk `\<newline>`
@@ -276,7 +382,7 @@ impl<'a> AstWalker<'a> {
         if parent_vertex_id.is_none() && node.start_byte() > 0 {
             if let Ok(prefix) = std::str::from_utf8(&self.source[..node.start_byte()]) {
                 if !prefix.is_empty() {
-                    builder = builder.constraint(&vertex_id, "doc-prefix", prefix);
+                    cell.map(|b| b.constraint(&vertex_id, "doc-prefix", prefix));
                 }
             }
         }
@@ -292,13 +398,13 @@ impl<'a> AstWalker<'a> {
         // identifies which.
         let grammar_name = node.grammar_name();
         if grammar_name != kind {
-            builder = builder.constraint(&vertex_id, "pre-alias-symbol", grammar_name);
+            cell.map(|b| b.constraint(&vertex_id, "pre-alias-symbol", grammar_name));
         }
 
         // Emit constraints for leaf nodes (literals, identifiers, operators).
         if node.named_child_count() == 0 {
             if let Ok(text) = node.utf8_text(self.source) {
-                builder = builder.constraint(&vertex_id, "literal-value", text);
+                cell.map(|b| b.constraint(&vertex_id, "literal-value", text));
             }
         }
 
@@ -311,7 +417,7 @@ impl<'a> AstWalker<'a> {
         // lets consumers read `schema.field_text(vid, name)` directly
         // rather than reconstructing the text via start-byte / end-byte
         // arithmetic against the source buffer.
-        builder = self.capture_anonymous_field_constraints(node, &vertex_id, builder);
+        self.capture_anonymous_field_constraints(node, &vertex_id, cell);
 
         // Capture the faithful production trace: the ordered linearization
         // of this node's children as the parser tokenized them. Each slot
@@ -324,11 +430,11 @@ impl<'a> AstWalker<'a> {
         // re-deriving it). Hidden rules are inlined by tree-sitter and
         // never surface as their own child, so the trace aligns 1:1 with
         // the emitter's cursor edges and grammar string literals.
-        builder = self.capture_production_trace(node, &vertex_id, builder);
+        self.capture_production_trace(node, &vertex_id, cell);
 
         // Emit formatting constraints if enabled.
         if self.config.capture_formatting {
-            builder = self.emit_formatting_constraints(node, &vertex_id, builder);
+            self.emit_formatting_constraints(node, &vertex_id, cell);
         }
 
         // Enter scope if this is a scope-introducing node. For a
@@ -346,13 +452,13 @@ impl<'a> AstWalker<'a> {
             false
         };
 
-        builder = self.walk_children_with_interstitials(node, builder, id_gen, &vertex_id)?;
+        self.walk_children_with_interstitials(node, cell, id_gen, &vertex_id, depth)?;
 
         if entered_scope {
             id_gen.pop_scope();
         }
 
-        Ok(builder)
+        Ok(())
     }
 
     /// Emit a zero-width, `ERROR`-kinded marker vertex for a tree-sitter
@@ -368,29 +474,31 @@ impl<'a> AstWalker<'a> {
     fn emit_missing_marker(
         &self,
         missing: tree_sitter::Node<'_>,
-        mut builder: SchemaBuilder,
+        cell: &mut BuilderCell,
         id_gen: &mut IdGenerator,
         parent_vertex_id: &str,
-    ) -> Result<SchemaBuilder, ParseError> {
+    ) -> Result<(), ParseError> {
         let admits_error = self.protocol.obj_kinds.is_empty()
             || self.protocol.obj_kinds.iter().any(|k| k == "ERROR")
             || self.theory_meta.vertex_kinds.iter().any(|k| k == "ERROR");
         let marker_kind = if admits_error { "ERROR" } else { "node" };
         let vertex_id = id_gen.anonymous_id();
-        builder = builder.vertex(&vertex_id, marker_kind, None).map_err(|e| {
-            ParseError::SchemaConstruction {
-                reason: format!("missing-token marker '{vertex_id}': {e}"),
-            }
+        cell.try_map(|b| {
+            b.vertex(&vertex_id, marker_kind, None)
+                .map_err(|e| ParseError::SchemaConstruction {
+                    reason: format!("missing-token marker '{vertex_id}': {e}"),
+                })
         })?;
-        builder = builder
-            .edge(parent_vertex_id, &vertex_id, "child_of", None)
-            .map_err(|e| ParseError::SchemaConstruction {
-                reason: format!("missing-token edge {parent_vertex_id} -> {vertex_id}: {e}"),
-            })?;
-        builder = builder.constraint(&vertex_id, "start-byte", &missing.start_byte().to_string());
-        builder = builder.constraint(&vertex_id, "end-byte", &missing.end_byte().to_string());
-        builder = builder.constraint(&vertex_id, "missing", missing.kind());
-        Ok(builder)
+        cell.try_map(|b| {
+            b.edge(parent_vertex_id, &vertex_id, "child_of", None)
+                .map_err(|e| ParseError::SchemaConstruction {
+                    reason: format!("missing-token edge {parent_vertex_id} -> {vertex_id}: {e}"),
+                })
+        })?;
+        cell.map(|b| b.constraint(&vertex_id, "start-byte", &missing.start_byte().to_string()));
+        cell.map(|b| b.constraint(&vertex_id, "end-byte", &missing.end_byte().to_string()));
+        cell.map(|b| b.constraint(&vertex_id, "missing", missing.kind()));
+        Ok(())
     }
 
     /// Walk named children, capturing interstitial text between them.
@@ -407,10 +515,11 @@ impl<'a> AstWalker<'a> {
     fn walk_children_with_interstitials(
         &self,
         node: tree_sitter::Node<'_>,
-        mut builder: SchemaBuilder,
+        cell: &mut BuilderCell,
         id_gen: &mut IdGenerator,
         vertex_id: &str,
-    ) -> Result<SchemaBuilder, ParseError> {
+        depth: usize,
+    ) -> Result<(), ParseError> {
         // One pass over every child. The named ones are walked (each with the
         // field name its index resolves to), and the anonymous MISSING ones
         // are collected for the error-recovery markers below, so neither
@@ -436,8 +545,8 @@ impl<'a> AstWalker<'a> {
         for &(child, field) in &children {
             let gap_start = prev_end;
             let gap_end = child.start_byte();
-            builder = self.capture_interstitial(
-                builder,
+            self.capture_interstitial(
+                cell,
                 vertex_id,
                 gap_start,
                 gap_end,
@@ -457,7 +566,7 @@ impl<'a> AstWalker<'a> {
             if !child_kind.starts_with('_') {
                 child_kinds.push(child_kind.to_owned());
             }
-            builder = self.walk_node(child, builder, id_gen, Some(vertex_id), field)?;
+            self.walk_node(child, cell, id_gen, Some(vertex_id), field, depth + 1)?;
             prev_end = child.end_byte();
         }
 
@@ -470,12 +579,12 @@ impl<'a> AstWalker<'a> {
         // parse. Emit a marker for each so schema walkers that reject ERROR /
         // zero-width vertices detect the recovery.
         for child in missing_children {
-            builder = self.emit_missing_marker(child, builder, id_gen, vertex_id)?;
+            self.emit_missing_marker(child, cell, id_gen, vertex_id)?;
         }
 
         // Trailing interstitial after the last child.
-        builder = self.capture_interstitial(
-            builder,
+        self.capture_interstitial(
+            cell,
             vertex_id,
             prev_end,
             node.end_byte(),
@@ -484,18 +593,19 @@ impl<'a> AstWalker<'a> {
         );
 
         if !fingerprint_parts.is_empty() {
-            builder = builder.constraint(
-                vertex_id,
-                "chose-alt-fingerprint",
-                &fingerprint_parts.join(" "),
-            );
+            cell.map(|b| {
+                b.constraint(
+                    vertex_id,
+                    "chose-alt-fingerprint",
+                    &fingerprint_parts.join(" "),
+                )
+            });
         }
         if !child_kinds.is_empty() {
-            builder =
-                builder.constraint(vertex_id, "chose-alt-child-kinds", &child_kinds.join(" "));
+            cell.map(|b| b.constraint(vertex_id, "chose-alt-child-kinds", &child_kinds.join(" ")));
         }
 
-        Ok(builder)
+        Ok(())
     }
 
     /// Capture interstitial text between `gap_start` and `gap_end` as a constraint.
@@ -516,8 +626,8 @@ impl<'a> AstWalker<'a> {
         &self,
         node: tree_sitter::Node<'_>,
         vertex_id: &str,
-        mut builder: SchemaBuilder,
-    ) -> SchemaBuilder {
+        cell: &mut BuilderCell,
+    ) {
         let child_count = node.child_count();
         for i in 0..child_count {
             let Some(child) = node.child(u32::try_from(i).unwrap_or(0)) else {
@@ -539,9 +649,8 @@ impl<'a> AstWalker<'a> {
                 continue;
             };
             let sort = format!("field:{field_name}");
-            builder = builder.constraint(vertex_id, &sort, text);
+            cell.map(|b| b.constraint(vertex_id, &sort, text));
         }
-        builder
     }
 
     /// Record the faithful production trace `ptrace-<slot>` for `node`.
@@ -556,8 +665,8 @@ impl<'a> AstWalker<'a> {
         &self,
         node: tree_sitter::Node<'_>,
         vertex_id: &str,
-        mut builder: SchemaBuilder,
-    ) -> SchemaBuilder {
+        cell: &mut BuilderCell,
+    ) {
         let count = node.child_count();
         let mut slot = 0usize;
         for i in 0..count {
@@ -571,41 +680,40 @@ impl<'a> AstWalker<'a> {
             } else {
                 continue;
             };
-            builder = builder.constraint(vertex_id, &format!("ptrace-{slot}"), &value);
+            cell.map(|b| b.constraint(vertex_id, &format!("ptrace-{slot}"), &value));
             slot += 1;
         }
-        builder
     }
 
     fn capture_interstitial(
         &self,
-        mut builder: SchemaBuilder,
+        cell: &mut BuilderCell,
         vertex_id: &str,
         gap_start: usize,
         gap_end: usize,
         idx: &mut usize,
         fingerprint: &mut Vec<String>,
-    ) -> SchemaBuilder {
+    ) {
         if gap_end > gap_start && gap_end <= self.source.len() {
             if let Ok(gap_text) = std::str::from_utf8(&self.source[gap_start..gap_end]) {
                 if !gap_text.is_empty() {
                     let sort = format!("interstitial-{}", *idx);
-                    builder = builder.constraint(vertex_id, &sort, gap_text);
-                    builder = builder.constraint(
-                        vertex_id,
-                        &format!("{sort}-start-byte"),
-                        &gap_start.to_string(),
-                    );
+                    cell.map(|b| b.constraint(vertex_id, &sort, gap_text));
+                    cell.map(|b| {
+                        b.constraint(
+                            vertex_id,
+                            &format!("{sort}-start-byte"),
+                            &gap_start.to_string(),
+                        )
+                    });
                     // The run's end byte in the *original* source. Replay
                     // decides which fragments a rewritten one supersedes by
                     // comparing source spans, so the span has to be recorded
                     // rather than recovered from the text's current length:
                     // an edited interstitial no longer has its source length.
-                    builder = builder.constraint(
-                        vertex_id,
-                        &format!("{sort}-end-byte"),
-                        &gap_end.to_string(),
-                    );
+                    cell.map(|b| {
+                        b.constraint(vertex_id, &format!("{sort}-end-byte"), &gap_end.to_string())
+                    });
                     *idx += 1;
                     let trimmed = gap_text.trim();
                     if !trimmed.is_empty() {
@@ -614,7 +722,6 @@ impl<'a> AstWalker<'a> {
                 }
             }
         }
-        builder
     }
 
     /// Emit formatting constraints for a node (indentation, position).
@@ -622,8 +729,8 @@ impl<'a> AstWalker<'a> {
         &self,
         node: tree_sitter::Node<'_>,
         vertex_id: &str,
-        mut builder: SchemaBuilder,
-    ) -> SchemaBuilder {
+        cell: &mut BuilderCell,
+    ) {
         let start = node.start_position();
 
         // Capture indentation (column of first character on the line).
@@ -635,7 +742,7 @@ impl<'a> AstWalker<'a> {
                 if let Ok(indent) = std::str::from_utf8(&self.source[line_start..indent_end]) {
                     // Only capture if the extracted region is pure whitespace.
                     if !indent.is_empty() && indent.trim().is_empty() {
-                        builder = builder.constraint(vertex_id, "indent", indent);
+                        cell.map(|b| b.constraint(vertex_id, "indent", indent));
                     }
                 }
             }
@@ -650,16 +757,12 @@ impl<'a> AstWalker<'a> {
                 let gap = &self.source[gap_start..gap_end];
                 let blank_lines = memchr::memchr_iter(b'\n', gap).count().saturating_sub(1);
                 if blank_lines > 0 {
-                    builder = builder.constraint(
-                        vertex_id,
-                        "blank-lines-before",
-                        &blank_lines.to_string(),
-                    );
+                    cell.map(|b| {
+                        b.constraint(vertex_id, "blank-lines-before", &blank_lines.to_string())
+                    });
                 }
             }
         }
-
-        builder
     }
 }
 
