@@ -100,11 +100,13 @@ impl Term {
 
     /// Apply a substitution (variable name → term) to this term.
     ///
-    /// Under [`Self::Case`], branch binders shadow the outer scope: a
-    /// binding in `subst` for a name that a branch also binds is
-    /// dropped from the substitution when descending into that
-    /// branch's body. Variables inside the scrutinee are always
-    /// substituted (the scrutinee is in the outer scope).
+    /// The substitution is capture-avoiding. Under [`Self::Case`] and
+    /// [`Self::Let`], a binder shadows the outer scope, so a binding in
+    /// `subst` for a name the binder also binds is dropped when
+    /// descending into the body; a binder that would otherwise capture a
+    /// free variable of the substitution's image is alpha-renamed to a
+    /// fresh name first. Variables inside a scrutinee or a `let`-bound
+    /// term are always substituted, since those sit in the outer scope.
     #[must_use]
     pub fn substitute(&self, subst: &rustc_hash::FxHashMap<Arc<str>, Self>) -> Self {
         match self {
@@ -117,64 +119,31 @@ impl Term {
             Self::Case {
                 scrutinee,
                 branches,
-            } => {
-                let new_scrutinee = Box::new(scrutinee.substitute(subst));
-                let new_branches = branches
+            } => Self::Case {
+                scrutinee: Box::new(scrutinee.substitute(subst)),
+                branches: branches
                     .iter()
-                    .map(|b| {
-                        let mut inner = subst.clone();
-                        for binder in &b.binders {
-                            inner.remove(binder);
-                        }
-                        CaseBranch {
-                            constructor: Arc::clone(&b.constructor),
-                            binders: b.binders.clone(),
-                            body: b.body.substitute(&inner),
-                        }
-                    })
-                    .collect();
-                Self::Case {
-                    scrutinee: new_scrutinee,
-                    branches: new_branches,
-                }
-            }
+                    .map(|b| substitute_case_branch(b, subst))
+                    .collect(),
+            },
             Self::Let { name, bound, body } => {
                 let new_bound = Box::new(bound.substitute(subst));
                 let mut inner = subst.clone();
                 inner.remove(name);
-                // Capture avoidance: if any term in `inner` (restricted
-                // to vars that are free in `body`) has `name` as a free
-                // variable, alpha-rename the binder to a fresh name.
                 let body_free = body.free_vars();
-                let mut captures = false;
-                let mut taken: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
-                for (k, v) in &inner {
-                    if body_free.contains(k) {
-                        let fv = v.free_vars();
-                        if fv.contains(name) {
-                            captures = true;
-                        }
-                        for n in fv {
-                            taken.insert(n);
-                        }
-                    }
-                }
-                if captures {
-                    // Choose a fresh name disjoint from `taken`, from
-                    // free vars of body, and from the old name.
-                    let mut fresh = format!("{name}'");
-                    while taken.contains::<str>(fresh.as_str())
-                        || body_free.contains::<str>(fresh.as_str())
-                        || &*fresh == name.as_ref()
-                    {
-                        fresh.push('\'');
-                    }
-                    let fresh_name: Arc<str> = Arc::from(fresh);
+                let image = image_free_vars(&inner, &body_free);
+                if image.contains(name) {
+                    // The binder would capture a free variable of the
+                    // substitution's image; alpha-rename it first.
+                    let mut avoid = image;
+                    avoid.extend(body_free);
+                    avoid.insert(Arc::clone(name));
+                    let fresh = fresh_binder(name, &avoid);
                     let mut rename = rustc_hash::FxHashMap::default();
-                    rename.insert(Arc::clone(name), Self::Var(Arc::clone(&fresh_name)));
+                    rename.insert(Arc::clone(name), Self::Var(Arc::clone(&fresh)));
                     let renamed_body = body.substitute(&rename);
                     Self::Let {
-                        name: fresh_name,
+                        name: fresh,
                         bound: new_bound,
                         body: Box::new(renamed_body.substitute(&inner)),
                     }
@@ -271,6 +240,78 @@ impl Term {
                 body: Box::new(body.rename_ops(op_map)),
             },
         }
+    }
+}
+
+/// The free variables of the substitution's image, restricted to the
+/// variables that actually occur free in the body being descended into.
+///
+/// A binder can only capture a name that some surviving replacement term
+/// actually contributes to the body, so restricting the image to the
+/// body's free variables keeps alpha-renaming to the cases that need it.
+fn image_free_vars(
+    subst: &rustc_hash::FxHashMap<Arc<str>, Term>,
+    body_free: &rustc_hash::FxHashSet<Arc<str>>,
+) -> rustc_hash::FxHashSet<Arc<str>> {
+    let mut image = rustc_hash::FxHashSet::default();
+    for (name, replacement) in subst {
+        if body_free.contains(name) {
+            image.extend(replacement.free_vars());
+        }
+    }
+    image
+}
+
+/// Derive a binder name outside `avoid` by appending primes to `base`.
+fn fresh_binder(base: &str, avoid: &rustc_hash::FxHashSet<Arc<str>>) -> Arc<str> {
+    let mut candidate = format!("{base}'");
+    while avoid.contains(candidate.as_str()) {
+        candidate.push('\'');
+    }
+    Arc::from(candidate)
+}
+
+/// Apply a substitution inside one case branch, alpha-renaming the
+/// branch's binders where they would capture a free variable of the
+/// substitution's image.
+///
+/// Binders shadow the outer scope, so their entries are dropped from the
+/// substitution before descending. A binder that a later binder in the
+/// same list shadows binds no occurrence in the body and is left alone.
+fn substitute_case_branch(
+    branch: &CaseBranch,
+    subst: &rustc_hash::FxHashMap<Arc<str>, Term>,
+) -> CaseBranch {
+    let mut inner = subst.clone();
+    for binder in &branch.binders {
+        inner.remove(binder);
+    }
+    let body_free = branch.body.free_vars();
+    let image = image_free_vars(&inner, &body_free);
+    let mut avoid = image.clone();
+    avoid.extend(body_free);
+    avoid.extend(branch.binders.iter().map(Arc::clone));
+
+    let mut binders = Vec::with_capacity(branch.binders.len());
+    let mut body = branch.body.clone();
+    for (position, binder) in branch.binders.iter().enumerate() {
+        let shadowed_later = branch.binders[position + 1..].contains(binder);
+        if shadowed_later || !image.contains(binder) {
+            binders.push(Arc::clone(binder));
+            continue;
+        }
+        let fresh = fresh_binder(binder, &avoid);
+        avoid.insert(Arc::clone(&fresh));
+        let mut rename = rustc_hash::FxHashMap::default();
+        rename.insert(Arc::clone(binder), Term::Var(Arc::clone(&fresh)));
+        body = body.substitute(&rename);
+        binders.push(fresh);
+    }
+
+    CaseBranch {
+        constructor: Arc::clone(&branch.constructor),
+        binders,
+        body: body.substitute(&inner),
     }
 }
 
@@ -1599,5 +1640,98 @@ mod tests {
                 }
             }
         }
+    }
+
+    // --- capture avoidance under case-branch binders ---
+
+    fn case_of(scrutinee: Term, constructor: &str, binders: &[&str], body: Term) -> Term {
+        Term::Case {
+            scrutinee: Box::new(scrutinee),
+            branches: vec![CaseBranch {
+                constructor: Arc::from(constructor),
+                binders: binders.iter().map(|b| Arc::from(*b)).collect(),
+                body,
+            }],
+        }
+    }
+
+    #[test]
+    fn substitute_avoids_capture_under_case_binder() {
+        // (case s of c(y) => pair(x, y))[x := y]: the incoming y must stay
+        // free, so the branch binder is alpha-renamed.
+        let term = case_of(
+            Term::var("s"),
+            "c",
+            &["y"],
+            Term::app("pair", vec![Term::var("x"), Term::var("y")]),
+        );
+        let mut subst = rustc_hash::FxHashMap::default();
+        subst.insert(Arc::from("x"), Term::var("y"));
+        let result = term.substitute(&subst);
+        let free = result.free_vars();
+        assert!(
+            free.contains("y"),
+            "substituted y must remain free, got {free:?} from {result:?}"
+        );
+        assert!(free.contains("s"), "scrutinee stays free, got {free:?}");
+    }
+
+    #[test]
+    fn substitute_preserves_alpha_equivalence_under_case_binder() {
+        // Two alpha-equivalent terms differing only in a branch binder must
+        // stay alpha-equivalent after the same substitution.
+        let with_y = case_of(
+            Term::var("s"),
+            "c",
+            &["y"],
+            Term::app("pair", vec![Term::var("x"), Term::var("y")]),
+        );
+        let with_z = case_of(
+            Term::var("s"),
+            "c",
+            &["z"],
+            Term::app("pair", vec![Term::var("x"), Term::var("z")]),
+        );
+        assert!(alpha_equivalent(&with_y, &with_z), "inputs are alpha-equal");
+        let mut subst = rustc_hash::FxHashMap::default();
+        subst.insert(Arc::from("x"), Term::var("y"));
+        let out_y = with_y.substitute(&subst);
+        let out_z = with_z.substitute(&subst);
+        assert!(
+            alpha_equivalent(&out_y, &out_z),
+            "substitution must respect alpha-equivalence: {out_y:?} vs {out_z:?}"
+        );
+    }
+
+    #[test]
+    fn normalize_case_contraction_respects_alpha_equivalence() {
+        // case c(v) of c(w) => case s of d(BINDER) => pair(w, BINDER)
+        // Contracting the outer case substitutes w := v into the inner case,
+        // whose binder must not capture v.
+        let build = |inner_binder: &str| {
+            case_of(
+                Term::app("c", vec![Term::var("v")]),
+                "c",
+                &["w"],
+                case_of(
+                    Term::var("s"),
+                    "d",
+                    &[inner_binder],
+                    Term::app("pair", vec![Term::var("w"), Term::var(inner_binder)]),
+                ),
+            )
+        };
+        let shadowing = build("v");
+        let distinct = build("u");
+        assert!(
+            alpha_equivalent(&shadowing, &distinct),
+            "inputs are alpha-equal"
+        );
+        let nf_shadowing = normalize(&shadowing, &[], 100);
+        let nf_distinct = normalize(&distinct, &[], 100);
+        assert!(
+            alpha_equivalent(&nf_shadowing, &nf_distinct),
+            "normalization must respect alpha-equivalence: {nf_shadowing:?} vs {nf_distinct:?}"
+        );
     }
 }
