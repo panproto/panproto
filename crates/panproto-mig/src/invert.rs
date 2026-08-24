@@ -132,6 +132,7 @@ pub fn invert(
         // it, but a hand-built enriched migration does. That is a known gap and
         // it is separate from the endpoints below.
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         // The endpoints are carried across, swapped. An inverse runs from the
         // codomain to the domain, so dropping them made every inverse
         // composable with everything, which is exactly the check `compose`
@@ -303,6 +304,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -341,6 +343,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };

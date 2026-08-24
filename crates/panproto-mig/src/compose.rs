@@ -193,6 +193,38 @@ fn compose_hyper_resolvers(
     hyper_resolver
 }
 
+/// Compose the two migrations' value-level actions.
+///
+/// For a source vertex `v`, the composite's action is `m2`'s action at `m1`'s
+/// image of `v` applied to `m1`'s action at `v`. Where only one step acts, that
+/// step's action is the composite's. A vertex `m2` drops carries no action,
+/// since the composite does not reach a target for it, and an action `m2`
+/// applies at a vertex outside `m1`'s image belongs to no source vertex of the
+/// composite.
+fn compose_coercion_tables(
+    m1: &Migration,
+    m2: &Migration,
+) -> HashMap<Name, panproto_schema::CoercionSpec> {
+    let mut composed = HashMap::new();
+    for (src_v, mid_v) in &m1.vertex_map {
+        if !m2.vertex_map.contains_key(mid_v) {
+            continue;
+        }
+        let first = m1.coercions.get(src_v);
+        let second = m2.coercions.get(mid_v);
+        let spec = match (first, second) {
+            (Some(f), Some(s)) => Some(crate::migration::compose_coercions(f, s)),
+            (Some(f), None) => Some(f.clone()),
+            (None, Some(s)) => Some(s.clone()),
+            (None, None) => None,
+        };
+        if let Some(spec) = spec {
+            composed.insert(src_v.clone(), spec);
+        }
+    }
+    composed
+}
+
 /// Compose two migrations: `m1: G1 -> G2` and `m2: G2 -> G3`
 /// into `m12: G1 -> G3`.
 ///
@@ -343,6 +375,8 @@ pub fn compose_with_report(
             .or_insert_with(|| expr.clone());
     }
 
+    let coercions = compose_coercion_tables(m1, m2);
+
     let composed = Migration {
         vertex_map,
         edge_map,
@@ -351,6 +385,7 @@ pub fn compose_with_report(
         resolver,
         hyper_resolver,
         expr_resolvers,
+        coercions,
         domain: m1.domain.clone(),
         codomain: m2.codomain.clone(),
     };
@@ -431,6 +466,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -455,6 +491,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -486,6 +523,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -498,6 +536,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -510,6 +549,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -542,6 +582,7 @@ mod tests {
             resolver: HashMap::from([(("c".into(), "d".into()), resolver_edge.clone())]),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -557,6 +598,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -572,6 +614,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -603,6 +646,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -616,6 +660,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -684,6 +729,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -696,6 +742,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };

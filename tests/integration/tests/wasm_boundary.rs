@@ -58,6 +58,7 @@ fn migration_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };

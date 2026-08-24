@@ -292,6 +292,7 @@ struct CanonicalMigration {
     resolver: BTreeMap<(String, String), Edge>,
     hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)>,
     expr_resolvers: BTreeMap<(String, String), panproto_expr::Expr>,
+    coercions: BTreeMap<String, panproto_schema::CoercionSpec>,
 }
 
 // ---------------------------------------------------------------------------
@@ -372,6 +373,11 @@ pub fn hash_migration(
             .expr_resolvers
             .iter()
             .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
+            .collect(),
+        coercions: migration
+            .coercions
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
             .collect(),
     };
     let bytes = rmp_serde::to_vec(&canonical)?;

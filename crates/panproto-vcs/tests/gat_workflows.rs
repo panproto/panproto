@@ -1056,6 +1056,7 @@ fn gat_validate_migration_with_schema_checking() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };
@@ -1090,6 +1091,7 @@ fn gat_validate_migration_with_schema_checking() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };
