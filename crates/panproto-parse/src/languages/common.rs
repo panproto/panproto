@@ -9,6 +9,7 @@
 //! 3. Language-specific [`WalkerConfig`](crate::walker::WalkerConfig) overrides
 //! 4. File extension mapping
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use panproto_gat::is_interstitial_text_sort;
@@ -335,19 +336,22 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
         let Some(constraints) = schema.constraints.get(name) else {
             continue;
         };
-        let recorded_byte = |sort: &str| -> Option<usize> {
-            constraints
-                .iter()
-                .find(|c| c.sort.as_ref() == sort)
-                .and_then(|c| c.value.parse::<usize>().ok())
-        };
+        // Index the vertex's constraints by sort once. A vertex with many
+        // children carries one interstitial per gap, and looking each one's
+        // span up by scanning the whole list again made replay quadratic in a
+        // node's fan-out.
+        let by_sort: HashMap<&str, &str> = constraints
+            .iter()
+            .map(|c| (c.sort.as_ref(), c.value.as_str()))
+            .collect();
+        let recorded_byte =
+            |sort: &str| -> Option<usize> { by_sort.get(sort)?.parse::<usize>().ok() };
 
         // The leaf literal, spanning the vertex itself.
-        let literal = constraints
-            .iter()
-            .find(|c| c.sort.as_ref() == "literal-value")
-            .map(|c| c.value.clone());
-        if let (Some(start), Some(text)) = (recorded_byte("start-byte"), literal) {
+        if let (Some(start), Some(text)) = (
+            recorded_byte("start-byte"),
+            by_sort.get("literal-value").map(|t| (*t).to_owned()),
+        ) {
             let end = recorded_byte("end-byte").unwrap_or(start + text.len());
             fragments.push(Fragment {
                 start,
@@ -358,16 +362,21 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
         }
 
         // The interstitial runs between this vertex's named children.
+        let mut span_sort = String::new();
         for c in constraints {
             let sort_str = c.sort.as_ref();
             if !is_interstitial_text_sort(sort_str) {
                 continue;
             }
-            let Some(start) = recorded_byte(&format!("{sort_str}-start-byte")) else {
+            span_sort.clear();
+            span_sort.push_str(sort_str);
+            span_sort.push_str("-start-byte");
+            let Some(start) = recorded_byte(&span_sort) else {
                 continue;
             };
-            let end =
-                recorded_byte(&format!("{sort_str}-end-byte")).unwrap_or(start + c.value.len());
+            span_sort.truncate(sort_str.len());
+            span_sort.push_str("-end-byte");
+            let end = recorded_byte(&span_sort).unwrap_or(start + c.value.len());
             fragments.push(Fragment {
                 start,
                 end,

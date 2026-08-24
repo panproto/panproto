@@ -150,7 +150,7 @@ impl<'a> AstWalker<'a> {
         let builder = SchemaBuilder::new(self.protocol);
         let root = tree.root_node();
 
-        let builder = self.walk_node(root, builder, &mut id_gen, None)?;
+        let builder = self.walk_node(root, builder, &mut id_gen, None, None)?;
 
         builder.build().map_err(|e| ParseError::SchemaConstruction {
             reason: e.to_string(),
@@ -169,6 +169,7 @@ impl<'a> AstWalker<'a> {
         mut builder: SchemaBuilder,
         id_gen: &mut IdGenerator,
         parent_vertex_id: Option<&str>,
+        field_name: Option<&str>,
     ) -> Result<SchemaBuilder, ParseError> {
         // Skip anonymous tokens (punctuation, keywords like `{`, `}`, `,`, etc.).
         // Error-recovery MISSING anonymous tokens (a zero-width `}`, `)`, `,`,
@@ -244,26 +245,14 @@ impl<'a> AstWalker<'a> {
                 reason: format!("vertex '{vertex_id}' ({kind}): {e}"),
             })?;
 
-        // Emit edge from parent to this node.
+        // Emit edge from parent to this node. The edge kind is the
+        // tree-sitter field name this node was reached through, which the
+        // parent resolved from the child's own index while walking. Searching
+        // the parent's child list for this node instead made the walk
+        // quadratic in a node's fan-out: a row with a few thousand columns
+        // rescanned a few thousand siblings a few thousand times.
         if let Some(parent_id) = parent_vertex_id {
-            // Determine edge kind: use the tree-sitter field name if this node
-            // was accessed via a field, otherwise use "child_of".
-            let edge_kind = node
-                .parent()
-                .and_then(|p| {
-                    // Find which field of the parent this node corresponds to.
-                    for i in 0..p.child_count() {
-                        if let Some(child) = p.child(u32::try_from(i).unwrap_or(0)) {
-                            if child.id() == node.id() {
-                                return u32::try_from(i)
-                                    .ok()
-                                    .and_then(|idx| p.field_name_for_child(idx));
-                            }
-                        }
-                    }
-                    None
-                })
-                .unwrap_or("child_of");
+            let edge_kind = field_name.unwrap_or("child_of");
 
             builder = builder
                 .edge(parent_id, &vertex_id, edge_kind, None)
@@ -422,14 +411,29 @@ impl<'a> AstWalker<'a> {
         id_gen: &mut IdGenerator,
         vertex_id: &str,
     ) -> Result<SchemaBuilder, ParseError> {
+        // One pass over every child. The named ones are walked (each with the
+        // field name its index resolves to), and the anonymous MISSING ones
+        // are collected for the error-recovery markers below, so neither
+        // needs its own scan of the child list.
         let cursor = &mut node.walk();
-        let children: Vec<_> = node.named_children(cursor).collect();
+        let mut children: Vec<(tree_sitter::Node<'_>, Option<&str>)> = Vec::new();
+        let mut missing_children: Vec<tree_sitter::Node<'_>> = Vec::new();
+        for (index, child) in node.children(cursor).enumerate() {
+            if child.is_named() {
+                let field = u32::try_from(index)
+                    .ok()
+                    .and_then(|idx| node.field_name_for_child(idx));
+                children.push((child, field));
+            } else if child.is_missing() {
+                missing_children.push(child);
+            }
+        }
         let mut interstitial_idx = 0;
         let mut prev_end = node.start_byte();
         let mut fingerprint_parts: Vec<String> = Vec::new();
         let mut child_kinds: Vec<String> = Vec::new();
 
-        for child in &children {
+        for &(child, field) in &children {
             let gap_start = prev_end;
             let gap_end = child.start_byte();
             builder = self.capture_interstitial(
@@ -453,7 +457,7 @@ impl<'a> AstWalker<'a> {
             if !child_kind.starts_with('_') {
                 child_kinds.push(child_kind.to_owned());
             }
-            builder = self.walk_node(*child, builder, id_gen, Some(vertex_id))?;
+            builder = self.walk_node(child, builder, id_gen, Some(vertex_id), field)?;
             prev_end = child.end_byte();
         }
 
@@ -465,11 +469,8 @@ impl<'a> AstWalker<'a> {
         // vertex and no zero-width vertex — indistinguishable from a complete
         // parse. Emit a marker for each so schema walkers that reject ERROR /
         // zero-width vertices detect the recovery.
-        let missing_cursor = &mut node.walk();
-        for child in node.children(missing_cursor) {
-            if child.is_missing() && !child.is_named() {
-                builder = self.emit_missing_marker(child, builder, id_gen, vertex_id)?;
-            }
+        for child in missing_children {
+            builder = self.emit_missing_marker(child, builder, id_gen, vertex_id)?;
         }
 
         // Trailing interstitial after the last child.
