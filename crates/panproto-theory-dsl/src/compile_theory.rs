@@ -527,7 +527,7 @@ pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
             let args_str = &inner[..close];
             let args = split_top_level_commas(args_str)
                 .into_iter()
-                .map(parse_term)
+                .map(|arg| parse_term_at_depth(arg, 1))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(SortExpr::app(Arc::from(head), args))
         }
@@ -695,17 +695,45 @@ fn parse_expr(expr_str: &str, context: &str) -> Result<panproto_expr::Expr, Theo
 /// malformed identifiers, unclosed parentheses, missing keywords, or
 /// errors propagated from nested term parses.
 pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
+    parse_term_at_depth(s, 0)
+}
+
+/// How deeply a term may nest before the parser refuses to descend further.
+///
+/// The parser is recursive descent and the traversals that consume its
+/// output — substitution, free-variable collection, alpha-equivalence,
+/// normalisation — are recursive over the same structure. Neither fails on a
+/// term deeper than the stack can hold: the process aborts on a signal no
+/// caller can handle. A term arrives as text a caller did not necessarily
+/// write, so the depth is bounded here, where the structure is built, and
+/// every consumer downstream inherits the bound.
+///
+/// The value leaves several times the headroom the tightest environment
+/// needs. An unoptimised build on a two-megabyte thread parses a little under
+/// six hundred levels and traverses a little under a thousand, and a term
+/// that nests past a hundred and twenty-eight applications is not one anybody
+/// wrote by hand.
+pub const MAX_TERM_NESTING_DEPTH: usize = 128;
+
+/// [`parse_term`], `depth` levels into the descent.
+fn parse_term_at_depth(s: &str, depth: usize) -> Result<panproto_gat::Term, String> {
+    if depth > MAX_TERM_NESTING_DEPTH {
+        return Err(format!(
+            "term nests deeper than the {MAX_TERM_NESTING_DEPTH}-level limit"
+        ));
+    }
+
     let s = s.trim();
     if s.is_empty() {
         return Err("empty term string".to_owned());
     }
 
     if let Some(rest) = s.strip_prefix("case ") {
-        return parse_case_term(rest);
+        return parse_case_term(rest, depth);
     }
 
     if let Some(rest) = s.strip_prefix("let ") {
-        return parse_let_term(rest);
+        return parse_let_term(rest, depth);
     }
 
     if let Some(rest) = s.strip_prefix('?') {
@@ -739,7 +767,7 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
             let args_str = &inner[..close];
             let args = split_top_level_commas(args_str)
                 .into_iter()
-                .map(parse_term)
+                .map(|arg| parse_term_at_depth(arg, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(panproto_gat::Term::App {
                 op: Arc::from(op_name),
@@ -757,7 +785,7 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
 /// ```text
 /// let_body ::= ident '=' term 'in' term
 /// ```
-fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
+fn parse_let_term(rest: &str, depth: usize) -> Result<panproto_gat::Term, String> {
     let rest = rest.trim();
     let eq_pos = rest
         .find('=')
@@ -769,8 +797,8 @@ fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
         .ok_or_else(|| format!("let term missing `in`: {rest:?}"))?;
     let bound_str = after_eq[..in_pos].trim();
     let body_str = after_eq[in_pos + 2..].trim();
-    let bound = parse_term(bound_str)?;
-    let body = parse_term(body_str)?;
+    let bound = parse_term_at_depth(bound_str, depth + 1)?;
+    let body = parse_term_at_depth(body_str, depth + 1)?;
     Ok(panproto_gat::Term::Let {
         name: Arc::from(name_part),
         bound: Box::new(bound),
@@ -787,7 +815,7 @@ fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
 /// case_body ::= scrutinee 'of' branch ('|' branch)* 'end'
 /// branch    ::= ctor '(' binder (',' binder)* ')' '=>' body
 /// ```
-fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
+fn parse_case_term(rest: &str, depth: usize) -> Result<panproto_gat::Term, String> {
     let rest = rest.trim();
     let stripped = rest
         .strip_suffix("end")
@@ -797,7 +825,7 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
         .ok_or_else(|| format!("case term missing `of` keyword: {rest:?}"))?;
     let scrutinee_str = stripped[..of_pos].trim();
     let branches_str = stripped[of_pos + 2..].trim();
-    let scrutinee = parse_term(scrutinee_str)?;
+    let scrutinee = parse_term_at_depth(scrutinee_str, depth + 1)?;
 
     let branch_parts = split_top_level_pipes(branches_str);
     if branch_parts.is_empty() {
@@ -805,7 +833,7 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
     }
     let branches = branch_parts
         .into_iter()
-        .map(parse_case_branch)
+        .map(|branch| parse_case_branch(branch, depth + 1))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(panproto_gat::Term::Case {
@@ -814,14 +842,14 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
     })
 }
 
-fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
+fn parse_case_branch(s: &str, depth: usize) -> Result<panproto_gat::CaseBranch, String> {
     let s = s.trim();
     let arrow = s
         .find("=>")
         .ok_or_else(|| format!("case branch missing `=>`: {s:?}"))?;
     let head = s[..arrow].trim();
     let body_str = s[arrow + 2..].trim();
-    let body = parse_term(body_str)?;
+    let body = parse_term_at_depth(body_str, depth)?;
 
     let paren_pos = head
         .find('(')
