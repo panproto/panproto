@@ -14,6 +14,15 @@ pub fn free_vars(expr: &Expr) -> FxHashSet<Arc<str>> {
     vars
 }
 
+/// Walk `expr`, adding every variable occurrence not covered by an
+/// enclosing binder to `free`.
+///
+/// `bound` is a scratch scope shared across the whole walk. Every binding
+/// form restores it on exit by removing exactly the names this frame
+/// inserted: a name already present came from an enclosing binder that
+/// still shadows the sibling subtrees, so removing it would report bound
+/// occurrences as free, while leaving a newly inserted name behind would
+/// hide genuinely free occurrences in the siblings that follow.
 fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashSet<Arc<str>>) {
     match expr {
         Expr::Var(name) => {
@@ -22,9 +31,9 @@ fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashS
             }
         }
         Expr::Lam(param, body) => {
-            let was_bound = bound.insert(Arc::clone(param));
+            let newly_bound = bound.insert(Arc::clone(param));
             collect_free(body, bound, free);
-            if !was_bound {
+            if newly_bound {
                 bound.remove(param);
             }
         }
@@ -66,9 +75,9 @@ fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashS
         }
         Expr::Let { name, value, body } => {
             collect_free(value, bound, free);
-            let was_bound = bound.insert(Arc::clone(name));
+            let newly_bound = bound.insert(Arc::clone(name));
             collect_free(body, bound, free);
-            if !was_bound {
+            if newly_bound {
                 bound.remove(name);
             }
         }
@@ -288,5 +297,58 @@ mod tests {
             }
             _ => panic!("expected Let"),
         }
+    }
+
+    #[test]
+    fn free_vars_lambda_does_not_leak_into_siblings() {
+        // record { f = \x -> x, g = x }: the record's own `x` is free.
+        let expr = Expr::Record(vec![
+            (Arc::from("f"), Expr::lam("x", Expr::var("x"))),
+            (Arc::from("g"), Expr::var("x")),
+        ]);
+        let fv = free_vars(&expr);
+        assert!(
+            fv.contains("x"),
+            "sibling occurrence of x is free, got {fv:?}"
+        );
+    }
+
+    #[test]
+    fn free_vars_respects_shadowed_lambda_binder() {
+        // \x -> (\x -> x) x: closed, nothing free.
+        let expr = Expr::lam(
+            "x",
+            Expr::app(Expr::lam("x", Expr::var("x")), Expr::var("x")),
+        );
+        let fv = free_vars(&expr);
+        assert!(fv.is_empty(), "expression is closed, got {fv:?}");
+    }
+
+    #[test]
+    fn free_vars_let_does_not_leak_into_siblings() {
+        // record { f = let x = 1 in x, g = x }
+        let expr = Expr::Record(vec![
+            (
+                Arc::from("f"),
+                Expr::let_in("x", Expr::Lit(Literal::Int(1)), Expr::var("x")),
+            ),
+            (Arc::from("g"), Expr::var("x")),
+        ]);
+        let fv = free_vars(&expr);
+        assert!(
+            fv.contains("x"),
+            "sibling occurrence of x is free, got {fv:?}"
+        );
+    }
+
+    #[test]
+    fn free_vars_respects_shadowed_let_binder() {
+        // \x -> let x = 1 in x: closed.
+        let expr = Expr::lam(
+            "x",
+            Expr::let_in("x", Expr::Lit(Literal::Int(1)), Expr::var("x")),
+        );
+        let fv = free_vars(&expr);
+        assert!(fv.is_empty(), "expression is closed, got {fv:?}");
     }
 }
