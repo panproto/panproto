@@ -147,8 +147,12 @@ impl ComposeReport {
 /// Compose `hyper_resolver` tables from two migrations.
 ///
 /// Keys are `(source_he_id, source_labels)`, values are
-/// `(target_he_id, label_remap)`. For m1: keys are G1 source, values
-/// are G2 target. We chase values through m2 to get G3 target.
+/// `(target_he_id, label_remap)`. The composite is a migration `G1 -> G3`, so
+/// every key it holds — the selecting label set and the label remapping's own
+/// keys alike — names something a `G1` fan carries. `m1`'s entries are already
+/// keyed in `G1`, so only their values are chased forward through `m2`;
+/// `m2`'s entries are keyed in `G2`, so both halves are pulled back through
+/// `m1` before they are adopted.
 #[allow(clippy::type_complexity)]
 fn compose_hyper_resolvers(
     m1: &Migration,
@@ -158,6 +162,32 @@ fn compose_hyper_resolvers(
         m1.hyper_edge_map.iter().map(|(k, v)| (&**v, k)).collect();
     let vertex_inverse: FxHashMap<&str, &Name> =
         m1.vertex_map.iter().map(|(k, v)| (&**v, k)).collect();
+
+    // `m1`'s label renaming, read backwards: a source hyper-edge and a `G2`
+    // label give back the `G1` label it came from. Where several source labels
+    // renamed onto one, the least of them stands for the class, so the
+    // composite is a function of the two migrations.
+    let mut label_inverse: FxHashMap<(&str, &str), &Name> = FxHashMap::default();
+    for ((he, l_src), l_tgt) in &m1.label_map {
+        label_inverse
+            .entry((he.as_str(), l_tgt.as_str()))
+            .and_modify(|chosen| {
+                if l_src < *chosen {
+                    *chosen = l_src;
+                }
+            })
+            .or_insert(l_src);
+    }
+
+    // Pull one `G2` label back into `G1`: through `m1`'s label renaming for
+    // this hyper-edge where it renamed the label, through its vertex map where
+    // the label names a vertex, and unchanged where `m1` left it alone.
+    let pull_back = |he_g1: &Name, label: &Name| -> Name {
+        label_inverse
+            .get(&(he_g1.as_str(), label.as_str()))
+            .or_else(|| vertex_inverse.get(label.as_str()))
+            .map_or_else(|| label.clone(), |source| (*source).clone())
+    };
 
     let mut hyper_resolver = HashMap::new();
     for ((he1, labels1), (he2_tgt, label_remap1)) in &m1.hyper_resolver {
@@ -173,23 +203,31 @@ fn compose_hyper_resolvers(
             );
         }
     }
-    for ((he_id, labels), (tgt_he, label_remap)) in &m2.hyper_resolver {
-        let src_he_id = he_inverse
-            .get(&**he_id)
-            .map_or_else(|| he_id.clone(), |k| (*k).clone());
-        let remapped_labels: Vec<Name> = labels
-            .iter()
-            .map(|l| {
-                vertex_inverse
-                    .get(&**l)
-                    .map_or_else(|| l.clone(), |k| (*k).clone())
-            })
-            .collect();
-        let key = (src_he_id, remapped_labels);
-        hyper_resolver
-            .entry(key)
-            .or_insert_with(|| (tgt_he.clone(), label_remap.clone()));
+
+    // Adopt `m2`'s entries in key order rather than table order, so that two
+    // entries whose keys pull back onto one `G1` key resolve the same way on
+    // every run.
+    let mut adopted: Vec<((Name, Vec<Name>), (Name, HashMap<Name, Name>))> = m2
+        .hyper_resolver
+        .iter()
+        .map(|((he_id, labels), (tgt_he, label_remap))| {
+            let src_he_id = he_inverse
+                .get(he_id.as_str())
+                .map_or_else(|| he_id.clone(), |k| (*k).clone());
+            let source_labels: Vec<Name> =
+                labels.iter().map(|l| pull_back(&src_he_id, l)).collect();
+            let source_remap: HashMap<Name, Name> = label_remap
+                .iter()
+                .map(|(l_g2, l_g3)| (pull_back(&src_he_id, l_g2), l_g3.clone()))
+                .collect();
+            ((src_he_id, source_labels), (tgt_he.clone(), source_remap))
+        })
+        .collect();
+    adopted.sort_by(|a, b| a.0.cmp(&b.0));
+    for (key, value) in adopted {
+        hyper_resolver.entry(key).or_insert(value);
     }
+
     hyper_resolver
 }
 
