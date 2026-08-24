@@ -36,7 +36,7 @@ PANPROTO_SWIFT_XCFRAMEWORK=.panproto-c/panproto_c.xcframework swift build
 
 Everything that touches an engine resource is isolated to `PanprotoEngine`, a global actor whose executor is pinned to a single thread for the process's lifetime.
 
-The reason is narrower than it looks. The slab that hands out handles is process-global and mutex-guarded, so a handle really is valid from any thread. What is thread-local is the *last-error slot*: a failing entry point stashes its detail where only the calling thread can drain it. Every error message this binding reports depends on the drain landing on the thread that failed. A serial queue would give mutual exclusion but not thread identity, so that would hold only as long as no call ever suspended between the failure and the drain. Pinning makes it unconditional, at the cost of one resident thread.
+The reason is narrower than it looks. The slab that hands out handles and the last-error slot are both process-global and mutex-guarded, so a handle is valid from any thread and an envelope drains from any thread. What the slot cannot survive is *interleaving*: it holds one envelope, and a failing entry point plus the `pp_last_error_take` that reads its detail are two separate calls, so a second failure landing between them replaces the message the binding is about to report. Every error message this binding reports therefore depends on nothing running between the failure and the drain, which isolating every call on one actor guarantees. Pinning a thread rather than using a queue-backed executor costs one resident thread and buys a stack the engine sizes for deep schema recursion.
 
 In practice that means `await`:
 

@@ -1,14 +1,24 @@
 //! Errors crossing the C ABI boundary.
 //!
 //! Errors are not exposed as Rust enums to the C side. They are stashed
-//! in a thread-local "last error" slot and retrieved by the host via
+//! in a process-global "last error" slot and retrieved by the host via
 //! [`crate::api::pp_last_error_take`], which serializes them as CBOR.
+//!
+//! The slot is global, not thread-local, for the same reason the handle
+//! slab is: a host runtime is free to move the drain onto a different OS
+//! thread than the call that failed. GHC's threaded RTS migrates a
+//! Haskell thread across OS threads at every `safe` foreign call, and
+//! the Haskell binding drains the slot through a separate call, so a
+//! thread-local slot would lose the envelope or attribute it to an
+//! unrelated call. Callers that interleave failing calls from several
+//! threads must serialize call-plus-drain themselves; the slot holds one
+//! envelope, and the most recent write wins.
 //!
 //! The status codes returned by entry points are coarse-grained
 //! ([`PpStatus`]); the host inspects the last-error envelope for
 //! detail.
 
-use std::cell::RefCell;
+use std::sync::{Mutex, MutexGuard};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -18,17 +28,24 @@ use thiserror::Error;
 /// `0` is success; non-zero values indicate a failure category. The
 /// host can call [`crate::api::pp_last_error_take`] to retrieve a
 /// CBOR-encoded [`ErrorEnvelope`] with details.
-#[allow(missing_docs)]
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PpStatus {
+    /// The call succeeded.
     Ok = 0,
+    /// An unclassified failure.
     Err = 1,
+    /// A panic was caught at the FFI boundary.
     Panic = 2,
+    /// A handle was out of range or already freed.
     InvalidHandle = 3,
+    /// A handle pointed at a resource of the wrong type.
     TypeMismatch = 4,
+    /// CBOR encoding or decoding failed.
     Serialization = 5,
+    /// An internal panproto error.
     Internal = 6,
+    /// A domain operation (migration, lens, VCS, parse) failed.
     Operation = 7,
 }
 
@@ -152,18 +169,28 @@ impl From<&FfiError> for ErrorEnvelope {
     }
 }
 
-thread_local! {
-    static LAST_ERROR: RefCell<Option<ErrorEnvelope>> = const { RefCell::new(None) };
+static LAST_ERROR: Mutex<Option<ErrorEnvelope>> = Mutex::new(None);
+
+/// Lock the global last-error slot, recovering the guard if a previous
+/// holder panicked. `Option<ErrorEnvelope>` has no invariant a panic can
+/// break, so the recovered slot is sound and stays usable for subsequent
+/// calls; leaving it poisoned would instead make every later error
+/// report fail.
+fn lock_slot() -> MutexGuard<'static, Option<ErrorEnvelope>> {
+    LAST_ERROR
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Stash the last error for retrieval by the host.
 pub fn set_last_error(err: &FfiError) {
-    LAST_ERROR.with_borrow_mut(|slot| *slot = Some(ErrorEnvelope::from(err)));
+    *lock_slot() = Some(ErrorEnvelope::from(err));
 }
 
 /// Take the last error, clearing the slot.
+#[must_use]
 pub fn take_last_error() -> Option<ErrorEnvelope> {
-    LAST_ERROR.with_borrow_mut(Option::take)
+    lock_slot().take()
 }
 
 #[cfg(test)]
@@ -248,6 +275,17 @@ mod tests {
 
         // After take, slot is empty.
         assert!(take_last_error().is_none());
+    }
+
+    #[test]
+    fn last_error_crosses_thread_boundaries() {
+        let _ = take_last_error();
+        std::thread::spawn(|| set_last_error(&FfiError::Internal("from a worker".into())))
+            .join()
+            .expect("worker thread did not panic");
+        let env = take_last_error().expect("envelope set on another thread is visible here");
+        assert_eq!(env.tag, "internal");
+        assert!(env.message.contains("from a worker"));
     }
 
     #[test]

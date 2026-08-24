@@ -774,7 +774,7 @@ pp_hom_span_to_overlap (
  *  Installs a process-global Rust panic hook that suppresses the
  *  default stderr output. Panics are still observable: every entry
  *  point in this module catches them via [`crate::panic::guard`] and
- *  stashes the message in the thread-local last-error slot, which
+ *  stashes the message in the process-global last-error slot, which
  *  the host retrieves via [`pp_last_error_take`]. Without this hook
  *  the default Rust handler would print every caught panic to
  *  stderr before `guard` could report it, which is noisy and
@@ -782,9 +782,8 @@ pp_hom_span_to_overlap (
  *  status-code channel.
  *
  *  Idempotent: calling more than once just re-installs the same
- *  hook. Always returns [`PpStatus::Ok`]. The slab and last-error
- *  slots are thread-local `RefCell`s that initialize lazily, so they
- *  do not need explicit setup.
+ *  hook. Always returns [`PpStatus::Ok`]. The slab and the last-error
+ *  slot are process-global statics, so they need no explicit setup.
  */
 int32_t
 pp_init (void);

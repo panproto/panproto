@@ -6,9 +6,9 @@ import PanprotoFFI
 /// and leaves ownership to the host. This class is that ownership: one
 /// instance holds one slab entry, and the entry goes back to the
 /// engine when the instance does. Handles are engine-isolated, which is
-/// what keeps a failure and the drain of its thread-local error
-/// envelope on one thread, and they carry their slab variant as a type,
-/// so a `SchemaHandle` cannot be passed where the ABI wants a
+/// what keeps a failure and the drain of its error envelope adjacent
+/// with nothing interleaved, and they carry their slab variant as a
+/// type, so a `SchemaHandle` cannot be passed where the ABI wants a
 /// `ProtocolHandle`.
 ///
 /// The slab guarantees stable identity: an index names the same

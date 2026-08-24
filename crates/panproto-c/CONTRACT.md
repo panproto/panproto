@@ -32,7 +32,7 @@ conventions for each function.
 
 ## Resource handle taxonomy
 
-Handles index a thread-local slab whose variants mirror
+Handles index a process-global slab whose variants mirror
 `panproto_wasm::slab`: `Protocol`, `Schema`, `Migration`,
 `MigrationWithSchemas`, `IoRegistry`, `Theory`, `VcsRepo`,
 `ProtolensChain`, `SymmetricLens`, `DataSet`, plus feature-gated
