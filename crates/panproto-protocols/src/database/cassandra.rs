@@ -11,6 +11,7 @@ use std::hash::BuildHasher;
 use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
+use super::keyword::{contains_keyword, name_after_keyword, starts_with_keyword};
 use crate::emit::{children_by_edge, constraint_value, vertex_constraints};
 use crate::error::ProtocolError;
 use crate::theories;
@@ -88,11 +89,10 @@ pub fn parse_cql(input: &str) -> Result<Schema, ProtocolError> {
 
     for stmt in &statements {
         let trimmed = stmt.trim();
-        let upper = trimmed.to_uppercase();
 
-        if upper.starts_with("CREATE TABLE") {
+        if starts_with_keyword(trimmed, "CREATE TABLE") {
             builder = parse_create_table(builder, trimmed, &mut he_counter)?;
-        } else if upper.starts_with("CREATE TYPE") {
+        } else if starts_with_keyword(trimmed, "CREATE TYPE") {
             builder = parse_create_type(builder, trimmed)?;
         }
     }
@@ -200,9 +200,7 @@ fn parse_create_table(
         if trimmed.is_empty() {
             continue;
         }
-        let upper = trimmed.to_uppercase();
-
-        if upper.starts_with("PRIMARY KEY") {
+        if starts_with_keyword(trimmed, "PRIMARY KEY") {
             // Table-level PRIMARY KEY
             if let Ok(inner) = extract_parenthesized(trimmed) {
                 builder = builder.constraint(&table_name, "PRIMARY KEY", inner.trim());
@@ -221,14 +219,14 @@ fn parse_create_table(
         let kind = cql_type_to_kind(col_type);
         builder = builder.vertex(&col_id, &kind, None)?;
 
-        let rest = parts[2..].join(" ").to_uppercase();
-        if rest.contains("STATIC") {
+        let rest = parts[2..].join(" ");
+        if contains_keyword(&rest, "STATIC") {
             builder = builder.constraint(&col_id, "STATIC", "true");
         }
-        if rest.contains("NOT NULL") {
+        if contains_keyword(&rest, "NOT NULL") {
             builder = builder.constraint(&col_id, "NOT NULL", "true");
         }
-        if rest.contains("PRIMARY KEY") {
+        if contains_keyword(&rest, "PRIMARY KEY") {
             builder = builder.constraint(&col_id, "PRIMARY KEY", "true");
         }
 
@@ -276,24 +274,9 @@ fn parse_create_type(
 }
 
 fn extract_name_after_keyword(stmt: &str, keyword: &str) -> Result<String, ProtocolError> {
-    let upper = stmt.to_uppercase();
-    let start = if upper.contains("IF NOT EXISTS") {
-        upper
-            .find("IF NOT EXISTS")
-            .map(|i| i + "IF NOT EXISTS".len())
-    } else {
-        upper.find(keyword).map(|i| i + keyword.len())
-    };
-    let start = start.ok_or_else(|| ProtocolError::Parse(format!("no {keyword} keyword found")))?;
-    let remainder = stmt[start..].trim();
-    let name_end = remainder
-        .find(|c: char| c == '(' || c.is_whitespace())
-        .unwrap_or(remainder.len());
-    let name = remainder[..name_end].trim().trim_matches('"').to_string();
-    if name.is_empty() {
-        return Err(ProtocolError::Parse(format!("empty {keyword} name")));
-    }
-    Ok(name)
+    name_after_keyword(stmt, keyword, &["IF NOT EXISTS"])
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| ProtocolError::Parse(format!("no name after {keyword} keyword")))
 }
 
 fn extract_parenthesized(stmt: &str) -> Result<String, ProtocolError> {
@@ -454,6 +437,22 @@ mod tests {
         assert!(schema.has_vertex("users.name"));
         assert_eq!(schema.vertices.get("users.user_id").unwrap().kind, "uuid");
         assert_eq!(schema.vertices.get("users.age").unwrap().kind, "int");
+    }
+
+    #[test]
+    fn parse_table_name_ignores_guard_phrase_in_a_literal() {
+        let cql = "CREATE TABLE users (id uuid PRIMARY KEY, note text)                    WITH comment = 'use IF NOT EXISTS to be safe';";
+        let schema = parse_cql(cql).expect("should parse");
+        assert!(schema.has_vertex("users"));
+        assert!(schema.has_vertex("users.note"));
+    }
+
+    #[test]
+    fn parse_non_ascii_table_name() {
+        let cql = "CREATE TABLE IF NOT EXISTS \u{250}x (id uuid PRIMARY KEY, note text);";
+        let schema = parse_cql(cql).expect("should parse");
+        assert!(schema.has_vertex("\u{250}x"));
+        assert!(schema.has_vertex("\u{250}x.note"));
     }
 
     #[test]
