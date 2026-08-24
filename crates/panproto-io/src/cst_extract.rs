@@ -59,6 +59,26 @@ pub struct CstComplement {
     /// Maps `WInstance` node IDs to the CST vertex names of the structural
     /// node (object, pair, array element) for structural reconstruction.
     pub node_to_cst_struct: HashMap<u32, Name>,
+    /// Maps a tabular cell's `(row, column)` position to the CST vertices
+    /// carrying its text, keyed by [`tabular_cell_key`].
+    ///
+    /// A tabular instance has no `WInstance` node ids to key on — its cells
+    /// are addressed by position — so this is a separate map rather than a
+    /// packed encoding squeezed into `node_to_cst_value`'s `u32`.
+    pub cell_to_cst_value: HashMap<u64, Vec<Name>>,
+}
+
+/// The complement key for the cell at `row`, `column`.
+///
+/// The two indices occupy their own halves of a `u64`, so every pair of
+/// `u32` coordinates gets its own key. Packing them into a `u32` as
+/// `row * 10_000 + column` instead made row 1 column 0 collide with row 0
+/// column ten thousand, and overflowed outright at around four hundred
+/// thousand rows — both reachable in real tabular data, and both silently
+/// mis-targeting an edit.
+#[must_use]
+pub const fn tabular_cell_key(row: u32, column: u32) -> u64 {
+    ((row as u64) << 32) | (column as u64)
 }
 
 /// Errors from CST extraction and injection.
@@ -460,6 +480,7 @@ pub fn extract_json_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -1153,6 +1174,7 @@ pub fn extract_xml_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -1707,6 +1729,7 @@ pub fn extract_yaml_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -2202,6 +2225,7 @@ pub fn extract_tabular_cst(
             cst_schema: cst.clone(),
             node_to_cst_value: HashMap::new(),
             node_to_cst_struct: HashMap::new(),
+            cell_to_cst_value: HashMap::new(),
         };
         return Ok((FInstance::new(), complement));
     }
@@ -2212,10 +2236,9 @@ pub fn extract_tabular_cst(
         .map(|f| literal_text_deep(cst, f))
         .collect();
 
-    // Track CST vertex for each cell: keyed by (row_index, col_index)
-    // encoded as a u32 node ID = row_index * 10000 + col_index.
-    // This is stored in node_to_cst_value for injection.
-    let mut cell_to_cst: HashMap<u32, Vec<Name>> = HashMap::new();
+    // Track the CST vertex behind each cell, keyed by its (row, column)
+    // position, since a tabular instance has no node ids to key on.
+    let mut cell_to_cst: HashMap<u64, Vec<Name>> = HashMap::new();
     let mut rows = Vec::new();
 
     for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
@@ -2228,12 +2251,16 @@ pub fn extract_tabular_cst(
                 .unwrap_or_else(|| col_idx.to_string());
             let text = literal_text_deep(cst, field_name);
             row.insert(col, Value::Str(text));
-            // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
-            #[allow(clippy::cast_possible_truncation)]
-            let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
+            let (Ok(row_u32), Ok(col_u32)) = (u32::try_from(row_idx), u32::try_from(col_idx))
+            else {
+                continue;
+            };
             // Map to the leaf that owns the text, not the wrapper field, so
             // injection can actually rewrite the value.
-            cell_to_cst.insert(cell_key, vec![deepest_literal_vertex(cst, field_name)]);
+            cell_to_cst.insert(
+                tabular_cell_key(row_u32, col_u32),
+                vec![deepest_literal_vertex(cst, field_name)],
+            );
         }
         rows.push(row);
     }
@@ -2243,8 +2270,9 @@ pub fn extract_tabular_cst(
     let complement = CstComplement {
         format: "tabular".into(),
         cst_schema: cst.clone(),
-        node_to_cst_value: cell_to_cst,
+        node_to_cst_value: HashMap::new(),
         node_to_cst_struct: HashMap::new(),
+        cell_to_cst_value: cell_to_cst,
     };
 
     Ok((instance, complement))
@@ -2296,9 +2324,13 @@ pub fn inject_tabular_cst(
                         Value::Null => String::new(),
                         other => format!("{other:?}"),
                     };
-                    #[allow(clippy::cast_possible_truncation)]
-                    let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
-                    if let Some(segments) = complement.node_to_cst_value.get(&cell_key) {
+                    let (Ok(row_u32), Ok(col_u32)) =
+                        (u32::try_from(row_idx), u32::try_from(col_idx))
+                    else {
+                        continue;
+                    };
+                    let cell_key = tabular_cell_key(row_u32, col_u32);
+                    if let Some(segments) = complement.cell_to_cst_value.get(&cell_key) {
                         set_value_run(&mut cst, segments, &text);
                     }
                 }
