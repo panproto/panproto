@@ -4,14 +4,14 @@ The CLI is a single binary called `schema`. It is the entry point for the [`panp
 
 ## Prerequisites
 
-A POSIX shell on macOS or Linux, or PowerShell on Windows. No language toolchain is required; pre-built binaries are published with every release.
+A POSIX shell on macOS or Linux, or PowerShell on Windows. The binary releases cover the targets listed in the repository's cargo-dist configuration. Other targets require a Rust toolchain.
 
 ## Install
 
 ### Homebrew (macOS, Linux)
 
 ```sh
-brew install panproto/tap/panproto-cli
+brew install panproto/tap/schema
 ```
 
 ### Shell installer (macOS, Linux, WSL)
@@ -44,7 +44,7 @@ prints the installed version. The full subcommand list is at [Reference: CLI](..
 
 ## Common mistakes
 
-- Installing through `cargo install` without an up-to-date toolchain. panproto requires Rust 1.85+.
+- Installing through `cargo install` without an up-to-date toolchain. panproto requires Rust 1.85 or later.
 - Mixing the Homebrew install with a from-source install on the same machine: only one `schema` ends up first on `PATH`.
 
 ## See also

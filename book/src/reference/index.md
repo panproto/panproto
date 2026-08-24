@@ -1,6 +1,6 @@
 # Reference
 
-Use these pages to look up a name, flag, signature, field, [protocol](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."), or grammar. Procedures live in the [how-to guides](../how-to/index.md), and the mathematical model lives in [explanation](../explanation/index.md).
+Use these pages to look up a flag, field, signature, [protocol](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."), or grammar. Procedures live in the [how-to guides](../how-to/index.md); the mathematical model lives in [explanation](../explanation/index.md).
 
 ## Operational contracts
 
@@ -26,4 +26,4 @@ The [expression-language reference](./expression-language.md) lists the surface 
 
 ## Advanced lookup
 
-The [crate map](./crate-map.md) lists the 36 `panproto-*` workspace crates and their dependency roles. Use it when the facade does not expose the level at which an extension or integration must be implemented.
+The [crate map](./crate-map.md) groups the `panproto-*` workspace crates by dependency role and lists the main feature-gated edges. Use it when the facade does not expose the layer an extension needs.

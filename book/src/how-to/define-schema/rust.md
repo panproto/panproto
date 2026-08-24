@@ -27,7 +27,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
-`SchemaBuilder::new(&protocol)` constructs the builder; each `vertex` and `edge` call validates against the protocol's edge rules and obj-kind list. `entry` declares basepoint vertices for instance rooting. `build` returns a `Schema` (or a `SchemaError`).
+`SchemaBuilder::new(&protocol)` constructs the builder; each `vertex` and `edge` call validates against the protocol's vertex kinds and edge rules. `entry` declares a vertex at which an instance may be rooted. `build` rejects an empty schema or an entry that names no vertex, computes adjacency indexes, and returns an owned `Schema`. Constraint-sort validation remains a separate pass.
 
 ## Verification
 
@@ -44,12 +44,12 @@ assert!(errors.is_empty(), "validation errors: {errors:?}");
 # Ok(()) }
 ```
 
-`validate` returns a `Vec<ValidationError>`. The error carries the failing equation and the offending vertex or edge as structured fields.
+`validate` returns a `Vec<ValidationError>` for protocol-level structural failures such as an unknown vertex kind, invalid edge, unknown constraint sort, or dangling required edge. It does not evaluate theory equations.
 
 ## Common mistakes
 
 - Reaching past `panproto-core` to lower-level crates without a reason. The facade re-exports the canonical surface; do not depend on `panproto-schema` directly unless you need an internal API.
-- Holding `Schema` across an `await`. Handles are not `Send` by default; clone them or restructure the call.
+- Assuming `build()` validates constraints. The builder records constraints without checking their sorts; call `validate(&schema, &proto)` before using an externally supplied constraint.
 
 ## See also
 

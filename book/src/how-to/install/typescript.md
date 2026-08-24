@@ -28,8 +28,8 @@ console.log(p.listProtocols());
 ## Common mistakes
 
 - Forgetting to `await Panproto.init()`. The WASM load is asynchronous; using the handle before `init` resolves throws.
-- Bundler that does not understand `.wasm` imports. Vite handles these imports directly; older webpack configurations may need a loader.
-- Running under Node 18 or earlier. WebAssembly bigint coercion under those versions is incomplete; some integer operations will throw.
+- Using a bundler without WebAssembly asset support. Configure the bundler to copy and load the package's `.wasm` asset.
+- Running under Node earlier than 20. The package metadata requires Node 20 or later.
 
 ## See also
 

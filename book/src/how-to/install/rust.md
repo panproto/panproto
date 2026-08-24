@@ -12,7 +12,7 @@ A Rust toolchain at edition 2024 (toolchain 1.85+).
 panproto-core = "0.71"
 ```
 
-For specific feature flags (`full-parse`, `project`, `git`, `tree-sitter`), see [Reference: Rust SDK](../../reference/sdk-rust.md).
+The facade has no default features. Enable `full-parse`, `project`, `git`, or `tree-sitter` only when the application uses that surface; `project` also enables `full-parse`, and `git` enables both.
 
 ## Verification
 
@@ -35,7 +35,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 ## Common mistakes
 
-- Pinning a stale toolchain. `panproto-core` requires edition 2024.
+- Pinning a stale toolchain. `panproto-core` requires Rust 1.85 or later.
 - Depending on lower-level crates (`panproto-schema`, `panproto-mig`, ...) directly without a strong reason. The facade re-exports the canonical surface; reach past it only when you need an internal API.
 
 ## See also

@@ -6,7 +6,7 @@ These guides put schemas, migrations, and associated data under panproto version
 |---|---|
 | [Initialize and commit](./init-and-commit.md) | Start a repository, then stage and commit schema changes. |
 | [Branch and merge](./branch-and-merge.md) | Diverge a feature branch, merge it back via pushout. |
-| [Version data alongside schemas](./data-versioning.md) | Carry data instances in commits and lift them through migrations automatically. |
+| [Version data alongside schemas](./data-versioning.md) | Stage data instances with commits and run explicit migrations between schema versions. |
 | [Bridge to git](./git-bridge.md) | Run panproto-vcs alongside git, or as a custom git remote. |
 
 ## See also

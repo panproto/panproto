@@ -1,6 +1,6 @@
-# Use dependent optics
+# Classify a scoped transform
 
-A dependent optic applies one transform uniformly to `prop`, `item`, and `variant` edges. Instantiation selects `Lens`, `Traversal`, or `Prism` from the edge kind.
+A scoped transform applies an inner protolens to the sub-schema rooted at one vertex. The edge leading to that vertex determines whether the runtime focus behaves as a lens, traversal, or prism. The name is related to dependent optics [@vertechi2022dependent], but panproto implements a schema-edge-kind classifier rather than the paper's indexed-category construction.
 
 ## Prerequisites
 
@@ -8,39 +8,54 @@ The Rust SDK. The `panproto-lens` crate (re-exported from `panproto-core::lens`)
 
 ## The task
 
-### Apply a scoped transform
+### Build the scoped transform
 
 ```rust
 use panproto_lens::protolens::elementary;
-use panproto_lens::optic::OpticKind;
 
-// An elementary step is itself a Protolens whose optic kind is derived
-// from the edge kind at the focus.
 let inner = elementary::rename_edge_name("post", "tags", "tags", "labels");
 let scoped = elementary::scoped("post:tags", inner);
+```
 
-match scoped.optic_kind() {
-    OpticKind::Lens      => { /* prop edge */ }
-    OpticKind::Traversal => { /* item edge */ }
-    OpticKind::Prism     => { /* variant edge */ }
-    other => panic!("unexpected optic kind: {other:?}"),
+Because `elementary::scoped` constructs the protolens without inspecting a schema, `scoped.optic_kind()` returns the conservative theory-level classification `inner_kind.compose(OpticKind::Lens)`. The incoming edge kind is unavailable at construction time.
+
+### Refine the classification
+
+Read the incoming edge from the concrete schema, then pass its kind to `refine_scoped_optic`:
+
+```rust
+use panproto_lens::protolens::Protolens;
+use panproto_lens::{OpticKind, refine_scoped_optic};
+use panproto_schema::Schema;
+
+fn classify_scoped(schema: &Schema, scoped: &Protolens) -> OpticKind {
+    let incoming = schema
+        .incoming_edges("post:tags")
+        .iter()
+        .find(|edge| edge.src.as_ref() == "post")
+        .expect("post:tags must have an incoming edge from post");
+
+    refine_scoped_optic(incoming.kind.as_ref(), scoped.optic_kind())
 }
 ```
 
-`elementary::scoped` wraps an inner protolens at the given focus vertex. At the instance level the optic kind follows from the edge kind connecting the parent to the focus vertex: `prop` -> Lens, `item` -> Traversal, `variant` -> Prism.
+The result is `Lens` for one required focus, `Traversal` for zero or more item foci, and `Prism` for one optional variant focus.
+
+`refine_scoped_optic` uses `Lens` for `prop` and unrecognized edge kinds, `Traversal` for `item` and `items`, and `Prism` for `variant`. It composes that carrier with the inner kind.
 
 ### Field-level combinators
 
-The `panproto_lens::protolens::combinators` module exposes higher-level chains assembled from elementary steps; for instance `combinators::rename_field(parent, field, old_name, new_name)` returns a `ProtolensChain` that renames a JSON property key. To traverse an `item` edge and apply an inner transform per element, use `elementary::scoped` (or the `combinators::map_items` helper) targeting the array element's vertex; the result is a Traversal under the optic-kind classifier.
+The `panproto_lens::protolens::combinators` module exposes higher-level chains assembled from elementary steps. For instance, `combinators::rename_field(parent, field, old_name, new_name)` returns a `ProtolensChain` that renames a JSON property key. Use `elementary::scoped` or `combinators::map_items` to apply an inner transform to an array element vertex.
 
 ## Verification
 
-The lens laws apply uniformly across all three optic kinds. Instantiate the protolens into a `Lens` against a concrete schema, then call `panproto_lens::laws::check_laws(&lens, &instance)` (or `check_get_put` / `check_put_get` individually) on representative data; each returns `Result<(), LawViolation>`.
+Instantiate the protolens against a concrete schema, then call `panproto_lens::optic::check_optic_laws(kind, &lens, &instance)`. This checks the obligations implemented for the refined kind. The prism checker cannot test the full review law because this layer does not expose a review operation.
 
 ## Common mistakes
 
-- Hand-coding the optic kind. The point of dependent optics is that the kind follows from the edge; if you find yourself branching on it manually, read it off `Protolens::optic_kind()` (or `ProtolensChain::composed_optic_kind()` for chains) and let the schema decide.
-- Applying a `prop`-style combinator at an `item` edge. The carrier optic at an `item` edge is a Traversal, so `refine_scoped_optic` composes the inner Lens with Traversal to yield Traversal: the round-trip laws still hold, but the result is a multi-focus traversal rather than a single-focus lens, which is rarely what the call site meant.
+- Treating `Protolens::optic_kind()` as schema dependent. It classifies the stored theory transform only. Call `refine_scoped_optic` with the concrete edge kind for a scoped transform.
+- Assuming every non-`prop` spelling is rejected. The refinement function treats unknown kinds as `Lens`; validate the schema against its protocol before relying on the classification.
+- Treating the classified kind as proof of the laws. Run `check_optic_laws` on representative instances and handle `LawViolation`.
 
 ## See also
 

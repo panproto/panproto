@@ -1,8 +1,8 @@
 # Cross-protocol translation
 
-A migration can connect schemas registered under different protocols when their relevant structure agrees. This tutorial converts a `User` record from a [JSON Schema](https://json-schema.org/) graph to an [OpenAPI](https://www.openapis.org/) schema graph by mapping each object and property explicitly. It is the advanced continuation of [Your first migration](./your-first-migration.md) and takes about fifteen minutes.
+A migration can connect schemas registered under different protocols when their relevant structure agrees. This tutorial converts a `User` record from a [JSON Schema](https://json-schema.org/) graph to an [OpenAPI](https://www.openapis.org/) schema graph by mapping each object and property explicitly. It is the advanced continuation of [Your first migration](./your-first-migration.md).
 
-The example is deliberately narrow. JSON Schema and OpenAPI use the same constrained-multigraph schema basis and W-type instance shape in panproto, so their object, scalar, and property structure can align directly. Protocol pairs with different bases require a composed theory or a hand-authored lens; the tutorial returns to that boundary after the working conversion.
+The example is deliberately narrow. JSON Schema and OpenAPI use compatible object, scalar, and property structure in this case. The TypeScript existence check selects the source schema's registered protocol, so this example does not establish general cross-protocol checking. Protocol pairs with different structural rules require a repository-level bridge; [Translate across protocols](../how-to/cross-protocol.md) records the current boundary.
 
 ## Build both endpoints
 
@@ -91,9 +91,9 @@ converted: { displayName: 'Alice', years: 30 }
 
 `parseSchemaDocument('json-schema', ...)` uses the JSON Schema document parser and produces a schema rooted at `root`. The target is built against the registered `openapi` protocol. The migration maps vertices and edges across those two schema handles, and `liftJson()` emits the target field names.
 
-The existence report checks whether the explicit mapping supplies the target structure. The `assert.deepEqual` call separately checks the forward result. This tutorial does not claim a cross-protocol round trip: reverse conversion must be exercised with a compatible composed theory and concrete sample data before it can be treated as a lens-law guarantee.
+The existence report checks the explicit mapping with the source schema's registered protocol. The `assert.deepEqual` call separately checks this forward result. Neither check proves that arbitrary JSON Schema and OpenAPI documents can be translated, and the example does not establish a reverse trip.
 
-The target is an OpenAPI schema graph, not a complete emitted OpenAPI document. Document emission, constraint translation, references, variants, and defaults add structure beyond this two-field example. Those are the points at which a composed theory or an explicit lens specification becomes necessary.
+The target is an OpenAPI schema graph, not a complete emitted OpenAPI document. Document emission and constraint translation add structure beyond this two-field example.
 
 ## Continue on the advanced path
 

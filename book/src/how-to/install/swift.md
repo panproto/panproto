@@ -2,13 +2,13 @@
 
 ## Prerequisites
 
-[Swift](https://www.swift.org/) 6.0 or later, which on Apple platforms means Xcode 16 or later. The package builds in Swift 6 language mode with strict concurrency, so an older toolchain will not compile it.
+[Swift](https://www.swift.org/) 6.1 or later. The package manifest uses Swift tools 6.1 and Swift 6 language mode.
 
 Building `libpanproto_c` from source additionally needs a [Rust](https://www.rust-lang.org/) toolchain; `rustup` is recommended. The prebuilt path below needs neither Rust nor a workspace checkout.
 
 ## Install
 
-The package is not yet on a registry; it lives at [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift) in the repository. Every product links [`libpanproto_c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c), the C ABI exposed by the [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c) crate, so the library has to be staged before `swift build` will link. There are three ways to get it.
+The package is not yet on a registry; it lives at [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift) in the repository. Engine-backed products link [`libpanproto_c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c), the C application binary interface exposed by the `panproto-c` crate. Stage that library before building an engine-backed target. `PanprotoStructural` is a pure Swift product and does not call the engine.
 
 ### Build from source
 
@@ -59,7 +59,7 @@ To depend on the package from another project, point `PANPROTO_SWIFT_XCFRAMEWORK
 
 ## Feature-gated tiers
 
-The default `libpanproto_c` exports 105 entry points. The `parse`, `project`, and `git` tiers add 17 more that are absent from that build, so reaching them takes a library built with the matching cargo features and a Swift build told to compile the gated shims in:
+The default `libpanproto_c` omits the `parse`, `project`, and `git` tiers. Using one of those tiers requires a library built with the matching Cargo features and a Swift build that compiles the gated shims:
 
 ```sh
 PANPROTO_C_FEATURES=full ./bootstrap/dev-link.sh
@@ -95,4 +95,4 @@ let messages = try await schema.violations(against: atproto)
 print(messages.isEmpty ? "valid" : messages.joined(separator: "\n"))
 ```
 
-Every call is `await`: engine work runs on the `@PanprotoEngine` global actor, which is pinned to a single thread. See the [Swift SDK reference](../../reference/sdk-swift.md) for why, and for what that means when you hold a handle.
+Engine calls run on the `@PanprotoEngine` global actor, which is pinned to one thread. Release long-lived handles explicitly when their work is complete.

@@ -1,28 +1,26 @@
 # Explanation
 
-The explanation quadrant develops the concepts behind panproto. It assumes that you can read a [schema](../glossary.md#schema "A schema is a model of a protocol's schema theory.") and a [structural diff](../glossary.md#structural-diff "A structural diff records added, removed, and modified schema elements without classifying compatibility."), but it does not assume category theory. The pages remain explanations in the Diátaxis sense: they account for design choices and guarantees, while the [how-to guides](../how-to/index.md) provide procedures and the [reference](../reference/index.md) records the interfaces.
+These chapters explain the representations and checks that underlie panproto. They assume that you can read a [schema](../glossary.md#schema "A schema is a model of a protocol's schema theory.") and a [structural diff](../glossary.md#structural-diff "A structural diff records added, removed, and modified schema elements without classifying compatibility."), but they do not assume category theory. Procedures belong in the [how-to guides](../how-to/index.md), while interface details belong in the [reference](../reference/index.md).
 
-The material has three levels. Each level has a stopping point, so the route can match the question that brought you here.
+## Schemas, migrations, and lenses
 
-## Intermediate path: from schemas to migrations
+Begin with [What panproto solves](./what-panproto-solves.md), and consult [The vocabulary in plain terms](./decoder-ring.md) when an unfamiliar term appears. [Schemas as theories](./schemas-as-theories.md) first describes the common representation used for different [protocols](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."). [Migrations as morphisms](./migrations-as-morphisms.md) then explains a [migration](../glossary.md#migration "A migration maps a source schema to a target schema and determines how instances move between them.") and the operations that move data along it. Search may return a partial correspondence as a [span](../glossary.md#span "A span states a partial correspondence through a common apex and one morphism into each schema."). Together, these chapters supply the background needed by the tutorials and most how-to guides.
 
-Start with [What panproto solves](./what-panproto-solves.md), then keep [The vocabulary in plain terms](./decoder-ring.md) nearby while reading [Schemas as theories](./schemas-as-theories.md) and [Migrations as morphisms](./migrations-as-morphisms.md). This route explains why [protocols](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it.") share one internal model, what a [migration](../glossary.md#migration "A migration maps a source schema to a target schema and determines how instances move between them.") records, and why a partial correspondence is returned as a [span](../glossary.md#span "A span states a partial correspondence through a common apex and one morphism into each schema."). It is enough background for the tutorials and most how-to guides.
+When a conversion discards information or must support updates in both directions, continue from the glossary definition of a [lens](../glossary.md#lens "A lens pairs a forward conversion with a law-governed backward update.") to [Lenses and round-trip laws](./lenses-roundtrip.md). [What panproto verifies](./what-is-verified.md) distinguishes runtime validation and test evidence from properties that the implementation assumes.
 
-When backward updates or information loss are part of the problem, continue from the glossary definition of a [lens](../glossary.md#lens "A lens pairs a forward conversion with a law-governed backward update.") to [Lenses and round-trip laws](./lenses-roundtrip.md). The intermediate stopping point is [What panproto verifies](./what-is-verified.md), which separates runtime checks, CI evidence, and properties that remain assumptions.
+## Search, composition, and version control
 
-## Advanced path: search, composition, and version control
+[Searching for a morphism](./morphism-search.md) describes how panproto searches for a partial or total schema correspondence. [Alignment evidence](./alignment-evidence.md) explains how names, types, and other evidence affect that search.
 
-The advanced route assumes the intermediate one. [Searching for a morphism](./morphism-search.md) gives the optimization model; [Alignment evidence](./alignment-evidence.md) explains how uncertain correspondences enter that model. These two chapters are the densest part of the main path, and the second depends on the reward-only evidence discipline defined in the first.
+[Composing protocols by colimit](./protocol-colimits.md) concerns the [colimit](../glossary.md#colimit "A colimit combines theories over their explicitly shared parts.") construction used to describe protocol structure. [Schema version control semantics](./vcs-semantics.md) concerns structural changes to concrete schemas and their histories. The two chapters use related categorical constructions at different levels of the system.
 
-Protocol and repository composition form the next pair. The [colimit](../glossary.md#colimit "A colimit combines theories over their explicitly shared parts.") construction is developed in [Composing protocols by colimit](./protocol-colimits.md), then [Schema version control semantics](./vcs-semantics.md) applies the related pushout construction to merge. [Layout enrichment](./layout-enrichment.md) and [Source-code emission](./emit-pretty.md) form a separate branch for readers concerned with parsing, canonical emission, or source-layout preservation.
+[Layout enrichment](./layout-enrichment.md) and [Source-code emission](./emit-pretty.md) address parsing, canonical emission, and preservation of source layout. [Architecture](./architecture.md) identifies the crates that implement these operations and the data that crosses their boundaries.
 
-Read [Architecture](./architecture.md) after one of these branches rather than before it. The crate graph is easier to retain once the abstractions crossing its boundaries have names.
+## Denotational semantics
 
-## Formal path: denotational semantics
+The [denotational semantics](./semantics/index.md) chapters specify the expression language, both DSLs, protolens composition, merge, and the theory REPL. Begin with [Shared notation](./semantics/shared-notation.md); the remaining chapters assume familiarity with typed abstract syntax, inference rules, and elementary category theory.
 
-The [denotational semantics](./semantics/index.md) cluster is the formal endpoint. Its pages specify the expression language, both DSLs, protolens composition, pushout-based merge, and the theory REPL. Begin with [Shared notation](./semantics/shared-notation.md); the cluster otherwise assumes comfort with typed abstract syntax, inference rules, and elementary category theory.
-
-[Related work](./related-work.md) is a capstone for either the advanced or formal route. It locates the design in the literature without introducing the constructions from scratch.
+[Related work](./related-work.md) locates these constructions in the literature. It is best read after the chapters on schemas, migrations, and lenses.
 
 ## Chapter map
 

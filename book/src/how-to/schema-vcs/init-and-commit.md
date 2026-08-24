@@ -16,15 +16,17 @@ schema commit -m "initial user schema"
 schema log                  # show history
 ```
 
-`init` creates a `.panproto/` directory analogous to `.git/`. `add` stages a schema; `commit` creates a content-addressed snapshot. The behavior matches git for the parts that overlap.
+`init` creates a `.panproto/` object store and a `main` branch. It may also generate `panproto.toml` when package detection finds source packages. `add` parses or loads the supplied path and stages the resulting schema; `commit` records the staged schema.
 
 To inspect the current state:
 
 ```sh
 schema status
-schema diff               # diff working tree vs HEAD
+schema diff --staged      # diff the staged schema against HEAD
 schema show <commit-hash>
 ```
+
+`schema diff` without `--staged` requires two file paths. A staged diff also requires an existing commit, so use it after the first commit.
 
 ## Verification
 
@@ -32,7 +34,7 @@ schema show <commit-hash>
 schema log --oneline
 ```
 
-prints the commit history. Each commit shows its blake3 hash, schema hash, message, and author.
+prints one line per commit. The default long format includes the commit ID, schema ID, author, timestamp, and message.
 
 ## Common mistakes
 

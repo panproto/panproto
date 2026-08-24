@@ -1,57 +1,76 @@
-# Convert data between formats
+# Convert data between schemas
 
-Data conversion between schemas in one protocol follows the parse/migrate/emit pipeline. It passes through a `panproto-inst` instance graph and does not require a format-pair transcoder.
+`schema data convert` auto-generates a lens between two schemas in one protocol and applies it to JSON records.
 
 ## Prerequisites
 
-The `schema` CLI installed, or the SDK in your language. The source and target protocol names.
+The `schema` CLI, two schema JSON files, and input records rooted at a vertex the CLI can infer from the source schema.
 
-## The task
-
-### Single file or directory (within one protocol)
+## Convert one file
 
 ```sh
 schema data convert --protocol atproto \
-  --from schemas/user-v1.json --to schemas/user-v2.json \
-  data/users.json -o data/users-v2.json
+  --from schemas/user-v1.json \
+  --to schemas/user-v2.json \
+  data/user.json \
+  -o data/user-v2.json
 ```
 
-`<DATA>` is a positional file or directory. `--from` and `--to` are *schema paths* (within the named protocol), not protocol names. Add `--direction backward` to push data the other way along the lens; add `--defaults k=v,...` to supply complement defaults.
+`--from` and `--to` are schema paths. With no `--chain`, the command generates a lens using `AutoLensConfig::default()`, parses the input as a W-type instance, runs `get`, and serializes the view against the target schema.
 
-For batch conversion, point `<DATA>` at a directory.
+Defaults use comma-separated `key=value` pairs:
 
-### Across protocols
+```sh
+schema data convert --protocol atproto \
+  --from schemas/user-v1.json \
+  --to schemas/user-v2.json \
+  --defaults status=active,locale=en \
+  data/user.json
+```
 
-Cross-protocol conversion goes through a composed theory; see [Translate across protocols](./cross-protocol.md). `schema data convert` is intra-protocol only.
+The CLI parses all default values as strings.
 
-### From the SDKs
+## Convert a directory
+
+Directory mode reads the immediate `*.json` files and requires an output directory:
+
+```sh
+schema data convert --protocol atproto \
+  --from schemas/user-v1.json \
+  --to schemas/user-v2.json \
+  data/users \
+  -o data/users-v2
+```
+
+Files that fail to load or convert are reported as skipped, and the final line prints converted and skipped counts. Inspect that count in automation; directory mode can finish after skipping individual files.
+
+## Convert from TypeScript
 
 ```ts
 using lens = p.lens(srcSchema, tgtSchema);
-const { view, complement } = lens.getJson(inputRecord, "user:body");
-const out = view as Record<string, unknown>;
+const { view, complement } = lens.getJson(inputRecord, 'user');
+const output = view as Record<string, unknown>;
 ```
 
-`Panproto.lens(from, to)` auto-generates a lens between two `BuiltSchema` arguments. `getJson` accepts an ordinary JavaScript record and returns the converted view together with the complement needed for a backward update. Keep that complement if the application may call `putJson` later.
+Retain `complement` if the application may later call `putJson` to propagate an edited view backward.
 
-## Verification
+## Verify the conversion
 
-To verify round-trip fidelity, generate a chain explicitly and run `schema lens verify`:
+Check the actual record with the SDK law checker:
 
-```sh
-schema lens generate --protocol atproto schemas/user-v1.json schemas/user-v2.json --save chain.json
-schema lens verify --protocol atproto data/users.json schemas/user-v2.json
+```ts
+const result = lens.checkLaws(instanceBytes);
+if (!result.holds) {
+  throw new Error(result.violation ?? 'lens law failed');
+}
 ```
 
-Lens verification on test data exercises the three round-trip laws (GetPut, PutGet, PutPut); a pass means the chain is loss-free for the sampled records.
+The current `schema lens verify` dispatch does not pass its positional path as test data to the law checker; it treats that path as a schema. Do not use that command as evidence that representative records satisfy the laws.
 
-## Common mistakes
-
-- Assuming all schema pairs are loss-free. They are not. Run `schema lens verify` after conversion to exercise the round-trip laws on representative data, and run `schema compat <old> <new> --protocol <name>` to classify the diff as fully compatible, backward compatible, or breaking.
-- Skipping lens verification in CI. Without it, silent loss is possible.
+Backward CLI conversion uses an empty complement. It can reconstruct only lenses that need no captured source data or for which defaults suffice. Use an SDK `get`/`put` pair when backward conversion depends on the complement produced from a specific source record.
 
 ## See also
 
-- [Reference: protocol catalog](../reference/protocols.md).
-- [Round-trip with format preservation](./format-preserving.md).
-- [Translate across protocols](./cross-protocol.md).
+- [Use lenses](./use-lenses.md) for bidirectional updates.
+- [Apply field transforms](./field-transforms.md) for computed values.
+- [Translate across protocols](./cross-protocol.md) for the current cross-protocol limitation.

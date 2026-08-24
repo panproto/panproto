@@ -1,6 +1,6 @@
 # Your first diff
 
-A schema change should be inspectable before any data moves. In this tutorial, panproto compares two [ATProto](https://atproto.com/) Lexicon documents and reports that one field disappeared while another appeared. The first result takes about five minutes once the CLI is installed.
+A schema change should be inspectable before any data moves. In this tutorial, panproto compares two [ATProto](https://atproto.com/) Lexicon documents and reports that one field disappeared while another appeared.
 
 You will create two versions of a `User` record and run one structural diff. The inputs remain ordinary Lexicon JSON rather than panproto's internal schema representation.
 

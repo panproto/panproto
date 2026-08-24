@@ -1,114 +1,90 @@
 # Write lenses in the lens DSL
 
-The lens DSL stores a lens specification outside application code. Nickel, JSON, and YAML specifications compile to the same lens combinator algebra.
+The lens DSL describes schema-level steps and value-level field transforms in Nickel, JSON, or YAML. Exactly one body variant, such as `steps`, `rules`, `compose`, `auto`, `from_diff`, or `symmetric`, may be present.
 
-## Prerequisites
+## Write a document
 
-A pair of schemas to bridge. The `schema` CLI or [`panproto-lens-dsl`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl) crate.
+This JSON document renames one property key:
 
-## The task
-
-### Write the spec (Nickel)
-
-```nickel
-# lenses/user-v1-to-v2.ncl
-let L = import "panproto/lens.ncl" in
+```json
 {
-  id = "user.v1-to-v2",
-  description = "Rename name fields and add display_name",
-  source = "dev.example.user.v1",
-  target = "dev.example.user.v2",
-  steps = [
-    { rename_field = { old = "first_name", new = "given_name" } },
-    { rename_field = { old = "last_name",  new = "family_name" } },
-    { add_field = {
-        name = "display_name",
-        kind = "string",
-        fallback = "",
-        expr = "self.given_name ++ \" \" ++ self.family_name",
-      } },
-  ],
-} | L.Lens
+  "id": "dev.example.user-v1-to-v2",
+  "description": "Rename the user name property",
+  "source": "dev.example.user.v1",
+  "target": "dev.example.user.v2",
+  "steps": [
+    {
+      "rename_field": {
+        "old": "name",
+        "new": "display_name"
+      }
+    }
+  ]
+}
 ```
 
-Each step is a single-key object. The key picks the variant; the value carries its parameters. The DSL applies steps left-to-right against the source schema, producing a target schema and a `CompiledLens` between them. Full step grammar: [`crates/panproto-lens-dsl/src/document.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-lens-dsl/src/document.rs).
+Each step is a single-key object. `--body-vertex` supplies the parent vertex for field-level steps; its default is `record:body`.
 
-### Compile a chain
+## Compile and apply in TypeScript
 
-`schema lens compile` loads a lens DSL document and compiles it to a `ProtolensChain`, writing the chain JSON to stdout or to `--out`:
+The TypeScript handle retains both the structural chain and any value transforms:
+
+```ts
+using chain = p.compileLensDocument(
+  document,
+  'record:body',
+  'json',
+);
+using lens = chain.instantiate(sourceSchema);
+
+const { view, complement } = lens.getJson(
+  inputRecord,
+  'record:body',
+);
+const restored = lens.putJson(view, complement, 'record:body');
+```
+
+`compileLensDocument` accepts a JavaScript object, text, or UTF-8 bytes. JSON is the default format; pass `'yaml'` for YAML. Nickel is not accepted by this WASM entry point because its imports require filesystem resolution.
+
+Use `chain.fieldTransforms()` to confirm that `apply_expr` or `compute_field` steps survived compilation. Those transforms are stored beside the chain and do not appear in `chain.toJson()`.
+
+## Compile Nickel or files in Rust
+
+[`panproto-lens-dsl`](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl) resolves the bundled Nickel contract and filesystem imports:
+
+```rust,no_run
+use std::path::Path;
+
+let compiled = panproto_core::lens_dsl::load_and_compile(
+    Path::new("lenses/user-v1-to-v2.ncl"),
+    "record:body",
+)?;
+
+println!("{} structural steps", compiled.chain.steps.len());
+println!("{} transform anchors", compiled.field_transforms.len());
+# Ok::<(), panproto_core::lens_dsl::LensDslError>(())
+```
+
+`load_and_compile` supports `.ncl`, `.json`, `.yaml`, and `.yml`. Named references in a `compose` body resolve against sibling documents in the same directory. `auto` and `from_diff` require the schema-aware `compile_with_schemas` entry point.
+
+## Current CLI limitation
 
 ```sh
-schema lens compile lenses/user-v1-to-v2.ncl \
+schema lens compile lenses/user-v1-to-v2.json \
   --body-vertex record:body \
-  --out lenses/user-v1-to-v2.json
+  --out compiled.json
 ```
 
-`--body-vertex` names the parent vertex under which field-level steps attach (default `record:body`). The command compiles the schema-parametric bodies (`steps`, `rules`, `compose`, `symmetric`) and resolves `compose` references by lens `id` against sibling documents in the same directory. The `auto` and `from_diff` bodies need a concrete source and target schema, so they compile through the library entry point `compile_with_schemas` or the SDK bindings rather than this command.
+This command validates and compiles the document, but `compiled.json` is a metadata wrapper. Its `chain` member is the structural chain, while value transforms are represented only by a count. `schema lens apply` expects a directly serialized `ProtolensChain` and does not unwrap this output. Do not treat the file from `schema lens compile --out` as an immediately applicable lens artifact.
 
-To auto-derive a chain from a pair of schemas instead of authoring a document, use `schema lens generate`:
-
-```sh
-schema lens generate \
-  --protocol atproto \
-  schemas/user-v1.json \
-  schemas/user-v2.json \
-  --save lenses/user-v1-to-v2.json
-```
-
-### Apply
-
-```sh
-schema lens apply --protocol atproto lenses/user-v1-to-v2.json data/users.json
-```
-
-### Inspect
-
-```sh
-schema lens inspect --protocol atproto lenses/user-v1-to-v2.json
-```
-
-Prints the combinator chain. `--protocol` is required.
-
-### Compile from Python
-
-`ProtolensChain` exposes loaders that consume a lens-DSL document and compile it directly to a chain anchored at the named body vertex of the source schema:
-
-```python
-import panproto
-
-chain = panproto.ProtolensChain.from_dsl_path(
-    "lenses/user-v1-to-v2.ncl",
-    body_vertex="record:body",
-)
-
-# Or from a string:
-chain = panproto.ProtolensChain.from_dsl_json(json_source, "record:body")
-chain = panproto.ProtolensChain.from_dsl_yaml(yaml_source, "record:body")
-chain = panproto.ProtolensChain.from_dsl_nickel(nickel_source, "record:body")
-```
-
-`from_dsl_path` dispatches on file extension (`.ncl` / `.json` / `.yaml` / `.yml`). For Nickel, an optional `import_paths` argument extends the import-resolution lookup so user-defined modules can be referenced.
+The CLI `lens generate --save` path also writes a human-oriented chain summary rather than the round-trippable serialization accepted by `ProtolensChain::from_json`. Use the Rust or TypeScript handle paths above for an operational lens.
 
 ## Verification
 
-```sh
-# Check the chain is applicable to every schema in a directory.
-schema lens check --protocol atproto lenses/user-v1-to-v2.json schemas/
-
-# Verify the lens laws on test data.
-schema lens verify --protocol atproto data/users.json schemas/user-v2.json
-```
-
-`lens check` reports applicability without instantiating; `lens verify` checks the round-trip laws on actual data.
-
-## Common mistakes
-
-- Step ordering. The DSL deliberately exposes ordering; some sequences commute and produce the same result, others do not. When in doubt, run `schema lens check` with high sample counts.
-- Forgetting `backward` on a `field_transform` step. Without it, the step is half a lens; compilation rejects.
-- Writing schemas inline. The DSL expects path references; embedding a schema as a literal works for small examples but loses VCS tracking.
+Instantiate the document against the intended source schema, run `get` and `put` on representative instances, and use `LensHandle.checkLaws` or `panproto_lens::laws::check_laws`. Compilation validates document shape and expression syntax; it does not show that a value transform is total on production data.
 
 ## See also
 
-- [Reference: lens combinators](../reference/lens-combinators.md).
-- [Lens DSL: denotational semantics](../explanation/semantics/lens-dsl.md).
-- [Use lenses](./use-lenses.md).
+- [Apply field transforms](./field-transforms.md) for `apply_expr` and `compute_field`.
+- [Use lenses](./use-lenses.md) for runtime operations.
+- [Lens DSL: denotational semantics](../explanation/semantics/lens-dsl.md) for the document model.

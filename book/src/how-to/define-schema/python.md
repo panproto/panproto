@@ -22,7 +22,7 @@ schema = b.build()
 
 `panproto.get_builtin_protocol(name)` returns the named protocol; `.vertex(id, kind, nsid=None)` and `.edge(src, tgt, kind, name=None)` each mutate the `SchemaBuilder` in place (returning `None`), and `.build()` validates and returns a `Schema`. The TypeScript SDK exposes the same operations as a chainable surface; the Python binding does not.
 
-Call `panproto.list_builtin_protocols()` to see every registered protocol name (atproto, openapi, cddl, geojson, ...).
+Call `panproto.list_builtin_protocols()` to see the registered protocol names. Treat the returned list as the source of truth rather than hard-coding a catalog count.
 
 ## Verification
 
@@ -31,7 +31,7 @@ issues = schema.validate(proto)
 assert not issues, issues
 ```
 
-`Schema.validate(protocol)` returns a list of validation messages; an empty list means the schema is well-formed.
+`Schema.validate(protocol)` returns protocol-level structural validation messages. An empty list means no vertex-kind, edge-rule, constraint-sort, required-edge, or recursion-reference error was found; it does not run equation checking.
 
 ## Common mistakes
 

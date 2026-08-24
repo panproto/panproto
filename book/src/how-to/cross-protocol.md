@@ -1,79 +1,39 @@
 # Translate across protocols
 
-Cross-protocol translation applies when the source and target schemas belong to different schema languages, such as JSON Schema and Protobuf. The procedure constructs a migration through a theory shared by the two protocols.
+panproto does not currently expose an end-to-end CLI or SDK operation that parses a schema in one built-in protocol, constructs a shared theory with another built-in protocol, and emits the target protocol's schema or data. The CLI's `--protocol` arguments select one registered protocol for both schemas.
 
-## Prerequisites
+## Decide whether the task is supported
 
-Two protocols whose theories overlap on enough building-block theories that a colimit-mediated translation exists. The CLI or one of the SDKs.
+Use [Convert data between schemas](./convert-data.md) when both schemas already name the same protocol. For different protocol names, a bridge requires repository-level implementation: a shared protocol theory, source and target schema translations into that theory, and format-specific parsing and emission at the boundaries.
 
-## The task
+The theory DSL can compile a colimit of building-block theories, but compilation alone does not register a runtime protocol or translate existing JSON Schema, Protobuf, ATProto, or other built-in schemas into the result. Thus a DSL `compose` document is only one component of a cross-protocol bridge.
 
-Cross-protocol translation runs through the colimit-of-theories construction in `panproto-protocols`. There is no single CLI subcommand that takes a source-protocol schema and emits a target-protocol schema directly; instead, the workflow is:
+## Implement a bridge in Rust
 
-1. Use the theory DSL to declare a composition theory whose colimit covers both protocols, or select a built-in composition for the protocol pair.
-2. Generate a lens between schemas in the composed theory with `schema lens generate`. Both schemas must be expressed against that theory.
-3. Apply the lens to convert the data.
+The supported building blocks are available in Rust:
 
-The theory DSL exposes a small library of named building-block theories via `builtin_resolver()`: `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`, `ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, `ThGraphInstance`. Whole-protocol theories (the per-protocol GATs that JSON Schema, Protobuf, ATProto, etc. compile to) are constructed in Rust inside `panproto-protocols`, not through the DSL.
+1. Define the shared theory and its instance theory, then register both under stable names.
+2. Define a `Protocol` whose `schema_theory` and `instance_theory` use those names.
+3. Parse each source format with its protocol-specific parser, and write an explicit schema translation into the shared protocol.
+4. Build and check a migration between the translated schemas.
+5. Parse source records, apply the migration or lens, then serialize with the target format's emitter.
 
-The DSL composition shape is `compose = { result, bases, steps }`, with each step a `ColimitStepSpec { left, right, shared_sorts, shared_ops? }`. A toy composition over building blocks:
+Each translation in steps 3 and 5 is format-specific code. panproto does not infer those boundary translations from the fact that two protocol theories share sorts with names such as `Vertex` or `Edge`.
 
-```nickel
-{
-  id = "dev.example.constrained-multigraph",
-  description = "Compose ThGraph, ThConstraint, and ThMulti by identifying their Vertex and Edge sorts",
-  compose = {
-    result = "ConstrainedMultigraph",
-    bases = ["ThGraph", "ThConstraint", "ThMulti"],
-    steps = [
-      { left = "ThGraph", right = "ThConstraint", shared_sorts = ["Vertex", "Edge"] },
-      # Reference the prior step's intermediate result by its generated
-      # name (`step_<i>`); the final intermediate is renamed to `result`.
-      { left = "step_0", right = "ThMulti", shared_sorts = ["Vertex", "Edge"] },
-    ],
-  },
-}
-```
+## Verify the bridge
 
-Compile it:
+Test the three boundaries separately: source parsing into the shared schema, migration or lens laws over representative instances, and target emission followed by the target protocol's parser. Constraints with no representation in the shared theory must be reported or handled explicitly; no current generic command detects and reports every such loss.
 
-```sh
-schema theory compile theories/constrained-multigraph.ncl
-```
+## Unsupported commands
 
-For cross-protocol translation between two existing built-in protocols (say, JSON Schema and Protobuf), the composition is in Rust inside [`crates/panproto-protocols`](https://github.com/panproto/panproto/tree/main/crates/panproto-protocols). Once both protocols are registered, the actual CLI flow is:
+The following patterns do not provide cross-protocol translation:
 
-```sh
-# Generate a chain between two schemas, one in each protocol; both schemas
-# must be expressible against the same registered protocol theory.
-schema lens generate --protocol <protocol> \
-  schemas/user-a.json schemas/user-b.json \
-  --save lenses/a-to-b.json
-
-# Apply.
-schema lens apply --protocol <protocol> lenses/a-to-b.json data/user.json
-```
-
-For data conversion *within* a single protocol's schema fleet (different schemas, same protocol), use `schema data convert`:
-
-```sh
-schema data convert --protocol atproto \
-  --from schemas/user-v1.json --to schemas/user-v2.json \
-  data/users/
-```
-
-## Verification
-
-`schema lens verify --protocol <name> <data> <schema>` checks the round-trip laws on the converted data. A clean run means the chain is loss-free for the given samples.
-
-## Common mistakes
-
-- Reaching for a one-shot CLI conversion. The colimit composition step is essential for cross-protocol work; without it, `schema lens generate` has no shared theory to align the schemas against.
-- Translating between protocols with non-overlapping required structure. The lens auto-generation will be partial, and `apply` will fail on records using the source-only structure. Distant protocols (say, FHIR to MongoDB) may require a hand-written chain on top of the auto-derived skeleton.
-- Assuming auto-derived translations preserve every constraint. Constraints expressible in one theory but not the other are dropped; `schema lens verify` flags this.
+- `schema data convert --protocol <name>` accepts one protocol name and loads both schemas under it.
+- `schema lens generate --protocol <name>` likewise resolves one protocol for the entire lens.
+- `schema theory compile` validates and compiles a theory document but does not add it to the running CLI's built-in protocol lookup.
 
 ## See also
 
-- [Convert data between formats](./convert-data.md).
-- [Reference: protocol catalog](../reference/protocols.md).
-- [Composing protocols by colimit](../explanation/protocol-colimits.md).
+- [Build a custom protocol](./build-protocol.md) for the repository changes needed to register a protocol.
+- [Composing protocols by colimit](../explanation/protocol-colimits.md) for the theory construction.
+- [Convert data between schemas](./convert-data.md) for the supported single-protocol path.

@@ -1,88 +1,60 @@
 # Layout enrichment
 
-## In plain terms
+Parsing source code produces more than an abstract syntax tree. The panproto tree-sitter walker records the syntax tree together with source positions, text between named children, and traces used to replay grammar choices. This additional data is the **layout enrichment**. Removing it yields an abstract schema; adding it through `decorate` yields a schema that the source emitter can use.
 
-When panproto parses source code, it retains both program *structure* and source *layout*: the former contains nodes, kinds, and parent-child relationships, while the latter contains byte positions, interstitial text, and parser choices needed by the emitter.
+This chapter covers the layout constraints, the `forget_layout` and `decorate` operations, the law exercised by their tests, and the registry that connects the parser and lens crates. [Source-code emission](./emit-pretty.md) describes the grammar walker that consumes the result.
 
-The two parts live in one schema but remain separable. Stripping layout yields an abstract description; retaining layout supports source reconstruction. `decorate` takes an abstract schema and synthesizes a canonical layout assignment.
+## Abstract and decorated schemas
 
-A generator needs layout constraints before `emit_pretty` can produce source bytes. `decorate` derives those constraints by emitting canonical bytes under a layout policy and parsing them again. It therefore supports canonical generation from abstract input. It does not recover formatting that was absent from that input; byte-for-byte preservation applies when an existing decorated schema retains the relevant layout evidence.
+[`AbstractSchema`](https://docs.rs/panproto-schema/latest/panproto_schema/struct.AbstractSchema.html) and [`DecoratedSchema`](https://docs.rs/panproto-schema/latest/panproto_schema/struct.DecoratedSchema.html) wrap the same underlying `Schema` type. The distinction is enforced at their constructors. `AbstractSchema::from_layout_free` rejects a schema containing layout constraints, while the parser and `ParserRegistry::decorate` are the normal producers of decorated schemas.
 
-The chapter develops three levels of description: the concrete `decorate` operation, the tested section law, and a Grothendieck-style interpretation of layout as an enrichment. The last is a mathematical model of the implementation, not a claim that panproto verifies all fibration axioms. For the emitter mechanics, see [Source-code emission](./emit-pretty.md).
+The layout predicate is [`is_layout_sort`](https://docs.rs/panproto-gat/latest/panproto_gat/fn.is_layout_sort.html). It includes `start-byte`, `end-byte`, `doc-prefix`, `blank-lines-before`, and every constraint whose sort begins with `interstitial-`, `ptrace-`, or `chose-alt-`. These constraints record byte spans, omitted text, anonymous grammar tokens, and evidence about the selected `CHOICE` branch.
 
-## The forgetful U and its section
+Some parse-time constraints remain on the abstract schema because the canonical emitter treats them as content or syntax evidence. In particular, `literal-value`, `pre-alias-symbol`, and `field:*` are not layout sorts. Removing them would discard leaf text or the information needed to select an aliased or field-bound production.
 
-[Schemas as theories](./schemas-as-theories.md) supplies the schema vocabulary used here. Only the later fibration account requires familiarity with functors and fibers.
+`DecoratedSchema::forget_layout` removes exactly the constraints recognized by `is_layout_sort` and returns an `AbstractSchema`. The underlying `Schema::forget_layout` operation is idempotent and prunes empty per-vertex constraint entries. It does not modify vertices, edges, entry points, or non-layout constraints.
 
-Take a schema `S` produced by parsing some source bytes. Every vertex carries some constraints. Split them into two groups: the *layout* constraints (`start-byte`, `end-byte`, `interstitial-N`, `chose-alt-fingerprint`, `chose-alt-child-kinds`) and everything else (vertex kind, edges, `literal-value`, anonymous-token `field:*`, plus any protocol-defined sorts). The first group is parser-only metadata; the second is the abstract content of the program.
+## Decoration
 
-Stripping the first group is a function:
+[`ParserRegistry::decorate`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.decorate) accepts a protocol name, an abstract schema, and a [`LayoutPolicy`](https://docs.rs/panproto-parse/latest/panproto_parse/type.LayoutPolicy.html). Its implementation has two steps. First, `emit_pretty_with_policy` renders the abstract schema with the registered grammar. The registry then parses those bytes again, allowing the ordinary parse walker to attach byte spans, interstitials, and choice traces.
 
-```text
-forget_layout : DecoratedSchema → AbstractSchema
-```
+The reparse assigns new vertex identifiers. Some grammars also consolidate tokens that the emitter encountered separately, so `decorate` does not promise a vertex-for-vertex correspondence with its input. The implementation instead compares the multiset of vertex kinds and the multiset of edge shapes.
 
-Going the other way is harder. Given just the abstract content, you have to choose whitespace, choose which CHOICE alternative to dispatch through, and synthesize the byte spans. `decorate` is one canonical choice:
-
-```text
-decorate : AbstractSchema × LayoutPolicy → DecoratedSchema
-```
-
-The two satisfy the *section law*:
+Writing $U$ for `forget_layout` and $D_p$ for decoration under policy $p$, the tested section law is
 
 $$
-\forall a,\, p.\ \text{forget\_layout}(\text{decorate}(a, p)) \cong_{kind} a
+\operatorname{kinds}(U(D_p(a))) = \operatorname{kinds}(a)
+\quad\text{and}\quad
+\operatorname{edges}(U(D_p(a))) = \operatorname{edges}(a).
 $$
 
-where `≅_kind` means equal up to vertex-id renaming and the kind / edge multiset.[^section-granularity] You can think of `decorate` as a one-sided inverse of `forget_layout`, picking a canonical representative of the parse-preimage at every abstract schema.
+The `decorate_section_law` integration test checks both equalities on JSON and LilyPond samples. A separate LilyPond regression test checks that ordered children remain interleaved through a repeated choice, since kind counts alone would miss a reordering. The JSON policy test also checks that non-default newline and indentation settings affect the rendered bytes. These are finite regression tests, not a proof for every registered grammar.
 
-The pair `(forget_layout, decorate)` is the schema-level analog of parse and emit. Parsing has type `bytes → DecoratedSchema`; emitting has type `DecoratedSchema → bytes`. Composing decoration with emission gives canonical generation:
+Decoration can fail before the reparse. The registry reports an unknown protocol, rejects a mismatch between the parser protocol and the schema protocol, and propagates emitter errors such as a missing `grammar.json`, an unknown vertex kind, or an unsatisfied required field. A parse error after emission indicates that the canonical output did not satisfy the registered grammar.
 
-$$
-\text{pretty}_p \;=\; \text{emit\_pretty} \circ \text{decorate}(\cdot, p)
-\;:\; \text{AbstractSchema} \to \text{bytes}.
-$$
+## The policy surface
 
-Reparsing the image of `pretty` agrees with its abstract input at the same kind and edge-multiset granularity. The implementation tests this section property; it does not claim equality of vertex identifiers or recovery of an unavailable original layout.
+`LayoutPolicy` is an alias for the emitter's `FormatPolicy`. It carries the indentation width, token separator, newline sequence, and the token sets that request line breaks or open and close indentation. `LayoutPolicySpec` is the serializable form used in a theory transform. Conversion between the two copies every field.
 
-## Layout as a Grothendieck-style enrichment
+The policy supplies canonical layout when the abstract schema contains no replay evidence. It cannot reconstruct whitespace or comments that were removed by `forget_layout`. Byte-preserving reconstruction depends on retaining the original decorated schema or another complement that contains its layout constraints.
 
-Across the broader panproto type system, layout is one of several *enrichments* a schema can carry over its abstract base. The framing is the same one panproto already uses for coercions, with a Grothendieck fibration over the abstract schema and the layout data living in the fiber.
+## Cross-crate registration
 
-In this interpretation, the base is the abstract schema, the fiber over each vertex is its layout data, and the total space is the decorated schema. `forget_layout` is modeled as projection to the base, while `decorate` chooses one layout assignment. The code checks the section law stated above. It does not construct cartesian lifts or mechanically establish a Grothendieck fibration.
+Grammar-specific decoration lives in `panproto-parse`, while schema transforms live in `panproto-lens`. The dependency direction prevents the lens crate from calling the parse crate directly. [`LayoutEnricher`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/trait.LayoutEnricher.html) is the narrow interface between them.
 
-The `EnrichmentKind` enum in `panproto-gat` is the classifying tag. It currently has one variant, `Layout`. Additional variants could represent other metadata layers without changing the underlying theory, but that is an extension point rather than an implemented catalog.
+When `ParserRegistry::register` accepts a parser, it installs a `LayoutEnricher` under the pair `(EnrichmentKind::Layout, protocol_name)`. Registration is process-global. Registering the same pair again replaces the previous driver, and poisoned registry locks are recovered before access continues.
 
-Two pieces of machinery name this fibration directly:
+[`parse_emit_protolens`](https://docs.rs/panproto-parse/latest/panproto_parse/fn.parse_emit_protolens.html) records this arrangement as a `Protolens`. Its source transform is `StripEnrichment(Layout)`, its target transform is `AddEnrichment` with the selected driver and policy, and its complement constructor names the layout enrichment. Applying `StripEnrichment` removes layout sorts; applying `AddEnrichment` looks up the driver and runs the emit-and-parse procedure described above.
 
-- `TheoryTransform::StripEnrichment(kind)` and `TheoryTransform::AddEnrichment { kind, enricher, policy }` describe the two directions at the protolens level. Their schema-level effect is to remove or attach the fiber constraints; their theory-level effect is identity (the underlying GAT is the same in both source and target).
-- `ComplementConstructor::Enrichment { kind, enricher }` names a registered synthesis driver in the complement vocabulary. This is metadata for the lens framework's chain-law reasoning; the driver itself lives behind the `LayoutEnricher` trait in `panproto-lens::enrichment_registry`, populated by `panproto-parse` at `ParserRegistry::new` time so the lens crate stays grammar-agnostic.
+`parse_emit_protolens` describes the schema-level relation. Byte-level work remains with `ParserRegistry::decorate`, `pretty_with_protocol`, and `emit_pretty_with_protocol`; ordinary complements store discarded `WInstance` data rather than per-vertex layout constraints. The asymmetric `get` and `put` API is not the operational interface for parsing and emission.
 
-## The cross-crate registration mechanism
+## Limits
 
-The schema-level synthesis for `Layout` needs a grammar walker, and grammar walkers live in `panproto-parse`. The lens crate cannot depend on the parse crate (the dependency arrow would invert), so the bridge is a thin global registry of `LayoutEnricher` implementations keyed by `(EnrichmentKind, enricher_name)`.
-
-When `ParserRegistry::register` accepts a parser, it installs that parser into the global registry under its protocol name. A subsequent `Protolens::instantiate` against a `parse_emit_protolens("lilypond", policy)` dispatches the `AddEnrichment { kind: Layout, enricher: "lilypond", .. }` arm of `apply_theory_transform_to_schema` to the registered driver. The driver runs `emit_pretty + parse` against the input and returns the result.
-
-The registry is process-global, single-keyed, and tolerant of re-registration (the last writer for a `(kind, name)` pair wins). Lock poisoning is recovered transparently because the critical sections do not invoke user code.
-
-## What the protolens does and does not do
-
-`parse_emit_protolens(grammar, policy)` returns a `Protolens` whose source endofunctor strips the layout fiber, whose target endofunctor adds it through the registered driver, and whose complement constructor names the fiber. The value can participate in vertical and sequential protolens composition subject to the compatibility checks described in [Protolens composition](./semantics/protolens-composition.md).
-
-What it does *not* do is plug into the WInstance-level get / put pair the way an elementary protolens does. The lens framework's `Complement` struct holds WInstance-level discarded data (dropped nodes, dropped arcs, contraction choices). It has no field for a per-vertex constraint fiber, and `Protolens::instantiate` produces a `Lens` whose source and target schemas differ in vertex IDs because the synthesis driver invents fresh ones. The schema-level shuffling happens in `apply_theory_transform_to_schema`; the operational byte-level entry points are on `ParserRegistry`.
-
-That asymmetry is intentional. Parse and emit are conversions between bytes and schema-typed data structures; they are not WInstance lenses. The protolens captures the schema-level relationship that those byte-level operations sit over, and the operational API is where the byte-level work happens.
-
-## Related work
-
-Two threads bear directly on the parse-emit fibration. The lens-based ancestry runs from @foster2007combinators through @bohannonfosterpiercepilkiewiczschmitt2008boomerang's resourceful lenses (dictionary skeletons, quasi-obliviousness) and @fosterpilkiewiczpierce2008quotient's quotient lenses (lenses modulo equivalences, canonizers via `lquot` and `rquot`), with @lutterkort2008augeas as the closest framework-level analog. The grammar-based ancestry is @zhukozhanghu2015biyacc's BiYacc, whose reflective printer takes both the AST and the original concrete string. @jongevisser2012algorithm's token-stream-and-origin-tracking algorithm is the closest match to the byte-level reconstruction strategy panproto uses inside the layout enrichment driver. See [Related work](./related-work.md) for the full discussion.
+`decorate` chooses canonical layout and cannot infer an absent original. Its section law ignores vertex identifiers and compares kind and edge multisets. The parse-emit protolens describes schema transforms but does not turn source bytes into a `WInstance` lens. Exact replay thus requires a retained decorated schema; `decorate` supplies canonical layout only.
 
 ## See also
 
-- [Source-code emission](./emit-pretty.md) for the operational mechanics of `emit_pretty`: token-role classification, CHOICE dispatch tiers, cassettes, and the verification tier API.
-- [Decorate an abstract schema](../how-to/decorate-schemas.md) for the operational recipe.
-- [Lenses and round-trip laws](./lenses-roundtrip.md) for the lens machinery the enrichment rides on.
-- [Architecture](./architecture.md) for the crate-level dependency direction that makes the cross-crate registry necessary.
-
-[^section-granularity]: The kind / edge multiset granularity, rather than pointwise vertex-id equality, is the standard granularity throughout panproto's round-trip law machinery. The parse walker invents fresh vertex IDs at every call; insisting on pointwise identity would make even `parse ∘ emit_pretty ∘ parse` ill-typed. The multiset is the natural invariant: vertex kinds and edge-shape signatures are preserved by every layer of the parse / emit pipeline, and the section law is stated at the same level.
+- [Source-code emission](./emit-pretty.md) describes production walking, layout replay, `CHOICE` dispatch, and verification tiers.
+- [Decorate an abstract schema](../how-to/decorate-schemas.md) gives the operational workflow.
+- [Round-trip with format preservation](../how-to/format-preserving.md) covers structured-data codecs whose guarantees differ from the tree-sitter path.
+- [Architecture](./architecture.md) explains the crate dependency direction behind the enrichment registry.

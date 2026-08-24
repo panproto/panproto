@@ -1,12 +1,8 @@
-# REPL command language: denotational semantics
+# REPL command language
 
-## In plain terms
+The theory REPL loads compiled theories and morphisms, selects an active theory, and applies GAT operations to terms. Its state consists of two finite maps and an optional active-theory name. Commands and bare terms are processed one line at a time.
 
-The REPL is the interactive surface for inspecting theories and terms. It can load a theory document, switch the active theory, infer the sort of a term, normalize under directed equations, and enumerate a bounded free model. A `Repl` value holds loaded theories, loaded morphisms, and an optional active-theory name.
-
-This page pins down what each command does, what state it touches, and what the bare-term-typecheck path means.
-
-## Surface syntax
+## Input syntax
 
 ```bnf
 line     ::= command | term
@@ -14,116 +10,50 @@ command  ::= ":" cmd args
 cmd      ::= "load" | "theories" | "use" | "sorts" | "ops"
            | "type" | "normalize" | "model" | "instance"
            | "quit" | "q"
-args     ::= /* command-specific, see table below */
 ```
 
-A line that does not begin with `:` is treated as a term and routed through the typecheck path under the active theory. Comments and blank lines are ignored. The grammar lives in `crates/panproto-cli/src/repl/engine.rs`.
+A blank line produces no output. A nonblank line without a leading colon is parsed and typechecked as a term in the active theory. There is no REPL comment syntax: a nonblank comment-looking line is handled as a term and will ordinarily produce a parse error. Multiline commands and terms are not implemented.
 
-## Abstract syntax
+The command arguments are parsed by the command handler rather than a shared grammar. In particular, `:instance` expects `<class> in <target> { source = target; ... }`, and `:model` accepts at most one decimal depth.
 
-The command model has the schematic shape below. The implementation dispatches directly from strings and does not export these enums, so the listing is not runnable Rust.
+## State
 
-```text
-pub enum ReplCommand {
-    Load(PathBuf),
-    Theories,
-    Use(String),
-    Sorts,
-    Ops,
-    TypeOf(String),
-    Normalize(String),
-    Model(Option<u32>),
-    Instance { class: String, target: String, bindings: Vec<(String, String)> },
-    Quit,
-}
-
-pub enum ReplLine {
-    Command(ReplCommand),
-    Term(String),
-}
-```
-
-(The actual implementation does not export this enum; commands are dispatched directly from string parsing in `Repl::handle_command`. The shape above is the denotational model.)
-
-## Semantic domain
-
-The REPL state is
+Let $\Sigma$ denote the REPL state. It contains a theory map $\theta$, a morphism map $\mu$, and an optional active name $a$:
 
 $$
-\Sigma \;=\; \bigl(\mathsf{theories} : \mathsf{Name} \rightharpoonup \mathsf{Theory},\;
-                  \mathsf{morphisms} : \mathsf{Name} \rightharpoonup \mathsf{TheoryMorphism},\;
-                  \mathsf{active} : \mathsf{Name}_\bot \bigr)
+\Sigma=(\theta:\mathsf{Name}\rightharpoonup\mathsf{Theory},
+        \mu:\mathsf{Name}\rightharpoonup\mathsf{TheoryMorphism},
+        a:\mathsf{Name}_\bot).
 $$
 
-The semantic codomain is the set $\mathsf{Outcome}$ of user-visible effects (printed string, typed-term result, error, quit signal). The denotational semantics is the pair of functions
+The hooked arrow denotes a finite partial map, and $\bot$ denotes the absence of an active theory. `:load`, `:use`, and a successful `:instance` may change this state. Inspection, term typechecking, normalization, and model enumeration do not.
 
-$$
-\llbracket \cdot \rrbracket_C : \mathsf{ReplCommand} \to \Sigma \to \Sigma \times \mathsf{Outcome}
-\qquad
-\llbracket \cdot \rrbracket_T : \mathsf{Term} \to \Sigma \to \Sigma \times \mathsf{Outcome}
-$$
+## Command behavior
 
-where $\llbracket \cdot \rrbracket_T$ is state-preserving: $\pi_1 \circ \llbracket t \rrbracket_T = \mathsf{id}_\Sigma$.
+`:load p` calls `load_and_compile` on path $p$. Compilation completes before either map is changed. On success, all compiled theories and morphisms are inserted; if there was no active theory and at least one theory was loaded, one loaded theory becomes active. Protocols and composition specifications in the compiled set are not retained by the REPL state. On compilation failure, the state is unchanged.
 
-## Semantic equations
+`:theories` lists loaded theory names in sorted order and marks the active one. `:use n` sets $a$ to $n$ only when $n$ belongs to the domain of $\theta$. `:sorts` and `:ops` render declarations from $\theta(a)$.
 
-Write $\sigma = (\theta, \mu, a)$ for a state and $\theta[n \mapsto T]$ for the update that binds $n$ to $T$. With this notation, the command equations are:
+`:type t` parses term source $t$ and calls `typecheck_term` with an empty variable context. A bare term follows exactly the same path. Thus free variables are not introduced through REPL state.
 
-$$
-\begin{aligned}
-\llbracket \mathsf{Load}(p) \rrbracket_C\, \sigma
-  &= \bigl(\sigma'',\ \mathsf{Loaded}(\mathsf{names}(\Delta))\bigr) \\
-  &\quad \text{where } \Delta = \mathsf{compile}(p),\ \sigma'' = \sigma\,\text{with}\,\theta, \mu \mathbin{\cup} \Delta \\[2pt]
-\llbracket \mathsf{Theories} \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{dom}(\theta))\bigr) \\[2pt]
-\llbracket \mathsf{Use}(n) \rrbracket_C\, \sigma
-  &= \begin{cases}
-       (\sigma[a := n],\ \mathsf{Ok}) & n \in \mathsf{dom}(\theta) \\
-       (\sigma,\ \mathsf{UnknownTheory}(n)) & \text{otherwise}
-     \end{cases} \\[2pt]
-\llbracket \mathsf{Sorts} \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{sorts}(\theta(a)))\bigr) \\[2pt]
-\llbracket \mathsf{Ops} \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{List}(\mathsf{ops}(\theta(a)))\bigr) \\[2pt]
-\llbracket \mathsf{TypeOf}(t) \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr) \\[2pt]
-\llbracket \mathsf{Normalize}(t) \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{Normal}(\mathsf{normalize}(t,\ \theta(a)))\bigr) \\[2pt]
-\llbracket \mathsf{Model}(d) \rrbracket_C\, \sigma
-  &= \bigl(\sigma,\ \mathsf{Fibers}(\mathsf{free\_model}(\theta(a),\ \mathsf{depth} = d))\bigr) \\[2pt]
-\llbracket \mathsf{Instance}(C, T, B) \rrbracket_C\, \sigma
-  &= \bigl(\sigma\,\text{with}\,\mu[m \mapsto M],\ \mathsf{Compiled}(m)\bigr) \\
-  &\quad \text{where } M = \mathsf{compile\_instance}(C, T, B),\ m = \mathsf{name}(M) \\[2pt]
-\llbracket \mathsf{Quit} \rrbracket_C\, \sigma
-  &= (\sigma,\ \mathsf{QuitSignal})
-\end{aligned}
-$$
+`:normalize t` parses $t$ and calls `normalize` with the active theory's directed equations and a rewrite budget of 1,000 steps. It does not typecheck the term first, and the normalizer returns the term reached when its budget is exhausted rather than a distinct REPL error saying that normalization was incomplete.
 
-The bare-term path:
+`:model d` calls `free_model` with maximum depth $d$. The default depth is 3, and the REPL rejects values above 10 before calling the model builder. Each carrier display is truncated to five rendered elements. If `free_model` reports an incomplete model, the output includes a warning.
 
-$$
-\llbracket t \rrbracket_T\, \sigma \;=\; \bigl(\sigma,\ \mathsf{Typed}(\mathsf{typecheck\_term}(t,\ \theta(a)))\bigr)
-$$
+`:instance C in T { B }` compiles an instance morphism from class theory $C$ to target theory $T$ using the loaded theory map as its resolver. A successful result is inserted in $\mu$ under the generated name `C_to_T`. The binding parser splits entries at semicolons and the first equals sign; it does not implement quoting or nested syntax.
 
-When $a = \bot$ (no active theory), all $\theta(a)$-dependent equations short-circuit to $(\sigma, \mathsf{NoActiveTheory})$. Typechecking, normalization, free-model enumeration, and instance compilation preserve state on failure. Loading is atomic with respect to REPL state. `cmd_load` compiles the whole document before touching anything, and inserts only on success, so the post-state is either fully updated or unchanged; the insertions themselves cannot fail.
+`:quit` and `:q` return the quit signal. Unknown commands and malformed arguments return `ReplOutcome::Error` strings.
 
-`Repl::handle_command` and `Repl::handle_term_typecheck` in [`crates/panproto-cli/src/repl/engine.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/repl/engine.rs) implement these equations pointwise.
+## Failure boundaries
 
-## Soundness
+Commands that require $\theta(a)$ fail when no theory is active or when the active name is missing from the map. Parsing, typechecking, normalization, free-model construction, and instance compilation render their failures as `ReplOutcome` messages rather than exposing the underlying error enums to the caller.
 
-The REPL is an orchestration layer over the GAT engine and theory DSL compiler, but it renders most failures into `ReplOutcome` messages rather than exposing a typed sum of `LoadError` and `GatError` variants. Command parsing also contributes REPL-level messages for unknown commands, unknown theories, missing arguments, and malformed depth values.
+The fixed normalization and model-depth bounds limit those particular operations. The implementation states no totality theorem for arbitrary input strings, and the REPL layer has no proof object for a successful typecheck or normalization.
 
-Normalization uses a fixed rewrite budget of 1,000 steps. Bare terms either produce a rendered type or a parse/type error. These paths are bounded by their underlying parsers and normalizer, but the implementation does not state a separate totality theorem for arbitrary input strings.
-
-## What is intentionally not modeled
-
-- **Multi-line input.** Commands and terms are single-line. Continuations are the user's responsibility (concatenate into a single line before submission).
-- **Macro expansion.** There is no `:define` or `:macro`; the REPL is a pure inspection interface, not a programming environment.
-- **Concurrent state.** A `Repl` instance is single-threaded. The shape above does not model concurrent line submission.
-- **Persistent history.** The REPL relies on `rustyline` for history; the persistence model is `rustyline`'s, not panproto's.
+[`Repl::handle_line`](https://github.com/panproto/panproto/blob/main/crates/panproto-cli/src/repl/engine.rs) implements this behavior. The surrounding `rustyline` driver supplies editing, command completion, and persistent history; those facilities are not part of the `Repl` state above.
 
 ## See also
 
-- [Theory DSL: denotational semantics](./theory-dsl.md) for what `:load` consumes.
-- [Reference: CLI](../../reference/cli.md) for the `schema theory repl` invocation that wraps this.
-- [Crate map](../../reference/crate-map.md) for `panproto-cli`, which hosts the REPL.
+- [Theory DSL](./theory-dsl.md)
+- [CLI reference](../../reference/cli.md)
+- [Crate map](../../reference/crate-map.md)

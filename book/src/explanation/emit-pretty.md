@@ -1,137 +1,82 @@
 # Source-code emission
 
-## In plain terms
+A tree-sitter grammar specifies how source text is parsed, but it does not by itself define a printer. Whitespace is normally an extra, external scanners may recognize tokens whose spelling is absent from `grammar.json`, and several alternatives can produce the same named children. panproto's `emit_pretty` handles this incomplete inverse by combining grammar structure with evidence stored during parsing.
 
-panproto reads source code in 261 languages by sitting on top of [tree-sitter](https://tree-sitter.github.io/tree-sitter/), which has a community-maintained grammar for each one. The reverse direction, writing source code back out from a schema, is harder. tree-sitter grammars are written for parsing; they record the production rules the parser uses but not the spacing, indentation, or alternative-disambiguation choices an emitter needs. panproto's source-code emitter, `emit_pretty`, closes that gap by deriving emission behavior structurally from the same `grammar.json` the parser already ships.
+There are two emission cases. A parsed schema may carry enough byte positions and interstitial text to replay source fragments. An abstract or hand-built schema has no such record, so the emitter walks the grammar and chooses canonical tokens and layout. The distinction explains both the implementation and its limits.
 
-The output of every emit is a function of three things: the schema, the production grammar, and a small per-language *cassette* that supplies defaults for the cases `grammar.json` cannot describe. Everything else (token roles, bracket pairs, spacing rules, indent triggers, CHOICE dispatch) is derived at construction time from the grammar's own structure. There is no per-language emitter code.
+The structured-data codecs described in [Round-trip with format preservation](../how-to/format-preserving.md) use a separate path. This chapter concerns parsers registered through [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html) with a vendored tree-sitter `grammar.json`.
 
-A separate [format-preserving codec](../how-to/format-preserving.md) covers structured-data formats (JSON, YAML, TOML, XML, CSV) and guarantees byte-for-byte round-trip. The two systems are independent; this page is about the tree-sitter source-code path.
+## The production model
 
-## The two halves of the gap
+At registration time, panproto deserializes `grammar.json` into a [`Production`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/enum.Production.html) tree. The enum covers tree-sitter's sequences, choices, repetitions, optional productions, fields, aliases, symbols, string and pattern terminals, token wrappers, precedence wrappers, reserved contexts, and blanks. Emission starts at the schema's entry vertices and walks the production associated with each vertex kind.
 
-`grammar.json` lists every rule (`SEQ`, `CHOICE`, `REPEAT`, `OPTIONAL`, `FIELD`, `ALIAS`, `SYMBOL`, `STRING`, `PATTERN`, `IMMEDIATE_TOKEN`, `PREC`, `TOKEN`, `RESERVED`) the parser walks. It does not record:
+The walker consumes schema edges through a cursor. Field productions look for an edge with the same field name, while ordinary symbols use `child_of` edges. Repetition advances through as many compatible unconsumed edges as its body accepts. Missing rules and unsatisfied required fields produce `ParseError::EmitFailed` rather than partial output.
 
-1. **Whitespace and layout.** Whether `a + b` or `a+b`; whether `if (x) { ... }` indents its body; whether `def f(): x = 1` is one line or two. Tree-sitter strips whitespace during parse; nothing in `grammar.json` says how to put it back.
-2. **CHOICE disambiguation for synthesized schemas.** When two CHOICE alternatives both admit the same children (`binary_expression CHOICE[+, -, *, /, ...]` over the same operand kinds), the parser picks via its parse-table state. A schema built from scratch (no parse history) has no record of which alt was taken.
+The grammar constructor precomputes yield sets and a subtype relation for dispatch. Hidden rules and declared supertypes are expanded, named aliases contribute their exposed kinds, and an iterative Tarjan computation closes the dispatch graph. The emitter can thus test whether a concrete child kind is admitted at a symbol without recursively searching the grammar on every use.
 
-`emit_pretty` handles the first half structurally and the second half via a layered fallback hierarchy.
+## Layout roles
 
-## Grammar-derived token roles
+Literal grammar tokens receive a structural [`TokenRole`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/enum.TokenRole.html): bracket open or close, separator, keyword, operator, connector, terminal, or immediate token. The layout pass uses adjacent roles to decide whether a separator is needed. `IMMEDIATE_TOKEN` also emits an explicit `NoSpace` marker, which takes priority over ordinary separation.
 
-Every `STRING` literal in a rule body is classified by its *structural role* at `Grammar::from_bytes` time. There are eight roles, classified per `(rule, position)` pair, not per token text:
+Bracket recognition is partly structural and partly conventional. The positional classifier first looks for the standard pairs `()`, `[]`, and `{}` within a sequence. A fallback recognizes first-and-last punctuation pairs, word-like pairs such as `begin` and `end`, and same-text delimiters when an `IMMEDIATE_TOKEN` supplies evidence that they are tight. Word-like delimiters receive bracket behavior for block structure but keyword behavior for spacing.
 
-| Role | Identification rule |
-|---|---|
-| `BracketOpen` | First STRING in a SEQ whose first / last STRINGs satisfy the matched-pair predicate |
-| `BracketClose` | Last STRING of the same SEQ |
-| `Separator` | First STRING in a REPEAT body's inner SEQ |
-| `Keyword` | STRING matching `[a-zA-Z_][a-zA-Z0-9_]*` |
-| `Operator` | Non-alphanumeric STRING between content members inside a CHOICE alternative |
-| `Connector` | Non-alphanumeric STRING between content members in a standalone SEQ (a structural connector such as `.` or `::`, not an algebraic operator); emits no surrounding space |
-| `Terminal` | Text from a leaf vertex's `literal-value` constraint |
-| `Immediate` | A token the grammar wraps in `IMMEDIATE_TOKEN`, glued to its neighbor with no intervening whitespace |
+Indentation is deliberately narrower than bracket recognition. Word-like delimiter pairs open an indentation scope. For punctuation delimiters, a brace pair opens a scope when its body contains a repeated production, including a limited look-through for an optional repeated rule. Parentheses and square brackets remain inline even when they contain repeated arguments or items.
 
-The matched-pair predicate identifies `()`, `[]`, `{}`, `<>`, `begin/end`, `do/done`, `|...|`, `<<>>`, `${}`, `⟨⟩`, and every other bracket-like construct from grammar structure alone. There is no fixed character set: a per-SEQ check that the first and last STRINGs are different (or same-text with at least one wrapped in `IMMEDIATE_TOKEN`, e.g. regex `/.../`), with non-STRING content between them, identifies the pair.
+These rules provide defaults rather than a language formatter. A [`FormatPolicy`](https://docs.rs/panproto-parse/latest/panproto_parse/emit_pretty/struct.FormatPolicy.html) controls separator text, newline bytes, indentation width, and configured break or indentation tokens. Language cassettes can override scanner facts that the production tree does not expose, including tight operators, newline-producing externals, and raw content that must abut its delimiters.
 
-The role-pair lookup table (`needs_space_by_role`) takes two adjacent token roles and returns whether to emit a space. No token text is inspected by the layout pass; spacing decisions are entirely role-driven. The table is small (one fixed function) and the same for every grammar.
+## Replaying captured layout
 
-## Indent triggers
+The parse walker records `start-byte` and `end-byte` constraints, anchored `interstitial-N` fragments, choice traces, and leaf `literal-value` constraints. A leading byte run outside the document root, such as a byte-order mark, is stored as `doc-prefix`. [Layout enrichment](./layout-enrichment.md) gives the complete division between layout and content constraints.
 
-A bracket-open token triggers indentation when the content between open and close contains `REPEAT` or `REPEAT1` (recursively through CHOICE / SEQ wrappers). This is the structural witness of "block-level content the source author would have indented". Function bodies, statement lists, struct fields, namespace contents all match; inline constructs like type parameter lists, function arguments, and string interpolation do not, even though they may use the same bracket pair characters in other rules.
+`emit_pretty` attempts verbatim subtree replay when the recorded fragments tile a vertex's entire byte span. It gathers literal and interstitial fragments from the reachable subtree, orders them by their byte positions, rejects holes or inconsistent spans, and emits a `Verbatim` token only when the cursor reaches the recorded end byte exactly. If the check fails, the emitter returns to the production walk for that subtree.
 
-Word-like bracket pairs (`function/end`, `if/end`, `module/end`, etc., the matched-pair shape with alphanumeric delimiters) always trigger indentation: they only appear in block constructs across the 261 vendored grammars.
+External scanner text or a newly inserted child may leave a gap in the recorded span. Treating an incomplete fragment set as source would silently omit bytes; declining replay keeps the output on the grammar-derived path.
 
-## CHOICE dispatch
+`AstParser::emit` is the direct position-fragment reconstruction API for a parsed schema. `emit_pretty` is the production-driven API used for hand-built schemas and by [`ParserRegistry::pretty_with_protocol`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.pretty_with_protocol). The latter can still exploit complete replay evidence when it is present.
 
-At emit time, `pick_choice_with_cursor` selects which CHOICE alternative to walk for a given vertex. The pipeline composes several structural filters; each rejects alternatives that cannot be the right pick given the cursor's unconsumed edges and the schema's constraint witnesses.
+## Choosing a grammar alternative
 
-The categorical core is the **acceptance predicate**, `accepts_first_edge(prod, edge_field, target_kind)`, an inductive function over the production tree:
+A `CHOICE` can be easy to resolve. A field name may distinguish the alternatives, a literal child may match one string alternative, or only one branch may admit the first unconsumed edge. An internal acceptance predicate states this test inductively over production trees. It accounts for fields, symbols, aliases, nullable sequence prefixes, nested choices, and transparent wrappers.
 
-| Production | Acceptance rule |
-|---|---|
-| `STRING` / `PATTERN` / `BLANK` | reject (consumes no edges) |
-| `SYMBOL X` (concrete) | `edge_field == "child_of"` AND `target_kind ⊑ X` |
-| `SYMBOL X` (hidden / supertype) | `accepts(X.rule, edge)` |
-| `ALIAS{c, named:true, value:V}` | `edge_field == "child_of"` AND `target_kind == V` |
-| `FIELD{name, content}` | `edge_field == name` AND `content.yield` admits `target_kind` |
-| `SEQ[m1, m2, ...]` | `accepts(m1, edge)` OR (`m1` ε-able AND `accepts(SEQ[m2..], edge)`) |
-| `CHOICE[a1, a2, ...]` | any of `accepts(ai, edge)` |
-| `OPTIONAL` / `REPEAT` / `REPEAT1` / wrappers | `accepts(inner, edge)` |
+Ambiguous choices require more evidence. Parsed schemas can carry anonymous token traces in `ptrace-*`, field-bound literal values in `field:*`, the pre-alias grammar symbol in `pre-alias-symbol`, positional interstitials, and `chose-alt-*` witnesses. The selector uses these constraints to reject alternatives that contradict a token set, an alias source, or the named children produced by the original parse. It also prevents one recorded separator from being consumed repeatedly at later choice sites.
 
-`accepts_first_edge` fuses four otherwise-separate ad-hoc checks (FIELD-name matching, SYMBOL subtype dispatch, ALIAS rewrite, yield-set admission) into one rule.
+When no trace settles the choice, the selector uses grammar-derived yield sets, required fields, nullable alternatives, and deterministic defaults. A blank branch is preferred when the child cursor is exhausted. If several yield-compatible alternatives remain, higher tree-sitter precedence wins. This process is deterministic, but it cannot recover a decision for which the schema and grammar carry no distinguishing fact.
 
-Three discriminators layer on top when more than one alternative passes `accepts_first_edge`:
+## External scanner tokens
 
-1. **Token-set restriction.** An alt's FIELD body of shape `ALIAS{CHOICE[STRING_1, STRING_2, ...], value: V}` constrains the field child's literal to that set. If the cursor's field-named edge target carries a literal outside the set, the alt is rejected. This is what disambiguates Go `call_expression` (alt 0 has `function: ALIAS{CHOICE["new","make"], value:"identifier"}`, valid only when the function name is literally `new` or `make`).
-2. **Alias-source filter.** An alt's FIELD body of shape `ALIAS{SYMBOL X, named: true, value: _}` requires the cursor's field-named edge target to carry a `pre-alias-symbol` constraint equal to `X`. The walker records `pre-alias-symbol` from `tree_sitter::Node::grammar_name()` whenever it differs from `kind()`; this is the only ALIAS-disambiguation signal tree-sitter 0.25 / 0.26 actually exposes.
-3. **Positional interstitial scoring.** When the above filters leave more than one candidate, alts are scored against the slice of recorded interstitials from the current cursor position forward. The cursor's consumed count gives the slice offset, so a trailing CHOICE-with-BLANK at position N sees only the interstitial at gap N, not the comma separators from earlier REPEAT iterations.
+External scanners are code, and `grammar.json` records their token names rather than all text they may produce. The emitter resolves an external token from the most specific available source.
 
-On yield-set ties after every filter, tree-sitter precedence (`PREC` annotations on alternatives) breaks the tie. This honors the grammar author's explicit disambiguation rule.
+An anonymous alias can supply literal text directly, and a choice pairing an external symbol with a string can identify an equivalent spelling. A parsed leaf may instead carry its actual `literal-value`. Remaining cases use a [`GrammarCassette`](https://docs.rs/panproto-parse/latest/panproto_parse/languages/cassettes/trait.GrammarCassette.html).
 
-## The subtype closure
+The cassette lookup checks a per-grammar implementation first and then `common_external_default`. The common layer recognizes recurring conventions for newlines, automatic semicolons, immediate markers, scanner-state sentinels, and string or heredoc placeholders. A placeholder whose text depends on the source emits an empty default when no captured literal is available. Per-grammar implementations cover names or lexical requirements that do not follow those conventions.
 
-`accepts_first_edge` consults a precomputed *subtype closure* `K ⊑ Y` ("a vertex of kind K can appear where the grammar says SYMBOL Y"). The closure is computed once at `Grammar::from_bytes` time:
+## Verification tiers
 
-1. Walk every hidden rule (`_`-prefixed) and supertype rule's body to identify which concrete kinds satisfy each dispatch point.
-2. Walk every named ALIAS (`ALIAS{c, named:true, value:V}`) and record that the value `V` is satisfied by every kind reachable from `c`.
-3. Close the relation under composition: a Tarjan SCC over the dispatchable-only subgraph (hidden / supertype names form the nodes; satisfying edges are the transitions), producing an exact `O(V + E)` transitive closure without any iteration cap. The closure is keyed by concrete kind name, so `accepts_first_edge`'s lookup is `O(1)`.
+[`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports `Verified`, `Generic`, or `Unsupported`. `Unsupported` means that the protocol is not registered. A registered protocol outside the verified allowlist is `Generic`; the grammar path exists, but the test suite does not make the stronger promise represented by `Verified`.
 
-## Cassettes
+The verified allowlist has two admission routes. Corpus verification runs the grammar author's corpus through a strict oracle. For source $s$, define
 
-The output of every external scanner token must come from somewhere. tree-sitter's external scanners are C code that produces tokens whose text varies at runtime; `grammar.json` declares the token name but not the text. Four resolution tiers cascade:
+$$
+e_1 = \operatorname{emit\_pretty}(\operatorname{parse}(s)),
+\qquad
+e_2 = \operatorname{emit\_pretty}(\operatorname{parse}(e_1)).
+$$
 
-1. **Anonymous ALIAS.** `ALIAS{SYMBOL ext, named:false, value: V}` declares that the external token emits exactly `V`. Read directly from grammar structure.
-2. **CHOICE equivalence.** `CHOICE[SYMBOL ext, STRING s]` declares that the external token is equivalent to the literal `s`. Read directly from grammar structure.
-3. **CstComplement.** For tokens whose text was captured at parse time, the schema's `literal-value` constraint on the vertex carries the actual text. Used for heredoc bodies, raw-string content, regex patterns, escape sequences.
-4. **Cassette default.** When none of the above applies, a per-grammar [`GrammarCassette`](https://docs.rs/panproto-parse/latest/panproto_parse/languages/cassettes/trait.GrammarCassette.html) supplies a default.
+The corpus oracle requires $e_1=e_2$, equality of vertex-kind multisets between `parse(s)` and `parse(e1)`, and equality of their edge-shape multisets. It does not require $e_1=s$: canonical formatting may change the original bytes. The other admission route covers a transpilation backend with dedicated regression tests over the constructs that backend emits. A backend-verified protocol has not thereby passed every entry in its upstream grammar corpus.
 
-The cassette layer itself composes two parts:
+The allowlist is kept in sorted order because the status lookup uses binary search. A single hand-written sample is insufficient for admission; the code comments record an earlier broad promotion that was reverted after corpus testing found failures.
 
-- **Universal layer** (`common_external_default`). A closed table of name-pattern → default-text mappings derived from a structural audit of every vendored grammar. Recognizes layout markers (`_concat`, `_no_space`, `_brace_start`), immediate-position markers (`_immediate_*`), error sentinels (`_error_*`, `error_sentinel`), automatic-semicolon family (`_automatic_semicolon`, `_optional_semi`), generic string delimiters (`string_start`, `string_end`), heredoc / raw-string content (returns `""`; actual text comes from `literal-value`), and the descendant-operator family from CSS-like grammars.
-- **Per-grammar override** (`GrammarCassette::external_token_default`). A small per-grammar implementation that overrides specific tokens. The lookup composes per-grammar first, universal fallback second, via `resolve_external_token`.
+## Limits
 
-The per-grammar overrides exist only where the language needs an override on top of the universal layer. The default empty cassette (used for ~230 of the 261 grammars) delegates entirely to the universal layer.
+Canonical emission has four material limits. First, a synthesized schema may omit the literal or field evidence needed to distinguish choice branches with the same children. The emitter then makes a deterministic default choice. Second, source-dependent external tokens such as heredoc bodies and raw-string content need captured `literal-value` constraints; without them, placeholder defaults may emit no text.
 
-## IMMEDIATE_TOKEN as a layout marker
+Third, the emitter does not add parentheses from an expression precedence analysis. A parsed schema can retain explicit parentheses through its syntax and layout evidence, but a hand-built expression can be ambiguous or reparse with a different tree. Finally, `Generic` status records that a grammar is available, not that arbitrary emitted output has passed a round-trip corpus oracle.
 
-tree-sitter's `IMMEDIATE_TOKEN` is the grammar's explicit signal that the wrapped token must have no preceding whitespace. `emit_pretty` lifts this to a single `NoSpace` marker emitted at the unique structural site where `IMMEDIATE_TOKEN` is declared:
-
-- When the production walker enters `Production::ImmediateToken`, emit `NoSpace`.
-- When `emit_vertex` enters a vertex whose rule body is `IMMEDIATE_TOKEN(...)` at the head, emit `NoSpace` before any content the leaf shortcut or rule-body walk produces.
-
-The layout pass reads the marker; downstream code does not need to inspect production shapes to recover the property. This is what makes regex literals like `/abc/g` round-trip tight on both delimiters: `regex_pattern`'s rule body starts with `IMMEDIATE_TOKEN`, and the trailing `/` is wrapped in `IMMEDIATE_TOKEN` in the `regex` SEQ.
-
-## The verification tier API
-
-`emit_pretty` is structurally sound for any grammar with a vendored `grammar.json`, but structural soundness is not the same as an output that round-trips. The fixed-point law `emit_pretty(parse(emit_pretty(s))) == emit_pretty(s)` is the actual correctness witness, and it has to be exercised per grammar. [`ParserRegistry::emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports which tier a protocol falls into:
-
-| Status | Meaning |
-|---|---|
-| `Verified` | The protocol round-trips under the strict oracle described below; downstream tooling may trust its emit |
-| `Generic` | The protocol is registered and the generic dispatch path applies, but no test asserts emit correctness; output is structurally derived and likely correct, yet unverified |
-| `Unsupported` | The protocol is not registered, or its grammar lacks the vendored `grammar.json` that `emit_pretty` requires |
-
-Downstream tooling (notably [quivers](https://github.com/aaronstevenwhite/quivers) and other transpile pipelines) calls this API upfront and refuses emit on any backend returning `Generic` or `Unsupported`. There are no runtime warnings; the silence-versus-noise tradeoff falls on the caller.
-
-A protocol earns `Verified` on one of two bases. The strong basis is corpus verification: every entry in the grammar author's own `test/corpus/` round-trips under the full oracle, which the strict `emit_corpus_audit` test checks over the whole corpus rather than one hand-written sample. The oracle is three conjuncts on each corpus entry `s`. Writing `e1` for `emit_pretty(parse(s))` and `e2` for `emit_pretty(parse(e1))`, it requires `e1 == e2` (emit reaches a fixed point), `kind_multiset(parse(s)) == kind_multiset(parse(e1))` (no vertex kind is gained or lost), and the edge multisets equal likewise (no edge is gained or lost). Notice what the oracle does not require: `e1 == s`. A verified protocol may legitimately reformat, as json re-indents arrays and go applies gofmt spacing; what it may not do is alter the abstract syntax tree or fail to reach a fixed point. The second basis is backend verification: a quivers transpile backend (python, stan, bugs, jags, julia, scheme, javascript) covered by dedicated emit regression tests over the construct surface quivers actually emits, with full corpus pass tracked as follow-on work.
-
-The current `Verified` set covers 255 protocols, kept in sorted order in `VERIFIED_EMIT_PROTOCOLS` in [`crates/panproto-parse/src/registry.rs`](https://github.com/panproto/panproto/blob/main/crates/panproto-parse/src/registry.rs). Adding a protocol requires the corpus audit to pass for it (or a backend regression test to cover it), then appending the name to that array. An earlier expansion to 149 protocols on single hand-written samples was reverted after the corpus audit showed most failed their own grammar's test corpus: one sample is not a sufficient witness.
-
-## Limitations
-
-Three classes of input fall outside what the structural pipeline can recover:
-
-- **By-construction CHOICEs with no constraint signal.** When a schema is built from scratch (no parse history) and a CHOICE is over multiple alternatives that all admit the same children (`CHOICE[STRING "model", STRING "data"]` for a BUGS block keyword), nothing in the abstract content picks. The universal cassette + per-grammar cassette provide deterministic defaults, but the choice is opinionated and may not match the source author's intent. [Decorate an abstract schema](../how-to/decorate-schemas.md) is the canonical workflow.
-- **Heredoc / raw-string synthesis.** The universal cassette returns `""` for heredoc / raw-string content because the actual text is parse-time-dependent. Synthesized vertices with such kinds but no captured `literal-value` will emit empty. Quivers and similar synthesis pipelines should populate `literal-value` explicitly.
-- **Operator precedence in synthesized expressions.** No precedence-driven parenthesisation pass exists. Parsed schemas preserve original parens via interstitial constraints, but synthesized `binary_expression` schemas may emit ambiguously and re-parse to a different tree. A precedence pass on the schema before emit would close this gap; deferred.
-
-The deeper limitation, structurally: tree-sitter's parse-table state (the actual record of which CHOICE alternative the parser took at each step) is not exposed through the C API. The only ALIAS-disambiguation signal tree-sitter 0.25 / 0.26 surfaces is `grammar_name()` (the pre-alias SYMBOL name), which is consumed via `pre-alias-symbol`. A future upstream tree-sitter change exposing production / reduce IDs would let the emitter trace the parse exactly, eliminating the heuristic tiers entirely.
+Exact source preservation and canonical generation thus have different inputs. Retain the decorated schema for replay. Use [Decorate an abstract schema](../how-to/decorate-schemas.md) when an abstract schema should receive one canonical layout, and consult the verification status before treating a protocol's emitter as a checked backend.
 
 ## See also
 
-- [Decorate an abstract schema](../how-to/decorate-schemas.md) for the synthesize-then-render workflow.
-- [Layout enrichment](./layout-enrichment.md) for the categorical framing of the parse / emit relationship.
-- [Round-trip with format preservation](../how-to/format-preserving.md) for the structured-data codec (JSON / YAML / TOML / XML / CSV), which is byte-exact and orthogonal to this system.
-- [Parse full ASTs](../how-to/parse-full-ast.md) for the parser side.
-- [Reference: protocol catalog](../reference/protocols.md) for the list of supported languages.
+- [Layout enrichment](./layout-enrichment.md) documents `forget_layout`, `decorate`, and their tested section law.
+- [Decorate an abstract schema](../how-to/decorate-schemas.md) gives the synthesize-and-render workflow.
+- [Parse full ASTs](../how-to/parse-full-ast.md) describes the parser side.
+- [Reference: protocol catalog](../reference/protocols.md) lists registered protocols.

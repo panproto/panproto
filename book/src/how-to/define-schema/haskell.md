@@ -23,7 +23,7 @@ postSchema = S.buildSchema "geojson" $ do
     S.constraint "title" S.Constraint {S.sort = "maxLength", S.value = "120"}
 ```
 
-`buildSchema name` runs a `SchemaBuilderM` (a `State Schema` computation) against an empty schema attached to the protocol `name`, here the [GeoJSON](https://geojson.org/) codec; `vertex`, `edge`, `hyperEdge`, and `constraint` each mutate the schema in the `do`-block, and `buildSchema` returns the assembled `Schema`. Every value is a plain record: a `Vertex` carries an `id`, a `kind` drawn from the protocol's vertex kinds, and an optional `nsid`; an `Edge` carries its `src`, `tgt`, structural `kind` (`prop`, `item`, `variant`), and an optional `name`; `constraint vid` attaches a `Constraint` to the vertex `vid`. This is the pure `Native` value algebra, so it never starts a Rust runtime; what it produces is a structured ADT you ingest into the engine for validation.
+`buildSchema name` runs the builder actions in the `do` block and returns an immutable `Schema` value. `vertex`, `edge`, and `constraint` add plain Haskell records; no Rust runtime starts during this construction. The protocol name is metadata at this stage, so validation still needs a separate protocol value.
 
 A `Schema` built this way carries no protocol object of its own. To validate it you pair it with a protocol, which you can take straight from the canonical default with its name set:
 
@@ -36,11 +36,11 @@ geoProtocol :: CanonicalProtocol
 geoProtocol = defaultProtocol {name = "geojson"}
 ```
 
-`fromTheories` builds a protocol from its schema theory, instance theory, and the structural and enrichment feature flags when you need to spell out a full GAT configuration; `defaultProtocol {name = ...}` is enough whenever you only need a registered codec by name.
+`fromTheories` builds a protocol from explicit schema and instance theories. Use it only when defining a new protocol. Renaming `defaultProtocol` is enough for this value-level example, but it does not load the GeoJSON rules from the Rust registry.
 
 ## Verification
 
-Validation runs on the `Rust` backend, so the schema and the protocol both pass through `fromSchema (Proxy @Rust)` and `fromCanonical (Proxy @Rust)` on the way in. The `Proxy @Rust` at ingestion fixes the backend for everything downstream; `validateSchema` then returns the protocol's complaints, and an empty list means the schema is well-formed.
+Validation runs through the foreign-function interface backend. `fromSchema (Proxy @Rust)` and `fromCanonical (Proxy @Rust)` create engine handles; `validateSchema` returns the protocol-level complaints. An empty list reports that this pass found no structural violations.
 
 ```haskell
 {-# LANGUAGE OverloadedStrings #-}
@@ -67,7 +67,7 @@ The `bracket` calls release the slab handles the `Rust` backend hands back, so t
 
 - Chaining the builder operations as if they returned the schema. `vertex`, `edge`, and `constraint` are `SchemaBuilderM ()` actions sequenced in a `do`-block; `buildSchema` returns the `Schema`, not the individual calls.
 - Holding a `SchemaRep Rust` past its `bracket`. The `Rust` representations are `u32` slab handles into a thread-local arena; use them inside the `bracket` and let `releaseSchema` reclaim them, and do not share a handle across threads.
-- Reaching for `optics-core` or `lens` to mutate a schema. The lawful-optics adaptors in `Panproto.Lens.Optics` cover only the lossless read-and-record-update subset; building structure goes through `SchemaBuilderM`.
+- Using optional lens-adaptor packages to build structure. Schema construction goes through `SchemaBuilderM`.
 
 ## See also
 

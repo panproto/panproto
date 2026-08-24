@@ -1,42 +1,34 @@
 # The vocabulary in plain terms
 
-## In plain terms
+panproto uses mathematical terms to distinguish operations that ordinary migration vocabulary often groups together. This page gives working translations and points to the chapters that define the terms more precisely.
 
-panproto uses mathematical terms where they distinguish operations that ordinary migration vocabulary tends to conflate. You do not need those definitions to run the tool. This page supplies a working translation for each term and links to the chapter that develops it.
+*Prerequisites:* familiarity with schemas and data migration. This page also supports the intermediate route in the [explanation reading guide](./index.md).
 
-The translations are deliberately approximate. They are sufficient for the tutorials and how-to guides; the [glossary](../glossary.md) and linked explanation chapters give the distinctions needed for edge cases.
+## Terms
 
-*Prerequisites:* familiarity with schemas and data migration. This page is also the prerequisite for the intermediate path in the [explanation reading guide](./index.md).
-
-## The table
-
-| panproto says | Plain terms | Nearest familiar thing |
+| panproto says | Working meaning | Nearby familiar concept |
 |---|---|---|
-| **protocol** | A schema language panproto can read and write | An entry in a format registry: "JSON Schema", "Protobuf", "SQL DDL" |
-| **theory** (GAT) | The rulebook saying what a well-formed schema in one language looks like | The spec for a format, executable |
-| **schema** | Your actual schema, parsed into panproto's internal form | The `api.yaml` or `.proto` you already have |
-| **instance** | A data record conforming to a schema | A row; a JSON document |
-| **vertex / edge** | A type in a schema / a field connecting types | Nodes and arrows, if you drew your schema on a whiteboard |
-| **migration** (morphism) | The map saying where every part of the new schema comes from in the old one | The plan of a migration script, minus the script |
-| **lift** | Moving source data forward through a compiled migration | `alembic upgrade` |
-| **restrict** | Pulling target-side structure back along a migration | Projecting a new interface onto the source fields that support it |
-| **lens** | A two-way converter: a forward transform paired with a backward one that cannot drift apart | A serializer/deserializer pair, kept honest mechanically |
-| **complement** | The stash of whatever the forward direction dropped, kept so the backward direction can restore it | An undo buffer; `git stash` |
-| **round-trip laws** (GetPut, PutGet, PutPut) | Equations relating the forward and backward directions | Properties exercised by runtime checks and generated tests |
-| **protolens** | A lens template that works on any schema matching a pattern, not one fixed pair | A generic function, where a lens is the monomorphic one |
-| **dependent optic** | A protolens step with a precondition on the schemas it applies to | A guard clause on the template |
-| **colimit** | Gluing several rulebooks together along their shared parts | Merging config fragments that share keys |
-| **pushout** | The specific gluing used to merge two divergent schema branches | A three-way merge that understands structure, not lines |
-| **existence check** | The pre-flight test that a migration can actually run on all conforming data | A dry run that is a proof rather than a sample |
+| **protocol** | A registered schema language, including the names of its schema and instance theories and its structural rules | An entry in a format registry, such as JSON Schema, Protobuf, or SQL DDL |
+| **theory** (GAT) | A specification of the sorts, operations, and equations used to describe a family of structures | A typed algebraic signature with laws |
+| **schema** | A schema document parsed into panproto's common representation | An `api.yaml` or `.proto` file |
+| **instance** | Data interpreted under a schema | A row or JSON document |
+| **vertex / edge** | A schema type and a directed field or relation between types | Nodes and arrows in a schema diagram |
+| **migration** (morphism) | A map from source schema elements to target schema elements, with optional value transforms | The structural part of a migration plan |
+| **lift** | Applying a compiled migration to data | Running a data conversion; the exact direction depends on the selected lifting operation |
+| **restrict** | Reinterpreting target-side structure through a migration on the source side | Projecting an interface onto the source fields that support it |
+| **lens** | A forward transformation that returns a view and a complement, paired with reconstruction from that view and complement | A bidirectional converter with explicit saved state |
+| **complement** | Information retained during the forward transformation so that reconstruction can restore it | An undo record |
+| **round-trip laws** (GetPut, PutGet, PutPut) | Equations relating forward transformation and reconstruction | Properties checked on concrete inputs or generated test cases |
+| **protolens** | A composable description from which a lens can be instantiated for matching schemas | A schema-indexed transformation template |
+| **dependent optic** | A protolens step whose applicability depends on schema structure | A template operation with a structural precondition |
+| **colimit** | A construction that combines theories along explicitly shared parts | Gluing typed specifications over a common interface |
+| **pushout** | A colimit that combines two objects receiving maps from a common object | The categorical shape associated with a structural three-way merge |
+| **existence check** | A finite validation that a proposed migration covers the required cases | A static precondition check rather than execution on sample data |
 
-## Which terms you actually need, and when
-
-For the CLI workflow (diff, generate, convert, verify) you need *lens*, *complement*, and *migration*, and the one-line versions above suffice. The tutorials use only those three. The how-to quadrant adds *protolens* and *protocol*. Only the explanation quadrant's formal sections, and the [semantics](./semantics/index.md) cluster in particular, use the rest of the vocabulary, and those pages restate each term before using it.
-
-The shortest route is to keep this page beside the tutorials, use the how-to guides as needed, and follow an explanation link when a one-line translation stops being enough.
+Tutorials chiefly use *schema*, *migration*, *lens*, and *complement*. How-to guides also refer to protocols and protolenses. Remaining terms appear in the explanation chapters where their distinctions affect an operation. The [glossary](../glossary.md) provides shorter formal definitions, while [Schemas as theories](./schemas-as-theories.md) and [Migrations as morphisms](./migrations-as-morphisms.md) develop the central representations.
 
 ## See also
 
-- [Glossary](../glossary.md) for the formal definitions.
-- [What panproto solves](./what-panproto-solves.md) for the problem statement in plain terms.
-- [Schemas as theories](./schemas-as-theories.md) and [Migrations as morphisms](./migrations-as-morphisms.md), the two pages where the vocabulary starts earning its precision.
+- [Glossary](../glossary.md) for formal definitions.
+- [What panproto solves](./what-panproto-solves.md) for the problem statement.
+- [Schemas as theories](./schemas-as-theories.md) and [Migrations as morphisms](./migrations-as-morphisms.md) for the underlying representations.

@@ -1,18 +1,16 @@
 # Protolens composition
 
-## In plain terms
+A lens converts data between two particular schemas. A *protolens* records a schema transformation before it is instantiated at a particular source. Field renaming is a protolens; renaming `age` to `years` in one concrete record schema is the lens obtained by instantiation.
 
-A lens converts data between two particular schemas: this one to that one, and back again. A *protolens* is that conversion written down before it has been pointed at any particular pair. "Rename a field" is a protolens. "Rename `age` to `years` in version 3 of this record type" is the lens you get by instantiating it at a schema.
+A protolens thus carries source and target `TheoryEndofunctor` descriptions rather than two concrete schemas.
 
-Keeping the recipe apart from the instance is what makes one recipe serve many schemas, and it is why a protolens carries a description of the shape it consumes and the shape it produces rather than two concrete schemas.
-
-Chaining two recipes only makes sense when the shape the first produces is the shape the second consumes, and that is the condition the implementation checks. It admits one shortcut: a recipe that consumes anything chains onto anything. That check is deliberately narrower than the account below, which asks for something stronger and is what the laws are stated against.
+Composition ordinarily requires the first target endofunctor to equal the second source endofunctor structurally. The implementation also accepts a second protolens whose source transform is `Identity`, retaining its precondition for later applicability checks. Neither branch proves naturality.
 
 [Lens DSL](./lens-dsl.md) defines the concrete recipe being composed.
 
 ## Semantic domain
 
-A protolens $P$ is a natural transformation between schema endofunctors. Concretely:
+The categorical interpretation treats a protolens $P$ as a natural transformation between schema endofunctors, using the standard definition introduced by Eilenberg and Mac Lane [@eilenbergmaclane1945general]:
 
 $$
 P : F \Rightarrow G : \mathsf{Sch} \to \mathsf{Sch}
@@ -24,7 +22,7 @@ $$
 P_\Sigma : F(\Sigma) \rightleftarrows G(\Sigma)
 $$
 
-satisfying the lens laws (see [Lens DSL](./lens-dsl.md)). This is the intended semantic domain. The Rust type stores the data from which such a family is instantiated; it does not itself certify naturality for every schema morphism.
+satisfying the lens laws described in [Lens DSL](./lens-dsl.md). The Rust type stores data from which a family of component lenses can be instantiated. It does not certify the lens laws for every component or naturality for every schema morphism.
 
 The naturality condition is: for every schema morphism $f : \Sigma \to \Sigma'$, the square
 
@@ -46,9 +44,7 @@ $$
 (Q \circ P)_\Sigma = Q_\Sigma \circ P_\Sigma
 $$
 
-The composition is well-defined only when the intermediate functor of $P$ matches the source functor of $Q$. In `panproto-lens`, this match is checked by `protolens_composable`:
-
-The implementation predicate has the schematic shape below; omitted module paths and surrounding declarations make the excerpt non-runnable.
+In the categorical interpretation, composition requires the intermediate functors to match. The implementation checks this requirement with `protolens_composable`, whose schematic form appears below. Omitted module paths and surrounding declarations make the excerpt non-runnable.
 
 ```text
 pub fn protolens_composable(eta: &Protolens, theta: &Protolens) -> bool {
@@ -61,26 +57,19 @@ A `Protolens` carries its `source` and `target` `TheoryEndofunctor`s as public f
 
 `vertical_compose` enforces this predicate at construction time and returns the unit variant `LensError::CompositionMismatch` on failure. The error identifies the class of mismatch but does not carry an offending functor name.
 
-## Sequential vs fused instantiation
+## Sequential and fused instantiation
 
-When a chain of $n$ composable protolenses is applied to a base schema $\Sigma_0$, two instantiation strategies are exposed:
+For a nonempty chain, `instantiate` first fuses $P_n\circ\cdots\circ P_1$ and instantiates the resulting protolens once. `instantiate_sequential` instead instantiates each step at the running schema and folds the resulting concrete lenses through `compose`. Both methods return one `Lens`, not a list of intermediate morphisms. The sequential route does not expose intermediate schemas through its return value, and its composed migration may lack metadata such as an `expansion_path` that fused construction computes globally. An empty chain instantiates to the identity lens, while `fuse` rejects an empty chain.
 
-- **Fused instantiation** (`instantiate`): construct the composed protolens $P_n \circ \cdots \circ P_1$ first, then apply it to $\Sigma_0$ once. Produces a single morphism with the migration metadata preserved as one chain.
-- **Sequential instantiation** (`instantiate_sequential`): apply $P_1$ to $\Sigma_0$ to get $\Sigma_1$, apply $P_2$ to $\Sigma_1$ to get $\Sigma_2$, and so on. Produces a list of $n$ morphisms.
+Tests compare the two routes on representative chains. They do not establish their equivalence for every chain.
 
-The code tests agreement and lens-law behavior for representative chains. Fused instantiation preserves migration metadata as one object; sequential instantiation exposes the intermediate schemas and morphisms for inspection.
-
-## Soundness
+## Scope of the composition guard
 
 Mathematically, if $P:F\Rightarrow G$ and $Q:G\Rightarrow H$ are natural transformations, their pointwise composite is natural, and lawful component lenses compose to a lawful component lens. Structural endofunctor equivalence is the implementation's evidence that the middle object matches in the ordinary case.
 
-The identity-source shortcut is weaker. It accepts the composition without establishing that $P$'s target equals $Q$'s source as an endofunctor, and it conjoins the retained preconditions. The code describes this as schema-level composability rather than a naturality certificate. Thus `protolens_composable` is a construction guard, not a complete proof that every accepted composite is a natural transformation.
+The identity-source branch is weaker. It accepts composition without establishing that $P$'s target equals $Q$'s source as an endofunctor, then conjoins the second source precondition with the retained source precondition. `Protolens::check_applicability` and the chain APIs can reject a concrete schema that fails this retained obligation. `protolens_composable` is thus a construction guard, not a proof that every accepted composite is a natural transformation.
 
-## What is intentionally not modeled
-
-- **Verified naturality.** Vertical and horizontal composition have structural tests, but the implementation does not quantify over all schema morphisms to certify naturality.
-- **Identity-sourced protolens equivalence beyond structural.** Two protolenses that compute the same transform via different intermediate forms are treated as distinct.
-- **Universal equivalence of fused and sequential instantiation.** Tests compare representative chains; the API distinction also preserves different metadata shapes.
+Vertical and horizontal composition have structural tests, but the implementation does not quantify over all schema morphisms to certify naturality. It also treats protolenses that compute the same transform through different intermediate forms as distinct. Tests compare fused and sequential instantiation on representative chains, while the two routes may preserve different metadata shapes.
 
 ## See also
 

@@ -29,14 +29,16 @@ Run `dev-link.sh` again after every change to `panproto-c`, to the C glue, or to
 ```sh
 git clone https://github.com/panproto/panproto.git
 cd panproto/bindings/haskell
-./bootstrap/fetch-bindist.sh v0.71.0   # downloads + stages the platform tarball
+./bootstrap/fetch-bindist.sh v0.71.0   # pass the release tag that matches this checkout
 cabal build
 cabal test
 ```
 
+Pass the release tag explicitly. The script's fallback tag can lag the package version in a development checkout.
+
 ### Native-only (no FFI)
 
-For the pure-Haskell subset (the protocol and schema round-trip and the value algebra), disable the FFI backend. This build needs no `libpanproto_c` and no Rust toolchain:
+For the pure-Haskell subset, disable the foreign-function interface (FFI) backend. This build needs no `libpanproto_c` and no Rust toolchain:
 
 ```sh
 cabal build -f-rust
@@ -57,7 +59,7 @@ main = do
     print (S.vertexCount s)
 ```
 
-`cabal run` builds and links against the staged libraries. Building a one-vertex structured schema and printing its vertex count exercises the pure value algebra without touching the engine, so it succeeds under every flag configuration, the `native-only` build included.
+Place the example in an executable component or load it in `cabal repl`. Building a one-vertex structured schema and printing its vertex count exercises the pure value algebra without touching the engine, so the example also works with the FFI backend disabled.
 
 ## Common mistakes
 

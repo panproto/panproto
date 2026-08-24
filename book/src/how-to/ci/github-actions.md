@@ -4,7 +4,7 @@ Add this workflow to validate schemas and classify compatibility on every pull r
 
 ## Prerequisites
 
-A panproto repository on GitHub. The `panproto-cli` Homebrew tap, shell installer, or `cargo install` available on Linux runners.
+A panproto repository on GitHub. This example assumes `schemas/*.json` contains panproto's serialized schema format rather than external schema-language documents.
 
 ## The task
 
@@ -16,6 +16,7 @@ on:
   pull_request:
     paths:
       - 'schemas/**'
+      - 'migrations/**'
       - 'panproto.toml'
 
 jobs:
@@ -27,10 +28,7 @@ jobs:
           fetch-depth: 0           # need history for the diff base
 
       - name: Install schema
-        run: |
-          curl --proto '=https' -LsSf \
-            https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+        run: cargo install panproto-cli --version 0.71.0 --locked
 
       - name: Validate
         run: |
@@ -47,7 +45,7 @@ jobs:
             --mapping migrations/user.json --typecheck
 ```
 
-The `--protocol` flag is required for every per-file `schema validate`. There is no `--project` flag; per-file iteration is the supported pattern.
+The `--protocol` flag is required for every per-file `schema validate`. There is no `--project` flag. For an external document such as a Lexicon, use the appropriate parse path before this validation step.
 
 The job has separate validation and breaking-change steps. Validation fails on a malformed schema; `schema compat` gives the gate its compatibility exit code, and `schema check --typecheck` rejects an invalid migration mapping.
 
@@ -58,7 +56,7 @@ Push a PR and watch the workflow run. The validation step exits zero on a clean 
 ## Common mistakes
 
 - Omitting `fetch-depth: 0`. Shallow clones make the merge-base lookup fail; the gate then runs against the wrong base.
-- Pinning `panproto-cli` to a stale version. Use the latest installer; the protocol catalog and existence-check rules evolve.
+- Leaving the CLI version unpinned. Update the pinned version deliberately and review any compatibility-classifier changes with the update.
 
 ## See also
 

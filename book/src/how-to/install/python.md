@@ -10,7 +10,7 @@ Python 3.13 or newer. A virtual environment is recommended.
 pip install panproto
 ```
 
-The wheel includes native PyO3 bindings (no WASM) and eleven core tree-sitter grammars. Additional grammar packs are installed separately:
+The wheel includes native [PyO3](https://pyo3.rs/) bindings and the core [tree-sitter](https://tree-sitter.github.io/tree-sitter/) grammar group. Additional grammar packs are installed separately:
 
 ```sh
 pip install panproto-grammars-functional   # Haskell, OCaml, Elm, Erlang, Elixir, ...
@@ -32,9 +32,8 @@ The native module loads at import time (no async wrapper, unlike the TypeScript 
 
 ## Common mistakes
 
-- Running under Python < 3.13. The wheel uses 3.13-only typing constructs in its public API.
-- Installing the deprecated pure-Python WASM SDK in parallel. The native PyO3 wheel supersedes it; remove the older package.
-- Importing companion grammar packs before `panproto`. The packs auto-register on import; the order matters only when both packs and `panproto` are imported in the same module.
+- Running under Python earlier than 3.13. The package metadata requires Python 3.13 or later.
+- Importing each grammar pack manually. `AstParserRegistry` discovers installed packs through their `panproto.grammars` entry points.
 
 ## See also
 

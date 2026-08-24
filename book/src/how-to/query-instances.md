@@ -44,7 +44,7 @@ To filter on edge presence, build a predicate with the instance-aware builtins (
 
 ## Verification
 
-Predicates are type-checked against the schema before evaluation; an ill-typed predicate raises before any data is touched.
+`executeQuery` serializes the query and encoded instance directly to the WASM query engine. It does not accept a schema argument and does not perform a separate schema-level predicate type-check. Exercise each predicate against representative instances and treat a thrown `WasmError` as a failed query.
 
 ## Common mistakes
 
