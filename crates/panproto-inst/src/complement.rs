@@ -29,6 +29,11 @@ use crate::value::{FieldPresence, Value};
 /// When a forward projection maps a source instance to a target view, some
 /// nodes, arcs, and structural decisions are lost. The complement records all
 /// of this so the backward direction can reconstruct the full source.
+///
+/// Every field is written on every encoding, for the reason [`Node`] gives:
+/// `MessagePack` writes a struct as an array of its fields in declaration
+/// order, so omitting one puts every later field in the wrong slot. A field
+/// absent from an encoding still reads as its default.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Complement {
     /// Nodes from the source that do not appear in the target view.
@@ -49,13 +54,13 @@ pub struct Complement {
     /// Pre-transform `extra_fields` for nodes that had `field_transforms`
     /// applied. Used by the backward direction to restore original field
     /// values.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub original_extra_fields: HashMap<u32, HashMap<String, Value>>,
     /// Exact edge used for every arc in the view, keyed by
     /// `(parent_id, child_id)`. This makes the backward direction
     /// deterministic when the source schema has parallel edges between the
     /// same vertex pair, ensuring the cartesian lift is unique.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub arc_edges: HashMap<(u32, u32), Edge>,
     /// The source instance's arcs in order, as `(parent_id, child_id)`.
     ///
@@ -69,26 +74,26 @@ pub struct Complement {
     /// Empty on a complement produced before this was recorded, in which
     /// case the backward direction falls back to a deterministic order
     /// rather than a random one.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(default)]
     pub arc_order: Vec<(u32, u32)>,
     /// Pre-coercion `node.value` for nodes that had `__value__` field
     /// transforms applied. Used by the backward direction to restore the
     /// original leaf value.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub original_values: HashMap<u32, Option<FieldPresence>>,
     /// View node ids synthesized during forward evaluation by the nest-style
     /// `expansion_path` mechanism. These nodes exist in the view (to satisfy
     /// the target schema's multi-hop path) but have no counterpart in the
     /// source instance. The backward direction drops them when reconstructing
     /// the source.
-    #[serde(default, skip_serializing_if = "HashSet::is_empty")]
+    #[serde(default)]
     pub synthesized_nodes: HashSet<u32>,
     /// For each dropped node, the surviving node it contracted into (its
     /// nearest surviving ancestor). Populated by the restrict pipeline's
     /// ancestor contraction; the fiber of a target node is its direct
     /// preimage together with every source node recorded here as contracted
     /// into it.
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default)]
     pub contracted_into: HashMap<u32, u32>,
 }
 

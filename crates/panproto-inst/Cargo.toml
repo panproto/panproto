@@ -21,6 +21,7 @@ bumpalo = { workspace = true }
 [dev-dependencies]
 proptest = { workspace = true }
 divan = { workspace = true }
+rmp-serde = { workspace = true }
 
 [[bench]]
 name = "inst_bench"
