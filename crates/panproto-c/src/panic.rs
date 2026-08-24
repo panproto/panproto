@@ -11,10 +11,55 @@
 //! This is non-negotiable: `extern "C"` + Rust panic is undefined
 //! behavior, and GHC has no agreed mechanism for catching foreign
 //! unwinds (cf. open ghc-proposals discussions on foreign exceptions).
+//!
+//! [`guard`] also marks the calling thread as being inside the boundary
+//! for the duration of the call, which is what lets the panic hook
+//! [`crate::api::pp_init`] installs tell a panic panproto is about to
+//! report from one belonging to the host.
 
+use std::cell::Cell;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use crate::error::{FfiError, PpStatus, set_last_error};
+
+thread_local! {
+    /// Whether this thread is currently executing inside [`guard`].
+    ///
+    /// Thread-local by necessity, not convenience: a panic runs the hook
+    /// on the thread that panicked, so the question the hook asks — "is
+    /// *this* unwind one the boundary is about to catch?" — is a property
+    /// of that thread and of no other.
+    static INSIDE_BOUNDARY: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Whether the calling thread is executing inside [`guard`].
+///
+/// The panic hook installed by [`crate::api::pp_init`] consults this to
+/// decide whether an unwind is panproto's to report or the host's.
+#[must_use]
+pub fn inside_boundary() -> bool {
+    INSIDE_BOUNDARY.get()
+}
+
+/// Sets the boundary flag for its lifetime and restores the previous
+/// value on drop, including when the guarded closure unwinds through it.
+///
+/// The previous value is restored rather than cleared so that a nested
+/// [`guard`] — an entry point calling another — leaves the outer call
+/// still marked as inside the boundary.
+struct BoundaryMark(bool);
+
+impl BoundaryMark {
+    fn enter() -> Self {
+        Self(INSIDE_BOUNDARY.replace(true))
+    }
+}
+
+impl Drop for BoundaryMark {
+    fn drop(&mut self) {
+        INSIDE_BOUNDARY.set(self.0);
+    }
+}
 
 /// Run a fallible closure inside `catch_unwind`, mapping all failure
 /// modes to a [`PpStatus`].
@@ -30,7 +75,10 @@ pub fn guard<F>(f: F) -> i32
 where
     F: FnOnce() -> Result<PpStatus, FfiError>,
 {
-    let result = catch_unwind(AssertUnwindSafe(f));
+    let result = catch_unwind(AssertUnwindSafe(|| {
+        let _mark = BoundaryMark::enter();
+        f()
+    }));
     match result {
         Ok(Ok(status)) => status as i32,
         Ok(Err(err)) => {
