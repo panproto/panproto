@@ -4,9 +4,20 @@
 //! functor: each schema vertex maps to a table (set of rows), and each
 //! edge maps to a foreign-key relationship.
 //!
-//! The restrict operation (`functor_restrict`) is precomposition
-//! (`Delta_F`): for each table in the target, look up the corresponding
-//! source table.
+//! Both migration operations here carry an `S`-instance forward along a
+//! migration `F: S -> T`, and they differ in what they do with the structure
+//! `F` does not name. [`functor_restrict`] keeps the surviving fragment: a
+//! vertex's rows land in its image's table, a vertex the migration drops
+//! contributes none, and only the edges it remaps or lets survive carry their
+//! foreign keys across. [`functor_extend`] keeps everything: a vertex the
+//! migration says nothing about travels under its own name, merged rows are
+//! padded to a common column set, and every surviving vertex gets a table even
+//! when no rows reach it.
+//!
+//! Neither is precomposition. Both take the coproduct over a fibre when the
+//! vertex map merges two vertices, which is what `Sigma_F` does. `Delta_F`
+//! runs the other way, from a `T`-instance to an `S`-instance, and lives in
+//! [`crate::adjunction::f_delta`] with the rest of the adjunction.
 
 use std::collections::HashMap;
 
@@ -78,16 +89,25 @@ impl Default for FInstance {
     }
 }
 
-/// The restrict operation for set-valued functor instances.
+/// Carry a set-valued functor instance forward along a migration, keeping
+/// the fragment that survives.
 ///
-/// This is `Delta_F` (precomposition): for each vertex in the target
-/// schema, look up the corresponding table in the source via the
-/// migration's vertex map.
+/// Each surviving target vertex takes the rows of every source vertex the
+/// migration sends to it, concatenated in source-name order and rewritten by
+/// that vertex's op-to-term assignments; a target no source reaches keeps a
+/// same-named source table when the instance has one. Foreign keys travel for
+/// the edges the migration remaps between surviving vertices and for those it
+/// lets survive, with row indices offset into the block each source table
+/// occupies in the concatenation.
+///
+/// This is a pushforward, not precomposition: over a vertex map that merges
+/// two vertices it returns the fibre's coproduct, which is `Sigma_F`'s answer.
+/// For `Delta_F` see [`crate::adjunction::f_delta`].
 ///
 /// # Errors
 ///
-/// Returns `RestrictError` if a required source table is missing
-/// (though this typically means the migration is malformed).
+/// Returns `RestrictError` if a row's op-to-term assignment fails to
+/// evaluate.
 pub fn functor_restrict(
     instance: &FInstance,
     migration: &CompiledMigration,
@@ -124,8 +144,9 @@ pub fn functor_restrict(
         for src_vertex in sources {
             row_offsets.insert(src_vertex, combined_rows.len());
             if let Some(rows) = instance.tables.get(src_vertex) {
-                // Delta acts on values by substitution: each pulled row is
-                // rewritten by the source vertex's op-to-term assignments.
+                // The migration acts on values by substitution: each carried
+                // row is rewritten by the source vertex's op-to-term
+                // assignments.
                 let assignments = migration.op_term_assignments.get(src_vertex);
                 for row in rows {
                     let mut new_row = row.clone();
@@ -368,7 +389,7 @@ mod tests {
 
     #[test]
     fn computed_column_migration_e2e() {
-        // Delta (precomposition) also acts on values by substitution: the
+        // The surviving-fragment form acts on values by substitution too: the
         // migrated `person` rows gain the computed `full` column end-to-end.
         let inst = FInstance::new().with_table("person", vec![person_row()]);
         let restricted = functor_restrict(&inst, &computed_full_migration())
@@ -558,5 +579,73 @@ mod tests {
                 "merged foreign keys must not depend on hash iteration order",
             );
         }
+    }
+
+    /// A migration merging `a` and `b` onto `t`.
+    fn merging_migration() -> CompiledMigration {
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("a"), Name::from("t"));
+        vertex_remap.insert(Name::from("b"), Name::from("t"));
+        CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("t")]),
+            surviving_edges: HashSet::new(),
+            vertex_remap,
+            edge_remap: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        }
+    }
+
+    /// What the direction of `functor_restrict` actually is, since its name
+    /// says only how much of the schema it keeps.
+    ///
+    /// Over a merging vertex map it returns the fibre's coproduct in the
+    /// target -- `Sigma_F`'s answer -- and not the source-indexed tables
+    /// precomposition would return.
+    #[test]
+    fn functor_restrict_pushes_forward_rather_than_precomposing() {
+        let m = merging_migration();
+        let x = FInstance::new()
+            .with_table("a", vec![numbered(1), numbered(2)])
+            .with_table("b", vec![numbered(3)]);
+
+        let restricted = functor_restrict(&x, &m).expect("restrict");
+        assert_eq!(
+            restricted.row_count("t"),
+            3,
+            "the merged fibre's rows are concatenated in the target",
+        );
+        assert_eq!(
+            restricted.table_count(),
+            1,
+            "the result is indexed by the target's vertices",
+        );
+
+        let pushed = crate::adjunction::f_sigma(&x, &m).expect("sigma");
+        assert_eq!(
+            restricted.row_count("t"),
+            pushed.row_count("t"),
+            "restrict agrees with Sigma_F on the surviving fragment",
+        );
+
+        let precomposed = crate::adjunction::f_delta(&x, &m);
+        assert_eq!(
+            precomposed.table_count(),
+            2,
+            "precomposition is indexed by the source's vertices instead",
+        );
+        assert!(
+            !precomposed.tables.contains_key("t"),
+            "precomposition returns an S-instance, which has no table at `t`",
+        );
+    }
+
+    /// A row carrying a single integer under `v`.
+    fn numbered(value: i64) -> HashMap<String, Value> {
+        HashMap::from([("v".to_owned(), Value::Int(value))])
     }
 }

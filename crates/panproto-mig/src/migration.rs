@@ -162,7 +162,11 @@ impl Migration {
 }
 
 /// The variable a coercion's term reads the incoming value under.
-pub(crate) const COERCION_INPUT: &str = "__value__";
+///
+/// A [`CoercionSpec`](panproto_schema::CoercionSpec)'s forward and inverse
+/// terms are written against this name, and the compiled migration computes
+/// the coerced value by substituting the stored value for it.
+pub const COERCION_INPUT: &str = "__value__";
 
 /// Compose two value-level coercions: `second` applied to the result of
 /// `first`.
