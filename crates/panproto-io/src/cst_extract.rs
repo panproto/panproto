@@ -1745,6 +1745,139 @@ fn find_yaml_top_value(cst: &Schema, root: &str) -> Option<Name> {
     None
 }
 
+/// Descend through the `flow_node` / `block_node` wrappers the YAML grammar
+/// interposes between a container and its content.
+///
+/// Every mapping value, sequence element, and document body reaches the CST
+/// wrapped in one of these, so a dispatch on the wrapper's own kind sees
+/// neither a mapping nor a sequence nor a scalar and falls through to the
+/// scalar branch with no text.
+fn unwrap_yaml_node(cst: &Schema, vertex: &Name) -> Name {
+    let mut current = vertex.clone();
+    for _ in 0..YAML_WRAPPER_DEPTH {
+        match cst_vertex_kind(cst, &current).as_deref() {
+            Some("flow_node" | "block_node") => {
+                match cst_child_by_edge_kind(cst, &current, "child_of") {
+                    Some(child) => current = child.clone(),
+                    None => return current,
+                }
+            }
+            _ => return current,
+        }
+    }
+    current
+}
+
+/// How many `flow_node` / `block_node` wrappers [`unwrap_yaml_node`] will
+/// descend through before giving up. The grammar nests at most a couple, so
+/// this only bounds a cycle in a malformed CST.
+const YAML_WRAPPER_DEPTH: usize = 8;
+
+/// Extract a YAML value without schema guidance, for a domain vertex that
+/// declares no outgoing edges.
+///
+/// Mirrors [`extract_json_value_open`]: containers become nodes with one
+/// synthesised edge per child, so the shape of an open-schema YAML document
+/// survives into the instance instead of collapsing to a bare root.
+fn extract_yaml_value_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
+    let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
+    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+
+    match kind.as_str() {
+        "block_mapping" | "flow_mapping" => {
+            extract_yaml_mapping_open(cst, cst_vertex, anchor, node_id, state)
+        }
+        "block_sequence" | "flow_sequence" => {
+            extract_yaml_sequence_open(cst, cst_vertex, anchor, node_id, state)
+        }
+        _ => {
+            let text = yaml_scalar_text(cst, cst_vertex);
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![deepest_literal_vertex(cst, cst_vertex)]);
+            let node = Node::new(node_id, anchor).with_value(parse_yaml_scalar(&text));
+            state.nodes.insert(node_id, node);
+            Ok(())
+        }
+    }
+}
+
+/// Extract a YAML mapping with no schema guidance, synthesising one `prop`
+/// edge per pair.
+fn extract_yaml_mapping_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.nodes.insert(node_id, Node::new(node_id, anchor));
+    for pair_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let Some(key) = extract_yaml_pair_key(cst, pair_name) else {
+            continue;
+        };
+        let Some(value_vertex) = find_yaml_pair_value(cst, pair_name) else {
+            continue;
+        };
+        let child_anchor = format!("{anchor}:{key}");
+        let child_id = state.alloc_id();
+        extract_yaml_value_open(cst, &value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "prop".into(),
+            name: Some(Name::from(key.as_str())),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
+/// Extract a YAML sequence with no schema guidance, synthesising one `item`
+/// edge per element.
+fn extract_yaml_sequence_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+    for item_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let value_vertex =
+            find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| (*item_name).clone());
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_yaml_value_open(cst, &value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "item".into(),
+            name: Some("item".into()),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
+/// The text of a YAML scalar vertex.
+///
+/// The grammar wraps a scalar's text in a `plain_scalar` / quoted-scalar
+/// node and then in a kind-specific leaf (`string_scalar`, `integer_scalar`,
+/// …), so the literal sits below the vertex the dispatch reached.
+fn yaml_scalar_text(cst: &Schema, cst_vertex: &Name) -> String {
+    literal_text_deep(cst, cst_vertex)
+}
+
 fn extract_yaml_value(
     cst: &Schema,
     domain_schema: &Schema,
@@ -1753,6 +1886,7 @@ fn extract_yaml_value(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
@@ -1774,16 +1908,10 @@ fn extract_yaml_value(
             state,
         ),
         _ => {
-            let text = literal_value(cst, cst_vertex)
-                .or_else(|| {
-                    cst.outgoing_edges(cst_vertex)
-                        .iter()
-                        .find_map(|e| literal_value(cst, &e.tgt))
-                })
-                .unwrap_or_default();
+            let text = yaml_scalar_text(cst, cst_vertex);
             state
                 .node_to_cst_value
-                .insert(node_id, vec![cst_vertex.clone()]);
+                .insert(node_id, vec![deepest_literal_vertex(cst, cst_vertex)]);
             let node = Node::new(node_id, domain_vertex).with_value(parse_yaml_scalar(&text));
             state.nodes.insert(node_id, node);
             Ok(())
@@ -1799,8 +1927,17 @@ fn extract_yaml_mapping(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let mut node = Node::new(node_id, domain_vertex);
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+
+    if domain_edges.is_empty() {
+        // Open schema: every pair becomes a child node under a synthesised
+        // `prop` edge. Folding the pairs into `extra_fields` instead left the
+        // mapping with no child nodes at all, so nothing downstream could
+        // address — let alone edit — a value in an open-schema document.
+        return extract_yaml_mapping_open(cst, cst_vertex, domain_vertex, node_id, state);
+    }
+
+    let mut node = Node::new(node_id, domain_vertex);
     let mut handled_keys = std::collections::HashSet::new();
     let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
 
@@ -1859,22 +1996,27 @@ fn extract_yaml_sequence(
         .iter()
         .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
 
-    if let Some(edge) = item_edge {
-        let items = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-        for item_name in items {
-            let value_vertex =
-                find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| item_name.clone());
-            let child_id = state.alloc_id();
-            extract_yaml_value(
-                cst,
-                domain_schema,
-                &value_vertex,
-                &edge.tgt,
-                child_id,
-                state,
-            )?;
-            state.arcs.push((node_id, child_id, edge.clone()));
-        }
+    let Some(edge) = item_edge else {
+        // Open / partial schema: synthesise an `item` edge per element and
+        // recurse through the open extractor. Without this the sequence
+        // extracted as an empty list, because no children were collected at
+        // all.
+        return extract_yaml_sequence_open(cst, cst_vertex, domain_vertex, node_id, state);
+    };
+
+    for item_name in cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let value_vertex =
+            find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| item_name.clone());
+        let child_id = state.alloc_id();
+        extract_yaml_value(
+            cst,
+            domain_schema,
+            &value_vertex,
+            &edge.tgt,
+            child_id,
+            state,
+        )?;
+        state.arcs.push((node_id, child_id, edge.clone()));
     }
 
     Ok(())
@@ -1882,11 +2024,8 @@ fn extract_yaml_sequence(
 
 fn extract_yaml_pair_key(cst: &Schema, pair_vertex: &Name) -> Option<String> {
     let key_vertex = cst_child_by_edge_kind(cst, pair_vertex, "key")?;
-    literal_value(cst, key_vertex).or_else(|| {
-        cst.outgoing_edges(key_vertex)
-            .iter()
-            .find_map(|e| literal_value(cst, &e.tgt))
-    })
+    let text = literal_text_deep(cst, key_vertex);
+    if text.is_empty() { None } else { Some(text) }
 }
 
 fn find_yaml_pair_value(cst: &Schema, pair_vertex: &Name) -> Option<Name> {
@@ -1895,7 +2034,8 @@ fn find_yaml_pair_value(cst: &Schema, pair_vertex: &Name) -> Option<Name> {
 
 fn find_yaml_sequence_item_value(cst: &Schema, item_vertex: &Name) -> Option<Name> {
     for edge in cst.outgoing_edges(item_vertex) {
-        let kind = cst_vertex_kind(cst, &edge.tgt).unwrap_or_default();
+        let inner = unwrap_yaml_node(cst, &edge.tgt);
+        let kind = cst_vertex_kind(cst, &inner).unwrap_or_default();
         match kind.as_str() {
             "block_mapping"
             | "flow_mapping"
@@ -1906,7 +2046,9 @@ fn find_yaml_sequence_item_value(cst: &Schema, item_vertex: &Name) -> Option<Nam
             | "single_quote_scalar"
             | "block_scalar"
             | "integer_scalar"
-            | "float_scalar" => return Some(edge.tgt.clone()),
+            | "float_scalar"
+            | "boolean_scalar"
+            | "null_scalar" => return Some(inner),
             _ => {}
         }
     }
@@ -1985,24 +2127,36 @@ pub fn inject_yaml_cst(
     let mut cst = complement.cst_schema.clone();
 
     for (&node_id, node) in &instance.nodes {
-        if let Some(ref presence) = node.value {
-            if let Some(segments) = complement.node_to_cst_value.get(&node_id) {
-                let new_text = field_presence_to_yaml_text(presence);
-                set_value_run(&mut cst, segments, &new_text);
-                // A YAML scalar's text can sit on a child node rather than
-                // on the scalar vertex itself, so the run's head carries the
-                // value down one level as well.
-                if let Some(head) = segments.first() {
-                    let child_vertices: Vec<_> = cst
-                        .outgoing_edges(head)
-                        .iter()
-                        .map(|e| e.tgt.clone())
-                        .collect();
-                    for child in &child_vertices {
-                        update_literal_value(&mut cst, child, &new_text);
-                    }
-                }
-            }
+        let Some(ref presence) = node.value else {
+            continue;
+        };
+        let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
+            continue;
+        };
+        let Some(head) = segments.first() else {
+            continue;
+        };
+        // A YAML scalar's lexical form does not survive a round-trip through
+        // the parsed `Value`: `yes` and `true` are the same boolean, `1.0`
+        // and `1` the same number, and a quoted scalar carries quotes the
+        // value does not. When the CST's own text still parses to the
+        // instance's value nothing has changed, so leave the bytes alone
+        // rather than re-serialising a form the source never used.
+        if parse_yaml_scalar(&yaml_scalar_text(&cst, head)) == *presence {
+            continue;
+        }
+        let new_text = field_presence_to_yaml_text(presence);
+        set_value_run(&mut cst, segments, &new_text);
+        // A YAML scalar's text can sit on a child node rather than on the
+        // scalar vertex itself, so the run's head carries the value down one
+        // level as well.
+        let child_vertices: Vec<_> = cst
+            .outgoing_edges(head)
+            .iter()
+            .map(|e| e.tgt.clone())
+            .collect();
+        for child in &child_vertices {
+            update_literal_value(&mut cst, child, &new_text);
         }
     }
 

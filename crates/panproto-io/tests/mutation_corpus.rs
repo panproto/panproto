@@ -304,6 +304,67 @@ json_mutation!(
     include_bytes!("../fixtures/domain/geojson_features.json")
 );
 
+// ─── YAML ─────────────────────────────────────────────────────────────
+
+#[test]
+fn mutate_yaml_mapping() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(&codec, &schema, b"name: Alice\nvalue: 42\n", "yaml_mapping");
+}
+
+#[test]
+fn mutate_yaml_block_sequence() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(&codec, &schema, b"items:\n  - a\n  - b\n", "yaml_sequence");
+}
+
+/// A sequence at the document root reaches a domain vertex that declares no
+/// item edge, which is the open-schema case.
+#[test]
+fn mutate_yaml_root_sequence() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(&codec, &schema, b"- 1\n- 2\n- 3\n", "yaml_root_sequence");
+}
+
+#[test]
+fn mutate_yaml_nested_mapping() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(
+        &codec,
+        &schema,
+        b"server:\n  host: localhost\n  port: 8080\nclients:\n  - name: a\n  - name: b\n",
+        "yaml_nested_mapping",
+    );
+}
+
+#[test]
+fn mutate_yaml_flow_collections() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(
+        &codec,
+        &schema,
+        b"nums: [1, 2, 3]\nmap: {a: 1, b: 2}\n",
+        "yaml_flow",
+    );
+}
+
+#[test]
+fn mutate_yaml_comments_and_blank_lines() {
+    let codec = UnifiedCodec::yaml("test").expect("yaml codec");
+    let schema = open_schema("test");
+    assert_mutation_round_trip(
+        &codec,
+        &schema,
+        b"# leading\n\nname:   Alice   # trailing\n\nvalue: 42\n",
+        "yaml_comments",
+    );
+}
+
 // ─── XML ──────────────────────────────────────────────────────────────
 
 #[test]
