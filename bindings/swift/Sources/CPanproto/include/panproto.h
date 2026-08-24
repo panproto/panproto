@@ -225,6 +225,11 @@ pp_data_get_migration_complement (
  *  view with its complement. On success, `out_handle` receives a fresh
  *  [`Resource::DataSet`](crate::handle::Resource) handle re-anchored to
  *  the source schema.
+ *
+ *  The complement list must hold exactly one entry per record in the
+ *  data set. A mismatch returns `PP_STATUS_OPERATION` with both lengths
+ *  named in the error envelope, rather than restoring the shorter of
+ *  the two and reporting the truncated count as if it were complete.
  */
 int32_t
 pp_data_migrate_backward (
