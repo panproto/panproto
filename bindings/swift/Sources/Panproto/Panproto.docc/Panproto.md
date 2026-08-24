@@ -24,9 +24,9 @@ owns the resource.
 Three facts shape every use of this module, and each has an article.
 
 Everything runs on one thread. ``PanprotoEngine`` is a global actor whose
-executor is pinned for the process's lifetime, because the engine's
-error slot is thread-local and every error message depends on the drain
-landing on the thread that failed. See <doc:TheEngineActor>.
+executor is pinned for the process's lifetime, because the engine's error
+slot holds one envelope and every error message depends on nothing
+landing between a failure and its drain. See <doc:TheEngineActor>.
 
 Resources are owned by handles, which free themselves. Releasing by hand
 is about when, not whether. See <doc:HandleLifecycle>.

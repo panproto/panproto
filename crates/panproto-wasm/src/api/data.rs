@@ -118,11 +118,29 @@ pub fn migrate_dataset_forward(
     src_schema: u32,
     tgt_schema: u32,
 ) -> Result<Vec<u8>, JsError> {
+    Ok(migrate_dataset_forward_inner(
+        dataset_handle,
+        src_schema,
+        tgt_schema,
+    )?)
+}
+
+/// The body of [`migrate_dataset_forward`], in [`WasmError`] terms.
+///
+/// Splitting the body out keeps the failure branches reachable from a
+/// host `cargo test`: constructing a `JsError` needs a JS runtime, so an
+/// entry point that returns one can only be driven down its happy path
+/// off wasm32.
+fn migrate_dataset_forward_inner(
+    dataset_handle: u32,
+    src_schema: u32,
+    tgt_schema: u32,
+) -> Result<Vec<u8>, WasmError> {
     // Clone the dataset
-    let ds = slab::with_resource(dataset_handle, |r| Ok(slab::as_dataset(r)?.clone()))?;
+    let ds = slab::try_get(dataset_handle, |r| Ok(slab::as_dataset(r)?.clone()))?;
 
     // Clone both schemas
-    let (src, tgt) = slab::with_two_resources(src_schema, tgt_schema, |r1, r2| {
+    let (src, tgt) = slab::try_get_two(src_schema, tgt_schema, |r1, r2| {
         let s1 = slab::as_schema(r1)?;
         let s2 = slab::as_schema(r2)?;
         Ok((s1.clone(), s2.clone()))
@@ -163,6 +181,11 @@ pub fn migrate_dataset_forward(
         reason: format!("hash schema: {e}"),
     })?;
 
+    // Build both carrier objects (the fallible encodes) before
+    // allocating either handle, so a serialization failure on the second
+    // carrier cannot leak the slab slot of the first: the caller only
+    // learns the handle through a successful return, so a slot allocated
+    // on the way to an error is unreachable and never freed.
     let new_ds = vcs::DataSetObject {
         schema_id: tgt_schema_id,
         data: rmp_serde::to_vec_named(&migrated).map_err(|e| WasmError::SerializationFailed {
@@ -173,22 +196,21 @@ pub fn migrate_dataset_forward(
         key: ds.key.clone(),
     };
 
-    let data_handle = slab::alloc(Resource::DataSet(Box::new(new_ds)));
-
-    // Serialize complements
-    let complement_bytes =
-        rmp_serde::to_vec_named(&complements).map_err(|e| WasmError::SerializationFailed {
-            reason: format!("serialize complement: {e}"),
-        })?;
-
-    // Store complement bytes in a DataSet resource (as raw carrier)
+    // The complement carrier rides in a DataSet resource whose `data`
+    // field holds the MessagePack-encoded `Vec<Complement>`.
     let comp_ds = vcs::DataSetObject {
         schema_id: ds.schema_id,
-        data: complement_bytes,
+        data: rmp_serde::to_vec_named(&complements).map_err(|e| {
+            WasmError::SerializationFailed {
+                reason: format!("serialize complement: {e}"),
+            }
+        })?,
         record_count: complements.len() as u64,
         // A complement carrier holds no record, so it carries no key.
         key: None,
     };
+
+    let data_handle = slab::alloc(Resource::DataSet(Box::new(new_ds)));
     let complement_handle = slab::alloc(Resource::DataSet(Box::new(comp_ds)));
 
     let out = serde_json::json!({
@@ -196,20 +218,33 @@ pub fn migrate_dataset_forward(
         "complement_handle": complement_handle,
     });
 
-    rmp_serde::to_vec_named(&out).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
+    // Encoding the envelope is the last fallible step, and it is the one
+    // step that happens with handles already allocated. Release them if
+    // it fails: the caller never learns the handles, so nothing else can.
+    match rmp_serde::to_vec_named(&out) {
+        Ok(bytes) => Ok(bytes),
+        Err(e) => {
+            slab::free(data_handle);
+            slab::free(complement_handle);
+            Err(WasmError::SerializationFailed {
+                reason: e.to_string(),
+            })
         }
-        .into()
-    })
+    }
 }
 
 /// Migrate a data set backward using a stored complement.
 ///
+/// The complement list must hold exactly one entry per record in the
+/// data set. A mismatch is an error naming both lengths, rather than a
+/// restore of the shorter of the two whose `record_count` reports the
+/// truncated set as if it were complete.
+///
 /// # Errors
 ///
 /// Returns `JsError` if handles are invalid, lens generation fails,
-/// or migration fails.
+/// the complement count does not match the record count, or migration
+/// fails.
 #[wasm_bindgen]
 pub fn migrate_dataset_backward(
     dataset_handle: u32,
@@ -217,9 +252,28 @@ pub fn migrate_dataset_backward(
     src_schema: u32,
     tgt_schema: u32,
 ) -> Result<u32, JsError> {
-    let ds = slab::with_resource(dataset_handle, |r| Ok(slab::as_dataset(r)?.clone()))?;
+    Ok(migrate_dataset_backward_inner(
+        dataset_handle,
+        complement_bytes,
+        src_schema,
+        tgt_schema,
+    )?)
+}
 
-    let (src, tgt) = slab::with_two_resources(src_schema, tgt_schema, |r1, r2| {
+/// The body of [`migrate_dataset_backward`], in [`WasmError`] terms.
+///
+/// Split out for the same reason as
+/// [`migrate_dataset_forward_inner`]: the failure branches are only
+/// reachable from a host test when the error type is not `JsError`.
+fn migrate_dataset_backward_inner(
+    dataset_handle: u32,
+    complement_bytes: &[u8],
+    src_schema: u32,
+    tgt_schema: u32,
+) -> Result<u32, WasmError> {
+    let ds = slab::try_get(dataset_handle, |r| Ok(slab::as_dataset(r)?.clone()))?;
+
+    let (src, tgt) = slab::try_get_two(src_schema, tgt_schema, |r1, r2| {
         let s1 = slab::as_schema(r1)?;
         let s2 = slab::as_schema(r2)?;
         Ok((s1.clone(), s2.clone()))
@@ -245,7 +299,22 @@ pub fn migrate_dataset_backward(
         }
     })?;
 
-    let mut restored = Vec::new();
+    // Each record is restored from the complement recorded for it, so
+    // the two lists must line up exactly. Zipping mismatched lists would
+    // drop the unpaired tail and report a `record_count` matching the
+    // truncated set, leaving the loss undetectable.
+    if instances.len() != complements.len() {
+        return Err(WasmError::PutFailed {
+            reason: format!(
+                "migrate backward: {} record(s) but {} complement(s); \
+                 every record needs the complement recorded for it",
+                instances.len(),
+                complements.len()
+            ),
+        });
+    }
+
+    let mut restored = Vec::with_capacity(instances.len());
     for (inst, comp) in instances.iter().zip(complements.iter()) {
         let r = lens::put(&result.lens, inst, comp).map_err(|e| WasmError::PutFailed {
             reason: format!("lens put: {e}"),
@@ -370,6 +439,55 @@ pub fn free_handle(handle: u32) {
 mod tests {
     use super::*;
     use crate::api::test_support;
+
+    /// Store three records, migrate forward, drop one complement, and
+    /// migrate back. The short list must be refused: pairing records with
+    /// complements positionally drops the unpaired record, and the
+    /// restored data set's `record_count` matches the truncated set, so
+    /// nothing in the result tells the caller a record went missing.
+    #[test]
+    fn migrate_backward_refuses_a_short_complement_list() {
+        let src_h = test_support::schema_handle(&test_support::source_schema());
+        let tgt_h = test_support::schema_handle(&test_support::target_schema());
+
+        let records = serde_json::json!([
+            {"text": "a", "subtitle": "one"},
+            {"text": "b", "subtitle": "two"},
+            {"text": "c", "subtitle": "three"},
+        ]);
+        let data_h = store_dataset(src_h, &serde_json::to_vec(&records).unwrap()).unwrap();
+
+        let forward = migrate_dataset_forward_inner(data_h, src_h, tgt_h).unwrap();
+        let handles: serde_json::Value = rmp_serde::from_slice(&forward).unwrap();
+        let migrated_h = u32::try_from(handles["data_handle"].as_u64().unwrap()).unwrap();
+        let comp_h = u32::try_from(handles["complement_handle"].as_u64().unwrap()).unwrap();
+
+        let comp_bytes = slab::try_get(comp_h, |r| Ok(slab::as_dataset(r)?.data.clone())).unwrap();
+        let mut complements: Vec<lens::Complement> = rmp_serde::from_slice(&comp_bytes).unwrap();
+        assert_eq!(complements.len(), 3);
+        complements.pop();
+        let short = rmp_serde::to_vec_named(&complements).unwrap();
+
+        match migrate_dataset_backward_inner(migrated_h, &short, src_h, tgt_h) {
+            Err(err) => {
+                let message = err.to_string();
+                assert!(
+                    message.contains('3') && message.contains('2'),
+                    "the error must name both lengths, got: {message}"
+                );
+            }
+            Ok(handle) => panic!(
+                "a short complement list must fail, not truncate the restore \
+                 into handle {handle}"
+            ),
+        }
+
+        free_handle(data_h);
+        free_handle(migrated_h);
+        free_handle(comp_h);
+        free_handle(src_h);
+        free_handle(tgt_h);
+    }
 
     #[test]
     fn store_get_and_free_protocol_definition() {

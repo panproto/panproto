@@ -23,8 +23,8 @@ private struct EngineReplay: Sendable {
 /// The message in the pending error envelope, or a note that the slot
 /// held nothing readable.
 ///
-/// Engine-isolated: the slot is thread-local, so the drain has to land
-/// on the thread whose call failed.
+/// Engine-isolated: the slot holds one envelope, so the drain has to run
+/// with nothing interleaved between it and the call that failed.
 @PanprotoEngine
 private func pendingFailure() -> String {
     let drained = Raw.lastErrorTake()

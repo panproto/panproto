@@ -652,6 +652,36 @@ pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<Object
     Ok(ObjectId(hasher.finalize().into()))
 }
 
+/// Compute the content address of any [`Object`].
+///
+/// This is the single definition of "which ID does this object have":
+/// stores use it to file an object on write and to verify it on read,
+/// and a client that fetches an object over the network uses it to
+/// check that the bytes it received are the ones it asked for.
+///
+/// # Errors
+///
+/// Returns an error if the object's canonical serialization fails.
+pub fn object_id(object: &crate::object::Object) -> Result<ObjectId, VcsError> {
+    use crate::object::Object;
+    match object {
+        Object::Migration { src, tgt, mapping } => hash_migration(*src, *tgt, mapping),
+        Object::Commit(commit) => hash_commit(commit),
+        Object::Tag(tag) => hash_tag(tag),
+        Object::DataSet(dataset) => hash_dataset(dataset),
+        Object::Complement(complement) => hash_complement(complement),
+        Object::Protocol(protocol) => hash_protocol(protocol),
+        Object::Expr(expr) => hash_expr(expr),
+        Object::EditLog(edit_log) => hash_edit_log(edit_log),
+        Object::Theory(theory) => hash_theory(theory),
+        Object::TheoryMorphism(morphism) => hash_theory_morphism(morphism),
+        Object::CstComplement(cst_comp) => hash_cst_complement(cst_comp),
+        Object::FileSchema(file) => hash_file_schema(file),
+        Object::SchemaTree(tree) => hash_schema_tree(tree),
+        Object::FlatSchema(schema) => hash_schema(schema),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

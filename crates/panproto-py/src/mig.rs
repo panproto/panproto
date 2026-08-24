@@ -302,11 +302,15 @@ impl PyCompiledMigration {
 ///     The compiled migration with precomputed surviving sets and remaps.
 #[pyfunction]
 pub fn compile_migration(
+    py: Python<'_>,
     migration: &PyMigration,
     src_schema: &PySchema,
     tgt_schema: &PySchema,
 ) -> PyResult<PyCompiledMigration> {
-    let compiled = mig::compile(&src_schema.inner, &tgt_schema.inner, &migration.inner)
+    // Compilation walks both schemas to precompute surviving sets and
+    // remaps; it touches no Python state, so the GIL is released.
+    let compiled = py
+        .detach(|| mig::compile(&src_schema.inner, &tgt_schema.inner, &migration.inner))
         .map_err(|e| crate::error::MigrationError::new_err(format!("compilation failed: {e}")))?;
     Ok(PyCompiledMigration {
         compiled,
@@ -331,13 +335,15 @@ pub fn check_existence(
     // since the built-in protocols don't require external theory lookup
     // for basic existence checks.
     let theory_registry = HashMap::new();
-    let report = mig::check_existence(
-        &protocol.inner,
-        &src_schema.inner,
-        &tgt_schema.inner,
-        &migration.inner,
-        &theory_registry,
-    );
+    let report = py.detach(|| {
+        mig::check_existence(
+            &protocol.inner,
+            &src_schema.inner,
+            &tgt_schema.inner,
+            &migration.inner,
+            &theory_registry,
+        )
+    });
     convert::to_python(py, &report)
 }
 
@@ -388,12 +394,15 @@ pub fn check_coverage(
     py: Python<'_>,
 ) -> PyResult<Py<PyAny>> {
     let winstances: Vec<_> = instances.iter().map(|i| i.inner.clone()).collect();
-    let report = mig::check_coverage(
-        &compiled.compiled,
-        &winstances,
-        &src_schema.inner,
-        &tgt_schema.inner,
-    );
+    // One lift per record: released for the duration.
+    let report = py.detach(|| {
+        mig::check_coverage(
+            &compiled.compiled,
+            &winstances,
+            &src_schema.inner,
+            &tgt_schema.inner,
+        )
+    });
     convert::to_python(py, &report)
 }
 

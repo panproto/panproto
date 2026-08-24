@@ -778,6 +778,13 @@ impl EditLens {
     /// the inverse directed equations (from `DirectedEquation.inverse`)
     /// when available.
     ///
+    /// The complement is a state machine rather than a snapshot, so it
+    /// moves in this direction too: a view edit changes what the source
+    /// is, and any record the complement still holds about the parts the
+    /// edit touched would otherwise describe a source that no longer
+    /// exists. A later `put` would then reinstate a node under an id the
+    /// view has reused, or reattach a child to a parent that is gone.
+    ///
     /// # Errors
     ///
     /// Returns [`EditLensError`] if the edit cannot be translated.
@@ -790,7 +797,10 @@ impl EditLens {
                 ref node,
                 ref edge,
             } => Ok(self.put_edit_insert(parent, child_id, node, edge)),
-            TreeEdit::DeleteNode { id } => Ok(TreeEdit::DeleteNode { id }),
+            TreeEdit::DeleteNode { id } => {
+                self.forget_subtree(id);
+                Ok(TreeEdit::DeleteNode { id })
+            }
             TreeEdit::SetField {
                 node_id,
                 ref field,
@@ -798,6 +808,9 @@ impl EditLens {
             } => Ok(self.put_edit_set_field(node_id, field, value)),
             TreeEdit::RemoveField { node_id, field } => {
                 let source_name = self.translate_field_name_backward(field.as_ref());
+                if let Some(node) = self.complement.dropped_nodes.get_mut(&node_id) {
+                    node.extra_fields.remove(source_name.as_str());
+                }
                 Ok(TreeEdit::RemoveField {
                     node_id,
                     field: Name::from(source_name.as_str()),
@@ -805,6 +818,9 @@ impl EditLens {
             }
             TreeEdit::RelabelNode { id, new_anchor } => {
                 let source_anchor = self.remap_anchor_backward(&new_anchor);
+                if let Some(node) = self.complement.dropped_nodes.get_mut(&id) {
+                    node.anchor = source_anchor.clone();
+                }
                 Ok(TreeEdit::RelabelNode {
                     id,
                     new_anchor: source_anchor,
@@ -823,8 +839,20 @@ impl EditLens {
                 let source_fan = self.remap_fan_backward(&fan);
                 Ok(TreeEdit::InsertFan { fan: source_fan })
             }
-            TreeEdit::DeleteFan { hyper_edge_id } => Ok(TreeEdit::DeleteFan { hyper_edge_id }),
-            TreeEdit::ContractNode { id } => Ok(TreeEdit::ContractNode { id }),
+            TreeEdit::DeleteFan { hyper_edge_id } => {
+                self.complement
+                    .dropped_fans
+                    .retain(|fan| fan.hyper_edge_id.as_str() != hyper_edge_id.as_ref());
+                Ok(TreeEdit::DeleteFan { hyper_edge_id })
+            }
+            TreeEdit::ContractNode { id } => {
+                // The node is folded into its parent, so whatever the
+                // complement recorded about it as a node of its own no
+                // longer describes anything.
+                self.complement.dropped_nodes.remove(&id);
+                self.complement.original_parent.remove(&id);
+                Ok(TreeEdit::ContractNode { id })
+            }
             TreeEdit::JoinFeatures {
                 primary,
                 joined,
@@ -852,12 +880,18 @@ impl EditLens {
     }
 
     fn put_edit_insert(
-        &self,
+        &mut self,
         parent: u32,
         child_id: u32,
         node: &panproto_inst::Node,
         edge: &Edge,
     ) -> TreeEdit {
+        // The view has put a node at `child_id`. Anything the complement
+        // still holds under that id describes a node this insert replaces,
+        // and leaving it would have `put` restore the old content on top
+        // of the new node.
+        self.forget_subtree(child_id);
+
         let source_node = self.remap_node_backward(node);
         let source_edge = self.remap_edge_backward(edge);
         TreeEdit::InsertNode {
@@ -869,7 +903,7 @@ impl EditLens {
     }
 
     fn put_edit_set_field(
-        &self,
+        &mut self,
         node_id: u32,
         field: &Name,
         value: &panproto_inst::Value,
@@ -879,10 +913,64 @@ impl EditLens {
         // for lossless round-tripping. Field transform expressions are
         // forward-only; inverse behavior requires protocol-level directed
         // equations with an `inverse` field.
+        //
+        // A node the complement holds keeps its copy in step, mirroring
+        // what `get_edit_set_field` does in the forward direction.
+        if let Some(node) = self.complement.dropped_nodes.get_mut(&node_id) {
+            node.extra_fields.insert(source_name.clone(), value.clone());
+        }
         TreeEdit::SetField {
             node_id,
             field: Name::from(source_name.as_str()),
             value: value.clone(),
+        }
+    }
+
+    /// Drop every complement record naming `id`, and every record for a
+    /// node that reached the source only through `id`.
+    ///
+    /// A node the complement holds is restored by reattaching it to its
+    /// recorded parent. Once `id` is gone from the source, a child
+    /// recorded under it has nowhere to go, so the record is dropped with
+    /// it rather than left to fail or to reattach somewhere arbitrary.
+    fn forget_subtree(&mut self, id: u32) {
+        let mut doomed = vec![id];
+        let mut seen = std::collections::HashSet::from([id]);
+        while let Some(current) = doomed.pop() {
+            self.complement.dropped_nodes.remove(&current);
+            self.complement.original_parent.remove(&current);
+            self.complement.original_extra_fields.remove(&current);
+            self.complement.original_values.remove(&current);
+            self.complement.synthesized_nodes.remove(&current);
+
+            let children: Vec<u32> = self
+                .complement
+                .dropped_arcs
+                .iter()
+                .filter(|&&(parent, _, _)| parent == current)
+                .map(|&(_, child, _)| child)
+                .collect();
+            self.complement
+                .dropped_arcs
+                .retain(|&(parent, child, _)| parent != current && child != current);
+            self.complement
+                .arc_edges
+                .retain(|&(parent, child), _| parent != current && child != current);
+            self.complement
+                .arc_order
+                .retain(|&(parent, child)| parent != current && child != current);
+            self.complement
+                .contraction_choices
+                .retain(|&(parent, child), _| parent != current && child != current);
+            self.complement.dropped_fans.retain(|fan| {
+                fan.parent != current && !fan.children.values().any(|&c| c == current)
+            });
+
+            for child in children {
+                if seen.insert(child) {
+                    doomed.push(child);
+                }
+            }
         }
     }
 
@@ -1254,6 +1342,117 @@ mod tests {
             }
             other => panic!("expected SetField, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn put_edit_keeps_the_complement_in_step() {
+        // `three_node_instance` has a `createdAt` child at node 2; the
+        // projection lens drops it, so the complement holds it. A view
+        // edit that removes node 2's parent, or reuses id 2, changes what
+        // the source is, and the complement has to follow.
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+
+        // Deleting the node the complement holds must clear its record.
+        let mut edit_lens = EditLens::from_lens(
+            crate::tests::projection_lens(&schema, "createdAt"),
+            test_protocol(),
+        );
+        edit_lens.initialize(&instance).unwrap();
+        assert!(
+            edit_lens.complement.dropped_nodes.contains_key(&2),
+            "the dropped child must start out in the complement"
+        );
+        edit_lens.put_edit(TreeEdit::DeleteNode { id: 2 }).unwrap();
+        assert!(
+            !edit_lens.complement.dropped_nodes.contains_key(&2),
+            "a deleted node must not stay in the complement"
+        );
+        assert!(
+            edit_lens
+                .complement
+                .dropped_arcs
+                .iter()
+                .all(|&(parent, child, _)| parent != 2 && child != 2),
+            "no arc may still name the deleted node: {:?}",
+            edit_lens.complement.dropped_arcs,
+        );
+
+        // Deleting a parent must take the records for what hung off it.
+        let mut edit_lens = EditLens::from_lens(
+            crate::tests::projection_lens(&schema, "createdAt"),
+            test_protocol(),
+        );
+        edit_lens.initialize(&instance).unwrap();
+        let Some(parent) = edit_lens
+            .complement
+            .dropped_arcs
+            .iter()
+            .find(|&&(_, child, _)| child == 2)
+            .map(|&(parent, _, _)| parent)
+        else {
+            panic!("the dropped child must have a recorded parent");
+        };
+        edit_lens
+            .put_edit(TreeEdit::DeleteNode { id: parent })
+            .unwrap();
+        assert!(
+            !edit_lens.complement.dropped_nodes.contains_key(&2),
+            "a child recorded under a deleted parent has nowhere to be restored to"
+        );
+
+        // Reusing the id for a fresh node must not resurrect the old one.
+        let mut edit_lens = EditLens::from_lens(
+            crate::tests::projection_lens(&schema, "createdAt"),
+            test_protocol(),
+        );
+        edit_lens.initialize(&instance).unwrap();
+        edit_lens
+            .put_edit(TreeEdit::InsertNode {
+                parent: 0,
+                child_id: 2,
+                node: Node::new(2, "post:body.text"),
+                edge: Edge {
+                    src: "post:body".into(),
+                    tgt: "post:body.text".into(),
+                    kind: "prop".into(),
+                    name: Some("text".into()),
+                },
+            })
+            .unwrap();
+        assert!(
+            !edit_lens.complement.dropped_nodes.contains_key(&2),
+            "an insert at a reused id must not leave the old record behind"
+        );
+    }
+
+    #[test]
+    fn put_edit_set_field_reaches_a_complement_node() {
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+        let mut edit_lens = EditLens::from_lens(
+            crate::tests::projection_lens(&schema, "createdAt"),
+            test_protocol(),
+        );
+        edit_lens.initialize(&instance).unwrap();
+        assert!(edit_lens.complement.dropped_nodes.contains_key(&2));
+
+        edit_lens
+            .put_edit(TreeEdit::SetField {
+                node_id: 2,
+                field: Name::from("value"),
+                value: panproto_inst::Value::Str("2026-01-01".into()),
+            })
+            .unwrap();
+
+        assert_eq!(
+            edit_lens.complement.dropped_nodes[&2]
+                .extra_fields
+                .get("value"),
+            Some(&panproto_inst::Value::Str("2026-01-01".into())),
+            "the backward direction must update the complement's copy the way \
+             the forward direction does",
+        );
     }
 
     #[test]

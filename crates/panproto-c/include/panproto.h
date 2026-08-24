@@ -225,6 +225,11 @@ pp_data_get_migration_complement (
  *  view with its complement. On success, `out_handle` receives a fresh
  *  [`Resource::DataSet`](crate::handle::Resource) handle re-anchored to
  *  the source schema.
+ *
+ *  The complement list must hold exactly one entry per record in the
+ *  data set. A mismatch returns `PP_STATUS_OPERATION` with both lengths
+ *  named in the error envelope, rather than restoring the shorter of
+ *  the two and reporting the truncated count as if it were complete.
  */
 int32_t
 pp_data_migrate_backward (
@@ -771,20 +776,25 @@ pp_hom_span_to_overlap (
 /** \brief
  *  Initialize the panproto-c runtime.
  *
- *  Installs a process-global Rust panic hook that suppresses the
- *  default stderr output. Panics are still observable: every entry
- *  point in this module catches them via [`crate::panic::guard`] and
- *  stashes the message in the thread-local last-error slot, which
- *  the host retrieves via [`pp_last_error_take`]. Without this hook
- *  the default Rust handler would print every caught panic to
- *  stderr before `guard` could report it, which is noisy and
- *  surprising for hosts that already report errors through the
- *  status-code channel.
+ *  Installs a Rust panic hook that suppresses the default stderr report
+ *  for panics raised inside a panproto entry point, and *only* for
+ *  those. Such a panic is still observable: every entry point in this
+ *  module catches it via [`crate::panic::guard`] and stashes the message
+ *  in the process-global last-error slot, which the host retrieves via
+ *  [`pp_last_error_take`]. Without the hook the default Rust handler
+ *  would print every caught panic to stderr before `guard` could report
+ *  it, which is noisy and surprising for hosts that already report
+ *  errors through the status-code channel.
  *
- *  Idempotent: calling more than once just re-installs the same
- *  hook. Always returns [`PpStatus::Ok`]. The slab and last-error
- *  slots are thread-local `RefCell`s that initialize lazily, so they
- *  do not need explicit setup.
+ *  A panic anywhere else in the host process is not panproto's to
+ *  silence, so the hook forwards it to whatever hook was installed
+ *  before this call: the host's crash reporter, its logger, or the Rust
+ *  default. Installing happens exactly once no matter how many times
+ *  this is called, so the chain cannot grow and the hook can never
+ *  forward to itself.
+ *
+ *  Always returns [`PpStatus::Ok`]. The slab and the last-error slot are
+ *  process-global statics, so they need no explicit setup.
  */
 int32_t
 pp_init (void);

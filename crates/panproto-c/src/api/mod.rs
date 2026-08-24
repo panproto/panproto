@@ -63,6 +63,8 @@ pub use parse::*;
 #[cfg(feature = "project")]
 pub use project::*;
 
+use std::sync::Once;
+
 use safer_ffi::prelude::*;
 
 use crate::error::{PpStatus, take_last_error};
@@ -71,32 +73,47 @@ use crate::panic::guard;
 
 /// Initialize the panproto-c runtime.
 ///
-/// Installs a process-global Rust panic hook that suppresses the
-/// default stderr output. Panics are still observable: every entry
-/// point in this module catches them via [`crate::panic::guard`] and
-/// stashes the message in the thread-local last-error slot, which
-/// the host retrieves via [`pp_last_error_take`]. Without this hook
-/// the default Rust handler would print every caught panic to
-/// stderr before `guard` could report it, which is noisy and
-/// surprising for hosts that already report errors through the
-/// status-code channel.
+/// Installs a Rust panic hook that suppresses the default stderr report
+/// for panics raised inside a panproto entry point, and *only* for
+/// those. Such a panic is still observable: every entry point in this
+/// module catches it via [`crate::panic::guard`] and stashes the message
+/// in the process-global last-error slot, which the host retrieves via
+/// [`pp_last_error_take`]. Without the hook the default Rust handler
+/// would print every caught panic to stderr before `guard` could report
+/// it, which is noisy and surprising for hosts that already report
+/// errors through the status-code channel.
 ///
-/// Idempotent: calling more than once just re-installs the same
-/// hook. Always returns [`PpStatus::Ok`]. The slab and last-error
-/// slots are thread-local `RefCell`s that initialize lazily, so they
-/// do not need explicit setup.
+/// A panic anywhere else in the host process is not panproto's to
+/// silence, so the hook forwards it to whatever hook was installed
+/// before this call: the host's crash reporter, its logger, or the Rust
+/// default. Installing happens exactly once no matter how many times
+/// this is called, so the chain cannot grow and the hook can never
+/// forward to itself.
+///
+/// Always returns [`PpStatus::Ok`]. The slab and the last-error slot are
+/// process-global statics, so they need no explicit setup.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_init() -> i32 {
     guard(|| {
-        std::panic::set_hook(Box::new(|_info| {
-            // Intentionally silent: the panic payload is captured
-            // by `crate::panic::guard` and surfaced through
-            // `pp_last_error_take`.
-        }));
+        PANIC_HOOK_INSTALLED.call_once(|| {
+            let host_hook = std::panic::take_hook();
+            std::panic::set_hook(Box::new(move |info| {
+                if crate::panic::inside_boundary() {
+                    // Silent by design: `crate::panic::guard` is about to
+                    // catch this unwind and surface the payload through
+                    // `pp_last_error_take`.
+                    return;
+                }
+                host_hook(info);
+            }));
+        });
         Ok(PpStatus::Ok)
     })
 }
+
+/// Guards the one-time installation of the panic hook in [`pp_init`].
+static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 /// Free a handle, marking its slab slot reusable.
 ///

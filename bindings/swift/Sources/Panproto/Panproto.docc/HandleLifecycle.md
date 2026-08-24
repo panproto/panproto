@@ -19,8 +19,9 @@ state and exist so that the variant is a compile-time fact: a
 ``SchemaHandle`` cannot be passed where the ABI wants a ``ProtocolHandle``.
 
 They are engine-isolated. Every operation on a handle runs on the engine
-thread, which is what keeps a failure and the drain of its thread-local
-error envelope together. See <doc:TheEngineActor>.
+thread, which is what keeps a failure and the drain of its error envelope
+adjacent, with no other call able to land between them. See
+<doc:TheEngineActor>.
 
 They free themselves. Nothing has to be released by hand for the program
 to be correct; releasing by hand is about *when*, not whether.

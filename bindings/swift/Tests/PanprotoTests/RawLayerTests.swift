@@ -11,13 +11,13 @@ import Testing
 /// layer above: a wrong slice, a leaked buffer, or an out-parameter read
 /// in the wrong order shows up here and nowhere else.
 ///
-/// Every case runs inside ``PanprotoEngine/run(_:)``. The slab is
-/// process-global, so handles would survive a thread hop, but the
-/// last-error slot is thread-local and a `run` block is indivisible on
-/// the engine thread. Driving a failure and draining its envelope in one
-/// block is therefore the only way to be sure the drain sees the
-/// envelope this test produced and not one a concurrently running suite
-/// left behind.
+/// Every case runs inside ``PanprotoEngine/run(_:)``. The slab and the
+/// last-error slot are both process-global, so handles and envelopes
+/// survive a thread hop, but the slot holds one envelope and a `run`
+/// block is indivisible on the engine thread. Driving a failure and
+/// draining its envelope in one block is therefore the only way to be
+/// sure the drain sees the envelope this test produced and not one a
+/// concurrently running suite left behind.
 @Suite("Raw layer against the live engine")
 struct RawLayerTests {
     // MARK: - Lifecycle

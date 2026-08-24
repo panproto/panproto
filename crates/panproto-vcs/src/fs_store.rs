@@ -82,16 +82,47 @@ impl FsStore {
         self.root.join("objects").join(&hex[..2]).join(&hex[2..])
     }
 
-    fn ref_path(&self, name: &str) -> PathBuf {
-        self.root.join(name)
+    /// Resolve a ref name to its file inside the store.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::InvalidRefName`] when the name would address
+    /// a file outside the store root.
+    fn ref_path(&self, name: &str) -> Result<PathBuf, VcsError> {
+        validate_ref_name(name)?;
+        Ok(self.root.join(name))
+    }
+
+    /// Resolve a ref-name *prefix* to the directory it names.
+    ///
+    /// The empty prefix names the store root, which is how callers
+    /// enumerate every ref at once; every other prefix is validated like
+    /// a ref name.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::InvalidRefName`] when the prefix would
+    /// address a directory outside the store root.
+    fn ref_prefix_path(&self, prefix: &str) -> Result<PathBuf, VcsError> {
+        if prefix.is_empty() {
+            return Ok(self.root.clone());
+        }
+        self.ref_path(prefix)
     }
 
     fn head_path(&self) -> PathBuf {
         self.root.join("HEAD")
     }
 
-    fn reflog_path(&self, ref_name: &str) -> PathBuf {
-        self.root.join("logs").join(ref_name)
+    /// Resolve a ref name to its reflog file.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::InvalidRefName`] when the name would address
+    /// a file outside the store's log directory.
+    fn reflog_path(&self, ref_name: &str) -> Result<PathBuf, VcsError> {
+        validate_ref_name(ref_name)?;
+        Ok(self.root.join("logs").join(ref_name))
     }
 
     fn write_head(&self, state: &HeadState) -> Result<(), VcsError> {
@@ -112,11 +143,19 @@ impl Store for FsStore {
         let path = self.object_path(id);
         let bytes = fs::read(&path).map_err(|_| VcsError::ObjectNotFound { id: *id })?;
         let object: Object = rmp_serde::from_slice(&bytes)?;
+        // The store is content-addressed: the bytes filed under an ID
+        // must hash back to it. Re-deriving the address on read turns a
+        // torn write or a substituted file into an error rather than a
+        // silently wrong object.
+        let actual = hash::object_id(&object)?;
+        if actual != *id {
+            return Err(VcsError::ObjectCorrupted { id: *id, actual });
+        }
         Ok(object)
     }
 
     fn put(&mut self, object: &Object) -> Result<ObjectId, VcsError> {
-        let id = compute_object_id(object)?;
+        let id = hash::object_id(object)?;
         let path = self.object_path(&id);
         if path.exists() {
             return Ok(id);
@@ -126,12 +165,12 @@ impl Store for FsStore {
             fs::create_dir_all(parent)?;
         }
         let bytes = rmp_serde::to_vec(object)?;
-        fs::write(&path, bytes)?;
+        write_atomically(&path, &bytes)?;
         Ok(id)
     }
 
     fn get_ref(&self, name: &str) -> Result<Option<ObjectId>, VcsError> {
-        let path = self.ref_path(name);
+        let path = self.ref_path(name)?;
         if !path.exists() {
             return Ok(None);
         }
@@ -146,16 +185,16 @@ impl Store for FsStore {
     }
 
     fn set_ref(&mut self, name: &str, id: ObjectId) -> Result<(), VcsError> {
-        let path = self.ref_path(name);
+        let path = self.ref_path(name)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        fs::write(&path, format!("{id}\n"))?;
+        write_atomically(&path, format!("{id}\n").as_bytes())?;
         Ok(())
     }
 
     fn delete_ref(&mut self, name: &str) -> Result<(), VcsError> {
-        let path = self.ref_path(name);
+        let path = self.ref_path(name)?;
         if !path.exists() {
             return Err(VcsError::RefNotFound {
                 name: name.to_owned(),
@@ -166,7 +205,7 @@ impl Store for FsStore {
     }
 
     fn list_refs(&self, prefix: &str) -> Result<Vec<(String, ObjectId)>, VcsError> {
-        let base = self.ref_path(prefix);
+        let base = self.ref_prefix_path(prefix)?;
         if !base.is_dir() {
             return Ok(Vec::new());
         }
@@ -225,7 +264,7 @@ impl Store for FsStore {
     }
 
     fn append_reflog(&mut self, ref_name: &str, entry: ReflogEntry) -> Result<(), VcsError> {
-        let path = self.reflog_path(ref_name);
+        let path = self.reflog_path(ref_name)?;
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
@@ -245,7 +284,7 @@ impl Store for FsStore {
         ref_name: &str,
         limit: Option<usize>,
     ) -> Result<Vec<ReflogEntry>, VcsError> {
-        let path = self.reflog_path(ref_name);
+        let path = self.reflog_path(ref_name)?;
         if !path.exists() {
             return Ok(Vec::new());
         }
@@ -261,6 +300,95 @@ impl Store for FsStore {
             entries.truncate(n);
         }
         Ok(entries)
+    }
+}
+
+/// Check that a ref name addresses a file inside the store.
+///
+/// A ref name is joined onto the store root, so anything but a chain of
+/// ordinary path components can leave the repository: `..` climbs out,
+/// a leading `/` (or a Windows drive prefix) replaces the root outright,
+/// and `.` is at best noise. Ref names arrive from remotes over the
+/// network, so this check is the boundary that keeps a remote from
+/// naming a write target of its choosing.
+///
+/// # Errors
+///
+/// Returns [`VcsError::InvalidRefName`] describing the first component
+/// that fails.
+fn validate_ref_name(name: &str) -> Result<(), VcsError> {
+    use std::path::Component;
+
+    let reject = |reason: &'static str| {
+        Err(VcsError::InvalidRefName {
+            name: name.to_owned(),
+            reason,
+        })
+    };
+
+    if name.is_empty() {
+        return reject("a ref name may not be empty");
+    }
+    if name.contains('\0') {
+        return reject("a ref name may not contain a NUL byte");
+    }
+    // Windows accepts both separators, so a name that is relative under
+    // Unix component rules can still be absolute there. Rejecting the
+    // backslash outright keeps the accepted set identical on every host.
+    if name.contains('\\') {
+        return reject("a ref name may not contain a backslash");
+    }
+    for component in Path::new(name).components() {
+        match component {
+            Component::Normal(_) => {}
+            Component::ParentDir => return reject("a ref name may not contain \"..\""),
+            Component::CurDir => return reject("a ref name may not contain \".\""),
+            Component::RootDir | Component::Prefix(_) => {
+                return reject("a ref name must be relative to the store root");
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Write `bytes` to `path` so a reader sees either the previous contents
+/// or all of the new ones, never a prefix.
+///
+/// The bytes land in a sibling temporary file, are flushed to the
+/// device, and are then renamed over the destination; `rename` within a
+/// directory is atomic, so an interrupted write leaves the temporary
+/// behind rather than a half-written object. The store is
+/// content-addressed and its readers verify the address, so a leftover
+/// temporary is inert: it is not named by any ID.
+fn write_atomically(path: &Path, bytes: &[u8]) -> Result<(), VcsError> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path.file_name().unwrap_or_default().to_string_lossy();
+    let tmp = parent.join(format!(
+        ".{stem}.{}.{}.tmp",
+        std::process::id(),
+        NEXT.fetch_add(1, Ordering::Relaxed)
+    ));
+
+    let write = |tmp: &Path| -> Result<(), std::io::Error> {
+        let mut file = fs::File::create(tmp)?;
+        file.write_all(bytes)?;
+        file.sync_all()?;
+        drop(file);
+        fs::rename(tmp, path)
+    };
+
+    match write(&tmp) {
+        Ok(()) => Ok(()),
+        Err(e) => {
+            // Do not leave the staging file behind on a failure we can
+            // see; the removal itself is best-effort.
+            drop(fs::remove_file(&tmp));
+            Err(VcsError::Io(e))
+        }
     }
 }
 
@@ -286,26 +414,6 @@ fn collect_refs_recursive(
         }
     }
     Ok(())
-}
-
-/// Compute the `ObjectId` for any [`Object`].
-fn compute_object_id(object: &Object) -> Result<ObjectId, VcsError> {
-    match object {
-        Object::Migration { src, tgt, mapping } => hash::hash_migration(*src, *tgt, mapping),
-        Object::Commit(commit) => hash::hash_commit(commit),
-        Object::Tag(tag) => hash::hash_tag(tag),
-        Object::DataSet(dataset) => hash::hash_dataset(dataset),
-        Object::Complement(complement) => hash::hash_complement(complement),
-        Object::Protocol(protocol) => hash::hash_protocol(protocol),
-        Object::Expr(expr) => hash::hash_expr(expr),
-        Object::EditLog(edit_log) => hash::hash_edit_log(edit_log),
-        Object::Theory(theory) => hash::hash_theory(theory),
-        Object::TheoryMorphism(morphism) => hash::hash_theory_morphism(morphism),
-        Object::CstComplement(cst_comp) => hash::hash_cst_complement(cst_comp),
-        Object::FileSchema(file) => hash::hash_file_schema(file),
-        Object::SchemaTree(tree) => hash::hash_schema_tree(tree),
-        Object::FlatSchema(schema) => hash::hash_schema(schema),
-    }
 }
 
 #[cfg(test)]
@@ -556,6 +664,131 @@ mod tests {
         assert_eq!(refs.len(), 2);
         assert_eq!(refs[0].0, "refs/heads/feature/add-field");
         assert_eq!(refs[1].0, "refs/heads/feature/remove-field");
+        Ok(())
+    }
+
+    #[test]
+    fn ref_name_escaping_the_store_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = ObjectId::from_bytes([7; 32]);
+
+        let outside = dir.path().join("pwned");
+        match store.set_ref("refs/heads/../../pwned", id) {
+            Err(VcsError::InvalidRefName { .. }) => {}
+            Err(other) => panic!("expected InvalidRefName, got {other}"),
+            Ok(()) => panic!("a ref name climbing out of the store must be refused"),
+        }
+        assert!(
+            !outside.exists(),
+            "no file may be written outside the store root"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn absolute_ref_name_is_refused() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = ObjectId::from_bytes([8; 32]);
+        match store.set_ref("/tmp/panproto-pwned", id) {
+            Err(VcsError::InvalidRefName { .. }) => {}
+            Err(other) => panic!("expected InvalidRefName, got {other}"),
+            Ok(()) => panic!("an absolute ref name must be refused"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn ref_reads_reject_an_escaping_name() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        assert!(store.get_ref("refs/heads/../../HEAD").is_err());
+        assert!(store.delete_ref("refs/heads/../../HEAD").is_err());
+        assert!(store.list_refs("refs/heads/../..").is_err());
+        assert!(
+            store
+                .append_reflog(
+                    "../../escaped",
+                    ReflogEntry {
+                        old_id: None,
+                        new_id: ObjectId::from_bytes([3; 32]),
+                        author: "test".into(),
+                        timestamp: 1,
+                        message: "escape".into(),
+                    },
+                )
+                .is_err()
+        );
+        assert!(store.read_reflog("../../escaped", None).is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn tampered_object_is_refused_on_read() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+
+        // Overwrite the stored bytes with a different, well-formed
+        // object. A torn write or a hostile mirror produces exactly this
+        // state: the content address no longer describes the bytes it
+        // names.
+        let hex = id.to_string();
+        let path = dir
+            .path()
+            .join(".panproto/objects")
+            .join(&hex[..2])
+            .join(&hex[2..]);
+        let mut other = test_schema();
+        other.protocol = "tampered".into();
+        fs::write(
+            &path,
+            rmp_serde::to_vec(&Object::FlatSchema(Box::new(other)))?,
+        )?;
+
+        match store.get(&id) {
+            Err(VcsError::ObjectCorrupted { id: reported, .. }) => assert_eq!(reported, id),
+            Err(other) => panic!("expected ObjectCorrupted, got {other}"),
+            Ok(obj) => panic!("tampered object returned as genuine: {}", obj.type_name()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn truncated_object_is_refused_on_read() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+
+        let hex = id.to_string();
+        let path = dir
+            .path()
+            .join(".panproto/objects")
+            .join(&hex[..2])
+            .join(&hex[2..]);
+        let bytes = fs::read(&path)?;
+        fs::write(&path, &bytes[..bytes.len() / 2])?;
+
+        assert!(store.get(&id).is_err(), "a torn object must not decode");
+        Ok(())
+    }
+
+    #[test]
+    fn put_leaves_no_partial_file_behind() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut store = FsStore::init(dir.path())?;
+        let id = store.put(&Object::FlatSchema(Box::new(test_schema())))?;
+
+        // The object is published under its content address and nothing
+        // else: a write-then-rename must not leave its staging file in
+        // the fan-out directory.
+        let hex = id.to_string();
+        let fan = dir.path().join(".panproto/objects").join(&hex[..2]);
+        let names: Vec<String> = fs::read_dir(&fan)?
+            .map(|e| Ok::<_, std::io::Error>(e?.file_name().to_string_lossy().into_owned()))
+            .collect::<Result<_, _>>()?;
+        assert_eq!(names, vec![hex[2..].to_owned()]);
         Ok(())
     }
 }

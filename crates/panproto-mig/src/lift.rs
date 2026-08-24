@@ -106,9 +106,12 @@ pub fn lift_wtype_pi(
 ///
 /// # Errors
 ///
-/// Returns `LiftError::Restrict` if the extension fails, or
-/// `LiftError::Chase` if the chase reports an equality conflict or exhausts
-/// its budget.
+/// Returns `LiftError::Restrict` if the extension fails,
+/// `LiftError::Chase` carrying the chase's own error if the chase
+/// reports an equality conflict or a saturation that did not converge,
+/// or `LiftError::ChaseBudgetExhausted` naming the budget when the
+/// term-level chase runs out of it. `LiftError::is_retryable` tells the
+/// budget failures apart from the conflict.
 pub fn lift_functor_sigma(
     compiled: &CompiledMigration,
     instance: &FInstance,
@@ -121,11 +124,9 @@ pub fn lift_functor_sigma(
     }
     match crate::chase::chase(&extended, dependencies, budget)? {
         crate::chase::ChaseOutcome::Saturated(result) => Ok(result),
-        crate::chase::ChaseOutcome::NonTermination => Err(LiftError::Chase {
-            detail: format!(
-                "term-level chase did not terminate within {} iterations / {} nulls",
-                budget.max_iterations, budget.max_nulls
-            ),
+        crate::chase::ChaseOutcome::NonTermination => Err(LiftError::ChaseBudgetExhausted {
+            max_iterations: budget.max_iterations,
+            max_nulls: budget.max_nulls,
         }),
     }
 }
@@ -675,5 +676,80 @@ mod tests {
             !lifted.nodes.contains_key(&3),
             "leaf2 should be pruned (unreachable)"
         );
+    }
+
+    /// A `Sigma` lift whose chase hits an equality conflict must report
+    /// the chase's own error, not a sentence about it, so a caller can
+    /// tell a conflict from a budget that ran out.
+    #[test]
+    fn a_chase_conflict_and_a_spent_budget_are_told_apart() {
+        use crate::chase::{Atom, AtomTerm, ChaseBudget, ChaseError, Dependency};
+        use panproto_inst::FInstance;
+
+        let compiled = CompiledMigration::default();
+        let instance = FInstance::new().with_table(
+            "t",
+            vec![HashMap::from([("a".to_owned(), Value::Str("x".into()))])],
+        );
+
+        // An EGD equating the column's constant with a different
+        // constant can never hold, at any budget.
+        let conflicting = Dependency::Egd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("v".into()))])],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Const(Value::Str("z".into())),
+        };
+        let Err(err) = lift_functor_sigma(
+            &compiled,
+            &instance,
+            &[conflicting],
+            ChaseBudget::new(50, 50),
+        ) else {
+            panic!("an unsatisfiable equality must fail the lift");
+        };
+        assert!(
+            matches!(
+                &err,
+                LiftError::Chase(ChaseError::Inconsistent { left, right })
+                    if left.contains('x') && right.contains('z')
+            ),
+            "the chase's own error must survive the lift boundary, got {err:?}",
+        );
+        assert!(
+            !err.is_retryable(),
+            "an equality conflict cannot be retried away",
+        );
+
+        // A dependency that invents a fresh null every round exhausts
+        // the budget instead, which a bigger budget could survive.
+        let regenerating = Dependency::Tgd {
+            body: vec![Atom::new("t", [("a", AtomTerm::Var("v".into()))])],
+            head: vec![Atom::new(
+                "t",
+                [
+                    ("prev", AtomTerm::Var("v".into())),
+                    ("a", AtomTerm::Var("w".into())),
+                ],
+            )],
+        };
+        let Err(err) = lift_functor_sigma(
+            &compiled,
+            &instance,
+            &[regenerating],
+            ChaseBudget::new(5, 3),
+        ) else {
+            panic!("a chase that cannot converge must fail the lift");
+        };
+        assert!(
+            matches!(
+                err,
+                LiftError::ChaseBudgetExhausted {
+                    max_iterations: 5,
+                    max_nulls: 3
+                }
+            ),
+            "the spent budget must be named, got {err:?}",
+        );
+        assert!(err.is_retryable(), "a spent budget invites a retry");
     }
 }

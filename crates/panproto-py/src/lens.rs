@@ -210,13 +210,18 @@ pub fn auto_generate_lens(
     if let Some(s) = parse_stringency(stringency)? {
         config.stringency = s;
     }
-    let result = lens::auto_generate(
-        &src_schema.inner,
-        &tgt_schema.inner,
-        &protocol.inner,
-        &config,
-    )
-    .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
+    // Alignment search plus lens construction over both schemas; no
+    // Python state is touched, so the GIL is released.
+    let result = py
+        .detach(|| {
+            lens::auto_generate(
+                &src_schema.inner,
+                &tgt_schema.inner,
+                &protocol.inner,
+                &config,
+            )
+        })
+        .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
     let lens = PyLens {
         inner: Arc::new(result.lens),
     };
@@ -265,6 +270,7 @@ impl PyProtolensChain {
     #[staticmethod]
     #[pyo3(signature = (src_schema, tgt_schema, protocol, stringency=None))]
     fn auto_generate(
+        py: Python<'_>,
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
@@ -274,13 +280,16 @@ impl PyProtolensChain {
         if let Some(s) = parse_stringency(stringency)? {
             config.stringency = s;
         }
-        let result = lens::auto_generate(
-            &src_schema.inner,
-            &tgt_schema.inner,
-            &protocol.inner,
-            &config,
-        )
-        .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
+        let result = py
+            .detach(|| {
+                lens::auto_generate(
+                    &src_schema.inner,
+                    &tgt_schema.inner,
+                    &protocol.inner,
+                    &config,
+                )
+            })
+            .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
         Ok(Self {
             inner: Arc::new(result.chain),
         })
@@ -291,6 +300,7 @@ impl PyProtolensChain {
     #[pyo3(signature = (src_schema, tgt_schema, protocol, hints, stringency=None))]
     #[allow(clippy::needless_pass_by_value)]
     fn auto_generate_with_hints(
+        py: Python<'_>,
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
@@ -314,13 +324,16 @@ impl PyProtolensChain {
         if let Some(s) = parse_stringency(stringency)? {
             config.stringency = s;
         }
-        let result = lens::auto_generate(
-            &src_schema.inner,
-            &tgt_schema.inner,
-            &protocol.inner,
-            &config,
-        )
-        .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
+        let result = py
+            .detach(|| {
+                lens::auto_generate(
+                    &src_schema.inner,
+                    &tgt_schema.inner,
+                    &protocol.inner,
+                    &config,
+                )
+            })
+            .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
         Ok(Self {
             inner: Arc::new(result.chain),
         })
@@ -339,6 +352,7 @@ impl PyProtolensChain {
     #[staticmethod]
     #[allow(clippy::needless_pass_by_value)]
     fn auto_generate_with_hint_spec(
+        py: Python<'_>,
         src_schema: &PySchema,
         tgt_schema: &PySchema,
         protocol: &PyProtocol,
@@ -373,18 +387,21 @@ impl PyProtolensChain {
             config.alias_dict.add_cluster(cluster);
         }
 
-        let result = lens::auto_generate_with_hints(
-            &src_schema.inner,
-            &tgt_schema.inner,
-            &protocol.inner,
-            &config,
-            &derived,
-            &domain_constraints,
-            None,
-        )
-        .map_err(|e| {
-            crate::error::LensError::new_err(format!("auto-generate with hints failed: {e}"))
-        })?;
+        let result = py
+            .detach(|| {
+                lens::auto_generate_with_hints(
+                    &src_schema.inner,
+                    &tgt_schema.inner,
+                    &protocol.inner,
+                    &config,
+                    &derived,
+                    &domain_constraints,
+                    None,
+                )
+            })
+            .map_err(|e| {
+                crate::error::LensError::new_err(format!("auto-generate with hints failed: {e}"))
+            })?;
 
         Ok(Self {
             inner: Arc::new(result.chain),
@@ -682,16 +699,21 @@ pub fn auto_generate_lens_candidates(
     if let Some(s) = parse_stringency(stringency)? {
         config.stringency = s;
     }
-    let candidates = lens::auto_generate_candidates(
-        &src_schema.inner,
-        &tgt_schema.inner,
-        &protocol.inner,
-        &config,
-        top_n,
-    )
-    .map_err(|e| {
-        crate::error::LensError::new_err(format!("auto-generate-candidates failed: {e}"))
-    })?;
+    // Runs the alignment search once per candidate strategy, with the
+    // GIL released for the duration.
+    let candidates = py
+        .detach(|| {
+            lens::auto_generate_candidates(
+                &src_schema.inner,
+                &tgt_schema.inner,
+                &protocol.inner,
+                &config,
+                top_n,
+            )
+        })
+        .map_err(|e| {
+            crate::error::LensError::new_err(format!("auto-generate-candidates failed: {e}"))
+        })?;
 
     convert::to_python(py, &candidates_to_json(&candidates))
 }

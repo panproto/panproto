@@ -27,16 +27,18 @@ impl PyProjectBuilder {
     }
 
     /// Add a file to the project.
-    fn add_file(&mut self, path: &str, content: &[u8]) -> PyResult<()> {
-        self.inner
-            .add_file(std::path::Path::new(path), content)
+    ///
+    /// Parses the file, so it runs with the GIL released.
+    fn add_file(&mut self, py: Python<'_>, path: &str, content: &[u8]) -> PyResult<()> {
+        py.detach(|| self.inner.add_file(std::path::Path::new(path), content))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
     /// Add all files in a directory recursively.
-    fn add_directory(&mut self, path: &str) -> PyResult<()> {
-        self.inner
-            .add_directory(std::path::Path::new(path))
+    ///
+    /// Walks and parses the tree, so it runs with the GIL released.
+    fn add_directory(&mut self, py: Python<'_>, path: &str) -> PyResult<()> {
+        py.detach(|| self.inner.add_directory(std::path::Path::new(path)))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
@@ -94,25 +96,30 @@ impl PyProjectSchema {
 }
 
 /// Build a `ProjectSchema` from a `ProjectBuilder`.
+///
+/// Assembles the coproduct over every file, so it runs with the GIL
+/// released.
 #[pyfunction]
-fn build_project(builder: &mut PyProjectBuilder) -> PyResult<PyProjectSchema> {
+fn build_project(py: Python<'_>, builder: &mut PyProjectBuilder) -> PyResult<PyProjectSchema> {
     // We need to take ownership, so swap with a fresh builder.
     let owned = std::mem::replace(&mut builder.inner, ProjectBuilder::new());
-    let project = owned
-        .build()
+    let project = py
+        .detach(|| owned.build())
         .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
     Ok(PyProjectSchema { inner: project })
 }
 
 /// Parse a directory into a `ProjectSchema` (convenience function).
+///
+/// Walks, parses, and assembles the tree with the GIL released.
 #[pyfunction]
-fn parse_project(directory: &str) -> PyResult<PyProjectSchema> {
-    let mut builder = ProjectBuilder::new();
-    builder
-        .add_directory(std::path::Path::new(directory))
-        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
-    let project = builder
-        .build()
+fn parse_project(py: Python<'_>, directory: &str) -> PyResult<PyProjectSchema> {
+    let project = py
+        .detach(|| {
+            let mut builder = ProjectBuilder::new();
+            builder.add_directory(std::path::Path::new(directory))?;
+            builder.build()
+        })
         .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
     Ok(PyProjectSchema { inner: project })
 }

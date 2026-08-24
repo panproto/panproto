@@ -198,11 +198,20 @@ impl NodeClient {
 
     // ── Read operations (no auth required) ──────────────────────────
 
-    /// Fetch a content-addressed object by ID. Returns msgpack-encoded bytes.
+    /// Fetch a content-addressed object by ID.
+    ///
+    /// The remote is untrusted, so the object it returns is hashed and
+    /// matched against the id that asked for it. A mismatch is refused
+    /// with [`XrpcError::ObjectMismatch`]: an object whose id does not
+    /// describe its bytes would otherwise be filed under that id in the
+    /// caller's store, and every later reader would trust the wrong
+    /// content for it.
     ///
     /// # Errors
     ///
-    /// Returns [`XrpcError`] on network or decode failure.
+    /// Returns [`XrpcError`] on network or decode failure, and
+    /// [`XrpcError::ObjectMismatch`] when the object the node returned
+    /// is not the one that was requested.
     pub async fn get_object(&self, id: &ObjectId) -> Result<Object, XrpcError> {
         let url = format!(
             "{}/xrpc/dev.panproto.node.getObject?did={}&repo={}&id={}",
@@ -220,6 +229,13 @@ impl NodeClient {
         }
         let bytes = resp.bytes().await?;
         let obj: Object = rmp_serde::from_slice(&bytes)?;
+        let actual = panproto_vcs::hash::object_id(&obj)?;
+        if actual != *id {
+            return Err(XrpcError::ObjectMismatch {
+                requested: id.to_string(),
+                received: actual.to_string(),
+            });
+        }
         Ok(obj)
     }
 

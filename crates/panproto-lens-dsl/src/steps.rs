@@ -169,7 +169,11 @@ fn compile_add_field(
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
     let vertex_id = format!("{body_vertex}.{}", add_field.name);
-    let default = json_to_value(&add_field.default, &add_field.kind);
+    let default = json_to_value(
+        &add_field.default,
+        &add_field.kind,
+        &format!("add_field[{index}].{}", add_field.name),
+    )?;
     chains.push(combinators::add_field(
         body_vertex,
         &*vertex_id,
@@ -199,11 +203,11 @@ fn compile_apply_expr(
     index: usize,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
-    let expr = parse_expr(&apply_expr.expr, &format!("apply_expr[{index}].expr"))?;
+    let expr = resolve_expr(&apply_expr.expr, &format!("apply_expr[{index}].expr"))?;
     let inverse = apply_expr
         .inverse
-        .as_deref()
-        .map(|s| parse_expr(s, &format!("apply_expr[{index}].inverse")))
+        .as_ref()
+        .map(|s| resolve_expr(s, &format!("apply_expr[{index}].inverse")))
         .transpose()?;
     let class = apply_expr
         .coercion
@@ -229,11 +233,11 @@ fn compile_compute_field(
     index: usize,
     transforms: &mut HashMap<Name, Vec<FieldTransform>>,
 ) -> Result<(), LensDslError> {
-    let expr = parse_expr(&compute_field.expr, &format!("compute_field[{index}].expr"))?;
+    let expr = resolve_expr(&compute_field.expr, &format!("compute_field[{index}].expr"))?;
     let inverse = compute_field
         .inverse
-        .as_deref()
-        .map(|s| parse_expr(s, &format!("compute_field[{index}].inverse")))
+        .as_ref()
+        .map(|s| resolve_expr(s, &format!("compute_field[{index}].inverse")))
         .transpose()?;
     let class = compute_field
         .coercion
@@ -311,7 +315,11 @@ fn compile_theory_step(
             compile_merge_sorts(merge_sorts, index, chains)?;
         }
         Step::AddSort { add_sort } => {
-            let default = json_to_value(&add_sort.default, &add_sort.kind);
+            let default = json_to_value(
+                &add_sort.default,
+                &add_sort.kind,
+                &format!("add_sort[{index}].{}", add_sort.name),
+            )?;
             chains.push(ProtolensChain::new(vec![elementary::add_sort(
                 &*add_sort.name,
                 &*add_sort.kind,
@@ -349,8 +357,8 @@ fn compile_theory_step(
         Step::AddEquation { add_equation } => {
             let eq = Equation {
                 name: Arc::from(&*add_equation.name),
-                lhs: parse_term(&add_equation.lhs),
-                rhs: parse_term(&add_equation.rhs),
+                lhs: parse_term(&add_equation.lhs, &format!("add_equation[{index}].lhs"))?,
+                rhs: parse_term(&add_equation.rhs, &format!("add_equation[{index}].rhs"))?,
             };
             chains.push(ProtolensChain::new(vec![elementary::add_equation(eq)]));
         }
@@ -536,14 +544,28 @@ fn directed_equation_from_spec(
         .transpose()?;
     Ok(DirectedEquation {
         name: Arc::from(&*spec.name),
-        lhs: parse_term(&spec.lhs),
-        rhs: parse_term(&spec.rhs),
+        lhs: parse_term(&spec.lhs, &format!("directed_equations[{index}].lhs"))?,
+        rhs: parse_term(&spec.rhs, &format!("directed_equations[{index}].rhs"))?,
         impl_term,
         inverse,
         source_kind: spec.source_kind.as_deref().map(parse_value_kind),
         target_kind: spec.target_kind.as_deref().map(parse_value_kind),
         coercion_class: spec.coercion.to_coercion_class(),
     })
+}
+
+/// Resolve the expression a step carries.
+///
+/// Surface syntax is parsed; an expression the rules compiler already
+/// built is taken as it stands.
+fn resolve_expr(
+    source: &crate::document::ExprSource,
+    step_desc: &str,
+) -> Result<panproto_expr::Expr, LensDslError> {
+    match source {
+        crate::document::ExprSource::Source(text) => parse_expr(text, step_desc),
+        crate::document::ExprSource::Built(expr) => Ok((**expr).clone()),
+    }
 }
 
 /// Parse a panproto expression string.
@@ -563,22 +585,95 @@ fn parse_expr(expr_str: &str, step_desc: &str) -> Result<panproto_expr::Expr, Le
     })
 }
 
-/// Convert a JSON value to a panproto [`Value`], using the kind hint.
-fn json_to_value(json: &serde_json::Value, kind: &str) -> Value {
-    match json {
+/// Convert a JSON default into a panproto [`Value`].
+///
+/// Every JSON shape has a `Value` that carries it: an array becomes
+/// [`Value::List`] and an object becomes [`Value::Unknown`], the
+/// list-object and record constructors the instance algebra provides.
+/// The declared `kind` is then checked against what the default
+/// actually is, so a field declared `integer` with a string default is
+/// reported rather than quietly given a different default from the one
+/// written.
+///
+/// # Errors
+///
+/// Returns [`LensDslError::DefaultValue`] for an integer too large for
+/// the engine's `i64`, and for a default whose shape contradicts the
+/// declared kind.
+fn json_to_value(
+    json: &serde_json::Value,
+    kind: &str,
+    step_desc: &str,
+) -> Result<Value, LensDslError> {
+    let value = json_shape(json, step_desc)?;
+    check_default_kind(&value, kind, step_desc)?;
+    Ok(value)
+}
+
+/// Carry a JSON value into the instance algebra without narrowing it.
+fn json_shape(json: &serde_json::Value, step_desc: &str) -> Result<Value, LensDslError> {
+    Ok(match json {
         serde_json::Value::Null => Value::Null,
         serde_json::Value::String(s) => Value::Str(s.clone()),
-        serde_json::Value::Number(n) => n.as_i64().map_or_else(
-            || n.as_f64().map_or(Value::Int(0), Value::Float),
-            Value::Int,
-        ),
         serde_json::Value::Bool(b) => Value::Bool(*b),
-        _ => match kind {
-            "integer" => Value::Int(0),
-            "number" | "float" => Value::Float(0.0),
-            "boolean" => Value::Bool(false),
-            _ => Value::Str(String::new()),
-        },
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::Int(i)
+            } else if let Some(f) = n.as_f64().filter(|_| n.as_u64().is_none()) {
+                Value::Float(f)
+            } else {
+                // A whole number past `i64::MAX`. Values are carried as
+                // `i64`, so widening it to a float here would hand back a
+                // default that is not the one the document names.
+                return Err(LensDslError::DefaultValue {
+                    step_desc: step_desc.to_owned(),
+                    message: format!("integer default {n} does not fit in a 64-bit signed integer"),
+                });
+            }
+        }
+        serde_json::Value::Array(items) => Value::List(
+            items
+                .iter()
+                .map(|item| json_shape(item, step_desc))
+                .collect::<Result<Vec<_>, _>>()?,
+        ),
+        serde_json::Value::Object(fields) => Value::Unknown(
+            fields
+                .iter()
+                .map(|(key, val)| Ok((key.clone(), json_shape(val, step_desc)?)))
+                .collect::<Result<std::collections::HashMap<_, _>, LensDslError>>()?,
+        ),
+    })
+}
+
+/// Check a default against the kind the document declares for it.
+///
+/// A null default is accepted everywhere: it says the field has no
+/// default rather than naming one of the wrong type. An integer is
+/// accepted where a float is declared, since a whole number is a
+/// perfectly good float default. Kinds outside the known vocabulary
+/// constrain nothing.
+fn check_default_kind(value: &Value, kind: &str, step_desc: &str) -> Result<(), LensDslError> {
+    if matches!(value, Value::Null) {
+        return Ok(());
+    }
+    let ok = match parse_value_kind(kind) {
+        ValueKind::Bool => matches!(value, Value::Bool(_)),
+        ValueKind::Int => matches!(value, Value::Int(_)),
+        ValueKind::Float => matches!(value, Value::Float(_) | Value::Int(_)),
+        ValueKind::Str => matches!(value, Value::Str(_)),
+        ValueKind::Bytes => matches!(value, Value::Bytes(_) | Value::Str(_)),
+        ValueKind::Token => matches!(value, Value::Token(_) | Value::Str(_)),
+        ValueKind::Null => false,
+        _ => true,
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(LensDslError::DefaultValue {
+            step_desc: step_desc.to_owned(),
+            message: format!("default {value:?} does not match the declared kind {kind:?}"),
+        })
     }
 }
 
@@ -602,31 +697,84 @@ fn parse_value_kind(s: &str) -> ValueKind {
 /// - Variable: `x`, `my_var`
 /// - Application: `op(arg1, arg2, ...)` with recursive arguments
 ///
-/// This is a simple recursive-descent parser for the term grammar:
+/// This is a recursive-descent parser for the term grammar:
 /// ```text
-/// term  ::= ident '(' term (',' term)* ')'   -- application
+/// term  ::= ident '(' (term (',' term)*)? ')'   -- application
 ///          | ident                              -- variable
 /// ident ::= [a-zA-Z_][a-zA-Z0-9_]*
 /// ```
-fn parse_term(s: &str) -> panproto_gat::Term {
-    let s = s.trim();
-    s.find('(').map_or_else(
-        || panproto_gat::Term::Var(Arc::from(s)),
-        |paren_pos| {
-            let op_name = s[..paren_pos].trim();
-            let inner = &s[paren_pos + 1..];
-            let close = find_matching_paren(inner).unwrap_or(inner.len());
-            let args_str = &inner[..close];
-            let args = split_top_level_commas(args_str)
-                .iter()
-                .map(|a| parse_term(a))
-                .collect();
-            panproto_gat::Term::App {
-                op: Arc::from(op_name),
-                args,
-            }
-        },
-    )
+///
+/// Anything outside that grammar is rejected. Accepting it instead
+/// would file the whole malformed string away as a variable name, or
+/// close an unclosed application at the end of the input, and the
+/// equation built from it would silently mean something the document
+/// never said.
+///
+/// # Errors
+///
+/// Returns [`LensDslError::TermParse`] for an empty term, an identifier
+/// that is not one, an application whose parenthesis is never closed,
+/// and trailing text after a complete term.
+fn parse_term(s: &str, step_desc: &str) -> Result<panproto_gat::Term, LensDslError> {
+    let trimmed = s.trim();
+    let malformed = |message: String| LensDslError::TermParse {
+        step_desc: step_desc.to_owned(),
+        term: s.to_owned(),
+        message,
+    };
+
+    let Some(paren_pos) = trimmed.find('(') else {
+        check_identifier(trimmed, &malformed)?;
+        return Ok(panproto_gat::Term::Var(Arc::from(trimmed)));
+    };
+
+    let op_name = trimmed[..paren_pos].trim();
+    check_identifier(op_name, &malformed)?;
+
+    let inner = &trimmed[paren_pos + 1..];
+    let Some(close) = find_matching_paren(inner) else {
+        return Err(malformed(format!(
+            "the argument list opened after `{op_name}` is never closed"
+        )));
+    };
+    let trailing = inner[close + 1..].trim();
+    if !trailing.is_empty() {
+        return Err(malformed(format!(
+            "trailing text after the term: {trailing:?}"
+        )));
+    }
+
+    let args_str = &inner[..close];
+    let args = if args_str.trim().is_empty() {
+        Vec::new()
+    } else {
+        split_top_level_commas(args_str)
+            .iter()
+            .map(|a| parse_term(a, step_desc))
+            .collect::<Result<Vec<_>, _>>()?
+    };
+    Ok(panproto_gat::Term::App {
+        op: Arc::from(op_name),
+        args,
+    })
+}
+
+/// Check that `name` is an identifier the term grammar admits.
+fn check_identifier(
+    name: &str,
+    malformed: &impl Fn(String) -> LensDslError,
+) -> Result<(), LensDslError> {
+    let mut chars = name.chars();
+    match chars.next() {
+        None => Err(malformed("an empty term names nothing".to_owned())),
+        Some(first) if !(first.is_ascii_alphabetic() || first == '_') => Err(malformed(format!(
+            "{name:?} is not an identifier: it starts with {first:?}"
+        ))),
+        Some(_) if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_') => Err(malformed(
+            format!("{name:?} is not an identifier: it holds a character outside [A-Za-z0-9_]"),
+        )),
+        Some(_) => Ok(()),
+    }
 }
 
 /// Find the position of the closing ')' that matches the opening '('.
@@ -683,6 +831,83 @@ mod tests {
     const BODY: &str = "record:body";
 
     #[test]
+    fn a_malformed_equation_term_is_refused() {
+        // Each of these parsed before as if it meant something: the
+        // first two became a variable whose name is the whole string,
+        // the third closed its own argument list at end of input, and
+        // the fourth dropped everything after the closing paren.
+        for bad in ["1 + 2", "a b", "f(a, b", "f(a))"] {
+            let steps = vec![Step::AddEquation {
+                add_equation: crate::document::EquationSpec {
+                    name: "law".to_owned(),
+                    lhs: bad.to_owned(),
+                    rhs: "x".to_owned(),
+                },
+            }];
+            match compile_steps(&steps, BODY) {
+                Err(LensDslError::TermParse { term, .. }) => assert_eq!(term, bad),
+                other => panic!("term {bad:?} should be refused, got {other:?}"),
+            }
+        }
+
+        // The grammar the doc comment states still parses.
+        for good in ["x", "my_var", "f(a, g(b))", "f()"] {
+            parse_term(good, "under test")
+                .unwrap_or_else(|e| panic!("term {good:?} should parse: {e}"));
+        }
+    }
+
+    #[test]
+    fn a_structured_default_is_carried_rather_than_flattened() {
+        let steps = vec![Step::AddField {
+            add_field: AddFieldSpec {
+                name: "tags".to_owned(),
+                kind: "array".to_owned(),
+                default: serde_json::json!(["a", 1, {"k": true}]),
+                expr: None,
+            },
+        }];
+        // Compiling must succeed and must not have turned the array
+        // into an empty string on the way through.
+        compile_steps(&steps, BODY).unwrap();
+
+        let carried = json_to_value(
+            &serde_json::json!(["a", 1, {"k": true}]),
+            "array",
+            "under test",
+        )
+        .unwrap();
+        let Value::List(items) = &carried else {
+            panic!("an array default must become a list, got {carried:?}");
+        };
+        assert_eq!(items.len(), 3, "every element must survive: {items:?}");
+        assert!(
+            matches!(&items[2], Value::Unknown(fields) if fields.get("k") == Some(&Value::Bool(true))),
+            "a nested object must survive as a record, got {:?}",
+            items[2],
+        );
+    }
+
+    #[test]
+    fn a_default_that_contradicts_its_kind_is_refused() {
+        let Err(err) = json_to_value(&serde_json::json!("nope"), "integer", "under test") else {
+            panic!("a string default for an integer field must be refused");
+        };
+        assert!(matches!(err, LensDslError::DefaultValue { .. }), "{err:?}");
+
+        // An integer past i64 cannot be carried, and widening it to a
+        // float would change the value the document names.
+        let huge: serde_json::Value = serde_json::from_str("18446744073709551615").unwrap();
+        let Err(err) = json_to_value(&huge, "integer", "under test") else {
+            panic!("an out-of-range integer default must be refused");
+        };
+        assert!(matches!(err, LensDslError::DefaultValue { .. }), "{err:?}");
+
+        // A whole number is still a fine float default.
+        json_to_value(&serde_json::json!(3), "number", "under test").unwrap();
+    }
+
+    #[test]
     fn rename_field_step_compiles_to_chain() {
         let steps = vec![Step::RenameField {
             rename_field: RenameSpec {
@@ -737,8 +962,8 @@ mod tests {
         let steps = vec![Step::ApplyExpr {
             apply_expr: ApplyExprSpec {
                 field: "count".to_owned(),
-                expr: "add count 1".to_owned(),
-                inverse: Some("sub count 1".to_owned()),
+                expr: "add count 1".into(),
+                inverse: Some("sub count 1".into()),
                 coercion: Some(CoercionKind::Iso),
             },
         }];
@@ -757,7 +982,7 @@ mod tests {
         let steps = vec![Step::ComputeField {
             compute_field: ComputeFieldSpec {
                 target: "derived".to_owned(),
-                expr: "count".to_owned(),
+                expr: "count".into(),
                 inverse: None,
                 coercion: None,
             },
@@ -799,7 +1024,7 @@ mod tests {
         let steps = vec![Step::ApplyExpr {
             apply_expr: ApplyExprSpec {
                 field: "x".to_owned(),
-                expr: "((((".to_owned(),
+                expr: "((((".into(),
                 inverse: None,
                 coercion: None,
             },

@@ -39,13 +39,27 @@ impl PyGitImportResult {
 
 /// Import a git repository into a panproto-vcs in-memory store.
 /// Returns the import result summarizing what was imported.
+///
+/// Walks the whole revision range, so it runs with the GIL released.
 #[pyfunction]
-fn git_import(repo_path: &str, revspec: &str) -> PyResult<PyGitImportResult> {
-    let git_repo = git2::Repository::open(repo_path)
-        .map_err(|e| crate::error::VcsError::new_err(format!("failed to open git repo: {e}")))?;
-    let mut store = MemStore::new();
-    let result = import_git_repo(&git_repo, &mut store, revspec)
-        .map_err(|e| crate::error::VcsError::new_err(e.to_string()))?;
+fn git_import(py: Python<'_>, repo_path: &str, revspec: &str) -> PyResult<PyGitImportResult> {
+    enum ImportFailure {
+        Open(git2::Error),
+        Import(panproto_git::GitBridgeError),
+    }
+
+    let result = py
+        .detach(|| {
+            let git_repo = git2::Repository::open(repo_path).map_err(ImportFailure::Open)?;
+            let mut store = MemStore::new();
+            import_git_repo(&git_repo, &mut store, revspec).map_err(ImportFailure::Import)
+        })
+        .map_err(|e| match e {
+            ImportFailure::Open(e) => {
+                crate::error::VcsError::new_err(format!("failed to open git repo: {e}"))
+            }
+            ImportFailure::Import(e) => crate::error::VcsError::new_err(e.to_string()),
+        })?;
     Ok(PyGitImportResult {
         commit_count: result.commit_count,
         head_id: result.head_id.to_string(),

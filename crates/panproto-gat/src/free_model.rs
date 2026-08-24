@@ -208,9 +208,27 @@ fn generate_terms(
         }
     }
 
+    // Two fibers whose index terms the theory identifies are one fiber.
+    // Keying them by the terms as written would make `Fib(pt1())` and
+    // `Fib(pt2())` different buckets under an axiom `pt1() = pt2()`, so an
+    // operation declared over one would find no candidates in the other
+    // and its applications would be missing from a model still reporting
+    // itself complete. Every fiber is therefore keyed by its index terms'
+    // representatives under the theory's ground congruence.
+    //
+    // A theory whose sort expressions carry no argument terms has nothing
+    // to index, and a theory with no equations identifies nothing, so
+    // neither pays for the quotient this needs.
+    let mut canonical = FxHashMap::default();
+    if theory_has_indexed_fibers(theory) && !theory.eqs.is_empty() {
+        canonical = ground_congruence(theory, &terms_by_fiber)?;
+        terms_by_fiber = rekey_by_canonical_fiber(terms_by_fiber, &canonical);
+    }
+    let track_congruence = theory_has_indexed_fibers(theory) && !theory.eqs.is_empty();
+
     let mut last_depth_added = false;
     for _depth in 1..=config.max_depth {
-        let new_terms = generate_depth(theory, &terms_by_fiber);
+        let new_terms = generate_depth(theory, &terms_by_fiber, &canonical);
 
         let mut added_any = false;
         for (fiber, new) in new_terms {
@@ -229,11 +247,154 @@ fn generate_terms(
                 }
             }
         }
-        last_depth_added = added_any;
+
+        // The terms this depth added can be the ones that let an equation
+        // fire, and the identification it makes can in turn open a fiber
+        // to candidates that were not reaching it. Generation and
+        // quotienting therefore run to a joint fixpoint: a depth that
+        // changed the congruence counts as a depth that added something.
+        let mut congruence_moved = false;
+        if track_congruence {
+            let recomputed = ground_congruence(theory, &terms_by_fiber)?;
+            congruence_moved = recomputed != canonical;
+            if congruence_moved {
+                canonical = recomputed;
+                terms_by_fiber = rekey_by_canonical_fiber(terms_by_fiber, &canonical);
+            }
+        }
+
+        last_depth_added = added_any || congruence_moved;
     }
 
     let is_complete = !last_depth_added;
     Ok((terms_by_fiber, is_complete))
+}
+
+/// Whether any of the theory's operations mentions a sort expression with
+/// argument terms.
+///
+/// Only such a theory has fibers an equation could re-index, so only such
+/// a theory pays for the ground congruence the keying needs.
+fn theory_has_indexed_fibers(theory: &Theory) -> bool {
+    theory.ops.iter().any(|op| {
+        !op.output.args().is_empty() || op.inputs.iter().any(|(_, sort, _)| !sort.args().is_empty())
+    })
+}
+
+/// The theory's ground congruence over the closed terms generated so far,
+/// as a map sending each term that is not its class's representative to
+/// the representative.
+///
+/// This is the same quotient the finished model is built on, run early so
+/// that fiber indices can be keyed by it. Representatives are chosen by
+/// smallest global index, and global indices are assigned in sort-name
+/// order over a deterministic term order, so the choice is stable across
+/// runs.
+fn ground_congruence(
+    theory: &Theory,
+    terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+) -> Result<FxHashMap<Term, Term>, GatError> {
+    let terms_by_sort = collapse_fibers(terms_by_fiber);
+    let (term_to_global, total_terms) = assign_global_indices(&terms_by_sort);
+    if total_terms == 0 {
+        return Ok(FxHashMap::default());
+    }
+    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms)?;
+
+    let mut sorts: Vec<&Arc<str>> = terms_by_sort.keys().collect();
+    sorts.sort();
+
+    // Pass 1: the smallest-indexed member of each class.
+    let mut representative: FxHashMap<usize, (usize, Term)> = FxHashMap::default();
+    for sort in &sorts {
+        let terms = &terms_by_sort[*sort];
+        let indices = &term_to_global[*sort];
+        for (i, term) in terms.iter().enumerate() {
+            let global = indices[i];
+            let class = uf.find(global);
+            match representative.get(&class) {
+                Some((best, _)) if *best <= global => {}
+                _ => {
+                    representative.insert(class, (global, term.clone()));
+                }
+            }
+        }
+    }
+
+    // Pass 2: the map, holding only the terms that actually move.
+    let mut canonical: FxHashMap<Term, Term> = FxHashMap::default();
+    for sort in &sorts {
+        let terms = &terms_by_sort[*sort];
+        let indices = &term_to_global[*sort];
+        for (i, term) in terms.iter().enumerate() {
+            let class = uf.find(indices[i]);
+            if let Some((_, rep)) = representative.get(&class) {
+                if rep != term {
+                    canonical.insert(term.clone(), rep.clone());
+                }
+            }
+        }
+    }
+    Ok(canonical)
+}
+
+/// Rewrite a term to its representative under `canonical`, innermost
+/// first, so an identification deep inside an argument still moves the
+/// whole term.
+fn canonicalize_term(term: &Term, canonical: &FxHashMap<Term, Term>) -> Term {
+    let rebuilt = match term {
+        Term::App { op, args } if !args.is_empty() => Term::app(
+            Arc::clone(op),
+            args.iter()
+                .map(|arg| canonicalize_term(arg, canonical))
+                .collect(),
+        ),
+        other => other.clone(),
+    };
+    canonical.get(&rebuilt).cloned().unwrap_or(rebuilt)
+}
+
+/// Key a fiber by its index terms' representatives.
+fn canonicalize_fiber(fiber: &SortExpr, canonical: &FxHashMap<Term, Term>) -> SortExpr {
+    if canonical.is_empty() || fiber.args().is_empty() {
+        return fiber.clone();
+    }
+    SortExpr::app(
+        Arc::clone(fiber.head()),
+        fiber
+            .args()
+            .iter()
+            .map(|arg| canonicalize_term(arg, canonical))
+            .collect(),
+    )
+}
+
+/// Re-file every bucket under its canonical fiber, merging the buckets of
+/// fibers the congruence has identified.
+fn rekey_by_canonical_fiber(
+    terms_by_fiber: FxHashMap<SortExpr, Vec<Term>>,
+    canonical: &FxHashMap<Term, Term>,
+) -> FxHashMap<SortExpr, Vec<Term>> {
+    if canonical.is_empty() {
+        return terms_by_fiber;
+    }
+    let mut entries: Vec<(SortExpr, Vec<Term>)> = terms_by_fiber.into_iter().collect();
+    // Deterministic merge order, so a merged bucket holds its terms in the
+    // same sequence on every run.
+    entries.sort_by(|(a, _), (b, _)| format!("{a:?}").cmp(&format!("{b:?}")));
+
+    let mut out: FxHashMap<SortExpr, Vec<Term>> = FxHashMap::default();
+    for (fiber, terms) in entries {
+        let bucket = out
+            .entry(canonicalize_fiber(&fiber, canonical))
+            .or_default();
+        for term in terms {
+            if !bucket.contains(&term) {
+                bucket.push(term);
+            }
+        }
+    }
+    out
 }
 
 /// Generate one depth level of terms by applying non-nullary ops to
@@ -242,6 +403,7 @@ fn generate_terms(
 fn generate_depth(
     theory: &Theory,
     terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+    canonical: &FxHashMap<Term, Term>,
 ) -> FxHashMap<SortExpr, Vec<Term>> {
     let mut new_terms: FxHashMap<SortExpr, Vec<Term>> = FxHashMap::default();
 
@@ -257,6 +419,7 @@ fn generate_depth(
             &mut chosen,
             &mut theta,
             terms_by_fiber,
+            canonical,
             &mut new_terms,
         );
     }
@@ -274,23 +437,34 @@ fn extend_op_tuples(
     chosen: &mut Vec<Term>,
     theta: &mut FxHashMap<Arc<str>, Term>,
     terms_by_fiber: &FxHashMap<SortExpr, Vec<Term>>,
+    canonical: &FxHashMap<Term, Term>,
     new_terms: &mut FxHashMap<SortExpr, Vec<Term>>,
 ) {
     if slot == op.inputs.len() {
-        let output_fiber = op.output.subst(theta);
+        let output_fiber = canonicalize_fiber(&op.output.subst(theta), canonical);
         let term = Term::app(Arc::clone(&op.name), chosen.clone());
         new_terms.entry(output_fiber).or_default().push(term);
         return;
     }
     let (param_name, declared_sort, _implicit) = &op.inputs[slot];
-    let expected_fiber = declared_sort.subst(theta);
+    // The stored fibers are keyed by canonical index terms, so the sort
+    // this slot declares is asked for in the same coordinates.
+    let expected_fiber = canonicalize_fiber(&declared_sort.subst(theta), canonical);
     let Some(candidates) = terms_by_fiber.get(&expected_fiber) else {
         return;
     };
     for cand in candidates {
         chosen.push(cand.clone());
         theta.insert(Arc::clone(param_name), cand.clone());
-        extend_op_tuples(op, slot + 1, chosen, theta, terms_by_fiber, new_terms);
+        extend_op_tuples(
+            op,
+            slot + 1,
+            chosen,
+            theta,
+            terms_by_fiber,
+            canonical,
+            new_terms,
+        );
         theta.remove(param_name);
         chosen.pop();
     }
@@ -361,10 +535,14 @@ fn quotient_by_equations(
         eq_info.push((eq, vars, var_sorts));
     }
 
+    // One lookup table from term to global index, shared by the equation
+    // pass and the congruence index.
+    let term_index = build_term_index(terms_by_sort, term_to_global);
+
     // Build a congruence index: for each compound term f(a1, ..., an),
     // record (op_name, [global_idx_of_a1, ..., global_idx_of_an]) -> global_idx.
     // This allows efficient congruence closure propagation.
-    let congruence_entries = build_congruence_index(terms_by_sort, term_to_global);
+    let congruence_entries = build_congruence_index(terms_by_sort, term_to_global, &term_index);
 
     // Fixpoint loop: keep merging until no new merges occur.
     loop {
@@ -373,7 +551,7 @@ fn quotient_by_equations(
         // Pass 1: equation substitution instances.
         for (eq, vars, var_sorts) in &eq_info {
             if vars.is_empty() {
-                merge_constant_eq(eq, terms_by_sort, term_to_global, &mut uf);
+                merge_constant_eq(eq, &term_index, &mut uf);
                 continue;
             }
 
@@ -385,7 +563,7 @@ fn quotient_by_equations(
                 continue;
             };
 
-            merge_by_equation(eq, vars, vs, terms_by_sort, term_to_global, &mut uf);
+            merge_by_equation(eq, vars, vs, terms_by_sort, &term_index, &mut uf);
         }
 
         // Pass 2: congruence closure. If t1 ~ t2, then f(..., t1, ...) ~ f(..., t2, ...)
@@ -414,17 +592,9 @@ struct CongruenceEntry {
 fn build_congruence_index(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
+    term_lookup: &FxHashMap<Term, usize>,
 ) -> FxHashMap<Arc<str>, Vec<CongruenceEntry>> {
     let mut index: FxHashMap<Arc<str>, Vec<CongruenceEntry>> = FxHashMap::default();
-
-    // Build a flat lookup: term -> global_idx for subterm resolution.
-    let mut term_lookup: FxHashMap<&Term, usize> = FxHashMap::default();
-    for (sort, terms) in terms_by_sort {
-        let indices = &term_to_global[sort];
-        for (i, term) in terms.iter().enumerate() {
-            term_lookup.insert(term, indices[i]);
-        }
-    }
 
     for (sort, terms) in terms_by_sort {
         let indices = &term_to_global[sort];
@@ -640,31 +810,35 @@ fn build_model(
 /// Merge terms identified by a constants-only equation.
 fn merge_constant_eq(
     eq: &crate::eq::Equation,
-    terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
-    term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
+    term_index: &FxHashMap<Term, usize>,
     uf: &mut UnionFind,
 ) {
-    let lhs_idx = find_term_index(&eq.lhs, terms_by_sort, term_to_global);
-    let rhs_idx = find_term_index(&eq.rhs, terms_by_sort, term_to_global);
-    if let (Some(l), Some(r)) = (lhs_idx, rhs_idx) {
+    if let (Some(&l), Some(&r)) = (term_index.get(&eq.lhs), term_index.get(&eq.rhs)) {
         uf.union(l, r);
     }
 }
 
-/// Find the global index of a closed term in the generated term set.
-fn find_term_index(
-    term: &Term,
+/// Map every generated closed term to its global index.
+///
+/// Built once per quotient and consulted by every lookup. Scanning the
+/// whole term set per lookup instead would cost one full traversal for
+/// each of the two sides of each substitution instance of each equation,
+/// which is where the enumeration below spends nearly all of its time.
+fn build_term_index(
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
-) -> Option<usize> {
+) -> FxHashMap<Term, usize> {
+    let mut index = FxHashMap::with_capacity_and_hasher(
+        terms_by_sort.values().map(Vec::len).sum(),
+        <_>::default(),
+    );
     for (sort, terms) in terms_by_sort {
-        for (i, t) in terms.iter().enumerate() {
-            if t == term {
-                return Some(term_to_global[sort][i]);
-            }
+        let indices = &term_to_global[sort];
+        for (i, term) in terms.iter().enumerate() {
+            index.insert(term.clone(), indices[i]);
         }
     }
-    None
+    index
 }
 
 /// Enumerate substitutions and merge LHS/RHS when both match generated terms.
@@ -673,7 +847,7 @@ fn merge_by_equation(
     vars: &[Arc<str>],
     var_sorts: &FxHashMap<Arc<str>, SortExpr>,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
-    term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
+    term_index: &FxHashMap<Term, usize>,
     uf: &mut UnionFind,
 ) {
     let var_terms: Vec<(&Arc<str>, &Vec<Term>)> = vars
@@ -700,9 +874,7 @@ fn merge_by_equation(
         let lhs = eq.lhs.substitute(&subst);
         let rhs = eq.rhs.substitute(&subst);
 
-        let lhs_idx = find_term_index(&lhs, terms_by_sort, term_to_global);
-        let rhs_idx = find_term_index(&rhs, terms_by_sort, term_to_global);
-        if let (Some(l), Some(r)) = (lhs_idx, rhs_idx) {
+        if let (Some(&l), Some(&r)) = (term_index.get(&lhs), term_index.get(&rhs)) {
             uf.union(l, r);
         }
 
@@ -773,6 +945,53 @@ mod tests {
     use crate::op::Operation;
     use crate::sort::Sort;
     use crate::theory::Theory;
+
+    /// A theory whose two index constants are equated by an axiom, with
+    /// an inhabitant declared over one of them and an operation declared
+    /// over the other.
+    ///
+    /// `pt1() = pt2()` makes `Fib(pt1())` and `Fib(pt2())` the same
+    /// fiber, so `use` is defined on the fiber `elem` inhabits and
+    /// `use(elem())` belongs in the model.
+    fn aliased_fiber_theory() -> Theory {
+        Theory::new(
+            "AliasedFiber",
+            vec![
+                Sort::simple("Index"),
+                Sort::dependent("Fib", vec![crate::sort::SortParam::new("p", "Index")]),
+                Sort::simple("Out"),
+            ],
+            vec![
+                Operation::nullary("pt1", "Index"),
+                Operation::nullary("pt2", "Index"),
+                Operation::nullary("elem", SortExpr::app("Fib", vec![Term::constant("pt1")])),
+                Operation::unary(
+                    "use",
+                    "x",
+                    SortExpr::app("Fib", vec![Term::constant("pt2")]),
+                    "Out",
+                ),
+            ],
+            vec![Equation::new(
+                "points_agree",
+                Term::constant("pt1"),
+                Term::constant("pt2"),
+            )],
+        )
+    }
+
+    #[test]
+    fn an_operation_on_an_aliased_fiber_reaches_its_inhabitant()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let result = free_model(&aliased_fiber_theory(), &FreeModelConfig::default())?;
+        assert!(
+            !result.model.sort_interp["Out"].is_empty(),
+            "`use` is defined on the fiber `elem` inhabits, so `use(elem())` \
+             belongs in the model; got an empty carrier with is_complete = {}",
+            result.is_complete,
+        );
+        Ok(())
+    }
 
     #[test]
     fn free_model_of_pointed_set() -> Result<(), Box<dyn std::error::Error>> {

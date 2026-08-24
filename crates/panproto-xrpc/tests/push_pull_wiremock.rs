@@ -144,3 +144,77 @@ async fn pull_fetches_needed_objects_and_writes_local_refs() {
         "local ref should point at the pulled object",
     );
 }
+
+#[tokio::test]
+async fn a_substituted_object_is_refused() {
+    let server = MockServer::start().await;
+
+    // The client asks for one object and the remote answers with a
+    // different one. The store is content-addressed, so accepting the
+    // answer would file the substituted bytes under an id that does not
+    // describe them, and every later reader would trust the wrong id.
+    let requested = sample_object();
+    let substituted = Object::Protocol(Box::new(Protocol {
+        name: "substituted".into(),
+        ..Protocol::default()
+    }));
+    assert_ne!(
+        rmp_serde::to_vec(&requested).expect("encode requested"),
+        rmp_serde::to_vec(&substituted).expect("encode substituted"),
+        "the two objects must differ for this test to mean anything",
+    );
+
+    let oid = {
+        let mut probe = MemStore::new();
+        probe.put(&requested).expect("probe put")
+    };
+    let oid_hex = oid.to_string();
+
+    Mock::given(method("GET"))
+        .and(path(xrpc_path("listRefs")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "refs": [ { "name": "refs/heads/main", "target": oid_hex } ],
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("POST"))
+        .and(path(xrpc_path("negotiate")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "need": [oid_hex],
+            "refs": [],
+        })))
+        .mount(&server)
+        .await;
+
+    Mock::given(method("GET"))
+        .and(path(xrpc_path("getObject")))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_body_bytes(rmp_serde::to_vec(&substituted).expect("encode substituted")),
+        )
+        .mount(&server)
+        .await;
+
+    let client = NodeClient::new(&server.uri(), "did:plc:test", "demo");
+
+    let err = client
+        .get_object(&oid)
+        .await
+        .expect_err("an object that is not the one requested must be refused");
+    let rendered = err.to_string();
+    assert!(
+        rendered.contains(&oid.to_string()),
+        "the refusal should name the id that was asked for: {rendered}",
+    );
+
+    let mut store = MemStore::new();
+    client
+        .pull(&mut store)
+        .await
+        .expect_err("a pull carrying a substituted object must fail");
+    assert!(
+        !store.has(&oid),
+        "a substituted object must not reach the local store",
+    );
+}

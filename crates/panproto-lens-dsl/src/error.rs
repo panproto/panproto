@@ -63,6 +63,29 @@ pub enum LensDslError {
         message: String,
     },
 
+    /// A term in an equation was not in the term grammar.
+    #[error("malformed term in {step_desc}: {term:?}: {message}")]
+    #[diagnostic(code(panproto_lens_dsl::term_parse))]
+    TermParse {
+        /// Description of the step containing the term.
+        step_desc: String,
+        /// The term text as the document wrote it.
+        term: String,
+        /// What the term grammar refused.
+        message: String,
+    },
+
+    /// A default value could not be carried into the instance algebra
+    /// as written, or contradicted its declared kind.
+    #[error("invalid default in {step_desc}: {message}")]
+    #[diagnostic(code(panproto_lens_dsl::default_value))]
+    DefaultValue {
+        /// Description of the step declaring the default.
+        step_desc: String,
+        /// What was wrong with the default.
+        message: String,
+    },
+
     /// A referenced lens was not found during composition.
     #[error("referenced lens '{lens_ref}' not found")]
     #[diagnostic(code(panproto_lens_dsl::unresolved_ref))]

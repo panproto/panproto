@@ -102,14 +102,7 @@ pub fn with_resource<T>(
     handle: u32,
     f: impl FnOnce(&Resource) -> Result<T, WasmError>,
 ) -> Result<T, JsError> {
-    SLAB.with_borrow(|slab| {
-        let idx = handle as usize;
-        let resource = slab
-            .get(idx)
-            .and_then(Option::as_ref)
-            .ok_or(WasmError::InvalidHandle { handle })?;
-        f(resource).map_err(Into::into)
-    })
+    try_get(handle, f).map_err(Into::into)
 }
 
 /// Access two resources by handle simultaneously.
@@ -122,17 +115,7 @@ pub fn with_two_resources<T>(
     h2: u32,
     f: impl FnOnce(&Resource, &Resource) -> Result<T, WasmError>,
 ) -> Result<T, JsError> {
-    SLAB.with_borrow(|slab| {
-        let r1 = slab
-            .get(h1 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(WasmError::InvalidHandle { handle: h1 })?;
-        let r2 = slab
-            .get(h2 as usize)
-            .and_then(Option::as_ref)
-            .ok_or(WasmError::InvalidHandle { handle: h2 })?;
-        f(r1, r2).map_err(Into::into)
-    })
+    try_get_two(h1, h2, f).map_err(Into::into)
 }
 
 /// Access a resource by handle mutably, returning an error if the handle
@@ -189,11 +172,19 @@ pub fn free(handle: u32) {
     });
 }
 
-/// Try to access a resource by handle, returning `WasmError` on failure.
+/// Access a resource by handle, reporting failure as [`WasmError`].
 ///
-/// This is the non-WASM-aware version used in tests (avoids `JsError`
-/// construction which panics on non-WASM targets).
-#[cfg(test)]
+/// This is the form callers reach for when they are not at the
+/// `#[wasm_bindgen]` boundary yet: constructing a `JsError` needs a JS
+/// runtime and aborts off wasm32, so any code path that must stay
+/// drivable from a host `cargo test` keeps its errors in `WasmError`
+/// terms and converts once, at the entry point.
+/// [`with_resource`] is that conversion.
+///
+/// # Errors
+///
+/// Returns [`WasmError::InvalidHandle`] if the handle is out of range or
+/// its slot has been freed. Propagates whatever error `f` returns.
 pub fn try_get<T>(
     handle: u32,
     f: impl FnOnce(&Resource) -> Result<T, WasmError>,
@@ -208,8 +199,13 @@ pub fn try_get<T>(
     })
 }
 
-/// Try to access two resources by handle, returning `WasmError` on failure.
-#[cfg(test)]
+/// Access two resources by handle at once, reporting failure as
+/// [`WasmError`]. The [`try_get`] counterpart of [`with_two_resources`].
+///
+/// # Errors
+///
+/// Returns [`WasmError::InvalidHandle`] if either handle is out of range
+/// or its slot has been freed. Propagates whatever error `f` returns.
 pub fn try_get_two<T>(
     h1: u32,
     h2: u32,

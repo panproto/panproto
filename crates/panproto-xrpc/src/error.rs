@@ -44,4 +44,18 @@ pub enum XrpcError {
     /// Authentication failed or token missing.
     #[error("authentication required: {0}")]
     AuthRequired(String),
+
+    /// The node returned an object whose content address is not the one
+    /// that was requested.
+    #[error("node returned object {received} for requested id {requested}")]
+    #[diagnostic(help(
+        "the store is content-addressed, so the object was refused rather than \
+         filed under an id that does not describe it"
+    ))]
+    ObjectMismatch {
+        /// The object id the client asked for.
+        requested: String,
+        /// The id the returned bytes actually hash to.
+        received: String,
+    },
 }

@@ -190,7 +190,7 @@ pub fn pp_lens_auto_generate_protolens(
     guard(|| {
         let tier = parse_stringency(stringency.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&src);
 
@@ -231,7 +231,7 @@ pub fn pp_lens_auto_generate_candidates(
     guard(|| {
         let tier = parse_stringency(stringency.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&src);
 
@@ -494,7 +494,7 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
         let (chain_val, schema_val) = handle::with_two_resources(chain, schema, |r1, r2| {
-            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&schema_val);
 
@@ -522,7 +522,7 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
 pub fn pp_protolens_complement_spec(chain: u32, schema: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     guard(|| {
         let (chain_val, schema_val) = handle::with_two_resources(chain, schema, |r1, r2| {
-            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&schema_val);
 
@@ -549,7 +549,7 @@ pub fn pp_protolens_from_diff(
     guard(|| {
         let diff_spec: lens::DiffSpec = canonical::decode(diff.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let chain = lens::diff_to_protolens(&diff_spec, &src, &tgt)
@@ -668,7 +668,7 @@ pub fn pp_protolens_fuse(chain: u32, out_handle: &mut u32) -> i32 {
 pub fn pp_lens_symmetric_from_schemas(schema1: u32, schema2: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
         let (left, right) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&left);
         let config = lens::AutoLensConfig::default();
