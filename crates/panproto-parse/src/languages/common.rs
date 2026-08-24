@@ -11,6 +11,7 @@
 
 use std::sync::{Arc, Mutex, OnceLock};
 
+use panproto_gat::is_interstitial_text_sort;
 use panproto_schema::{Protocol, Schema};
 
 use crate::emit_pretty::{FormatPolicy, Grammar as EmitGrammar, emit_pretty as emit_pretty_inner};
@@ -290,57 +291,89 @@ fn has_layout_complement(schema: &Schema) -> bool {
         .any(|cs| cs.iter().any(|c| c.sort.as_ref() == "start-byte"))
 }
 
+/// One recorded text fragment of the layout complement: the span it
+/// occupied in the original source, paired with the text to write in its
+/// place, plus the rank that breaks a tie between two fragments recording
+/// the same span.
+struct Fragment {
+    /// Start byte in the original source.
+    start: usize,
+    /// End byte in the original source. This is the span the fragment
+    /// *covers*, which is independent of `text`'s current length: an
+    /// edited fragment writes more or fewer bytes than it consumed.
+    end: usize,
+    /// Rank among fragments sharing a span: a leaf's `literal-value` (0)
+    /// supersedes the `interstitial-N` run recording the same bytes (1).
+    /// Schema constraint maps iterate in an arbitrary order, so without
+    /// this the winner of a tie would vary between processes.
+    rank: u8,
+    /// The text to write, which the injection path may have rewritten.
+    text: String,
+}
+
 /// Reconstruct source text from a schema using interstitial text and leaf literals.
 ///
-/// The walker stores two types of text data:
-/// - `literal-value` on leaf nodes: identifiers, literals, keywords that are named nodes
-/// - `interstitial-N` on parent nodes: text between named children (keywords, punctuation,
-///   whitespace, comments from anonymous/unnamed tokens)
+/// The walker stores two kinds of text data, each with the source span it came
+/// from:
+/// - `literal-value` on leaf nodes: identifiers, literals, keywords that are
+///   named nodes, spanning the vertex's `start-byte` … `end-byte`
+/// - `interstitial-N` on parent nodes: text between named children (keywords,
+///   punctuation, whitespace, comments from anonymous/unnamed tokens), spanning
+///   `interstitial-N-start-byte` … `interstitial-N-end-byte`
 ///
-/// The emitter reconstructs source by collecting ALL text fragments (both interstitials
-/// and leaf literals) and sorting them by their byte position in the original source.
-/// This produces exact round-trip fidelity: `emit(parse(source))` = `source`.
+/// Replay walks the fragments in source order and writes each one whose recorded
+/// span begins at or after the end of the last span written. Coverage is
+/// therefore a question about the *original* spans alone; the rewritten text
+/// decides only what bytes come out, never which fragments come out. A fragment
+/// edited to be longer than the bytes it replaces consequently displaces nothing
+/// that follows it, and the concatenation stays lossless both for an untouched
+/// schema (`emit(parse(source))` = `source`) and for an edited one.
 fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseError> {
-    // Collect all text fragments with their byte positions.
-    // Each fragment is (start_byte, text).
-    let mut fragments: Vec<(usize, String)> = Vec::new();
+    let mut fragments: Vec<Fragment> = Vec::new();
 
     for name in schema.vertices.keys() {
-        if let Some(constraints) = schema.constraints.get(name) {
-            // Get start-byte for this vertex.
-            let start_byte = constraints
+        let Some(constraints) = schema.constraints.get(name) else {
+            continue;
+        };
+        let recorded_byte = |sort: &str| -> Option<usize> {
+            constraints
                 .iter()
-                .find(|c| c.sort.as_ref() == "start-byte")
-                .and_then(|c| c.value.parse::<usize>().ok());
+                .find(|c| c.sort.as_ref() == sort)
+                .and_then(|c| c.value.parse::<usize>().ok())
+        };
 
-            // Collect literal-value from leaf nodes.
-            let literal = constraints
-                .iter()
-                .find(|c| c.sort.as_ref() == "literal-value")
-                .map(|c| c.value.clone());
+        // The leaf literal, spanning the vertex itself.
+        let literal = constraints
+            .iter()
+            .find(|c| c.sort.as_ref() == "literal-value")
+            .map(|c| c.value.clone());
+        if let (Some(start), Some(text)) = (recorded_byte("start-byte"), literal) {
+            let end = recorded_byte("end-byte").unwrap_or(start + text.len());
+            fragments.push(Fragment {
+                start,
+                end,
+                rank: 0,
+                text,
+            });
+        }
 
-            if let (Some(start), Some(text)) = (start_byte, literal) {
-                fragments.push((start, text));
+        // The interstitial runs between this vertex's named children.
+        for c in constraints {
+            let sort_str = c.sort.as_ref();
+            if !is_interstitial_text_sort(sort_str) {
+                continue;
             }
-
-            // Collect interstitial text fragments.
-            // Each interstitial has a byte position derived from its parent and index.
-            for c in constraints {
-                let sort_str = c.sort.as_ref();
-                if sort_str.starts_with("interstitial-") {
-                    // The interstitial's position is encoded in a companion constraint.
-                    // We stored interstitial-N-start-byte alongside interstitial-N.
-                    let pos_sort = format!("{sort_str}-start-byte");
-                    let pos = constraints
-                        .iter()
-                        .find(|c2| c2.sort.as_ref() == pos_sort.as_str())
-                        .and_then(|c2| c2.value.parse::<usize>().ok());
-
-                    if let Some(p) = pos {
-                        fragments.push((p, c.value.clone()));
-                    }
-                }
-            }
+            let Some(start) = recorded_byte(&format!("{sort_str}-start-byte")) else {
+                continue;
+            };
+            let end =
+                recorded_byte(&format!("{sort_str}-end-byte")).unwrap_or(start + c.value.len());
+            fragments.push(Fragment {
+                start,
+                end,
+                rank: 1,
+                text: c.value.clone(),
+            });
         }
     }
 
@@ -351,18 +384,27 @@ fn emit_from_schema(schema: &Schema, protocol: &str) -> Result<Vec<u8>, ParseErr
         });
     }
 
-    // Sort by byte position and concatenate.
-    fragments.sort_by_key(|(pos, _)| *pos);
+    // Source order, widest span first, literal ahead of interstitial. The last
+    // two keys make the order total, so replay does not depend on the constraint
+    // map's iteration order.
+    fragments.sort_by(|a, b| {
+        a.start
+            .cmp(&b.start)
+            .then(b.end.cmp(&a.end))
+            .then(a.rank.cmp(&b.rank))
+    });
 
-    // Deduplicate overlapping fragments (parent interstitials may overlap with
-    // child literals). Keep the first fragment at each position.
+    // A leaf records its text twice — once as `literal-value` and once as the
+    // trailing `interstitial-N` covering the same bytes — and a parent's
+    // interstitial run can abut a child's span. Writing a fragment whose
+    // recorded span starts before the end of the span already written would
+    // duplicate those bytes, so skip it.
     let mut output = Vec::new();
-    let mut cursor = 0;
-
-    for (pos, text) in &fragments {
-        if *pos >= cursor {
-            output.extend_from_slice(text.as_bytes());
-            cursor = pos + text.len();
+    let mut covered = 0;
+    for fragment in &fragments {
+        if fragment.start >= covered {
+            output.extend_from_slice(fragment.text.as_bytes());
+            covered = fragment.end.max(fragment.start);
         }
     }
 

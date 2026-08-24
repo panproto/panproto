@@ -595,6 +595,16 @@ impl<'a> AstWalker<'a> {
                         &format!("{sort}-start-byte"),
                         &gap_start.to_string(),
                     );
+                    // The run's end byte in the *original* source. Replay
+                    // decides which fragments a rewritten one supersedes by
+                    // comparing source spans, so the span has to be recorded
+                    // rather than recovered from the text's current length:
+                    // an edited interstitial no longer has its source length.
+                    builder = builder.constraint(
+                        vertex_id,
+                        &format!("{sort}-end-byte"),
+                        &gap_end.to_string(),
+                    );
                     *idx += 1;
                     let trimmed = gap_text.trim();
                     if !trimmed.is_empty() {

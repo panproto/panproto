@@ -24,7 +24,7 @@
 
 use std::collections::HashMap;
 
-use panproto_gat::Name;
+use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::FInstance;
 use panproto_inst::metadata::Node;
 use panproto_inst::value::{FieldPresence, Value};
@@ -960,7 +960,7 @@ fn update_literal_value(cst: &mut Schema, vertex: &Name, new_text: &str) {
         for c in constraints.iter_mut() {
             if c.sort.as_ref() == "literal-value" {
                 c.value = new_text.to_string();
-            } else if c.sort.starts_with("interstitial-") && !c.sort.ends_with("-start-byte") {
+            } else if is_interstitial_text_sort(c.sort.as_ref()) {
                 // Update the interstitial only if it previously matched the
                 // old literal value exactly. This preserves punctuation and
                 // whitespace interstitials while updating text interstitials.
