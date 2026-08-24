@@ -85,6 +85,9 @@ pub mod arena;
 #[allow(deprecated)]
 pub mod json_codec;
 
+/// Canonical TOML emission for instances with no layout complement.
+pub mod toml_pathway;
+
 /// Zero-copy XML pathway for schema-guided instance parsing via `quick-xml`.
 pub mod xml_pathway;
 

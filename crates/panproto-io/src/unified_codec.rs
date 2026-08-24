@@ -22,8 +22,9 @@ use panproto_parse::registry::AstParser;
 use panproto_schema::Schema;
 
 use crate::cst_extract::{
-    CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_xml_cst,
-    extract_yaml_cst, inject_json_cst, inject_tabular_cst, inject_xml_cst, inject_yaml_cst,
+    CstComplement, FormatKind, extract_json_cst, extract_tabular_cst, extract_toml_cst,
+    extract_xml_cst, extract_yaml_cst, inject_json_cst, inject_tabular_cst, inject_toml_cst,
+    inject_xml_cst, inject_yaml_cst,
 };
 use crate::error::{EmitInstanceError, ParseInstanceError, UnifiedCodecError};
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
@@ -176,11 +177,18 @@ impl UnifiedCodec {
         })?;
 
         let (instance, complement) = match self.format {
-            FormatKind::Json | FormatKind::Toml => extract_json_cst(&cst_schema, schema, &root)
-                .map_err(|e| ParseInstanceError::Parse {
+            FormatKind::Json => extract_json_cst(&cst_schema, schema, &root).map_err(|e| {
+                ParseInstanceError::Parse {
                     protocol: self.protocol.clone(),
                     message: e.to_string(),
-                })?,
+                }
+            })?,
+            FormatKind::Toml => extract_toml_cst(&cst_schema, schema, &root).map_err(|e| {
+                ParseInstanceError::Parse {
+                    protocol: self.protocol.clone(),
+                    message: e.to_string(),
+                }
+            })?,
             FormatKind::Xml => extract_xml_cst(&cst_schema, schema, &root).map_err(|e| {
                 ParseInstanceError::Parse {
                     protocol: self.protocol.clone(),
@@ -221,7 +229,8 @@ impl UnifiedCodec {
         complement: &CstComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
         let updated_cst = match self.format {
-            FormatKind::Json | FormatKind::Toml => inject_json_cst(instance, complement, schema),
+            FormatKind::Json => inject_json_cst(instance, complement, schema),
+            FormatKind::Toml => inject_toml_cst(instance, complement, schema),
             FormatKind::Xml => inject_xml_cst(instance, complement, schema),
             FormatKind::Yaml => inject_yaml_cst(instance, complement, schema),
             FormatKind::Csv | FormatKind::Tsv => {
@@ -414,8 +423,11 @@ impl InstanceEmitter for UnifiedCodec {
         // For format-preserving emission, use `ProtocolCodec::emit_wtype_preserving`
         // which takes an explicit complement argument.
         match self.format {
-            FormatKind::Json | FormatKind::Toml | FormatKind::Yaml => {
+            FormatKind::Json | FormatKind::Yaml => {
                 crate::json_pathway::emit_json_bytes(schema, instance, &self.protocol)
+            }
+            FormatKind::Toml => {
+                crate::toml_pathway::emit_toml_bytes(schema, instance, &self.protocol)
             }
             FormatKind::Xml => crate::xml_pathway::emit_xml_bytes(schema, instance, &self.protocol),
             FormatKind::Csv | FormatKind::Tsv => {

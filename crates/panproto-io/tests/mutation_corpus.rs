@@ -404,3 +404,56 @@ fn mutate_tsv_simple() {
         "tsv_simple",
     );
 }
+
+// ─── TOML ─────────────────────────────────────────────────────────────
+
+macro_rules! toml_mutation {
+    ($name:ident, $input:expr) => {
+        #[test]
+        fn $name() {
+            let codec = UnifiedCodec::toml("test").expect("toml codec");
+            let schema = open_schema("test");
+            assert_mutation_round_trip(&codec, &schema, $input, stringify!($name));
+        }
+    };
+}
+
+toml_mutation!(
+    mutate_toml_top_level_pairs,
+    b"name = \"Alice\"\nvalue = 42\nflag = true\npi = 3.5\n"
+);
+toml_mutation!(
+    mutate_toml_tables,
+    b"title = \"cfg\"\n\n[server]\nhost = \"localhost\"\nport = 8080\n\n[client]\nretries = 3\n"
+);
+toml_mutation!(
+    mutate_toml_arrays,
+    b"nums = [1, 2, 3]\nnames = [\"a\", \"b\"]\nnested = [[1, 2], [3]]\n"
+);
+toml_mutation!(
+    mutate_toml_inline_tables,
+    b"point = { x = 1, y = 2 }\nwho = { name = \"Alice\", admin = false }\n"
+);
+// Repeated `[[...]]` headers under one key are the elements of one list, so
+// an edit inside the second element must not land in the first.
+toml_mutation!(
+    mutate_toml_table_array,
+    b"[[item]]\nid = 1\nlabel = \"first\"\n\n[[item]]\nid = 2\nlabel = \"second\"\n"
+);
+// A literal string takes no escapes and a basic string does, so an edit to
+// either has to be re-spelled in the form it was written in.
+toml_mutation!(
+    mutate_toml_string_forms,
+    b"basic = \"a\\tb\"\nliteral = 'C:\\path'\nquoted = \"say \\\"hi\\\"\"\n"
+);
+// Comments, blank lines and alignment are layout the edit must leave alone.
+toml_mutation!(
+    mutate_toml_comments_and_layout,
+    b"# leading comment\n\nname   = \"Alice\"   # trailing\n\n[section]  # about the section\nvalue  = 7\n"
+);
+// Underscored integers and exponent floats spell a value in a form the
+// parsed `Value` cannot reproduce, so an untouched one keeps its bytes.
+toml_mutation!(
+    mutate_toml_numeric_spellings,
+    b"big = 1_000_000\nsmall = 6.02e23\nnegative = -17\n"
+);
