@@ -4,6 +4,13 @@
 //! tuple; it requires string keys for JSON objects. These modules serialize
 //! such maps as `Vec<(K, V)>` arrays instead, which round-trip through both
 //! JSON and `MessagePack`.
+//!
+//! The array is written in key order rather than in the map's own iteration
+//! order. A `HashMap` enumerates its entries in an order the process's hash
+//! seed decides, so writing them out as they come would make the bytes of a
+//! serialized schema, morphism, or migration differ from run to run for one
+//! and the same value — every write a spurious diff, and every digest taken
+//! over those bytes a different digest.
 
 /// Serialize/deserialize `HashMap<K, V>` as `Vec<(K, V)>`.
 ///
@@ -17,7 +24,7 @@ pub mod map_as_vec {
     use serde::ser::Serializer;
     use serde::{Deserialize, Serialize};
 
-    /// Serialize a `HashMap` as a `Vec` of key-value pairs.
+    /// Serialize a `HashMap` as a `Vec` of key-value pairs, in key order.
     ///
     /// # Errors
     ///
@@ -25,11 +32,12 @@ pub mod map_as_vec {
     #[allow(clippy::implicit_hasher)]
     pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        K: Serialize + Eq + Hash,
+        K: Serialize + Eq + Hash + Ord,
         V: Serialize,
         S: Serializer,
     {
-        let pairs: Vec<(&K, &V)> = map.iter().collect();
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
         pairs.serialize(serializer)
     }
 
@@ -62,7 +70,7 @@ pub mod map_as_vec_default {
     use serde::ser::Serializer;
     use serde::{Deserialize, Serialize};
 
-    /// Serialize a `HashMap` as a `Vec` of key-value pairs.
+    /// Serialize a `HashMap` as a `Vec` of key-value pairs, in key order.
     ///
     /// # Errors
     ///
@@ -70,11 +78,12 @@ pub mod map_as_vec_default {
     #[allow(clippy::implicit_hasher)]
     pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        K: Serialize + Eq + Hash,
+        K: Serialize + Eq + Hash + Ord,
         V: Serialize,
         S: Serializer,
     {
-        let pairs: Vec<(&K, &V)> = map.iter().collect();
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
         pairs.serialize(serializer)
     }
 
@@ -92,6 +101,55 @@ pub mod map_as_vec_default {
     {
         let pairs: Vec<(K, V)> = Vec::deserialize(deserializer)?;
         Ok(pairs.into_iter().collect())
+    }
+}
+
+/// Serialize a `HashMap` as a map, written in key order.
+///
+/// Use with `#[serde(with = "sorted_map")]` on fields whose key type *can* be
+/// a JSON object key. The entries are written in key order rather than in the
+/// map's own enumeration order, so one value always produces one encoding.
+pub mod sorted_map {
+    use std::collections::HashMap;
+    use std::hash::Hash;
+
+    use serde::de::Deserializer;
+    use serde::ser::{SerializeMap as _, Serializer};
+    use serde::{Deserialize, Serialize};
+
+    /// Serialize a `HashMap` as a map, in key order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialization error if any key or value fails to serialize.
+    #[allow(clippy::implicit_hasher)]
+    pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize + Eq + Hash + Ord,
+        V: Serialize,
+        S: Serializer,
+    {
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        let mut entries = serializer.serialize_map(Some(pairs.len()))?;
+        for (key, value) in pairs {
+            entries.serialize_entry(key, value)?;
+        }
+        entries.end()
+    }
+
+    /// Deserialize a map into a `HashMap`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a deserialization error if the input is not a valid map.
+    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+    {
+        HashMap::deserialize(deserializer)
     }
 }
 
