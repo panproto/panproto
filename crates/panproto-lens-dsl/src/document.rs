@@ -247,16 +247,55 @@ pub struct AddFieldSpec {
     pub expr: Option<String>,
 }
 
+/// An expression a step carries.
+///
+/// A document written by hand supplies surface syntax, which the step
+/// compiler parses. A step the rules compiler synthesizes supplies the
+/// expression it built, which needs no parsing: rendering a built
+/// expression back into source only to re-parse it would put an escaping
+/// problem between the two, and a template or an attribute value is free
+/// to contain a quote, a backslash, or a brace.
+///
+/// The two are deserialized untagged, so a JSON/YAML/Nickel `expr` given
+/// as a string is surface syntax and one given as a record is a
+/// serialized expression.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum ExprSource {
+    /// Surface syntax in the expression language, to be parsed.
+    Source(String),
+    /// An expression the compiler built directly.
+    Built(Box<panproto_expr::Expr>),
+}
+
+impl From<String> for ExprSource {
+    fn from(source: String) -> Self {
+        Self::Source(source)
+    }
+}
+
+impl From<&str> for ExprSource {
+    fn from(source: &str) -> Self {
+        Self::Source(source.to_owned())
+    }
+}
+
+impl From<panproto_expr::Expr> for ExprSource {
+    fn from(expr: panproto_expr::Expr) -> Self {
+        Self::Built(Box::new(expr))
+    }
+}
+
 /// Apply-expression specification.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ApplyExprSpec {
     /// The field whose value is transformed.
     pub field: String,
     /// The expression to evaluate.
-    pub expr: String,
+    pub expr: ExprSource,
     /// Optional inverse expression for round-tripping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inverse: Option<String>,
+    pub inverse: Option<ExprSource>,
     /// Round-trip classification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coercion: Option<CoercionKind>,
@@ -268,10 +307,10 @@ pub struct ComputeFieldSpec {
     /// Target field name for the computed value.
     pub target: String,
     /// The expression to evaluate.
-    pub expr: String,
+    pub expr: ExprSource,
     /// Optional inverse expression for round-tripping.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub inverse: Option<String>,
+    pub inverse: Option<ExprSource>,
     /// Round-trip classification.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub coercion: Option<CoercionKind>,
