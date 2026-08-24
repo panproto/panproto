@@ -99,6 +99,32 @@ pub enum TheoryDslError {
         message: String,
     },
 
+    /// A theory's directed rewrite system is not provably sound.
+    ///
+    /// Normalization decides the theory's equality judgment by running
+    /// the rewrite system, so a system that is not locally confluent or
+    /// not LPO-terminating leaves that judgment unsound. Each entry
+    /// names a non-joining critical pair or an LPO violation.
+    #[error("theory '{theory}' has an unsound rewrite system: {}", warnings.join("; "))]
+    #[diagnostic(code(panproto_theory_dsl::unsound_rewrite_system))]
+    UnsoundRewriteSystem {
+        /// The theory whose rewrite system was refused.
+        theory: String,
+        /// One entry per non-joining critical pair or LPO violation.
+        warnings: Vec<String>,
+    },
+
+    /// The soundness analysis of a theory's rewrite system could not be
+    /// completed, so the system is neither proven sound nor refuted.
+    #[error("theory '{theory}': rewrite-system check could not be completed: {message}")]
+    #[diagnostic(code(panproto_theory_dsl::rewrite_system_check))]
+    RewriteSystemCheck {
+        /// The theory whose rewrite system could not be analysed.
+        theory: String,
+        /// What stopped the analysis.
+        message: String,
+    },
+
     /// Type-checking a theory failed, with a source-pointed diagnostic.
     ///
     /// Populated when the DSL compiler has the original source text on

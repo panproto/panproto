@@ -21,14 +21,18 @@ use crate::error::TheoryDslError;
 ///
 /// Parses all sorts, operations, equations, directed equations, and
 /// policies from spec types into GAT engine types, constructs the
-/// theory via [`Theory::full`], and runs typechecking. When the spec
-/// declares imports, the importing crate must call
-/// [`compile_theory_with_resolver`] so the imports can be resolved.
+/// theory via [`Theory::full`], runs typechecking, and gates the
+/// theory's directed rewrite system on local confluence and LPO
+/// termination. When the spec declares imports, the importing crate
+/// must call [`compile_theory_with_resolver`] so the imports can be
+/// resolved.
 ///
 /// # Errors
 ///
-/// Returns errors for parse failures, unknown value kinds, or
-/// typechecking violations.
+/// Returns errors for parse failures, unknown value kinds, typechecking
+/// violations, and a directed rewrite system that is not provably sound
+/// ([`TheoryDslError::UnsoundRewriteSystem`]) or whose soundness could
+/// not be decided ([`TheoryDslError::RewriteSystemCheck`]).
 pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     compile_theory_with_resolver(spec, &|_name| None)
 }
@@ -383,17 +387,25 @@ fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
         message: e.to_string(),
     })?;
 
-    // Gate the theory's directed rewrite system on local confluence and LPO
-    // termination. Compilation is not blocked on the result: a rewrite system
-    // that is not provably sound is reported for investigation, so the gate
-    // cannot reject an otherwise well-typed theory.
-    if let Ok(report) = panproto_gat::validate_rewrite_system(&theory) {
-        for warning in report.warnings() {
-            eprintln!(
-                "theory `{}`: rewrite-system warning: {warning}",
-                spec.theory.as_str()
-            );
+    // Gate the theory's directed rewrite system on local confluence and
+    // LPO termination. Normalization decides this theory's equality
+    // judgment by running that system, so a system that is not provably
+    // sound makes the judgment unsound, and handing the theory back as
+    // if it were fine would let every later normalization silently rest
+    // on it. Both the analysis failing and the analysis reporting a
+    // violation are returned to the caller.
+    let report = panproto_gat::validate_rewrite_system(&theory).map_err(|e| {
+        TheoryDslError::RewriteSystemCheck {
+            theory: spec.theory.clone(),
+            message: e.to_string(),
         }
+    })?;
+    let warnings = report.warnings();
+    if !warnings.is_empty() {
+        return Err(TheoryDslError::UnsoundRewriteSystem {
+            theory: spec.theory.clone(),
+            warnings,
+        });
     }
 
     Ok(theory)
@@ -1173,6 +1185,55 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn an_unsound_rewrite_system_is_refused() -> TestResult {
+        use crate::document::DirectedEqSpec;
+        // `x -> x` rewrites a term to itself, so rewriting never makes
+        // progress and the LPO order cannot orient it. Normalization
+        // decides this theory's equality judgment by running the rule,
+        // so the theory has to be refused rather than handed back with
+        // the finding printed somewhere.
+        let spec = TheorySpec {
+            theory: "ThLooping".to_owned(),
+            extends: vec![],
+            imports: vec![],
+            sorts: vec![SortSpec {
+                name: "Str".to_owned(),
+                params: vec![],
+                kind: SortKindSpec::Val {
+                    value_kind: "string".to_owned(),
+                },
+                closed: None,
+            }],
+            ops: vec![],
+            equations: vec![],
+            directed_equations: vec![DirectedEqSpec {
+                name: "goes_nowhere".to_owned(),
+                lhs: "x".to_owned(),
+                rhs: "x".to_owned(),
+                impl_expr: "x".to_owned(),
+                inverse: Some("x".to_owned()),
+                source_kind: Some("string".to_owned()),
+                target_kind: Some("string".to_owned()),
+                coercion_class: "iso".to_owned(),
+            }],
+            policies: vec![],
+        };
+        match compile_theory(&spec) {
+            Err(TheoryDslError::UnsoundRewriteSystem { theory, warnings }) => {
+                assert_eq!(theory, "ThLooping");
+                assert!(
+                    warnings.iter().any(|w| w.contains("goes_nowhere")),
+                    "the refusal must name the offending rule: {warnings:?}",
+                );
+                Ok(())
+            }
+            other => {
+                Err(format!("an unsound rewrite system must be refused, got {other:?}").into())
+            }
+        }
+    }
+
     fn lying_iso_theory_spec() -> TheorySpec {
         use crate::document::DirectedEqSpec;
         TheorySpec {
@@ -1268,11 +1329,19 @@ mod tests {
                 },
                 closed: None,
             }],
-            ops: vec![],
+            // `id(x) -> x` rather than `x -> x`: a rule whose two sides
+            // are the same term never makes progress, so it is not
+            // LPO-terminating and the rewrite-system gate refuses it.
+            ops: vec![OpSpec {
+                name: "id".to_owned(),
+                input: Some("Str".to_owned()),
+                inputs: None,
+                output: "Str".to_owned(),
+            }],
             equations: vec![],
             directed_equations: vec![crate::document::DirectedEqSpec {
                 name: "identity_iso".to_owned(),
-                lhs: "x".to_owned(),
+                lhs: "id(x)".to_owned(),
                 rhs: "x".to_owned(),
                 impl_expr: "x".to_owned(),
                 inverse: Some("x".to_owned()),

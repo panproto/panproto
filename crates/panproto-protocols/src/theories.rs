@@ -153,24 +153,35 @@ use std::collections::HashMap;
 
 /// Gate a to-be-registered theory on the soundness of its directed rewrite
 /// system (local confluence and LPO termination under operation-declaration
-/// order). Registration is never blocked: a system that is not provably sound
-/// is reported to stderr for investigation, so a new gate cannot break the
-/// registration of built-in theories. Theories with no directed equations
-/// (every built-in composed here) pass trivially and silently.
+/// order). Theories with no directed equations (every built-in composed
+/// here) pass trivially.
+///
+/// The theories this gate sees are assembled from the building blocks in
+/// this module, not supplied by a caller, so a failure is a defect in
+/// those blocks rather than bad input. It is reported the same way the
+/// colimits above report theirs.
+///
+/// # Panics
+///
+/// Panics if the soundness analysis cannot be completed or reports a
+/// non-joining critical pair or an LPO violation. Normalization decides a
+/// theory's equality judgment by running its rewrite system, so
+/// registering one that is not provably sound would leave every schema
+/// built on the theory resting on an unsound judgment.
 fn gate_rewrite_system(theory: &Theory) {
-    match validate_rewrite_system(theory) {
-        Ok(report) => {
-            for warning in report.warnings() {
-                eprintln!(
-                    "theory `{}`: rewrite-system warning: {warning}",
-                    theory.name
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("theory `{}`: rewrite-system check failed: {e}", theory.name);
-        }
-    }
+    let report = validate_rewrite_system(theory).unwrap_or_else(|e| {
+        panic!(
+            "theory `{}`: rewrite-system soundness could not be decided: {e}",
+            theory.name
+        )
+    });
+    let warnings = report.warnings();
+    assert!(
+        warnings.is_empty(),
+        "theory `{}` has an unsound rewrite system: {}",
+        theory.name,
+        warnings.join("; ")
+    );
 }
 
 /// Register a **constrained multigraph + W-type** theory pair (Group A).
