@@ -280,6 +280,11 @@ impl From<&Schema> for CanonicalSchema {
     }
 }
 
+/// The canonical hyper-edge resolver: a fan shape — hyper-edge ID with the
+/// sorted, deduplicated label set it governs — to the target hyper-edge and
+/// its label remapping.
+type CanonicalHyperResolver = BTreeMap<(String, Vec<String>), (String, BTreeMap<String, String>)>;
+
 /// Canonical migration where all `HashMap` fields become `BTreeMap`.
 #[derive(Serialize)]
 struct CanonicalMigration {
@@ -290,7 +295,7 @@ struct CanonicalMigration {
     hyper_edge_map: BTreeMap<String, String>,
     label_map: BTreeMap<(String, String), String>,
     resolver: BTreeMap<(String, String), Edge>,
-    hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)>,
+    hyper_resolver: CanonicalHyperResolver,
     expr_resolvers: BTreeMap<(String, String), panproto_expr::Expr>,
 }
 
@@ -326,16 +331,25 @@ pub fn hash_migration(
     tgt: ObjectId,
     migration: &Migration,
 ) -> Result<ObjectId, VcsError> {
-    // Flatten hyper_resolver to BTreeMap with sorted inner maps.
-    let hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)> = migration
+    // Canonicalize hyper_resolver on its whole key. The label component is a
+    // set, so it is sorted and deduplicated: a permutation names the same
+    // migration, while two entries governing different label sets on one
+    // hyper-edge stay distinct.
+    let hyper_resolver: CanonicalHyperResolver = migration
         .hyper_resolver
         .iter()
-        .map(|((he_id, _labels), (tgt_he, remap))| {
+        .map(|((he_id, labels), (tgt_he, remap))| {
+            let mut labels: Vec<String> = labels.iter().map(ToString::to_string).collect();
+            labels.sort_unstable();
+            labels.dedup();
             let sorted_remap: BTreeMap<String, String> = remap
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
-            (he_id.to_string(), (tgt_he.to_string(), sorted_remap))
+            (
+                (he_id.to_string(), labels),
+                (tgt_he.to_string(), sorted_remap),
+            )
         })
         .collect();
 
