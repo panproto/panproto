@@ -210,7 +210,14 @@ fn check_edge_map(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<Exis
     errors
 }
 
-/// Check that vertices mapped to the same target have consistent kinds.
+/// Check that every vertex map either preserves the vertex kind or changes it
+/// along a coercion the target schema registers.
+///
+/// A kind change is well-defined exactly when `tgt.coercions` holds a spec for
+/// the `(source kind, target kind)` pair: compilation turns that spec into the
+/// value transform the lift applies, so the migrated data is typed at the
+/// target kind. A kind change with no such spec has no value-level meaning and
+/// is reported as [`ExistenceError::KindInconsistency`].
 fn check_kind_consistency(
     src: &Schema,
     tgt: &Schema,
@@ -223,7 +230,11 @@ fn check_kind_consistency(
         let tgt_vertex = tgt.vertex(tgt_id);
 
         if let (Some(sv), Some(tv)) = (src_vertex, tgt_vertex) {
-            if sv.kind != tv.kind {
+            if sv.kind != tv.kind
+                && !tgt
+                    .coercions
+                    .contains_key(&(sv.kind.clone(), tv.kind.clone()))
+            {
                 errors.push(ExistenceError::KindInconsistency {
                     kind: sv.kind.to_string(),
                     targets: vec![sv.kind.to_string(), tv.kind.to_string()],
@@ -412,23 +423,41 @@ fn check_simultaneity(src: &Schema, tgt: &Schema, migration: &Migration) -> Vec<
 /// Check reachability risks for W-type instances: vertices that become
 /// disconnected from the root after migration.
 ///
-/// Performs a full BFS from root vertices (those with no incoming edges)
-/// through the source schema's edge graph. Non-surviving intermediate
-/// vertices are traversed but not counted as reachable; only surviving
-/// vertices reached through the BFS are considered reachable. A visited
-/// set prevents infinite loops in schemas with cycles.
+/// Roots are the schema's declared entry vertices. A schema that declares none
+/// falls back to the vertices with no incoming edge. In a recursive schema the
+/// entry vertex is also a recursion target, so it has an incoming edge and the
+/// in-degree heuristic alone yields no root at all; the declared entries are
+/// what make such a schema's roots knowable. When neither source of roots
+/// yields one — every vertex sits on a cycle and the schema declares no entry
+/// — the check has nothing to measure reachability from and reports nothing.
+///
+/// From the roots this performs a full BFS through the source schema's edge
+/// graph. Non-surviving intermediate vertices are traversed but not counted as
+/// reachable; only surviving vertices reached through the BFS are considered
+/// reachable. A visited set prevents infinite loops in schemas with cycles.
 fn check_reachability(src: &Schema, _tgt: &Schema, migration: &Migration) -> Vec<ExistenceError> {
     use std::collections::VecDeque;
 
     let mut errors = Vec::new();
     let surviving_src: FxHashSet<&str> = migration.vertex_map.keys().map(|n| &**n).collect();
 
-    // Find root vertices: source schema vertices with no incoming edges.
-    let roots: Vec<&Name> = src
-        .vertices
-        .keys()
-        .filter(|v| src.incoming_edges(v).is_empty())
-        .collect();
+    let declared_entries: Vec<&Name> = src
+        .entries
+        .iter()
+        .filter(|v| src.has_vertex(v))
+        .collect::<Vec<_>>();
+    let roots: Vec<&Name> = if declared_entries.is_empty() {
+        src.vertices
+            .keys()
+            .filter(|v| src.incoming_edges(v).is_empty())
+            .collect()
+    } else {
+        declared_entries
+    };
+
+    if roots.is_empty() {
+        return errors;
+    }
 
     // BFS from all roots through the source schema edge graph.
     // We traverse through ALL vertices (including non-surviving intermediates)
@@ -947,6 +976,130 @@ mod tests {
         assert!(
             !constraint_tightened(&renamed_report),
             "a renamed `ConstraintX` sort must not trigger the constraint check"
+        );
+    }
+
+    /// A recursive schema whose entry vertex is also a recursion target has no
+    /// in-degree-zero vertex, so the reachability check must seed its search
+    /// from the declared entries.
+    #[test]
+    fn recursive_schema_identity_migration_is_reachable() {
+        let protocol = test_protocol("ThGraph", "ThWType");
+        let body = Edge {
+            src: "doc".into(),
+            tgt: "section".into(),
+            kind: "prop".into(),
+            name: Some("body".into()),
+        };
+        let back = Edge {
+            src: "section".into(),
+            tgt: "doc".into(),
+            kind: "prop".into(),
+            name: Some("parent".into()),
+        };
+        let title = Edge {
+            src: "doc".into(),
+            tgt: "title".into(),
+            kind: "prop".into(),
+            name: Some("title".into()),
+        };
+
+        let mut schema = test_schema(
+            &[
+                ("doc", "object"),
+                ("section", "object"),
+                ("title", "string"),
+            ],
+            &[body.clone(), back.clone(), title.clone()],
+        );
+        schema.entries = vec![Name::from("doc")];
+
+        let mig = Migration {
+            vertex_map: HashMap::from([
+                (Name::from("doc"), Name::from("doc")),
+                (Name::from("section"), Name::from("section")),
+                (Name::from("title"), Name::from("title")),
+            ]),
+            edge_map: HashMap::from([
+                (body.clone(), body),
+                (back.clone(), back),
+                (title.clone(), title),
+            ]),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+
+        let mut registry = HashMap::new();
+        registry.insert(
+            "ThWType".into(),
+            Theory::new(
+                "ThWType",
+                vec![panproto_gat::Sort::simple("Node")],
+                vec![],
+                vec![],
+            ),
+        );
+
+        let report = check_existence(&protocol, &schema, &schema, &mig, &registry);
+        let risks: Vec<&ExistenceError> = report
+            .errors
+            .iter()
+            .filter(|e| matches!(e, ExistenceError::ReachabilityRisk { .. }))
+            .collect();
+        assert!(
+            risks.is_empty(),
+            "identity migration on a recursive schema must report no reachability risk, got {risks:?}"
+        );
+    }
+
+    /// A kind-changing vertex map whose coercion is registered in the target
+    /// schema has a defined lift, so existence checking must accept it.
+    #[test]
+    fn kind_change_with_registered_coercion_is_accepted() {
+        let protocol = test_protocol("ThGraph", "ThWType");
+        let src = test_schema(&[("body", "object"), ("body.text", "string")], &[]);
+        let mut tgt = test_schema(&[("body", "object"), ("body.text", "integer")], &[]);
+        tgt.coercions.insert(
+            (Name::from("string"), Name::from("integer")),
+            panproto_schema::CoercionSpec {
+                forward: panproto_expr::Expr::Builtin(
+                    panproto_expr::BuiltinOp::StrToInt,
+                    vec![panproto_expr::Expr::Var(std::sync::Arc::from("__value__"))],
+                ),
+                inverse: None,
+                class: panproto_gat::CoercionClass::Projection,
+            },
+        );
+
+        let mig = Migration {
+            vertex_map: HashMap::from([
+                (Name::from("body"), Name::from("body")),
+                (Name::from("body.text"), Name::from("body.text")),
+            ]),
+            edge_map: HashMap::new(),
+            hyper_edge_map: HashMap::new(),
+            label_map: HashMap::new(),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            expr_resolvers: HashMap::new(),
+            domain: None,
+            codomain: None,
+        };
+
+        let registry = HashMap::new();
+        let report = check_existence(&protocol, &src, &tgt, &mig, &registry);
+        assert!(
+            !report
+                .errors
+                .iter()
+                .any(|e| matches!(e, ExistenceError::KindInconsistency { .. })),
+            "a registered coercion makes the kind change well-defined, got {:?}",
+            report.errors
         );
     }
 }
