@@ -105,23 +105,34 @@ fn apply_op_rename(name: &Arc<str>, rename: &RenameMap) -> Arc<str> {
     rename.get(name).cloned().unwrap_or_else(|| name.clone())
 }
 
-/// Compute the renamed signature of an operation (input sort list +
-/// output sort), using sort-expression renaming that walks the head
-/// name through the rename map.
+/// Convert a rename map to the `std::collections::HashMap` form that the
+/// sort-expression rewriting API takes.
+fn as_std_map(rename: &RenameMap) -> std::collections::HashMap<Arc<str>, Arc<str>> {
+    rename.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
+}
+
+/// Compute the quotiented signature of an operation: its input sort list
+/// and output sort, with every sort head sent to its representative and
+/// every operation applied inside a dependent sort's argument terms sent
+/// to its representative.
+///
+/// Both maps matter. A dependent sort argument is a term, so two
+/// operations whose signatures differ only in operations the quotient
+/// identifies — `Hom(pt1(), pt1())` against `Hom(pt2(), pt2())` under
+/// `pt1 ~ pt2` — have the same signature in the quotient.
 fn renamed_op_signature(
     op: &Operation,
     sort_rename: &RenameMap,
+    op_rename: &RenameMap,
 ) -> (Vec<crate::sort::SortExpr>, crate::sort::SortExpr) {
-    let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
-        .iter()
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let sort_std = as_std_map(sort_rename);
+    let op_std = as_std_map(op_rename);
     let inputs: Vec<crate::sort::SortExpr> = op
         .inputs
         .iter()
-        .map(|(_, s, _)| s.rename_head(&rename_std))
+        .map(|(_, s, _)| s.apply_maps(&sort_std, &op_std))
         .collect();
-    let output = op.output.rename_head(&rename_std);
+    let output = op.output.apply_maps(&sort_std, &op_std);
     (inputs, output)
 }
 
@@ -214,25 +225,28 @@ fn build_rename_maps(
         op_uf.union(a, b);
     }
 
-    // Verify op signature compatibility (after sort renaming).
+    let op_rename = op_uf.rename_map();
+
+    // Verify op signature compatibility in the quotient, i.e. after both
+    // the sort and the operation identifications are applied.
     for (rep, members) in &op_uf.classes() {
-        let rep_sig = renamed_op_signature(get_op(theory, rep)?, &sort_rename);
+        let rep_sig = renamed_op_signature(get_op(theory, rep)?, &sort_rename, &op_rename);
         for member in members {
             if member == rep {
                 continue;
             }
-            let member_sig = renamed_op_signature(get_op(theory, member)?, &sort_rename);
+            let member_sig =
+                renamed_op_signature(get_op(theory, member)?, &sort_rename, &op_rename);
             if rep_sig != member_sig {
                 return Err(GatError::QuotientIncompatible {
                     name_a: rep.to_string(),
                     name_b: member.to_string(),
-                    detail: "operation signatures differ after sort renaming".into(),
+                    detail: "operation signatures differ in the quotient".into(),
                 });
             }
         }
     }
 
-    let op_rename = op_uf.rename_map();
     Ok((sort_rename, op_rename))
 }
 
@@ -251,7 +265,7 @@ fn rebuild_theory(
     sort_rename: &RenameMap,
     op_rename: &RenameMap,
 ) -> Result<Theory, GatError> {
-    let new_sorts = rebuild_sorts(theory, sort_rename)?;
+    let new_sorts = rebuild_sorts(theory, sort_rename, op_rename)?;
     let new_ops = rebuild_ops(theory, sort_rename, op_rename)?;
     let new_eqs = rebuild_eqs(&theory.eqs, op_rename);
     let new_directed_eqs = rebuild_directed_eqs(&theory.directed_eqs, op_rename);
@@ -266,24 +280,27 @@ fn rebuild_theory(
     ))
 }
 
-/// One sort per equivalence class with sort params renamed.
-fn rebuild_sorts(theory: &Theory, sort_rename: &RenameMap) -> Result<Vec<Sort>, GatError> {
+/// One sort per equivalence class, with each dependent parameter's sort
+/// rewritten into the quotient's namespace.
+fn rebuild_sorts(
+    theory: &Theory,
+    sort_rename: &RenameMap,
+    op_rename: &RenameMap,
+) -> Result<Vec<Sort>, GatError> {
+    let sort_std = as_std_map(sort_rename);
+    let op_std = as_std_map(op_rename);
     let mut result = Vec::new();
     let mut seen: FxHashSet<Arc<str>> = FxHashSet::default();
     for sort in &theory.sorts {
         let rep = apply_sort_rename(&sort.name, sort_rename);
         if seen.insert(rep.clone()) {
             let rep_sort = get_sort(theory, &rep)?;
-            let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
             let params: Vec<SortParam> = rep_sort
                 .params
                 .iter()
                 .map(|p| SortParam {
                     name: p.name.clone(),
-                    sort: p.sort.rename_head(&rename_std),
+                    sort: p.sort.apply_maps(&sort_std, &op_std),
                 })
                 .collect();
             result.push(Sort {
@@ -297,31 +314,37 @@ fn rebuild_sorts(theory: &Theory, sort_rename: &RenameMap) -> Result<Vec<Sort>, 
     Ok(result)
 }
 
-/// One op per equivalence class with sort references renamed.
+/// One op per equivalence class, with its signature rewritten into the
+/// quotient's namespace.
+///
+/// Sort heads follow the sort identifications and every operation applied
+/// inside a dependent sort's argument terms follows the operation
+/// identifications, so a surviving signature never names an operation the
+/// quotient collapsed away.
 fn rebuild_ops(
     theory: &Theory,
     sort_rename: &RenameMap,
     op_rename: &RenameMap,
 ) -> Result<Vec<Operation>, GatError> {
+    let sort_std = as_std_map(sort_rename);
+    let op_std = as_std_map(op_rename);
     let mut result = Vec::new();
     let mut seen: FxHashSet<Arc<str>> = FxHashSet::default();
     for op in &theory.ops {
         let rep = apply_op_rename(&op.name, op_rename);
         if seen.insert(rep.clone()) {
             let rep_op = get_op(theory, &rep)?;
-            let rename_std: std::collections::HashMap<Arc<str>, Arc<str>> = sort_rename
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect();
             let inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = rep_op
                 .inputs
                 .iter()
-                .map(|(pname, psort, imp)| (pname.clone(), psort.rename_head(&rename_std), *imp))
+                .map(|(pname, psort, imp)| {
+                    (pname.clone(), psort.apply_maps(&sort_std, &op_std), *imp)
+                })
                 .collect();
             result.push(Operation::with_implicit(
                 rep,
                 inputs,
-                rep_op.output.rename_head(&rename_std),
+                rep_op.output.apply_maps(&sort_std, &op_std),
             ));
         }
     }
@@ -792,5 +815,126 @@ mod tests {
         let quotiented = quotient(&theory, &ids)?;
         assert_eq!(quotiented.eqs.len(), 1);
         Ok(())
+    }
+
+    // --- operation renaming inside dependent-sort argument terms ---
+
+    /// A theory with two points and a loop at each, where the loop sorts
+    /// are dependent on the point terms.
+    fn two_point_loop_theory() -> Theory {
+        Theory::new(
+            "Pointed",
+            vec![
+                Sort::simple("Pt"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Pt"), SortParam::new("b", "Pt")],
+                ),
+            ],
+            vec![
+                Operation::new("pt1", vec![], "Pt"),
+                Operation::new("pt2", vec![], "Pt"),
+                Operation::new(
+                    "loop1",
+                    vec![],
+                    crate::sort::SortExpr::app(
+                        "Hom",
+                        vec![Term::constant("pt1"), Term::constant("pt1")],
+                    ),
+                ),
+                Operation::new(
+                    "loop2",
+                    vec![],
+                    crate::sort::SortExpr::app(
+                        "Hom",
+                        vec![Term::constant("pt2"), Term::constant("pt2")],
+                    ),
+                ),
+            ],
+            vec![],
+        )
+    }
+
+    /// Every operation name applied anywhere inside a term.
+    fn collect_referenced_ops(term: &Term, names: &mut Vec<Arc<str>>) {
+        match term {
+            Term::Var(_) | Term::Hole { .. } => {}
+            Term::App { op, args } => {
+                names.push(Arc::clone(op));
+                for arg in args {
+                    collect_referenced_ops(arg, names);
+                }
+            }
+            Term::Case {
+                scrutinee,
+                branches,
+            } => {
+                collect_referenced_ops(scrutinee, names);
+                for branch in branches {
+                    names.push(Arc::clone(&branch.constructor));
+                    collect_referenced_ops(&branch.body, names);
+                }
+            }
+            Term::Let { bound, body, .. } => {
+                collect_referenced_ops(bound, names);
+                collect_referenced_ops(body, names);
+            }
+        }
+    }
+
+    fn assert_no_dangling_op_references(theory: &Theory) {
+        for op in &theory.ops {
+            let sorts = op
+                .inputs
+                .iter()
+                .map(|(_, s, _)| s)
+                .chain(std::iter::once(&op.output));
+            for sort in sorts {
+                let mut names = Vec::new();
+                for arg in sort.args() {
+                    collect_referenced_ops(arg, &mut names);
+                }
+                for name in names {
+                    assert!(
+                        theory.has_op(&name),
+                        "signature of `{}` mentions `{name}`, absent from the quotient: {sort:?}",
+                        op.name,
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn quotient_renames_ops_inside_dependent_sort_arguments() {
+        let theory = two_point_loop_theory();
+        let Ok(quotiented) = quotient(&theory, &[(Arc::from("pt1"), Arc::from("pt2"))]) else {
+            panic!("identifying two points of the same sort must be compatible");
+        };
+        assert_no_dangling_op_references(&quotiented);
+    }
+
+    #[test]
+    fn quotient_identifies_ops_compatible_after_op_renaming() {
+        // `loop1 : Hom(pt1(), pt1())` and `loop2 : Hom(pt2(), pt2())` have
+        // the same signature once pt1 and pt2 are identified, so the two
+        // may be identified with them.
+        let theory = two_point_loop_theory();
+        let Ok(quotiented) = quotient(
+            &theory,
+            &[
+                (Arc::from("pt1"), Arc::from("pt2")),
+                (Arc::from("loop1"), Arc::from("loop2")),
+            ],
+        ) else {
+            panic!("loop signatures must agree once the points are identified");
+        };
+        assert_no_dangling_op_references(&quotiented);
+        assert_eq!(
+            quotiented.ops.len(),
+            2,
+            "one point and one loop survive: {:?}",
+            quotiented.ops,
+        );
     }
 }
