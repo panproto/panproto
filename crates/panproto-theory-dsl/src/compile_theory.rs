@@ -312,28 +312,22 @@ fn rewrite_sort_string(s: &str, rewrite: &std::collections::HashMap<String, Stri
     // that `Foo.Bar(x)` rewrites to the canonical `Foo_Bar(x)` and a
     // bare `Bar` in the `expose` list rewrites the same way.
     let mut result = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
+    let mut chars = s.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
         if c.is_ascii_alphabetic() || c == '_' {
-            let start = i;
-            while i < bytes.len() {
-                let cc = bytes[i] as char;
+            let mut end = start + c.len_utf8();
+            while let Some(&(i, cc)) = chars.peek() {
                 if cc.is_ascii_alphanumeric() || cc == '_' || cc == '.' {
-                    i += 1;
+                    end = i + cc.len_utf8();
+                    chars.next();
                 } else {
                     break;
                 }
             }
-            let tok = &s[start..i];
-            match rewrite.get(tok) {
-                Some(canonical) => result.push_str(canonical),
-                None => result.push_str(tok),
-            }
+            let tok = &s[start..end];
+            result.push_str(rewrite.get(tok).map_or(tok, String::as_str));
         } else {
             result.push(c);
-            i += 1;
         }
     }
     result
@@ -865,27 +859,30 @@ fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
 
 /// Find a whitespace-delimited occurrence of `keyword` at the top level
 /// (not inside parens). Returns the byte offset of the keyword start.
+///
+/// The scan walks characters, not bytes, so a term carrying a non-ASCII
+/// character (`case \u{e9} of ...`) is scanned without ever slicing at a
+/// position interior to a multi-byte character.
 fn find_top_level_keyword(s: &str, keyword: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
+    debug_assert!(keyword.is_ascii(), "keyword {keyword:?} must be ASCII");
     let klen = keyword.len();
     let mut depth = 0i32;
-    let mut i = 0;
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
+    // The start of the string counts as a left word boundary.
+    let mut prev_is_boundary = true;
+    for (i, ch) in s.char_indices() {
         match ch {
             '(' => depth += 1,
             ')' => depth -= 1,
             _ => {}
         }
         if depth == 0
-            && i + klen <= bytes.len()
-            && &s[i..i + klen] == keyword
-            && (i == 0 || (bytes[i - 1] as char).is_whitespace())
-            && (i + klen == bytes.len() || (bytes[i + klen] as char).is_whitespace())
+            && prev_is_boundary
+            && s[i..].starts_with(keyword)
+            && s[i + klen..].chars().next().is_none_or(char::is_whitespace)
         {
             return Some(i);
         }
-        i += 1;
+        prev_is_boundary = ch.is_whitespace();
     }
     None
 }
@@ -991,6 +988,44 @@ mod tests {
         let term = parse_term("x")?;
         assert!(matches!(term, panproto_gat::Term::Var(ref v) if &**v == "x"));
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_term_non_ascii_scrutinee() -> TestResult {
+        // The `of` and `in` scans walk characters, so a non-ASCII
+        // scrutinee or bound term yields a grammar diagnostic instead of
+        // slicing at a position interior to a multi-byte character.
+        let Err(err) = parse_term("case \u{e9} of C(x) => x end") else {
+            return Err("a non-identifier scrutinee is not a term".into());
+        };
+        assert!(
+            err.contains("term variable"),
+            "expected an identifier diagnostic, got {err:?}"
+        );
+
+        let Err(err) = parse_term("let x = \u{e9} in x") else {
+            return Err("a non-identifier bound term is not a term".into());
+        };
+        assert!(
+            err.contains("term variable"),
+            "expected an identifier diagnostic, got {err:?}"
+        );
+
+        // The character-wise scan keeps the keyword semantics it replaced:
+        // a well-formed case term still parses.
+        let term = parse_term("case s of C(x) => x end")?;
+        assert!(matches!(term, panproto_gat::Term::Case { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_rewrite_sort_string_preserves_non_ascii() {
+        let mut rewrite = std::collections::HashMap::new();
+        rewrite.insert("Foo.Bar".to_owned(), "Foo_Bar".to_owned());
+        assert_eq!(
+            rewrite_sort_string("Foo.Bar(\u{e9}\u{1f600})", &rewrite),
+            "Foo_Bar(\u{e9}\u{1f600})"
+        );
     }
 
     #[test]
