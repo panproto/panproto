@@ -13,6 +13,10 @@ use std::hash::BuildHasher;
 use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
+use super::keyword::{
+    contains_keyword, find_keyword_end, name_after_keyword, starts_with_keyword,
+    strip_keyword_prefix,
+};
 use crate::error::ProtocolError;
 use crate::theories;
 
@@ -83,8 +87,7 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
     // First pass: identify dropped tables.
     for stmt in &statements {
         let trimmed = stmt.trim();
-        let upper = trimmed.to_uppercase();
-        if upper.starts_with("DROP TABLE") {
+        if starts_with_keyword(trimmed, "DROP TABLE") {
             if let Ok(name) = extract_drop_table_name(trimmed) {
                 dropped_tables.insert(name);
             }
@@ -96,9 +99,8 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
 
     for stmt in &statements {
         let trimmed = stmt.trim();
-        let upper = trimmed.to_uppercase();
 
-        if upper.starts_with("CREATE TABLE") {
+        if starts_with_keyword(trimmed, "CREATE TABLE") {
             let table_name = extract_table_name(trimmed)?;
             if dropped_tables.contains(&table_name) {
                 continue;
@@ -107,7 +109,7 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
                 parse_create_table(builder, trimmed, &mut hyper_edge_counter)?;
             builder = new_builder;
             table_columns.insert(table_name, cols);
-        } else if upper.starts_with("ALTER TABLE") {
+        } else if starts_with_keyword(trimmed, "ALTER TABLE") {
             builder = parse_alter_table(builder, trimmed, &mut table_columns)?;
         }
         // DROP TABLE already handled via dropped_tables set.
@@ -153,10 +155,8 @@ fn parse_create_table(
             continue;
         }
 
-        let upper = trimmed.to_uppercase();
-
         // Handle table-level constraints.
-        if upper.starts_with("PRIMARY KEY") {
+        if starts_with_keyword(trimmed, "PRIMARY KEY") {
             // PRIMARY KEY(col1, col2)
             if let Some(cols) = extract_constraint_columns(trimmed) {
                 let constraint_val = cols.join(",");
@@ -164,41 +164,41 @@ fn parse_create_table(
             }
             continue;
         }
-        if upper.starts_with("FOREIGN KEY") {
+        if starts_with_keyword(trimmed, "FOREIGN KEY") {
             // FOREIGN KEY(col) REFERENCES other_table(col)
             builder = parse_table_foreign_key(builder, trimmed, &table_name, &sig);
             continue;
         }
-        if upper.starts_with("UNIQUE") {
+        if starts_with_keyword(trimmed, "UNIQUE") {
             if let Some(cols) = extract_constraint_columns(trimmed) {
                 let constraint_val = cols.join(",");
                 builder = builder.constraint(&table_name, "UNIQUE", &constraint_val);
             }
             continue;
         }
-        if upper.starts_with("CHECK") {
+        if starts_with_keyword(trimmed, "CHECK") {
             // Extract the expression inside parentheses.
             if let Ok(expr) = extract_parenthesized(trimmed) {
                 builder = builder.constraint(&table_name, "CHECK", &expr);
             }
             continue;
         }
-        if upper.starts_with("CONSTRAINT") {
+        if starts_with_keyword(trimmed, "CONSTRAINT") {
             // Named constraint: CONSTRAINT name PRIMARY KEY(...) / FOREIGN KEY(...) / etc.
             // Parse the inner constraint type.
-            if upper.contains("PRIMARY KEY") {
+            if contains_keyword(trimmed, "PRIMARY KEY") {
                 if let Some(cols) = extract_constraint_columns(trimmed) {
                     let constraint_val = cols.join(",");
                     builder = builder.constraint(&table_name, "PRIMARY KEY", &constraint_val);
                 }
-            } else if upper.contains("FOREIGN KEY") {
+            } else if contains_keyword(trimmed, "FOREIGN KEY") {
                 builder = parse_table_foreign_key(builder, trimmed, &table_name, &sig);
-            } else if upper.contains("UNIQUE") {
+            } else if contains_keyword(trimmed, "UNIQUE") {
                 if let Some(cols) = extract_constraint_columns(trimmed) {
                     let constraint_val = cols.join(",");
                     builder = builder.constraint(&table_name, "UNIQUE", &constraint_val);
                 }
-            } else if upper.contains("CHECK") {
+            } else if contains_keyword(trimmed, "CHECK") {
                 if let Ok(expr) = extract_parenthesized(trimmed) {
                     builder = builder.constraint(&table_name, "CHECK", &expr);
                 }
@@ -221,14 +221,14 @@ fn parse_create_table(
         builder = builder.vertex(&col_id, &kind, None)?;
 
         // Parse inline constraints.
-        let rest = parts[2..].join(" ").to_uppercase();
-        if rest.contains("NOT NULL") {
+        let rest = parts[2..].join(" ");
+        if contains_keyword(&rest, "NOT NULL") {
             builder = builder.constraint(&col_id, "NOT NULL", "true");
         }
-        if rest.contains("PRIMARY KEY") {
+        if contains_keyword(&rest, "PRIMARY KEY") {
             builder = builder.constraint(&col_id, "PRIMARY KEY", "true");
         }
-        if rest.contains("UNIQUE") {
+        if contains_keyword(&rest, "UNIQUE") {
             builder = builder.constraint(&col_id, "UNIQUE", "true");
         }
         if let Some(default_val) = extract_default(&rest) {
@@ -236,9 +236,9 @@ fn parse_create_table(
         }
 
         // Handle inline REFERENCES.
-        if let Some(ref_idx) = rest.find("REFERENCES") {
-            let ref_rest = &rest[ref_idx + "REFERENCES".len()..].trim().to_string();
-            let ref_table = ref_rest
+        if let Some(ref_start) = find_keyword_end(&rest, "REFERENCES") {
+            let ref_table = rest[ref_start..]
+                .trim()
                 .split(|c: char| c == '(' || c.is_whitespace())
                 .next()
                 .unwrap_or("")
@@ -272,39 +272,33 @@ fn parse_table_foreign_key(
     table_name: &str,
     sig: &HashMap<String, String>,
 ) -> SchemaBuilder {
-    let upper = constraint_str.to_uppercase();
-
     // Extract the column(s) in the FOREIGN KEY clause.
-    let fk_cols = extract_constraint_columns_at(&upper, "FOREIGN KEY");
+    let fk_cols = extract_constraint_columns_at(constraint_str, "FOREIGN KEY");
 
     // Extract REFERENCES target.
-    if let Some(ref_idx) = upper.find("REFERENCES") {
-        let ref_rest = &constraint_str[ref_idx + "REFERENCES".len()..]
+    if let Some(ref_start) = find_keyword_end(constraint_str, "REFERENCES") {
+        let ref_table = constraint_str[ref_start..]
             .trim()
-            .to_string();
-        let ref_table = ref_rest
             .split(|c: char| c == '(' || c.is_whitespace())
             .next()
             .unwrap_or("")
-            .trim()
-            .to_string();
+            .trim();
 
         if !ref_table.is_empty() {
             if let Some(fk_cols) = fk_cols {
                 for col in &fk_cols {
-                    let col_lower = col.to_lowercase();
-                    if let Some(col_id) = sig.get(&col_lower) {
+                    if let Some(col_id) = lookup_column(sig, col) {
                         builder = builder.constraint(
                             col_id,
                             "FOREIGN KEY",
-                            &format!("{ref_table}.{col_lower}"),
+                            &format!("{ref_table}.{col}"),
                         );
                     } else {
                         // Column may not exist yet; add constraint to table.
                         builder = builder.constraint(
                             table_name,
                             "FOREIGN KEY",
-                            &format!("{col_lower}->{ref_table}"),
+                            &format!("{col}->{ref_table}"),
                         );
                     }
                 }
@@ -315,18 +309,32 @@ fn parse_table_foreign_key(
     builder
 }
 
+/// Resolve a column name against a table's column signature.
+///
+/// An unquoted SQL identifier is case-insensitive, so an exact match is
+/// tried first and an ASCII case-insensitive match second. Ties among
+/// case variants resolve to the lexicographically smallest key so the
+/// result does not depend on hash iteration order.
+fn lookup_column<'a, S: BuildHasher>(
+    sig: &'a HashMap<String, String, S>,
+    col: &str,
+) -> Option<&'a String> {
+    sig.get(col).or_else(|| {
+        sig.iter()
+            .filter(|(k, _)| k.eq_ignore_ascii_case(col))
+            .min_by(|a, b| a.0.cmp(b.0))
+            .map(|(_, v)| v)
+    })
+}
+
 /// Parse an ALTER TABLE statement.
 fn parse_alter_table(
     mut builder: SchemaBuilder,
     stmt: &str,
     table_columns: &mut HashMap<String, HashMap<String, String>>,
 ) -> Result<SchemaBuilder, ProtocolError> {
-    let upper = stmt.to_uppercase();
-
     // Extract table name after ALTER TABLE.
-    let after_alter = upper
-        .find("ALTER TABLE")
-        .map(|i| i + "ALTER TABLE".len())
+    let after_alter = find_keyword_end(stmt, "ALTER TABLE")
         .ok_or_else(|| ProtocolError::Parse("no ALTER TABLE keyword found".into()))?;
 
     let remainder = stmt[after_alter..].trim();
@@ -340,15 +348,12 @@ fn parse_alter_table(
         .to_string();
 
     let after_table = remainder[table_end..].trim();
-    let after_table_upper = after_table.to_uppercase();
 
-    if after_table_upper.starts_with("ADD COLUMN") || after_table_upper.starts_with("ADD ") {
+    if let Some(col_def) = strip_keyword_prefix(after_table, "ADD COLUMN")
+        .or_else(|| strip_keyword_prefix(after_table, "ADD "))
+    {
         // ADD [COLUMN] name type [constraints...]
-        let col_def = if after_table_upper.starts_with("ADD COLUMN") {
-            after_table["ADD COLUMN".len()..].trim()
-        } else {
-            after_table["ADD".len()..].trim()
-        };
+        let col_def = col_def.trim();
 
         let parts: Vec<&str> = col_def.split_whitespace().collect();
         if parts.len() >= 2 {
@@ -359,8 +364,8 @@ fn parse_alter_table(
             builder = builder.vertex(&col_id, &kind, None)?;
             builder = builder.edge(&table_name, &col_id, "prop", Some(col_name))?;
 
-            let rest = parts[2..].join(" ").to_uppercase();
-            if rest.contains("NOT NULL") {
+            let rest = parts[2..].join(" ");
+            if contains_keyword(&rest, "NOT NULL") {
                 builder = builder.constraint(&col_id, "NOT NULL", "true");
             }
 
@@ -368,12 +373,13 @@ fn parse_alter_table(
                 cols.insert(col_name.to_string(), col_id);
             }
         }
-    } else if after_table_upper.starts_with("DROP COLUMN") || after_table_upper.starts_with("DROP ")
+    } else if starts_with_keyword(after_table, "DROP COLUMN")
+        || starts_with_keyword(after_table, "DROP ")
     {
         // DROP [COLUMN] name - we acknowledge but the column vertex remains.
         // Full removal would require schema diffing, which is out of scope.
-    } else if after_table_upper.starts_with("MODIFY")
-        || after_table_upper.starts_with("ALTER COLUMN")
+    } else if starts_with_keyword(after_table, "MODIFY")
+        || starts_with_keyword(after_table, "ALTER COLUMN")
     {
         // MODIFY/ALTER COLUMN name type - acknowledged but column vertex already exists.
         // Constraints could be updated, but column identity doesn't change.
@@ -385,60 +391,16 @@ fn parse_alter_table(
 /// Extract the table name from a CREATE TABLE statement.
 fn extract_table_name(stmt: &str) -> Result<String, ProtocolError> {
     // "CREATE TABLE [IF NOT EXISTS] name (...)"
-    let upper = stmt.to_uppercase();
-    let start = if upper.contains("IF NOT EXISTS") {
-        upper
-            .find("IF NOT EXISTS")
-            .map(|i| i + "IF NOT EXISTS".len())
-    } else {
-        upper.find("TABLE").map(|i| i + "TABLE".len())
-    };
-
-    let start = start.ok_or_else(|| ProtocolError::Parse("no TABLE keyword found".into()))?;
-    let remainder = stmt[start..].trim();
-    let name_end = remainder
-        .find(|c: char| c == '(' || c.is_whitespace())
-        .unwrap_or(remainder.len());
-
-    let name = remainder[..name_end]
-        .trim()
-        .trim_matches('"')
-        .trim_matches('`')
-        .to_string();
-
-    if name.is_empty() {
-        return Err(ProtocolError::Parse("empty table name".into()));
-    }
-
-    Ok(name)
+    name_after_keyword(stmt, "TABLE", &["IF NOT EXISTS"])
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
 }
 
 /// Extract the table name from a DROP TABLE statement.
 fn extract_drop_table_name(stmt: &str) -> Result<String, ProtocolError> {
-    let upper = stmt.to_uppercase();
-    let start = if upper.contains("IF EXISTS") {
-        upper.find("IF EXISTS").map(|i| i + "IF EXISTS".len())
-    } else {
-        upper.find("TABLE").map(|i| i + "TABLE".len())
-    };
-
-    let start = start.ok_or_else(|| ProtocolError::Parse("no TABLE keyword found".into()))?;
-    let remainder = stmt[start..].trim();
-    let name_end = remainder
-        .find(|c: char| c.is_whitespace() || c == ';')
-        .unwrap_or(remainder.len());
-
-    let name = remainder[..name_end]
-        .trim()
-        .trim_matches('"')
-        .trim_matches('`')
-        .to_string();
-
-    if name.is_empty() {
-        return Err(ProtocolError::Parse("empty table name".into()));
-    }
-
-    Ok(name)
+    name_after_keyword(stmt, "TABLE", &["IF EXISTS"])
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
 }
 
 /// Extract the parenthesized block from a statement.
@@ -523,8 +485,8 @@ fn sql_type_to_kind(sql_type: &str) -> String {
 
 /// Extract a DEFAULT value from a constraint string.
 fn extract_default(constraint_str: &str) -> Option<String> {
-    let idx = constraint_str.find("DEFAULT")?;
-    let rest = constraint_str[idx + "DEFAULT".len()..].trim();
+    let idx = find_keyword_end(constraint_str, "DEFAULT")?;
+    let rest = constraint_str[idx..].trim();
     // Take the first token as the default value.
     let end = rest
         .find(|c: char| c.is_whitespace() || c == ',')
@@ -547,9 +509,9 @@ fn extract_constraint_columns(constraint_str: &str) -> Option<Vec<String>> {
 }
 
 /// Extract column names from a constraint starting at a specific keyword.
-fn extract_constraint_columns_at(upper_str: &str, keyword: &str) -> Option<Vec<String>> {
-    let idx = upper_str.find(keyword)?;
-    let after = &upper_str[idx + keyword.len()..];
+fn extract_constraint_columns_at(stmt: &str, keyword: &str) -> Option<Vec<String>> {
+    let idx = find_keyword_end(stmt, keyword)?;
+    let after = &stmt[idx..];
     let open = after.find('(')?;
     let close = after[open..].find(')')? + open;
     let inner = &after[open + 1..close];
@@ -834,6 +796,35 @@ mod tests {
             schema2.edge_count(),
             "edge counts should match after round-trip"
         );
+    }
+
+    #[test]
+    fn parse_non_ascii_named_constraint() {
+        let ddl = "CREATE TABLE t (a INT, CONSTRAINT \u{250}\u{250} FOREIGN KEY(a) REFERENCES \u{250}x(a));";
+        let schema = parse_ddl(ddl).expect("should parse");
+        let cs = schema.constraints.get("t.a").expect("column constraints");
+        let fk = cs
+            .iter()
+            .find(|c| c.sort == "FOREIGN KEY")
+            .expect("foreign key constraint");
+        assert_eq!(fk.value, "\u{250}x.a");
+    }
+
+    #[test]
+    fn parse_table_name_ignores_guard_phrase_in_a_literal() {
+        let ddl = "CREATE TABLE users (id INTEGER, note TEXT DEFAULT 'IF NOT EXISTS');";
+        let schema = parse_ddl(ddl).expect("should parse");
+        assert!(schema.has_vertex("users"));
+        assert!(schema.has_vertex("users.note"));
+    }
+
+    #[test]
+    fn parse_lowercase_ddl() {
+        let ddl = "create table users (id integer primary key, name text not null);";
+        let schema = parse_ddl(ddl).expect("should parse");
+        assert!(schema.has_vertex("users.name"));
+        let cs = schema.constraints.get("users.name").expect("constraints");
+        assert!(cs.iter().any(|c| c.sort == "NOT NULL"));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 //! objects. The schema is serialized as JSON (the authoritative structural
 //! representation) alongside any cached source text from the import.
 
+use panproto_gat::is_interstitial_text_sort;
 use panproto_vcs::{Object, ObjectId, Store};
 use rustc_hash::FxHashMap;
 
@@ -184,7 +185,7 @@ fn collect_file_fragments(
 
             for c in constraints {
                 let sort_str = c.sort.as_ref();
-                if sort_str.starts_with("interstitial-") && !sort_str.ends_with("-start-byte") {
+                if is_interstitial_text_sort(sort_str) {
                     let pos_sort = format!("{sort_str}-start-byte");
                     let pos = constraints
                         .iter()

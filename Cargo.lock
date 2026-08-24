@@ -2271,6 +2271,7 @@ dependencies = [
  "smallvec 2.0.0-alpha.12",
  "thiserror",
  "tl",
+ "toml 0.8.23",
  "tree-sitter",
 ]
 
@@ -2443,6 +2444,7 @@ dependencies = [
  "panproto-protocols",
  "panproto-schema",
  "proptest",
+ "rustc-hash",
  "serde",
  "serde_json",
  "thiserror",

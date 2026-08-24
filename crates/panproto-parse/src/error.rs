@@ -51,6 +51,26 @@ pub enum ParseError {
         source: serde_json::Error,
     },
 
+    /// The parse tree nests deeper than the walk is willing to descend.
+    ///
+    /// The walk is recursive, so unbounded nesting would exhaust the thread's
+    /// stack and abort the process rather than fail. Raising
+    /// [`WalkerConfig::max_depth`] admits deeper input.
+    ///
+    /// [`WalkerConfig::max_depth`]: crate::walker::WalkerConfig::max_depth
+    #[error(
+        "nesting exceeds the {limit}-level limit at byte {byte} (node kind `{kind}`); \
+         raise the walker's max_depth to admit it"
+    )]
+    NestingTooDeep {
+        /// The depth limit that was exceeded.
+        limit: usize,
+        /// The kind of the node that sat one level past the limit.
+        kind: String,
+        /// The byte offset at which that node begins.
+        byte: usize,
+    },
+
     /// A protocol error propagated from panproto-protocols.
     #[error(transparent)]
     Protocol(#[from] panproto_protocols::ProtocolError),

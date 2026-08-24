@@ -128,10 +128,7 @@ impl ByteTabularCodec {
             if is_data {
                 let mut row = HashMap::with_capacity(fields.len());
                 for (i, field) in fields.iter().enumerate() {
-                    row.insert(
-                        format!("{COL_PREFIX}{i}"),
-                        Value::Str(String::from_utf8_lossy(field).into_owned()),
-                    );
+                    row.insert(format!("{COL_PREFIX}{i}"), cell_value(field));
                 }
                 rows.push(row);
             }
@@ -238,6 +235,21 @@ fn splice_line(line: &LineRecord, row: &HashMap<String, Value>, delimiter: u8) -
         bytes.extend_from_slice(field);
     }
     Some(bytes)
+}
+
+/// Surface one field's bytes as a [`Value`].
+///
+/// A field that is valid UTF-8 becomes a [`Value::Str`], which is what
+/// consumers of the `FInstance` want to read and edit. A field that is not
+/// becomes a [`Value::Bytes`], which [`value_bytes`] replays verbatim: EDI
+/// X12 and SWIFT MT payloads are latin-1, and decoding them lossily would
+/// substitute `U+FFFD` for every non-ASCII byte and destroy the file on an
+/// unmodified round-trip.
+fn cell_value(field: &[u8]) -> Value {
+    std::str::from_utf8(field).map_or_else(
+        |_| Value::Bytes(field.to_vec()),
+        |s| Value::Str(s.to_owned()),
+    )
 }
 
 /// Render a [`Value`] to its byte form for splicing into a delimited line.
@@ -436,6 +448,33 @@ mod tests {
         rows[0].insert("col_1".into(), Value::Str("user:2002".into()));
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, b"key user:2002\nname Alice Chen\n");
+    }
+
+    #[test]
+    fn non_utf8_cells_round_trip_byte_identically() {
+        // EDI X12 and SWIFT MT carry latin-1 payloads. A cell that is not
+        // valid UTF-8 surfaces as `Value::Bytes` and replays verbatim.
+        let input = b"ISA*caf\xe9*00\n";
+        let c = ByteTabularCodec::new("edi", "segments", b'*', None);
+        let (inst, comp) = c.parse(input).unwrap();
+        let out = c.emit(&inst, &comp).unwrap();
+        assert_eq!(out, input);
+        let rows = inst.tables.get("segments").unwrap();
+        assert_eq!(
+            rows[0].get("col_1"),
+            Some(&Value::Bytes(b"caf\xe9".to_vec()))
+        );
+    }
+
+    #[test]
+    fn a_non_utf8_cell_can_be_replaced_with_text() {
+        let input = b"ISA*caf\xe9*00\n";
+        let c = ByteTabularCodec::new("edi", "segments", b'*', None);
+        let (mut inst, comp) = c.parse(input).unwrap();
+        let rows = inst.tables.get_mut("segments").unwrap();
+        rows[0].insert("col_1".into(), Value::Str("cafe".into()));
+        let out = c.emit(&inst, &comp).unwrap();
+        assert_eq!(out, b"ISA*cafe*00\n");
     }
 
     #[test]

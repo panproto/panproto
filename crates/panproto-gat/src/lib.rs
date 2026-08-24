@@ -53,7 +53,8 @@ pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use enrichment::{
-    Adjacency, EnrichmentKind, LayoutPolicySpec, LayoutRole, LayoutSpec, RuleLayout, is_layout_sort,
+    Adjacency, EnrichmentKind, LayoutPolicySpec, LayoutRole, LayoutSpec, RuleLayout,
+    is_interstitial_text_sort, is_layout_sort,
 };
 pub use eq::{
     CaseBranch, DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,

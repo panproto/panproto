@@ -8,6 +8,7 @@ use std::hash::BuildHasher;
 use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
+use super::keyword::{contains_keyword, find_keyword_end, starts_with_keyword};
 use crate::emit::{IndentWriter, children_by_edge, constraint_value, find_roots};
 use crate::error::ProtocolError;
 use crate::theories;
@@ -74,9 +75,9 @@ pub fn parse_cypher_schema(input: &str) -> Result<Schema, ProtocolError> {
             continue;
         }
 
-        if trimmed.starts_with("CREATE CONSTRAINT") {
+        if starts_with_keyword(trimmed, "CREATE CONSTRAINT") {
             builder = parse_cypher_constraint(builder, trimmed, &mut labels_seen)?;
-        } else if trimmed.starts_with("CREATE") {
+        } else if starts_with_keyword(trimmed, "CREATE") {
             builder = parse_cypher_create(builder, trimmed, &mut labels_seen)?;
         }
     }
@@ -92,7 +93,9 @@ fn parse_cypher_create(
     labels_seen: &mut std::collections::HashSet<String>,
 ) -> Result<SchemaBuilder, ProtocolError> {
     // Match patterns like (n:Label {prop: TYPE, ...}) or -[:REL_TYPE {prop: TYPE}]->
-    let mut rest = line.strip_prefix("CREATE").unwrap_or(line).trim();
+    let mut rest = super::keyword::strip_keyword_prefix(line, "CREATE")
+        .unwrap_or(line)
+        .trim();
 
     while !rest.is_empty() {
         if let Some(paren_start) = rest.find('(') {
@@ -228,8 +231,7 @@ fn parse_cypher_constraint(
                 }
 
                 // Determine constraint type.
-                let upper = line.to_uppercase();
-                if upper.contains("IS UNIQUE") {
+                if contains_keyword(line, "IS UNIQUE") {
                     // Extract property name.
                     if let Some(prop_name) = extract_constraint_property(line, label) {
                         let prop_id = format!("{label}.{prop_name}");
@@ -240,7 +242,7 @@ fn parse_cypher_constraint(
                         }
                         builder = builder.constraint(&prop_id, "unique", "true");
                     }
-                } else if upper.contains("EXISTS") {
+                } else if contains_keyword(line, "EXISTS") {
                     if let Some(prop_name) = extract_constraint_property(line, label) {
                         let prop_id = format!("{label}.{prop_name}");
                         if !labels_seen.contains(&prop_id) {
@@ -261,9 +263,8 @@ fn parse_cypher_constraint(
 /// Extract property name from ASSERT clause.
 fn extract_constraint_property(line: &str, _label: &str) -> Option<String> {
     // Look for "ASSERT x.propname" pattern.
-    let upper = line.to_uppercase();
-    if let Some(assert_idx) = upper.find("ASSERT") {
-        let after = &line[assert_idx + "ASSERT".len()..].trim();
+    if let Some(assert_end) = find_keyword_end(line, "ASSERT") {
+        let after = line[assert_end..].trim();
         if let Some(dot_idx) = after.find('.') {
             let after_dot = &after[dot_idx + 1..];
             let prop_name = after_dot.split_whitespace().next().unwrap_or("").trim();
@@ -428,6 +429,18 @@ CREATE CONSTRAINT ON (p:Person) ASSERT p.name IS UNIQUE;
         assert!(schema.has_vertex("Person"));
         assert!(schema.has_vertex("Person.name"));
         assert!(schema.has_vertex("Person.age"));
+    }
+
+    #[test]
+    fn parse_constraint_property_after_non_ascii_label() {
+        let cypher = "CREATE (n:P\u{250}\u{250}\u{250}rson {name: STRING});\n                      CREATE CONSTRAINT ON (p:P\u{250}\u{250}\u{250}rson) ASSERT p.name IS UNIQUE;\n";
+        let schema = parse_cypher_schema(cypher).expect("should parse");
+        assert!(schema.has_vertex("P\u{250}\u{250}\u{250}rson.name"));
+        let cs = schema
+            .constraints
+            .get("P\u{250}\u{250}\u{250}rson.name")
+            .expect("property constraints");
+        assert!(cs.iter().any(|c| c.sort == "unique"));
     }
 
     #[test]

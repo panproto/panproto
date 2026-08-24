@@ -4,6 +4,7 @@
 pub mod cassandra;
 /// DynamoDB protocol definition and parser/emitter.
 pub mod dynamodb;
+mod keyword;
 /// MongoDB Schema Validation protocol definition and parser/emitter.
 pub mod mongodb;
 /// Neo4j graph database protocol definition and parser/emitter.

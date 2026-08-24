@@ -23,13 +23,14 @@
 //! formatting (interstitials, whitespace, indentation).
 
 use std::collections::HashMap;
+use std::fmt::Write as _;
 
-use panproto_gat::Name;
+use panproto_gat::{Name, is_interstitial_text_sort};
 use panproto_inst::FInstance;
 use panproto_inst::metadata::Node;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::wtype::WInstance;
-use panproto_schema::{Edge, Schema};
+use panproto_schema::{Constraint, Edge, Schema};
 use serde::{Deserialize, Serialize};
 
 /// The complement of the CST-to-Instance extraction lens.
@@ -43,13 +44,42 @@ pub struct CstComplement {
     pub format: String,
     /// The full CST Schema from tree-sitter parsing.
     pub cst_schema: Schema,
-    /// Maps `WInstance` node IDs to the CST vertex names that hold their
-    /// literal values. Used by injection to update the CST when the
-    /// `WInstance` is modified.
-    pub node_to_cst_value: HashMap<u32, Name>,
+    /// Maps `WInstance` node IDs to the ordered run of CST vertices whose
+    /// literal text, concatenated, is the node's value. Used by injection to
+    /// update the CST when the `WInstance` is modified.
+    ///
+    /// A scalar occupies one vertex. A string does not: tree-sitter splits
+    /// `"x\ny"` into alternating `string_content` and `escape_sequence`
+    /// children, and the value lives across all of them. Injection writes the
+    /// re-encoded value into the first vertex of the run and empties the rest,
+    /// which is well defined only because every vertex carries the source span
+    /// it covers — an emptied vertex still consumes its original bytes, so the
+    /// segments it used to share the value with do not replay behind the new
+    /// text.
+    pub node_to_cst_value: HashMap<u32, Vec<Name>>,
     /// Maps `WInstance` node IDs to the CST vertex names of the structural
     /// node (object, pair, array element) for structural reconstruction.
     pub node_to_cst_struct: HashMap<u32, Name>,
+    /// Maps a tabular cell's `(row, column)` position to the CST vertices
+    /// carrying its text, keyed by [`tabular_cell_key`].
+    ///
+    /// A tabular instance has no `WInstance` node ids to key on — its cells
+    /// are addressed by position — so this is a separate map rather than a
+    /// packed encoding squeezed into `node_to_cst_value`'s `u32`.
+    pub cell_to_cst_value: HashMap<u64, Vec<Name>>,
+}
+
+/// The complement key for the cell at `row`, `column`.
+///
+/// The two indices occupy their own halves of a `u64`, so every pair of
+/// `u32` coordinates gets its own key. Packing them into a `u32` as
+/// `row * 10_000 + column` instead made row 1 column 0 collide with row 0
+/// column ten thousand, and overflowed outright at around four hundred
+/// thousand rows — both reachable in real tabular data, and both silently
+/// mis-targeting an edit.
+#[must_use]
+pub const fn tabular_cell_key(row: u32, column: u32) -> u64 {
+    ((row as u64) << 32) | (column as u64)
 }
 
 /// Errors from CST extraction and injection.
@@ -66,15 +96,42 @@ pub enum CstExtractError {
     /// Domain schema mismatch.
     #[error("domain schema mismatch: {0}")]
     SchemaMismatch(String),
+
+    /// The CST nests deeper than extraction is willing to descend.
+    ///
+    /// Extraction walks the CST recursively, so unbounded nesting would
+    /// exhaust the thread's stack and abort the process rather than fail.
+    #[error("CST nesting exceeds the {limit}-level extraction limit")]
+    NestingTooDeep {
+        /// The depth limit that was exceeded.
+        limit: usize,
+    },
 }
+
+/// How deeply CST extraction descends before it refuses to go further.
+///
+/// The extractors recurse over the CST, and a CST arrives from a parser fed
+/// by whatever bytes a caller had. Descending without a bound turns deeply
+/// nested input into a stack overflow, which aborts the process with a signal
+/// no caller can catch; the bound turns it into
+/// [`CstExtractError::NestingTooDeep`] instead. It sits inside the smallest
+/// stack the extractors run on — an unoptimised build on a two-megabyte test
+/// thread, where they reach a little over two hundred levels — and far above
+/// what real documents nest to. It matches the parser's own nesting bound, so
+/// a document the parser accepts is one extraction can finish. A regression
+/// test extracts at exactly this depth, so a change that grows an extractor's
+/// frame is caught rather than discovered in the field.
+pub const MAX_EXTRACT_DEPTH: usize = 128;
 
 /// Accumulated state during CST extraction.
 struct ExtractState {
     nodes: HashMap<u32, Node>,
     arcs: Vec<(u32, u32, Edge)>,
     next_id: u32,
-    node_to_cst_value: HashMap<u32, Name>,
+    node_to_cst_value: HashMap<u32, Vec<Name>>,
     node_to_cst_struct: HashMap<u32, Name>,
+    /// How many recursive descents are currently on the stack.
+    depth: usize,
 }
 
 impl ExtractState {
@@ -85,6 +142,7 @@ impl ExtractState {
             next_id: 0,
             node_to_cst_value: HashMap::new(),
             node_to_cst_struct: HashMap::new(),
+            depth: 0,
         }
     }
 
@@ -92,6 +150,32 @@ impl ExtractState {
         let id = self.next_id;
         self.next_id += 1;
         id
+    }
+
+    /// Claim one more level of descent, refusing past [`MAX_EXTRACT_DEPTH`].
+    ///
+    /// Every cycle in the extractors' call graph passes through a function
+    /// that opens with this and closes with [`Self::leave`], so bounding
+    /// those bounds the whole descent. The pair is written out at each site
+    /// rather than wrapped around a closure because a wrapper is itself a
+    /// stack frame, and the frames are what the bound exists to ration.
+    const fn enter(&mut self) -> Result<(), CstExtractError> {
+        if self.depth >= MAX_EXTRACT_DEPTH {
+            return Err(CstExtractError::NestingTooDeep {
+                limit: MAX_EXTRACT_DEPTH,
+            });
+        }
+        self.depth += 1;
+        Ok(())
+    }
+
+    /// Release the level claimed by [`Self::enter`].
+    ///
+    /// Called on the way out of a descent that finished. A descent that
+    /// failed aborts the whole extraction, so its level is never released
+    /// and never needed again.
+    const fn leave(&mut self) {
+        self.depth -= 1;
     }
 }
 
@@ -214,104 +298,167 @@ fn classify_content_kind(kind: &str) -> ContentClass {
     }
 }
 
-/// Get the `string_content` literal from a CST `string` vertex.
-fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
-    let edges = cst.outgoing_edges(string_vertex);
-    if edges.is_empty() {
-        return None;
-    }
-
-    // Walk every child of the string vertex in source order. Tree-sitter
-    // splits an escaped JSON string into a sequence of `string_content`
-    // text fragments and `escape_sequence` nodes; the first non-empty
-    // child carries only the prefix before the first escape, so the
-    // previous "first child only" lookup truncated every string with
-    // an escape in it.
-    //
-    // Unicode escapes (` `) are split further by the grammar:
-    // `escape_sequence` captures only the first two bytes (`\u`) and
-    // the four hex digits land in the next `string_content` text
-    // segment. We peek-ahead in that case, decode the codepoint, and
-    // skip the consumed prefix.
-    let mut children: Vec<&panproto_schema::Edge> = edges.iter().collect();
-    children.sort_by_key(|e| {
-        cst.constraints
-            .get(&e.tgt)
-            .and_then(|cs| {
-                cs.iter()
-                    .find(|c| c.sort.as_ref() == "start-byte")
-                    .and_then(|c| c.value.parse::<usize>().ok())
-            })
-            .unwrap_or(0)
-    });
-
-    let mut out = String::new();
-    let mut saw_content = false;
-    let mut hex_skip: usize = 0;
-    for edge in children {
-        match cst_vertex_kind(cst, &edge.tgt).as_deref() {
-            Some("string_content") => {
-                if let Some(text) = literal_value(cst, &edge.tgt) {
-                    let body = if hex_skip > 0 && hex_skip <= text.len() {
-                        let consumed = &text[..hex_skip];
-                        if let Some(c) = u32::from_str_radix(consumed, 16)
-                            .ok()
-                            .and_then(char::from_u32)
-                        {
-                            out.push(c);
-                        }
-                        &text[hex_skip..]
-                    } else {
-                        text.as_str()
-                    };
-                    hex_skip = 0;
-                    out.push_str(body);
-                    saw_content = true;
-                }
-            }
-            Some("escape_sequence") => {
-                if let Some(raw) = literal_value(cst, &edge.tgt) {
-                    let bytes = raw.as_bytes();
-                    if bytes.len() == 2 && bytes[0] == b'\\' && bytes[1] == b'u' {
-                        // Defer emission until the next string_content
-                        // child contributes the four hex digits.
-                        hex_skip = 4;
-                    } else {
-                        out.push_str(&decode_json_escape(&raw));
-                    }
-                    saw_content = true;
-                }
-            }
-            _ => {}
-        }
-    }
-    if saw_content { Some(out) } else { None }
+/// The ordered run of CST vertices whose text makes up a JSON string's
+/// body, in source order.
+///
+/// Tree-sitter splits an escaped string into alternating `string_content`
+/// and `escape_sequence` children, so `"x\ny"` is three vertices, not one.
+/// The value lives across the whole run, which is what both extraction and
+/// injection have to address.
+fn json_string_segments(cst: &Schema, string_vertex: &str) -> Vec<Name> {
+    let mut segments: Vec<(usize, Name)> = cst
+        .outgoing_edges(string_vertex)
+        .iter()
+        .filter(|e| {
+            matches!(
+                cst_vertex_kind(cst, &e.tgt).as_deref(),
+                Some("string_content" | "escape_sequence")
+            )
+        })
+        .map(|e| {
+            let start = cst
+                .constraints
+                .get(&e.tgt)
+                .and_then(|cs| {
+                    cs.iter()
+                        .find(|c| c.sort.as_ref() == "start-byte")
+                        .and_then(|c| c.value.parse::<usize>().ok())
+                })
+                .unwrap_or(0);
+            (start, e.tgt.clone())
+        })
+        .collect();
+    segments.sort_by_key(|&(start, _)| start);
+    segments.into_iter().map(|(_, name)| name).collect()
 }
 
-/// Decode a JSON escape sequence (the raw bytes captured by
-/// tree-sitter, e.g. `\n`, `\"`) to the escaped character.
+/// Get the decoded value of a CST `string` vertex.
 ///
-/// `\uXXXX` escapes are NOT handled here because the JSON tree-sitter
-/// grammar splits them across an `escape_sequence` (just `\u`) and a
-/// trailing `string_content` text segment carrying the four hex
-/// digits; [`json_string_value`] handles that join with lookahead.
-/// Unrecognised forms fall back to the original bytes.
-fn decode_json_escape(raw: &str) -> String {
-    let bytes = raw.as_bytes();
-    if bytes.len() < 2 || bytes[0] != b'\\' {
-        return raw.to_owned();
+/// The segments' raw texts are concatenated first and decoded as one body.
+/// Decoding segment by segment cannot see a surrogate pair, which is the
+/// only way JSON can spell an astral character: the grammar splits
+/// `😀` into four separate children, and neither half of the pair
+/// is a character on its own.
+fn json_string_value(cst: &Schema, string_vertex: &str) -> Option<String> {
+    let segments = json_string_segments(cst, string_vertex);
+    if segments.is_empty() {
+        return None;
     }
-    match bytes[1] {
-        b'"' => "\"".to_owned(),
-        b'\\' => "\\".to_owned(),
-        b'/' => "/".to_owned(),
-        b'b' => "\u{0008}".to_owned(),
-        b'f' => "\u{000C}".to_owned(),
-        b'n' => "\n".to_owned(),
-        b'r' => "\r".to_owned(),
-        b't' => "\t".to_owned(),
-        _ => raw.to_owned(),
+    let mut raw = String::new();
+    for segment in &segments {
+        if let Some(text) = literal_value(cst, segment) {
+            raw.push_str(&text);
+        }
     }
+    Some(decode_json_string_body(&raw))
+}
+
+/// Decode the body of a JSON string (the bytes between the quotes) into the
+/// text it denotes.
+///
+/// `\uXXXX` escapes are decoded with surrogate pairing: a high surrogate
+/// followed by a low surrogate combines into the astral character the pair
+/// encodes. A surrogate with no partner is not a character, so its escape is
+/// kept verbatim rather than dropped — the byte-faithful emit path replays
+/// the original text for an unedited value, and a caller inspecting the
+/// value sees what the source actually said.
+fn decode_json_string_body(raw: &str) -> String {
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.char_indices().peekable();
+    while let Some((_, c)) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        let Some((_, esc)) = chars.next() else {
+            // A trailing backslash is not an escape; keep it.
+            out.push('\\');
+            continue;
+        };
+        match esc {
+            '"' => out.push('"'),
+            '\\' => out.push('\\'),
+            '/' => out.push('/'),
+            'b' => out.push('\u{0008}'),
+            'f' => out.push('\u{000C}'),
+            'n' => out.push('\n'),
+            'r' => out.push('\r'),
+            't' => out.push('\t'),
+            'u' => decode_json_unicode_escape(raw, &mut chars, &mut out),
+            other => {
+                // Not a JSON escape; keep both characters as written.
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    out
+}
+
+/// Decode one `\uXXXX` escape whose `\u` the caller has consumed, appending
+/// the character it denotes to `out`.
+fn decode_json_unicode_escape(
+    raw: &str,
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+    out: &mut String,
+) {
+    use std::fmt::Write as _;
+
+    let Some(unit) = take_hex4(raw, chars) else {
+        // Fewer than four hex digits follow: not an escape after all.
+        out.push_str("\\u");
+        return;
+    };
+    if let Some(c) = char::from_u32(unit) {
+        out.push(c);
+        return;
+    }
+    // A surrogate. Pair it with the next escape when that one is the
+    // matching low half.
+    if (0xD800..=0xDBFF).contains(&unit) {
+        if let Some(low) = take_low_surrogate(raw, chars) {
+            let combined = 0x1_0000 + ((unit - 0xD800) << 10) + (low - 0xDC00);
+            if let Some(c) = char::from_u32(combined) {
+                out.push(c);
+                return;
+            }
+        }
+    }
+    let _ = write!(out, "\\u{unit:04x}");
+}
+
+/// Consume the four hex digits of a `\uXXXX` escape whose `\u` is already
+/// consumed. Returns `None` — having consumed nothing — when fewer than four
+/// hex digits follow.
+fn take_hex4(raw: &str, chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>) -> Option<u32> {
+    let &(start, _) = chars.peek()?;
+    let digits = raw.get(start..start + 4)?;
+    if !digits.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    for _ in 0..4 {
+        chars.next();
+    }
+    u32::from_str_radix(digits, 16).ok()
+}
+
+/// Consume a following `\uXXXX` escape when it encodes a low surrogate,
+/// returning its code unit. Leaves the iterator untouched otherwise, so a
+/// high surrogate followed by anything else stays unpaired.
+fn take_low_surrogate(
+    raw: &str,
+    chars: &mut std::iter::Peekable<std::str::CharIndices<'_>>,
+) -> Option<u32> {
+    let &(start, _) = chars.peek()?;
+    let hex = raw.get(start..start + 6)?.strip_prefix("\\u")?;
+    let unit = u32::from_str_radix(hex, 16).ok()?;
+    if !(0xDC00..=0xDFFF).contains(&unit) {
+        return None;
+    }
+    for _ in 0..6 {
+        chars.next();
+    }
+    Some(unit)
 }
 
 /// Parse a numeric string to a `Value`.
@@ -388,6 +535,7 @@ pub fn extract_json_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -401,7 +549,9 @@ pub fn extract_json_cst(
     Ok((instance, complement))
 }
 
-/// Recursively extract a JSON value node from the CST into a `WInstance` node.
+/// Recursively extract a JSON value node from the CST into a `WInstance`
+/// node, one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 fn extract_json_value(
     cst: &Schema,
     domain_schema: &Schema,
@@ -410,12 +560,13 @@ fn extract_json_value(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex)
         .ok_or_else(|| CstExtractError::VertexNotFound(cst_vertex.to_string()))?;
 
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "object" => extract_json_object(
             cst,
             domain_schema,
@@ -434,8 +585,9 @@ fn extract_json_value(
         ),
         "string" => {
             let text = json_string_value(cst, cst_vertex).unwrap_or_default();
-            if let Some(sc) = cst_child_by_edge_kind(cst, cst_vertex, "child_of") {
-                state.node_to_cst_value.insert(node_id, sc.clone());
+            let segments = json_string_segments(cst, cst_vertex);
+            if !segments.is_empty() {
+                state.node_to_cst_value.insert(node_id, segments);
             }
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Str(text)));
@@ -444,27 +596,35 @@ fn extract_json_value(
         }
         "number" => {
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex).with_value(parse_json_number(&text));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "true" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Bool(true)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "false" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex)
                 .with_value(FieldPresence::Present(Value::Bool(false)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "null" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, domain_vertex).with_value(FieldPresence::Null);
             state.nodes.insert(node_id, node);
             Ok(())
@@ -476,7 +636,9 @@ fn extract_json_value(
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 /// Extract a JSON object from CST, matching keys to domain schema edges.
@@ -573,7 +735,71 @@ fn extract_json_object(
     Ok(())
 }
 
-/// Extract a JSON value without schema guidance (for open schemas).
+/// Extract a JSON object without schema guidance, synthesising one `prop`
+/// edge per pair.
+fn extract_json_object_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let node = Node::new(node_id, anchor);
+    let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
+    for pair_name in pairs {
+        if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
+            continue;
+        }
+        let Some(key) = extract_pair_key(cst, pair_name) else {
+            continue;
+        };
+        let Some(value_vertex) = cst_child_by_edge_kind(cst, pair_name, "value") else {
+            continue;
+        };
+        let child_anchor = format!("{anchor}:{key}");
+        let child_id = state.alloc_id();
+        extract_json_value_open(cst, value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "prop".into(),
+            name: Some(Name::from(key.as_str())),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    state.nodes.insert(node_id, node);
+    Ok(())
+}
+
+/// Extract a JSON array without schema guidance, synthesising one `item`
+/// edge per element.
+fn extract_json_array_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+    for child_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "item".into(),
+            name: Some("item".into()),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
+/// Extract a JSON value without schema guidance (for open schemas), one
+/// level deeper than the caller and no deeper than [`MAX_EXTRACT_DEPTH`].
 fn extract_json_value_open(
     cst: &Schema,
     cst_vertex: &Name,
@@ -581,58 +807,18 @@ fn extract_json_value_open(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
-        "object" => {
-            let node = Node::new(node_id, anchor);
-            let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for pair_name in pairs {
-                if cst_vertex_kind(cst, pair_name).as_deref() != Some("pair") {
-                    continue;
-                }
-                if let Some(key) = extract_pair_key(cst, pair_name) {
-                    if let Some(value_vertex) = cst_child_by_edge_kind(cst, pair_name, "value") {
-                        let child_anchor = format!("{anchor}:{key}");
-                        let child_id = state.alloc_id();
-                        extract_json_value_open(cst, value_vertex, &child_anchor, child_id, state)?;
-                        let synth_edge = Edge {
-                            src: Name::from(anchor),
-                            tgt: Name::from(child_anchor.as_str()),
-                            kind: "prop".into(),
-                            name: Some(Name::from(key.as_str())),
-                        };
-                        state.arcs.push((node_id, child_id, synth_edge));
-                    }
-                }
-            }
-            state.nodes.insert(node_id, node);
-            Ok(())
-        }
-        "array" => {
-            let mut node = Node::new(node_id, anchor);
-            node.shape = NodeShape::List;
-            state.nodes.insert(node_id, node);
-            let children = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-            for child_name in &children {
-                let child_anchor = format!("{anchor}:items");
-                let child_id = state.alloc_id();
-                extract_json_value_open(cst, child_name, &child_anchor, child_id, state)?;
-                let synth_edge = Edge {
-                    src: Name::from(anchor),
-                    tgt: Name::from(child_anchor.as_str()),
-                    kind: "item".into(),
-                    name: Some("item".into()),
-                };
-                state.arcs.push((node_id, child_id, synth_edge));
-            }
-            Ok(())
-        }
+    let extracted = match kind.as_str() {
+        "object" => extract_json_object_open(cst, cst_vertex, anchor, node_id, state),
+        "array" => extract_json_array_open(cst, cst_vertex, anchor, node_id, state),
         "string" => {
             let text = json_string_value(cst, cst_vertex).unwrap_or_default();
-            if let Some(sc) = cst_child_by_edge_kind(cst, cst_vertex, "child_of") {
-                state.node_to_cst_value.insert(node_id, sc.clone());
+            let segments = json_string_segments(cst, cst_vertex);
+            if !segments.is_empty() {
+                state.node_to_cst_value.insert(node_id, segments);
             }
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Str(text)));
@@ -640,41 +826,53 @@ fn extract_json_value_open(
             Ok(())
         }
         "number" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
             let node = Node::new(node_id, anchor).with_value(parse_json_number(&text));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "true" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Bool(true)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "false" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Bool(false)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
         "null" => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let node = Node::new(node_id, anchor).with_value(FieldPresence::Null);
             state.nodes.insert(node_id, node);
             Ok(())
         }
         _ => {
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![cst_vertex.clone()]);
             let text = literal_value(cst, cst_vertex).unwrap_or_default();
             let node =
                 Node::new(node_id, anchor).with_value(FieldPresence::Present(Value::Str(text)));
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 /// Extract a JSON array from CST.
@@ -806,42 +1004,41 @@ pub fn inject_json_cst(
 
     for (&node_id, node) in &instance.nodes {
         if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
-                // For strings the CST may store the value across multiple
-                // child segments (text + escape_sequence + ...). The
-                // tracked `node_to_cst_value` points at the first
-                // segment only; updating it with the fully decoded text
-                // would either truncate (when the new text is shorter
-                // than the original token) or lose escape style (when
-                // it is the same value but written ` ` vs
-                // literally). When the parsed string still matches the
-                // instance value, skip the inject so the original
-                // bytes survive untouched.
-                if let Value::Str(s) = match presence {
-                    FieldPresence::Present(v) => v,
-                    _ => &Value::Null,
-                } {
-                    if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
-                        if let Some(original) = json_string_value(&cst, struct_vertex) {
-                            if &original == s {
-                                continue;
-                            }
+            let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
+                continue;
+            };
+            let Some(head) = segments.first() else {
+                continue;
+            };
+            // A string's original spelling is not recoverable from the parsed
+            // value: an escaped and an unescaped form denote the same text, and
+            // re-encoding would pick one of them. When the CST still decodes to
+            // the instance's value nothing has changed, so leave the original
+            // bytes untouched.
+            if let Value::Str(s) = match presence {
+                FieldPresence::Present(v) => v,
+                _ => &Value::Null,
+            } {
+                if let Some(struct_vertex) = complement.node_to_cst_struct.get(&node_id) {
+                    if let Some(original) = json_string_value(&cst, struct_vertex) {
+                        if &original == s {
+                            continue;
                         }
                     }
                 }
-                // Non-string scalars (numbers, bools, null) likewise carry a
-                // canonical lexical form in the CST leaf that does NOT survive
-                // a round-trip through the parsed `Value`: `1e10`, `-0`, and
-                // big integers beyond f64 precision all re-serialize to a
-                // different (yet value-equal) token. When the leaf's original
-                // text still decodes to the instance value, the value is
-                // unchanged, so leave the original bytes untouched.
-                if json_scalar_unchanged(&cst, cst_vertex, presence) {
-                    continue;
-                }
-                let new_text = field_presence_to_json_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
             }
+            // Non-string scalars (numbers, bools, null) likewise carry a
+            // canonical lexical form in the CST leaf that does NOT survive
+            // a round-trip through the parsed `Value`: `1e10`, `-0`, and
+            // big integers beyond f64 precision all re-serialize to a
+            // different (yet value-equal) token. When the leaf's original
+            // text still decodes to the instance value, the value is
+            // unchanged, so leave the original bytes untouched.
+            if json_scalar_unchanged(&cst, head, presence) {
+                continue;
+            }
+            let new_text = field_presence_to_json_text(presence);
+            set_value_run(&mut cst, segments, &new_text);
         }
     }
 
@@ -960,7 +1157,7 @@ fn update_literal_value(cst: &mut Schema, vertex: &Name, new_text: &str) {
         for c in constraints.iter_mut() {
             if c.sort.as_ref() == "literal-value" {
                 c.value = new_text.to_string();
-            } else if c.sort.starts_with("interstitial-") && !c.sort.ends_with("-start-byte") {
+            } else if is_interstitial_text_sort(c.sort.as_ref()) {
                 // Update the interstitial only if it previously matched the
                 // old literal value exactly. This preserves punctuation and
                 // whitespace interstitials while updating text interstitials.
@@ -970,6 +1167,842 @@ fn update_literal_value(cst: &mut Schema, vertex: &Name, new_text: &str) {
                     }
                 }
             }
+        }
+    }
+}
+
+/// Write `new_text` across the run of CST vertices that carried a value.
+///
+/// The whole value goes into the run's first vertex and every later vertex
+/// is emptied. Replay decides coverage from each vertex's recorded source
+/// span, so an emptied vertex still consumes the bytes it used to occupy:
+/// the segments that used to spell the rest of the value neither replay
+/// behind the new text nor leave a hole for the following token to slide
+/// into. Writing only the first vertex — which is what a single-vertex
+/// mapping amounts to — instead appends the old tail to the new value, so
+/// editing `"x\ny"` produced `"x\ny-perturbed\ny"`.
+fn set_value_run(cst: &mut Schema, run: &[Name], new_text: &str) {
+    let mut segments = run.iter();
+    let Some(head) = segments.next() else {
+        return;
+    };
+    update_literal_value(cst, head, new_text);
+    for tail in segments {
+        update_literal_value(cst, tail, "");
+    }
+}
+
+// ── TOML extraction ───────────────────────────────────────────────────
+
+/// The CST kinds that hold key/value entries: the document itself, a
+/// `[table]` header's body, a `[[table array]]` element's body, and an inline
+/// `{ ... }` table.
+const TOML_TABLE_KINDS: [&str; 4] = ["document", "table", "table_array_element", "inline_table"];
+
+/// The CST kinds that spell a key.
+const TOML_KEY_KINDS: [&str; 3] = ["bare_key", "quoted_key", "dotted_key"];
+
+/// Extract a `WInstance` from a TOML CST Schema, guided by a domain schema.
+///
+/// TOML's tree differs from JSON's in three ways that matter here. The
+/// document *is* the top-level table rather than wrapping a single value; a
+/// `[table]` header and its pairs are one CST node whose first child is the
+/// key; and repeated `[[table array]]` headers with the same key are the
+/// elements of one list.
+///
+/// # Errors
+///
+/// Returns `CstExtractError` if the CST structure is invalid, if it does not
+/// match the domain schema, or if it nests past [`MAX_EXTRACT_DEPTH`].
+pub fn extract_toml_cst(
+    cst: &Schema,
+    domain_schema: &Schema,
+    root_vertex: &str,
+) -> Result<(WInstance, CstComplement), CstExtractError> {
+    if !domain_schema.has_vertex(root_vertex) {
+        return Err(CstExtractError::SchemaMismatch(format!(
+            "root vertex '{root_vertex}' not found in domain schema"
+        )));
+    }
+
+    let mut state = ExtractState::new();
+    let doc_vertex = Name::from(find_cst_root(cst)?.as_str());
+
+    let root_id = state.alloc_id();
+    extract_toml_table(
+        cst,
+        domain_schema,
+        &doc_vertex,
+        root_vertex,
+        root_id,
+        &mut state,
+    )?;
+
+    let complement = CstComplement {
+        format: "toml".into(),
+        cst_schema: cst.clone(),
+        node_to_cst_value: state.node_to_cst_value,
+        node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
+    };
+
+    let instance = WInstance::new(
+        state.nodes,
+        state.arcs,
+        Vec::new(),
+        root_id,
+        Name::from(root_vertex),
+    );
+
+    Ok((instance, complement))
+}
+
+/// One key/value entry of a TOML table.
+struct TomlEntry<'a> {
+    /// The entry's key, as written.
+    key: String,
+    /// The CST vertex carrying the entry's value: a scalar, an `array`, an
+    /// `inline_table`, or a `table` / `table_array_element` body.
+    value: &'a Name,
+}
+
+/// The key text of a `pair`, `table`, or `table_array_element` node.
+fn toml_entry_key(cst: &Schema, vertex: &Name) -> Option<String> {
+    cst_children_by_edge_kind(cst, vertex, "child_of")
+        .into_iter()
+        .find(|child| {
+            cst_vertex_kind(cst, child).is_some_and(|k| TOML_KEY_KINDS.contains(&k.as_str()))
+        })
+        .map(|key_vertex| toml_key_text(cst, key_vertex))
+}
+
+/// The text a key node denotes, with a quoted key's quotes removed.
+fn toml_key_text(cst: &Schema, key_vertex: &Name) -> String {
+    toml_unquote(&cst_source_text(cst, key_vertex))
+}
+
+/// Reassemble the source text a CST vertex spanned.
+///
+/// A leaf carries its whole text in `literal-value`. A vertex with children
+/// carries the runs between them as `interstitial-N` constraints and leaves
+/// the rest to those children, so its text is the two interleaved back into
+/// source order. TOML needs this where JSON does not: an escape inside a
+/// basic string is its own child, but the unescaped runs around it are not,
+/// so a string with an escape has no `literal-value` of its own and its plain
+/// text lives entirely in its interstitials.
+fn cst_source_text(cst: &Schema, vertex: &str) -> String {
+    if let Some(text) = literal_value(cst, vertex) {
+        return text;
+    }
+
+    let mut fragments: Vec<(usize, String)> = Vec::new();
+    if let Some(constraints) = cst.constraints.get(vertex) {
+        let by_sort: HashMap<&str, &str> = constraints
+            .iter()
+            .map(|c| (c.sort.as_ref(), c.value.as_str()))
+            .collect();
+        for c in constraints {
+            let sort = c.sort.as_ref();
+            if !is_interstitial_text_sort(sort) {
+                continue;
+            }
+            let Some(start) = by_sort
+                .get(format!("{sort}-start-byte").as_str())
+                .and_then(|v| v.parse::<usize>().ok())
+            else {
+                continue;
+            };
+            fragments.push((start, c.value.clone()));
+        }
+    }
+    for child in cst_children_by_edge_kind(cst, vertex, "child_of") {
+        let start = cst
+            .constraints
+            .get(child.as_ref())
+            .and_then(|cs| {
+                cs.iter()
+                    .find(|c| c.sort.as_ref() == "start-byte")
+                    .and_then(|c| c.value.parse::<usize>().ok())
+            })
+            .unwrap_or(usize::MAX);
+        fragments.push((start, cst_source_text(cst, child)));
+    }
+
+    fragments.sort_by_key(|(start, _)| *start);
+    fragments.into_iter().map(|(_, text)| text).collect()
+}
+
+/// Give the CST vertex at `vertex` a `literal-value` spanning its whole
+/// recorded span, replacing whatever text it used to hold.
+///
+/// A vertex's recorded span is the widest fragment starting where it starts,
+/// so replay writes this text and skips the interstitials and children nested
+/// inside it. That is what lets one call replace a whole TOML token, escapes
+/// and all, rather than one of the pieces it was split into.
+fn set_toml_token_text(cst: &mut Schema, vertex: &Name, new_text: &str) {
+    let constraints = cst.constraints.entry(vertex.clone()).or_default();
+    if let Some(existing) = constraints
+        .iter_mut()
+        .find(|c| c.sort.as_ref() == "literal-value")
+    {
+        new_text.clone_into(&mut existing.value);
+        return;
+    }
+    constraints.push(Constraint {
+        sort: Name::from("literal-value"),
+        value: new_text.to_owned(),
+    });
+}
+
+/// Strip a TOML string's delimiters and decode its escapes.
+///
+/// Basic strings (`"…"`) take escapes; literal strings (`'…'`) do not, and
+/// multi-line forms use tripled delimiters.
+fn toml_unquote(raw: &str) -> String {
+    for delim in ["\"\"\"", "'''"] {
+        if let Some(inner) = raw.strip_prefix(delim).and_then(|r| r.strip_suffix(delim)) {
+            let inner = inner.strip_prefix('\n').unwrap_or(inner);
+            return if delim == "\"\"\"" {
+                toml_decode_escapes(inner)
+            } else {
+                inner.to_owned()
+            };
+        }
+    }
+    if let Some(inner) = raw.strip_prefix('"').and_then(|r| r.strip_suffix('"')) {
+        return toml_decode_escapes(inner);
+    }
+    if let Some(inner) = raw.strip_prefix('\'').and_then(|r| r.strip_suffix('\'')) {
+        return inner.to_owned();
+    }
+    raw.to_owned()
+}
+
+/// Decode the escape sequences a TOML basic string admits.
+fn toml_decode_escapes(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        if c != '\\' {
+            out.push(c);
+            continue;
+        }
+        match chars.next() {
+            Some('n') => out.push('\n'),
+            Some('t') => out.push('\t'),
+            Some('r') => out.push('\r'),
+            Some('b') => out.push('\u{0008}'),
+            Some('f') => out.push('\u{000C}'),
+            Some('"') => out.push('"'),
+            // An escaped backslash, and a backslash with nothing after it,
+            // both denote one backslash.
+            Some('\\') | None => out.push('\\'),
+            Some(esc @ ('u' | 'U')) => {
+                let width = if esc == 'u' { 4 } else { 8 };
+                let digits: String = chars.clone().take(width).collect();
+                match u32::from_str_radix(&digits, 16)
+                    .ok()
+                    .and_then(char::from_u32)
+                {
+                    Some(decoded) if digits.len() == width => {
+                        for _ in 0..width {
+                            chars.next();
+                        }
+                        out.push(decoded);
+                    }
+                    // Not a well-formed escape: keep the source text so the
+                    // value still round-trips to the bytes it came from.
+                    _ => {
+                        out.push('\\');
+                        out.push(esc);
+                    }
+                }
+            }
+            // Not an escape this grammar defines: keep the backslash and
+            // whatever followed it, so the value still round-trips to the
+            // bytes it came from.
+            Some(other) => {
+                out.push('\\');
+                out.push(other);
+            }
+        }
+    }
+    out
+}
+
+/// Encode `s` as the body of a TOML basic string, delimiters excluded.
+fn toml_encode_string_content(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            '\u{0008}' => out.push_str("\\b"),
+            '\u{000C}' => out.push_str("\\f"),
+            c if (c as u32) < 0x20 || c as u32 == 0x7F => {
+                let _ = write!(out, "\\u{:04X}", c as u32);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// The entries of a TOML table-like node, in source order.
+///
+/// A `pair` contributes its key and value directly. A nested `table` or
+/// `table_array_element` contributes its own key and itself as the value, so
+/// the recursion descends into it exactly as it does into an inline table.
+fn toml_entries<'a>(cst: &'a Schema, container: &Name) -> Vec<TomlEntry<'a>> {
+    let mut entries = Vec::new();
+    for child in cst_children_by_edge_kind(cst, container, "child_of") {
+        let Some(kind) = cst_vertex_kind(cst, child) else {
+            continue;
+        };
+        match kind.as_str() {
+            "pair" => {
+                let Some(key) = toml_entry_key(cst, child) else {
+                    continue;
+                };
+                let Some(value) = toml_pair_value(cst, child) else {
+                    continue;
+                };
+                entries.push(TomlEntry { key, value });
+            }
+            "table" | "table_array_element" => {
+                let Some(key) = toml_entry_key(cst, child) else {
+                    continue;
+                };
+                entries.push(TomlEntry { key, value: child });
+            }
+            _ => {}
+        }
+    }
+    entries
+}
+
+/// The value vertex of a `pair`: its first child that is not the key.
+fn toml_pair_value<'a>(cst: &'a Schema, pair: &Name) -> Option<&'a Name> {
+    cst_children_by_edge_kind(cst, pair, "child_of")
+        .into_iter()
+        .find(|child| {
+            cst_vertex_kind(cst, child).is_some_and(|k| !TOML_KEY_KINDS.contains(&k.as_str()))
+        })
+}
+
+/// Group the entries of a table by key, preserving first-appearance order.
+///
+/// Repeated `[[table array]]` headers share a key and are the elements of one
+/// list; every other key appears once.
+fn toml_grouped_entries<'a>(cst: &'a Schema, container: &Name) -> Vec<(String, Vec<&'a Name>)> {
+    let mut grouped: Vec<(String, Vec<&Name>)> = Vec::new();
+    for entry in toml_entries(cst, container) {
+        if let Some(slot) = grouped.iter_mut().find(|(key, _)| *key == entry.key) {
+            slot.1.push(entry.value);
+        } else {
+            grouped.push((entry.key, vec![entry.value]));
+        }
+    }
+    grouped
+}
+
+/// Whether a CST vertex is a `[[table array]]` element.
+fn is_toml_table_array_element(cst: &Schema, vertex: &Name) -> bool {
+    cst_vertex_kind(cst, vertex).as_deref() == Some("table_array_element")
+}
+
+/// Extract a TOML table-like node, matching keys to domain schema edges.
+///
+/// With no outgoing edges on the domain vertex (the open-schema case) every
+/// entry becomes a child node under a synthesised `prop` edge, exactly as the
+/// JSON extractor does.
+fn extract_toml_table(
+    cst: &Schema,
+    domain_schema: &Schema,
+    cst_vertex: &Name,
+    domain_vertex: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.enter()?;
+    let mut node = Node::new(node_id, domain_vertex);
+    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+
+    let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+    let grouped = toml_grouped_entries(cst, cst_vertex);
+
+    if domain_edges.is_empty() {
+        state.nodes.insert(node_id, node);
+        for (key, values) in grouped {
+            let child_anchor = format!("{domain_vertex}:{key}");
+            let child_id = state.alloc_id();
+            extract_toml_entry_open(cst, &values, &child_anchor, child_id, state)?;
+            let synth_edge = Edge {
+                src: Name::from(domain_vertex),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "prop".into(),
+                name: Some(Name::from(key.as_str())),
+            };
+            state.arcs.push((node_id, child_id, synth_edge));
+        }
+        state.leave();
+        return Ok(());
+    }
+
+    let mut handled_keys = std::collections::HashSet::new();
+    for domain_edge in &domain_edges {
+        let field_name = domain_edge.name.as_deref().unwrap_or(&domain_edge.tgt);
+        handled_keys.insert(field_name.to_owned());
+        let Some((_, values)) = grouped.iter().find(|(key, _)| key == field_name) else {
+            continue;
+        };
+        let child_id = state.alloc_id();
+        extract_toml_entry(
+            cst,
+            domain_schema,
+            values,
+            &domain_edge.tgt,
+            child_id,
+            state,
+        )?;
+        state.arcs.push((node_id, child_id, domain_edge.clone()));
+    }
+
+    // Keys the domain schema does not declare survive as extra fields, the
+    // same way unhandled JSON pairs do.
+    for (key, values) in &grouped {
+        if handled_keys.contains(key) {
+            continue;
+        }
+        if let [single] = values.as_slice() {
+            node.extra_fields
+                .insert(key.clone(), toml_generic_value(cst, single));
+        } else {
+            node.extra_fields.insert(
+                key.clone(),
+                Value::List(values.iter().map(|v| toml_generic_value(cst, v)).collect()),
+            );
+        }
+    }
+
+    state.nodes.insert(node_id, node);
+    state.leave();
+    Ok(())
+}
+
+/// Extract the value(s) a single key carries, schema-guided.
+///
+/// Several `[[table array]]` elements under one key form a list; a single
+/// value is extracted directly.
+fn extract_toml_entry(
+    cst: &Schema,
+    domain_schema: &Schema,
+    values: &[&Name],
+    domain_vertex: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    if let [single] = values {
+        if !is_toml_table_array_element(cst, single) {
+            return extract_toml_value(cst, domain_schema, single, domain_vertex, node_id, state);
+        }
+    }
+
+    state.enter()?;
+    let mut node = Node::new(node_id, domain_vertex);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+
+    let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+    let item_edge = domain_edges
+        .iter()
+        .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
+
+    for element in values {
+        let child_id = state.alloc_id();
+        if let Some(edge) = item_edge {
+            extract_toml_value(cst, domain_schema, element, &edge.tgt, child_id, state)?;
+            state.arcs.push((node_id, child_id, edge.clone()));
+        } else {
+            let child_anchor = format!("{domain_vertex}:items");
+            extract_toml_value_open(cst, element, &child_anchor, child_id, state)?;
+            state.arcs.push((
+                node_id,
+                child_id,
+                Edge {
+                    src: Name::from(domain_vertex),
+                    tgt: Name::from(child_anchor.as_str()),
+                    kind: "item".into(),
+                    name: Some("item".into()),
+                },
+            ));
+        }
+    }
+
+    state.leave();
+    Ok(())
+}
+
+/// The open-schema twin of [`extract_toml_entry`].
+fn extract_toml_entry_open(
+    cst: &Schema,
+    values: &[&Name],
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    if let [single] = values {
+        if !is_toml_table_array_element(cst, single) {
+            return extract_toml_value_open(cst, single, anchor, node_id, state);
+        }
+    }
+
+    state.enter()?;
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+
+    for element in values {
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_toml_value_open(cst, element, &child_anchor, child_id, state)?;
+        state.arcs.push((
+            node_id,
+            child_id,
+            Edge {
+                src: Name::from(anchor),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "item".into(),
+                name: Some("item".into()),
+            },
+        ));
+    }
+
+    state.leave();
+    Ok(())
+}
+
+/// Extract a TOML value node, schema-guided.
+fn extract_toml_value(
+    cst: &Schema,
+    domain_schema: &Schema,
+    cst_vertex: &Name,
+    domain_vertex: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.enter()?;
+    let kind = cst_vertex_kind(cst, cst_vertex)
+        .ok_or_else(|| CstExtractError::VertexNotFound(cst_vertex.to_string()))?;
+    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+
+    let extracted = if TOML_TABLE_KINDS.contains(&kind.as_str()) {
+        extract_toml_table(
+            cst,
+            domain_schema,
+            cst_vertex,
+            domain_vertex,
+            node_id,
+            state,
+        )
+    } else if kind == "array" {
+        extract_toml_array(
+            cst,
+            domain_schema,
+            cst_vertex,
+            domain_vertex,
+            node_id,
+            state,
+        )
+    } else {
+        let node = Node::new(node_id, domain_vertex)
+            .with_value(FieldPresence::Present(toml_scalar_value(cst, cst_vertex)));
+        // The whole token, not the deepest leaf under it: a basic string with
+        // one escape has exactly one child, and addressing that child would
+        // rewrite the escape and leave the text around it in place.
+        state
+            .node_to_cst_value
+            .insert(node_id, vec![cst_vertex.clone()]);
+        state.nodes.insert(node_id, node);
+        Ok(())
+    };
+
+    state.leave();
+    extracted
+}
+
+/// Extract a TOML value node without schema guidance.
+fn extract_toml_value_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.enter()?;
+    let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
+    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+
+    let extracted = if TOML_TABLE_KINDS.contains(&kind.as_str()) {
+        extract_toml_table_open(cst, cst_vertex, anchor, node_id, state)
+    } else if kind == "array" {
+        extract_toml_array_open(cst, cst_vertex, anchor, node_id, state)
+    } else {
+        let node = Node::new(node_id, anchor)
+            .with_value(FieldPresence::Present(toml_scalar_value(cst, cst_vertex)));
+        // The whole token, for the reason given in `extract_toml_value`.
+        state
+            .node_to_cst_value
+            .insert(node_id, vec![cst_vertex.clone()]);
+        state.nodes.insert(node_id, node);
+        Ok(())
+    };
+
+    state.leave();
+    extracted
+}
+
+/// Extract a TOML table without schema guidance, synthesising one `prop`
+/// edge per key.
+fn extract_toml_table_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let node = Node::new(node_id, anchor);
+    state.nodes.insert(node_id, node);
+
+    for (key, values) in toml_grouped_entries(cst, cst_vertex) {
+        let child_anchor = format!("{anchor}:{key}");
+        let child_id = state.alloc_id();
+        extract_toml_entry_open(cst, &values, &child_anchor, child_id, state)?;
+        state.arcs.push((
+            node_id,
+            child_id,
+            Edge {
+                src: Name::from(anchor),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "prop".into(),
+                name: Some(Name::from(key.as_str())),
+            },
+        ));
+    }
+
+    Ok(())
+}
+
+/// Extract a TOML `[…]` array, schema-guided.
+fn extract_toml_array(
+    cst: &Schema,
+    domain_schema: &Schema,
+    cst_vertex: &Name,
+    domain_vertex: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, domain_vertex);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+
+    let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+    let item_edge = domain_edges
+        .iter()
+        .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
+
+    for child in toml_array_elements(cst, cst_vertex) {
+        let child_id = state.alloc_id();
+        if let Some(edge) = item_edge {
+            extract_toml_value(cst, domain_schema, child, &edge.tgt, child_id, state)?;
+            state.arcs.push((node_id, child_id, edge.clone()));
+        } else {
+            let child_anchor = format!("{domain_vertex}:items");
+            extract_toml_value_open(cst, child, &child_anchor, child_id, state)?;
+            state.arcs.push((
+                node_id,
+                child_id,
+                Edge {
+                    src: Name::from(domain_vertex),
+                    tgt: Name::from(child_anchor.as_str()),
+                    kind: "item".into(),
+                    name: Some("item".into()),
+                },
+            ));
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract a TOML `[…]` array without schema guidance.
+fn extract_toml_array_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+
+    for child in toml_array_elements(cst, cst_vertex) {
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_toml_value_open(cst, child, &child_anchor, child_id, state)?;
+        state.arcs.push((
+            node_id,
+            child_id,
+            Edge {
+                src: Name::from(anchor),
+                tgt: Name::from(child_anchor.as_str()),
+                kind: "item".into(),
+                name: Some("item".into()),
+            },
+        ));
+    }
+
+    Ok(())
+}
+
+/// The value children of a TOML array, comments and punctuation excluded.
+fn toml_array_elements<'a>(cst: &'a Schema, array: &Name) -> Vec<&'a Name> {
+    cst_children_by_edge_kind(cst, array, "child_of")
+        .into_iter()
+        .filter(|child| cst_vertex_kind(cst, child).as_deref() != Some("comment"))
+        .collect()
+}
+
+/// The `Value` a TOML scalar leaf denotes.
+///
+/// Dates and times keep their source text: they are TOML types with no
+/// counterpart in `Value`, and re-rendering them from a parsed form would
+/// change the bytes.
+fn toml_scalar_value(cst: &Schema, cst_vertex: &Name) -> Value {
+    let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
+    let text = cst_source_text(cst, cst_vertex);
+    match kind.as_str() {
+        "string" => Value::Str(toml_unquote(&text)),
+        "boolean" => Value::Bool(text == "true"),
+        "integer" => text
+            .replace('_', "")
+            .parse::<i64>()
+            .map_or_else(|_| Value::Str(text.clone()), Value::Int),
+        "float" => text
+            .replace('_', "")
+            .parse::<f64>()
+            .map_or_else(|_| Value::Str(text.clone()), Value::Float),
+        _ => Value::Str(text),
+    }
+}
+
+/// The `Value` a TOML node denotes, for the extra-fields path that carries
+/// undeclared keys without giving them instance nodes.
+fn toml_generic_value(cst: &Schema, cst_vertex: &Name) -> Value {
+    let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
+    if TOML_TABLE_KINDS.contains(&kind.as_str()) {
+        let fields = toml_grouped_entries(cst, cst_vertex)
+            .into_iter()
+            .map(|(key, values)| {
+                let value = if let [single] = values.as_slice() {
+                    toml_generic_value(cst, single)
+                } else {
+                    Value::List(values.iter().map(|v| toml_generic_value(cst, v)).collect())
+                };
+                (key, value)
+            })
+            .collect();
+        return Value::Unknown(fields);
+    }
+    if kind == "array" {
+        return Value::List(
+            toml_array_elements(cst, cst_vertex)
+                .into_iter()
+                .map(|child| toml_generic_value(cst, child))
+                .collect(),
+        );
+    }
+    toml_scalar_value(cst, cst_vertex)
+}
+
+/// Inject a modified `WInstance` back into a TOML CST Schema.
+///
+/// # Errors
+///
+/// Returns `CstExtractError` if the complement is invalid.
+pub fn inject_toml_cst(
+    instance: &WInstance,
+    complement: &CstComplement,
+    _domain_schema: &Schema,
+) -> Result<Schema, CstExtractError> {
+    let mut cst = complement.cst_schema.clone();
+
+    for (&node_id, node) in &instance.nodes {
+        let Some(presence) = node.value.as_ref() else {
+            continue;
+        };
+        let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
+            continue;
+        };
+        let Some(head) = segments.first() else {
+            continue;
+        };
+        // A scalar's spelling is not recoverable from the parsed value: an
+        // integer written `1_000`, a string written literally rather than
+        // escaped, and a date of any form all re-render differently while
+        // denoting the same thing. When the leaf's original text still
+        // decodes to the instance's value, nothing changed, so the original
+        // bytes stay.
+        if toml_scalar_unchanged(&cst, head, presence) {
+            continue;
+        }
+        let new_text = toml_presence_text(&cst, head, presence);
+        set_toml_token_text(&mut cst, head, &new_text);
+        for tail in segments.iter().skip(1) {
+            set_toml_token_text(&mut cst, tail, "");
+        }
+    }
+
+    Ok(cst)
+}
+
+/// Whether the TOML leaf at `cst_vertex` still denotes `presence`.
+fn toml_scalar_unchanged(cst: &Schema, cst_vertex: &Name, presence: &FieldPresence) -> bool {
+    match presence {
+        FieldPresence::Present(value) => &toml_scalar_value(cst, cst_vertex) == value,
+        FieldPresence::Absent | FieldPresence::Null => false,
+    }
+}
+
+/// Render `presence` as the TOML token that replaces the leaf at
+/// `cst_vertex`.
+///
+/// The leaf carries a whole token, delimiters included, so a string is
+/// rendered with its quotes. TOML has no null literal; a value that went
+/// absent keeps an empty basic string rather than producing bytes TOML
+/// cannot parse.
+fn toml_presence_text(cst: &Schema, cst_vertex: &Name, presence: &FieldPresence) -> String {
+    match presence {
+        FieldPresence::Present(Value::Str(s)) => {
+            let literal_form = cst_source_text(cst, cst_vertex).starts_with('\'');
+            if literal_form && !s.contains('\'') && !s.contains('\n') {
+                format!("'{s}'")
+            } else {
+                format!("\"{}\"", toml_encode_string_content(s))
+            }
+        }
+        FieldPresence::Present(Value::Int(i)) => i.to_string(),
+        FieldPresence::Present(Value::Float(f)) => json_format_float(*f),
+        FieldPresence::Present(Value::Bool(b)) => b.to_string(),
+        FieldPresence::Present(Value::Null) | FieldPresence::Null | FieldPresence::Absent => {
+            "\"\"".to_owned()
+        }
+        FieldPresence::Present(other) => {
+            format!("\"{}\"", toml_encode_string_content(&format!("{other:?}"),))
         }
     }
 }
@@ -1020,6 +2053,7 @@ pub fn extract_xml_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -1042,6 +2076,9 @@ fn find_first_element_child(cst: &Schema, parent: &str) -> Option<Name> {
     None
 }
 
+/// Recursively extract an XML element from the CST into a `WInstance`
+/// node, one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 #[allow(clippy::too_many_lines)]
 fn extract_xml_element(
     cst: &Schema,
@@ -1051,6 +2088,7 @@ fn extract_xml_element(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
     let mut node = Node::new(node_id, domain_vertex);
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
@@ -1130,7 +2168,7 @@ fn extract_xml_element(
                     {
                         state
                             .node_to_cst_value
-                            .insert(node_id, text_children[0].clone());
+                            .insert(node_id, vec![text_children[0].clone()]);
                     }
                 }
             }
@@ -1223,6 +2261,7 @@ fn extract_xml_element(
     }
 
     state.nodes.insert(node_id, node);
+    state.leave();
     Ok(())
 }
 
@@ -1272,7 +2311,7 @@ fn emit_mixed_content(
         // so leave it unmapped and let the preserving emit replay it
         // verbatim (byte-faithful) rather than overwriting the first leaf.
         if let Some(first) = single_chardata {
-            state.node_to_cst_value.insert(seg_id, first);
+            state.node_to_cst_value.insert(seg_id, vec![first]);
         }
         let edge = Edge {
             src: Name::from(domain_vertex),
@@ -1445,9 +2484,9 @@ pub fn inject_xml_cst(
     for (&node_id, node) in &instance.nodes {
         // Update text content via node_to_cst_value mapping
         if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
+            if let Some(segments) = complement.node_to_cst_value.get(&node_id) {
                 let new_text = field_presence_to_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
+                set_value_run(&mut cst, segments, &new_text);
             }
         }
 
@@ -1574,6 +2613,7 @@ pub fn extract_yaml_cst(
         cst_schema: cst.clone(),
         node_to_cst_value: state.node_to_cst_value,
         node_to_cst_struct: state.node_to_cst_struct,
+        cell_to_cst_value: HashMap::new(),
     };
 
     let instance = WInstance::new(
@@ -1612,6 +2652,147 @@ fn find_yaml_top_value(cst: &Schema, root: &str) -> Option<Name> {
     None
 }
 
+/// Descend through the `flow_node` / `block_node` wrappers the YAML grammar
+/// interposes between a container and its content.
+///
+/// Every mapping value, sequence element, and document body reaches the CST
+/// wrapped in one of these, so a dispatch on the wrapper's own kind sees
+/// neither a mapping nor a sequence nor a scalar and falls through to the
+/// scalar branch with no text.
+fn unwrap_yaml_node(cst: &Schema, vertex: &Name) -> Name {
+    let mut current = vertex.clone();
+    for _ in 0..YAML_WRAPPER_DEPTH {
+        match cst_vertex_kind(cst, &current).as_deref() {
+            Some("flow_node" | "block_node") => {
+                match cst_child_by_edge_kind(cst, &current, "child_of") {
+                    Some(child) => current = child.clone(),
+                    None => return current,
+                }
+            }
+            _ => return current,
+        }
+    }
+    current
+}
+
+/// How many `flow_node` / `block_node` wrappers [`unwrap_yaml_node`] will
+/// descend through before giving up. The grammar nests at most a couple, so
+/// this only bounds a cycle in a malformed CST.
+const YAML_WRAPPER_DEPTH: usize = 8;
+
+/// Extract a YAML value without schema guidance, for a domain vertex that
+/// declares no outgoing edges.
+///
+/// Mirrors [`extract_json_value_open`]: containers become nodes with one
+/// synthesised edge per child, so the shape of an open-schema YAML document
+/// survives into the instance instead of collapsing to a bare root.
+/// One level deeper than the caller, and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
+fn extract_yaml_value_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.enter()?;
+    let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
+    let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
+    state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
+
+    let extracted = match kind.as_str() {
+        "block_mapping" | "flow_mapping" => {
+            extract_yaml_mapping_open(cst, cst_vertex, anchor, node_id, state)
+        }
+        "block_sequence" | "flow_sequence" => {
+            extract_yaml_sequence_open(cst, cst_vertex, anchor, node_id, state)
+        }
+        _ => {
+            let text = yaml_scalar_text(cst, cst_vertex);
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![deepest_literal_vertex(cst, cst_vertex)]);
+            let node = Node::new(node_id, anchor).with_value(parse_yaml_scalar(&text));
+            state.nodes.insert(node_id, node);
+            Ok(())
+        }
+    };
+    state.leave();
+    extracted
+}
+
+/// Extract a YAML mapping with no schema guidance, synthesising one `prop`
+/// edge per pair.
+fn extract_yaml_mapping_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    state.nodes.insert(node_id, Node::new(node_id, anchor));
+    for pair_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let Some(key) = extract_yaml_pair_key(cst, pair_name) else {
+            continue;
+        };
+        let Some(value_vertex) = find_yaml_pair_value(cst, pair_name) else {
+            continue;
+        };
+        let child_anchor = format!("{anchor}:{key}");
+        let child_id = state.alloc_id();
+        extract_yaml_value_open(cst, &value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "prop".into(),
+            name: Some(Name::from(key.as_str())),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
+/// Extract a YAML sequence with no schema guidance, synthesising one `item`
+/// edge per element.
+fn extract_yaml_sequence_open(
+    cst: &Schema,
+    cst_vertex: &Name,
+    anchor: &str,
+    node_id: u32,
+    state: &mut ExtractState,
+) -> Result<(), CstExtractError> {
+    let mut node = Node::new(node_id, anchor);
+    node.shape = NodeShape::List;
+    state.nodes.insert(node_id, node);
+    for item_name in &cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let value_vertex =
+            find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| (*item_name).clone());
+        let child_anchor = format!("{anchor}:items");
+        let child_id = state.alloc_id();
+        extract_yaml_value_open(cst, &value_vertex, &child_anchor, child_id, state)?;
+        let synth_edge = Edge {
+            src: Name::from(anchor),
+            tgt: Name::from(child_anchor.as_str()),
+            kind: "item".into(),
+            name: Some("item".into()),
+        };
+        state.arcs.push((node_id, child_id, synth_edge));
+    }
+    Ok(())
+}
+
+/// The text of a YAML scalar vertex.
+///
+/// The grammar wraps a scalar's text in a `plain_scalar` / quoted-scalar
+/// node and then in a kind-specific leaf (`string_scalar`, `integer_scalar`,
+/// …), so the literal sits below the vertex the dispatch reached.
+fn yaml_scalar_text(cst: &Schema, cst_vertex: &Name) -> String {
+    literal_text_deep(cst, cst_vertex)
+}
+
+/// Recursively extract a YAML value from the CST into a `WInstance` node,
+/// one level deeper than the caller and no deeper than
+/// [`MAX_EXTRACT_DEPTH`].
 fn extract_yaml_value(
     cst: &Schema,
     domain_schema: &Schema,
@@ -1620,10 +2801,12 @@ fn extract_yaml_value(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
+    state.enter()?;
+    let cst_vertex = &unwrap_yaml_node(cst, cst_vertex);
     let kind = cst_vertex_kind(cst, cst_vertex).unwrap_or_default();
     state.node_to_cst_struct.insert(node_id, cst_vertex.clone());
 
-    match kind.as_str() {
+    let extracted = match kind.as_str() {
         "block_mapping" | "flow_mapping" => extract_yaml_mapping(
             cst,
             domain_schema,
@@ -1641,19 +2824,17 @@ fn extract_yaml_value(
             state,
         ),
         _ => {
-            let text = literal_value(cst, cst_vertex)
-                .or_else(|| {
-                    cst.outgoing_edges(cst_vertex)
-                        .iter()
-                        .find_map(|e| literal_value(cst, &e.tgt))
-                })
-                .unwrap_or_default();
-            state.node_to_cst_value.insert(node_id, cst_vertex.clone());
+            let text = yaml_scalar_text(cst, cst_vertex);
+            state
+                .node_to_cst_value
+                .insert(node_id, vec![deepest_literal_vertex(cst, cst_vertex)]);
             let node = Node::new(node_id, domain_vertex).with_value(parse_yaml_scalar(&text));
             state.nodes.insert(node_id, node);
             Ok(())
         }
-    }
+    };
+    state.leave();
+    extracted
 }
 
 fn extract_yaml_mapping(
@@ -1664,8 +2845,17 @@ fn extract_yaml_mapping(
     node_id: u32,
     state: &mut ExtractState,
 ) -> Result<(), CstExtractError> {
-    let mut node = Node::new(node_id, domain_vertex);
     let domain_edges: Vec<Edge> = domain_schema.outgoing_edges(domain_vertex).to_vec();
+
+    if domain_edges.is_empty() {
+        // Open schema: every pair becomes a child node under a synthesised
+        // `prop` edge. Folding the pairs into `extra_fields` instead left the
+        // mapping with no child nodes at all, so nothing downstream could
+        // address — let alone edit — a value in an open-schema document.
+        return extract_yaml_mapping_open(cst, cst_vertex, domain_vertex, node_id, state);
+    }
+
+    let mut node = Node::new(node_id, domain_vertex);
     let mut handled_keys = std::collections::HashSet::new();
     let pairs = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
 
@@ -1724,22 +2914,27 @@ fn extract_yaml_sequence(
         .iter()
         .find(|e| *e.kind == *"item" || e.name.as_deref() == Some("item"));
 
-    if let Some(edge) = item_edge {
-        let items = cst_children_by_edge_kind(cst, cst_vertex, "child_of");
-        for item_name in items {
-            let value_vertex =
-                find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| item_name.clone());
-            let child_id = state.alloc_id();
-            extract_yaml_value(
-                cst,
-                domain_schema,
-                &value_vertex,
-                &edge.tgt,
-                child_id,
-                state,
-            )?;
-            state.arcs.push((node_id, child_id, edge.clone()));
-        }
+    let Some(edge) = item_edge else {
+        // Open / partial schema: synthesise an `item` edge per element and
+        // recurse through the open extractor. Without this the sequence
+        // extracted as an empty list, because no children were collected at
+        // all.
+        return extract_yaml_sequence_open(cst, cst_vertex, domain_vertex, node_id, state);
+    };
+
+    for item_name in cst_children_by_edge_kind(cst, cst_vertex, "child_of") {
+        let value_vertex =
+            find_yaml_sequence_item_value(cst, item_name).unwrap_or_else(|| item_name.clone());
+        let child_id = state.alloc_id();
+        extract_yaml_value(
+            cst,
+            domain_schema,
+            &value_vertex,
+            &edge.tgt,
+            child_id,
+            state,
+        )?;
+        state.arcs.push((node_id, child_id, edge.clone()));
     }
 
     Ok(())
@@ -1747,11 +2942,8 @@ fn extract_yaml_sequence(
 
 fn extract_yaml_pair_key(cst: &Schema, pair_vertex: &Name) -> Option<String> {
     let key_vertex = cst_child_by_edge_kind(cst, pair_vertex, "key")?;
-    literal_value(cst, key_vertex).or_else(|| {
-        cst.outgoing_edges(key_vertex)
-            .iter()
-            .find_map(|e| literal_value(cst, &e.tgt))
-    })
+    let text = literal_text_deep(cst, key_vertex);
+    if text.is_empty() { None } else { Some(text) }
 }
 
 fn find_yaml_pair_value(cst: &Schema, pair_vertex: &Name) -> Option<Name> {
@@ -1760,7 +2952,8 @@ fn find_yaml_pair_value(cst: &Schema, pair_vertex: &Name) -> Option<Name> {
 
 fn find_yaml_sequence_item_value(cst: &Schema, item_vertex: &Name) -> Option<Name> {
     for edge in cst.outgoing_edges(item_vertex) {
-        let kind = cst_vertex_kind(cst, &edge.tgt).unwrap_or_default();
+        let inner = unwrap_yaml_node(cst, &edge.tgt);
+        let kind = cst_vertex_kind(cst, &inner).unwrap_or_default();
         match kind.as_str() {
             "block_mapping"
             | "flow_mapping"
@@ -1771,7 +2964,9 @@ fn find_yaml_sequence_item_value(cst: &Schema, item_vertex: &Name) -> Option<Nam
             | "single_quote_scalar"
             | "block_scalar"
             | "integer_scalar"
-            | "float_scalar" => return Some(edge.tgt.clone()),
+            | "float_scalar"
+            | "boolean_scalar"
+            | "null_scalar" => return Some(inner),
             _ => {}
         }
     }
@@ -1850,21 +3045,36 @@ pub fn inject_yaml_cst(
     let mut cst = complement.cst_schema.clone();
 
     for (&node_id, node) in &instance.nodes {
-        if let Some(ref presence) = node.value {
-            if let Some(cst_vertex) = complement.node_to_cst_value.get(&node_id) {
-                let new_text = field_presence_to_yaml_text(presence);
-                update_literal_value(&mut cst, cst_vertex, &new_text);
-                // YAML scalars may have the literal in a child node too;
-                // check and update children.
-                let child_vertices: Vec<_> = cst
-                    .outgoing_edges(cst_vertex)
-                    .iter()
-                    .map(|e| e.tgt.clone())
-                    .collect();
-                for child in &child_vertices {
-                    update_literal_value(&mut cst, child, &new_text);
-                }
-            }
+        let Some(ref presence) = node.value else {
+            continue;
+        };
+        let Some(segments) = complement.node_to_cst_value.get(&node_id) else {
+            continue;
+        };
+        let Some(head) = segments.first() else {
+            continue;
+        };
+        // A YAML scalar's lexical form does not survive a round-trip through
+        // the parsed `Value`: `yes` and `true` are the same boolean, `1.0`
+        // and `1` the same number, and a quoted scalar carries quotes the
+        // value does not. When the CST's own text still parses to the
+        // instance's value nothing has changed, so leave the bytes alone
+        // rather than re-serialising a form the source never used.
+        if parse_yaml_scalar(&yaml_scalar_text(&cst, head)) == *presence {
+            continue;
+        }
+        let new_text = field_presence_to_yaml_text(presence);
+        set_value_run(&mut cst, segments, &new_text);
+        // A YAML scalar's text can sit on a child node rather than on the
+        // scalar vertex itself, so the run's head carries the value down one
+        // level as well.
+        let child_vertices: Vec<_> = cst
+            .outgoing_edges(head)
+            .iter()
+            .map(|e| e.tgt.clone())
+            .collect();
+        for child in &child_vertices {
+            update_literal_value(&mut cst, child, &new_text);
         }
     }
 
@@ -1910,6 +3120,7 @@ pub fn extract_tabular_cst(
             cst_schema: cst.clone(),
             node_to_cst_value: HashMap::new(),
             node_to_cst_struct: HashMap::new(),
+            cell_to_cst_value: HashMap::new(),
         };
         return Ok((FInstance::new(), complement));
     }
@@ -1920,10 +3131,9 @@ pub fn extract_tabular_cst(
         .map(|f| literal_text_deep(cst, f))
         .collect();
 
-    // Track CST vertex for each cell: keyed by (row_index, col_index)
-    // encoded as a u32 node ID = row_index * 10000 + col_index.
-    // This is stored in node_to_cst_value for injection.
-    let mut cell_to_cst: HashMap<u32, Name> = HashMap::new();
+    // Track the CST vertex behind each cell, keyed by its (row, column)
+    // position, since a tabular instance has no node ids to key on.
+    let mut cell_to_cst: HashMap<u64, Vec<Name>> = HashMap::new();
     let mut rows = Vec::new();
 
     for (row_idx, row_name) in row_vertices[1..].iter().enumerate() {
@@ -1936,12 +3146,16 @@ pub fn extract_tabular_cst(
                 .unwrap_or_else(|| col_idx.to_string());
             let text = literal_text_deep(cst, field_name);
             row.insert(col, Value::Str(text));
-            // Encode (row_idx, col_idx) as a u32 key for the complement mapping.
-            #[allow(clippy::cast_possible_truncation)]
-            let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
+            let (Ok(row_u32), Ok(col_u32)) = (u32::try_from(row_idx), u32::try_from(col_idx))
+            else {
+                continue;
+            };
             // Map to the leaf that owns the text, not the wrapper field, so
             // injection can actually rewrite the value.
-            cell_to_cst.insert(cell_key, deepest_literal_vertex(cst, field_name));
+            cell_to_cst.insert(
+                tabular_cell_key(row_u32, col_u32),
+                vec![deepest_literal_vertex(cst, field_name)],
+            );
         }
         rows.push(row);
     }
@@ -1951,8 +3165,9 @@ pub fn extract_tabular_cst(
     let complement = CstComplement {
         format: "tabular".into(),
         cst_schema: cst.clone(),
-        node_to_cst_value: cell_to_cst,
+        node_to_cst_value: HashMap::new(),
         node_to_cst_struct: HashMap::new(),
+        cell_to_cst_value: cell_to_cst,
     };
 
     Ok((instance, complement))
@@ -2004,10 +3219,14 @@ pub fn inject_tabular_cst(
                         Value::Null => String::new(),
                         other => format!("{other:?}"),
                     };
-                    #[allow(clippy::cast_possible_truncation)]
-                    let cell_key = (row_idx as u32) * 10_000 + (col_idx as u32);
-                    if let Some(cst_vertex) = complement.node_to_cst_value.get(&cell_key) {
-                        update_literal_value(&mut cst, cst_vertex, &text);
+                    let (Ok(row_u32), Ok(col_u32)) =
+                        (u32::try_from(row_idx), u32::try_from(col_idx))
+                    else {
+                        continue;
+                    };
+                    let cell_key = tabular_cell_key(row_u32, col_u32);
+                    if let Some(segments) = complement.cell_to_cst_value.get(&cell_key) {
+                        set_value_run(&mut cst, segments, &text);
                     }
                 }
             }
@@ -2074,5 +3293,46 @@ mod tests {
         assert_eq!(FormatKind::Xml.grammar_name(), "xml");
         assert_eq!(FormatKind::Yaml.grammar_name(), "yaml");
         assert_eq!(FormatKind::Csv.grammar_name(), "csv");
+    }
+
+    /// A surrogate pair is the only way a JSON source can spell an astral
+    /// character. Decoding each `\uXXXX` on its own yields two lone
+    /// surrogates, neither of which is a character, so the emoji used to
+    /// disappear from the extracted value entirely.
+    #[test]
+    fn surrogate_pairs_decode_to_the_astral_character() {
+        assert_eq!(decode_json_string_body(r"x\ud83d\ude00y"), "x\u{1F600}y");
+        assert_eq!(decode_json_string_body(r"\ud83d\ude00"), "\u{1F600}");
+        assert_eq!(
+            decode_json_string_body(r"a\ud83dz\ude00b"),
+            "a\\ud83dz\\ude00b",
+            "surrogates separated by other text are not a pair"
+        );
+    }
+
+    /// A surrogate with no partner denotes no character at all. Keeping its
+    /// escape text is what lets the caller see what the source said, where
+    /// dropping it silently loses bytes.
+    #[test]
+    fn a_lone_surrogate_keeps_its_escape_text() {
+        assert_eq!(decode_json_string_body(r"x\ud83dy"), r"x\ud83dy");
+        assert_eq!(decode_json_string_body(r"x\ude00y"), r"x\ude00y");
+    }
+
+    #[test]
+    fn simple_escapes_and_bmp_escapes_decode() {
+        assert_eq!(decode_json_string_body(r"x\ny"), "x\ny");
+        assert_eq!(decode_json_string_body(r#"a\tb\\c\"d"#), "a\tb\\c\"d");
+        assert_eq!(decode_json_string_body(r"caf\u00e9"), "caf\u{e9}");
+        assert_eq!(decode_json_string_body("plain"), "plain");
+    }
+
+    /// A backslash that starts nothing the grammar recognises is text, not
+    /// an escape, and must survive rather than be swallowed.
+    #[test]
+    fn unrecognised_escapes_survive_verbatim() {
+        assert_eq!(decode_json_string_body(r"a\qb"), r"a\qb");
+        assert_eq!(decode_json_string_body(r"trailing\"), "trailing\\");
+        assert_eq!(decode_json_string_body(r"short\u01"), r"short\u01");
     }
 }

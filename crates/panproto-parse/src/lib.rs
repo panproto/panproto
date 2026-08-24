@@ -86,4 +86,4 @@ pub use parse_emit_protolens::parse_emit_protolens;
 pub use registry::{AstParser, EmitVerificationStatus, ParserRegistry};
 pub use scope_detector::{NamedScope, ScopeDetector, ScopeKind};
 pub use theory_extract::{ExtractedTheoryMeta, extract_theory_from_node_types};
-pub use walker::{AstWalker, WalkerConfig};
+pub use walker::{AstWalker, DEFAULT_MAX_NESTING_DEPTH, WalkerConfig};
