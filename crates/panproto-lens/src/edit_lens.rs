@@ -464,6 +464,16 @@ impl EditLens {
     ///
     /// Returns [`EditLensError`] if the edit cannot be translated.
     pub fn get_edit(&mut self, edit: TreeEdit) -> Result<TreeEdit, EditLensError> {
+        // Keep the tracked source in step with the edits this lens has seen, so
+        // an edit that takes a node out of the view can still read the payload
+        // the complement must absorb. A sequence is tracked step by step
+        // through the recursive calls below, so tracking it here as well would
+        // apply every step twice.
+        if !matches!(edit, TreeEdit::Sequence(_)) {
+            if let Some(pipeline) = self.pipeline.as_mut() {
+                pipeline.track_source_edit(&edit);
+            }
+        }
         match edit {
             TreeEdit::Identity => Ok(TreeEdit::Identity),
             TreeEdit::InsertNode {
@@ -689,8 +699,13 @@ impl EditLens {
                 new_anchor: self.remap_anchor_forward(&new_anchor),
             }),
             (false, false) => {
-                // Was in view, now doesn't survive. Delete from view and
-                // add to complement.
+                // Was in the view, now anchors at a vertex the migration drops.
+                // The view sees a delete, so the complement has to take the
+                // payload the view is giving up.
+                let snapshot = self.pipeline.as_ref().and_then(|p| p.node_snapshot(id));
+                if let Some(snapshot) = snapshot {
+                    crate::edit_pipeline::absorb_dropped_node(&mut self.complement, id, snapshot);
+                }
                 Ok(TreeEdit::DeleteNode { id })
             }
         }

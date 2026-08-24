@@ -31,9 +31,10 @@ pub fn lift_wtype(
 
 /// Apply a compiled migration to a set-valued functor instance.
 ///
-/// Delegates to [`panproto_inst::functor_restrict`], which performs
-/// precomposition (`Delta_F`): for each table in the target, pull the
-/// corresponding table from the source via the vertex remap.
+/// Delegates to [`panproto_inst::functor_restrict`], which carries the
+/// instance forward along the migration and keeps the fragment that survives:
+/// each surviving target vertex takes the rows of every source vertex the
+/// migration sends to it.
 ///
 /// # Errors
 ///

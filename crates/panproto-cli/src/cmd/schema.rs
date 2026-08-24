@@ -247,7 +247,7 @@ pub fn cmd_lift_functor(
     let lifted = match direction {
         "restrict" => mig::lift_functor(compiled, &instance)
             .into_diagnostic()
-            .wrap_err("lift functor (restrict / `Delta_F`) operation failed")?,
+            .wrap_err("lift functor (restrict to the surviving fragment) operation failed")?,
         "sigma" => inst::functor_extend(&instance, compiled)
             .into_diagnostic()
             .wrap_err("lift functor (`Sigma_F`) operation failed")?,

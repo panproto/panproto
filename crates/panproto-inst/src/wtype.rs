@@ -94,8 +94,8 @@ pub struct CompiledMigration {
     ///
     /// Keyed by source vertex anchor, mirroring [`Self::field_transforms`].
     /// Each assignment computes a migrated field by substituting the row's
-    /// field values into a term; this is the substitution action of
-    /// `Delta` and `Sigma` on values. `panproto-mig`'s compiler emits its
+    /// field values into a term; this is how a migration acts on values,
+    /// whichever way it carries them. `panproto-mig`'s compiler emits its
     /// value transforms here rather than as direct [`FieldTransform`]s.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub op_term_assignments: HashMap<Name, Vec<TermAssignment>>,
@@ -334,10 +334,11 @@ pub struct TermBranch {
 /// A [`Self::Compute`] assignment carries a term (`panproto_expr::Expr`)
 /// whose free variables are source field names; evaluating it substitutes
 /// the row's field values for those variables. This is the substitution
-/// semantics through which the migration functors act on values: `Delta`
-/// ([`crate::functor::functor_restrict`]) and `Sigma`
-/// ([`wtype_extend`], [`crate::functor::functor_extend`]) compute migrated
-/// columns by substituting each surviving row. The remaining variants
+/// semantics through which a migration acts on values: the surviving-fragment
+/// forms ([`wtype_restrict`], [`crate::functor::functor_restrict`]) and the
+/// total ones ([`wtype_extend`], [`crate::functor::functor_extend`]) alike
+/// compute migrated columns by substituting each carried row. The remaining
+/// variants
 /// describe structural field operations (rename, drop, keep, default,
 /// reference remap, nested-path scoping, and case analysis).
 ///
@@ -542,8 +543,8 @@ impl TermAssignment {
 /// The row is wrapped in a scratch node so the shared field-transform
 /// evaluator ([`apply_field_transforms`]) performs the substitution; a
 /// flat row has no child fibers, so the child-scalar environment is empty.
-/// This is the value action of `Delta` and `Sigma` on set-valued
-/// (relational) instances.
+/// This is how a migration acts on the values of a set-valued (relational)
+/// instance.
 ///
 /// # Errors
 ///

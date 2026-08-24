@@ -250,6 +250,42 @@ mod tests {
         assert!(result.is_ok(), "coherence should hold: {result:?}");
     }
 
+    /// Relabelling a live node onto an anchor the migration drops removes it
+    /// from the view, so its payload has to land in the complement: otherwise
+    /// it is gone from both sides and `c' = get(es · source).1` fails.
+    #[test]
+    fn relabel_to_a_non_surviving_anchor_keeps_the_payload() {
+        let schema = three_node_schema();
+        let lens = crate::tests::projection_lens(&schema, "createdAt");
+        let instance = three_node_instance();
+        let mut edit_lens = EditLens::from_lens(lens, test_protocol());
+        edit_lens.initialize(&instance).unwrap();
+
+        // Node 1 is live in the view; `post:body.createdAt` is not in it.
+        let edit = TreeEdit::RelabelNode {
+            id: 1,
+            new_anchor: Name::from("post:body.createdAt"),
+        };
+
+        let result = check_complement_coherence(&mut edit_lens, &edit, &instance);
+        assert!(
+            result.is_ok(),
+            "coherence must hold for a relabel out of the view: {result:?}"
+        );
+
+        let translated = edit_lens.get_edit(edit).unwrap();
+        assert!(
+            matches!(translated, TreeEdit::DeleteNode { id: 1 }),
+            "the view sees the node leave, got {translated:?}"
+        );
+        let kept = edit_lens.complement.dropped_nodes.get(&1).unwrap();
+        assert_eq!(
+            kept.value, instance.nodes[&1].value,
+            "the dropped node keeps the payload it had in the source",
+        );
+        assert_eq!(&*kept.anchor, "post:body.createdAt");
+    }
+
     /// Build an identity-shaped lens carrying a field transform keyed
     /// under the vertex kind `post:body.text` that upper-cases a field
     /// named `tag`. The whole-state `get` applies field transforms per

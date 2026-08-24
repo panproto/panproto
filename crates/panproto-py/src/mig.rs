@@ -127,6 +127,7 @@ impl PyMigrationBuilder {
                 resolver,
                 hyper_resolver: HashMap::new(),
                 expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
                 domain: None,
                 codomain: None,
             },

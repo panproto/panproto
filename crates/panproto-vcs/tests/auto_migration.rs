@@ -297,6 +297,7 @@ fn sigma_then_chase_workflow() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };
@@ -612,6 +613,7 @@ fn schema_pushout_with_overlap_and_lift() {
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };

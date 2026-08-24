@@ -74,30 +74,38 @@ pub fn compile(
         }
     }
 
-    // Step 3: Generate value transforms from schema coercions, carried as
-    // op-to-term assignments. A kind-changing vertex map computes the
-    // coerced value by substituting the source value into the coercion's
-    // forward term; `Delta` and `Sigma` apply this by substitution.
+    // Step 3: Generate value transforms, carried as op-to-term assignments. A
+    // kind-changing vertex map computes the coerced value by substituting the
+    // source value into the coercion's forward term; `Delta` and `Sigma` apply
+    // this by substitution.
+    //
+    // The migration's own coercion table wins where it has an entry. It is the
+    // record of what this migration actually does to values, including the
+    // composite of steps whose intermediate schema is no longer one of these
+    // two; the kind pair looked up in the target schema is only how a migration
+    // that carries nothing is read.
     let mut op_term_assignments = HashMap::new();
     for (src_v, tgt_v) in &migration.vertex_map {
-        if let (Some(src_vert), Some(tgt_vert)) = (src.vertex(src_v), tgt.vertex(tgt_v)) {
-            if src_vert.kind != tgt_vert.kind {
-                if let Some(coercion_spec) = tgt
-                    .coercions
-                    .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
-                {
-                    op_term_assignments
-                        .entry(src_v.clone())
-                        .or_insert_with(Vec::new)
-                        .push(panproto_inst::TermAssignment::Compute {
-                            target: "__value__".to_string(),
-                            scope: panproto_inst::TermScope::Field,
-                            term: coercion_spec.forward.clone(),
-                            inverse: coercion_spec.inverse.clone(),
-                            coercion_class: coercion_spec.class,
-                        });
-                }
+        let spec = migration.coercions.get(src_v).or_else(|| {
+            let src_vert = src.vertex(src_v)?;
+            let tgt_vert = tgt.vertex(tgt_v)?;
+            if src_vert.kind == tgt_vert.kind {
+                return None;
             }
+            tgt.coercions
+                .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
+        });
+        if let Some(coercion_spec) = spec {
+            op_term_assignments
+                .entry(src_v.clone())
+                .or_insert_with(Vec::new)
+                .push(panproto_inst::TermAssignment::Compute {
+                    target: crate::migration::COERCION_INPUT.to_string(),
+                    scope: panproto_inst::TermScope::Field,
+                    term: coercion_spec.forward.clone(),
+                    inverse: coercion_spec.inverse.clone(),
+                    coercion_class: coercion_spec.class,
+                });
         }
     }
 
@@ -266,6 +274,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -366,6 +375,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };

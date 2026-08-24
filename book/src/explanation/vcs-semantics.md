@@ -42,6 +42,8 @@ $$
 
 The implementation constructs $M$ with a field-by-field structural three-way merge. Compatible additions and modifications are combined. Incompatible edits become `MergeConflict` variants, and conflicted elements retain their base values until the caller supplies a resolution. `apply_resolutions` requires a choice of ours or theirs for every reported conflict and then verifies the resulting square.
 
+Combining compatible additions means that two branches adding the same name compatibly contribute one element rather than one each, so $M$ is the pushout quotiented by same-name identification. `MergeResult::identified_additions` reports every name collapsed this way. [Pushouts and merge](./semantics/pushouts-and-merge.md) states what that quotient costs.
+
 The routine `verify_pushout` checks the generated cocone: both branch maps must be total, every merged vertex must come from a branch, surviving base vertices must remain present, and the two paths from the base must agree on mapped vertices and edges. A failure returns `VcsError::PushoutVerification`. This is a cocone check, not a complete runtime proof of the universal property.
 
 `verify_pushout_universal` provides an additional on-demand check against a caller-supplied alternative cocone. It constructs and checks a mediator on vertices. The current API does not establish edge-level factorization, and ordinary merge does not call this verifier. [Pushouts and merge](./semantics/pushouts-and-merge.md) states the distinction formally.

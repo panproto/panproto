@@ -654,7 +654,7 @@ fn test_fan_reconstruction_4_to_3() {
 // Test 4: Set-valued functor: two tables with FK -> restrict drops one table
 // ---------------------------------------------------------------------------
 #[test]
-fn test_functor_restrict_precomposition() {
+fn test_functor_restrict_drops_a_non_surviving_table() {
     let mut users_rows = vec![];
     let mut row1 = HashMap::new();
     row1.insert("id".to_string(), Value::Int(1));

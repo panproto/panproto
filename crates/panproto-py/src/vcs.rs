@@ -215,11 +215,17 @@ fn merge_result_to_value(result: &MergeResult) -> serde_json::Value {
         .iter()
         .map(|c| serde_json::to_value(c).unwrap_or(serde_json::Value::Null))
         .collect();
+    let identified_additions: Vec<_> = result
+        .identified_additions
+        .iter()
+        .map(|i| serde_json::to_value(i).unwrap_or(serde_json::Value::Null))
+        .collect();
     serde_json::json!({
         "conflict_count": result.conflicts.len(),
         "conflicts": conflicts,
         "vertex_count": result.merged_schema.vertices.len(),
         "edge_count": result.merged_schema.edges.len(),
+        "identified_additions": identified_additions,
     })
 }
 

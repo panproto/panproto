@@ -14,9 +14,11 @@ use crate::wtype::{CompiledMigration, WInstance};
 
 /// Trait for attributed C-set operations shared across all instance shapes.
 pub trait AcsetOps: Clone + std::fmt::Debug {
-    /// Restrict this instance along a compiled migration.
+    /// Carry this instance forward along a compiled migration, keeping the
+    /// fragment that survives.
     ///
-    /// Corresponds to `Delta_F` (precomposition / pullback).
+    /// Structure the migration drops does not travel. For the extension that
+    /// keeps everything, see [`Self::extend`].
     ///
     /// # Errors
     ///

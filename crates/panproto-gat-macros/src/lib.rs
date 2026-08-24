@@ -275,25 +275,32 @@ impl Parse for ClassInput {
 /// ```
 #[proc_macro]
 pub fn class(input: TokenStream) -> TokenStream {
-    let ClassInput {
-        name,
-        params,
-        items,
-    } = parse_macro_input!(input as ClassInput);
+    let class = parse_macro_input!(input as ClassInput);
+    match class_theory_tokens(&class, "class!") {
+        Ok(tokens) => tokens.into(),
+        Err(e) => e.to_compile_error().into(),
+    }
+}
 
-    let name_str = name.to_string();
+/// Build the theory-constructor function for a parsed class body.
+///
+/// Both `class!` and `derive_theory!` expand their body through this, so a
+/// given body yields the same sorts, operations and equations whichever macro
+/// introduces it. `macro_name` names the macro in the generated function's doc
+/// comment.
+fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> syn::Result<TokenStream2> {
+    let name_str = class.name.to_string();
     let fn_name = format_ident!("theory_{}", name_str.to_lowercase());
 
-    let sort_names: Vec<String> = params.iter().map(ToString::to_string).collect();
-
+    let sort_names: Vec<String> = class.params.iter().map(ToString::to_string).collect();
     let sort_inits = sort_names.iter().map(|n| {
         quote! { ::panproto_gat::Sort::simple(#n) }
     });
 
-    let mut op_inits = Vec::new();
-    let mut eq_inits = Vec::new();
+    let mut op_inits: Vec<TokenStream2> = Vec::new();
+    let mut eq_inits: Vec<TokenStream2> = Vec::new();
 
-    for item in items {
+    for item in &class.items {
         match item {
             ClassBodyItem::Sig(SigItem {
                 name: op_name,
@@ -301,7 +308,7 @@ pub fn class(input: TokenStream) -> TokenStream {
                 output,
             }) => {
                 let op_name_str = op_name.to_string();
-                let output_tokens = sort_expr_to_tokens(&output);
+                let output_tokens = sort_expr_to_tokens(output);
                 let arg_triples = args.iter().map(|ArgItem { name, ty }| {
                     let n = name.to_string();
                     let ty_tokens = sort_expr_to_tokens(ty);
@@ -327,30 +334,12 @@ pub fn class(input: TokenStream) -> TokenStream {
                 rhs,
             }) => {
                 let ax_name_str = ax_name.to_string();
-                let lhs_str = lhs.to_string();
-                let rhs_str = rhs.to_string();
-                let lhs_tokens = match term_tokens(&lhs_str) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return syn::Error::new(
-                            ax_name.span(),
-                            format!("axiom lhs parse error: {e}"),
-                        )
-                        .to_compile_error()
-                        .into();
-                    }
-                };
-                let rhs_tokens = match term_tokens(&rhs_str) {
-                    Ok(t) => t,
-                    Err(e) => {
-                        return syn::Error::new(
-                            ax_name.span(),
-                            format!("axiom rhs parse error: {e}"),
-                        )
-                        .to_compile_error()
-                        .into();
-                    }
-                };
+                let lhs_tokens = term_tokens(&lhs.to_string()).map_err(|e| {
+                    syn::Error::new(ax_name.span(), format!("axiom lhs parse error: {e}"))
+                })?;
+                let rhs_tokens = term_tokens(&rhs.to_string()).map_err(|e| {
+                    syn::Error::new(ax_name.span(), format!("axiom rhs parse error: {e}"))
+                })?;
                 eq_inits.push(quote! {
                     ::panproto_gat::Equation::new(
                         #ax_name_str,
@@ -362,8 +351,8 @@ pub fn class(input: TokenStream) -> TokenStream {
         }
     }
 
-    let doc = format!("Construct the `{name_str}` theory produced by the `class!` macro.");
-    let expanded = quote! {
+    let doc = format!("Construct the `{name_str}` theory produced by the `{macro_name}` macro.");
+    Ok(quote! {
         #[doc = #doc]
         pub fn #fn_name() -> ::panproto_gat::Theory {
             ::panproto_gat::Theory::new(
@@ -373,9 +362,7 @@ pub fn class(input: TokenStream) -> TokenStream {
                 ::std::vec![ #( #eq_inits ),* ],
             )
         }
-    };
-
-    expanded.into()
+    })
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -622,6 +609,9 @@ impl Parse for DeriveTheoryInput {
 ///     #[derive(Eq)]
 ///     ThVertex<Vertex, Bool> {
 ///         name(x: Vertex) -> Bool;
+///         id(x: Vertex) -> Vertex;
+///
+///         axiom id_absorbs: id(id(x)) = id(x);
 ///     }
 /// }
 ///
@@ -629,10 +619,14 @@ impl Parse for DeriveTheoryInput {
 /// // per listed derive (here, `instance_vertex_eq`).
 /// let theory = theory_thvertex();
 /// assert_eq!(&*theory.name, "ThVertex");
+/// // The body's axioms are stated on the theory, as they are under `class!`.
+/// assert_eq!(theory.eqs.len(), 1);
 /// ```
 ///
 /// Expands to the `class!`-style theory builder (`pub fn theory_thvertex()`)
-/// plus one instance-builder function per listed derive.
+/// plus one instance-builder function per listed derive. The body goes through
+/// the same expansion `class!` uses, so its signatures and axioms produce the
+/// same operations and equations either way.
 ///
 /// Supported derives: `Eq`, `Hash`. Passing `Ord` or `Show` emits a
 /// compile error directing callers to the follow-up work, which keeps
@@ -654,7 +648,10 @@ pub fn derive_theory(input: TokenStream) -> TokenStream {
     }
 
     let class_name = class.name.clone();
-    let class_tokens = class_to_tokens(&class);
+    let class_tokens = match class_theory_tokens(&class, "derive_theory!") {
+        Ok(tokens) => tokens,
+        Err(e) => return e.to_compile_error().into(),
+    };
 
     // Primary sort: the first param of the class.
     let Some(primary_sort) = class.params.first().cloned() else {
@@ -681,58 +678,6 @@ pub fn derive_theory(input: TokenStream) -> TokenStream {
         #( #instance_fns )*
     };
     expanded.into()
-}
-
-fn class_to_tokens(class: &ClassInput) -> TokenStream2 {
-    let name = &class.name;
-    let name_str = name.to_string();
-    let fn_name = format_ident!("theory_{}", name_str.to_lowercase());
-    let sort_names: Vec<String> = class.params.iter().map(ToString::to_string).collect();
-    let sort_inits = sort_names.iter().map(|n| {
-        quote! { ::panproto_gat::Sort::simple(#n) }
-    });
-    let mut op_inits: Vec<TokenStream2> = Vec::new();
-    for item in &class.items {
-        if let ClassBodyItem::Sig(SigItem {
-            name: op_name,
-            args,
-            output,
-        }) = item
-        {
-            let op_name_str = op_name.to_string();
-            let output_tokens = sort_expr_to_tokens(output);
-            let arg_triples = args.iter().map(|ArgItem { name, ty }| {
-                let n = name.to_string();
-                let ty_tokens = sort_expr_to_tokens(ty);
-                quote! {
-                    (
-                        ::std::sync::Arc::from(#n),
-                        #ty_tokens,
-                        ::panproto_gat::Implicit::No,
-                    )
-                }
-            });
-            op_inits.push(quote! {
-                ::panproto_gat::Operation::with_implicit(
-                    #op_name_str,
-                    ::std::vec![ #( #arg_triples ),* ],
-                    #output_tokens,
-                )
-            });
-        }
-    }
-    let doc = format!("Construct the `{name_str}` theory produced by the `derive_theory!` macro.");
-    quote! {
-        #[doc = #doc]
-        pub fn #fn_name() -> ::panproto_gat::Theory {
-            ::panproto_gat::Theory::new(
-                #name_str,
-                ::std::vec![ #( #sort_inits ),* ],
-                ::std::vec![ #( #op_inits ),* ],
-                ::std::vec::Vec::new(),
-            )
-        }
-    }
 }
 
 fn build_derived_instance(
