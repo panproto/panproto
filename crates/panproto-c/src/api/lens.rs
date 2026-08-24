@@ -85,90 +85,82 @@ fn encode_get_record(view: &WInstance, complement: &lens::Complement) -> Result<
     canonical::encode(&payload)
 }
 
-/// The [`lens::Complement`] fields keyed by a `(u32, u32)` tuple. `serde`
-/// (via `ciborium`) serializes a tuple-keyed `HashMap` as a CBOR *map*
-/// (array key, value), but the Haskell `Panproto.Instance` complement
-/// codec models these two fields as CBOR *lists of `[ [k0, k1], edge ]`
-/// pairs* (its `decodePairMap` / `encodePairMap`). The other map fields
-/// are `u32`-keyed and agree (both sides use a CBOR map with integer
-/// keys), so only these two need reshaping at the boundary.
+/// The [`lens::Complement`] fields keyed by a `(u32, u32)` tuple.
+/// `panproto-inst` serializes both as CBOR *lists of `[ [k0, k1], edge ]`
+/// pairs*, which is the shape the Haskell `Panproto.Instance` complement
+/// codec models them with (its `decodePairMap` / `encodePairMap`), so the
+/// two sides agree and nothing is rewritten on the way out. A CBOR *map*
+/// (array key, value) is `ciborium`'s default for a tuple-keyed
+/// `HashMap` and is what an older encoding of a complement carries, so
+/// these are the fields [`decode_complement_from_host`] normalizes when
+/// it meets one. The other map fields are `u32`-keyed and agree on both
+/// conventions.
 const COMPLEMENT_PAIR_MAP_FIELDS: [&str; 2] = ["contraction_choices", "arc_edges"];
 
 /// Encode a [`lens::Complement`] in the CBOR shape the Haskell host
-/// decodes: `ciborium`'s default serialization with the tuple-keyed
-/// [`COMPLEMENT_PAIR_MAP_FIELDS`] rewritten from CBOR maps into
-/// lists-of-pairs.
+/// decodes.
 ///
 /// # Errors
 ///
-/// Returns [`FfiError::Serialization`] if (de)serialization fails.
+/// Returns [`FfiError::Serialization`] if serialization fails.
 fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, FfiError> {
-    let bytes = canonical::encode(complement)?;
-    let mut value: CborValue = canonical::decode(&bytes)?;
-    reshape_complement_pair_maps(&mut value, /* to_list */ true);
-    canonical::encode(&value)
+    canonical::encode(complement)
 }
 
 /// Decode a [`lens::Complement`] from the CBOR shape the Haskell host
-/// encodes: the inverse of [`encode_complement_for_host`], rewriting the
-/// tuple-keyed [`COMPLEMENT_PAIR_MAP_FIELDS`] from lists-of-pairs back
-/// into the CBOR maps `ciborium`'s `Deserialize` expects.
+/// encodes: the inverse of [`encode_complement_for_host`].
 ///
-/// Tolerates input that is already in the map shape (a complement
-/// produced by this crate's own `ciborium` encode), so it accepts both
-/// conventions.
+/// Tolerates a complement whose [`COMPLEMENT_PAIR_MAP_FIELDS`] carry the
+/// CBOR map shape, which is what an encoding written before those fields
+/// became lists of pairs holds, so both conventions decode.
 ///
 /// # Errors
 ///
-/// Returns [`FfiError::Serialization`] if (de)serialization fails.
+/// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
+/// that fail to decode in either shape report the failure against the
+/// bytes as they were given.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    let mut value: CborValue = canonical::decode(bytes)?;
-    reshape_complement_pair_maps(&mut value, /* to_list */ false);
-    let normalized = canonical::encode(&value)?;
-    canonical::decode(&normalized)
+    match canonical::decode(bytes) {
+        Ok(complement) => Ok(complement),
+        Err(err) => {
+            let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
+                return Err(err);
+            };
+            if !normalize_complement_pair_maps(&mut value) {
+                return Err(err);
+            }
+            let normalized = canonical::encode(&value)?;
+            canonical::decode(&normalized).map_err(|_| err)
+        }
+    }
 }
 
-/// Rewrite the [`COMPLEMENT_PAIR_MAP_FIELDS`] of a CBOR-`Map` complement
-/// between the `ciborium` map shape and the host list-of-pairs shape.
+/// Rewrite any of the [`COMPLEMENT_PAIR_MAP_FIELDS`] of a CBOR-`Map`
+/// complement that carries the map shape `{ [k0,k1]: edge, … }` into the
+/// list shape `[ [[k0,k1], edge], … ]` the field deserializes from.
 ///
-/// When `to_list` is true, each tuple-keyed map `{ [k0,k1]: edge, … }`
-/// becomes a list `[ [[k0,k1], edge], … ]`; when false, the inverse.
-/// Idempotent against already-correct shapes: a field already in the
-/// target shape is left untouched.
-fn reshape_complement_pair_maps(value: &mut CborValue, to_list: bool) {
+/// Returns whether anything was rewritten, so a caller can tell a
+/// wrong-shaped complement from one that simply does not decode.
+fn normalize_complement_pair_maps(value: &mut CborValue) -> bool {
     let CborValue::Map(entries) = value else {
-        return;
+        return false;
     };
+    let mut rewrote = false;
     for (key, field) in entries.iter_mut() {
         let CborValue::Text(name) = key else { continue };
         if !COMPLEMENT_PAIR_MAP_FIELDS.contains(&name.as_str()) {
             continue;
         }
-        if to_list {
-            if let CborValue::Map(pairs) = field {
-                let list = pairs
-                    .drain(..)
-                    .map(|(k, v)| CborValue::Array(vec![k, v]))
-                    .collect();
-                *field = CborValue::Array(list);
-            }
-        } else if let CborValue::Array(items) = field {
-            let pairs = items
+        if let CborValue::Map(pairs) = field {
+            let list = pairs
                 .drain(..)
-                .filter_map(|item| match item {
-                    CborValue::Array(kv) if kv.len() == 2 => {
-                        let mut it = kv.into_iter();
-                        match (it.next(), it.next()) {
-                            (Some(k), Some(v)) => Some((k, v)),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                })
+                .map(|(k, v)| CborValue::Array(vec![k, v]))
                 .collect();
-            *field = CborValue::Map(pairs);
+            *field = CborValue::Array(list);
+            rewrote = true;
         }
     }
+    rewrote
 }
 
 /// Auto-generate a protolens chain between two schemas.
@@ -1186,10 +1178,10 @@ mod tests {
     }
 
     /// The host-shape complement codec must round-trip: encoding a
-    /// complement for the host (tuple-keyed maps as lists-of-pairs) and
-    /// decoding it back yields an equivalent complement. Exercises a
-    /// complement with populated `contraction_choices` and `arc_edges`,
-    /// the two fields whose CBOR shape differs from `ciborium`'s default.
+    /// complement for the host and decoding it back yields an equivalent
+    /// complement. Exercises a complement with populated
+    /// `contraction_choices` and `arc_edges`, the two tuple-keyed fields,
+    /// and the map shape an older encoding of them carries.
     #[test]
     fn complement_host_shape_round_trips() {
         use panproto_core::gat::Name;
@@ -1228,12 +1220,43 @@ mod tests {
         assert_eq!(restored.original_parent.get(&2), Some(&1));
         assert_eq!(restored.source_fingerprint, 99);
 
-        // decode_complement_from_host also tolerates the ciborium map
-        // shape (a complement this crate encoded directly), so both
-        // conventions decode.
-        let map_bytes = canonical::encode(&comp).unwrap();
-        let from_map = decode_complement_from_host(&map_bytes).unwrap();
+        // An older encoding spells the two tuple-keyed fields as CBOR
+        // maps. Build that shape from the host bytes and check it still
+        // decodes, since that is the whole point of the fallback.
+        let mut legacy: ciborium::value::Value = canonical::decode(&host_bytes).unwrap();
+        let ciborium::value::Value::Map(entries) = &mut legacy else {
+            panic!("a complement encodes as a CBOR map");
+        };
+        let mut rewrote = 0;
+        for (key, field) in entries.iter_mut() {
+            if !matches!(key.as_text(), Some("contraction_choices" | "arc_edges")) {
+                continue;
+            }
+            let ciborium::value::Value::Array(items) = field else {
+                panic!("the tuple-keyed fields encode as lists of pairs");
+            };
+            let pairs = items
+                .drain(..)
+                .map(|item| {
+                    let ciborium::value::Value::Array(kv) = item else {
+                        panic!("each entry is a [key, value] pair");
+                    };
+                    let mut it = kv.into_iter();
+                    (it.next().unwrap(), it.next().unwrap())
+                })
+                .collect();
+            *field = ciborium::value::Value::Map(pairs);
+            rewrote += 1;
+        }
+        assert_eq!(rewrote, 2, "both tuple-keyed fields must be rewritten");
+
+        let legacy_bytes = canonical::encode(&legacy).unwrap();
+        let from_map = decode_complement_from_host(&legacy_bytes).unwrap();
         assert_eq!(from_map.contraction_choices.get(&(1, 2)), Some(&edge));
+        assert_eq!(from_map.arc_edges.get(&(3, 4)), Some(&edge));
+
+        // Bytes that decode in neither shape are still an error.
+        assert!(decode_complement_from_host(b"\xa1\x00\x00").is_err());
     }
 
     #[test]
