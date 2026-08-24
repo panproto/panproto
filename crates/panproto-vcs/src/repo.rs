@@ -515,6 +515,7 @@ impl Repository {
                     migration_from_theirs: panproto_mig::Migration::empty(),
                     pullback_overlap: None,
                     pullback_error: None,
+                    identified_additions: Vec::new(),
                 });
             }
         } else if options.ff_only {

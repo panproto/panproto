@@ -50,6 +50,8 @@ At merge time, `panproto-vcs` calls `verify_pushout`. Both branch-to-merge migra
 
 These are necessary cocone conditions, not the complete universal property. The separate `verify_pushout_universal` function checks factorization through a caller-supplied alternative cocone, but only for vertices; the alternative-cocone API has no edge maps. Schema merge does not call it.
 
+The schema merge identifies same-name additions, exactly as the GAT construction identifies same-name sorts and operations outside the base image. Two branches that independently add a vertex $x$ of the same kind, or an edge with the same endpoints, kind and label, produce one element in the merged schema; the free pushout would produce two, and the cocone that keeps both copies distinct therefore receives no mediator from the merge. What the merge computes is that pushout quotiented by same-name identification, which is the reading a name-addressed schema calls for. Additions that share a name but disagree about the element are not identified: they are reported as conflicts. `MergeResult::identified_additions` lists every identification the merge made, so a caller who needs the two copies kept apart can rename one side before merging.
+
 ## Limits
 
 The pushout construction does not choose a resolution for incompatible edits. Repository histories are not themselves proved to present the base-to-branch span assumed above. The implementation also publishes no asymptotic or wall-clock bound for the complete merge procedure.
