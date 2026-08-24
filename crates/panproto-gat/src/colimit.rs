@@ -26,7 +26,9 @@ impl ColimitResult {
     /// Verify the cocone (commutativity) condition: `j1 ∘ i1 = j2 ∘ i2`.
     ///
     /// For every sort and operation in the shared theory, the two paths
-    /// through the pushout must agree.
+    /// through the pushout must agree. `t1` and `t2` are the span's two
+    /// legs' codomains, i.e. the theories the inclusions map out of; they
+    /// supply the operation signatures each composition needs.
     ///
     /// # Errors
     ///
@@ -37,9 +39,11 @@ impl ColimitResult {
         i1: &TheoryMorphism,
         i2: &TheoryMorphism,
         shared: &Theory,
+        t1: &Theory,
+        t2: &Theory,
     ) -> Result<(), GatError> {
-        let lhs = i1.compose(&self.inclusion1)?;
-        let rhs = i2.compose(&self.inclusion2)?;
+        let lhs = i1.compose(&self.inclusion1, t1)?;
+        let rhs = i2.compose(&self.inclusion2, t2)?;
 
         for sort in &shared.sorts {
             let l = lhs.sort_map.get(&sort.name);
@@ -169,7 +173,7 @@ pub fn colimit(
     // standalone-total theories can invoke
     // [`ColimitResult::verify_universal_identity`] explicitly to additionally
     // gate on the universal property.
-    verify_cocone(i1, i2, &result)?;
+    verify_cocone(i1, i2, t1, t2, &result)?;
     Ok(result)
 }
 
@@ -287,8 +291,8 @@ impl ColimitResult {
         // sending an operation to one whose signature q does not preserve.
         check_morphism(&mediator, &self.theory, q)?;
 
-        let m_j1 = self.inclusion1.compose(&mediator)?;
-        let m_j2 = self.inclusion2.compose(&mediator)?;
+        let m_j1 = self.inclusion1.compose(&mediator, &self.theory)?;
+        let m_j2 = self.inclusion2.compose(&mediator, &self.theory)?;
         if m_j1.sort_map != k1.sort_map || m_j1.op_map != k1.op_map {
             return Err(GatError::EquationNotPreserved {
                 equation: "universal property: m ∘ j1 = k1".to_string(),
@@ -539,10 +543,12 @@ fn merge_ops(
 fn verify_cocone(
     i1: &TheoryMorphism,
     i2: &TheoryMorphism,
+    t1: &Theory,
+    t2: &Theory,
     result: &ColimitResult,
 ) -> Result<(), GatError> {
-    let lhs = i1.compose(&result.inclusion1)?;
-    let rhs = i2.compose(&result.inclusion2)?;
+    let lhs = i1.compose(&result.inclusion1, t1)?;
+    let rhs = i2.compose(&result.inclusion2, t2)?;
     for shared_sort in i1.sort_map.keys() {
         let l = lhs.sort_map.get(shared_sort);
         let r = rhs.sort_map.get(shared_sort);
@@ -2027,7 +2033,7 @@ mod tests {
         check_morphism(&result.inclusion1, &t1, &result.theory)
             .expect("T1 inclusion is a morphism into the pushout");
         result
-            .verify_cocone(&i1, &i2, &shared)
+            .verify_cocone(&i1, &i2, &shared, &t1, &t2)
             .expect("the pushout cocone commutes");
     }
 

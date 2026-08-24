@@ -79,13 +79,13 @@ fn theory_morphism_compose_associative() -> Result<(), Box<dyn std::error::Error
         vec![Operation::unary("f", "x", "A", "A")],
         Vec::new(),
     );
-    let _t2 = Theory::new(
+    let t2 = Theory::new(
         "T2",
         vec![Sort::simple("B")],
         vec![Operation::unary("g", "x", "B", "B")],
         Vec::new(),
     );
-    let _t3 = Theory::new(
+    let t3 = Theory::new(
         "T3",
         vec![Sort::simple("C")],
         vec![Operation::unary("h", "x", "C", "C")],
@@ -121,10 +121,10 @@ fn theory_morphism_compose_associative() -> Result<(), Box<dyn std::error::Error
     );
 
     // (m1 ; m2) ; m3
-    let left = m1.compose(&m2)?.compose(&m3)?;
+    let left = m1.compose(&m2, &t2)?.compose(&m3, &t3)?;
     // m1 ; (m2 ; m3)
-    let m2_m3 = m2.compose(&m3)?;
-    let right = m1.compose(&m2_m3)?;
+    let m2_m3 = m2.compose(&m3, &t3)?;
+    let right = m1.compose(&m2_m3, &t2)?;
 
     assert_eq!(left.sort_map, right.sort_map, "sort_map associativity");
     assert_eq!(left.op_map, right.op_map, "op_map associativity");
@@ -168,12 +168,12 @@ fn theory_morphism_identity_unit() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // id ; m == m
-    let id_then_m = id1.compose(&m)?;
+    let id_then_m = id1.compose(&m, &t1)?;
     assert_eq!(id_then_m.sort_map, m.sort_map, "left identity sort_map");
     assert_eq!(id_then_m.op_map, m.op_map, "left identity op_map");
 
     // m ; id == m
-    let m_then_id = m.compose(&id2)?;
+    let m_then_id = m.compose(&id2, &t2)?;
     assert_eq!(m_then_id.sort_map, m.sort_map, "right identity sort_map");
     assert_eq!(m_then_id.op_map, m.op_map, "right identity op_map");
 
@@ -688,7 +688,7 @@ mod property {
                 Sort::simple(format!("A_{suffix_a}")),
                 Sort::simple(format!("B_{suffix_a}")),
             ];
-            let _t2 = Theory::new(
+            let t2 = Theory::new(
                 "T2",
                 t2_sorts,
                 vec![Operation::unary(format!("f_{suffix_a}"), "x", format!("A_{suffix_a}"), format!("B_{suffix_a}"))],
@@ -699,7 +699,7 @@ mod property {
                 Sort::simple(format!("A_{suffix_a}_{suffix_b}")),
                 Sort::simple(format!("B_{suffix_a}_{suffix_b}")),
             ];
-            let _t3 = Theory::new(
+            let t3 = Theory::new(
                 "T3",
                 t3_sorts,
                 vec![Operation::unary(format!("f_{suffix_a}_{suffix_b}"), "x", format!("A_{suffix_a}_{suffix_b}"), format!("B_{suffix_a}_{suffix_b}"))],
@@ -742,8 +742,8 @@ mod property {
                 HashMap::from([(Arc::from(format!("f_{suffix_a}_{suffix_b}").as_str()), Arc::from(format!("f_{suffix_a}_{suffix_b}_{suffix_c}").as_str()))]),
             );
 
-            let left = m1.compose(&m2).unwrap().compose(&m3).unwrap();
-            let right = m1.compose(&m2.compose(&m3).unwrap()).unwrap();
+            let left = m1.compose(&m2, &t2).unwrap().compose(&m3, &t3).unwrap();
+            let right = m1.compose(&m2.compose(&m3, &t3).unwrap(), &t2).unwrap();
             prop_assert_eq!(&left.sort_map, &right.sort_map);
             prop_assert_eq!(&left.op_map, &right.op_map);
         }
