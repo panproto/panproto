@@ -141,10 +141,17 @@ fn eval_inner(
     state.tick()?;
 
     match expr {
-        Expr::Var(name) => env
-            .get(name)
-            .cloned()
-            .ok_or_else(|| ExprError::UnboundVariable(name.to_string())),
+        // The builtins form a scope beneath the environment: a lexical
+        // binding of the same name shadows one, and a free variable naming a
+        // builtin denotes that builtin as a value, curried over its arity.
+        Expr::Var(name) => env.get(name).cloned().map_or_else(
+            || {
+                BuiltinOp::from_name(name)
+                    .map(builtin_as_value)
+                    .ok_or_else(|| ExprError::UnboundVariable(name.to_string()))
+            },
+            Ok,
+        ),
 
         Expr::Lit(lit) => Ok(lit.clone()),
 
@@ -210,6 +217,12 @@ fn eval_inner(
             eval_inner(body, &new_env, depth + 1, state)
         }
 
+        Expr::Builtin(op, args) if args.len() < op.arity() => {
+            // A builtin given fewer arguments than it takes is a function of
+            // the rest, exactly as a partially applied lambda is.
+            eval_partial_builtin(*op, args, env, depth, state)
+        }
+
         Expr::Builtin(op, args) => {
             // Special handling for higher-order builtins (Map, Filter, Fold,
             // FlatMap) and for Range, which needs the list-length budget:
@@ -236,6 +249,67 @@ fn eval_inner(
             }
         }
     }
+}
+
+/// The name a builtin's `n`-th curried parameter binds.
+///
+/// The double underscore keeps these out of the way of surface identifiers,
+/// which the lexer does not admit with that prefix.
+fn builtin_param(index: usize) -> Arc<str> {
+    Arc::from(format!("__builtin_arg{index}"))
+}
+
+/// The function a builtin denotes once `supplied` arguments are in hand: a
+/// closure taking the rest one at a time, in surface order.
+///
+/// Arguments sit in surface order until the call is saturated, so the
+/// permutation into [`Expr::Builtin`] order is applied once, on the complete
+/// list inside the closure's body.
+fn curried_builtin(op: BuiltinOp, mut surface: Vec<Expr>) -> Literal {
+    let arity = op.arity();
+    let first_missing = surface.len();
+    for index in first_missing..arity {
+        surface.push(Expr::Var(builtin_param(index)));
+    }
+
+    let mut body = Expr::Builtin(op, op.surface_args_to_expr_args(surface));
+    // Wrap innermost-last: `\a_k -> ... -> \a_{n-1} -> op a_0 ... a_{n-1}`.
+    for index in (first_missing + 1..arity).rev() {
+        body = Expr::Lam(builtin_param(index), Box::new(body));
+    }
+    Literal::Closure {
+        param: builtin_param(first_missing),
+        body: Box::new(body),
+        env: Vec::new(),
+    }
+}
+
+/// The value a builtin's bare name denotes: the builtin curried over its whole
+/// argument list.
+fn builtin_as_value(op: BuiltinOp) -> Literal {
+    curried_builtin(op, Vec::new())
+}
+
+/// Evaluate an under-saturated builtin to the function of its missing
+/// arguments.
+///
+/// The arguments already supplied are evaluated here, at the point the partial
+/// application is written, and carried into the closure as literals; the rest
+/// are abstracted over. Arguments sit in surface order until the call is
+/// saturated, so the permutation into `Expr::Builtin` order is applied once,
+/// on the complete list inside the closure's body.
+fn eval_partial_builtin(
+    op: BuiltinOp,
+    args: &[Expr],
+    env: &Env,
+    depth: u32,
+    state: &mut EvalState<'_>,
+) -> Result<Literal, ExprError> {
+    let mut surface = Vec::with_capacity(op.arity());
+    for arg in args {
+        surface.push(Expr::Lit(eval_inner(arg, env, depth + 1, state)?));
+    }
+    Ok(curried_builtin(op, surface))
 }
 
 /// Evaluate a range: `range(start, stop)` -> `[start, ..., stop]`.

@@ -250,6 +250,95 @@ pub enum BuiltinOp {
 }
 
 impl BuiltinOp {
+    /// Resolve a surface identifier to the builtin it names.
+    ///
+    /// Both the `snake_case` and `camelCase` spellings are accepted where the
+    /// surface syntax offers both.
+    #[must_use]
+    pub fn from_name(name: &str) -> Option<Self> {
+        match name {
+            "add" => Some(Self::Add),
+            "sub" => Some(Self::Sub),
+            "mul" => Some(Self::Mul),
+            "abs" => Some(Self::Abs),
+            "floor" => Some(Self::Floor),
+            "ceil" => Some(Self::Ceil),
+            "round" => Some(Self::Round),
+            "concat" => Some(Self::Concat),
+            "len" => Some(Self::Len),
+            "slice" => Some(Self::Slice),
+            "upper" => Some(Self::Upper),
+            "lower" => Some(Self::Lower),
+            "trim" => Some(Self::Trim),
+            "split" => Some(Self::Split),
+            "join" => Some(Self::Join),
+            "replace" => Some(Self::Replace),
+            "contains" => Some(Self::Contains),
+            "map" => Some(Self::Map),
+            "filter" => Some(Self::Filter),
+            "fold" => Some(Self::Fold),
+            "append" => Some(Self::Append),
+            "head" => Some(Self::Head),
+            "tail" => Some(Self::Tail),
+            "reverse" => Some(Self::Reverse),
+            "flat_map" | "flatMap" => Some(Self::FlatMap),
+            "length" => Some(Self::Length),
+            "range" => Some(Self::Range),
+            "merge" | "merge_records" => Some(Self::MergeRecords),
+            "keys" => Some(Self::Keys),
+            "values" => Some(Self::Values),
+            "has_field" | "hasField" => Some(Self::HasField),
+            "default" | "default_val" | "defaultVal" => Some(Self::DefaultVal),
+            "clamp" => Some(Self::Clamp),
+            "truncate_str" | "truncateStr" => Some(Self::TruncateStr),
+            "int_to_float" | "intToFloat" => Some(Self::IntToFloat),
+            "float_to_int" | "floatToInt" => Some(Self::FloatToInt),
+            "int_to_str" | "intToStr" => Some(Self::IntToStr),
+            "float_to_str" | "floatToStr" => Some(Self::FloatToStr),
+            "str_to_int" | "strToInt" => Some(Self::StrToInt),
+            "str_to_float" | "strToFloat" => Some(Self::StrToFloat),
+            "type_of" | "typeOf" => Some(Self::TypeOf),
+            "is_null" | "isNull" => Some(Self::IsNull),
+            "is_list" | "isList" => Some(Self::IsList),
+            "edge" => Some(Self::Edge),
+            "children" => Some(Self::Children),
+            "has_edge" | "hasEdge" => Some(Self::HasEdge),
+            "edge_count" | "edgeCount" => Some(Self::EdgeCount),
+            "anchor" => Some(Self::Anchor),
+            _ => None,
+        }
+    }
+
+    /// Permute surface-syntax arguments into the order [`Expr::Builtin`] holds.
+    ///
+    /// The surface syntax follows the usual functional convention of naming the
+    /// function first (`map f xs`, `fold f z xs`), while [`Expr::Builtin`] takes
+    /// the list first and the function last. The two orders are deliberately
+    /// distinct: `Expr` is serialized into stored lens documents, so its
+    /// argument order is the compatibility-bearing one and the surface syntax
+    /// lowers into it.
+    ///
+    /// The permutation applies only to a saturated call, since a partial
+    /// application has no complete order to permute. Builtins outside this set
+    /// take their arguments in the same order at both layers and pass through
+    /// untouched.
+    #[must_use]
+    pub fn surface_args_to_expr_args(self, mut args: Vec<Expr>) -> Vec<Expr> {
+        match (self, args.len()) {
+            // `map f xs` / `filter p xs` / `flat_map f xs` -> [xs, f]
+            (Self::Map | Self::Filter | Self::FlatMap, 2) => {
+                args.swap(0, 1);
+                args
+            }
+            // `fold f z xs` -> [xs, z, f]
+            (Self::Fold, 3) => {
+                args.swap(0, 2);
+                args
+            }
+            _ => args,
+        }
+    }
+
     /// Returns the expected number of arguments for this builtin.
     #[must_use]
     pub const fn arity(self) -> usize {

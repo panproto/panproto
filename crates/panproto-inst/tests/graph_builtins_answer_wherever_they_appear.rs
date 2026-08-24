@@ -1,12 +1,12 @@
 //! The graph builtins are ordinary builtins that happen to need an instance.
 //!
-//! Instance-aware evaluation used to intercept them only at the root of the
-//! expression, so `edge_count self > 0` — the shape any real predicate takes —
-//! evaluated `edge_count` with no instance at all and got `null` back, and the
-//! comparison then answered on nothing. Under an `if`, a lambda, or a
-//! comprehension the same silence applied. Misapplying one was worse: the
-//! handler indexed its argument list without checking how long it was, so
-//! `edge 1` aborted the process.
+//! Instance-aware evaluation supplies the instance at every point a builtin is
+//! applied, so `edge_count self > 0` — the shape any real predicate takes —
+//! reads the same graph the root of the expression would, and so does a graph
+//! builtin under a binding, a lambda, or a comprehension. Short of its
+//! arguments a graph builtin is a function of the rest, like any other
+//! builtin; called directly with the wrong number it reports arity rather than
+//! reading an argument it was not given.
 
 #![allow(
     clippy::expect_used,
@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use panproto_expr::{BuiltinOp, Env, EvalConfig, Expr, ExprError, Literal};
 use panproto_gat::Name;
 use panproto_inst::value::Value;
-use panproto_inst::{Node, WInstance, eval_with_instance};
+use panproto_inst::{ElementOps, Node, WInstance, eval_with_instance};
 use panproto_schema::Edge;
 
 /// A two-node instance: `document` with one `body` child.
@@ -132,9 +132,39 @@ fn a_graph_builtin_inside_a_map_still_sees_the_instance() {
 }
 
 #[test]
-fn a_graph_builtin_given_too_few_arguments_reports_arity() {
-    let expr = Expr::Builtin(BuiltinOp::Edge, vec![Expr::Lit(Literal::Int(1))]);
-    let err = eval(&expr).expect_err("one argument is not enough for edge");
+fn a_graph_builtin_given_too_few_arguments_is_a_function_of_the_rest() {
+    // `edge 1` names the node but not the edge kind, so it denotes a function
+    // of the kind. Supplying it completes the call against the instance.
+    let partial = Expr::Builtin(BuiltinOp::Edge, vec![Expr::Lit(Literal::Int(0))]);
+    assert!(
+        matches!(
+            eval(&partial).expect("the partial application evaluates"),
+            Literal::Closure { .. }
+        ),
+        "one argument short of `edge` is a function of the missing one"
+    );
+
+    let applied = Expr::App(
+        Box::new(partial),
+        Box::new(Expr::Lit(Literal::Str("body".into()))),
+    );
+    assert!(
+        matches!(
+            eval(&applied).expect("the completed call evaluates"),
+            Literal::Record(_)
+        ),
+        "completing the call reaches the child across the body arc"
+    );
+}
+
+#[test]
+fn calling_a_graph_builtin_short_of_its_arguments_reports_arity() {
+    // The handler is reachable directly, without the evaluator's currying in
+    // front of it, so it checks how many arguments it was given before it
+    // reads any of them.
+    let err = instance()
+        .eval_graph_builtin(BuiltinOp::Edge, &[Literal::Int(1)], Some(0))
+        .expect_err("one argument is not enough for edge");
     assert!(
         matches!(
             err,
