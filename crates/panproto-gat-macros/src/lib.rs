@@ -256,10 +256,7 @@ impl Parse for ClassInput {
 #[proc_macro]
 pub fn class(input: TokenStream) -> TokenStream {
     let class = parse_macro_input!(input as ClassInput);
-    match class_theory_tokens(&class, "class!") {
-        Ok(tokens) => tokens.into(),
-        Err(e) => e.to_compile_error().into(),
-    }
+    class_theory_tokens(&class, "class!").into()
 }
 
 /// Build the theory-constructor function for a parsed class body.
@@ -268,7 +265,7 @@ pub fn class(input: TokenStream) -> TokenStream {
 /// given body yields the same sorts, operations and equations whichever macro
 /// introduces it. `macro_name` names the macro in the generated function's doc
 /// comment.
-fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> syn::Result<TokenStream2> {
+fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> TokenStream2 {
     let name_str = class.name.to_string();
     let fn_name = format_ident!("theory_{}", name_str.to_lowercase());
 
@@ -314,8 +311,8 @@ fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> syn::Result<Toke
                 rhs,
             }) => {
                 let ax_name_str = ax_name.to_string();
-                let lhs_tokens = term_ast_to_tokens(&lhs);
-                let rhs_tokens = term_ast_to_tokens(&rhs);
+                let lhs_tokens = term_ast_to_tokens(lhs);
+                let rhs_tokens = term_ast_to_tokens(rhs);
                 eq_inits.push(quote! {
                     ::panproto_gat::Equation::new(
                         #ax_name_str,
@@ -328,7 +325,7 @@ fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> syn::Result<Toke
     }
 
     let doc = format!("Construct the `{name_str}` theory produced by the `{macro_name}` macro.");
-    Ok(quote! {
+    quote! {
         #[doc = #doc]
         pub fn #fn_name() -> ::panproto_gat::Theory {
             ::panproto_gat::Theory::new(
@@ -338,7 +335,7 @@ fn class_theory_tokens(class: &ClassInput, macro_name: &str) -> syn::Result<Toke
                 ::std::vec![ #( #eq_inits ),* ],
             )
         }
-    })
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════
@@ -624,10 +621,7 @@ pub fn derive_theory(input: TokenStream) -> TokenStream {
     }
 
     let class_name = class.name.clone();
-    let class_tokens = match class_theory_tokens(&class, "derive_theory!") {
-        Ok(tokens) => tokens,
-        Err(e) => return e.to_compile_error().into(),
-    };
+    let class_tokens = class_theory_tokens(&class, "derive_theory!");
 
     // Primary sort: the first param of the class.
     let Some(primary_sort) = class.params.first().cloned() else {

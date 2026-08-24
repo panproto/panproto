@@ -114,6 +114,7 @@ fn two_shape_migration() -> (Schema, Schema, Migration) {
         resolver: HashMap::new(),
         hyper_resolver,
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     };
