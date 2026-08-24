@@ -4,7 +4,7 @@
 //! the source schema of the second. The resulting lens goes directly from
 //! the first source to the second target.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use panproto_expr::Expr;
 use panproto_gat::Name;
@@ -133,9 +133,12 @@ pub(crate) fn compose_compiled_migrations(
         OnMissing::KeepIntermediate,
     )
     .map;
-    // Also include m2 remaps for vertices not in m1's remap.
+    // Also include m2 remaps for vertices m1's remap does not reach.
+    // The reached set is collected once: asking `values().any(...)` per
+    // entry walks all of m1's remap for every entry of m2's.
+    let m1_targets: HashSet<&Name> = m1.vertex_remap.values().collect();
     for (mid, tgt) in &m2.vertex_remap {
-        if !m1.vertex_remap.values().any(|v| v == mid) {
+        if !m1_targets.contains(mid) {
             vertex_remap
                 .entry(mid.clone())
                 .or_insert_with(|| tgt.clone());

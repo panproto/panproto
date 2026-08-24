@@ -54,6 +54,15 @@ pub enum LensError {
     )]
     CompositionMismatch,
 
+    /// A symmetric lens was assembled from two legs whose source
+    /// schemas are not the same schema, so the middle it claims to
+    /// share does not exist.
+    #[error("the two legs do not share a middle: {detail}")]
+    NoSharedMiddle {
+        /// How the two source schemas differ.
+        detail: String,
+    },
+
     /// A value-level transform of the second lens reads a field the first
     /// lens drops, so the composed expression has no binding for it.
     ///
