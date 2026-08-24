@@ -4,8 +4,10 @@
 //! - The vertex map is bijective
 //! - The edge map is bijective
 //! - No vertices or edges are dropped
+//! - Every value-level coercion it carries records an inverse term
 //!
-//! The inverse swaps source and target in all maps.
+//! The inverse swaps source and target in all maps, and turns each coercion
+//! around so the values travel back with the structure.
 
 use std::collections::HashMap;
 
@@ -19,8 +21,9 @@ use crate::migration::Migration;
 /// Check invertibility and return the inverse migration if possible.
 ///
 /// A migration is invertible iff its vertex map and edge map are both
-/// bijective and no schema elements are dropped. The inverse simply
-/// reverses the direction of all mappings.
+/// bijective, no schema elements are dropped, and every value-level coercion
+/// it carries can be turned around. The inverse reverses the direction of all
+/// mappings and reverses each coercion with them.
 ///
 /// # Errors
 ///
@@ -29,6 +32,8 @@ use crate::migration::Migration;
 /// - `EdgeNotBijective` if the edge map is not injective
 /// - `DroppedVertices` if target vertices are not in the image
 /// - `DroppedEdges` if target edges are not in the image
+/// - `CoercionNotInvertible` if a coercion records no inverse term, so the
+///   values it rewrote cannot be brought back
 pub fn invert(
     migration: &Migration,
     _src: &Schema,
@@ -119,6 +124,26 @@ pub fn invert(
         inv_hyper_resolver.insert((inv_he_id, inv_labels), (he_id.clone(), inv_label_remap));
     }
 
+    // Invert the value action. A coercion at source vertex `v` acts on the
+    // values the inverse migration finds at `F(v)`, so the inverted table is
+    // keyed there, and its spec runs the other way. A coercion recording no
+    // inverse term has no other way to run: the inverse would carry values
+    // still typed for the schema they came from, so it is refused instead.
+    let mut inv_coercions = HashMap::with_capacity(migration.coercions.len());
+    for (src_v, spec) in &migration.coercions {
+        let Some(inverse_spec) = crate::migration::invert_coercion(spec) else {
+            return Err(InvertError::CoercionNotInvertible {
+                vertex: src_v.to_string(),
+            });
+        };
+        let Some(tgt_v) = migration.vertex_map.get(src_v).cloned() else {
+            return Err(InvertError::NotBijective {
+                detail: format!("coercion vertex {src_v} not in vertex map"),
+            });
+        };
+        inv_coercions.insert(tgt_v, inverse_spec);
+    }
+
     Ok(Migration {
         vertex_map: inv_vertex_map,
         edge_map: inv_edge_map,
@@ -132,7 +157,7 @@ pub fn invert(
         // it, but a hand-built enriched migration does. That is a known gap and
         // it is separate from the endpoints below.
         expr_resolvers: HashMap::new(),
-        coercions: HashMap::new(),
+        coercions: inv_coercions,
         // The endpoints are carried across, swapped. An inverse runs from the
         // codomain to the domain, so dropping them made every inverse
         // composable with everything, which is exactly the check `compose`
@@ -351,5 +376,63 @@ mod tests {
         let tgt2 = test_schema(&[("a", "object")], &[]);
         let result = invert(&mig_non_inj, &src, &tgt2);
         assert!(result.is_err(), "non-bijective migration should not invert");
+    }
+
+    /// A coercion whose two terms undo each other: add one, subtract one.
+    fn plus_one() -> panproto_schema::CoercionSpec {
+        use std::sync::Arc;
+
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+
+        let value = || Expr::Var(Arc::from(crate::migration::COERCION_INPUT));
+        panproto_schema::CoercionSpec {
+            forward: Expr::Builtin(BuiltinOp::Add, vec![value(), Expr::Lit(Literal::Int(1))]),
+            inverse: Some(Expr::Builtin(
+                BuiltinOp::Sub,
+                vec![value(), Expr::Lit(Literal::Int(1))],
+            )),
+            class: panproto_gat::CoercionClass::Iso,
+        }
+    }
+
+    #[test]
+    fn an_inverse_carries_the_value_action_back() {
+        let schema = test_schema(&[("a", "integer"), ("b", "integer")], &[]);
+        let mut migration = Migration::identity(&[Name::from("a"), Name::from("b")], &[]);
+        migration.coercions.insert(Name::from("a"), plus_one());
+
+        let inverse = invert(&migration, &schema, &schema).unwrap();
+        let spec = inverse.coercions.get(&Name::from("a")).unwrap_or_else(|| {
+            panic!(
+                "the inverse must act on values at `a` too: {:?}",
+                inverse.coercions
+            )
+        });
+        assert_eq!(
+            Some(&spec.forward),
+            plus_one().inverse.as_ref(),
+            "the inverse's forward term is the original's inverse",
+        );
+        assert_eq!(
+            spec.inverse.as_ref(),
+            Some(&plus_one().forward),
+            "and its inverse term is the original's forward",
+        );
+    }
+
+    #[test]
+    fn a_coercion_with_no_way_back_refuses_to_invert() {
+        let schema = test_schema(&[("a", "integer"), ("b", "integer")], &[]);
+        let mut one_way = plus_one();
+        one_way.inverse = None;
+        one_way.class = panproto_gat::CoercionClass::Projection;
+        let mut migration = Migration::identity(&[Name::from("a"), Name::from("b")], &[]);
+        migration.coercions.insert(Name::from("a"), one_way);
+
+        let err = invert(&migration, &schema, &schema).unwrap_err();
+        assert!(
+            matches!(err, InvertError::CoercionNotInvertible { ref vertex } if vertex == "a"),
+            "got {err:?}",
+        );
     }
 }

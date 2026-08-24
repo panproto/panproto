@@ -197,3 +197,36 @@ pub fn compose_coercions(
         class: first.class.compose(second.class),
     }
 }
+
+/// Turn a value-level coercion around: the spec that runs the other way.
+///
+/// The two terms swap, so the reversed spec computes what the original undid
+/// and undoes what it computed. A spec recording no inverse term cannot be
+/// turned around at all, and this returns `None` for it rather than inventing
+/// one.
+///
+/// The round-trip class turns around with the terms. An isomorphism reversed
+/// is an isomorphism. A retraction reversed is a projection: a retraction's
+/// inverse recovers the source from the image, so read the other way it is the
+/// deterministic map with no left inverse, which is exactly the dual the
+/// information-loss lattice pairs it with. Every other class is reported as
+/// opaque, the floor of that lattice, which claims nothing about the reversed
+/// round trip rather than guessing a dual for it.
+#[must_use]
+pub fn invert_coercion(
+    spec: &panproto_schema::CoercionSpec,
+) -> Option<panproto_schema::CoercionSpec> {
+    use panproto_gat::CoercionClass;
+
+    let forward = spec.inverse.clone()?;
+    let class = match spec.class {
+        CoercionClass::Iso => CoercionClass::Iso,
+        CoercionClass::Retraction => CoercionClass::Projection,
+        _ => CoercionClass::Opaque,
+    };
+    Some(panproto_schema::CoercionSpec {
+        forward,
+        inverse: Some(spec.forward.clone()),
+        class,
+    })
+}

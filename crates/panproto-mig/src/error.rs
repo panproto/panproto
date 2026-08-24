@@ -345,4 +345,16 @@ pub enum InvertError {
         /// The dropped hyper-edge IDs.
         dropped: Vec<String>,
     },
+
+    /// A vertex's value-level coercion records no inverse term, so the
+    /// inverted migration has no way to bring its values back.
+    #[error(
+        "the coercion at vertex `{vertex}` records no inverse term, so the values \
+         it rewrites cannot be brought back; the inverse migration is undefined \
+         there"
+    )]
+    CoercionNotInvertible {
+        /// The source vertex whose coercion has no inverse.
+        vertex: String,
+    },
 }
