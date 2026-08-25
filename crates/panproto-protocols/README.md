@@ -4,70 +4,63 @@
 [![docs.rs](https://docs.rs/panproto-protocols/badge.svg)](https://docs.rs/panproto-protocols)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-51 built-in schema language definitions, each describing the rules for one data or API format.
+Protocol definitions and schema parsers for semantic data formats.
 
-## What it does
+## Coverage
 
-A protocol in panproto is a definition of what a valid schema looks like for a particular format, plus a parser that reads that format's native files into panproto's internal schema representation. For example, the ATProto protocol knows that Lexicon files are JSON objects with `defs` blocks, what kinds of fields are allowed, and how those fields relate to each other. The OpenAPI protocol knows about paths, operations, and components.
+The crate contains 54 format-specific schema parsers exposed through two generic
+dispatch functions. `parse_schema_document` accepts the 43 JSON-document protocols.
+`parse_schema_source` accepts the 11 text-source protocols. The latter group includes
+SQL DDL, GraphQL SDL, Protobuf, CDDL, CQL, Cypher, Redis schema text, ASN.1, Bond,
+FlatBuffers, and CoNLL-U. The `raw_file` module is a separate fallback for project
+assembly.
 
-Each protocol is assembled from smaller building-block theories by combining them with colimit (a way of merging theories that shares their common parts rather than duplicating them). For instance, a protocol that uses ordered collections includes `ThOrder`; one that needs validation rules includes `ThConstraint`. Building blocks are reused across protocols so the definitions stay compact and consistent.
+The protocol modules cover annotation formats, API descriptions, configuration,
+data-schema formats, data-science schemas, databases, domain formats, serialization
+IDLs, and web or document formats. Programming-language grammars are provided by
+`panproto-parse`, not this crate.
 
-Programming language parsing (TypeScript, Python, Rust, and so on) is handled separately by `panproto-parse` using tree-sitter grammars. The protocols here are semantic formats: annotation schemas, API specifications, database schemas, domain-specific formats, and serialization IDLs.
+Only ATProto currently has generic bundle dispatch through `parse_schema_bundle` and
+`parse_schema_bundle_project`. Other protocols must be parsed one document at a time
+unless their module exposes a separate specialized API.
 
-## Quick example
+## Theories
+
+Each `Protocol` names a schema theory and an instance theory. `theories` provides 11
+reusable constructors: `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`,
+`ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, and
+`ThGraphInstance`. Individual protocols may register additional composed theories.
+
+The generalized-algebraic-theory terminology follows
+[Cartmell (1986)](https://doi.org/10.1016/0168-0072(86)90053-9). The use of colimits
+to combine theory presentations follows the structured-specification line begun by
+[Burstall and Goguen (1977)](https://www.ijcai.org/Proceedings/77-2/Papers/095.pdf).
+
+## Example
 
 ```rust,ignore
 use panproto_protocols::atproto;
 
-// Get the ATProto protocol definition.
 let protocol = atproto::protocol();
-
-// Parse a Lexicon file into a panproto Schema.
-let schema = atproto::parse_lexicon(&lexicon_json_bytes)?;
+let document: serde_json::Value = serde_json::from_slice(&lexicon_bytes)?;
+let schema = atproto::parse_lexicon(&document)?;
 ```
 
-## API overview
+## Main entry points
 
-| Module | What it covers |
-|--------|---------------|
-| `web_document::atproto` | ATProto Lexicons |
-| `api::openapi` | OpenAPI 3.x |
-| `api::asyncapi` | AsyncAPI |
-| `api::jsonapi` | JSON:API |
-| `api::raml` | RAML |
-| `database::mongodb` | MongoDB document schemas |
-| `database::dynamodb` | DynamoDB table definitions |
-| `database::cassandra` | Cassandra CQL schemas |
-| `database::neo4j` | Neo4j property graph schemas |
-| `database::redis` | Redis data structure schemas |
-| `serialization::avro` | Apache Avro |
-| `serialization::flatbuffers` | FlatBuffers |
-| `serialization::asn1` | ASN.1 |
-| `serialization::bond` | Microsoft Bond |
-| `serialization::msgpack_schema` | MessagePack schema |
-| `config::k8s_crd` | Kubernetes CRDs |
-| `config::cloudformation` | AWS CloudFormation |
-| `config::ansible` | Ansible playbooks |
-| `domain::geojson` | GeoJSON |
-| `domain::fhir` | HL7 FHIR |
-| `domain::rss_atom` | RSS / Atom feeds |
-| `domain::vcard_ical` | vCard / iCal |
-| `domain::swift_mt` | SWIFT MT messages |
-| `domain::edi_x12` | EDI X12 |
-| `theories` | 5 building-block theories: `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta` |
-| `ProtocolError` | Error type for protocol operations |
+| Item | Purpose |
+|------|---------|
+| `parse_schema_document` | Dispatch a JSON value by protocol name |
+| `parse_schema_source` | Dispatch source text by protocol name |
+| `parse_schema_bundle` | Parse a supported cross-document bundle |
+| `parse_schema_bundle_project` | Retain per-file ATProto provenance |
+| `bundle_parser_protocols`, `bundle_project_protocols` | Report bundle support |
+| `theories` | Reusable theory constructors and registration functions |
+| `ProtocolError` | Parser and emitter errors |
 
-## Building-block theories
-
-Each protocol's schema and instance theories are composed from five reusable pieces:
-
-| Theory | What it provides |
-|--------|----------------|
-| `ThGraph` | Basic directed graph: `Vertex`, `Edge`, `src`, `tgt` |
-| `ThConstraint` | Vertex-attached validation rules |
-| `ThMulti` | Multi-edges between vertex pairs |
-| `ThWType` | W-type instance shape for hierarchical data |
-| `ThMeta` | Instance metadata (labels, provenance) |
+Each format module also exposes its own `protocol()`, parser, emitter, and theory
+registration functions. See [docs.rs](https://docs.rs/panproto-protocols) for those
+module-specific signatures.
 
 ## License
 

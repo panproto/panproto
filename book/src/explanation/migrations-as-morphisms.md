@@ -6,9 +6,15 @@ This representation separates a structural map from its execution. The map can b
 
 ## Maps between concrete schemas
 
-Let $S$ and $T$ be concrete schemas. In the functorial account of data migration, a schema morphism $f:S\to T$ maps source structure to target structure and induces operations between their instance categories [@spivak2012functorial; @spivakwisnesky2015relational]. In panproto's concrete representation, $f$ maps source vertices and edges to target vertices and edges. It must preserve edge endpoints and the other structural conditions enforced for the protocols involved. `Migration::compile` checks the corresponding morphism condition and rejects a map that does not preserve this structure.
+Let $S$ and $T$ be concrete schemas. In the functorial account of data migration, a schema morphism $f:S\to T$ maps source structure to target structure and induces operations between their instance categories [@spivak2012functorial; @spivakwisnesky2015relational]. In panproto's concrete representation, $f$ maps source vertices and edges to target vertices and edges. It must preserve edge endpoints and land in the target schema. The free function [`panproto_mig::compile`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compile.html) checks this mapped fragment and builds the tables used during instance migration. It does not run the separate migration-existence check.
 
-Data can then move along the compiled map. The migration API exposes several operations whose historical names use *lift* and *restrict* in different ways, so the concrete entry point matters. `lift_wtype` applies the compiled W-type mapping tables. `lift_wtype_sigma` invokes the W-type dependent-sum construction, while `lift_functor` uses functor restriction. The `schema lift` command selects `restrict` by default and also accepts `sigma` and `pi`. A caller should thus choose an operation from its documented behavior rather than infer its direction from the word *lift* alone.
+Data can then move along the compiled map. The names *lift* and *restrict* are overloaded in the current APIs, so the function and its input direction matter.
+
+- [`lift_wtype`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.lift_wtype.html) and [`lift_functor`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.lift_functor.html) take an $S$-instance and return a $T$-instance containing the fragment that survives the compiled migration. When several source vertices map to one target vertex, `lift_functor` concatenates their row sets. These functions are forward projections. They are not the categorical restriction $\Delta_f$.
+- `lift_wtype_sigma` and `lift_functor_sigma` also run from $S$ to $T$. The W-type operation requires every source anchor to have an image. The functor operation applies `functor_extend` and may then run the term-level chase supplied by its caller.
+- `lift_wtype_pi` is implemented only for vertex-injective migrations and relabels rather than constructing a product. `lift_functor_pi` computes Cartesian products over fibers and enforces its product-size limit.
+
+The `schema lift` command always parses its input under `--src-schema` and emits under `--tgt-schema`. This direction is unchanged by `--direction restrict`, `sigma`, or `pi`. The default `restrict` label selects the forward surviving-fragment projection described above. It must not be read as $\Delta_f$.
 
 The categorical vocabulary organizes a more specific fragment. Given $f:S\to T$, restriction is written
 
@@ -22,7 +28,9 @@ $$
 \Sigma_f:S\text{-Inst}\to T\text{-Inst}.
 $$
 
-The explicit constructions live in `panproto-inst::adjunction`. For set-valued `FInstance`s, the implementation constructs the unit, counit, and hom-set transposes for total vertex maps, including maps that merge vertices. Property tests exercise the triangle identities and the hom-set bijection. The corresponding `WInstance` construction has a narrower domain: it requires total vertex-injective maps together with the implemented edge-image conditions. These tests provide evidence for the adjunction in those generated fragments, rather than a proof for arbitrary partial migrations.
+The explicit constructions live in [`panproto_inst::adjunction`](https://docs.rs/panproto-inst/latest/panproto_inst/adjunction/). For set-valued `FInstance`s, `f_sigma` runs from $S$ to $T$ and `f_delta` runs from $T$ to $S$. The implementation also supplies the unit, counit, and hom-set transposes for total vertex maps, including maps that merge vertices. For `WInstance`, `w_sigma` runs from $S$ to $T$, while `w_delta` runs from $T$ to $S$ and requires vertex- and edge-injective maps whose target anchors lie in the image. Property tests exercise the triangle identities and hom-set transposes in these fragments. They do not prove an adjunction for arbitrary partial migrations.
+
+Migration composition also acts on values. `compose` combines carried coercion expressions in execution order and uses partial-map semantics for structural elements omitted by the second migration. `invert` requires bijective coverage of target vertices, edges, and hyperedges, and it refuses a carried coercion without an inverse expression. It reverses the remaining coercions and swaps the recorded schema endpoints. Hand-built `expr_resolvers` are not inverted and are dropped from the inverse.
 
 Value-level transforms are expressions in the [expression language](./semantics/expression-language.md). They determine how a target value is computed when a structural correspondence alone is insufficient.
 
@@ -39,8 +47,6 @@ where $A$ is the **apex** and the two arrows are its **legs** [@johnsonrosebrugh
 In panproto, $A$ is the sub-schema of $S$ induced by the source vertices that [the search](./morphism-search.md) matched. The left leg is the resulting inclusion, and the right leg records the match into $T$. [`panproto_schema::induce`](https://docs.rs/panproto-schema/latest/panproto_schema/induce/fn.induce.html) restricts the schema's element tables and protocol metadata to this sub-schema, rebuilds its derived indices, and validates the result. Copying only the vertex and edge maps would leave other tables referring to removed elements.
 
 The span is total when the inclusion covers all of $S$. [`SchemaSpan::is_total`](https://docs.rs/panproto-mig/latest/panproto_mig/span/struct.SchemaSpan.html) tests this condition, after which the span can yield a total schema morphism. The empty apex is a feasible match when the schemas share no compatible structure. Search may still report malformed inputs or construction errors, but it does not fail solely because no nonempty match exists.
-
-The ATProto corpus illustrates why partiality matters. Among the 5,852 ordered pairs formed from 77 Lexicons, 735 admit a total morphism and 5,117 do not. In 4,950 of the latter pairs, at least one source vertex lacks a kind-compatible target; naturality rules out the remaining 167. Thus 12.6 percent of the measured pairs admit a total morphism. [Searching for a morphism](./morphism-search.md#what-the-corpus-measures) describes the corpus test and its interpretation.
 
 Classical span equivalence uses an isomorphism between apices that commutes with both legs [@johnsonrosebrugh2014spans]. Because panproto's left leg is an inclusion, the apex is determined by its selected source vertices. A returned span can consequently be represented by that selected sub-schema and its right-leg map, without a separate graph-isomorphism quotient.
 
@@ -60,7 +66,7 @@ $$
 
 The **schema apex** $A$ records shared schema structure. The search returns this schema span. It does not construct pairs of instances that agree on $A$ or establish a model-level pullback theorem; those are separate claims that the current search API does not check.
 
-The implemented schema pushout requires an injective right leg. A default search result may map two apex vertices to one target vertex, which is a contracting right leg. [`SchemaSpan::pushout`](https://docs.rs/panproto-mig/latest/panproto_mig/span/struct.SchemaSpan.html) rejects that case. Callers that require a merge can request a monic or isomorphic search result.
+The implemented schema pushout requires an injective right leg on vertices. A default search result may map two apex vertices to one target vertex, which is a contracting right leg. [`SchemaSpan::pushout`](https://docs.rs/panproto-mig/latest/panproto_mig/span/struct.SchemaSpan.html) rejects that case. Callers that require a merge can request a monic or isomorphic search result. The underlying `schema_pushout` closes the supplied vertex and edge identifications to an equivalence relation and returns two `SchemaMorphism` values. This constructor does not run a separate universal-property checker.
 
 The data-migration adjunction does not by itself construct a symmetric lens for this pushout. @johnsonrosebrughwood2012lenses relate c-lenses to Grothendieck opfibrations and use that structure to formulate universal view updates. panproto checks its scoped adjunction and its lens laws as separate implementation properties; it does not formalize that equivalence.
 

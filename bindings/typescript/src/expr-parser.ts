@@ -10,7 +10,8 @@
 
 import type { WasmModule, Expr, Literal, Pattern } from './types.js';
 import { WasmError } from './types.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { packToWasmWithBigInt, unpackFromWasmWithBigInt } from './msgpack.js';
+import { exprFromWire, exprToWire, literalFromWire, literalToWire } from './expr-wire.js';
 
 /**
  * Parse expression source text into an AST node.
@@ -33,7 +34,7 @@ import { packToWasm, unpackFromWasm } from './msgpack.js';
 export function parseExpr(source: string, wasm: WasmModule): Expr {
   try {
     const resultBytes = wasm.exports.parse_expr(source);
-    return unpackFromWasm<Expr>(resultBytes);
+    return exprFromWire(unpackFromWasmWithBigInt<unknown>(resultBytes));
   } catch (error) {
     throw new WasmError(
       `Failed to parse expression: ${error instanceof Error ? error.message : String(error)}`,
@@ -70,10 +71,12 @@ export function evalExpr(
   wasm: WasmModule,
 ): Literal {
   try {
-    const exprBytes = packToWasm(expr);
-    const envBytes = packToWasm(env ?? {});
+    const exprBytes = packToWasmWithBigInt(exprToWire(expr));
+    const envBytes = packToWasmWithBigInt(
+      Object.entries(env ?? {}).map(([name, value]) => [name, literalToWire(value)]),
+    );
     const resultBytes = wasm.exports.eval_func_expr(exprBytes, envBytes);
-    return unpackFromWasm<Literal>(resultBytes);
+    return literalFromWire(unpackFromWasmWithBigInt<unknown>(resultBytes));
   } catch (error) {
     throw new WasmError(
       `Failed to evaluate expression: ${error instanceof Error ? error.message : String(error)}`,
@@ -184,6 +187,8 @@ function literalToString(lit: Literal): string {
       const items = lit.items.map(literalToString).join(', ');
       return `[${items}]`;
     }
+    case 'closure':
+      return `<closure \\${lit.param} -> ${exprToString(lit.body)}>`;
   }
 }
 
@@ -210,6 +215,10 @@ function patternToString(pat: Pattern): string {
     case 'list': {
       const items = pat.items.map(patternToString).join(', ');
       return `[${items}]`;
+    }
+    case 'constructor': {
+      const args = pat.args.map(patternToString).join(', ');
+      return pat.args.length === 0 ? pat.name : `${pat.name}(${args})`;
     }
   }
 }

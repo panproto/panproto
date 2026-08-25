@@ -4,74 +4,53 @@
 [![docs.rs](https://docs.rs/panproto-mig/badge.svg)](https://docs.rs/panproto-mig)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Validates, compiles, and applies schema migrations.
+`panproto-mig` validates and compiles schema mappings, applies the compiled mappings to instances, composes and inverts mappings, and searches for correspondences between schemas.
 
-## What it does
+## Migration pipeline
 
-A migration describes how to map one schema version to another: vertex A in the old schema corresponds to vertex B in the new schema, edge X maps to edge Y, this field was renamed, that field was removed. This crate takes that description, checks that it is consistent with the rules of both schemas (existence checking), then compiles it into a form that can be applied to actual data records.
+A [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/struct.Migration.html) contains source-to-target maps for schema vertices, edges, hyperedges, and labels, together with value resolvers. `check_existence` checks basic map validity and conditionally runs protocol obligations selected by the exact names of well-known sorts in the registered schema and instance theories. `compile` checks that the mapped fragment is a schema morphism and builds the `CompiledMigration` tables used by the instance crate.
 
-Applying a migration has three modes, named after mathematical lifting operations. `restrict` drops everything in the data that the migration does not cover; it is the right operation when you want to project old records into a new, smaller schema. `lift_wtype` (also called the delta lift) remaps what the migration maps and preserves everything else. `lift_wtype_sigma` (the sigma lift, or left Kan extension) fills in new fields with computed defaults. The three modes give you control over exactly how much data is preserved or synthesized during a schema transition.
+Compilation does not apply a migration to data. The transport functions take a compiled source-to-target mapping and an instance separately.
 
-For cases where you do not already know the migration, `hom_search` discovers one by exact optimisation over a cost function network: `find_span` is the entry point to reach for, because it never refuses for want of a match and answers with a span whose apex is the part of the source that found an image. `find_morphisms` is the total-morphism special case, and `discover_overlap` finds the largest sub-schema two schemas share.
+## Transport names and directions
 
-## Quick example
+Several public names predate the categorical adjunction in `panproto-inst`. Their directions must be read from their signatures:
 
-```rust,ignore
-use panproto_mig::{Migration, check_existence, compile, lift_wtype};
+| Function | Input and output | Implemented behavior |
+|---|---|---|
+| `lift_wtype` | source `WInstance` to target `WInstance` | Calls `panproto_inst::wtype_restrict`; keeps the source nodes and arcs covered by the compiled mapping, contracts dropped ancestors, and applies resolvers. |
+| `lift_functor` | source `FInstance` to target `FInstance` | Calls `functor_restrict`; forwards the surviving tables and foreign keys and concatenates rows when source vertices share a target. |
+| `lift_wtype_sigma` | source `WInstance` to target `WInstance` | Calls the total `wtype_extend` path. Every node anchor must be mapped or explicitly survive. |
+| `lift_functor_sigma` | source `FInstance` to target `FInstance` | Calls `functor_extend`, then optionally chases the supplied dependencies within the supplied budget. |
+| `lift_wtype_pi` | source `WInstance` to target `WInstance` | Calls `wtype_pi`. It supports only vertex-injective mappings and performs relabelling rather than a product. Its `max_product_nodes` argument is retained for compatibility and is unused on this path. |
+| `lift_functor_pi` | source `FInstance` to target `FInstance` | Calls `functor_pi`, which forms Cartesian products over vertex fibers and enforces `max_product_size`. |
 
-let report = check_existence(&protocol, &src_schema, &tgt_schema, &migration, &theories);
-assert!(report.valid, "migration has errors: {:?}", report.errors);
+The functions named `lift_wtype` and `lift_functor` are forward, source-to-target surviving-fragment projections. They are not the categorical restriction functor `Delta_F`. The actual `Sigma_F` and `Delta_F` transports, units, counits, and transpose maps are in [`panproto_inst::adjunction`](https://docs.rs/panproto-inst/latest/panproto_inst/adjunction/). There, `Sigma_F` carries an `S`-instance to a `T`-instance, while `Delta_F` reindexes a `T`-instance back to an `S`-instance.
 
-let compiled = compile(&src_schema, &tgt_schema, &migration)?;
-let new_instance = lift_wtype(&compiled, &src_schema, &tgt_schema, &old_instance)?;
-```
+The Sigma/Delta/Pi terminology follows [Spivak's functorial data migration
+account](https://doi.org/10.1016/j.ic.2012.05.001). panproto implements the scoped
+cases stated above rather than claiming all three constructions for every instance
+representation and partial mapping.
 
-## API overview
+## Morphism and span search
 
-| Item | What it does |
-|------|-------------|
-| `Migration` | A vertex-and-edge map from a source schema to a target schema |
-| `check_existence` | Validate that a migration is well-formed against the rules of both schemas |
-| `ExistenceReport` | Result of existence checking with a list of errors |
-| `compile` | Pre-compute surviving sets and remapping tables for fast per-record application |
-| `lift_wtype` | Apply a compiled migration to a tree-shaped instance (maps covered fields, preserves others) |
-| `lift_wtype_sigma` | Left Kan extension: fill in new fields with defaults derived from the migration |
-| `lift_wtype_pi` | Right Kan extension: conservative lift for injective migrations |
-| `lift_functor` / `lift_functor_pi` | Delta and pi lifts for table-shaped (functor) instances |
-| `compose` | Combine two sequential migrations into a single migration |
-| `invert` | Construct the inverse of a bijective migration |
-| `hom_search` | Discover a migration by exact optimisation over a cost function network |
-| `find_span` / `SchemaSpan` | The primary route: a span `src <- apex -> tgt`, which never refuses for want of a match |
-| `find_morphisms` / `find_best_morphism` | The total-morphism case: the morphisms attaining the optimum, or the single best one |
-| `discover_overlap` | Find the largest sub-schema shared between two schemas |
-| `chase` | Enforce embedded dependencies by chasing constraints to fixpoint |
-| `cascade` | Derive schema morphisms from theory morphisms (output feeds into `factorize` for protolens generation) |
-| `check_coverage` | Dry-run a migration against a set of records; report which ones succeed and which fail |
-| `CoverageReport` | Coverage statistics: total records, successful, failed, and per-record failure reasons |
-| `PartialReason` | Structured failure reason: `ConstraintViolation`, `MissingRequiredField`, `TypeMismatch`, `ExprEvalFailed` |
-| `align::exact_anchors` | Name-and-kind equality anchors (Strict+) |
-| `align::alias_anchors` / `AliasDict` / `default_alias_dict` | English-synonym-cluster anchors (Balanced+) |
-| `align::token_anchors` / `token_similarity` | Token-Jaccard plus character-bigram cosine anchors (Balanced+) |
-| `align::edge_label_anchors` | Anchors derived from incident-edge label multisets (Balanced+) |
-| `align::suffix_anchors` | Anchors keyed on the terminal dotted segment of a namespaced identifier |
-| `align::description_anchors` / `description_similarity` | Anchors from token similarity over vertex descriptions when names diverge |
-| `align::neighborhood_anchors` | Anchors propagated from already-matched neighbors (Lenient+) |
-| `align::wl_anchors` | Weisfeiler-Leman structural-refinement anchors that match graph-locally-isomorphic vertices |
-| `align::type_signature_anchors` | Multiset-overlap anchors on edge-kind signatures with coerced variants |
-| `align::wrap_unwrap_anchors` | Record-flattening/nesting anchors |
-| `align::structural_anchors` | Degree-signature anchors (Exploratory only) |
-| `align::coerce_anchors` / `CoerceAnchor` | Coerced-sort anchors backed by a `SortLensWitness` |
-| `align::evidence::aggregate` / `EvidenceTable` | Reduce an anchor pool to one score per `(source, target)` pair: provenance ceiling, priority band, `max` within a family, fixed-arity mean across families |
-| `align::evidence::EvidenceTable::select` | Off the search path: pick pairs under a cardinality rule and a row filter, for explanations and for callers wanting a map |
-| `align::defaults` | Every numeric default the evidence pipeline introduces, each documented as a principled default rather than a calibrated value |
-| `align::kinds_compatible` | True if two vertex kinds are compatible (ignoring constraints) |
-| `align::kinds_and_constraints_compatible` | Stricter kinds-compatible that also requires matching constraint sets |
-| `align::vertex_is_required` / `adjust_anchors_by_required_sets` | Required-set tiebreak: prefers anchors that preserve required-vertex sets on both sides |
-| `align::Anchor` | Candidate correspondence carrying source, target, strategy, provenance, and score |
-| `StrategyTag` | Priority-ordered strategy tag: `Exact`, `ExactSuffix`, `EdgeLabel`, `Alias`, `TokenSimilarity`, `DescriptionSimilarity`, `TypeSignature`, `WrapUnwrap`, `Coerce`, `Neighborhood`, `WlRefinement`, `Structural` |
-| `coerce::SortLensWitness` / `WitnessLibrary` / `default_witness_library` | Directional sort-to-sort lens witnesses with a verified `CoercionClass` |
-| `coerce::witness_satisfies_lens_laws` / `witness_forward_fails_on` | Property-test helpers for sort coercion witnesses |
-| `MigError` / `ComposeError` / `InvertError` / `LiftError` / `ExistenceError` / `ChaseError` | Error types |
+`find_morphisms` and `find_best_morphism` require total source-to-target schema morphisms. `find_span` permits source vertices to be excluded and returns `S <- A -> T`, where `A` is the retained source sub-schema. An empty apex is a valid span answer. Budgeted search may return a feasible incumbent without an optimality claim; callers must inspect the `SpanCertificate` or solver outcome before describing a result as optimal.
+
+The alignment module proposes candidate vertex pairs from names, descriptions, local graph structure, type signatures, and registered coercion witnesses. Auto-lens places its selected proposals in provisional pins before comparing the pinned and released searches. The standalone evidence table does not change the default objective while its shipped weight is zero.
+
+## Other public groups
+
+| Group | Main items |
+|---|---|
+| Validation and compilation | `check_existence`, `ExistenceReport`, `compile`, `check_migration_morphism` |
+| Composition and inversion | `compose`, `compose_with_report`, `invert` |
+| Search | `find_span`, `find_morphisms`, `find_best_morphism`, `SchemaSpan`, `SpanSearch`, `SearchBudget` |
+| Dependencies | `chase`, `ChaseBudget`, `Dependency`, `dependencies_from_schema`, `dependencies_from_theory` |
+| Coverage | `check_coverage`, `CoverageReport`, `PartialFailure`, `PartialReason` |
+| Theory-induced mappings | `induce_schema_morphism`, `induce_data_migration`, `induce_migration_from_theory` |
+| Coercion witnesses | `SortLensWitness`, `WitnessLibrary`, `default_witness_library` |
+
+The complete signatures and error variants are in the [Rust API documentation](https://docs.rs/panproto-mig).
 
 ## License
 

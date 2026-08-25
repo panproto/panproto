@@ -20,6 +20,7 @@ pub struct Fan {
     /// The parent node ID.
     pub parent: u32,
     /// Labeled child positions: label name to node ID.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub children: HashMap<String, u32>,
 }
 

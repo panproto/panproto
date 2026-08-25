@@ -28,7 +28,7 @@ jobs:
           fetch-depth: 0           # need history for the diff base
 
       - name: Install schema
-        run: cargo install panproto-cli --version 0.71.0 --locked
+        run: cargo install panproto-cli --version 0.72.0 --locked
 
       - name: Validate
         run: |
@@ -51,7 +51,7 @@ The job has separate validation and breaking-change steps. Validation fails on a
 
 ## Verification
 
-Push a PR and watch the workflow run. The validation step exits zero on a clean schema; the gate prints the classification and exits non-zero on breaking.
+After a pull request is pushed, validation exits zero when every schema passes. The compatibility gate prints its classification and exits nonzero for a breaking change.
 
 ## Common mistakes
 

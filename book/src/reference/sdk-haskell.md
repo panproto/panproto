@@ -23,6 +23,8 @@ Operations dispatch through associated representation families such as `Protocol
 
 The Haskell `Instance` exchange type mirrors the W-type instance used by the C boundary. It is not the Rust `panproto_inst::Instance` enum over W-type, relational, and graph representations.
 
+For a compiled schema mapping \(S\to T\), `MigrationBackend.liftRecord` accepts an \(S\)-instance and returns the surviving fragment as a \(T\)-instance. It wraps `pp_mig_lift_record`, which calls the restrict-based Rust function `mig::lift_wtype`. This operation is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). The Haskell capability class does not expose the separate Rust \(\Sigma_F\) and \(\Pi_F\) entry points.
+
 ## Capability lookup
 
 | Module | Main class or values |
@@ -66,13 +68,13 @@ findSpan
 
 `defaultFindOpts` sets `monic`, `epic`, and `iso` to `False`, `maxResults` to zero, and `hardPins` to the empty map. `defaultDomainConstraints` applies no domain restrictions or weight override.
 
-`findMorphisms` returns total morphisms attaining the optimum, and `findBestMorphism` returns `Nothing` when no total morphism exists. The Haskell list omits the engine's truncation field for tied optima. `findSpan` may return an empty apex; it rejects `epic = True` because a span's right leg is partial.
+`findMorphisms` returns total morphisms attaining the optimum, and `findBestMorphism` returns `Nothing` when no total morphism exists. The Haskell list omits the engine's truncation field for tied optima. `findSpan` may return an empty apex. It rejects `epic = True` because a span's right leg is partial.
 
 ## Handle ownership
 
 Rust-backed representations that own slab entries have matching `release*` methods on their capability classes. Examples include `releaseProtocol`, `releaseSchema`, `releaseChain`, `releaseLens`, `releaseTheory`, `releaseModel`, `releaseRegistry`, `releaseRepo`, and `releaseDataSet`. Release is idempotent at the C slab boundary.
 
-Use a bracket helper where the binding provides one. Public helpers include `withRustProtocol`, `withRustSchema`, `withCompiled`, `withRustTheory`, `withRepo`, and `withDataSet`. Some exchange representations, including the Rust `InstanceRep`, carry no slab entry and have a no-op release method; the class method remains the ownership authority.
+Use a bracket helper where the binding provides one. Public helpers include `withRustProtocol`, `withRustSchema`, `withCompiled`, `withRustTheory`, `withRepo`, and `withDataSet`. Some exchange representations, including the Rust `InstanceRep`, carry no slab entry and have a no-op release method. The class method remains the ownership authority.
 
 ## Errors
 
@@ -84,9 +86,9 @@ FFI failures are exceptions in `IO`. `SomePanprotoError` is the root wrapper, `P
 |---|---|---|
 | `rust` | on | Builds the FFI backend and links `libpanproto_c` |
 | `native-only` | off | Excludes Rust backend modules even if `rust` is enabled |
-| `parse` | off | Exposes `Panproto.Parse`; the Rust instance needs a library built with `full-parse` |
-| `project` | off | Exposes `Panproto.Project`; the Rust instance needs a library built with `project` |
-| `git` | off | Exposes `Panproto.Git`; the Rust instance needs a library built with `git` |
+| `parse` | off | Exposes `Panproto.Parse`. The Rust instance needs a library built with `full-parse`. |
+| `project` | off | Exposes `Panproto.Project`. The Rust instance needs a library built with `project`. |
+| `git` | off | Exposes `Panproto.Git`. The Rust instance needs a library built with `git`. |
 | `optics-adaptors` | off | Adds `optics-core` adaptors in `Panproto.Lens.Optics` |
 | `lens-adaptors` | off | Adds `lens` adaptors when `optics-core` is not selected |
 | `effectful` | off | Adds the `Panproto` effect, `Eff` instance, and `runPanproto` |

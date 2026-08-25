@@ -21,14 +21,18 @@ use crate::error::TheoryDslError;
 ///
 /// Parses all sorts, operations, equations, directed equations, and
 /// policies from spec types into GAT engine types, constructs the
-/// theory via [`Theory::full`], and runs typechecking. When the spec
-/// declares imports, the importing crate must call
-/// [`compile_theory_with_resolver`] so the imports can be resolved.
+/// theory via [`Theory::full`], runs typechecking, and gates the
+/// theory's directed rewrite system on local confluence and LPO
+/// termination. When the spec declares imports, the importing crate
+/// must call [`compile_theory_with_resolver`] so the imports can be
+/// resolved.
 ///
 /// # Errors
 ///
-/// Returns errors for parse failures, unknown value kinds, or
-/// typechecking violations.
+/// Returns errors for parse failures, unknown value kinds, typechecking
+/// violations, and a directed rewrite system that is not provably sound
+/// ([`TheoryDslError::UnsoundRewriteSystem`]) or whose soundness could
+/// not be decided ([`TheoryDslError::RewriteSystemCheck`]).
 pub fn compile_theory(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
     compile_theory_with_resolver(spec, &|_name| None)
 }
@@ -312,28 +316,22 @@ fn rewrite_sort_string(s: &str, rewrite: &std::collections::HashMap<String, Stri
     // that `Foo.Bar(x)` rewrites to the canonical `Foo_Bar(x)` and a
     // bare `Bar` in the `expose` list rewrites the same way.
     let mut result = String::with_capacity(s.len());
-    let bytes = s.as_bytes();
-    let mut i = 0;
-    while i < bytes.len() {
-        let c = bytes[i] as char;
+    let mut chars = s.char_indices().peekable();
+    while let Some((start, c)) = chars.next() {
         if c.is_ascii_alphabetic() || c == '_' {
-            let start = i;
-            while i < bytes.len() {
-                let cc = bytes[i] as char;
+            let mut end = start + c.len_utf8();
+            while let Some(&(i, cc)) = chars.peek() {
                 if cc.is_ascii_alphanumeric() || cc == '_' || cc == '.' {
-                    i += 1;
+                    end = i + cc.len_utf8();
+                    chars.next();
                 } else {
                     break;
                 }
             }
-            let tok = &s[start..i];
-            match rewrite.get(tok) {
-                Some(canonical) => result.push_str(canonical),
-                None => result.push_str(tok),
-            }
+            let tok = &s[start..end];
+            result.push_str(rewrite.get(tok).map_or(tok, String::as_str));
         } else {
             result.push(c);
-            i += 1;
         }
     }
     result
@@ -383,17 +381,25 @@ fn compile_theory_inner(spec: &TheorySpec) -> Result<Theory, TheoryDslError> {
         message: e.to_string(),
     })?;
 
-    // Gate the theory's directed rewrite system on local confluence and LPO
-    // termination. Compilation is not blocked on the result: a rewrite system
-    // that is not provably sound is reported for investigation, so the gate
-    // cannot reject an otherwise well-typed theory.
-    if let Ok(report) = panproto_gat::validate_rewrite_system(&theory) {
-        for warning in report.warnings() {
-            eprintln!(
-                "theory `{}`: rewrite-system warning: {warning}",
-                spec.theory.as_str()
-            );
+    // Gate the theory's directed rewrite system on local confluence and
+    // LPO termination. Normalization decides this theory's equality
+    // judgment by running that system, so a system that is not provably
+    // sound makes the judgment unsound, and handing the theory back as
+    // if it were fine would let every later normalization silently rest
+    // on it. Both the analysis failing and the analysis reporting a
+    // violation are returned to the caller.
+    let report = panproto_gat::validate_rewrite_system(&theory).map_err(|e| {
+        TheoryDslError::RewriteSystemCheck {
+            theory: spec.theory.clone(),
+            message: e.to_string(),
         }
+    })?;
+    let warnings = report.warnings();
+    if !warnings.is_empty() {
+        return Err(TheoryDslError::UnsoundRewriteSystem {
+            theory: spec.theory.clone(),
+            warnings,
+        });
     }
 
     Ok(theory)
@@ -533,7 +539,7 @@ pub fn parse_sort_expr(s: &str) -> Result<SortExpr, String> {
             let args_str = &inner[..close];
             let args = split_top_level_commas(args_str)
                 .into_iter()
-                .map(parse_term)
+                .map(|arg| parse_term_at_depth(arg, 1))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(SortExpr::app(Arc::from(head), args))
         }
@@ -701,17 +707,45 @@ fn parse_expr(expr_str: &str, context: &str) -> Result<panproto_expr::Expr, Theo
 /// malformed identifiers, unclosed parentheses, missing keywords, or
 /// errors propagated from nested term parses.
 pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
+    parse_term_at_depth(s, 0)
+}
+
+/// How deeply a term may nest before the parser refuses to descend further.
+///
+/// The parser is recursive descent and the traversals that consume its
+/// output — substitution, free-variable collection, alpha-equivalence,
+/// normalisation — are recursive over the same structure. Neither fails on a
+/// term deeper than the stack can hold: the process aborts on a signal no
+/// caller can handle. A term arrives as text a caller did not necessarily
+/// write, so the depth is bounded here, where the structure is built, and
+/// every consumer downstream inherits the bound.
+///
+/// The value leaves several times the headroom the tightest environment
+/// needs. An unoptimised build on a two-megabyte thread parses a little under
+/// six hundred levels and traverses a little under a thousand, and a term
+/// that nests past a hundred and twenty-eight applications is not one anybody
+/// wrote by hand.
+pub const MAX_TERM_NESTING_DEPTH: usize = 128;
+
+/// [`parse_term`], `depth` levels into the descent.
+fn parse_term_at_depth(s: &str, depth: usize) -> Result<panproto_gat::Term, String> {
+    if depth > MAX_TERM_NESTING_DEPTH {
+        return Err(format!(
+            "term nests deeper than the {MAX_TERM_NESTING_DEPTH}-level limit"
+        ));
+    }
+
     let s = s.trim();
     if s.is_empty() {
         return Err("empty term string".to_owned());
     }
 
     if let Some(rest) = s.strip_prefix("case ") {
-        return parse_case_term(rest);
+        return parse_case_term(rest, depth);
     }
 
     if let Some(rest) = s.strip_prefix("let ") {
-        return parse_let_term(rest);
+        return parse_let_term(rest, depth);
     }
 
     if let Some(rest) = s.strip_prefix('?') {
@@ -745,7 +779,7 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
             let args_str = &inner[..close];
             let args = split_top_level_commas(args_str)
                 .into_iter()
-                .map(parse_term)
+                .map(|arg| parse_term_at_depth(arg, depth + 1))
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(panproto_gat::Term::App {
                 op: Arc::from(op_name),
@@ -763,7 +797,7 @@ pub fn parse_term(s: &str) -> Result<panproto_gat::Term, String> {
 /// ```text
 /// let_body ::= ident '=' term 'in' term
 /// ```
-fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
+fn parse_let_term(rest: &str, depth: usize) -> Result<panproto_gat::Term, String> {
     let rest = rest.trim();
     let eq_pos = rest
         .find('=')
@@ -775,8 +809,8 @@ fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
         .ok_or_else(|| format!("let term missing `in`: {rest:?}"))?;
     let bound_str = after_eq[..in_pos].trim();
     let body_str = after_eq[in_pos + 2..].trim();
-    let bound = parse_term(bound_str)?;
-    let body = parse_term(body_str)?;
+    let bound = parse_term_at_depth(bound_str, depth + 1)?;
+    let body = parse_term_at_depth(body_str, depth + 1)?;
     Ok(panproto_gat::Term::Let {
         name: Arc::from(name_part),
         bound: Box::new(bound),
@@ -793,7 +827,7 @@ fn parse_let_term(rest: &str) -> Result<panproto_gat::Term, String> {
 /// case_body ::= scrutinee 'of' branch ('|' branch)* 'end'
 /// branch    ::= ctor '(' binder (',' binder)* ')' '=>' body
 /// ```
-fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
+fn parse_case_term(rest: &str, depth: usize) -> Result<panproto_gat::Term, String> {
     let rest = rest.trim();
     let stripped = rest
         .strip_suffix("end")
@@ -803,7 +837,7 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
         .ok_or_else(|| format!("case term missing `of` keyword: {rest:?}"))?;
     let scrutinee_str = stripped[..of_pos].trim();
     let branches_str = stripped[of_pos + 2..].trim();
-    let scrutinee = parse_term(scrutinee_str)?;
+    let scrutinee = parse_term_at_depth(scrutinee_str, depth + 1)?;
 
     let branch_parts = split_top_level_pipes(branches_str);
     if branch_parts.is_empty() {
@@ -811,7 +845,7 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
     }
     let branches = branch_parts
         .into_iter()
-        .map(parse_case_branch)
+        .map(|branch| parse_case_branch(branch, depth + 1))
         .collect::<Result<Vec<_>, _>>()?;
 
     Ok(panproto_gat::Term::Case {
@@ -820,14 +854,14 @@ fn parse_case_term(rest: &str) -> Result<panproto_gat::Term, String> {
     })
 }
 
-fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
+fn parse_case_branch(s: &str, depth: usize) -> Result<panproto_gat::CaseBranch, String> {
     let s = s.trim();
     let arrow = s
         .find("=>")
         .ok_or_else(|| format!("case branch missing `=>`: {s:?}"))?;
     let head = s[..arrow].trim();
     let body_str = s[arrow + 2..].trim();
-    let body = parse_term(body_str)?;
+    let body = parse_term_at_depth(body_str, depth)?;
 
     let paren_pos = head
         .find('(')
@@ -865,27 +899,30 @@ fn parse_case_branch(s: &str) -> Result<panproto_gat::CaseBranch, String> {
 
 /// Find a whitespace-delimited occurrence of `keyword` at the top level
 /// (not inside parens). Returns the byte offset of the keyword start.
+///
+/// The scan walks characters, not bytes, so a term carrying a non-ASCII
+/// character (`case \u{e9} of ...`) is scanned without ever slicing at a
+/// position interior to a multi-byte character.
 fn find_top_level_keyword(s: &str, keyword: &str) -> Option<usize> {
-    let bytes = s.as_bytes();
+    debug_assert!(keyword.is_ascii(), "keyword {keyword:?} must be ASCII");
     let klen = keyword.len();
     let mut depth = 0i32;
-    let mut i = 0;
-    while i < bytes.len() {
-        let ch = bytes[i] as char;
+    // The start of the string counts as a left word boundary.
+    let mut prev_is_boundary = true;
+    for (i, ch) in s.char_indices() {
         match ch {
             '(' => depth += 1,
             ')' => depth -= 1,
             _ => {}
         }
         if depth == 0
-            && i + klen <= bytes.len()
-            && &s[i..i + klen] == keyword
-            && (i == 0 || (bytes[i - 1] as char).is_whitespace())
-            && (i + klen == bytes.len() || (bytes[i + klen] as char).is_whitespace())
+            && prev_is_boundary
+            && s[i..].starts_with(keyword)
+            && s[i + klen..].chars().next().is_none_or(char::is_whitespace)
         {
             return Some(i);
         }
-        i += 1;
+        prev_is_boundary = ch.is_whitespace();
     }
     None
 }
@@ -991,6 +1028,44 @@ mod tests {
         let term = parse_term("x")?;
         assert!(matches!(term, panproto_gat::Term::Var(ref v) if &**v == "x"));
         Ok(())
+    }
+
+    #[test]
+    fn test_parse_term_non_ascii_scrutinee() -> TestResult {
+        // The `of` and `in` scans walk characters, so a non-ASCII
+        // scrutinee or bound term yields a grammar diagnostic instead of
+        // slicing at a position interior to a multi-byte character.
+        let Err(err) = parse_term("case \u{e9} of C(x) => x end") else {
+            return Err("a non-identifier scrutinee is not a term".into());
+        };
+        assert!(
+            err.contains("term variable"),
+            "expected an identifier diagnostic, got {err:?}"
+        );
+
+        let Err(err) = parse_term("let x = \u{e9} in x") else {
+            return Err("a non-identifier bound term is not a term".into());
+        };
+        assert!(
+            err.contains("term variable"),
+            "expected an identifier diagnostic, got {err:?}"
+        );
+
+        // The character-wise scan keeps the keyword semantics it replaced:
+        // a well-formed case term still parses.
+        let term = parse_term("case s of C(x) => x end")?;
+        assert!(matches!(term, panproto_gat::Term::Case { .. }));
+        Ok(())
+    }
+
+    #[test]
+    fn test_rewrite_sort_string_preserves_non_ascii() {
+        let mut rewrite = std::collections::HashMap::new();
+        rewrite.insert("Foo.Bar".to_owned(), "Foo_Bar".to_owned());
+        assert_eq!(
+            rewrite_sort_string("Foo.Bar(\u{e9}\u{1f600})", &rewrite),
+            "Foo_Bar(\u{e9}\u{1f600})"
+        );
     }
 
     #[test]
@@ -1173,6 +1248,55 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn an_unsound_rewrite_system_is_refused() -> TestResult {
+        use crate::document::DirectedEqSpec;
+        // `x -> x` rewrites a term to itself, so rewriting never makes
+        // progress and the LPO order cannot orient it. Normalization
+        // decides this theory's equality judgment by running the rule,
+        // so the theory has to be refused rather than handed back with
+        // the finding printed somewhere.
+        let spec = TheorySpec {
+            theory: "ThLooping".to_owned(),
+            extends: vec![],
+            imports: vec![],
+            sorts: vec![SortSpec {
+                name: "Str".to_owned(),
+                params: vec![],
+                kind: SortKindSpec::Val {
+                    value_kind: "string".to_owned(),
+                },
+                closed: None,
+            }],
+            ops: vec![],
+            equations: vec![],
+            directed_equations: vec![DirectedEqSpec {
+                name: "goes_nowhere".to_owned(),
+                lhs: "x".to_owned(),
+                rhs: "x".to_owned(),
+                impl_expr: "x".to_owned(),
+                inverse: Some("x".to_owned()),
+                source_kind: Some("string".to_owned()),
+                target_kind: Some("string".to_owned()),
+                coercion_class: "iso".to_owned(),
+            }],
+            policies: vec![],
+        };
+        match compile_theory(&spec) {
+            Err(TheoryDslError::UnsoundRewriteSystem { theory, warnings }) => {
+                assert_eq!(theory, "ThLooping");
+                assert!(
+                    warnings.iter().any(|w| w.contains("goes_nowhere")),
+                    "the refusal must name the offending rule: {warnings:?}",
+                );
+                Ok(())
+            }
+            other => {
+                Err(format!("an unsound rewrite system must be refused, got {other:?}").into())
+            }
+        }
+    }
+
     fn lying_iso_theory_spec() -> TheorySpec {
         use crate::document::DirectedEqSpec;
         TheorySpec {
@@ -1268,11 +1392,19 @@ mod tests {
                 },
                 closed: None,
             }],
-            ops: vec![],
+            // `id(x) -> x` rather than `x -> x`: a rule whose two sides
+            // are the same term never makes progress, so it is not
+            // LPO-terminating and the rewrite-system gate refuses it.
+            ops: vec![OpSpec {
+                name: "id".to_owned(),
+                input: Some("Str".to_owned()),
+                inputs: None,
+                output: "Str".to_owned(),
+            }],
             equations: vec![],
             directed_equations: vec![crate::document::DirectedEqSpec {
                 name: "identity_iso".to_owned(),
-                lhs: "x".to_owned(),
+                lhs: "id(x)".to_owned(),
                 rhs: "x".to_owned(),
                 impl_expr: "x".to_owned(),
                 inverse: Some("x".to_owned()),

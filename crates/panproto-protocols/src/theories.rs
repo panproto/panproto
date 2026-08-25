@@ -1,4 +1,4 @@
-//! Shared component theory definitions (5 building blocks).
+//! Shared component theory definitions (11 building blocks).
 //!
 //! These are the building-block GATs that protocols compose via colimit
 //! to form their schema and instance theories. Each function returns
@@ -13,18 +13,33 @@
 //! 2. **Equation well-typedness**: both sides of every equation have the
 //!    same output sort under the declared operations.
 //! 3. **No tautological equations**: `lhs ≠ rhs` syntactically for all equations.
+//! 4. **Rewrite-system soundness**: the directed rewrite system is locally
+//!    confluent and LPO-terminating, checked at registration.
 //!
 //! ## Inventory
 //!
-//! | # | Theory | Sorts | Eqs | Category |
-//! |---|--------|-------|-----|----------|
-//! | 1 | ThGraph | 2 | 0 | Schema shape |
-//! | 2 | ThConstraint | 2 | 0 | Schema modifier |
-//! | 3 | ThMulti | 3 | 0 | Schema modifier |
-//! | 4 | ThWType | 3 | 0 | Instance shape |
-//! | 5 | ThMeta | 3 | 0 | Instance modifier |
+//! | #  | Theory | Category |
+//! |----|--------|----------|
+//! | 1  | `ThGraph` | Schema shape |
+//! | 2  | `ThConstraint` | Schema modifier |
+//! | 3  | `ThMulti` | Schema modifier |
+//! | 4  | `ThWType` | Instance shape |
+//! | 5  | `ThMeta` | Instance modifier |
+//! | 6  | `ThSimpleGraph` | Schema shape |
+//! | 7  | `ThHypergraph` | Schema shape |
+//! | 8  | `ThInterface` | Schema shape |
+//! | 9  | `ThFunctor` | Instance shape |
+//! | 10 | `ThFlat` | Instance shape |
+//! | 11 | `ThGraphInstance` | Instance shape |
+//!
+//! The registration helpers in the middle of this module compose these into
+//! the schema/instance theory pair each protocol group uses, and the
+//! composition specs below them are the declarative recipe for the same
+//! colimits.
 
-use panproto_gat::{CompositionSpec, CompositionStep, Operation, Sort, SortParam, Theory};
+use panproto_gat::{
+    CompositionSpec, CompositionStep, Equation, Operation, Sort, SortParam, Term, Theory,
+};
 
 // ═══════════════════════════════════════════════════════════════════
 // Building blocks
@@ -84,12 +99,21 @@ pub fn th_multi() -> Theory {
 
 /// `ThWType`: W-type instance theory (tree-shaped data).
 ///
-/// Sorts: `Node`, `Arc`, `Value`.
-/// Ops: `anchor`, `arc_src`, `arc_tgt`, `arc_edge`, `node_value`.
+/// Sorts: `Node`, `Arc`, `Value`, `Vertex`, `Edge`.
+/// Ops: `anchor`, `arc_src`, `arc_tgt`, `arc_edge`, `node_value`, `src`, `tgt`.
 ///
-/// Note: `anchor : Node → Vertex` and `arc_edge : Arc → Edge` reference
-/// schema sorts. These are identified via colimit when the instance
-/// theory is composed with the schema theory.
+/// `anchor : Node → Vertex` and `arc_edge : Arc → Edge` land in the schema
+/// sorts, and the schema's `src`/`tgt` projections are declared here so the
+/// two coherence axioms can be stated: an arc's endpoints are anchored at the
+/// endpoints of the schema edge it is an instance of.
+///
+/// ```text
+/// arc_src_anchor : anchor(arc_src(a)) = src(arc_edge(a))
+/// arc_tgt_anchor : anchor(arc_tgt(a)) = tgt(arc_edge(a))
+/// ```
+///
+/// The shared sorts and projections are identified with the schema theory's
+/// when the instance theory is composed with it via colimit.
 #[must_use]
 pub fn th_wtype() -> Theory {
     Theory::new(
@@ -98,6 +122,8 @@ pub fn th_wtype() -> Theory {
             Sort::simple("Node"),
             Sort::simple("Arc"),
             Sort::simple("Value"),
+            Sort::simple("Vertex"),
+            Sort::simple("Edge"),
         ],
         vec![
             Operation::unary("anchor", "n", "Node", "Vertex"),
@@ -105,8 +131,21 @@ pub fn th_wtype() -> Theory {
             Operation::unary("arc_tgt", "a", "Arc", "Node"),
             Operation::unary("arc_edge", "a", "Arc", "Edge"),
             Operation::unary("node_value", "n", "Node", "Value"),
+            Operation::unary("src", "e", "Edge", "Vertex"),
+            Operation::unary("tgt", "e", "Edge", "Vertex"),
         ],
-        vec![],
+        vec![
+            Equation::new(
+                "arc_src_anchor",
+                Term::app("anchor", vec![Term::app("arc_src", vec![Term::var("a")])]),
+                Term::app("src", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+            ),
+            Equation::new(
+                "arc_tgt_anchor",
+                Term::app("anchor", vec![Term::app("arc_tgt", vec![Term::var("a")])]),
+                Term::app("tgt", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+            ),
+        ],
     )
 }
 
@@ -153,24 +192,35 @@ use std::collections::HashMap;
 
 /// Gate a to-be-registered theory on the soundness of its directed rewrite
 /// system (local confluence and LPO termination under operation-declaration
-/// order). Registration is never blocked: a system that is not provably sound
-/// is reported to stderr for investigation, so a new gate cannot break the
-/// registration of built-in theories. Theories with no directed equations
-/// (every built-in composed here) pass trivially and silently.
+/// order). Theories with no directed equations (every built-in composed
+/// here) pass trivially.
+///
+/// The theories this gate sees are assembled from the building blocks in
+/// this module, not supplied by a caller, so a failure is a defect in
+/// those blocks rather than bad input. It is reported the same way the
+/// colimits above report theirs.
+///
+/// # Panics
+///
+/// Panics if the soundness analysis cannot be completed or reports a
+/// non-joining critical pair or an LPO violation. Normalization decides a
+/// theory's equality judgment by running its rewrite system, so
+/// registering one that is not provably sound would leave every schema
+/// built on the theory resting on an unsound judgment.
 fn gate_rewrite_system(theory: &Theory) {
-    match validate_rewrite_system(theory) {
-        Ok(report) => {
-            for warning in report.warnings() {
-                eprintln!(
-                    "theory `{}`: rewrite-system warning: {warning}",
-                    theory.name
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("theory `{}`: rewrite-system check failed: {e}", theory.name);
-        }
-    }
+    let report = validate_rewrite_system(theory).unwrap_or_else(|e| {
+        panic!(
+            "theory `{}`: rewrite-system soundness could not be decided: {e}",
+            theory.name
+        )
+    });
+    let warnings = report.warnings();
+    assert!(
+        warnings.is_empty(),
+        "theory `{}` has an unsound rewrite system: {}",
+        theory.name,
+        warnings.join("; ")
+    );
 }
 
 /// Register a **constrained multigraph + W-type** theory pair (Group A).
@@ -731,7 +781,7 @@ pub fn constrained_graph_instance_specs(
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Private theory helpers (used only by registration functions above)
+// Building blocks the registration helpers above compose
 // ═══════════════════════════════════════════════════════════════════
 
 /// `ThSimpleGraph`: simple graph (no parallel edges).
@@ -859,4 +909,29 @@ pub fn th_graph_instance() -> Theory {
         ],
         vec![],
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The W-type instance theory states the arc/anchor coherence axioms and
+    /// declares every sort and projection they mention, so it typechecks on
+    /// its own rather than deferring to a later colimit.
+    #[test]
+    fn wtype_theory_states_the_arc_anchor_coherence_axioms() {
+        let theory = th_wtype();
+        assert!(
+            panproto_gat::typecheck_theory(&theory).is_ok(),
+            "ThWType must typecheck standalone: {:?}",
+            panproto_gat::typecheck_theory(&theory),
+        );
+
+        let names: Vec<&str> = theory.eqs.iter().map(|e| &*e.name).collect();
+        assert_eq!(
+            names,
+            vec!["arc_src_anchor", "arc_tgt_anchor"],
+            "both endpoint coherence axioms must be stated",
+        );
+    }
 }

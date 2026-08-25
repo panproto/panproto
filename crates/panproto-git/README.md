@@ -4,46 +4,59 @@
 [![docs.rs](https://docs.rs/panproto-git/badge.svg)](https://docs.rs/panproto-git)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Translates between git repositories and panproto's version control system.
+Translation between a `git2::Repository` and a `panproto-vcs` object store.
 
-## What it does
+## Import
 
-Git stores snapshots of file bytes; panproto-vcs stores snapshots of structured schemas. This crate is the bridge between the two. Import walks a git commit history in topological order (parents before children), reads each commit's file tree, parses every file through `panproto-project`, and writes the resulting schema into a panproto-vcs commit that carries the same author name, email, timestamp, message, and parent links as the original git commit. The entire DAG shape is preserved.
+`import_git_repo` resolves a revspec, walks its ancestors with parents before
+children, parses each Git tree through `panproto-project`, and writes panproto commit
+objects. `ImportResult` reports the imported commit count, the panproto ID for the
+selected Git head, and the Git-to-panproto OID map.
 
-Export goes the other direction: it reads a panproto-vcs commit, reconstructs source files from the stored schemas using the appropriate language emitters, and writes git tree and commit objects. This lets you round-trip a codebase through panproto and back to git without losing history.
+The incremental entry points accept a caller-supplied map of Git OIDs already known
+to the panproto store. `import_git_repo_persistent` also uses a disk-backed blob
+cache. The cache lets unchanged Git blobs reuse `FileSchemaObject` leaves across
+imports.
 
-Incremental import avoids re-processing the full history on subsequent runs. It takes the panproto-vcs store as input and only walks git commits that are not already present, extending the panproto history from where it left off.
+Import copies the commit message, author display name, timestamp, and mapped parent
+links. `CommitObject` has no author-email field, so email addresses are not retained.
 
-## Quick example
+## Export
+
+`export_to_git` exports one panproto commit. It always writes `schema.json` and
+`commit.json`. It also reconstructs source files when the schema contains the
+literal and interstitial byte-position constraints needed to do so. The function
+synthesizes the Git email as `<author>@panproto`, and it includes only parents found
+in the supplied `parent_map`. Thus export is not an unconditional byte-for-byte or
+metadata-preserving inverse of import.
+
+## Example
 
 ```rust,ignore
-use panproto_git::{import_git_repo, import_git_repo_incremental, export_to_git};
-use panproto_vcs::FsStore;
+use std::collections::HashMap;
+use panproto_git::{export_to_git, import_git_repo};
+use panproto_vcs::MemStore;
 
-// Full import of a git repository.
-let store = FsStore::open("my-panproto-store")?;
-let result = import_git_repo("path/to/git-repo", &store)?;
-println!("imported {} commits", result.commit_count);
+let git_repo = git2::Repository::open(".")?;
+let mut store = MemStore::new();
+let imported = import_git_repo(&git_repo, &mut store, "HEAD")?;
 
-// Incremental import: only process commits added since last import.
-let result = import_git_repo_incremental("path/to/git-repo", &store)?;
-println!("imported {} new commits", result.commit_count);
-
-// Export panproto commits back to a git repository.
-let export = export_to_git(&store, "path/to/output-git-repo")?;
-println!("exported {} commits", export.commit_count);
+let out = git2::Repository::init("exported")?;
+let parents = HashMap::new();
+let exported = export_to_git(&store, &out, imported.head_id, &parents, None)?;
 ```
 
-## API overview
+## Public API
 
-| Export | What it does |
-|--------|-------------|
-| `import_git_repo()` | Full import: walk all git commits and create panproto-vcs commits |
-| `import_git_repo_incremental()` | Incremental import: only process commits not already in the store |
-| `export_to_git()` | Export panproto-vcs commits to git tree and commit objects |
-| `ImportResult` | Result of an import: commit count, skipped count, any warnings |
-| `ExportResult` | Result of an export: commit count, output path |
-| `GitBridgeError` | Error variants: git2 errors, parse failures, VCS store errors |
+| Item | Purpose |
+|------|---------|
+| `import_git_repo` | Import ancestors of a revspec |
+| `import_git_repo_incremental` | Import with a caller-supplied known-OID map |
+| `import_git_repo_persistent` | Incremental import with a persistent blob cache |
+| `load_blob_cache`, `save_blob_cache` | Read and write the blob cache |
+| `export_to_git` | Export one commit to a Git repository |
+| `ImportResult`, `ExportResult` | Import and export metadata |
+| `GitBridgeError` | Bridge errors |
 
 ## License
 

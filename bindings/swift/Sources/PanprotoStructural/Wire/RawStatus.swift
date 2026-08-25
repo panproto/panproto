@@ -4,7 +4,7 @@
 ///
 /// The C ABI answers with an `int32_t` drawn from `PpStatus`; a
 /// non-zero value means the call failed and the detail is waiting in
-/// the thread-local last-error slot, retrievable with
+/// the process-global last-error slot, retrievable with
 /// `Raw.lastErrorTake()` in `PanprotoFFI`. The `unknown` case keeps the
 /// mapping total, so a future engine that adds a status code decodes
 /// here rather than trapping.

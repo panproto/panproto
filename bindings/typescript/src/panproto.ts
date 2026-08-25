@@ -11,7 +11,7 @@ import type { WasmModule, ProtocolSpec, DiffReport, FullSchemaDiff, SchemaValida
 import { PanprotoError, WasmError } from './types.js';
 import { loadWasm, type WasmGlueModule, createHandle } from './wasm.js';
 import { LensHandle, ProtolensChainHandle, SymmetricLensHandle } from './lens.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { unpackFromWasm } from './msgpack.js';
 import {
   Protocol,
   defineProtocol,
@@ -575,12 +575,16 @@ export class Panproto implements Disposable {
   }
 
   /**
-   * Convert data from one schema to another using an auto-generated lens.
+   * Convert data from one schema to another with an auto-generated lens.
    *
-   * This is a convenience method that generates a protolens, applies the
-   * forward projection, and disposes the lens automatically.
+   * Plain objects use the JSON conversion path. If `rootVertex` is omitted,
+   * WASM selects an object-kind source vertex, falling back to a record-kind
+   * vertex. Specify it when the schema has more than one possible root.
+   * `defaults` fills missing top-level fields in the converted object; fields
+   * produced by the lens take precedence. A `Uint8Array` is treated as an
+   * internal MessagePack `WInstance`, for which defaults are not supported.
    *
-   * @param data - The input data (Uint8Array of MessagePack, or a plain object)
+   * @param data - A JSON object or MessagePack-encoded `WInstance`
    * @param opts - Conversion options specifying source and target schemas
    * @returns The converted data
    * @throws {@link WasmError} if lens generation or conversion fails
@@ -588,13 +592,39 @@ export class Panproto implements Disposable {
   async convert(data: Uint8Array | object, opts: {
     from: BuiltSchema;
     to: BuiltSchema;
-    defaults?: Record<string, unknown>;
+    rootVertex?: string;
+    defaults?: Readonly<Record<string, unknown>>;
   }): Promise<unknown> {
+    const hasDefaults = opts.defaults !== undefined
+      && Object.keys(opts.defaults).length > 0;
+    if (data instanceof Uint8Array && hasDefaults) {
+      throw new PanprotoError(
+        'Panproto.convert: defaults require JSON object input; Uint8Array is an internal MessagePack WInstance',
+      );
+    }
+
     const lens = LensHandle.autoGenerate(opts.from, opts.to, this.#wasm);
     try {
-      const input = data instanceof Uint8Array ? data : packToWasm(data);
-      const result = lens.get(input);
-      return result.view;
+      const view = data instanceof Uint8Array
+        ? lens.get(data).view
+        : lens.getJson(data, opts.rootVertex ?? '').view;
+
+      if (!hasDefaults) {
+        return view;
+      }
+      if (view === null || typeof view !== 'object' || Array.isArray(view)) {
+        throw new PanprotoError(
+          'Panproto.convert: defaults can only be applied when conversion returns a JSON object',
+        );
+      }
+
+      const converted = { ...(view as Record<string, unknown>) };
+      for (const [field, value] of Object.entries(opts.defaults ?? {})) {
+        if (!Object.hasOwn(converted, field)) {
+          converted[field] = value;
+        }
+      }
+      return converted;
     } finally {
       lens[Symbol.dispose]();
     }

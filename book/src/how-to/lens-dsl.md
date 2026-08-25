@@ -67,17 +67,21 @@ println!("{} transform anchors", compiled.field_transforms.len());
 
 `load_and_compile` supports `.ncl`, `.json`, `.yaml`, and `.yml`. Named references in a `compose` body resolve against sibling documents in the same directory. `auto` and `from_diff` require the schema-aware `compile_with_schemas` entry point.
 
-## Current CLI limitation
+## Compile and apply with the CLI
 
 ```sh
 schema lens compile lenses/user-v1-to-v2.json \
   --body-vertex record:body \
   --out compiled.json
+
+schema lens apply compiled.json user-v1.json \
+  --protocol atproto \
+  --schema user-v1.schema.json
 ```
 
-This command validates and compiles the document, but `compiled.json` is a metadata wrapper. Its `chain` member is the structural chain, while value transforms are represented only by a count. `schema lens apply` expects a directly serialized `ProtolensChain` and does not unwrap this output. Do not treat the file from `schema lens compile --out` as an immediately applicable lens artifact.
+`schema lens compile` writes a `panproto-compiled-lens-v1` artifact. The file contains the structural chain, the value transforms, and an ordered `stages` array. The stages determine whether a value expression runs before or after a structural rename. `schema lens apply` reads this artifact directly and instantiates each stage against the schema produced by the preceding stage.
 
-The CLI `lens generate --save` path also writes a human-oriented chain summary rather than the round-trippable serialization accepted by `ProtolensChain::from_json`. Use the Rust or TypeScript handle paths above for an operational lens.
+Raw `ProtolensChain` JSON remains accepted by `schema lens apply`, as does a target schema used for automatic lens generation. A file written by `schema lens generate --save` is a raw structural chain rather than a compiled-lens artifact. It can be applied, but it does not store value transforms derived during automatic generation.
 
 ## Verification
 

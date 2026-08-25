@@ -8,12 +8,12 @@ python -m pip install panproto
 
 ## Module surface
 
-Public names are re-exported from `panproto`; there is no umbrella engine class. The package source lists those names in [`panproto.__all__`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py), and the shipped `_native.pyi` file is the signature authority for the extension.
+Public names are re-exported from `panproto`. There is no umbrella engine class. The package source lists those names in [`panproto.__all__`](https://github.com/panproto/panproto/blob/main/bindings/python/src/panproto/__init__.py), and the shipped `_native.pyi` file is the signature authority for the extension.
 
 | Domain | Principal names |
 |---|---|
 | Protocols and schemas | `get_builtin_protocol`, `list_builtin_protocols`, `define_protocol`, `Protocol`, `SchemaBuilder`, `Schema` |
-| Schema parsing | `parse_atproto_lexicon`, `parse_schema_document`, `parse_schema_bundle`, `parse_schema_source` |
+| Schema parsing | `parse_atproto_lexicon`, `parse_schema_document`, `parse_schema_bundle`, `parse_schema_bundle_project`, `parse_schema_source` |
 | Migrations | `MigrationBuilder`, `compile_migration`, `compose_migrations`, `invert_migration`, `CompiledMigration` |
 | Morphism search | `find_span`, `find_morphisms`, `find_best_morphism`, `SchemaSpan`, `FoundMorphism` |
 | Checking | `diff_schemas`, `diff_and_classify`, `check_existence`, `check_coverage` |
@@ -45,6 +45,10 @@ class SchemaBuilder:
 
 `TheoryBuilder.sort`, `TheoryBuilder.op`, and `TheoryBuilder.eq` return the builder and may be chained. Check `_native.pyi` before assuming that a builder follows either convention.
 
+## Migration direction
+
+For a `CompiledMigration` whose schema mapping is \(S\to T\), `lift(instance)` accepts an \(S\)-instance and returns the surviving fragment as a \(T\)-instance. The method calls Rust's restrict-based `lift_wtype`. It is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). `get` uses the same source-to-target operation and returns a complement with the view. `put` accepts the target view and complement and reconstructs a source instance.
+
 ## Morphism search
 
 ```python
@@ -69,13 +73,13 @@ find_morphisms(
 ) -> list[FoundMorphism]
 ```
 
-`find_span` returns an empty apex when the schemas share no vertices. It requires a protocol because the induced apex is validated before it is returned. `epic=True` raises `MigrationError` for span search; surjectivity is defined for the total-morphism functions.
+`find_span` returns an empty apex when the schemas share no vertices. It requires a protocol because the induced apex is validated before it is returned. `epic=True` raises `MigrationError` for span search. Surjectivity is defined for the total-morphism functions.
 
 `find_morphisms` returns total morphisms attaining the optimum. An empty list means that no total morphism exists, whereas a search failure raises `MigrationError`. The Python list does not carry the Rust `MorphismList.truncated` field, so this binding cannot report whether the engine stopped enumerating tied optima at its cap.
 
 ## Grammar packs
 
-`AstParserRegistry()` constructs a native registry and adds grammars advertised through installed `panproto.grammars` entry points. Discovery occurs when the factory is called; importing a companion package is not required.
+`AstParserRegistry()` constructs a native registry and adds grammars advertised through installed `panproto.grammars` entry points. Discovery occurs when the factory is called. Importing a companion package is not required.
 
 | Package | Group |
 |---|---|

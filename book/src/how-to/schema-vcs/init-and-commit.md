@@ -16,7 +16,7 @@ schema commit -m "initial user schema"
 schema log                  # show history
 ```
 
-`init` creates a `.panproto/` object store and a `main` branch. It may also generate `panproto.toml` when package detection finds source packages. `add` parses or loads the supplied path and stages the resulting schema; `commit` records the staged schema.
+`init` creates a `.panproto/` object store and a `main` branch. It may also generate `panproto.toml` when package detection finds source packages. `add` parses or loads the supplied path and stages the resulting schema; `commit` records the staged schema. A path ending in `.json` is deserialized directly as panproto's internal `Schema` representation. To stage an ATProto Lexicon bundle, point `add` at a directory whose manifest declares a homogeneous `atproto` package. Non-JSON source files use the full-AST parser.
 
 To inspect the current state:
 

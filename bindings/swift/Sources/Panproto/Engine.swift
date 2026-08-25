@@ -4,18 +4,13 @@ import PanprotoStructural
 
 /// The isolation domain every engine call runs in.
 ///
-/// panproto-c holds its resource slab in a process-global mutex, so a
-/// handle is valid from any thread. Its last-error slot is the part
-/// that is thread-local: a failing entry point stashes the envelope
-/// where only the calling thread can drain it, and `pp_last_error_take`
-/// on any other thread answers empty. Every error message the binding
-/// reports depends on the drain landing on the thread that failed.
-///
-/// A serial queue would give mutual exclusion but not thread identity,
-/// so the invariant would hold only as long as no future call ever
-/// suspends between the failure and the drain. The executor below
-/// pins one thread instead, which makes it hold unconditionally. The
-/// cost is one resident thread.
+/// panproto-c holds its resource slab and its last-error slot in
+/// process-global mutexes, so a handle is valid from any thread and an
+/// envelope drains from any thread. What the slot does not survive is
+/// interleaving: it holds one envelope, so a second failing call landing
+/// between a failure and its drain overwrites the message the binding is
+/// about to report. Isolating every entry point on one actor makes
+/// call-plus-drain atomic with respect to other engine work.
 ///
 /// Isolating handle use here buys a second thing: the mutex is taken
 /// per slab access, so concurrent hosts serialize inside the engine
@@ -99,8 +94,8 @@ private final class PinnedThreadExecutor: SerialExecutor, @unchecked Sendable {
         let thread = Thread { [self] in
             // `pp_init` installs the panic hook that keeps a Rust
             // unwind from crossing the ABI boundary. It is idempotent,
-            // and running it here means it is installed on the same
-            // thread whose slab and error slot the binding will use.
+            // and running it before the first job means every engine
+            // call the binding makes is already covered.
             _ = Raw.initialize()
             drain()
         }
@@ -178,8 +173,8 @@ extension RawStatus {
     /// try result.status.orThrow(.schemaValidation, "SchemaHandle.violations(against:)")
     /// ```
     ///
-    /// Engine-isolated because the error slot is thread-local: draining
-    /// it anywhere but the thread that filled it yields nothing.
+    /// Engine-isolated so the drain cannot be preempted: the error slot
+    /// holds one envelope, and an interleaved failure would overwrite it.
     @PanprotoEngine
     package func orThrow(
         _ domain: PanprotoError.Domain,

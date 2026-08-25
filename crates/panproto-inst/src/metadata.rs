@@ -55,6 +55,13 @@ pub enum NodeShape {
 /// Each node is anchored to a schema vertex and carries optional
 /// value data, a discriminator (for union vertices), and extra
 /// fields for round-trip fidelity.
+///
+/// Every field is written on every encoding. `MessagePack`, which is what
+/// the version-control store holds, writes a struct as an array of its
+/// fields in declaration order, so omitting one shifts every later field
+/// into the wrong slot and the node cannot be read back at all. A field
+/// absent from an encoding still reads as its default, so an encoding
+/// written before a field existed is understood.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Node {
     /// Unique numeric identifier within the instance.
@@ -66,9 +73,10 @@ pub struct Node {
     /// Discriminator for union-typed vertices (e.g., `"$type"` value).
     pub discriminator: Option<Name>,
     /// Extra fields preserved for round-trip fidelity.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub extra_fields: HashMap<String, Value>,
     /// Position in an ordered collection (if any).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub position: Option<u32>,
     /// Structural shape of the node, orthogonal to the schema anchor.
     ///
@@ -77,15 +85,11 @@ pub struct Node {
     /// the CST extractors when they recover a list / aliased
     /// element / inline text run from a parsed document; consumed by
     /// the corresponding emitters to drive serialisation choices.
-    #[serde(default, skip_serializing_if = "node_shape_is_default")]
+    #[serde(default)]
     pub shape: NodeShape,
     /// Out-of-band annotations (metadata distinct from data).
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub annotations: HashMap<String, Value>,
-}
-
-const fn node_shape_is_default(shape: &NodeShape) -> bool {
-    matches!(shape, NodeShape::Plain)
 }
 
 impl Node {
@@ -235,13 +239,24 @@ mod tests {
     }
 
     #[test]
-    fn shape_serialization_skips_default() {
+    fn shape_serialization_emits_the_default() {
         let node = Node::new(0, "v");
         let json = serde_json::to_string(&node).expect("serialize plain node");
         assert!(
-            !json.contains("shape"),
-            "Plain shape must skip-serialize: {json}"
+            json.contains("\"shape\""),
+            "every field is written, the default shape included: {json}"
         );
+        let back: Node = serde_json::from_str(&json).expect("read the node back");
+        assert_eq!(back.shape, NodeShape::Plain);
+    }
+
+    #[test]
+    fn a_field_missing_from_an_encoding_reads_as_its_default() {
+        let json = r#"{"id":0,"anchor":"v","value":null,"discriminator":null,"extra_fields":{}}"#;
+        let node: Node = serde_json::from_str(json).expect("read a node back");
+        assert_eq!(node.position, None);
+        assert_eq!(node.shape, NodeShape::Plain);
+        assert!(node.annotations.is_empty());
     }
 
     #[test]

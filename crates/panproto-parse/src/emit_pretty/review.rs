@@ -24,6 +24,8 @@
 
 //! `emit_pretty::review` (Phase A decomposition).
 
+use panproto_gat::is_interstitial_text_sort;
+
 use super::{
     ChildCursor, EMIT_DEPTH, EMIT_MU_FRAMES, Edge, Grammar, Output, ParseError, Production, Schema,
     Token, TokenRole, accepts_first_edge, alias_content_is_terminal_pattern,
@@ -2957,7 +2959,7 @@ pub(crate) fn pick_choice_with_cursor<'a>(
                 .iter()
                 .filter_map(|c| {
                     let s = c.sort.as_ref();
-                    if !s.starts_with("interstitial-") || s.ends_with("-start-byte") {
+                    if !is_interstitial_text_sort(s) {
                         return None;
                     }
                     let idx: usize = s["interstitial-".len()..].parse().ok()?;

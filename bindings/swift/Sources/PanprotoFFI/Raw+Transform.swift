@@ -677,8 +677,8 @@ extension Raw {
     /// `theoryMorphism` is a CBOR-encoded `gat::TheoryMorphism`. The
     /// buffer receives the CBOR-encoded induced
     /// `schema::SchemaMorphism` and the out-handle is a fresh
-    /// `MigrationWithSchemas`: the compiled `Delta_F` pullback bundled
-    /// with its anchoring schemas.
+    /// `MigrationWithSchemas`: the compiled source-to-target mapping
+    /// bundled with its anchoring schemas.
     ///
     /// `src` and `tgt` must be `Schema` handles.
     @inlinable

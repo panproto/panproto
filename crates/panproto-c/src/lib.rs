@@ -10,7 +10,7 @@
 //!
 //! Two wire formats coexist:
 //!
-//! - **Hot path**: opaque `u32` handles into a thread-local slab
+//! - **Hot path**: opaque `u32` handles into a process-global slab
 //!   ([`handle`]), small fixed records as `#[repr(C)]` structs.
 //!   No serialization on every call.
 //! - **Cold path**: CBOR via `ciborium` on the Rust side, decoded by

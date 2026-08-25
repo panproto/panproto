@@ -67,10 +67,11 @@
 //! [`store_protocol_definition`], [`get_protocol_definition`],
 //! [`get_migration_complement`]
 //!
-//! **Expression Parser & Query Engine (70-72)**:
-//! [`parse_expr`], [`eval_func_expr`], [`execute_query`]
+//! **Expression Parser & Query Engine (70-73)**:
+//! [`parse_expr`], [`eval_func_expr`], [`execute_query`],
+//! [`execute_query_with_schema_handle`]
 //!
-//! **Fiber, Hom & Graph (73-77)**:
+//! **Fiber, Hom & Graph (74-78)**:
 //! [`fiber_at`], [`fiber_decomposition_wasm`], [`poly_hom`],
 //! [`preferred_conversion_path`], [`conversion_distance`]
 
@@ -84,21 +85,21 @@ pub use api::{
     check_morphism, check_put_get, classify_diff, colimit_theories, compile_lens_document,
     compile_migration, compose_lenses, compose_migrations, conversion_distance, create_theory,
     define_protocol, diff_schemas, diff_schemas_full, emit_instance, eval_expr, eval_func_expr,
-    execute_query, factorize_morphism, fiber_at, fiber_decomposition_wasm, free_handle,
-    get_builtin_protocol, get_dataset, get_migration_complement, get_protocol_definition,
-    get_record, instance_element_count, instance_to_json, instantiate_protolens, invert_migration,
-    json_to_instance, lift_record, list_builtin_protocols, list_bundle_parser_protocols,
-    list_document_parser_protocols, list_io_protocols, list_source_parser_protocols,
-    migrate_dataset_backward, migrate_dataset_forward, migrate_model, migration_coverage,
-    normalize_schema, parse_atproto_lexicon, parse_expr, parse_instance, parse_schema_bundle,
-    parse_schema_document, parse_schema_source, poly_hom, preferred_conversion_path,
-    protolens_chain_to_json, protolens_check_applicability, protolens_complement_spec,
-    protolens_compose, protolens_field_transforms, protolens_fleet, protolens_from_diff,
-    protolens_from_json, protolens_fuse, protolens_lift, protolens_optic_kind, protolens_simplify,
-    put_record, refinement_subsort, register_io_protocols, report_json, report_text,
-    schema_add_coercion, schema_add_default, schema_add_merger, schema_add_policy, schema_metadata,
-    store_dataset, store_protocol_definition, substitute_expr, symmetric_lens_from_schemas,
-    symmetric_lens_sync, validate_instance, validate_schema, vcs_add, vcs_blame, vcs_branch,
-    vcs_checkout, vcs_commit, vcs_diff, vcs_init, vcs_log, vcs_merge, vcs_stash, vcs_stash_pop,
-    vcs_status,
+    execute_query, execute_query_with_schema_handle, factorize_morphism, fiber_at,
+    fiber_decomposition_wasm, free_handle, get_builtin_protocol, get_dataset,
+    get_migration_complement, get_protocol_definition, get_record, instance_element_count,
+    instance_to_json, instantiate_protolens, invert_migration, json_to_instance, lift_record,
+    list_builtin_protocols, list_bundle_parser_protocols, list_document_parser_protocols,
+    list_io_protocols, list_source_parser_protocols, migrate_dataset_backward,
+    migrate_dataset_forward, migrate_model, migration_coverage, normalize_schema,
+    parse_atproto_lexicon, parse_expr, parse_instance, parse_schema_bundle, parse_schema_document,
+    parse_schema_source, poly_hom, preferred_conversion_path, protolens_chain_to_json,
+    protolens_check_applicability, protolens_complement_spec, protolens_compose,
+    protolens_field_transforms, protolens_fleet, protolens_from_diff, protolens_from_json,
+    protolens_fuse, protolens_lift, protolens_optic_kind, protolens_simplify, put_record,
+    refinement_subsort, register_io_protocols, report_json, report_text, schema_add_coercion,
+    schema_add_default, schema_add_merger, schema_add_policy, schema_metadata, store_dataset,
+    store_protocol_definition, substitute_expr, symmetric_lens_from_schemas, symmetric_lens_sync,
+    validate_instance, validate_schema, vcs_add, vcs_blame, vcs_branch, vcs_checkout, vcs_commit,
+    vcs_diff, vcs_init, vcs_log, vcs_merge, vcs_stash, vcs_stash_pop, vcs_status,
 };

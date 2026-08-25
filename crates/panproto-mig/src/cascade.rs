@@ -1,9 +1,9 @@
 //! The morphism tower: Theory → Schema → Instance.
 //!
-//! Theory morphisms induce schema morphisms (via sort/operation
-//! renaming), which in turn induce data migrations (via Spivak's
-//! `Δ_F` pullback functor). This module provides the cascade functions
-//! that connect these levels.
+//! Theory morphisms induce schema morphisms by renaming sorts and
+//! operations. The schema morphisms are then compiled into the tables
+//! used by panproto's forward, restrict-based instance projection. This
+//! module provides the cascade functions that connect those levels.
 
 use std::collections::HashMap;
 
@@ -61,9 +61,10 @@ pub fn induce_schema_morphism(
 
 /// Induce a data migration from a schema morphism.
 ///
-/// This is `Δ_F` (pullback along schema morphism) from Spivak (2012).
-/// The resulting `CompiledMigration` can be applied to W-type or
-/// functor instances via the restrict pipeline.
+/// The result records the surviving target elements, remappings, and
+/// contraction resolvers needed by the restrict pipeline. Applying it
+/// through `lift_wtype` or `lift_functor` carries source data forward;
+/// those operations are not categorical precomposition `Delta_F`.
 #[must_use]
 pub fn induce_data_migration(
     schema_morph: &SchemaMorphism,

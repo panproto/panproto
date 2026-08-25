@@ -305,6 +305,28 @@ pub fn cmd_merge(cmd_opts: &MergeCmdOptions<'_>, migrate_dir: Option<&Path>) -> 
         miette::bail!("merge failed with {} conflict(s)", result.conflicts.len());
     }
 
+    if !result.identified_additions.is_empty() {
+        println!(
+            "Both branches added {} element(s) under the same name; the merge kept one copy of each:",
+            result.identified_additions.len()
+        );
+        for identified in &result.identified_additions {
+            match identified {
+                vcs::merge::IdentifiedAddition::Vertex { vertex_id } => {
+                    println!("  vertex {vertex_id}");
+                }
+                vcs::merge::IdentifiedAddition::Edge { edge } => {
+                    let label = edge
+                        .name
+                        .as_ref()
+                        .map_or_else(String::new, |n| format!(" {n}"));
+                    println!("  edge {} -> {}{label}", edge.src, edge.tgt);
+                }
+                other => println!("  {other:?}"),
+            }
+        }
+    }
+
     if let Some(ref err) = result.pullback_error {
         println!("pullback overlap unavailable: {err}");
     }

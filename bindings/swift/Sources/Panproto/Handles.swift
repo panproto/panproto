@@ -6,9 +6,9 @@ import PanprotoFFI
 /// and leaves ownership to the host. This class is that ownership: one
 /// instance holds one slab entry, and the entry goes back to the
 /// engine when the instance does. Handles are engine-isolated, which is
-/// what keeps a failure and the drain of its thread-local error
-/// envelope on one thread, and they carry their slab variant as a type,
-/// so a `SchemaHandle` cannot be passed where the ABI wants a
+/// what keeps a failure and the drain of its error envelope adjacent
+/// with nothing interleaved, and they carry their slab variant as a
+/// type, so a `SchemaHandle` cannot be passed where the ABI wants a
 /// `ProtocolHandle`.
 ///
 /// The slab guarantees stable identity: an index names the same
@@ -112,8 +112,9 @@ public final class SchemaHandle: PanprotoHandle {
     public override class var slabVariant: String { "Schema" }
 }
 
-/// An uncompiled migration: a mapping between two schemas that has not
-/// yet been checked for existence.
+/// A compiled migration payload without its source and target schemas.
+/// Operations that need schemas reconstruct a minimal pair from the
+/// surviving vertex and edge sets.
 @PanprotoEngine
 public final class MigrationHandle: PanprotoHandle {
     public override class var slabVariant: String { "Migration" }

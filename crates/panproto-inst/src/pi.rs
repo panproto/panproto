@@ -30,7 +30,9 @@ type FiberProvenance = Vec<HashMap<Name, usize>>;
 /// Computes the product over fibers of the migration morphism. For each
 /// target vertex, the fiber is the set of source vertices that map to it.
 /// Single-element fibers copy the table directly; multi-element fibers
-/// compute the Cartesian product of rows with column union.
+/// compute the Cartesian product of rows with column union. A fiber component
+/// whose table is empty or absent is an empty factor, so the target's table is
+/// empty; the component is not dropped from the product.
 ///
 /// Foreign keys are carried through the product. Each product row records
 /// which source row it drew from every fiber component, and each original FK
@@ -49,25 +51,10 @@ pub fn functor_pi(
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<FInstance, RestrictError> {
-    // Step 1: Build fiber map. For each target vertex, collect source vertices
-    let mut fiber_map: HashMap<Name, Vec<Name>> = HashMap::new();
-
-    // Collect all remap targets so we can distinguish target-only vertices
-    let remap_targets: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
-
-    // Vertices that are remapped
-    for (src, tgt) in &migration.vertex_remap {
-        fiber_map.entry(tgt.clone()).or_default().push(src.clone());
-    }
-
-    // Vertices that survive without remap (identity mapping).
-    // Only add if the vertex is not a remap source (key) AND not
-    // exclusively a remap target (i.e., it maps to itself as a source).
-    for sv in &migration.surviving_verts {
-        if !migration.vertex_remap.contains_key(sv) && !remap_targets.contains(sv) {
-            fiber_map.entry(sv.clone()).or_default().push(sv.clone());
-        }
-    }
+    // Step 1: Build fiber map. For each target vertex, collect source vertices.
+    // Fiber components arrive in name order, so the product's factor order —
+    // and hence its row order and provenance — is fixed.
+    let fiber_map = build_fiber_map(migration);
 
     let mut new_tables: HashMap<String, FiberRows> = HashMap::new();
     // For each target vertex, the provenance of each of its rows: a map from
@@ -90,8 +77,16 @@ pub fn functor_pi(
     // is emitted for every product row of the new source endpoint whose
     // component index for the original source vertex equals i, crossed with
     // every product row of the new target endpoint matching j.
+    // Source edges are visited in name order and edges colliding under
+    // `edge_remap` have their pair sets unioned, so no source edge's pairs are
+    // lost and the result does not depend on hash iteration order.
     let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
-    for (edge, pairs) in &instance.foreign_keys {
+    let mut src_edges: Vec<&Edge> = instance.foreign_keys.keys().collect();
+    src_edges.sort_unstable();
+    for edge in src_edges {
+        let Some(pairs) = instance.foreign_keys.get(edge) else {
+            continue;
+        };
         let new_edge = if let Some(remapped) = migration.edge_remap.get(edge) {
             remapped.clone()
         } else if migration.surviving_edges.contains(edge) {
@@ -119,7 +114,12 @@ pub fn functor_pi(
         }
 
         if !remapped_pairs.is_empty() {
-            new_fks.insert(new_edge, remapped_pairs);
+            let entry = new_fks.entry(new_edge).or_default();
+            for pair in remapped_pairs {
+                if !entry.contains(&pair) {
+                    entry.push(pair);
+                }
+            }
         }
     }
 
@@ -131,10 +131,18 @@ pub fn functor_pi(
 
 /// Build the table and per-row provenance for one target vertex's fiber.
 ///
-/// Single-element fibers copy the source table directly with identity
-/// provenance (row `p` came from source row `p`); multi-element fibers form the
-/// Cartesian product with column union, recording for each product row the
-/// source row index it drew from every fiber-component source vertex.
+/// Every vertex in the fiber is a factor of the product. The empty fiber — a
+/// target vertex nothing maps to — is the empty product, whose limit is the
+/// terminal one-element table holding the empty row. A fiber with one element
+/// copies that source's table directly with identity provenance (row `p` came
+/// from source row `p`). A larger fiber forms the Cartesian product with column
+/// union, recording for each product row the source row index it drew from
+/// every fiber-component source vertex.
+///
+/// A factor whose table is empty or absent from the instance empties the whole
+/// product: the limit contains no tuple that could supply that component. Such
+/// a factor is never dropped from the fiber, which would return the product
+/// over the remaining factors — rows the limit does not contain.
 ///
 /// # Errors
 ///
@@ -146,19 +154,19 @@ fn build_fiber_table(
     tgt_vertex: &Name,
     max_product_size: usize,
 ) -> Result<(FiberRows, FiberProvenance), RestrictError> {
-    // Collect (source vertex, rows) for each non-empty source table so the
-    // product can be traced back to the contributing source rows.
-    let mut fiber_sources: Vec<(&Name, &FiberRows)> = Vec::new();
-    for src_v in src_vertices {
-        if let Some(rows) = instance.tables.get(&**src_v) {
-            if !rows.is_empty() {
-                fiber_sources.push((src_v, rows));
-            }
-        }
+    if src_vertices.is_empty() {
+        // The empty product is terminal: one row, drawing from no component.
+        return Ok((vec![HashMap::new()], vec![HashMap::new()]));
     }
 
-    if fiber_sources.is_empty() {
-        return Ok((Vec::new(), Vec::new()));
+    // Collect (source vertex, rows) for every fiber component. An absent table
+    // is the empty table, and an empty factor empties the product.
+    let mut fiber_sources: Vec<(&Name, &FiberRows)> = Vec::with_capacity(src_vertices.len());
+    for src_v in src_vertices {
+        match instance.tables.get(&**src_v) {
+            Some(rows) if !rows.is_empty() => fiber_sources.push((src_v, rows)),
+            _ => return Ok((Vec::new(), Vec::new())),
+        }
     }
 
     if fiber_sources.len() == 1 {
@@ -246,6 +254,9 @@ fn product_rows_for(
 }
 
 /// Build the fiber map from a migration's vertex remap and surviving vertices.
+///
+/// Each fiber's source vertices are returned in name order, so downstream
+/// consumers see a factor order that does not depend on hash iteration order.
 fn build_fiber_map(migration: &CompiledMigration) -> HashMap<Name, Vec<Name>> {
     let mut fiber_map: HashMap<Name, Vec<Name>> = HashMap::new();
     let remap_targets: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
@@ -258,6 +269,10 @@ fn build_fiber_map(migration: &CompiledMigration) -> HashMap<Name, Vec<Name>> {
         if !migration.vertex_remap.contains_key(sv) && !remap_targets.contains(sv) {
             fiber_map.entry(sv.clone()).or_default().push(sv.clone());
         }
+    }
+
+    for sources in fiber_map.values_mut() {
+        sources.sort_unstable();
     }
 
     fiber_map
@@ -308,11 +323,9 @@ pub fn wtype_pi(
     // product). Reject rather than silently return Sigma-shaped output.
     for (tgt, srcs) in &fiber_map {
         if srcs.len() > 1 {
-            let mut sources = srcs.clone();
-            sources.sort_unstable();
             return Err(RestrictError::NonInjectiveVertexMap {
                 target: tgt.clone(),
-                sources,
+                sources: srcs.clone(),
             });
         }
     }
@@ -848,5 +861,124 @@ mod tests {
             matches!(err, RestrictError::UnmappedAnchor { node_id: 1, .. }),
             "expected UnmappedAnchor for node 1, got {err:?}"
         );
+    }
+
+    /// A fiber component with an empty table is a factor of the product, so it
+    /// empties the product rather than being dropped from the fiber.
+    #[test]
+    fn functor_pi_empty_factor_empties_product() {
+        let rows_a = vec![
+            HashMap::from([("x".to_string(), Value::Int(1))]),
+            HashMap::from([("x".to_string(), Value::Int(2))]),
+        ];
+        let inst = FInstance::new()
+            .with_table("src_a", rows_a)
+            .with_table("src_b", Vec::new());
+
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("src_a"), Name::from("merged"));
+        vertex_remap.insert(Name::from("src_b"), Name::from("merged"));
+
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("merged"));
+        migration.vertex_remap = vertex_remap;
+
+        let result = functor_pi(&inst, &migration, 100).unwrap();
+        assert_eq!(
+            result.row_count("merged"),
+            0,
+            "a product with an empty factor has no rows",
+        );
+    }
+
+    /// An absent source table is the empty table, so it empties the product the
+    /// same way a present-but-empty one does.
+    #[test]
+    fn functor_pi_absent_factor_empties_product() {
+        let rows_a = vec![HashMap::from([("x".to_string(), Value::Int(1))])];
+        let inst = FInstance::new().with_table("src_a", rows_a);
+
+        let mut vertex_remap = HashMap::new();
+        vertex_remap.insert(Name::from("src_a"), Name::from("merged"));
+        vertex_remap.insert(Name::from("src_b"), Name::from("merged"));
+
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("merged"));
+        migration.vertex_remap = vertex_remap;
+
+        let result = functor_pi(&inst, &migration, 100).unwrap();
+        assert_eq!(
+            result.row_count("merged"),
+            0,
+            "an absent factor is the empty table, so the product is empty",
+        );
+    }
+
+    /// Distinct source edges identified by the edge map contribute a union of
+    /// pairs, and the result does not depend on hash iteration order.
+    #[test]
+    fn functor_pi_unions_collided_edges_deterministically() {
+        fn self_edge(v: &str) -> Edge {
+            Edge {
+                src: v.into(),
+                tgt: v.into(),
+                kind: "ref".into(),
+                name: Some("link".into()),
+            }
+        }
+
+        let build = || {
+            let inst = FInstance::new()
+                .with_table(
+                    "a",
+                    vec![
+                        HashMap::from([("n".to_string(), Value::Int(0))]),
+                        HashMap::from([("n".to_string(), Value::Int(1))]),
+                    ],
+                )
+                .with_table(
+                    "b",
+                    vec![
+                        HashMap::from([("m".to_string(), Value::Int(0))]),
+                        HashMap::from([("m".to_string(), Value::Int(1))]),
+                    ],
+                )
+                .with_foreign_key(self_edge("a"), vec![(0, 1)])
+                .with_foreign_key(self_edge("b"), vec![(1, 0)]);
+
+            let mut migration = CompiledMigration::default();
+            migration.surviving_verts.insert(Name::from("t"));
+            migration
+                .vertex_remap
+                .insert(Name::from("a"), Name::from("t"));
+            migration
+                .vertex_remap
+                .insert(Name::from("b"), Name::from("t"));
+            migration.edge_remap.insert(self_edge("a"), self_edge("t"));
+            migration.edge_remap.insert(self_edge("b"), self_edge("t"));
+            functor_pi(&inst, &migration, 100).unwrap()
+        };
+
+        let first = build();
+        let mut pairs = first.foreign_keys.get(&self_edge("t")).unwrap().clone();
+        pairs.sort_unstable();
+        // Fiber components are ordered by name, so product row `p` holds
+        // (a[p / 2], b[p % 2]). The `a` edge (0, 1) fans out to every product
+        // row drawing a0 crossed with every row drawing a1; the `b` edge
+        // (1, 0) fans out the same way over b.
+        assert_eq!(
+            pairs,
+            vec![(0, 2), (0, 3), (1, 0), (1, 2), (1, 3), (3, 0), (3, 2)],
+            "both source edges contribute their fanned-out product pairs",
+        );
+
+        for _ in 0..16 {
+            let again = build();
+            assert_eq!(
+                again.foreign_keys.get(&self_edge("t")),
+                first.foreign_keys.get(&self_edge("t")),
+                "merged foreign keys must not depend on hash iteration order",
+            );
+        }
     }
 }

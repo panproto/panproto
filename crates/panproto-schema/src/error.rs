@@ -67,6 +67,22 @@ pub enum SchemaError {
     #[error("schema has no vertices")]
     EmptySchema,
 
+    /// A pushout overlap identified an edge that the schema it is drawn from
+    /// does not contain, so the identification has no endpoints to close over.
+    #[error(
+        "overlap names a {side} edge from {src} to {tgt} of kind {kind} that is not in that schema"
+    )]
+    OverlapEdgeNotFound {
+        /// Which schema the edge was drawn from: `left` or `right`.
+        side: &'static str,
+        /// Source vertex ID.
+        src: String,
+        /// Target vertex ID.
+        tgt: String,
+        /// Edge kind.
+        kind: String,
+    },
+
     /// A declared entry vertex does not exist in the schema.
     #[error("entry vertex not found: {0}")]
     UnknownEntryVertex(String),

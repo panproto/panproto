@@ -1,40 +1,31 @@
 # tidal_mini
 
-A tree-sitter grammar for the [TidalCycles] mini-notation: the *island grammar* embedded inside the string argument to `s`, `n`, `note`, and other pattern-producing functions in a Haskell-host Tidal program.
+Tree-sitter grammar for the contents of a [TidalCycles mini-notation](https://tidalcycles.org/docs/reference/mini_notation/) string. It does not parse the surrounding Haskell or the string delimiters.
 
-This is one of the few grammars in `panproto-grammars` authored in-repo against a documented language specification rather than vendored from an upstream `tree-sitter-tidal-mini` package; no such package exists. The companion grammar in `grammars/strudel_mini/` is its sibling for the JavaScript-host port.
+## Implemented syntax
 
-## Source spec
+| Syntax | Tree-sitter rule |
+|---|---|
+| Whitespace-separated events and unsigned decimal numbers | `_dot_group` |
+| `name:N` sample selection | `event` |
+| Rest `~` and elongation marker `_` | `rest`, `elongation` |
+| Subdivision with `[ ]` | `group` |
+| Alternation with `< >` | `alternation` |
+| Polymetric groups with `{ }` and optional `%N` | `polymetric` |
+| Parallel or random branches separated by `,` or `\|` | `_pattern_list` |
+| Top-level grouping shorthand `.` | `_pattern` |
+| `*N`, `/N`, `@N`, `!N`, `?N`, and `%N` suffixes | the corresponding suffix rule |
+| `(beats,steps)` and `(beats,steps,offset)` | `euclid_suffix` |
 
-Every construct in this grammar is grounded in the official mini-notation reference at <https://tidalcycles.org/docs/reference/mini_notation>. The grammar's per-rule comments cite the documented example each rule was derived from. No syntax that does not appear in that page has been added.
+The grammar permits either `,` or `|` separator in the same container. The parser records syntax only and does not enforce the distinct Tidal semantics of superposition and random choice.
 
-## Coverage
+## Limits
 
-| Construct | Spec example | Grammar rule |
-|---|---|---|
-| Rest | `"~ hh"` | `rest` (literal `~`) |
-| Step repetition | `"bd*2 sd"` | `repeat_suffix` |
-| Step division | `"bd/2"` | `divide_suffix` |
-| Replication | `"bd!3 sd"` | `replicate_suffix` |
-| Elongation marker | `"bd _ _ ~ sd _"` | `elongation` |
-| Elongation suffix | `"superpiano@3 superpiano"` | `elongate_suffix` |
-| Probabilistic removal | `"bd? sd"`, `"hh?0.8"` | `probability_suffix` |
-| Sample selection | `"arpy:1 arpy:2"` | `event` (`name:sample`) |
-| Numeric ratio | `"bd*4%2"` | `ratio_suffix` |
-| Random choice | `"[bd\|hh\|cp]"` | `\|` separator in `_pattern_list` |
-| Group brackets | `"[bd sd] hh"` | `group` |
-| Alternation | `"bd <sd hh cp>"` | `alternation` |
-| Polymetric | `"{bd hh}%8"` | `polymetric` |
-| Euclidean | `"bd(3,8)"`, `"bd(3,8,1)"` | `euclid_suffix` |
-| Superposition | `"[bd*2,hh*3]"` | `,` separator in `_pattern_list` |
-| Top-level dot | `"bd*3 . hh*4 cp"` | `.` between `_dot_group`s |
-| Nested subdivision | `"[bd [hh [cp sn:2] hh]]"` | recursive `group` |
+Identifiers match `[A-Za-z][A-Za-z0-9_]*`, and numbers are unsigned integers or decimals. Thus this grammar is not a parser for every value or sample name Tidal may accept. A rest is a standalone step and cannot carry suffixes. Semantic constraints, such as valid probability ranges or Euclidean parameters, are not checked.
 
-22 corpus tests under `test/corpus/spec_examples.txt`, each named after the spec construct it exercises. All 22 pass with the latest `tree-sitter generate`.
+## Files and tests
 
-## Usage
-
-`grammars/tidal_mini/` contains both the source `grammar.js` and the generated `src/parser.c` / `src/grammar.json` / `src/node-types.json`, so panproto's `panproto-grammars` build picks the grammar up directly via the `lang-tidal_mini` feature. Local iteration:
+`grammar.js` is the source. `src/parser.c`, `src/grammar.json`, and `src/node-types.json` are generated tree-sitter artifacts consumed by `panproto-grammars`. The corpus at `test/corpus/spec_examples.txt` contains 22 cases. The duplicate path `test/test/corpus/spec_examples.txt` currently contains the same file.
 
 ```bash
 cd grammars/tidal_mini
@@ -42,6 +33,8 @@ tree-sitter generate
 tree-sitter test
 ```
 
-The grammar reaches Python through the `panproto-grammars-music` companion pack: `pip install panproto-grammars-music` adds `tidal_mini` to `panproto.AstParserRegistry()`.
+The `lang-tidal_mini` feature enables this grammar. The Python `panproto-grammars-music` wheel enables the same feature through `group-music`.
 
-[TidalCycles]: https://tidalcycles.org/
+## License
+
+[MIT](LICENSE)

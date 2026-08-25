@@ -2,56 +2,75 @@
 
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Native Python bindings for panproto via PyO3, with no WASM layer or subprocess.
+`panproto-py` builds the native `panproto._native` extension used by the
+[`panproto` Python package](../../bindings/python). It uses PyO3 and links the
+Rust crates directly. It does not use the C ABI or the WebAssembly boundary.
 
-## What it does
+## Build
 
-This crate compiles to a native `.so`/`.pyd` extension (packaged by maturin as `panproto._native`) that Python imports directly. Unlike the TypeScript SDK, which goes through a WASM boundary with MessagePack serialization, these bindings own the underlying Rust data in PyO3 `#[pyclass]` structs. Python's garbage collector handles lifetimes; there are no handles to free. Data crosses the boundary via `pythonize`, which converts Rust structs to and from Python dicts through serde, so you work with plain Python objects.
-
-The bindings cover the full panproto API surface. Schema building and protocol selection work the same as in Rust. Migrations are compiled once and applied to instances. Breaking change detection (`diff_schemas`, `diff_and_classify`) returns Python dicts you can inspect or serialize. The VCS module exposes a `VcsRepository` class with `init`, `add`, `commit`, `branch`, `merge`, `log`, and `status` methods. The parse module wraps tree-sitter grammars for 250 languages. The project module provides `ProjectBuilder` and `build_project` for multi-file assembly. GAT operations (`create_theory`, `colimit`, `check_morphism`, `migrate_model`) are available for advanced theory-level work.
-
-Requires Python 3.13 or later and Rust 1.85 or later to build from source. Install the pre-built wheel from PyPI instead when possible.
-
-## Quick example
+The extension requires Python 3.13 or newer. From `bindings/python`:
 
 ```sh
-pip install panproto
+maturin develop
 ```
 
-```python
-import panproto
+The Cargo crate enables the 11-language `group-core` parser set by default.
+Grammar group and per-language Cargo features forward to `panproto-grammars`
+and `panproto-parse`. The package README documents the separately installed
+grammar companions.
 
-# Build a schema.
-proto = panproto.get_builtin_protocol("atproto")
-builder = panproto.SchemaBuilder(proto)
-builder.vertex("Post", "Record")
-builder.vertex("Author", "Record")
-builder.edge("Post", "Author", "HasAuthor")
-schema = builder.build()
+## Binding model
 
-# Diff two schema versions.
-diff = panproto.diff_schemas(schema_v1, schema_v2)
-report = panproto.diff_and_classify(diff)
-print(report["compatibility"])  # "BackwardCompatible", "Breaking", etc.
+PyO3 classes own Rust values rather than numeric slab handles. Python object
+lifetime controls their release. Immutable schemas are shared internally with
+`Arc` where later operations need to retain them.
+
+The native module exposes schema construction and parsing, migration
+compilation, lens generation, compatibility reports, instance I/O, theory and
+model operations, morphism and span search, project assembly, source parsing,
+the Git bridge, and two VCS wrappers. `Repository` is filesystem-backed and
+contains the full repository API. `VcsRepository` is a distinct in-memory type
+with only `add()` and `list_refs()`.
+
+The `IoRegistry` is populated by `panproto_io::default_registry()`. Inspect
+`len(IoRegistry())` at runtime instead of assuming that the I/O codec count is
+the same as the grammar count or built-in schema-protocol count.
+
+The `ProtolensChain.from_dsl_*()` constructors retain the lens-DSL compiler's
+ordered structural and value-level stages. This order matters when, for
+instance, an expression refers to a field renamed by an earlier step.
+Instantiation composes each stage at the running schema. The JSON form keeps
+the compatibility `steps` and `field_transforms` summaries and records the
+authoritative order in `stages`.
+
+`diff_schemas(old, new)` returns `SchemaDiff`.
+`diff_and_classify(old, new, protocol)` returns `CompatReport`, whose
+`classification` property is a string and whose detailed changes are exposed
+as properties.
+
+`CompiledMigration.lift()` performs the implementation's source-to-target
+surviving-fragment transfer. It does not run the separate general source-to-target
+`Sigma` transport described in [The vocabulary in plain terms](../../book/src/explanation/decoder-ring.md).
+`get()` produces a target-shaped view plus a complement, and `put()` uses both to
+reconstruct a source instance.
+
+The authoritative Python signatures are in
+[`../../bindings/python/src/panproto/_native.pyi`](../../bindings/python/src/panproto/_native.pyi).
+
+## Test
+
+Build the extension and run its Python tests from `bindings/python`:
+
+```sh
+maturin develop
+python -m pytest tests/test_native.py
 ```
 
-## API overview
-
-| Module | What it exposes |
-|--------|----------------|
-| `schema` | `Protocol`, `Schema`, `SchemaBuilder`, `Vertex`, `Edge` |
-| `protocols` | `list_builtin_protocols()`, `get_builtin_protocol()`, `define_protocol()` |
-| `mig` | `Migration`, `MigrationBuilder`, `CompiledMigration`, `compile()`, `check_existence()` |
-| `check` | `SchemaDiff`, `CompatReport`, `diff_schemas()`, `diff_and_classify()` |
-| `inst` | `Instance` (the W-type instance container) |
-| `io` | `IoRegistry` (77 format codecs for parse and emit) |
-| `lens` | `Lens`, `auto_generate_lens()`, `classify_transform()` |
-| `gat` | `Theory`, `Model`, `create_theory()`, `colimit()`, `check_morphism()`, `migrate_model()` |
-| `expr` | `Expr`, `parse_expr()`, `eval_with_instance()` |
-| `vcs` | `VcsRepository` with git-style VCS commands |
-| `parse` | `AstParserRegistry`, `parse_source_file()` |
-| `project` | `ProjectBuilder`, `ProjectSchema`, `build_project()`, `parse_project()` |
-| `git` | `import_git_repo()`, `import_git_repo_incremental()`, `export_to_git()` |
+On macOS, do not use `cargo test -p panproto-py` for the binding tests. PyO3's
+`extension-module` link mode expects Python to load the library, so a standalone
+Rust test executable may abort before the tests run. Rust-only compilation can
+be checked from the workspace root with `cargo check -p panproto-py`. Python
+package and stub-parity tests live under `bindings/python/tests`.
 
 ## License
 

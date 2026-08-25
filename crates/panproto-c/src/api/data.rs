@@ -44,7 +44,7 @@ pub fn pp_data_store_dataset(
     out_handle: &mut u32,
 ) -> i32 {
     guard(|| {
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         // The store input is raw JSON, not CBOR: decode with serde_json.
         let json_value: serde_json::Value = serde_json::from_slice(data_json.as_slice())
@@ -128,7 +128,7 @@ pub fn pp_data_migrate_forward(
     guard(|| {
         let ds = handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.clone()))?;
         let (src, tgt) = handle::with_two_resources(src_schema, tgt_schema, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let protocol = protocol_for_schema(&src);
@@ -194,6 +194,11 @@ pub fn pp_data_migrate_forward(
 /// view with its complement. On success, `out_handle` receives a fresh
 /// [`Resource::DataSet`](crate::handle::Resource) handle re-anchored to
 /// the source schema.
+///
+/// The complement list must hold exactly one entry per record in the
+/// data set. A mismatch returns `PP_STATUS_OPERATION` with both lengths
+/// named in the error envelope, rather than restoring the shorter of
+/// the two and reporting the truncated count as if it were complete.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_data_migrate_backward(
@@ -206,7 +211,7 @@ pub fn pp_data_migrate_backward(
     guard(|| {
         let ds = handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.clone()))?;
         let (src, tgt) = handle::with_two_resources(src_schema, tgt_schema, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let protocol = protocol_for_schema(&src);
@@ -216,6 +221,19 @@ pub fn pp_data_migrate_backward(
         let config = lens::AutoLensConfig::default();
         let result = lens::auto_generate(&src, &tgt, &protocol, &config)
             .map_err(|e| FfiError::Operation(format!("auto_generate: {e}")))?;
+
+        // Each view is restored from the complement recorded for it, so
+        // the two lists must line up exactly. Zipping mismatched lists
+        // would drop the unpaired tail and report a `record_count` that
+        // matches the truncated set, leaving the loss undetectable.
+        if views.len() != complements.len() {
+            return Err(FfiError::Operation(format!(
+                "migrate backward: {} record(s) but {} complement(s); \
+                 every record needs the complement recorded for it",
+                views.len(),
+                complements.len()
+            )));
+        }
 
         let mut restored = Vec::with_capacity(views.len());
         for (view, comp) in views.iter().zip(complements.iter()) {
@@ -259,7 +277,7 @@ pub fn pp_data_check_staleness(
     guard(|| {
         let data_schema_id =
             handle::with_resource(dataset_handle, |r| Ok(r.as_dataset()?.schema_id))?;
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         let target_schema_id = vcs::hash::hash_schema(&schema)
             .map_err(|e| FfiError::Operation(format!("hash schema: {e}")))?;
@@ -435,6 +453,59 @@ mod tests {
         pp_buf_free(out2);
 
         assert_eq!(pp_handle_free(ds_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    /// A short complement list must be refused, not silently truncate
+    /// the restore. Pairing views with complements positionally means a
+    /// missing complement drops the record it belonged to, and the
+    /// restored data set's `record_count` matches the truncated set, so
+    /// the loss leaves no trace for the caller to detect.
+    #[test]
+    fn migrate_backward_refuses_a_short_complement_list() {
+        let src = source_schema();
+        let tgt = target_schema();
+        let src_h = alloc_schema(&src);
+        let tgt_h = alloc_schema(&tgt);
+        let ds_h = store(src_h, br#"[{"text": "a"}, {"text": "b"}, {"text": "c"}]"#);
+
+        let mut data_h: u32 = u32::MAX;
+        let mut comp_h: u32 = u32::MAX;
+        assert_eq!(
+            pp_data_migrate_forward(ds_h, src_h, tgt_h, &mut data_h, &mut comp_h),
+            PpStatus::Ok as i32
+        );
+
+        // Drop the last complement, leaving 3 records against 2.
+        let comp_bytes =
+            handle::with_resource(comp_h, |r| Ok(r.as_dataset()?.data.clone())).unwrap();
+        let mut complements: Vec<Complement> = crate::canonical::decode(&comp_bytes).unwrap();
+        assert_eq!(complements.len(), 3);
+        complements.pop();
+        let short = crate::canonical::encode(&complements).unwrap();
+
+        let short_slice = slice(&short);
+        let mut restored_h: u32 = u32::MAX;
+        let status =
+            pp_data_migrate_backward(data_h, short_slice.as_ref(), src_h, tgt_h, &mut restored_h);
+        assert_eq!(
+            status,
+            PpStatus::Operation as i32,
+            "a short complement list must fail, not restore a truncated data set"
+        );
+        assert_eq!(restored_h, u32::MAX, "no handle is allocated on failure");
+
+        let env = crate::error::take_last_error().expect("an envelope is stashed");
+        assert!(
+            env.message.contains('3') && env.message.contains('2'),
+            "the error must name both lengths, got: {}",
+            env.message
+        );
+
+        assert_eq!(pp_handle_free(ds_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(data_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(comp_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
     }

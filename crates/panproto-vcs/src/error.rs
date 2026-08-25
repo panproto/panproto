@@ -13,6 +13,36 @@ pub enum VcsError {
         id: crate::ObjectId,
     },
 
+    /// A stored object's bytes do not hash to the ID they are filed
+    /// under.
+    ///
+    /// The store is content-addressed, so a mismatch means the bytes on
+    /// disk are not the object the caller asked for: a torn write, a
+    /// corrupted file, or a hostile mirror. Returning the bytes anyway
+    /// would let any of those substitute one object for another, so a
+    /// read that fails verification is an error.
+    #[error("object {id} is corrupted: stored bytes hash to {actual}")]
+    ObjectCorrupted {
+        /// The ID the object is filed under.
+        id: crate::ObjectId,
+        /// The ID the stored bytes actually hash to.
+        actual: crate::ObjectId,
+    },
+
+    /// A ref name does not resolve inside the store.
+    ///
+    /// Ref names are joined onto the store root to form a path, so a
+    /// name containing `..`, a root, or a drive prefix would address a
+    /// file outside the repository. Names must be relative and made
+    /// entirely of ordinary components.
+    #[error("invalid ref name {name:?}: {reason}")]
+    InvalidRefName {
+        /// The rejected name.
+        name: String,
+        /// Why it was rejected.
+        reason: &'static str,
+    },
+
     /// A ref was not found.
     #[error("ref not found: {name}")]
     RefNotFound {
@@ -144,8 +174,10 @@ pub enum VcsError {
         got: String,
     },
 
-    /// A version-control square failed to commute: migrating a data set forward
-    /// and back through a schema change did not reconstruct the original.
+    /// Migrating a data set forward through a schema change and back
+    /// through its complement did not reconstruct the original, so the
+    /// migration loses data the complement did not record and no square
+    /// around it commutes.
     #[error("non-commuting square: {detail}")]
     SquareNonCommuting {
         /// Which data set diverged, and how.

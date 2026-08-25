@@ -11,7 +11,7 @@ Choose a surface according to where the schema enters the project. The CLI loads
 | Haskell SDK | [From Haskell](./haskell.md) |
 | Swift SDK | [From Swift](./swift.md) |
 
-Start with the CLI for an existing JSON Schema, Protobuf schema, or ATProto Lexicon. Start with a language SDK when the application constructs the schema programmatically.
+The CLI's schema-checking commands currently accept panproto's internal schema JSON and resolve only the `atproto` protocol. Its shared loaders can parse an ATProto Lexicon when a manifest selects `atproto`, and its full-AST commands parse supported source files as syntax trees. Use a language SDK's `parseSchemaDocument` or `parseSchemaSource` dispatch for the other external schema languages in the protocol catalog. Start with a language SDK when the application constructs the schema programmatically.
 
 ## See also
 

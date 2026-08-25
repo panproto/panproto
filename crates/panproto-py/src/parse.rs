@@ -37,9 +37,13 @@ impl PyAstParserRegistry {
     /// `name`, `extensions`, `language_ptr`, `node_types_ptr`,
     /// `node_types_len`, and the optional `tags_query_ptr` /
     /// `tags_query_len` / `grammar_json_ptr` / `grammar_json_len`
-    /// pairs. The `*_ptr` values are raw C pointers cast to integers;
-    /// the companion is responsible for ensuring the underlying
-    /// memory has process-lifetime extent (`&'static` in Rust terms).
+    /// pairs. The `*_ptr` values are raw C pointers cast to integers,
+    /// `language_ptr` being the `TSLanguage *` a `tree_sitter_<name>()`
+    /// entry point returns rather than the address of that function;
+    /// the companion is responsible for ensuring the underlying memory
+    /// has process-lifetime extent (`&'static` in Rust terms). The
+    /// `tags_query_*` bytes are checked for UTF-8 before use; the rest
+    /// are read on the companion's word.
     #[new]
     #[pyo3(signature = (extra_grammars = None))]
     fn new(extra_grammars: Option<Vec<Bound<'_, pyo3::types::PyDict>>>) -> Self {
@@ -87,10 +91,12 @@ impl PyAstParserRegistry {
 
     /// Parse a source file into a full-AST schema.
     /// The language is auto-detected from the file extension.
-    fn parse_file(&self, path: &str, content: &[u8]) -> PyResult<PySchema> {
-        let schema = self
-            .inner
-            .parse_file(std::path::Path::new(path), content)
+    ///
+    /// Runs with the GIL released, so parsing several files from a
+    /// Python thread pool uses several cores.
+    fn parse_file(&self, py: Python<'_>, path: &str, content: &[u8]) -> PyResult<PySchema> {
+        let schema = py
+            .detach(|| self.inner.parse_file(std::path::Path::new(path), content))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: std::sync::Arc::new(schema),
@@ -98,15 +104,18 @@ impl PyAstParserRegistry {
     }
 
     /// Parse source code with a specific protocol name.
+    ///
+    /// Runs with the GIL released, so parsing several sources from a
+    /// Python thread pool uses several cores.
     fn parse_with_protocol(
         &self,
+        py: Python<'_>,
         protocol: &str,
         content: &[u8],
         file_path: &str,
     ) -> PyResult<PySchema> {
-        let schema = self
-            .inner
-            .parse_with_protocol(protocol, content, file_path)
+        let schema = py
+            .detach(|| self.inner.parse_with_protocol(protocol, content, file_path))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: std::sync::Arc::new(schema),
@@ -121,9 +130,10 @@ impl PyAstParserRegistry {
     }
 
     /// Emit a schema back to source code bytes.
-    fn emit(&self, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
-        self.inner
-            .emit_with_protocol(protocol, &schema.inner)
+    ///
+    /// Runs with the GIL released.
+    fn emit(&self, py: Python<'_>, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| self.inner.emit_with_protocol(protocol, &schema.inner))
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
@@ -131,10 +141,14 @@ impl PyAstParserRegistry {
     /// grammar.json production walker. Unlike :meth:`emit`, does not
     /// require the schema to carry parse-derived byte positions or
     /// interstitial constraints.
-    fn emit_pretty(&self, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
-        self.inner
-            .emit_pretty_with_protocol(protocol, &schema.inner)
-            .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
+    ///
+    /// Runs with the GIL released.
+    fn emit_pretty(&self, py: Python<'_>, protocol: &str, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            self.inner
+                .emit_pretty_with_protocol(protocol, &schema.inner)
+        })
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
     /// Build a parse/emit lens for ``protocol`` against this registry.
@@ -157,9 +171,15 @@ impl PyAstParserRegistry {
     /// outside the panproto release cadence. The caller compiles the
     /// grammar themselves (typically via ``tree-sitter build``) and
     /// loads the resulting shared library; ``language_ptr`` is the
-    /// integer address of the ``tree_sitter_<name>`` function obtained
-    /// via ``ctypes`` / ``cffi``. The byte payloads are owned by Python
-    /// here and leaked into ``'static`` storage on the Rust side.
+    /// ``TSLanguage *`` that library's ``tree_sitter_<name>()`` function
+    /// **returns**, cast to an integer, not the address of the function
+    /// itself. With ``ctypes`` that is
+    /// ``ctypes.cast(lib.tree_sitter_<name>(), ctypes.c_void_p).value``
+    /// after declaring ``lib.tree_sitter_<name>.restype = ctypes.c_void_p``;
+    /// passing the function's own address instead makes tree-sitter read
+    /// a language struct out of executable code. The byte payloads are
+    /// owned by Python here and leaked into ``'static`` storage on the
+    /// Rust side.
     ///
     /// If a parser is already registered under ``name``, it is dropped
     /// first (along with any extension mappings that targeted it); the
@@ -200,9 +220,9 @@ impl PyAstParserRegistry {
         })?;
 
         // Same transmute the extra_grammars path uses; the user is
-        // responsible for the pointer's validity (it must point at the
-        // `tree_sitter_<name>` function of a loaded grammar shared
-        // library).
+        // responsible for the pointer's validity (it must be the
+        // `TSLanguage *` that a loaded grammar library's
+        // `tree_sitter_<name>()` function returned).
         let language: tree_sitter::Language =
             unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
 
@@ -241,10 +261,14 @@ pub struct PyParseEmitLens {
 #[pymethods]
 impl PyParseEmitLens {
     /// Forward direction: source bytes → schema.
-    fn parse(&self, source: &[u8]) -> PyResult<PySchema> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        let schema = lens
-            .parse(source)
+    ///
+    /// Runs with the GIL released.
+    fn parse(&self, py: Python<'_>, source: &[u8]) -> PyResult<PySchema> {
+        let schema = py
+            .detach(|| {
+                let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+                lens.parse(source)
+            })
             .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
         Ok(PySchema {
             inner: Arc::new(schema),
@@ -252,28 +276,40 @@ impl PyParseEmitLens {
     }
 
     /// Backward direction: schema → canonical source bytes (no complement).
-    fn emit(&self, schema: &PySchema) -> PyResult<Vec<u8>> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        lens.emit(&schema.inner)
-            .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
+    ///
+    /// Runs with the GIL released.
+    fn emit(&self, py: Python<'_>, schema: &PySchema) -> PyResult<Vec<u8>> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            lens.emit(&schema.inner)
+        })
+        .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))
     }
 
     /// Verify the `EmitParse` retraction on ``schema``. Returns
     /// ``None`` on success, or a human-readable string describing the
     /// divergence on failure.
-    fn check_emit_parse(&self, schema: &PySchema) -> Option<String> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        check_emit_parse(&lens, &schema.inner)
-            .err()
-            .map(|e| e.to_string())
+    ///
+    /// Runs with the GIL released.
+    fn check_emit_parse(&self, py: Python<'_>, schema: &PySchema) -> Option<String> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            check_emit_parse(&lens, &schema.inner)
+                .err()
+                .map(|e| e.to_string())
+        })
     }
 
     /// Verify the `ParseEmit` stability law on ``bytes``. Returns
     /// ``None`` on success, or a human-readable string describing the
     /// divergence on failure.
-    fn check_parse_emit(&self, bytes: &[u8]) -> Option<String> {
-        let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
-        check_parse_emit(&lens, bytes).err().map(|e| e.to_string())
+    ///
+    /// Runs with the GIL released.
+    fn check_parse_emit(&self, py: Python<'_>, bytes: &[u8]) -> Option<String> {
+        py.detach(|| {
+            let lens = ParseEmitLens::new(&self.registry, self.protocol.clone());
+            check_parse_emit(&lens, bytes).err().map(|e| e.to_string())
+        })
     }
 
     /// Strip byte-position constraints from a schema, returning a copy.
@@ -308,11 +344,16 @@ impl PyParseEmitLens {
 }
 
 /// Parse a file using the default parser registry (convenience function).
+///
+/// Runs with the GIL released; building the registry dominates, so
+/// prefer :class:`AstParserRegistry` when parsing more than one file.
 #[pyfunction]
-fn parse_source_file(path: &str, content: &[u8]) -> PyResult<PySchema> {
-    let registry = ParserRegistry::new();
-    let schema = registry
-        .parse_file(std::path::Path::new(path), content)
+fn parse_source_file(py: Python<'_>, path: &str, content: &[u8]) -> PyResult<PySchema> {
+    let schema = py
+        .detach(|| {
+            let registry = ParserRegistry::new();
+            registry.parse_file(std::path::Path::new(path), content)
+        })
         .map_err(|e| crate::error::PanprotoError::new_err(e.to_string()))?;
     Ok(PySchema {
         inner: std::sync::Arc::new(schema),
@@ -474,6 +515,26 @@ fn register_external_from_metadata(
         )));
     }
 
+    // The tags query is the one payload the companion hands over as
+    // text. Its bytes come from a third-party package, so they are
+    // checked rather than assumed: an unchecked conversion would hand
+    // tree-sitter's query compiler a `&str` whose contents are not
+    // UTF-8, which is undefined behaviour. The check runs before any
+    // `&'static` allocation is leaked and before the language pointer
+    // is used, so a rejected entry costs nothing and touches nothing.
+    let tags_query: Option<&'static str> = match tags_query_ptr {
+        Some(p) => {
+            let slice: &'static [u8] =
+                unsafe { std::slice::from_raw_parts(p as *const u8, tags_query_len) };
+            Some(std::str::from_utf8(slice).map_err(|e| {
+                PyValueError::new_err(format!(
+                    "grammar {name:?}: tags_query is not valid UTF-8 ({e})"
+                ))
+            })?)
+        }
+        None => None,
+    };
+
     let LeakedMetadata {
         name: leaked_name,
         extensions: leaked_extensions,
@@ -488,10 +549,6 @@ fn register_external_from_metadata(
     };
     let node_types: &'static [u8] =
         unsafe { std::slice::from_raw_parts(node_types_ptr as *const u8, node_types_len) };
-    let tags_query: Option<&'static str> = tags_query_ptr.map(|p| unsafe {
-        let slice = std::slice::from_raw_parts(p as *const u8, tags_query_len);
-        std::str::from_utf8_unchecked(slice)
-    });
     let grammar_json: Option<&'static [u8]> = grammar_json_ptr
         .map(|p| unsafe { std::slice::from_raw_parts(p as *const u8, grammar_json_len) });
 

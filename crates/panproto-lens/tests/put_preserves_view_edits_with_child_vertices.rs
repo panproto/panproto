@@ -360,6 +360,24 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
         .build()
         .unwrap();
 
+    let src_name_edge = src_schema
+        .edges
+        .keys()
+        .find(|edge| edge.name.as_deref() == Some("name"))
+        .expect("source name edge")
+        .clone();
+    let src_email_edge = src_schema
+        .edges
+        .keys()
+        .find(|edge| edge.name.as_deref() == Some("email"))
+        .expect("source email edge")
+        .clone();
+    let tgt_display_name_edge = tgt_schema
+        .edges
+        .keys()
+        .find(|edge| edge.name.as_deref() == Some("displayName"))
+        .expect("target displayName edge")
+        .clone();
     let source_json = serde_json::json!({
         "name": "Dave",
         "legacyId": 1,
@@ -393,9 +411,13 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
 
     let compiled = CompiledMigration {
         surviving_verts,
-        surviving_edges: HashSet::new(),
+        surviving_edges: HashSet::from([
+            src_name_edge.clone(),
+            tgt_display_name_edge.clone(),
+            src_email_edge,
+        ]),
         vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
+        edge_remap: HashMap::from([(src_name_edge, tgt_display_name_edge)]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms,
@@ -412,15 +434,23 @@ fn put_preserves_view_edit_with_handcrafted_compiled_migration() {
 
     let (mut view, complement) = asymmetric::get(&lens, &instance).expect("forward get");
 
+    let name_node_id = find_view_node_with_edge_label(&view, "displayName")
+        .expect("the mapped displayName edge must exist");
+    let name_node = view.nodes.get(&name_node_id).expect("displayName child");
+    assert_eq!(name_node.anchor.as_ref(), "user.name");
+    assert!(matches!(
+        &name_node.value,
+        Some(panproto_inst::value::FieldPresence::Present(Value::Str(value)))
+            if value == "Dave"
+    ));
+    assert!(
+        view.arcs
+            .iter()
+            .all(|(_, _, edge)| { !matches!(edge.name.as_deref(), Some("name" | "legacyId")) }),
+        "the view must not retain the renamed or dropped source labels"
+    );
+
     // Edit the user.name child value.
-    // (It keeps the same vertex anchor; edge label changed is not our concern here.)
-    // Find the node whose anchor is "user.name".
-    let name_node_id = *view
-        .nodes
-        .iter()
-        .find(|(_, n)| n.anchor.as_ref() == "user.name")
-        .expect("user.name child node in view")
-        .0;
     view.nodes.get_mut(&name_node_id).unwrap().value = Some(
         panproto_inst::value::FieldPresence::Present(Value::Str("EDITED".into())),
     );

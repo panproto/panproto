@@ -1,6 +1,5 @@
 //! Chumsky parser producing `panproto_expr::Expr` from the token stream.
 //!
-//! Implements the grammar defined in `notes/POLY_IMPLEMENTATION_PLAN.md`.
 //! Uses Pratt parsing for operator precedence and recursive descent for
 //! the rest. Layout tokens (`Indent`/`Dedent`/`Newline`) from the lexer
 //! are consumed directly as delimiters for layout-sensitive blocks.
@@ -168,57 +167,7 @@ where
 
 /// Resolve a lowercase identifier to a builtin op, if any.
 fn resolve_builtin(name: &str) -> Option<BuiltinOp> {
-    match name {
-        "add" => Some(BuiltinOp::Add),
-        "sub" => Some(BuiltinOp::Sub),
-        "mul" => Some(BuiltinOp::Mul),
-        "abs" => Some(BuiltinOp::Abs),
-        "floor" => Some(BuiltinOp::Floor),
-        "ceil" => Some(BuiltinOp::Ceil),
-        "round" => Some(BuiltinOp::Round),
-        "concat" => Some(BuiltinOp::Concat),
-        "len" => Some(BuiltinOp::Len),
-        "slice" => Some(BuiltinOp::Slice),
-        "upper" => Some(BuiltinOp::Upper),
-        "lower" => Some(BuiltinOp::Lower),
-        "trim" => Some(BuiltinOp::Trim),
-        "split" => Some(BuiltinOp::Split),
-        "join" => Some(BuiltinOp::Join),
-        "replace" => Some(BuiltinOp::Replace),
-        "contains" => Some(BuiltinOp::Contains),
-        "map" => Some(BuiltinOp::Map),
-        "filter" => Some(BuiltinOp::Filter),
-        "fold" => Some(BuiltinOp::Fold),
-        "append" => Some(BuiltinOp::Append),
-        "head" => Some(BuiltinOp::Head),
-        "tail" => Some(BuiltinOp::Tail),
-        "reverse" => Some(BuiltinOp::Reverse),
-        "flat_map" | "flatMap" => Some(BuiltinOp::FlatMap),
-        "length" => Some(BuiltinOp::Length),
-        "range" => Some(BuiltinOp::Range),
-        "merge" | "merge_records" => Some(BuiltinOp::MergeRecords),
-        "keys" => Some(BuiltinOp::Keys),
-        "values" => Some(BuiltinOp::Values),
-        "has_field" | "hasField" => Some(BuiltinOp::HasField),
-        "default" | "default_val" | "defaultVal" => Some(BuiltinOp::DefaultVal),
-        "clamp" => Some(BuiltinOp::Clamp),
-        "truncate_str" | "truncateStr" => Some(BuiltinOp::TruncateStr),
-        "int_to_float" | "intToFloat" => Some(BuiltinOp::IntToFloat),
-        "float_to_int" | "floatToInt" => Some(BuiltinOp::FloatToInt),
-        "int_to_str" | "intToStr" => Some(BuiltinOp::IntToStr),
-        "float_to_str" | "floatToStr" => Some(BuiltinOp::FloatToStr),
-        "str_to_int" | "strToInt" => Some(BuiltinOp::StrToInt),
-        "str_to_float" | "strToFloat" => Some(BuiltinOp::StrToFloat),
-        "type_of" | "typeOf" => Some(BuiltinOp::TypeOf),
-        "is_null" | "isNull" => Some(BuiltinOp::IsNull),
-        "is_list" | "isList" => Some(BuiltinOp::IsList),
-        "edge" => Some(BuiltinOp::Edge),
-        "children" => Some(BuiltinOp::Children),
-        "has_edge" | "hasEdge" => Some(BuiltinOp::HasEdge),
-        "edge_count" | "edgeCount" => Some(BuiltinOp::EdgeCount),
-        "anchor" => Some(BuiltinOp::Anchor),
-        _ => None,
-    }
+    BuiltinOp::from_name(name)
 }
 
 // ── Expression parser ───────────────────────────────────────────────
@@ -670,21 +619,7 @@ fn desugar_do(stmts: Vec<DoStmt>) -> Expr {
 /// set take their arguments in the same order at both layers and pass
 /// through untouched.
 fn lower_list_builtin_args(op: BuiltinOp, args: Vec<Expr>) -> Vec<Expr> {
-    match (op, args.len()) {
-        // `map f xs` / `filter p xs` / `flat_map f xs` -> [xs, f]
-        (BuiltinOp::Map | BuiltinOp::Filter | BuiltinOp::FlatMap, 2) => {
-            let mut args = args;
-            args.swap(0, 1);
-            args
-        }
-        // `fold f z xs` -> [xs, z, f]
-        (BuiltinOp::Fold, 3) => {
-            let mut args = args;
-            args.swap(0, 2);
-            args
-        }
-        _ => args,
-    }
+    op.surface_args_to_expr_args(args)
 }
 
 /// Resolve function application, detecting builtin names.

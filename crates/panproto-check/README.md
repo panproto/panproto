@@ -4,45 +4,53 @@
 [![docs.rs](https://docs.rs/panproto-check/badge.svg)](https://docs.rs/panproto-check)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Detects breaking changes between two versions of a schema.
+Computes and classifies structural differences between panproto schemas.
 
-## What it does
+## Processing model
 
-When you change a schema that other code depends on (an API response type, a database table, a message format), some changes are safe and some are not. Adding an optional field is safe; removing a required field is not. Relaxing a `maxLength` constraint is safe; tightening it is not. The rules for what counts as breaking depend on the schema language: JSON Schema has different compatibility rules than Protobuf or SQL.
+`diff` compares every field of `Schema`, including vertices, edges, required edges,
+constraints, hyper-edges, namespace identifiers, variants, ordering, recursion,
+usage modes, spans, nominal identity, and schema enrichments. `classify` then applies
+the supplied `Protocol` to the resulting `SchemaDiff`.
 
-This crate computes a structural diff between two schema versions across 25+ change categories (vertices, edges, constraints, hyper-edges, variants, orderings, recursion points, usage modes, and more), then classifies each change as breaking or non-breaking using the rules of the specific protocol that governs those schemas. The result is a `CompatReport` you can render as human-readable text for a pull request comment or as JSON for a CI gate.
+The classifier is conservative. Vertex removals and kind changes are breaking.
+Adding or removing a required edge is breaking. Variant, ordering, and recursion
+changes are also breaking. Constraint changes are classified as tightening or
+relaxing when the sort has a known ordering; unknown cases fail closed. An edge
+removal is breaking when its kind is governed by a protocol edge rule.
 
-The classifier is used by the `schema check` CLI command and by the GitHub Actions workflow that panproto ships for breaking change detection.
+`classify_with_schemas` performs the same classification with access to the old and
+new schemas. It also detects a downgrade in a stored coercion class. Scope reporting
+groups already-classified changes by named schema elements. It does not change the
+compatibility rules.
 
-## Quick example
+## Example
 
 ```rust,ignore
-use panproto_check::{diff, classify, report_text};
+use panproto_check::{Classification, classify, diff, report_text};
 
 let schema_diff = diff(&old_schema, &new_schema);
 let report = classify(&schema_diff, &protocol);
 
-if !report.breaking.is_empty() {
+if report.classification == Classification::Breaking {
     eprintln!("{}", report_text(&report));
-    std::process::exit(1);
 }
 ```
 
-## API overview
+## Public API
 
-| Item | What it does |
-|------|-------------|
-| `diff` | Compute a `SchemaDiff` between two schemas across all change categories |
-| `SchemaDiff` | Structural diff result with per-category added, removed, and changed sets |
-| `classify` | Classify a `SchemaDiff` against a protocol into breaking and non-breaking changes |
-| `classify_with_schemas` | Classify with access to the full before/after schemas for context-sensitive rules |
-| `CompatReport` | Classification result with separate lists for breaking and non-breaking changes |
-| `BreakingChange` | Breaking change descriptors: `RemovedVertex`, `RemovedEdge`, `KindChanged`, `ConstraintTightened`, `RemovedVariant`, `OrderToUnordered`, `RecursionBroken`, `LinearityTightened` |
-| `NonBreakingChange` | Non-breaking change descriptors: `AddedVertex`, `AddedEdge`, `ConstraintRelaxed`, `ConstraintRemoved` |
-| `KindChange` / `ConstraintChange` / `ConstraintDiff` / `HyperEdgeChange` | Diff detail types for specific change categories |
-| `report_text` | Render a `CompatReport` as human-readable text |
-| `report_json` | Render a `CompatReport` as machine-readable JSON |
-| `CheckError` | Error type |
+| Item | Purpose |
+|------|---------|
+| `diff`, `SchemaDiff` | Compute and represent a structural schema diff |
+| `apply_renames` | Replace matching remove/add pairs with detected renames |
+| `classify`, `classify_with_schemas` | Produce a `CompatReport` |
+| `Classification` | `FullyCompatible`, `BackwardCompatible`, or `Breaking` |
+| `BreakingChange`, `NonBreakingChange` | Non-exhaustive change descriptors |
+| `report_text`, `report_json` | Render a compatibility report |
+| `report_by_scope`, `report_scope_text`, `report_scope_json` | Group changes by scope |
+
+The enum definitions on [docs.rs](https://docs.rs/panproto-check) are the exhaustive
+reference for currently represented change cases.
 
 ## License
 

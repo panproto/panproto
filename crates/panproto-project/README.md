@@ -4,52 +4,54 @@
 [![docs.rs](https://docs.rs/panproto-project/badge.svg)](https://docs.rs/panproto-project)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Assembles a directory of source files into a single unified schema graph.
+Builds a project schema from per-file parser results.
 
-## What it does
+## Processing model
 
-When you have a project with dozens of files across multiple languages, each file is its own island of type information. `panproto-project` scans a directory tree, parses every file it recognizes (TypeScript, Python, Rust, and 245 other languages via tree-sitter), and joins the results into one schema that spans the whole project. Files that are not a recognized language are stored as raw text or binary nodes so nothing is dropped.
+`ProjectBuilder` uses a `panproto-parse::ParserRegistry`, so language coverage is
+determined by the grammar features compiled into that registry. The default is the
+11-language `group-core` set, not the complete grammar catalog.
 
-The joining works by prefixing each file's vertex names with its path: a function called `add` in `src/utils.ts` becomes `src/utils.ts::add`, so it never collides with an `add` in `lib/math.py`. After prefixing, the crate walks import statements and emits cross-file edges wherever one file references a name exported by another. The result is one schema where intra-file structure and inter-file dependencies are both visible.
+`add_file` detects a parser from the path or from a package protocol override. If the
+selected parser fails, it falls back to the raw-file parser. Known binary extensions
+use `raw_file::parse_binary`; other unmatched files must be UTF-8 and use
+`raw_file::parse_text`.
 
-An optional `panproto.toml` manifest lets you exclude directories (like `node_modules` or `build`), override which parser to use for a subtree, and configure per-package settings. An incremental parsing cache (keyed on file path, mtime, size, and content hash) skips re-parsing files that have not changed since the last build.
+For a multi-file build, vertex IDs are prefixed with the file path and `::`. The
+resolver then adds cross-file `imports` edges when its import and export heuristics
+find a match. A single-file build returns that file's schema without path-prefixing.
 
-## Quick example
+`panproto.toml` supplies workspace exclusion globs and optional protocol overrides for
+declared package paths. It does not restrict directory walking to only those package
+paths. Without a config, directory walking skips hidden entries and a fixed set of
+common build directories.
+
+The optional cache stores mtime, size, content hash, schema, and protocol. Matching
+mtime and size take the fast path. A size change invalidates the entry. When only the
+mtime differs, the cache hashes the file and compares the stored content hash.
+
+## Example
 
 ```rust,ignore
-use panproto_project::{ProjectBuilder, ProjectConfig};
+use panproto_project::ProjectBuilder;
 use std::path::Path;
 
-// Scan a directory and build a unified schema.
 let mut builder = ProjectBuilder::new();
 builder.add_directory(Path::new("my-project"))?;
 let project = builder.build()?;
-
-println!("{} files, {} vertices",
-    project.file_map.len(),
-    project.schema.vertices.len());
-
-// Which protocol parsed each file?
-for (path, proto) in &project.protocol_map {
-    println!("{}: {}", path.display(), proto);
-}
+println!("{}", project.file_map.len());
 ```
 
-## API overview
+## Public API
 
-| Export | What it does |
-|--------|-------------|
-| `ProjectBuilder` | Accumulates files and builds the final schema |
-| `ProjectBuilder::new()` | Creates a builder with the default parser registry |
-| `ProjectBuilder::with_config()` | Creates a builder from a `panproto.toml` manifest |
-| `ProjectBuilder::with_config_and_cache()` | Same, plus an incremental parse cache |
-| `ProjectBuilder::add_file()` | Parses one file and adds it to the builder |
-| `ProjectBuilder::add_directory()` | Recursively scans a directory tree |
-| `ProjectBuilder::build()` | Runs import resolution and returns the unified `ProjectSchema` |
-| `ProjectSchema` | The assembled result: schema, file map, protocol map |
-| `ProjectConfig` | Parsed `panproto.toml` manifest |
-| `DetectedPackage` | Language or package detected for a path |
-| `ProjectError` | Error variants: parse failure, bad glob pattern, coproduct failure |
+| Item | Purpose |
+|------|---------|
+| `ProjectBuilder` | Add files and build a flat schema or stored schema tree |
+| `ProjectSchema` | Flat schema plus file and protocol maps |
+| `ProjectSchemaTree` | Stored tree root plus protocol map |
+| `ProjectConfig` | Deserialized `panproto.toml` configuration |
+| `detect_language`, `scan_packages` | File and package detection helpers |
+| `build_project_tree` | Store per-file schemas as a VCS Merkle tree |
 
 ## License
 

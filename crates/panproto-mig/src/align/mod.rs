@@ -1,11 +1,12 @@
 //! Protocol-agnostic alignment strategies for auto-lens generation.
 //!
 //! Each strategy proposes **candidate anchors** (source-vertex ↔
-//! target-vertex pairs). An anchor is a claim, not a decision: nothing in the
-//! pipeline treats one as a pin, an exclusion, or a search order. The pool is
-//! reduced to one score per pair by [`evidence::aggregate`], and that score
-//! enters the search as a single reward-only unary cost term. The *solver*
-//! then chooses, globally, subject to the hard constraints and the objective.
+//! target-vertex pairs). [`evidence::aggregate`] reduces an anchor pool to one
+//! score per pair. Callers can pass those scores to an evidence-aware span
+//! search, where they enter as unary costs. The automatic lens generator uses
+//! a different route: it selects a one-to-one seed map, tries those pairs as
+//! provisional hard pins, and compares that result with a search in which the
+//! strategy pins have been released.
 //!
 //! # Priority is real
 //!
@@ -21,15 +22,16 @@
 //! # Stringency tiers
 //!
 //! The `Stringency` level (in `panproto_lens`) selects which strategies
-//! run and at what thresholds: `Strict` runs only [`exact`]; `Balanced`
-//! adds [`alias`] and tight [`mod@token_similarity`]; `Lenient` loosens
-//! thresholds and engages structural matching; `Exploratory` adds lossy
-//! retractions and LM priors.
+//! run and at what thresholds. Every tier runs [`exact`], [`suffix`], and
+//! [`edge_label`]. Higher tiers add the strategies documented on
+//! `panproto_lens::Stringency`; `Exploratory` adds structural and registered
+//! coercion-witness proposals. No production strategy emits
+//! [`StrategyTag::Llm`].
 //!
-//! Because the enabled set grows with the tier and every threshold falls with
-//! it, the anchor pool grows with the tier; because [`evidence::aggregate`] is
-//! monotone in the pool and the evidence term is the only tier-dependent part
-//! of the objective, the optimum a caller gets is non-decreasing in the tier.
+//! Aggregation is monotone when one literal anchor pool contains another.
+//! Stringency tiers do not always satisfy that premise: another
+//! Weisfeiler-Leman round can split a singleton class, and neighborhood
+//! propagation can change when the selected parent seeds change.
 
 use panproto_gat::Name;
 use panproto_schema::Schema;
@@ -68,7 +70,7 @@ pub use wrap_unwrap::wrap_unwrap_anchors;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StrategyTag {
-    /// User-supplied pinning.
+    /// User-supplied correspondence.
     UserHint,
     /// Kind-compatible name equality.
     Exact,

@@ -65,6 +65,20 @@ pub enum ChaseError {
     },
 }
 
+impl ChaseError {
+    /// Whether running the chase again with a larger budget could
+    /// succeed.
+    ///
+    /// A saturation that ran out of iterations may reach its fixpoint
+    /// with more of them. An equality conflict is a property of the
+    /// instance and the dependencies together, so it recurs at every
+    /// budget.
+    #[must_use]
+    pub const fn is_retryable(&self) -> bool {
+        matches!(self, Self::NonTermination(_))
+    }
+}
+
 /// Returns `true` if the given row matches all of the required column-value pairs.
 fn row_matches(row: &HashMap<String, Value>, required: &HashMap<String, Value>) -> bool {
     required
@@ -107,29 +121,29 @@ pub fn saturate_row_existence(
         let mut changed = false;
 
         for dep in dependencies {
-            // Get the pattern table rows; if the table does not exist,
-            // no triggers can fire.
-            let pattern_rows: Vec<HashMap<String, Value>> = result
+            // The consequence a dependency adds does not depend on which
+            // row triggered it, so what matters is only whether some row
+            // of the pattern table matches. Reading that answer out first
+            // ends the borrow before the consequence table is touched,
+            // which is what the pattern table was being copied for; a
+            // dependency whose pattern table is missing fires no trigger
+            // and creates no consequence table.
+            let triggered = result
                 .tables
                 .get(&dep.pattern_vertex)
-                .cloned()
-                .unwrap_or_default();
+                .is_some_and(|rows| rows.iter().any(|row| row_matches(row, &dep.pattern_values)));
+            if !triggered {
+                continue;
+            }
 
-            for row in &pattern_rows {
-                if !row_matches(row, &dep.pattern_values) {
-                    continue;
-                }
+            let consequence_rows = result
+                .tables
+                .entry(dep.consequence_vertex.clone())
+                .or_default();
 
-                // Pattern matched; check if the consequence already holds.
-                let consequence_rows = result
-                    .tables
-                    .entry(dep.consequence_vertex.clone())
-                    .or_default();
-
-                if !table_contains_match(consequence_rows, &dep.consequence_values) {
-                    consequence_rows.push(dep.consequence_values.clone());
-                    changed = true;
-                }
+            if !table_contains_match(consequence_rows, &dep.consequence_values) {
+                consequence_rows.push(dep.consequence_values.clone());
+                changed = true;
             }
         }
 
@@ -165,6 +179,14 @@ pub fn dependencies_from_schema(schema: &Schema) -> Vec<EmbeddedDependency> {
             });
         }
     }
+
+    // The requirement table is a hash map, so the dependencies come out in
+    // whatever order it enumerates. Order them by the pair they relate, so the
+    // list — and everything the chase derives by walking it — is a function of
+    // the schema.
+    deps.sort_by(|a, b| {
+        (&a.pattern_vertex, &a.consequence_vertex).cmp(&(&b.pattern_vertex, &b.consequence_vertex))
+    });
 
     deps
 }
@@ -307,13 +329,20 @@ fn outermost_op(term: &Term) -> Option<String> {
     }
 }
 
-/// Find the first vertex in a schema whose kind matches the given sort name.
+/// Name the vertex that stands for a sort: the least by ID among the schema's
+/// vertices of that kind.
+///
+/// A schema may hold many vertices of one kind, so this is a choice rather
+/// than a lookup, and taking the least keeps the derived dependencies a
+/// function of the schema rather than of its vertex table's layout.
 fn find_vertex_by_kind(schema: &Schema, sort_name: &str) -> Option<String> {
     schema
         .vertices
         .values()
-        .find(|v| v.kind.as_str() == sort_name)
-        .map(|v| v.id.to_string())
+        .filter(|v| v.kind.as_str() == sort_name)
+        .map(|v| v.id.as_str())
+        .min()
+        .map(ToOwned::to_owned)
 }
 
 // ===========================================================================

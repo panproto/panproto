@@ -1,7 +1,6 @@
 # panproto-grammars-all
 
-A panproto companion package shipping tree-sitter grammars for
-all languages: every tree-sitter grammar bundled in panproto-grammars (~248 languages).
+Python companion package that enables all 261 entries in the `panproto-grammars` manifest. A grammar is available at runtime only if its vendored source compiled into the wheel.
 
 ## Install
 
@@ -9,24 +8,24 @@ all languages: every tree-sitter grammar bundled in panproto-grammars (~248 lang
 pip install panproto-grammars-all
 ```
 
-The package declares an entry point under `panproto.grammars`.
-panproto's `AstParserRegistry` factory picks it up automatically;
-there is nothing to import from this package directly.
+The package requires Python 3.13 or newer. Its current metadata requires the matching panproto minor release, `panproto>=0.72,<0.73`.
+
+## Discovery
+
+The wheel registers `panproto_grammars_all._impl` in the `panproto.grammars` entry-point group. Each call to `panproto.AstParserRegistry()` loads installed entries and calls their `grammars_metadata()` functions. Duplicate names already registered by the core wheel or another pack are ignored. A pack that cannot load produces a `RuntimeWarning`. Registry construction continues without its grammars.
+
+Application code does not need to import this companion package. Its top-level Python package exposes only `__version__`. Calling `panproto._native.AstParserRegistry()` directly bypasses companion discovery.
 
 ## Use
 
 ```python
 import panproto
 
-reg = panproto.AstParserRegistry()
-# parse one of the grammars this pack adds:
-# schema = reg.parse_with_protocol("typescript", b"...", "main.ts")
+registry = panproto.AstParserRegistry()
+schema = registry.parse_with_protocol("haskell", b"f x = x", "main.hs")
 ```
 
-See the panproto repository for the full list of available grammar
-packs and the source for this one at
-`crates/panproto-grammars-all/` and
-`bindings/python-grammars-all/`.
+The Rust extension is implemented in `crates/panproto-grammars-all/`. The wheel metadata and Python package are in this directory.
 
 ## License
 

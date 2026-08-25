@@ -7,6 +7,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;
 
@@ -73,42 +74,67 @@ pub fn compile(
         }
     }
 
-    // Step 3: Generate value transforms from schema coercions, carried as
-    // op-to-term assignments. A kind-changing vertex map computes the
-    // coerced value by substituting the source value into the coercion's
-    // forward term; `Delta` and `Sigma` apply this by substitution.
+    // Step 3: Generate value transforms, carried as op-to-term assignments. A
+    // kind-changing vertex map computes the coerced value by substituting the
+    // source value into the coercion's forward term; `Delta` and `Sigma` apply
+    // this by substitution.
+    //
+    // The migration's own coercion table wins where it has an entry. It is the
+    // record of what this migration actually does to values, including the
+    // composite of steps whose intermediate schema is no longer one of these
+    // two; the kind pair looked up in the target schema is only how a migration
+    // that carries nothing is read.
     let mut op_term_assignments = HashMap::new();
     for (src_v, tgt_v) in &migration.vertex_map {
-        if let (Some(src_vert), Some(tgt_vert)) = (src.vertex(src_v), tgt.vertex(tgt_v)) {
-            if src_vert.kind != tgt_vert.kind {
-                if let Some(coercion_spec) = tgt
-                    .coercions
-                    .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
-                {
-                    op_term_assignments
-                        .entry(src_v.clone())
-                        .or_insert_with(Vec::new)
-                        .push(panproto_inst::TermAssignment::Compute {
-                            target: "__value__".to_string(),
-                            scope: panproto_inst::TermScope::Field,
-                            term: coercion_spec.forward.clone(),
-                            inverse: coercion_spec.inverse.clone(),
-                            coercion_class: coercion_spec.class,
-                        });
-                }
+        let spec = migration.coercions.get(src_v).or_else(|| {
+            let src_vert = src.vertex(src_v)?;
+            let tgt_vert = tgt.vertex(tgt_v)?;
+            if src_vert.kind == tgt_vert.kind {
+                return None;
             }
+            tgt.coercions
+                .get(&(src_vert.kind.clone(), tgt_vert.kind.clone()))
+        });
+        if let Some(coercion_spec) = spec {
+            op_term_assignments
+                .entry(src_v.clone())
+                .or_insert_with(Vec::new)
+                .push(panproto_inst::TermAssignment::Compute {
+                    target: crate::migration::COERCION_INPUT.to_string(),
+                    scope: panproto_inst::TermScope::Field,
+                    term: coercion_spec.forward.clone(),
+                    inverse: coercion_spec.inverse.clone(),
+                    coercion_class: coercion_spec.class,
+                });
         }
     }
 
     // Step 4: Copy resolver tables.
     let resolver = migration.resolver.clone();
 
-    // Step 5: Build hyper-resolver (convert key format).
-    let mut hyper_resolver = HashMap::new();
-    for ((he_id, _labels), (tgt_he_id, label_map)) in &migration.hyper_resolver {
-        // The inst-level CompiledMigration uses he_id -> (new_id, label_map).
-        // We flatten the labels key since the inst crate indexes by he_id.
-        hyper_resolver.insert(he_id.clone(), (tgt_he_id.clone(), label_map.clone()));
+    // Step 5: Build the hyper-resolver, one entry per fan shape.
+    //
+    // A hyper-edge may carry several resolver entries that differ only in
+    // which child labels the fan holds, so the compiled table keeps the full
+    // (hyper-edge, label-set) key. Label sets are canonicalized — sorted and
+    // deduplicated — so that a fan matches on its shape rather than on the
+    // order in which the specification happened to list its labels.
+    let mut hyper_resolver = panproto_inst::HyperResolverTable::new();
+    for ((he_id, labels), (tgt_he_id, label_map)) in &migration.hyper_resolver {
+        let shape = panproto_inst::canonical_label_shape(labels.iter().map(Name::as_str));
+        let value = (tgt_he_id.clone(), label_map.clone());
+        if let Some(existing) = hyper_resolver.get(&(he_id.clone(), shape.clone())) {
+            if *existing != value {
+                return Err(ExistenceError::WellFormedness {
+                    message: format!(
+                        "hyper_resolver has conflicting entries for hyper-edge {he_id} \
+                         with label set {shape:?}"
+                    ),
+                });
+            }
+            continue;
+        }
+        hyper_resolver.insert((he_id.clone(), shape), value);
     }
 
     Ok(CompiledMigration {
@@ -248,6 +274,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };
@@ -348,6 +375,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };

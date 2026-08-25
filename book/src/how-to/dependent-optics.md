@@ -39,7 +39,7 @@ fn classify_scoped(schema: &Schema, scoped: &Protolens) -> OpticKind {
 }
 ```
 
-The result is `Lens` for one required focus, `Traversal` for zero or more item foci, and `Prism` for one optional variant focus.
+The result is `Lens` for a `prop` carrier, `Traversal` for an `item` or `items` carrier, and `Prism` for a `variant` carrier. The classifier does not inspect whether a property edge is required.
 
 `refine_scoped_optic` uses `Lens` for `prop` and unrecognized edge kinds, `Traversal` for `item` and `items`, and `Prism` for `variant`. It composes that carrier with the inner kind.
 
@@ -55,7 +55,7 @@ Instantiate the protolens against a concrete schema, then call `panproto_lens::o
 
 - Treating `Protolens::optic_kind()` as schema dependent. It classifies the stored theory transform only. Call `refine_scoped_optic` with the concrete edge kind for a scoped transform.
 - Assuming every non-`prop` spelling is rejected. The refinement function treats unknown kinds as `Lens`; validate the schema against its protocol before relying on the classification.
-- Treating the classified kind as proof of the laws. Run `check_optic_laws` on representative instances and handle `LawViolation`.
+- Treating the classified kind as proof of the laws. Run `check_optic_laws` on representative instances and handle `OpticLawViolation`.
 
 ## See also
 

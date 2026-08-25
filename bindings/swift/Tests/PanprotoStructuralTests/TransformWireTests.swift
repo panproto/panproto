@@ -513,7 +513,7 @@ struct CompiledMigrationTests {
         vertexRemap: ["a": "b"],
         edgeRemap: [plainEdge: labelledEdge],
         resolver: [WirePair("a", "b"): plainEdge],
-        hyperResolver: ["h": WirePair("g", ["l": "m"])],
+        hyperResolver: [WirePair("h", ["l"]): WirePair("g", ["l": "m"])],
         fieldTransforms: ["a": [.dropField(key: "x")]],
         conditionalSurvival: ["a": .variable("keep")],
         opTermAssignments: ["a": [.drop(key: "x")]],
@@ -538,7 +538,7 @@ struct CompiledMigrationTests {
             vertexRemap: ["a": "b"],
             edgeRemap: [plainEdge: plainEdge],
             resolver: [WirePair("a", "b"): plainEdge],
-            hyperResolver: ["h": WirePair("h2", ["l": "m"])]
+            hyperResolver: [WirePair("h", ["l"]): WirePair("h2", ["l": "m"])]
         )
         #expect(
             try encodedHex(compiled)
@@ -547,8 +547,8 @@ struct CompiledMigrationTests {
                 + "72656d6170a1616161626a656467655f72656d6170a1a46373726364706f73746374677464626f64"
                 + "79646b696e646470726f70646e616d65f6a46373726364706f73746374677464626f6479646b696e"
                 + "646470726f70646e616d65f6687265736f6c766572a18261616162a46373726364706f7374637467"
-                + "7464626f6479646b696e646470726f70646e616d65f66e68797065725f7265736f6c766572a16168"
-                + "82626832a1616c616d"
+                + "7464626f6479646b696e646470726f70646e616d65f66e68797065725f7265736f6c766572818282"
+                + "616881616c82626832a1616c616d"
         )
     }
 
@@ -564,12 +564,13 @@ struct CompiledMigrationTests {
         #expect(entries[0].key.mapValue?.count == 4)
     }
 
-    @Test("the two anchor-keyed maps keep their array framing")
+    @Test("the anchor-keyed maps and hyper resolver keep their wire framing")
     func anchorKeysAreArrays() throws {
         let bytes = try CBOREncoder().encode(Self.populated)
         let payload = try CBORValue(decoding: bytes)
         #expect(payload["resolver"]?.mapValue?.first?.key.arrayValue?.count == 2)
         #expect(payload["expansion_path"]?.mapValue?.first?.key.arrayValue?.count == 2)
+        #expect(payload["hyper_resolver"]?.arrayValue?.first?.arrayValue?.count == 2)
     }
 }
 

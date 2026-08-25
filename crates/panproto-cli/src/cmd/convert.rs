@@ -22,6 +22,12 @@ pub fn cmd_convert(
 
     // Build or load the lens.
     let (the_lens, src_schema, tgt_schema) = if let Some(cp) = chain_path {
+        if !default_map.is_empty() {
+            miette::bail!(
+                "--defaults applies only to automatic --from/--to generation; defaults for \
+                 --chain must be embedded in the serialized protolens chain"
+            );
+        }
         // Load a pre-built protolens chain from JSON.
         let chain_json_str = std::fs::read_to_string(cp)
             .into_diagnostic()
@@ -53,7 +59,7 @@ pub fn cmd_convert(
             .wrap_err("failed to generate lens between schemas")?;
         (result.lens, src, tgt)
     } else {
-        miette::bail!("specify --from/--to or --chain");
+        miette::bail!("specify --from and --to; add --chain to use a saved protolens chain");
     };
 
     if verbose {

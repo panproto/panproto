@@ -2,7 +2,7 @@
 
 Automatic alignment begins with candidate pairs of source and target vertices. panproto calls each candidate an **anchor**. An anchor records the pair, a confidence, a strategy tag, the provenance of the comparison, and an explanation. The search has not accepted the pair merely because an anchor names it.
 
-The implementation has two routes from anchors to a search. The [`EvidenceTable`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.EvidenceTable.html) API can score every candidate pair and pass those scores to a span search. The automatic lens generator currently takes a different route: it selects a one-to-one seed map, places those pairs in `SearchOptions::hard_pins`, and then compares that pinned search with a second search in which the strategy pins have been released. This distinction determines which guarantees apply.
+The implementation has two routes from anchors to a search. The [`EvidenceTable`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.EvidenceTable.html) API can score every candidate pair and pass those scores to a span search. The automatic lens generator currently takes a different route: it selects a one-to-one seed map, places those pairs in `SearchOptions::hard_pins`, and then compares that pinned search with a second search in which the strategy pins have been released. The evidence-table route supplies soft scores, whereas auto-lens temporarily restricts the search with provisional pins and then compares the pinned and released results.
 
 ## Active proposal strategies
 
@@ -72,7 +72,7 @@ Before neighborhood propagation, auto-lens also adjusts the confidences already 
 
 ## Selection
 
-Aggregation and selection are separate public operations. [`EvidenceTable::select`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.EvidenceTable.html#method.select) accepts a configurable [`RowFilter`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.RowFilter.html) and `Cardinality` rule. A row filter first applies an absolute threshold, then retains candidates within a relative delta of the best score for the same source. Cardinality may be strict, permissive, or hybrid. The final greedy pass is deterministic because it sorts by score and then by the two identifiers.
+Aggregation and selection are separate public operations. [`EvidenceTable::select`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.EvidenceTable.html#method.select) accepts a configurable [`RowFilter`](https://docs.rs/panproto-mig/latest/panproto_mig/align/evidence/struct.RowFilter.html) and `Cardinality` rule. A row filter first applies an absolute threshold, then retains candidates within a relative delta of the best score for the same source. `Strict` permits one selected pair at each endpoint. `Permissive` admits a conflict when no previously accepted conflict has a strictly better score. `Hybrid` uses that permissive rule at lower confidence and permits up to `card + 1` selected pairs at an endpoint above `high_conf`. The final greedy pass is deterministic because it sorts by score and then by the two identifiers.
 
 Auto-lens does not expose those choices through `AutoLensConfig`. Both of its seed-selection passes use `Cardinality::Strict` with `RowFilter::relative_only()`. The resulting seed map has at most one pair at either endpoint, the absolute threshold is zero, and the relative delta is the library default of $0.02$. The default absolute floor and the hybrid cardinality constants do not govern auto-lens seed selection.
 
@@ -111,7 +111,7 @@ An evidence-aware network has the same feasible assignments for every evidence t
 
 Stringency tiers do not guarantee pool inclusion. `WlRefinement` uses two iterations at Lenient and three at Exploratory; another refinement round can split a color class and withdraw an earlier anchor. `Neighborhood` depends on a selected seed map, so a larger first-pass pool can change the seeds and withdraw propagated anchors. The integration tests include a concrete Lenient-to-Exploratory case in which a neighborhood anchor disappears, the evidence score falls, and an anchor-weighted optimum becomes worse. General tier monotonicity is thus false. The tests assert monotonicity only when the higher tier's evidence table dominates pointwise, and they separately check that any shortfall comes from `WlRefinement` or `Neighborhood`.
 
-Production auto-lens adds further tier-dependent behavior: Strict and Balanced ask for total morphisms, Lenient and Exploratory permit spans, and the latter tiers enable overlap retries by default. The pool-inclusion theorem for `aggregate` should not be presented as a theorem about the full auto-lens tier ladder.
+Production auto-lens adds further tier-dependent behavior: Strict and Balanced ask for total morphisms, Lenient and Exploratory permit spans, and the latter tiers enable overlap retries by default. The pool-inclusion theorem for `aggregate` does not extend to the full auto-lens tier ladder.
 
 ## Defaults and evidence for the design
 

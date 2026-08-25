@@ -6,7 +6,7 @@
 
 ## Install
 
-The `panproto` package is not yet on a registry; it lives at [`bindings/haskell/`](https://github.com/panproto/panproto/tree/main/bindings/haskell) in the repository and you build it from there. The default `rust` flag links the FFI backend against `libpanproto_c`, so the library has to be staged first. There are two ways to get it.
+The `panproto` package currently lives under [`bindings/haskell/`](https://github.com/panproto/panproto/tree/main/bindings/haskell); build it from the repository. The default `rust` flag links the FFI backend against `libpanproto_c`, so the library has to be staged first. There are two ways to get it.
 
 ### Build from source
 
@@ -29,7 +29,7 @@ Run `dev-link.sh` again after every change to `panproto-c`, to the C glue, or to
 ```sh
 git clone https://github.com/panproto/panproto.git
 cd panproto/bindings/haskell
-./bootstrap/fetch-bindist.sh v0.71.0   # pass the release tag that matches this checkout
+./bootstrap/fetch-bindist.sh v0.72.0   # pass the release tag that matches this checkout
 cabal build
 cabal test
 ```
@@ -63,7 +63,7 @@ Place the example in an executable component or load it in `cabal repl`. Buildin
 
 ## Common mistakes
 
-- A shadowed `ld` on PATH. [Anaconda](https://www.anaconda.com/) and some other Python distributions ship their own `ld`, which is too old to recognize the response-file syntax GHC's merge-objects pass uses; the symptom is a `ld: file not found: @<tmp>/ghc_tmp_*.rsp` error during `cabal build` on macOS arm64. `dev-link.sh` warns when `ld` resolves to something other than the system linker. Prepend `/usr/bin` to PATH and retry.
+- Some Python distributions, including Anaconda, put an older `ld` on `PATH`. On macOS arm64, that linker cannot read GHC's response-file syntax and reports `ld: file not found: @<tmp>/ghc_tmp_*.rsp`. `dev-link.sh` warns when `ld` is not the system linker. Prepend `/usr/bin` to `PATH` and retry.
 - Skipping the bootstrap step on a default (`rust`-flag) build. Without `dev-link.sh` or `fetch-bindist.sh`, no `cabal.project.local` exists, `extra-lib-dirs` is unset, and the link fails on the missing `libpanproto_c`.
 - A relative `extra-lib-dirs`. The path in `cabal.project.local` is absolute by design; `ghc-pkg` refuses a relative one during package registration.
 

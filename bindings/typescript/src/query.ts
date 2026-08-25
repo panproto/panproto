@@ -10,8 +10,10 @@
 
 import type { WasmModule, Expr } from './types.js';
 import { WasmError } from './types.js';
-import { packToWasm, unpackFromWasm } from './msgpack.js';
+import { packToWasmWithBigInt, unpackFromWasmWithBigInt } from './msgpack.js';
 import type { Instance } from './instance.js';
+import { exprToWire } from './expr-wire.js';
+import type { ExprWire } from './expr-wire.js';
 
 /**
  * A declarative query against a schema instance.
@@ -43,7 +45,7 @@ export interface InstanceQuery {
  */
 export interface QueryMatch {
   /** The identifier of the matched node. */
-  readonly nodeId: string;
+  readonly nodeId: number;
   /** The anchor vertex the match was reached from. */
   readonly anchor: string;
   /** The primary value at the matched node (if any). */
@@ -52,11 +54,30 @@ export interface QueryMatch {
   readonly fields: Readonly<Record<string, unknown>>;
 }
 
+/** MessagePack shape expected by Rust's `InstanceQuery`. */
+interface InstanceQueryWire {
+  readonly anchor: string;
+  readonly predicate?: ExprWire;
+  readonly group_by?: string;
+  readonly project?: readonly string[];
+  readonly limit?: number;
+  readonly path: readonly string[];
+}
+
+/** MessagePack shape returned by Rust's `QueryMatch`. */
+interface QueryMatchWire {
+  readonly node_id: number;
+  readonly anchor: string;
+  readonly value: unknown;
+  readonly fields: Readonly<Record<string, unknown>>;
+}
+
 /**
  * Execute a declarative query against a schema instance.
  *
- * Serializes the query and instance data to MessagePack, sends them to
- * the WASM query engine, and deserializes the resulting matches.
+ * Maps the public field names to Rust's MessagePack wire shape, passes the
+ * instance bytes and schema handle to WASM, and maps each result back to the
+ * public field names.
  *
  * @param query - The query specification
  * @param instance - The instance to query against
@@ -87,9 +108,25 @@ export function executeQuery(
   wasm: WasmModule,
 ): QueryMatch[] {
   try {
-    const queryBytes = packToWasm(query);
-    const resultBytes = wasm.exports.execute_query(queryBytes, instance._bytes);
-    return unpackFromWasm<QueryMatch[]>(resultBytes);
+    const queryWire: InstanceQueryWire = {
+      anchor: query.anchor,
+      ...(query.predicate === undefined ? {} : { predicate: exprToWire(query.predicate) }),
+      ...(query.groupBy === undefined ? {} : { group_by: query.groupBy }),
+      ...(query.projection === undefined ? {} : { project: [...query.projection] }),
+      ...(query.limit === undefined ? {} : { limit: query.limit }),
+      path: query.path === undefined ? [] : [...query.path],
+    };
+    const resultBytes = wasm.exports.execute_query_with_schema_handle(
+      packToWasmWithBigInt(queryWire),
+      instance._bytes,
+      instance._schema._handle.id,
+    );
+    return unpackFromWasmWithBigInt<QueryMatchWire[]>(resultBytes).map((match) => ({
+      nodeId: match.node_id,
+      anchor: match.anchor,
+      value: match.value,
+      fields: match.fields,
+    }));
   } catch (error) {
     throw new WasmError(
       `Failed to execute query: ${error instanceof Error ? error.message : String(error)}`,

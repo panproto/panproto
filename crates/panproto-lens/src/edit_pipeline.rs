@@ -6,7 +6,7 @@
 //! and fan reconstruction.
 
 use panproto_inst::{
-    CompiledMigration, ContractionRecord, ContractionTracker, ReachabilityIndex, TreeEdit,
+    CompiledMigration, ContractionRecord, ContractionTracker, Node, ReachabilityIndex, TreeEdit,
     WInstance,
 };
 use panproto_schema::Schema;
@@ -34,12 +34,49 @@ pub struct EditPipeline {
     contraction: ContractionTracker,
     compiled: CompiledMigration,
     tgt_schema: Schema,
+    /// The source tree as the edits translated so far have left it.
+    ///
+    /// A source edit that takes a node out of the view carries no payload of
+    /// its own — a relabel names only an anchor — so the payload the complement
+    /// has to absorb can only come from the tree the edit lands on. This
+    /// snapshot is what supplies it.
+    source: WInstance,
+}
+
+/// What the tracked source holds for a node: its payload and the arc that
+/// reaches it, if any.
+pub(crate) type NodeSnapshot = (Node, Option<(u32, panproto_schema::Edge)>);
+
+/// Move a node that has just left the view into the complement.
+///
+/// The complement is the half of the state the view no longer holds, so a node
+/// leaving the view has to arrive here with the payload and the arc it had in
+/// the source, or it is lost from both sides and the coherence law
+/// `c' = get(es · source).1` fails.
+pub(crate) fn absorb_dropped_node(complement: &mut Complement, id: u32, snapshot: NodeSnapshot) {
+    let (node, arc) = snapshot;
+    complement.dropped_nodes.insert(id, node);
+
+    if let Some((parent, edge)) = arc {
+        if !complement
+            .dropped_arcs
+            .iter()
+            .any(|&(p, c, _)| p == parent && c == id)
+        {
+            complement.dropped_arcs.push((parent, id, edge));
+        }
+        // `original_parent` and `arc_edges` describe the arcs the view still
+        // carries, so the entries for an arc that has just left it go with it.
+        complement.original_parent.remove(&id);
+        complement.arc_edges.remove(&(parent, id));
+    }
 }
 
 impl EditPipeline {
     /// Build an `EditPipeline` from an [`EditLens`] and source instance.
     ///
-    /// Performs a whole-state pass to initialize the reachability index.
+    /// Performs a whole-state pass to initialize the reachability index and
+    /// takes the source snapshot that later edits are tracked against.
     #[must_use]
     pub fn from_lens_and_instance(lens: &EditLens, source: &WInstance) -> Self {
         Self {
@@ -47,7 +84,50 @@ impl EditPipeline {
             contraction: ContractionTracker::new(),
             compiled: lens.compiled.clone(),
             tgt_schema: lens.tgt_schema.clone(),
+            source: source.clone(),
         }
+    }
+
+    /// The tracked source tree.
+    #[must_use]
+    pub const fn source(&self) -> &WInstance {
+        &self.source
+    }
+
+    /// What the tracked source holds for `id`: its payload and the arc that
+    /// reaches it. `None` when the tracked source has no such node.
+    pub(crate) fn node_snapshot(&self, id: u32) -> Option<NodeSnapshot> {
+        let node = self.source.nodes.get(&id)?.clone();
+        let arc = self
+            .source
+            .arcs
+            .iter()
+            .find(|&&(_, child, _)| child == id)
+            .map(|(parent, _, edge)| (*parent, edge.clone()));
+        Some((node, arc))
+    }
+
+    /// Carry a source edit into the tracked source tree.
+    ///
+    /// Call this once per source edit, before translating it, so the snapshot
+    /// the translation reads is the tree the edit has already landed on.
+    ///
+    /// The tracked source is the initial tree updated by every edit that
+    /// applies to it. An edit that does not apply — deleting a node with
+    /// children, naming a node the tree does not have — describes no change to
+    /// the source, so it leaves the snapshot as it stands; translating such an
+    /// edit is asking what a hypothetical change would look like, and the
+    /// answer must not depend on the tree accepting it. A sequence is carried
+    /// step by step for the same reason, so one inapplicable step does not
+    /// discard the ones around it.
+    pub fn track_source_edit(&mut self, edit: &TreeEdit) {
+        if let TreeEdit::Sequence(steps) = edit {
+            for step in steps {
+                self.track_source_edit(step);
+            }
+            return;
+        }
+        let _ = edit.apply(&mut self.source);
     }
 
     /// Translate a source edit to a view edit through the 5 pipeline steps.
@@ -63,6 +143,7 @@ impl EditPipeline {
         edit: &TreeEdit,
         complement: &mut Complement,
     ) -> Result<TreeEdit, EditLensError> {
+        self.track_source_edit(edit);
         let edit = self.step1_anchor_survival(edit, complement);
         if edit.is_identity() {
             return Ok(edit);
@@ -212,7 +293,15 @@ impl EditPipeline {
                 id,
                 new_anchor: new_anchor.clone(),
             },
-            (false, false) => TreeEdit::DeleteNode { id },
+            (false, false) => {
+                // Was in the view, now anchors at a vertex the migration drops.
+                // The view sees a delete, so the complement has to take the
+                // payload the view is giving up.
+                if let Some(snapshot) = self.node_snapshot(id) {
+                    absorb_dropped_node(complement, id, snapshot);
+                }
+                TreeEdit::DeleteNode { id }
+            }
         }
     }
 

@@ -1,7 +1,6 @@
 # panproto-grammars-systems
 
-A panproto companion package shipping tree-sitter grammars for
-systems languages: C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare.
+Python companion package for C, C++, Rust, Go, Zig, D, Nim, Odin, V, and Hare.
 
 ## Install
 
@@ -9,24 +8,24 @@ systems languages: C, C++, Rust, Go, Zig, D, Nim, Odin, V, Hare.
 pip install panproto-grammars-systems
 ```
 
-The package declares an entry point under `panproto.grammars`.
-panproto's `AstParserRegistry` factory picks it up automatically;
-there is nothing to import from this package directly.
+The package requires Python 3.13 or newer. Its current metadata requires the matching panproto minor release, `panproto>=0.72,<0.73`.
+
+## Discovery
+
+The wheel registers `panproto_grammars_systems._impl` in the `panproto.grammars` entry-point group. Each call to `panproto.AstParserRegistry()` loads installed entries and calls their `grammars_metadata()` functions. Duplicate names already registered by the core wheel or another pack are ignored. A pack that cannot load produces a `RuntimeWarning`. Registry construction continues without its grammars.
+
+Application code does not need to import this companion package. Its top-level Python package exposes only `__version__`. Calling `panproto._native.AstParserRegistry()` directly bypasses companion discovery.
 
 ## Use
 
 ```python
 import panproto
 
-reg = panproto.AstParserRegistry()
-# parse one of the grammars this pack adds:
-# schema = reg.parse_with_protocol("typescript", b"...", "main.ts")
+registry = panproto.AstParserRegistry()
+schema = registry.parse_with_protocol("zig", b"const x = 1;", "main.zig")
 ```
 
-See the panproto repository for the full list of available grammar
-packs and the source for this one at
-`crates/panproto-grammars-systems/` and
-`bindings/python-grammars-systems/`.
+The Rust extension is implemented in `crates/panproto-grammars-systems/`. The wheel metadata and Python package are in this directory.
 
 ## License
 

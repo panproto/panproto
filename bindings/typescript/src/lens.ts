@@ -638,15 +638,15 @@ export class LensHandle implements Disposable {
     wasm: WasmModule,
     stringency?: Stringency,
   ): LensHandle {
+    let chainHandle: WasmHandle | undefined;
     try {
       const rawHandle = wasm.exports.auto_generate_protolens(
         schema1._handle.id,
         schema2._handle.id,
         stringency,
       );
-      const chainHandle = createHandle(rawHandle, wasm);
+      chainHandle = createHandle(rawHandle, wasm);
       const lensRaw = wasm.exports.instantiate_protolens(chainHandle.id, schema1._handle.id);
-      chainHandle[Symbol.dispose]();
       const handle = createHandle(lensRaw, wasm);
       return new LensHandle(handle, wasm);
     } catch (error) {
@@ -654,6 +654,8 @@ export class LensHandle implements Disposable {
         `autoGenerate failed: ${error instanceof Error ? error.message : String(error)}`,
         { cause: error },
       );
+    } finally {
+      chainHandle?.[Symbol.dispose]();
     }
   }
 

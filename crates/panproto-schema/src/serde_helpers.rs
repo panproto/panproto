@@ -4,6 +4,13 @@
 //! tuple; it requires string keys for JSON objects. These modules serialize
 //! such maps as `Vec<(K, V)>` arrays instead, which round-trip through both
 //! JSON and `MessagePack`.
+//!
+//! The array is written in key order rather than in the map's own iteration
+//! order. A `HashMap` enumerates its entries in an order the process's hash
+//! seed decides, so writing them out as they come would make the bytes of a
+//! serialized schema, morphism, or migration differ from run to run for one
+//! and the same value — every write a spurious diff, and every digest taken
+//! over those bytes a different digest.
 
 /// Serialize/deserialize `HashMap<K, V>` as `Vec<(K, V)>`.
 ///
@@ -11,25 +18,25 @@
 /// is a struct (like [`crate::Edge`]) or tuple that cannot be a JSON object key.
 pub mod map_as_vec {
     use std::collections::HashMap;
-    use std::hash::Hash;
+    use std::hash::{BuildHasher, Hash};
 
     use serde::de::Deserializer;
     use serde::ser::Serializer;
     use serde::{Deserialize, Serialize};
 
-    /// Serialize a `HashMap` as a `Vec` of key-value pairs.
+    /// Serialize a `HashMap` as a `Vec` of key-value pairs, in key order.
     ///
     /// # Errors
     ///
     /// Returns a serialization error if any key or value fails to serialize.
-    #[allow(clippy::implicit_hasher)]
-    pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, K, V, H>(map: &HashMap<K, V, H>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        K: Serialize + Eq + Hash,
+        K: Serialize + Eq + Hash + Ord,
         V: Serialize,
         S: Serializer,
     {
-        let pairs: Vec<(&K, &V)> = map.iter().collect();
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
         pairs.serialize(serializer)
     }
 
@@ -39,11 +46,12 @@ pub mod map_as_vec {
     ///
     /// Returns a deserialization error if the input is not a valid array
     /// of `(K, V)` pairs.
-    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    pub fn deserialize<'de, D, K, V, H>(deserializer: D) -> Result<HashMap<K, V, H>, D::Error>
     where
         K: Deserialize<'de> + Eq + Hash,
         V: Deserialize<'de>,
         D: Deserializer<'de>,
+        H: BuildHasher + Default,
     {
         let pairs: Vec<(K, V)> = Vec::deserialize(deserializer)?;
         Ok(pairs.into_iter().collect())
@@ -56,25 +64,25 @@ pub mod map_as_vec {
 /// fields that should default to an empty `HashMap` when absent.
 pub mod map_as_vec_default {
     use std::collections::HashMap;
-    use std::hash::Hash;
+    use std::hash::{BuildHasher, Hash};
 
     use serde::de::Deserializer;
     use serde::ser::Serializer;
     use serde::{Deserialize, Serialize};
 
-    /// Serialize a `HashMap` as a `Vec` of key-value pairs.
+    /// Serialize a `HashMap` as a `Vec` of key-value pairs, in key order.
     ///
     /// # Errors
     ///
     /// Returns a serialization error if any key or value fails to serialize.
-    #[allow(clippy::implicit_hasher)]
-    pub fn serialize<S, K, V>(map: &HashMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
+    pub fn serialize<S, K, V, H>(map: &HashMap<K, V, H>, serializer: S) -> Result<S::Ok, S::Error>
     where
-        K: Serialize + Eq + Hash,
+        K: Serialize + Eq + Hash + Ord,
         V: Serialize,
         S: Serializer,
     {
-        let pairs: Vec<(&K, &V)> = map.iter().collect();
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
         pairs.serialize(serializer)
     }
 
@@ -84,14 +92,185 @@ pub mod map_as_vec_default {
     ///
     /// Returns a deserialization error if the input is not a valid array
     /// of `(K, V)` pairs.
-    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<HashMap<K, V>, D::Error>
+    pub fn deserialize<'de, D, K, V, H>(deserializer: D) -> Result<HashMap<K, V, H>, D::Error>
     where
         K: Deserialize<'de> + Eq + Hash,
         V: Deserialize<'de>,
         D: Deserializer<'de>,
+        H: BuildHasher + Default,
     {
         let pairs: Vec<(K, V)> = Vec::deserialize(deserializer)?;
         Ok(pairs.into_iter().collect())
+    }
+}
+
+/// Serialize a `HashMap` as a map, written in key order.
+///
+/// Use with `#[serde(with = "sorted_map")]` on fields whose key type *can* be
+/// a JSON object key. The entries are written in key order rather than in the
+/// map's own enumeration order, so one value always produces one encoding.
+pub mod sorted_map {
+    use std::collections::HashMap;
+    use std::hash::{BuildHasher, Hash};
+
+    use serde::de::Deserializer;
+    use serde::ser::{SerializeMap as _, Serializer};
+    use serde::{Deserialize, Serialize};
+
+    /// Serialize a `HashMap` as a map, in key order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialization error if any key or value fails to serialize.
+    pub fn serialize<S, K, V, H>(map: &HashMap<K, V, H>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize + Eq + Hash + Ord,
+        V: Serialize,
+        S: Serializer,
+    {
+        let mut pairs: Vec<(&K, &V)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        let mut entries = serializer.serialize_map(Some(pairs.len()))?;
+        for (key, value) in pairs {
+            entries.serialize_entry(key, value)?;
+        }
+        entries.end()
+    }
+
+    /// Deserialize a map into a `HashMap`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a deserialization error if the input is not a valid map.
+    pub fn deserialize<'de, D, K, V, H>(deserializer: D) -> Result<HashMap<K, V, H>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        V: Deserialize<'de>,
+        D: Deserializer<'de>,
+        H: BuildHasher + Default,
+    {
+        HashMap::deserialize(deserializer)
+    }
+}
+
+/// Serialize a `HashMap` whose values are themselves maps, in key order at
+/// both levels.
+///
+/// Use with `#[serde(with = "sorted_nested_map")]`. Sorting only the outer
+/// map would leave the inner ones to their own enumeration order, which is
+/// enough on its own to make one value produce many encodings.
+pub mod sorted_nested_map {
+    use std::collections::HashMap;
+    use std::hash::{BuildHasher, Hash};
+
+    use serde::de::Deserializer;
+    use serde::ser::{SerializeMap as _, Serializer};
+    use serde::{Deserialize, Serialize};
+
+    /// A map of maps: the shape this module reads and writes.
+    type Nested<K, IK, IV, H, IH> = HashMap<K, HashMap<IK, IV, IH>, H>;
+
+    /// One inner map, written in key order.
+    struct Inner<'a, K, V, H>(&'a HashMap<K, V, H>);
+
+    impl<K, V, H> Serialize for Inner<'_, K, V, H>
+    where
+        K: Serialize + Eq + Hash + Ord,
+        V: Serialize,
+    {
+        fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+            super::sorted_map::serialize(self.0, serializer)
+        }
+    }
+
+    /// Serialize a map of maps, in key order at both levels.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialization error if any key or value fails to serialize.
+    pub fn serialize<S, K, IK, IV, H, IH>(
+        map: &Nested<K, IK, IV, H, IH>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
+    where
+        K: Serialize + Eq + Hash + Ord,
+        IK: Serialize + Eq + Hash + Ord,
+        IV: Serialize,
+        S: Serializer,
+    {
+        let mut pairs: Vec<(&K, &HashMap<IK, IV, IH>)> = map.iter().collect();
+        pairs.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        let mut entries = serializer.serialize_map(Some(pairs.len()))?;
+        for (key, inner) in pairs {
+            entries.serialize_entry(key, &Inner(inner))?;
+        }
+        entries.end()
+    }
+
+    /// Deserialize a map of maps.
+    ///
+    /// # Errors
+    ///
+    /// Returns a deserialization error if the input is not a valid map.
+    pub fn deserialize<'de, D, K, IK, IV, H, IH>(
+        deserializer: D,
+    ) -> Result<Nested<K, IK, IV, H, IH>, D::Error>
+    where
+        K: Deserialize<'de> + Eq + Hash,
+        IK: Deserialize<'de> + Eq + Hash,
+        IV: Deserialize<'de>,
+        D: Deserializer<'de>,
+        H: BuildHasher + Default,
+        IH: BuildHasher + Default,
+    {
+        HashMap::deserialize(deserializer)
+    }
+}
+
+/// Serialize a `HashSet` as a sequence, written in member order.
+///
+/// Use with `#[serde(with = "sorted_set")]`. A `HashSet` enumerates its
+/// members in an order the process's hash seed decides, so writing them out
+/// as they come would give one set many encodings.
+pub mod sorted_set {
+    use std::collections::HashSet;
+    use std::hash::{BuildHasher, Hash};
+
+    use serde::de::Deserializer;
+    use serde::ser::{SerializeSeq as _, Serializer};
+    use serde::{Deserialize, Serialize};
+
+    /// Serialize a `HashSet` as a sequence, in member order.
+    ///
+    /// # Errors
+    ///
+    /// Returns a serialization error if any member fails to serialize.
+    pub fn serialize<S, T, H>(set: &HashSet<T, H>, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        T: Serialize + Eq + Hash + Ord,
+        S: Serializer,
+    {
+        let mut members: Vec<&T> = set.iter().collect();
+        members.sort_unstable();
+        let mut seq = serializer.serialize_seq(Some(members.len()))?;
+        for member in members {
+            seq.serialize_element(member)?;
+        }
+        seq.end()
+    }
+
+    /// Deserialize a sequence into a `HashSet`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a deserialization error if the input is not a valid sequence.
+    pub fn deserialize<'de, D, T, H>(deserializer: D) -> Result<HashSet<T, H>, D::Error>
+    where
+        T: Deserialize<'de> + Eq + Hash,
+        D: Deserializer<'de>,
+        H: BuildHasher + Default,
+    {
+        HashSet::deserialize(deserializer)
     }
 }
 

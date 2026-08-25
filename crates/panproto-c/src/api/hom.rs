@@ -33,7 +33,6 @@
 //! cascade's `induce_migration_from_theory`).
 
 use std::collections::HashMap;
-use std::sync::Arc;
 
 use panproto_core::gat::{Name, TheoryMorphism};
 use panproto_core::mig::{
@@ -376,7 +375,7 @@ pub fn pp_hom_find_morphisms(
         let options = wire.into_engine();
 
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let found = hom_search::find_morphisms(&src_schema, &tgt_schema, &options)
@@ -415,7 +414,7 @@ pub fn pp_hom_find_best_morphism(
         let options = wire.into_engine();
 
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let best = hom_search::find_best_morphism(&src_schema, &tgt_schema, &options)
@@ -468,8 +467,8 @@ pub fn pp_hom_find_span(
         let (src_schema, tgt_schema, proto) =
             handle::with_three_resources(src, tgt, protocol, |r1, r2, r3| {
                 Ok((
-                    r1.as_schema()?.clone(),
-                    r2.as_schema()?.clone(),
+                    r1.as_schema_arc()?,
+                    r2.as_schema_arc()?,
                     r3.as_protocol()?.clone(),
                 ))
             })?;
@@ -566,7 +565,7 @@ pub fn pp_hom_induce_schema_morphism(
     guard(|| {
         let theory_morph: TheoryMorphism = crate::canonical::decode(theory_morphism.as_slice())?;
 
-        let src_schema = handle::with_resource(src, |r| Ok(r.as_schema()?.clone()))?;
+        let src_schema = handle::with_resource(src, Resource::as_schema_arc)?;
 
         let schema_morph = cascade::induce_schema_morphism(&theory_morph, &src_schema);
 
@@ -583,7 +582,8 @@ pub fn pp_hom_induce_schema_morphism(
 /// success, `out` receives the CBOR-encoded induced `SchemaMorphism`
 /// and `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle
-/// (the compiled `Delta_F` pullback bundled with its anchoring schemas).
+/// (the compiled source-to-target mapping bundled with its anchoring
+/// schemas).
 /// Calls `mig::cascade::induce_migration_from_theory`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
@@ -598,7 +598,7 @@ pub fn pp_hom_induce_migration_from_theory(
         let theory_morph: TheoryMorphism = crate::canonical::decode(theory_morphism.as_slice())?;
 
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let (schema_morph, compiled) =
@@ -611,8 +611,8 @@ pub fn pp_hom_induce_migration_from_theory(
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(compiled),
-            src_schema: Arc::new(src_schema),
-            tgt_schema: Arc::new(tgt_schema),
+            src_schema,
+            tgt_schema,
         });
 
         *out = bytes.into();

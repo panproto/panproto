@@ -42,24 +42,21 @@ fn python_config() -> WalkerConfig {
             "expression_list".to_owned(),
             "pattern_list".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
 fn typescript_config() -> WalkerConfig {
     WalkerConfig {
         extra_block_kinds: vec!["switch_body".to_owned(), "template_string".to_owned()],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
 fn tsx_config() -> WalkerConfig {
     WalkerConfig {
         extra_block_kinds: vec!["switch_body".to_owned(), "jsx_expression".to_owned()],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -71,8 +68,7 @@ fn rust_config() -> WalkerConfig {
             "field_declaration_list".to_owned(),
             "enum_variant_list".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -83,8 +79,7 @@ fn java_config() -> WalkerConfig {
             "annotation_argument_list".to_owned(),
             "element_value_array_initializer".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -96,16 +91,14 @@ fn go_config() -> WalkerConfig {
             "expression_case".to_owned(),
             "default_case".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
 fn swift_config() -> WalkerConfig {
     WalkerConfig {
         extra_block_kinds: vec!["switch_entry".to_owned()],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -116,8 +109,7 @@ fn csharp_config() -> WalkerConfig {
             "accessor_list".to_owned(),
             "attribute_list".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -128,8 +120,7 @@ fn c_config() -> WalkerConfig {
             "initializer_list".to_owned(),
             "preproc_params".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }
 
@@ -141,7 +132,6 @@ fn cpp_config() -> WalkerConfig {
             "template_argument_list".to_owned(),
             "base_class_clause".to_owned(),
         ],
-        capture_comments: true,
-        capture_formatting: true,
+        ..WalkerConfig::standard()
     }
 }

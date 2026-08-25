@@ -71,7 +71,7 @@ pub use invert::invert;
 pub use lift::{
     lift_functor, lift_functor_pi, lift_functor_sigma, lift_wtype, lift_wtype_pi, lift_wtype_sigma,
 };
-pub use migration::Migration;
+pub use migration::{COERCION_INPUT, Migration, compose_coercions, invert_coercion};
 pub use overlap::discover_overlap;
 pub use schema_theory::{check_migration_morphism, induced_theory_morphism, schema_to_theory};
 

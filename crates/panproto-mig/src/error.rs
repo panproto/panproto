@@ -258,19 +258,41 @@ pub enum LiftError {
     #[error("target schema is required for W-type lift")]
     MissingTargetSchema,
 
-    /// The term-level chase reported an equality conflict or exhausted its
-    /// budget while closing a `Sigma` result.
-    #[error("chase failed: {detail}")]
-    Chase {
-        /// Human-readable description of the failure.
-        detail: String,
+    /// The term-level chase failed while closing a `Sigma` result.
+    ///
+    /// The chase's own error is carried, not flattened to text, because
+    /// the two failures it reports call for different responses: a
+    /// budget that ran out can be retried with a larger one, while an
+    /// equality conflict is a property of the data and the dependencies
+    /// and will recur however much budget it is given.
+    #[error("chase failed: {0}")]
+    Chase(#[from] crate::chase::ChaseError),
+
+    /// The term-level chase ran out of budget before reaching a
+    /// fixpoint. Retrying with a larger budget may succeed.
+    #[error(
+        "term-level chase did not terminate within {max_iterations} iterations / {max_nulls} nulls"
+    )]
+    ChaseBudgetExhausted {
+        /// The iteration ceiling the chase was given.
+        max_iterations: usize,
+        /// The labeled-null ceiling the chase was given.
+        max_nulls: usize,
     },
 }
 
-impl From<crate::chase::ChaseError> for LiftError {
-    fn from(err: crate::chase::ChaseError) -> Self {
-        Self::Chase {
-            detail: err.to_string(),
+impl LiftError {
+    /// Whether retrying the lift with a larger chase budget could
+    /// succeed.
+    ///
+    /// True exactly for the two budget-exhaustion failures. Every other
+    /// variant reports something a larger budget cannot change.
+    #[must_use]
+    pub const fn is_retryable(&self) -> bool {
+        match self {
+            Self::Chase(err) => err.is_retryable(),
+            Self::ChaseBudgetExhausted { .. } => true,
+            _ => false,
         }
     }
 }
@@ -344,5 +366,17 @@ pub enum InvertError {
     DroppedHyperEdges {
         /// The dropped hyper-edge IDs.
         dropped: Vec<String>,
+    },
+
+    /// A vertex's value-level coercion records no inverse term, so the
+    /// inverted migration has no way to bring its values back.
+    #[error(
+        "the coercion at vertex `{vertex}` records no inverse term, so the values \
+         it rewrites cannot be brought back; the inverse migration is undefined \
+         there"
+    )]
+    CoercionNotInvertible {
+        /// The source vertex whose coercion has no inverse.
+        vertex: String,
     },
 }

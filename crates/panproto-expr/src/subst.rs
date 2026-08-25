@@ -14,6 +14,15 @@ pub fn free_vars(expr: &Expr) -> FxHashSet<Arc<str>> {
     vars
 }
 
+/// Walk `expr`, adding every variable occurrence not covered by an
+/// enclosing binder to `free`.
+///
+/// `bound` is a scratch scope shared across the whole walk. Every binding
+/// form restores it on exit by removing exactly the names this frame
+/// inserted: a name already present came from an enclosing binder that
+/// still shadows the sibling subtrees, so removing it would report bound
+/// occurrences as free, while leaving a newly inserted name behind would
+/// hide genuinely free occurrences in the siblings that follow.
 fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashSet<Arc<str>>) {
     match expr {
         Expr::Var(name) => {
@@ -22,9 +31,9 @@ fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashS
             }
         }
         Expr::Lam(param, body) => {
-            let was_bound = bound.insert(Arc::clone(param));
+            let newly_bound = bound.insert(Arc::clone(param));
             collect_free(body, bound, free);
-            if !was_bound {
+            if newly_bound {
                 bound.remove(param);
             }
         }
@@ -66,9 +75,9 @@ fn collect_free(expr: &Expr, bound: &mut FxHashSet<Arc<str>>, free: &mut FxHashS
         }
         Expr::Let { name, value, body } => {
             collect_free(value, bound, free);
-            let was_bound = bound.insert(Arc::clone(name));
+            let newly_bound = bound.insert(Arc::clone(name));
             collect_free(body, bound, free);
-            if !was_bound {
+            if newly_bound {
                 bound.remove(name);
             }
         }
@@ -110,7 +119,63 @@ fn collect_pattern_vars(pat: &Pattern, vars: &mut Vec<Arc<str>>) {
     }
 }
 
+/// Rename every occurrence of the bound variable `from` to `to` inside a
+/// pattern.
+///
+/// Only binding occurrences live in a pattern, so the rewrite is a plain
+/// structural walk: constructor names, record field labels, literals, and
+/// wildcards are untouched.
+fn rename_pattern_var(pat: &Pattern, from: &str, to: &Arc<str>) -> Pattern {
+    match pat {
+        Pattern::Wildcard | Pattern::Lit(_) => pat.clone(),
+        Pattern::Var(v) => {
+            if &**v == from {
+                Pattern::Var(Arc::clone(to))
+            } else {
+                pat.clone()
+            }
+        }
+        Pattern::Record(fields) => Pattern::Record(
+            fields
+                .iter()
+                .map(|(k, p)| (Arc::clone(k), rename_pattern_var(p, from, to)))
+                .collect(),
+        ),
+        Pattern::List(items) => Pattern::List(
+            items
+                .iter()
+                .map(|p| rename_pattern_var(p, from, to))
+                .collect(),
+        ),
+        Pattern::Constructor(ctor, args) => Pattern::Constructor(
+            Arc::clone(ctor),
+            args.iter()
+                .map(|p| rename_pattern_var(p, from, to))
+                .collect(),
+        ),
+    }
+}
+
+/// The set of names a fresh binder must avoid when a binder is
+/// alpha-renamed while substituting `replacement` into `body`.
+///
+/// A fresh binder must not capture a free variable of the replacement, must
+/// not capture a variable already free in the body, and must not collide
+/// with the substitution target itself.
+fn rename_avoid_set(body: &Expr, name: &str, replacement: &Expr) -> FxHashSet<Arc<str>> {
+    let mut avoid = free_vars(replacement);
+    avoid.extend(free_vars(body));
+    avoid.insert(Arc::from(name));
+    avoid
+}
+
 /// Apply capture-avoiding substitution: replace `name` with `replacement` in `expr`.
+///
+/// Every binding form — `Lam`, `Let`, and each `Match` arm — alpha-renames
+/// its binders before descending when a binder would capture a free
+/// variable of `replacement`. A binder that shadows `name` stops the
+/// substitution instead, since no free occurrence of `name` survives under
+/// it.
 #[must_use]
 pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
     match expr {
@@ -127,7 +192,7 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
                 expr.clone()
             } else if free_vars(replacement).contains(param) {
                 // Would capture; alpha-rename the param first
-                let fresh = fresh_name(param, &free_vars(replacement));
+                let fresh = fresh_name(param, &rename_avoid_set(body, name, replacement));
                 let renamed_body = substitute(body, param, &Expr::Var(Arc::clone(&fresh)));
                 Expr::Lam(
                     fresh,
@@ -166,15 +231,7 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
             scrutinee: Box::new(substitute(scrutinee, name, replacement)),
             arms: arms
                 .iter()
-                .map(|(pat, body)| {
-                    let pvars = pattern_vars(pat);
-                    if pvars.iter().any(|v| &**v == name) {
-                        // pattern binds the substitution target, no change in body
-                        (pat.clone(), body.clone())
-                    } else {
-                        (pat.clone(), substitute(body, name, replacement))
-                    }
-                })
+                .map(|(pat, body)| substitute_match_arm(pat, body, name, replacement))
                 .collect(),
         },
         Expr::Let {
@@ -189,6 +246,15 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
                     name: Arc::clone(let_name),
                     value: Box::new(new_value),
                     body: body.clone(),
+                }
+            } else if free_vars(replacement).contains(let_name) {
+                // Would capture; alpha-rename the bound name first
+                let fresh = fresh_name(let_name, &rename_avoid_set(body, name, replacement));
+                let renamed_body = substitute(body, let_name, &Expr::Var(Arc::clone(&fresh)));
+                Expr::Let {
+                    name: fresh,
+                    value: Box::new(new_value),
+                    body: Box::new(substitute(&renamed_body, name, replacement)),
                 }
             } else {
                 Expr::Let {
@@ -207,6 +273,38 @@ pub fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
     }
 }
 
+/// Substitute into one `Match` arm, alpha-renaming the arm's binders where
+/// they would capture a free variable of `replacement`.
+///
+/// An arm whose pattern binds `name` shadows the substitution entirely and
+/// is returned unchanged.
+fn substitute_match_arm(
+    pat: &Pattern,
+    body: &Expr,
+    name: &str,
+    replacement: &Expr,
+) -> (Pattern, Expr) {
+    let pvars = pattern_vars(pat);
+    if pvars.iter().any(|v| &**v == name) {
+        return (pat.clone(), body.clone());
+    }
+    let replacement_free = free_vars(replacement);
+    let mut avoid = rename_avoid_set(body, name, replacement);
+    avoid.extend(pvars.iter().cloned());
+    let mut new_pat = pat.clone();
+    let mut new_body = body.clone();
+    for v in &pvars {
+        if !replacement_free.contains(v) {
+            continue;
+        }
+        let fresh = fresh_name(v, &avoid);
+        avoid.insert(Arc::clone(&fresh));
+        new_pat = rename_pattern_var(&new_pat, v, &fresh);
+        new_body = substitute(&new_body, v, &Expr::Var(Arc::clone(&fresh)));
+    }
+    (new_pat, substitute(&new_body, name, replacement))
+}
+
 /// Generate a fresh variable name by appending primes until it's not in `avoid`.
 fn fresh_name(base: &str, avoid: &FxHashSet<Arc<str>>) -> Arc<str> {
     let mut candidate = format!("{base}'");
@@ -219,7 +317,8 @@ fn fresh_name(base: &str, avoid: &FxHashSet<Arc<str>>) -> Arc<str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Literal;
+    use crate::eval::EvalConfig;
+    use crate::{Env, Literal};
 
     #[test]
     fn free_vars_simple() {
@@ -287,6 +386,110 @@ mod tests {
                 );
             }
             _ => panic!("expected Let"),
+        }
+    }
+
+    #[test]
+    fn free_vars_lambda_does_not_leak_into_siblings() {
+        // record { f = \x -> x, g = x }: the record's own `x` is free.
+        let expr = Expr::Record(vec![
+            (Arc::from("f"), Expr::lam("x", Expr::var("x"))),
+            (Arc::from("g"), Expr::var("x")),
+        ]);
+        let fv = free_vars(&expr);
+        assert!(
+            fv.contains("x"),
+            "sibling occurrence of x is free, got {fv:?}"
+        );
+    }
+
+    #[test]
+    fn free_vars_respects_shadowed_lambda_binder() {
+        // \x -> (\x -> x) x: closed, nothing free.
+        let expr = Expr::lam(
+            "x",
+            Expr::app(Expr::lam("x", Expr::var("x")), Expr::var("x")),
+        );
+        let fv = free_vars(&expr);
+        assert!(fv.is_empty(), "expression is closed, got {fv:?}");
+    }
+
+    #[test]
+    fn free_vars_let_does_not_leak_into_siblings() {
+        // record { f = let x = 1 in x, g = x }
+        let expr = Expr::Record(vec![
+            (
+                Arc::from("f"),
+                Expr::let_in("x", Expr::Lit(Literal::Int(1)), Expr::var("x")),
+            ),
+            (Arc::from("g"), Expr::var("x")),
+        ]);
+        let fv = free_vars(&expr);
+        assert!(
+            fv.contains("x"),
+            "sibling occurrence of x is free, got {fv:?}"
+        );
+    }
+
+    #[test]
+    fn free_vars_respects_shadowed_let_binder() {
+        // \x -> let x = 1 in x: closed.
+        let expr = Expr::lam(
+            "x",
+            Expr::let_in("x", Expr::Lit(Literal::Int(1)), Expr::var("x")),
+        );
+        let fv = free_vars(&expr);
+        assert!(fv.is_empty(), "expression is closed, got {fv:?}");
+    }
+
+    #[test]
+    fn substitute_avoids_capture_under_let() {
+        // (let x = 1 in z)[z := x] must not bind the incoming x to the let.
+        let expr = Expr::let_in("x", Expr::Lit(Literal::Int(1)), Expr::var("z"));
+        let result = substitute(&expr, "z", &Expr::var("x"));
+        let env = Env::new().extend(Arc::from("x"), Literal::Int(42));
+        let Ok(value) = crate::eval::eval(&result, &env, &EvalConfig::default()) else {
+            panic!("substituted expression must evaluate, got {result:?}");
+        };
+        assert_eq!(value, Literal::Int(42), "got {result:?}");
+    }
+
+    #[test]
+    fn substitute_avoids_capture_under_match_arm() {
+        // (match 1 with x -> z)[z := x] must not bind the incoming x to the arm.
+        let expr = Expr::Match {
+            scrutinee: Box::new(Expr::Lit(Literal::Int(1))),
+            arms: vec![(Pattern::Var(Arc::from("x")), Expr::var("z"))],
+        };
+        let result = substitute(&expr, "z", &Expr::var("x"));
+        let env = Env::new().extend(Arc::from("x"), Literal::Int(42));
+        let Ok(value) = crate::eval::eval(&result, &env, &EvalConfig::default()) else {
+            panic!("substituted expression must evaluate, got {result:?}");
+        };
+        assert_eq!(value, Literal::Int(42), "got {result:?}");
+    }
+
+    #[test]
+    fn substitute_fresh_name_avoids_body_free_variables() {
+        // (\y -> add(y', add(x, y)))[x := y] must not pick y' as the fresh
+        // binder, since y' already occurs free in the body.
+        let expr = Expr::lam(
+            "y",
+            Expr::builtin(
+                crate::BuiltinOp::Add,
+                vec![
+                    Expr::var("y'"),
+                    Expr::builtin(crate::BuiltinOp::Add, vec![Expr::var("x"), Expr::var("y")]),
+                ],
+            ),
+        );
+        let result = substitute(&expr, "x", &Expr::var("y"));
+        match &result {
+            Expr::Lam(param, _) => {
+                assert_ne!(&**param, "y", "binder must be renamed");
+                assert_ne!(&**param, "y'", "binder must not capture the body's y'");
+            }
+            other => panic!("expected Lam, got {other:?}"),
         }
     }
 }

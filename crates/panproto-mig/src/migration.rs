@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use panproto_gat::Name;
-use panproto_schema::Edge;
+use panproto_schema::{Edge, Schema};
 use serde::{Deserialize, Serialize};
 
 /// A migration specification: maps between two schemas.
@@ -46,6 +46,19 @@ pub struct Migration {
     /// Expression-based resolvers for enriched migrations.
     #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
     pub expr_resolvers: HashMap<(Name, Name), panproto_expr::Expr>,
+    /// The value-level action this migration applies, keyed by source vertex.
+    ///
+    /// A vertex map that changes a vertex's kind changes the type of the values
+    /// stored there, and the coercion recorded here is how those values are
+    /// rewritten. It is carried on the migration rather than looked up from the
+    /// endpoints at compile time because composition needs it: the composite of
+    /// two kind-changing steps runs between schemas that need not know the
+    /// coercion the intermediate schema registered, so a composite that did not
+    /// carry its steps' actions would emit values typed for the schema it came
+    /// from. [`with_coercions`](Self::with_coercions) fills this in from a
+    /// source and target schema.
+    #[serde(default)]
+    pub coercions: HashMap<Name, panproto_schema::CoercionSpec>,
     /// Identifier of the source schema (content hash or protocol-qualified
     /// name). `None` when the migration carries no schema identity.
     #[serde(default)]
@@ -73,6 +86,7 @@ impl Migration {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         }
@@ -103,6 +117,7 @@ impl Migration {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         }
@@ -115,4 +130,103 @@ impl Migration {
         self.codomain = codomain;
         self
     }
+
+    /// Record the value-level action this migration takes between `src` and
+    /// `tgt`, returning `self`.
+    ///
+    /// Every vertex the map sends to a vertex of a different kind picks up the
+    /// coercion `tgt` registers for that kind pair. A vertex whose kind is
+    /// unchanged, or whose kind change the target schema declares no coercion
+    /// for, records nothing.
+    ///
+    /// Do this while both schemas are at hand. Composition carries the recorded
+    /// actions forward, so a composite of two kind-changing steps still applies
+    /// both, and [`compile`](fn@crate::compile) prefers what a migration
+    /// carries over what it can infer from the two schemas it is handed.
+    #[must_use]
+    pub fn with_coercions(mut self, src: &Schema, tgt: &Schema) -> Self {
+        self.coercions.clear();
+        for (src_v, tgt_v) in &self.vertex_map {
+            let (Some(sv), Some(tv)) = (src.vertex(src_v), tgt.vertex(tgt_v)) else {
+                continue;
+            };
+            if sv.kind == tv.kind {
+                continue;
+            }
+            if let Some(spec) = tgt.coercions.get(&(sv.kind.clone(), tv.kind.clone())) {
+                self.coercions.insert(src_v.clone(), spec.clone());
+            }
+        }
+        self
+    }
+}
+
+/// The variable a coercion's term reads the incoming value under.
+///
+/// A [`CoercionSpec`](panproto_schema::CoercionSpec)'s forward and inverse
+/// terms are written against this name, and the compiled migration computes
+/// the coerced value by substituting the stored value for it.
+pub const COERCION_INPUT: &str = "__value__";
+
+/// Compose two value-level coercions: `second` applied to the result of
+/// `first`.
+///
+/// Both terms read their input under [`COERCION_INPUT`], so the composite is
+/// `second`'s term with `first`'s term substituted for that variable. The
+/// inverse runs the other way — `first`'s inverse applied to `second`'s — and
+/// exists only when both steps have one, since a step with no inverse leaves
+/// the composite with no way back. The round-trip class is the composite of the
+/// two classes.
+#[must_use]
+pub fn compose_coercions(
+    first: &panproto_schema::CoercionSpec,
+    second: &panproto_schema::CoercionSpec,
+) -> panproto_schema::CoercionSpec {
+    let forward = panproto_expr::substitute(&second.forward, COERCION_INPUT, &first.forward);
+    let inverse = match (&first.inverse, &second.inverse) {
+        (Some(first_inv), Some(second_inv)) => Some(panproto_expr::substitute(
+            first_inv,
+            COERCION_INPUT,
+            second_inv,
+        )),
+        _ => None,
+    };
+    panproto_schema::CoercionSpec {
+        forward,
+        inverse,
+        class: first.class.compose(second.class),
+    }
+}
+
+/// Turn a value-level coercion around: the spec that runs the other way.
+///
+/// The two terms swap, so the reversed spec computes what the original undid
+/// and undoes what it computed. A spec recording no inverse term cannot be
+/// turned around at all, and this returns `None` for it rather than inventing
+/// one.
+///
+/// The round-trip class turns around with the terms. An isomorphism reversed
+/// is an isomorphism. A retraction reversed is a projection: a retraction's
+/// inverse recovers the source from the image, so read the other way it is the
+/// deterministic map with no left inverse, which is exactly the dual the
+/// information-loss lattice pairs it with. Every other class is reported as
+/// opaque, the floor of that lattice, which claims nothing about the reversed
+/// round trip rather than guessing a dual for it.
+#[must_use]
+pub fn invert_coercion(
+    spec: &panproto_schema::CoercionSpec,
+) -> Option<panproto_schema::CoercionSpec> {
+    use panproto_gat::CoercionClass;
+
+    let forward = spec.inverse.clone()?;
+    let class = match spec.class {
+        CoercionClass::Iso => CoercionClass::Iso,
+        CoercionClass::Retraction => CoercionClass::Projection,
+        _ => CoercionClass::Opaque,
+    };
+    Some(panproto_schema::CoercionSpec {
+        forward,
+        inverse: Some(spec.forward.clone()),
+        class,
+    })
 }

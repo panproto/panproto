@@ -374,14 +374,15 @@ public enum ExistenceError: Codable, Hashable, Sendable {
 /// settles which vertices and edges survive, fixes the remapping, and
 /// attaches the value-level work to the anchors it applies at.
 ///
-/// Three of the ten fields are maps whose keys are not text. ``edgeRemap``
-/// is keyed by whole edges, so its CBOR keys are maps; ``resolver`` and
+/// Four of the ten fields need special framing. ``edgeRemap`` is keyed by
+/// whole edges, so its CBOR keys are maps; ``resolver`` and
 /// ``expansionPath`` are keyed by anchor pairs, so their CBOR keys are
-/// two-element arrays. `Codable`'s keyed containers reach neither shape,
-/// so this type reads and writes itself through ``CBORValue``, ordering
-/// every map by the encoded key. That ties it to this package's CBOR
-/// codec: another coder receives ``CBORValue``'s own spelling instead of
-/// the wire shape.
+/// two-element arrays. ``hyperResolver`` uses an array of `[key, value]`
+/// pairs because its keys contain label arrays. `Codable`'s keyed containers
+/// reach none of these shapes, so this type reads and writes itself through
+/// ``CBORValue``, ordering every map and pair array by the encoded key. That
+/// ties it to this package's CBOR codec: another coder receives
+/// ``CBORValue``'s own spelling instead of the wire shape.
 ///
 /// The last four fields are omitted from the map while they are empty,
 /// which this type reproduces in both directions.
@@ -397,9 +398,9 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
     /// A source anchor paired with a target anchor, mapped to the edge
     /// contraction resolves the pair to.
     public var resolver: [WirePair<Name, Name>: Edge]
-    /// A hyper-edge id mapped to a target hyper-edge id paired with the
-    /// label remapping.
-    public var hyperResolver: [Name: WirePair<Name, [Name: Name]>]
+    /// A hyper-edge id paired with its source labels, mapped to a target
+    /// hyper-edge id paired with the label remapping.
+    public var hyperResolver: [WirePair<Name, [Name]>: WirePair<Name, [Name: Name]>]
     /// Field operations applied to a surviving node's extra fields,
     /// keyed by source anchor and applied in order.
     public var fieldTransforms: [Name: [FieldTransform]]
@@ -438,7 +439,7 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
         vertexRemap: [Name: Name] = [:],
         edgeRemap: [Edge: Edge] = [:],
         resolver: [WirePair<Name, Name>: Edge] = [:],
-        hyperResolver: [Name: WirePair<Name, [Name: Name]>] = [:],
+        hyperResolver: [WirePair<Name, [Name]>: WirePair<Name, [Name: Name]>] = [:],
         fieldTransforms: [Name: [FieldTransform]] = [:],
         conditionalSurvival: [Name: Expr] = [:],
         opTermAssignments: [Name: [TermAssignment]] = [:],
@@ -456,8 +457,8 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
         self.expansionPath = expansionPath
     }
 
-    /// Read a compiled migration, walking the three maps whose keys are
-    /// not text entry by entry.
+    /// Read a compiled migration, handling its three non-text-keyed maps and
+    /// its pair-array hyper resolver explicitly.
     ///
     /// - Throws: `DecodingError` when the payload is not a map, when one
     ///   of the six required fields is missing, or when a key or a value
@@ -528,9 +529,11 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
         }
         self.resolver = resolver
 
-        self.hyperResolver = try decoded.decode(
-            [Name: WirePair<Name, [Name: Name]>].self,
-            from: required(.hyperResolver)
+        self.hyperResolver = WireMap.dictionary(
+            from: try decoded.decode(
+                [WirePair<WirePair<Name, [Name]>, WirePair<Name, [Name: Name]>>].self,
+                from: required(.hyperResolver)
+            )
         )
 
         self.fieldTransforms =
@@ -554,9 +557,9 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
         self.expansionPath = expansionPath
     }
 
-    /// Write a compiled migration, rebuilding the three maps whose keys
-    /// are not text and leaving out the four fields the engine omits
-    /// while they are empty.
+    /// Write a compiled migration, rebuilding the three non-text-keyed maps
+    /// and the pair-array hyper resolver, and leaving out the four fields the
+    /// engine omits while they are empty.
     ///
     /// - Throws: `EncodingError` when a nested value declines to encode.
     public func encode(to encoder: any Encoder) throws {
@@ -589,7 +592,7 @@ public struct CompiledMigration: Codable, Hashable, Sendable {
                 )
             )
         )
-        put(.hyperResolver, try item(hyperResolver))
+        put(.hyperResolver, try item(WireMap.pairs(of: hyperResolver)))
         if !fieldTransforms.isEmpty { put(.fieldTransforms, try item(fieldTransforms)) }
         if !conditionalSurvival.isEmpty { put(.conditionalSurvival, try item(conditionalSurvival)) }
         if !opTermAssignments.isEmpty { put(.opTermAssignments, try item(opTermAssignments)) }

@@ -28,6 +28,21 @@ use crate::fan::Fan;
 use crate::metadata::Node;
 use crate::value::Value;
 
+/// A resolver entry: the hyper-edge a shape retargets to, and the label
+/// remapping its children take.
+pub type HyperResolverEntry = (Name, HashMap<Name, Name>);
+
+/// A fan shape: a hyper-edge ID with the sorted, deduplicated label set that
+/// selects one of that hyper-edge's resolver entries.
+pub type FanShape = (Name, Vec<Name>);
+
+/// The compiled hyper-edge contraction table.
+///
+/// Maps a fan shape — a hyper-edge ID together with the sorted, deduplicated
+/// set of child labels the fan carries — to the target hyper-edge ID and the
+/// label remapping that shape's children take.
+pub type HyperResolverTable = HashMap<FanShape, HyperResolverEntry>;
+
 /// A compiled migration specification (minimal version for panproto-inst).
 ///
 /// The full `CompiledMigration` lives in `panproto-mig`. This type provides
@@ -44,8 +59,14 @@ pub struct CompiledMigration {
     pub edge_remap: HashMap<Edge, Edge>,
     /// Binary contraction resolver: (`src_anchor`, `tgt_anchor`) to resolved edge.
     pub resolver: HashMap<(Name, Name), Edge>,
-    /// Hyper-edge contraction resolver.
-    pub hyper_resolver: HashMap<Name, (Name, HashMap<Name, Name>)>,
+    /// Hyper-edge contraction resolver, keyed by fan shape.
+    ///
+    /// The key is a hyper-edge ID paired with the sorted, deduplicated set of
+    /// child labels the fan carries, so one hyper-edge may retarget
+    /// differently per shape. The value is the target hyper-edge ID and the
+    /// label remapping to apply to that shape's children.
+    #[serde(with = "panproto_schema::serde_helpers::map_as_vec")]
+    pub hyper_resolver: HyperResolverTable,
     /// Value-level field transforms applied to surviving nodes' `extra_fields`.
     ///
     /// Keyed by source vertex anchor. Each entry is a list of field operations
@@ -73,8 +94,8 @@ pub struct CompiledMigration {
     ///
     /// Keyed by source vertex anchor, mirroring [`Self::field_transforms`].
     /// Each assignment computes a migrated field by substituting the row's
-    /// field values into a term; this is the substitution action of
-    /// `Delta` and `Sigma` on values. `panproto-mig`'s compiler emits its
+    /// field values into a term; this is how a migration acts on values,
+    /// whichever way it carries them. `panproto-mig`'s compiler emits its
     /// value transforms here rather than as direct [`FieldTransform`]s.
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub op_term_assignments: HashMap<Name, Vec<TermAssignment>>,
@@ -313,10 +334,11 @@ pub struct TermBranch {
 /// A [`Self::Compute`] assignment carries a term (`panproto_expr::Expr`)
 /// whose free variables are source field names; evaluating it substitutes
 /// the row's field values for those variables. This is the substitution
-/// semantics through which the migration functors act on values: `Delta`
-/// ([`crate::functor::functor_restrict`]) and `Sigma`
-/// ([`wtype_extend`], [`crate::functor::functor_extend`]) compute migrated
-/// columns by substituting each surviving row. The remaining variants
+/// semantics through which a migration acts on values: the surviving-fragment
+/// forms ([`wtype_restrict`], [`crate::functor::functor_restrict`]) and the
+/// total ones ([`wtype_extend`], [`crate::functor::functor_extend`]) alike
+/// compute migrated columns by substituting each carried row. The remaining
+/// variants
 /// describe structural field operations (rename, drop, keep, default,
 /// reference remap, nested-path scoping, and case analysis).
 ///
@@ -521,8 +543,8 @@ impl TermAssignment {
 /// The row is wrapped in a scratch node so the shared field-transform
 /// evaluator ([`apply_field_transforms`]) performs the substitution; a
 /// flat row has no child fibers, so the child-scalar environment is empty.
-/// This is the value action of `Delta` and `Sigma` on set-valued
-/// (relational) instances.
+/// This is how a migration acts on the values of a set-valued (relational)
+/// instance.
 ///
 /// # Errors
 ///
@@ -755,6 +777,7 @@ impl CompiledMigration {
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct WInstance {
     /// All nodes keyed by their numeric ID.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub nodes: HashMap<u32, Node>,
     /// Arcs: (`parent_id`, `child_id`, `schema_edge`).
     pub arcs: Vec<(u32, u32, Edge)>,
@@ -765,8 +788,10 @@ pub struct WInstance {
     /// Schema vertex that the root node is anchored to.
     pub schema_root: Name,
     /// Precomputed parent map: `child_id` -> `parent_id`.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub parent_map: HashMap<u32, u32>,
     /// Precomputed children map: `parent_id` -> child IDs.
+    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub children_map: HashMap<u32, SmallVec<u32, 4>>,
 }
 
@@ -955,6 +980,123 @@ pub fn resolve_edge(
 // Step 5: Fan reconstruction (retained for testing)
 // ---------------------------------------------------------------------------
 
+/// The canonical label-set component of a `hyper_resolver` key: sorted and
+/// deduplicated, so a fan's shape is independent of child insertion order.
+#[must_use]
+pub fn canonical_label_shape<I, S>(labels: I) -> Vec<Name>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut shape: Vec<Name> = labels.into_iter().map(|l| Name::from(l.as_ref())).collect();
+    shape.sort_unstable();
+    shape.dedup();
+    shape
+}
+
+/// Borrowed resolver entries grouped under the target hyper-edge they produce.
+type BackwardIndex<'a> = FxHashMap<&'a str, Vec<(&'a FanShape, &'a HyperResolverEntry)>>;
+
+/// Fan-shape lookup over a compiled migration's hyper-edge resolver.
+///
+/// Building the index once and querying it per fan keeps resolution linear in
+/// the number of fans, and it makes both directions total orders rather than
+/// scans whose answer would depend on the table's iteration order.
+pub struct FanResolver<'a> {
+    table: &'a HyperResolverTable,
+    /// Hyper-edge ID to its sole entry, recorded only for hyper-edges that
+    /// carry exactly one shape. A fan matching no shape exactly still resolves
+    /// when its hyper-edge has a single unambiguous retarget; when several
+    /// shapes compete, nothing is chosen, since picking one would depend on
+    /// table order.
+    sole_forward: FxHashMap<&'a str, Option<&'a HyperResolverEntry>>,
+    /// Target hyper-edge ID to every entry that retargets onto it, ordered by
+    /// source key so the backward direction is a function of the table.
+    backward: BackwardIndex<'a>,
+}
+
+impl<'a> FanResolver<'a> {
+    /// Index a compiled migration's hyper-edge resolver.
+    #[must_use]
+    pub fn new(migration: &'a CompiledMigration) -> Self {
+        let mut sole_forward: FxHashMap<&'a str, Option<&'a HyperResolverEntry>> =
+            FxHashMap::default();
+        let mut backward: BackwardIndex<'a> = FxHashMap::default();
+
+        for (key, entry) in &migration.hyper_resolver {
+            sole_forward
+                .entry(key.0.as_str())
+                .and_modify(|slot| *slot = None)
+                .or_insert(Some(entry));
+            backward
+                .entry(entry.0.as_str())
+                .or_default()
+                .push((key, entry));
+        }
+        for candidates in backward.values_mut() {
+            candidates.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        }
+
+        Self {
+            table: &migration.hyper_resolver,
+            sole_forward,
+            backward,
+        }
+    }
+
+    /// Select the entry that governs a fan carrying `shape`, where
+    /// `full_shape` is the fan's shape before any children were pruned.
+    ///
+    /// `shape` is tried first, since restriction has already dropped the
+    /// pruned children; `full_shape` is tried next, so a resolver written
+    /// against the unrestricted source still applies; failing both, the
+    /// hyper-edge's sole entry applies when it has exactly one.
+    #[must_use]
+    pub fn resolve(
+        &self,
+        hyper_edge_id: &str,
+        shape: &[Name],
+        full_shape: &[Name],
+    ) -> Option<&'a HyperResolverEntry> {
+        let he = Name::from(hyper_edge_id);
+        if let Some(entry) = self.table.get(&(he.clone(), shape.to_vec())) {
+            return Some(entry);
+        }
+        if full_shape != shape
+            && let Some(entry) = self.table.get(&(he, full_shape.to_vec()))
+        {
+            return Some(entry);
+        }
+        self.sole_forward.get(hyper_edge_id).copied().flatten()
+    }
+
+    /// Select the entry that produced a fan now carrying `shape` under the
+    /// target hyper-edge `hyper_edge_id`, returning the source hyper-edge ID
+    /// alongside it.
+    ///
+    /// Preference goes to the entry whose label remapping carries its own
+    /// shape exactly onto `shape`; where none does, the least entry in source
+    /// key order applies, so the answer is a function of the table.
+    #[must_use]
+    pub fn resolve_backward(
+        &self,
+        hyper_edge_id: &str,
+        shape: &[Name],
+    ) -> Option<(&'a Name, &'a HyperResolverEntry)> {
+        let candidates = self.backward.get(hyper_edge_id)?;
+        let exact = candidates.iter().find(|((_, source_shape), (_, labels))| {
+            let image = canonical_label_shape(source_shape.iter().map(|label| {
+                labels
+                    .get(label)
+                    .map_or_else(|| label.as_str(), Name::as_str)
+            }));
+            image == shape
+        });
+        let ((source_he, _), entry) = exact.or_else(|| candidates.first())?;
+        Some((source_he, entry))
+    }
+}
+
 /// Reconstruct fans after restriction.
 ///
 /// # Errors
@@ -969,6 +1111,7 @@ pub fn reconstruct_fans(
     _tgt_schema: &Schema,
 ) -> Result<Vec<Fan>, RestrictError> {
     let mut result = Vec::new();
+    let resolver = FanResolver::new(migration);
 
     for fan in &instance.fans {
         if !surviving.contains(&fan.parent) {
@@ -986,8 +1129,11 @@ pub fn reconstruct_fans(
             continue;
         }
 
+        let surviving_shape = canonical_label_shape(surviving_children.keys());
+        let full_shape = canonical_label_shape(fan.children.keys());
+
         if let Some((new_he_id, label_map)) =
-            migration.hyper_resolver.get(fan.hyper_edge_id.as_str())
+            resolver.resolve(&fan.hyper_edge_id, &surviving_shape, &full_shape)
         {
             let mut new_children = HashMap::new();
             for (old_label, &node_id) in &surviving_children {
@@ -1030,6 +1176,7 @@ pub fn reconstruct_fans(
 ///
 /// Returns `RestrictError` if edge resolution fails or the root
 /// is pruned during restriction.
+#[allow(clippy::too_many_lines)] // The fused traversal keeps all node decisions in one pass.
 pub fn wtype_restrict(
     instance: &WInstance,
     src_schema: &Schema,
@@ -1110,6 +1257,34 @@ pub fn wtype_restrict(
             if migration.surviving_verts.contains(target_anchor)
                 && !conditional_fail.contains(&child_id)
             {
+                // A direct source arc must travel by its own complete edge
+                // identity. Endpoint-only resolution is reserved for genuine
+                // ancestor contraction, where no direct source edge exists.
+                // Otherwise two parallel source fields can collapse onto one
+                // surviving target field merely because their endpoints agree.
+                let direct_edge_image = if current_survives {
+                    match direct_arc_disposition(
+                        instance,
+                        &new_nodes,
+                        src_schema,
+                        tgt_schema,
+                        migration,
+                        current_id,
+                        child_id,
+                        target_anchor,
+                    )? {
+                        DirectArcDisposition::Mapped(edge) => Some(edge),
+                        DirectArcDisposition::Expansion => None,
+                        DirectArcDisposition::Drop => {
+                            // The source edge has no target image. Drop this
+                            // subtree; the lens complement records it.
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 // This child survives; add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();
@@ -1149,6 +1324,7 @@ pub fn wtype_restrict(
                         &mut next_synth_id,
                         migration,
                         tgt_schema,
+                        direct_edge_image,
                     )?;
                 }
             }
@@ -1159,12 +1335,29 @@ pub fn wtype_restrict(
         }
     }
 
-    // Step 5: Fan reconstruction (separate pass: operates on original fans)
-    let fused_surviving = &surviving_set;
+    finish_wtype_restriction(
+        instance,
+        migration,
+        tgt_schema,
+        new_nodes,
+        new_arcs,
+        &surviving_set,
+    )
+}
+
+fn finish_wtype_restriction(
+    instance: &WInstance,
+    migration: &CompiledMigration,
+    tgt_schema: &Schema,
+    new_nodes: HashMap<u32, Node>,
+    new_arcs: Vec<(u32, u32, Edge)>,
+    surviving_set: &FxHashSet<u32>,
+) -> Result<WInstance, RestrictError> {
+    // Fan reconstruction is a separate pass over the original fans.
     let empty_ancestors = FxHashMap::default();
     let new_fans = reconstruct_fans(
         instance,
-        fused_surviving,
+        surviving_set,
         &empty_ancestors,
         migration,
         tgt_schema,
@@ -1183,6 +1376,54 @@ pub fn wtype_restrict(
         instance.root,
         new_schema_root,
     ))
+}
+
+enum DirectArcDisposition {
+    Mapped(Edge),
+    Expansion,
+    Drop,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn direct_arc_disposition(
+    instance: &WInstance,
+    new_nodes: &HashMap<u32, Node>,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    current_id: u32,
+    child_id: u32,
+    target_anchor: &Name,
+) -> Result<DirectArcDisposition, RestrictError> {
+    let source_edge = instance
+        .arcs
+        .iter()
+        .find(|(parent, child, _)| *parent == current_id && *child == child_id)
+        .map(|(_, _, edge)| edge);
+    let parent_anchor = &new_nodes
+        .get(&current_id)
+        .ok_or(RestrictError::RootPruned)?
+        .anchor;
+    let image = source_edge.and_then(|edge| {
+        direct_source_edge_image(
+            src_schema,
+            tgt_schema,
+            migration,
+            parent_anchor,
+            target_anchor,
+            edge,
+        )
+    });
+    Ok(match image {
+        Some(edge) => DirectArcDisposition::Mapped(edge),
+        None if migration
+            .expansion_path
+            .contains_key(&(parent_anchor.clone(), target_anchor.clone())) =>
+        {
+            DirectArcDisposition::Expansion
+        }
+        None => DirectArcDisposition::Drop,
+    })
 }
 
 /// Precompute the set of node ids whose conditional-survival predicate
@@ -1228,6 +1469,7 @@ fn connect_ancestor_to_child(
     next_synth_id: &mut u32,
     migration: &CompiledMigration,
     tgt_schema: &Schema,
+    direct_edge_image: Option<Edge>,
 ) -> Result<(), RestrictError> {
     let anc_anchor = new_nodes
         .get(&anc_id)
@@ -1235,6 +1477,10 @@ fn connect_ancestor_to_child(
         .anchor
         .clone();
     let child_anchor = child_anchor.clone();
+    if let Some(edge) = direct_edge_image {
+        new_arcs.push((anc_id, child_id, edge));
+        return Ok(());
+    }
     match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor) {
         Ok(edge) => {
             new_arcs.push((anc_id, child_id, edge));
@@ -1273,6 +1519,47 @@ fn connect_ancestor_to_child(
             Ok(())
         }
     }
+}
+
+/// Resolve the image of a direct source arc by complete edge identity.
+///
+/// `edge_remap` is the explicit source-to-target map. An unchanged label and
+/// kind may also carry across remapped endpoint vertices. The legacy
+/// endpoint resolver is consulted only when the source endpoint pair has one
+/// edge; with parallel source edges it cannot identify which edge it maps.
+fn direct_source_edge_image(
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    parent_anchor: &Name,
+    child_anchor: &Name,
+    source_edge: &Edge,
+) -> Option<Edge> {
+    if let Some(mapped) = migration.edge_remap.get(source_edge) {
+        return Some(mapped.clone());
+    }
+
+    if let Some(carried) = tgt_schema
+        .edges_between(parent_anchor.as_str(), child_anchor.as_str())
+        .iter()
+        .find(|candidate| candidate.kind == source_edge.kind && candidate.name == source_edge.name)
+    {
+        return Some(carried.clone());
+    }
+
+    if src_schema
+        .edges_between(source_edge.src.as_str(), source_edge.tgt.as_str())
+        .len()
+        == 1
+    {
+        for ((src, tgt), resolved) in &migration.resolver {
+            if src == parent_anchor && tgt == child_anchor {
+                return Some(resolved.clone());
+            }
+        }
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -2951,9 +3238,19 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::too_many_lines)]
     fn restrict_renamed_vertex_preserves_value() {
-        use smallvec::smallvec;
-
         // Source instance: post:body { text: "hello", title: "world" }
+        let src_text_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let src_title_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:title".into(),
+            kind: "prop".into(),
+            name: Some("title".into()),
+        };
         let mut nodes = HashMap::new();
         nodes.insert(0, Node::new(0, Name::from("post:body")));
         nodes.insert(
@@ -2967,26 +3264,8 @@ mod tests {
                 .with_value(FieldPresence::Present(Value::Str("world".into()))),
         );
         let arcs = vec![
-            (
-                0,
-                1,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:text".into(),
-                    kind: "prop".into(),
-                    name: Some("text".into()),
-                },
-            ),
-            (
-                0,
-                2,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:title".into(),
-                    kind: "prop".into(),
-                    name: Some("title".into()),
-                },
-            ),
+            (0, 1, src_text_edge.clone()),
+            (0, 2, src_title_edge.clone()),
         ];
         let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("post:body"));
 
@@ -3006,11 +3285,11 @@ mod tests {
         let mut tgt_between = HashMap::new();
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:content")),
-            smallvec![tgt_content_edge],
+            smallvec::smallvec![tgt_content_edge.clone()],
         );
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:title")),
-            smallvec![tgt_title_edge],
+            smallvec::smallvec![tgt_title_edge.clone()],
         );
         let tgt_schema = Schema {
             protocol: "test".into(),
@@ -3036,7 +3315,8 @@ mod tests {
             between: tgt_between,
         };
 
-        // Migration: post:text → post:content (renamed), post:title stays
+        // Migration: post:text → post:content and its incident edge are
+        // both renamed; post:title and its edge keep their names.
         let mut surviving_verts = HashSet::new();
         surviving_verts.insert(Name::from("post:body"));
         surviving_verts.insert(Name::from("post:content")); // target name
@@ -3047,9 +3327,9 @@ mod tests {
 
         let migration = CompiledMigration {
             surviving_verts,
-            surviving_edges: HashSet::new(),
+            surviving_edges: HashSet::from([tgt_content_edge.clone(), tgt_title_edge]),
             vertex_remap,
-            edge_remap: HashMap::new(),
+            edge_remap: HashMap::from([(src_text_edge.clone(), tgt_content_edge.clone())]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
@@ -3058,29 +3338,10 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let src_schema = Schema {
-            protocol: "test".into(),
-            vertices: HashMap::new(),
-            edges: HashMap::new(),
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between: HashMap::new(),
-        };
+        let src_schema = make_test_schema(
+            &["post:body", "post:text", "post:title"],
+            &[src_text_edge, src_title_edge],
+        );
 
         let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration)
             .expect("restrict should succeed");
@@ -3092,6 +3353,12 @@ mod tests {
         let renamed_node = result.nodes.get(&1).expect("node 1 should survive");
         assert_eq!(renamed_node.anchor.as_ref(), "post:content");
         assert!(renamed_node.has_value(), "renamed node must keep its value");
+        assert!(
+            result.arcs.iter().any(|(parent, child, edge)| *parent == 0
+                && *child == 1
+                && edge == &tgt_content_edge),
+            "the renamed node must be attached by the mapped target edge"
+        );
 
         // The value should be preserved
         assert!(
@@ -3102,6 +3369,62 @@ mod tests {
             "expected Some(Present(Str(\"hello\"))), got {:?}",
             renamed_node.value,
         );
+    }
+
+    /// Restriction must not infer the image of an unmapped parallel source
+    /// edge from endpoints alone.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn restrict_drops_an_unmapped_parallel_edge_instead_of_relabelling_it() {
+        let src_a = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+        let src_b = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("b".into()),
+        };
+        let tgt_a = Edge {
+            src: "root".into(),
+            tgt: "leaf2".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(1, Node::new(1, "leaf"));
+        nodes.insert(2, Node::new(2, "leaf"));
+        let instance = WInstance::new(
+            nodes,
+            vec![(0, 1, src_a.clone()), (0, 2, src_b.clone())],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let src_schema = make_test_schema(&["root", "leaf"], &[src_a.clone(), src_b]);
+        let tgt_schema = make_test_schema(&["root", "leaf2"], std::slice::from_ref(&tgt_a));
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root"), Name::from("leaf2")]),
+            surviving_edges: HashSet::from([tgt_a.clone()]),
+            vertex_remap: HashMap::from([(Name::from("leaf"), Name::from("leaf2"))]),
+            edge_remap: HashMap::from([(src_a, tgt_a.clone())]),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        };
+
+        let restricted = wtype_restrict(&instance, &src_schema, &tgt_schema, &migration).unwrap();
+        assert!(restricted.nodes.contains_key(&1));
+        assert!(!restricted.nodes.contains_key(&2));
+        assert_eq!(restricted.arcs, vec![(0, 1, tgt_a)]);
     }
 
     // --- PathTransform tests ---

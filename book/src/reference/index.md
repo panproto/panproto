@@ -1,6 +1,6 @@
 # Reference
 
-Use these pages to look up a flag, field, signature, [protocol](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."), or grammar. Procedures live in the [how-to guides](../how-to/index.md); the mathematical model lives in [explanation](../explanation/index.md).
+Use these pages to look up a flag, field, signature, [protocol](../glossary.md#protocol "A protocol identifies a schema language and the theories and structural rules that define it."), or grammar. Procedures live in the [how-to guides](../how-to/index.md). The mathematical model lives in [explanation](../explanation/index.md).
 
 ## Operational contracts
 
@@ -14,11 +14,11 @@ Use these pages to look up a flag, field, signature, [protocol](../glossary.md#p
 
 | Surface | Contract |
 |---|---|
-| [Rust](./sdk-rust.md) | Crate selection, feature flags, re-exports, and morphism-search types. |
-| [TypeScript](./sdk-typescript.md) | Package initialization, facade objects, and the handle boundary. |
-| [Python](./sdk-python.md) | Native-module exports, type stubs, and companion grammar packs. |
-| [Haskell](./sdk-haskell.md) | Capability classes, backends, effects, and Cabal flags. |
-| [Swift](./sdk-swift.md) | Products, engine isolation, handles, errors, and feature gates. |
+| [Rust](./sdk-rust.md) | Crate selection, feature flags, migration direction, and morphism-search types. |
+| [TypeScript](./sdk-typescript.md) | Package initialization, migration direction, facade objects, and the handle boundary. |
+| [Python](./sdk-python.md) | Native-module exports, migration direction, type stubs, and companion grammar packs. |
+| [Haskell](./sdk-haskell.md) | Capability classes, migration direction, backends, effects, and Cabal flags. |
+| [Swift](./sdk-swift.md) | Products, migration direction, engine isolation, handles, errors, and feature gates. |
 
 ## Intermediate lookup
 

@@ -515,6 +515,7 @@ impl Repository {
                     migration_from_theirs: panproto_mig::Migration::empty(),
                     pullback_overlap: None,
                     pullback_error: None,
+                    identified_additions: Vec::new(),
                 });
             }
         } else if options.ff_only {
@@ -1981,6 +1982,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         };

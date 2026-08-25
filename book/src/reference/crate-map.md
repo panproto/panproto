@@ -1,6 +1,6 @@
 # Crate map
 
-The workspace contains 36 `panproto-*` crates. This page groups them by dependency role; the repository [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml) is authoritative for membership, and each crate's manifest is authoritative for features.
+The workspace contains 36 `panproto-*` crates. This page groups them by dependency role. The repository [`Cargo.toml`](https://github.com/panproto/panproto/blob/main/Cargo.toml) is authoritative for membership, and each crate's manifest is authoritative for features.
 
 ## Theory, schemas, and migration
 
@@ -9,12 +9,12 @@ The workspace contains 36 `panproto-*` crates. This page groups them by dependen
 | `panproto-gat` | Generalized algebraic theory data, checking, morphisms, transforms, colimits, and finite-model evaluation [@cartmell1986generalised]. |
 | `panproto-gat-macros` | `class!` and `inductive!` procedural macros targeting `panproto-gat`. |
 | `panproto-schema` | Schema graph, protocol rules, validation, induction, layout erasure, and canonical digests. |
-| `panproto-inst` | W-type instances, values, migration compilation output, restrict/lift, complements, and instance-aware expression environments. |
-| `panproto-mig` | Migration existence and compilation, schema correspondence search, spans, and homomorphism search. |
+| `panproto-inst` | W-type, functor, and graph instances. It also provides compiled migration tables, source-to-target surviving-fragment restriction, \(\Sigma_F\), \(\Pi_F\), target-to-source \(\Delta_F\), complements, and instance-aware expression environments. |
+| `panproto-mig` | Migration existence and compilation, the plain source-to-target restrict-based lift, separate \(\Sigma_F\) and \(\Pi_F\) entry points, schema correspondence search, spans, and total-morphism search. |
 | `panproto-check` | Breaking-change classification and compatibility reports. |
 | `panproto-protocols` | Built-in semantic protocol definitions, parsers, emitters, and theory registration. |
 
-`panproto-mig::solve` uses bucket elimination [@dechter1999bucket], hybrid best-first search [@allouchedegivrykatsirelosschiexzytnicki2015anytime] over branch and bound with soft consistency through EDAC* [@larrosaschiex2004solving; @degivryheraszytnickilarrosa2005existential], a counting all-different path [@mccreeshprosser2015backjumping], and McSplit for isomorphism requests [@mccreeshprossertrimble2017partitioning]. [What panproto verifies](../explanation/what-is-verified.md#search-results) states what their returned certificates establish.
+`panproto-mig::solve` implements exact bucket elimination [@dechter1999bucket], budgeted hybrid search with EDAC* cost propagation [@allouchedegivrykatsirelosschiexzytnicki2015anytime; @larrosaschiex2004solving; @degivryheraszytnickilarrosa2005existential], an all-different constraint for injective mappings [@mccreeshprosser2015backjumping], and McSplit partitioning for isomorphism requests [@mccreeshprossertrimble2017partitioning]. [Searching for a morphism](../explanation/morphism-search.md) defines these paths. [What panproto verifies](../explanation/what-is-verified.md#search-results) states what their certificates establish.
 
 ## Lenses, expressions, and DSLs
 
@@ -31,7 +31,7 @@ The workspace contains 36 `panproto-*` crates. This page groups them by dependen
 
 | Crate | Role |
 |---|---|
-| `panproto-io` | Instance-level codecs for native data formats; tree-sitter integration is optional. |
+| `panproto-io` | Instance-level codecs for native data formats, with optional tree-sitter integration. |
 | `panproto-parse` | Feature-selected tree-sitter full-AST parsing, layout preservation, source emission, and parser registry. |
 | `panproto-grammars` | Vendored tree-sitter grammar build and `group-*` / `lang-*` Cargo features. `group-all` currently names 261 grammars. |
 | `panproto-project` | Directory walking, package detection, manifest configuration, parsing cache, import resolution, and schema coproduct assembly. |
@@ -73,9 +73,9 @@ The workspace contains 36 `panproto-*` crates. This page groups them by dependen
 | `panproto-core` | `project` | Adds `panproto-project` and implies `full-parse`. |
 | `panproto-core` | `git` | Adds `panproto-git` and implies `project`. |
 | `panproto-core` | `tree-sitter` | Enables `panproto-io/tree-sitter` for format-preserving codecs. |
-| `panproto-parse`, `panproto-grammars` | `group-*`, `lang-*` | Select grammar groups or individual grammars; both default to `group-core`. |
-| `panproto-py` | `group-*`, `lang-*` | Mirrors grammar selection into the Python extension; default is `group-core`. |
-| `panproto-c` | `full-parse`, `project`, `git`, `format-preserving`, `full` | Adds the corresponding optional `panproto-core` surfaces; `full` enables all four. |
+| `panproto-parse`, `panproto-grammars` | `group-*`, `lang-*` | Selects grammar groups or individual grammars. Both default to `group-core`. |
+| `panproto-py` | `group-*`, `lang-*` | Mirrors grammar selection into the Python extension. The default is `group-core`. |
+| `panproto-c` | `full-parse`, `project`, `git`, `format-preserving`, `full` | Adds the corresponding optional `panproto-core` surfaces. `full` enables all four. |
 | `panproto-wasm` | `format-preserving` | Enables `panproto-core/tree-sitter`. |
 | `panproto-io` | `tree-sitter` | Adds `panproto-parse`, selected data grammars, and tree-sitter support. |
 

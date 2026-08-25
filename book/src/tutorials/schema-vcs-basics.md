@@ -1,6 +1,6 @@
 # Schema version control basics
 
-Two schema files record two states; a repository records how those states relate over time. In this tutorial, the `schema` CLI commits a TypeScript interface, creates a feature branch, and merges the branch back into `main`.
+This tutorial uses the `schema` CLI to commit a TypeScript interface, create a feature branch, and merge the branch into `main`.
 
 ## Prerequisite
 
@@ -29,7 +29,7 @@ schema log --oneline
 
 *Listing 5.1: Initializing a repository and committing a parsed TypeScript schema.*
 
-`schema add` parses `src/user.ts` through the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) registry and stages the resulting schema graph. The commit stores that graph under `.panproto/`; the source file remains an ordinary TypeScript file. Run `schema add` from the repository root so the command can find `.panproto/`.
+`schema add` parses `src/user.ts` through the [tree-sitter](https://tree-sitter.github.io/tree-sitter/) registry and stages the resulting schema graph. The commit stores that graph under `.panproto/`. The source file remains an ordinary TypeScript file. Run `schema add` from the repository root so the command can find `.panproto/`.
 
 ## Commit the rename
 
@@ -81,8 +81,8 @@ schema log --oneline
 
 `main` has not moved since the branch was created, so this merge is a fast-forward. The command reports `Merge successful.` and moves the `main` ref to the feature commit.
 
-There is one operational difference from [git](https://git-scm.com/): `schema checkout` moves the schema-history ref but does not rewrite `src/user.ts`. Panproto stores and merges parsed schemas; your editor, build system, or an explicit emit step remains responsible for working-source files. `schema log --graph` currently accepts `--graph` but renders the ordinary log, so the examples use `--oneline`.
+There is one operational difference from [git](https://git-scm.com/): `schema checkout` moves the schema-history ref but does not rewrite `src/user.ts`. Panproto stores and merges parsed schemas. An editor, build system, or explicit emit step remains responsible for working-source files. `schema log --graph` currently accepts `--graph` but renders the ordinary log, so the examples use `--oneline`.
 
 ## Next
 
-The [schema version control how-to](../how-to/schema-vcs/index.md) covers non-fast-forward merges, data versioning, and the git bridge. [Schema version control semantics](../explanation/vcs-semantics.md) explains why the merge operation is structural, while [Pushouts and merge](../explanation/semantics/pushouts-and-merge.md) develops the formal construction.
+The [schema version control how-to](../how-to/schema-vcs/index.md) covers non-fast-forward merges, data versioning, and the git bridge. [Schema version control semantics](../explanation/vcs-semantics.md) describes the three-way structural merge and its commuting-cocone check. [Pushouts and merge](../explanation/semantics/pushouts-and-merge.md) gives the categorical comparison and its limits.

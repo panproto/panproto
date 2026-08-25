@@ -24,6 +24,22 @@
 //! The merge is structural, not textual: it operates on the schema
 //! graph (vertices, edges, constraints, hyper-edges, etc.) rather than
 //! on serialized text.
+//!
+//! # Same-name additions are one element
+//!
+//! A schema is addressed by name, so two branches that independently add
+//! the same element under the same name have added the same element, and
+//! the merge keeps one copy of it. This is an amalgamated union rather
+//! than the free pushout, which would keep a copy per branch and rename
+//! one: the merge is the pushout quotiented by same-name identification,
+//! matching what the theory colimit does with same-name sorts and
+//! operations outside the base image. Two additions sharing a name but
+//! disagreeing about the element are not identified; they conflict.
+//!
+//! Each identification is reported in
+//! [`MergeResult::identified_additions`], so a caller that needs the free
+//! pushout can see exactly which names were collapsed and rename them
+//! before merging.
 
 use panproto_check::diff::{self, SchemaDiff};
 use panproto_gat::{Name, PullbackResult, Theory, TheoryMorphism, pullback};
@@ -91,6 +107,38 @@ pub struct MergeResult {
     /// overlap). This distinguishes a failed pullback from a computed
     /// empty overlap.
     pub pullback_error: Option<String>,
+    /// The elements both branches added independently, under the same name
+    /// and with the same definition, that the merge kept one copy of.
+    ///
+    /// Nothing is lost at these names — the two additions agreed — but the
+    /// merged schema holds one element where the free pushout would hold
+    /// two. Listing them is what makes the identification visible: a caller
+    /// that wants both copies renames one side and merges again. Sorted, so
+    /// the same merge reports them in the same order in every process.
+    pub identified_additions: Vec<IdentifiedAddition>,
+}
+
+/// An element both branches added independently that the merge identified
+/// into one.
+///
+/// "Independently" means neither branch inherited it: there is no base
+/// element behind the addition, so the pushout of the two branches over the
+/// base does not identify them and the merge's quotient does.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum IdentifiedAddition {
+    /// A vertex both branches added with the same ID and the same kind,
+    /// NSID included.
+    Vertex {
+        /// The ID both branches added the vertex under.
+        vertex_id: String,
+    },
+    /// An edge both branches added between the same endpoints, with the
+    /// same kind and label.
+    Edge {
+        /// The edge both branches added.
+        edge: Edge,
+    },
 }
 
 /// A conflict detected during three-way merge.
@@ -1315,11 +1363,18 @@ fn overlap_from_pullback(
 ///
 /// The merge is **commutative**: swapping ours and theirs produces an
 /// identical `merged_schema` (with `Side` labels swapped in conflicts).
+///
+/// Step 3 deduplicates two branches' independent additions of the same
+/// name, so the result is the pushout quotiented by same-name
+/// identification rather than the free pushout. Each such identification is
+/// listed in [`MergeResult::identified_additions`]; see the module docs for
+/// why a name-addressed schema merges this way.
 #[must_use]
 pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeResult {
     let diff_ours = diff::diff(base, ours);
     let diff_theirs = diff::diff(base, theirs);
     let mut conflicts = Vec::new();
+    let mut identified_additions = Vec::new();
 
     // Compute pullback overlap, recording any failure so it is reported
     // rather than silently discarded.
@@ -1329,10 +1384,24 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     let schemas = MergeSchemas { base, ours, theirs };
 
     // -- Vertices --
-    let vertices = merge_vertices(&schemas, &diff_ours, &diff_theirs, &mut conflicts);
+    let vertices = merge_vertices(
+        &schemas,
+        &diff_ours,
+        &diff_theirs,
+        &mut conflicts,
+        &mut identified_additions,
+    );
 
     // -- Edges --
-    let edges = merge_edges(base, ours, theirs, &diff_ours, &diff_theirs, &mut conflicts);
+    let edges = merge_edges(
+        base,
+        ours,
+        theirs,
+        &diff_ours,
+        &diff_theirs,
+        &mut conflicts,
+        &mut identified_additions,
+    );
 
     // -- Constraints --
     let constraints =
@@ -1744,6 +1813,8 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
     let migration_from_theirs =
         auto_mig::derive_migration(theirs, &merged_schema, &diff_theirs_to_merged);
 
+    identified_additions.sort_unstable();
+
     MergeResult {
         merged_schema,
         conflicts,
@@ -1751,6 +1822,7 @@ pub fn three_way_merge(base: &Schema, ours: &Schema, theirs: &Schema) -> MergeRe
         migration_from_theirs,
         pullback_overlap,
         pullback_error,
+        identified_additions,
     }
 }
 
@@ -1987,6 +2059,7 @@ fn merge_vertices(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
+    identified: &mut Vec<IdentifiedAddition>,
 ) -> HashMap<Name, Vertex> {
     let (base, ours, theirs) = (schemas.base, schemas.ours, schemas.theirs);
     let mut result: HashMap<Name, Vertex> = HashMap::new();
@@ -2086,7 +2159,15 @@ fn merge_vertices(
             let ours_v = &ours.vertices[vid.as_str()];
             let theirs_v = &theirs.vertices[vid.as_str()];
             if ours_v == theirs_v {
+                // Neither branch inherited this vertex, so the pushout over
+                // the base keeps a copy for each. The merge keeps one, since
+                // a schema is addressed by name and the two additions agree
+                // about what the name means; the identification is reported
+                // rather than made silently.
                 result.insert(vid_name, ours_v.clone());
+                identified.push(IdentifiedAddition::Vertex {
+                    vertex_id: vid.clone(),
+                });
             } else {
                 // Both sides added a vertex with the same ID but different
                 // content. This is always a conflict: a divergent addition
@@ -2123,6 +2204,7 @@ fn merge_edges(
     diff_ours: &SchemaDiff,
     diff_theirs: &SchemaDiff,
     conflicts: &mut Vec<MergeConflict>,
+    identified: &mut Vec<IdentifiedAddition>,
 ) -> HashMap<Edge, Name> {
     let mut result: HashMap<Edge, Name> = HashMap::new();
 
@@ -2181,13 +2263,18 @@ fn merge_edges(
     }
 
     // Edges added by ours.
+    let ours_added: FxHashSet<&Edge> = diff_ours.added_edges.iter().collect();
     for edge in &diff_ours.added_edges {
         result
             .entry(edge.clone())
             .or_insert_with(|| edge.kind.clone());
     }
-    // Edges added by theirs.
+    // Edges added by theirs. An edge both branches added is one edge in the
+    // merge, the same identification `merge_vertices` makes for a vertex.
     for edge in &diff_theirs.added_edges {
+        if ours_added.contains(edge) {
+            identified.push(IdentifiedAddition::Edge { edge: edge.clone() });
+        }
         result
             .entry(edge.clone())
             .or_insert_with(|| edge.kind.clone());

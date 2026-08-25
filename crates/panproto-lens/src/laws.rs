@@ -460,8 +460,14 @@ fn instance_divergence_modulo_derived(
 }
 
 /// Verify the `PutPut` law for two views over a shared complement:
-/// `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`. The well-behaved-lens
-/// law requiring sequential puts to be subsumed by the latter.
+/// `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`, the law requiring a
+/// sequence of puts to be subsumed by the last of them.
+///
+/// `PutPut` is what separates a *very well-behaved* lens from a
+/// well-behaved one: well-behavedness is `GetPut` and `PutGet` alone,
+/// and most lenses this crate builds satisfy those two while failing
+/// this one, which is why it is checked separately rather than as part
+/// of [`check_laws`].
 ///
 /// # Errors
 ///

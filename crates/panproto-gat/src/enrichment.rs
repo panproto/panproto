@@ -65,6 +65,22 @@ pub fn is_layout_sort(sort: &str) -> bool {
         || sort.starts_with("ptrace-")
 }
 
+/// Predicate selecting the interstitial sorts that carry *text*, as
+/// opposed to the `-start-byte` / `-end-byte` sorts that carry the run's
+/// source span.
+///
+/// Every consumer that rewrites or replays interstitial text needs this
+/// distinction, and getting it wrong writes a byte offset where a run of
+/// source text belongs. Keeping the predicate in one place means adding a
+/// further span sort cannot silently turn it into text at one call site
+/// and not another.
+#[must_use]
+pub fn is_interstitial_text_sort(sort: &str) -> bool {
+    sort.starts_with("interstitial-")
+        && !sort.ends_with("-start-byte")
+        && !sort.ends_with("-end-byte")
+}
+
 /// The layout role of a token, derived from the grammar's structure.
 ///
 /// A role is a *fact about the grammar*, not a guess about the token's
@@ -256,7 +272,18 @@ mod tests {
         assert!(is_layout_sort("ptrace-0"));
         assert!(is_layout_sort("blank-lines-before"));
         assert!(!is_layout_sort("literal-value"));
+        assert!(is_layout_sort("interstitial-12-end-byte"));
         assert!(!is_layout_sort("field:op"));
+    }
+
+    #[test]
+    fn interstitial_text_predicate_excludes_both_span_sorts() {
+        assert!(is_interstitial_text_sort("interstitial-0"));
+        assert!(is_interstitial_text_sort("interstitial-12"));
+        assert!(!is_interstitial_text_sort("interstitial-0-start-byte"));
+        assert!(!is_interstitial_text_sort("interstitial-0-end-byte"));
+        assert!(!is_interstitial_text_sort("literal-value"));
+        assert!(!is_interstitial_text_sort("start-byte"));
     }
 
     #[test]

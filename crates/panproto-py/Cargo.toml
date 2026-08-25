@@ -31,11 +31,10 @@ pythonize = { workspace = true }
 #
 # Forwards each `panproto-grammars` / `panproto-parse` group and
 # per-language flag so consumers building the wheel can pick a grammar
-# bundle without modifying `panproto-grammars` itself. The published
-# wheel ships with `--features group-all` to expose all 248 grammars
-# from Python; downstream Rust consumers depending on `panproto-py`
-# directly can still opt into a smaller bundle (`group-core`,
-# `lang-haskell`, …) to keep build times and binary size down.
+# bundle without modifying `panproto-grammars` itself. The core extension
+# defaults to `group-core`; companion Python packages supply the other
+# fixed groups. Downstream Rust consumers depending on `panproto-py`
+# directly can select another group or individual language feature.
 
 [features]
 default = ["group-core"]

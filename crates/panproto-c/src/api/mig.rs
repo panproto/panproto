@@ -12,8 +12,6 @@
 //! bare [`Resource::Migration`](crate::handle::Resource) for a composed
 //! migration).
 
-use std::sync::Arc;
-
 use panproto_core::{
     inst::{self, CompiledMigration, WInstance},
     mig::{self, Migration},
@@ -83,7 +81,7 @@ pub fn pp_mig_check_existence(
 
         let protocol = handle::with_resource(proto, |r| Ok(r.as_protocol()?.clone()))?;
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let theory_registry = build_theory_registry(&protocol.name)?;
@@ -120,7 +118,7 @@ pub fn pp_mig_compile(
         let migration: Migration = crate::canonical::decode(mapping.as_slice())?;
 
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let compiled = mig::compile(&src_schema, &tgt_schema, &migration)
@@ -128,8 +126,8 @@ pub fn pp_mig_compile(
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(compiled),
-            src_schema: Arc::new(src_schema),
-            tgt_schema: Arc::new(tgt_schema),
+            src_schema,
+            tgt_schema,
         });
         Ok(PpStatus::Ok)
     })
@@ -230,7 +228,7 @@ pub fn pp_mig_invert(
         let migration: Migration = crate::canonical::decode(mapping.as_slice())?;
 
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let inverse = mig::invert(&migration, &src_schema, &tgt_schema)
@@ -264,7 +262,7 @@ pub fn pp_mig_coverage(
 
         let compiled = handle::with_resource(migration, |r| Ok(r.as_migration()?.clone()))?;
         let (src_schema, tgt_schema) = handle::with_two_resources(src, tgt, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         #[allow(clippy::cast_possible_truncation)]
@@ -445,6 +443,7 @@ mod tests {
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             expr_resolvers: HashMap::new(),
+            coercions: HashMap::new(),
             domain: None,
             codomain: None,
         }

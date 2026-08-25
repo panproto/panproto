@@ -18,7 +18,7 @@ import PanprotoStructural
 // Second, an out-parameter is meaningful only when the returned status
 // is ``RawStatus/ok``. On any other status the handle reads back as zero
 // and the buffer is empty or partial; the detail is waiting in the
-// thread-local last-error slot, which ``lastErrorTake()`` drains.
+// process-global last-error slot, which ``lastErrorTake()`` drains.
 //
 // Third, every returned buffer holds canonical CBOR that has already
 // been copied out of engine storage and freed. Object ids cross the

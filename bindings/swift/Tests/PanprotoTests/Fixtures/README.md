@@ -76,13 +76,13 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 | `schema-bsky-post.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 25066 | `fixtures/atproto/lexicons/app.bsky.feed.post.json` |
 | `schema-bsky-profile.cbor` | `Raw.schemaParseAtprotoLexicon(json:) then Raw.schemaToCbor(schemaHandle:)` | 10513 | `fixtures/atproto/lexicons/app.bsky.actor.profile.json` |
 | `schema-metadata-post.cbor` | `Raw.schemaMetadata(schemaHandle:)` | 5811 | the `app.bsky.feed.post` schema |
-| `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1114 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
+| `instance-post-0.cbor` | `Raw.instJsonToInstance(schemaHandle:json:rootVertex:)` | 1319 | `fixtures/atproto/records/post-0.json` at root vertex `app.bsky.feed.post` |
 | `diff-simple-post-profile.cbor` | `Raw.checkDiffSimple(s1:s2:)` | 7006 | post schema against profile schema |
 | `diff-full-post-profile.cbor` | `Raw.checkDiffFull(s1:s2:)` | 8395 | post schema against profile schema |
 | `compat-report.cbor` | `Raw.checkClassify(proto:diff:)` | 9461 | the full diff against the `atproto` protocol |
 | `chain-post-profile.json` | `Raw.protolensChainToJson(chain:)` | 415 | the chain auto-generated at stringency `lenient` |
-| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 577 | the same chain at the post schema |
-| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1660 | the post instance through the post schema's chain against itself |
+| `complement-spec.cbor` | `Raw.protolensComplementSpec(chain:schema:)` | 573 | the same chain at the post schema |
+| `get-record.cbor` | `Raw.lensGetRecord(migration:record:)` | 1941 | the post instance through the post schema's chain against itself |
 | `vcs-add.cbor` | `Raw.vcsAdd(repo:schema:)` | 119 | the post schema staged into a fresh repository |
 | `vcs-commit.cbor` | `Raw.vcsCommit(repo:message:author:)` | 163 | the commit that records the staged post schema |
 | `vcs-branches.cbor` | `Raw.vcsListBranches(repo:)` | 211 | the listing after `Raw.vcsBranch(repo:name:)` created `post-fixture` |
@@ -97,7 +97,7 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 The `vcs-*` payloads carry commit ids and timestamps from the run that produced them, so regenerating them changes their bytes even when the engine has not changed.
 
-The post and profile schemas align at exactly one stringency tier. `Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` answers `operation` with "no morphism found between schemas" at `strict`, at `balanced`, and at `exploratory`, and succeeds at `lenient`, which is the tier `chain-post-profile.json` is captured at. The tiers are not nested in permissiveness here: `exploratory` swaps in lossy retraction witnesses and a lower similarity threshold rather than adding to what `lenient` already searches over.
+The post and profile schemas align at exactly one stringency tier. `Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` answers `operation` with "no morphism found between schemas" at `strict`, at `balanced`, and at `exploratory`, and succeeds at `lenient`, which is the tier `chain-post-profile.json` is captured at. The failure at `exploratory` is an engine defect, not a property of these two schemas. `panproto_lens::Stringency` documents that higher tiers form a superset of lower ones, and the same four-tier sweep run directly against `lens::auto_generate` in Rust reproduces the same result, so nothing about this binding is involved. Capture at `lenient` until it is fixed, then re-run and let the tier rise.
 
 `Raw.lensGetRecord(migration:record:)` cannot carry the post record through the post to profile chain. The chain generates and the instantiation succeeds; the get then answers code 7 and leaves the envelope "operation: operation error: get: restrict error: no edge found between app.bsky.feed.post:body and app.bsky.feed.post:body.langs:items in target schema". Every post record in `fixtures/atproto/records` carries `langs`, so no choice of record avoids that edge. `get-record.cbor` is therefore captured through the chain the post schema generates against itself, which is the widest get the engine completes on this input.
 

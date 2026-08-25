@@ -82,8 +82,9 @@ public enum PanprotoError: Error, Hashable, Sendable {
         public let operation: String
         /// The drained envelope, absent when the engine had no error
         /// pending. A missing envelope alongside a non-ok status means
-        /// the failing thread was not this one, which the engine actor
-        /// makes impossible; treat it as an engine bug.
+        /// something drained the slot between the failure and this read,
+        /// which the engine actor makes impossible; treat it as an
+        /// engine bug.
         public let envelope: ErrorEnvelope?
         /// A structured reading of ``envelope``, when the message was
         /// specific enough to recognize.
@@ -200,8 +201,8 @@ extension PanprotoError {
     /// Drain the engine's pending error and build the corresponding
     /// failure.
     ///
-    /// Engine-isolated because the error slot is thread-local: draining
-    /// it anywhere but the thread that filled it yields nothing.
+    /// Engine-isolated so the drain cannot be preempted: the error slot
+    /// holds one envelope, and an interleaved failure would overwrite it.
     @PanprotoEngine
     static func take(
         status: RawStatus,

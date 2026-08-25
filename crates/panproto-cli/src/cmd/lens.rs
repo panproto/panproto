@@ -1,14 +1,146 @@
+use std::collections::HashMap;
 use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
+use panproto_core::inst::FieldTransform;
 use panproto_core::lens::Stringency;
-use panproto_core::lens_dsl::{HintSpec, HintStringency};
+use panproto_core::lens_dsl::document::AutoSpec;
+use panproto_core::lens_dsl::steps::CompiledStage;
+use panproto_core::lens_dsl::{CompiledLens, HintSpec, HintStringency, SymmetricChains};
 use panproto_core::{
     gat::Name,
     inst, lens,
     schema::Schema,
     vcs::{self, Store as _},
 };
+use serde::{Deserialize, Serialize};
+
+/// Wire-format discriminator for artifacts written by `schema lens compile`.
+const COMPILED_LENS_ARTIFACT_FORMAT: &str = "panproto-compiled-lens-v1";
+
+/// Executable output of `schema lens compile`.
+///
+/// `chain` and `field_transforms` are compatibility summaries. `stages` is
+/// authoritative because it records where value transforms run relative to
+/// structural changes.
+#[derive(Debug, Deserialize, Serialize)]
+struct CompiledLensArtifact {
+    format: String,
+    id: String,
+    description: String,
+    source: String,
+    target: String,
+    invertible: Option<bool>,
+    step_count: usize,
+    field_transform_vertices: usize,
+    chain: lens::ProtolensChain,
+    field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    stages: Vec<CompiledStage>,
+    extensions: HashMap<String, serde_json::Value>,
+    auto_spec: Option<AutoSpec>,
+    symmetric: Option<SymmetricChainsArtifact>,
+}
+
+/// Serializable form of the two chains in a symmetric lens document.
+#[derive(Debug, Deserialize, Serialize)]
+struct SymmetricChainsArtifact {
+    left: lens::ProtolensChain,
+    right: lens::ProtolensChain,
+}
+
+impl From<SymmetricChains> for SymmetricChainsArtifact {
+    fn from(chains: SymmetricChains) -> Self {
+        Self {
+            left: chains.left,
+            right: chains.right,
+        }
+    }
+}
+
+impl From<SymmetricChainsArtifact> for SymmetricChains {
+    fn from(chains: SymmetricChainsArtifact) -> Self {
+        Self {
+            left: chains.left,
+            right: chains.right,
+        }
+    }
+}
+
+impl CompiledLensArtifact {
+    fn from_compiled(compiled: CompiledLens) -> Self {
+        Self {
+            format: COMPILED_LENS_ARTIFACT_FORMAT.to_owned(),
+            step_count: compiled.chain.steps.len(),
+            field_transform_vertices: compiled.field_transforms.len(),
+            id: compiled.id,
+            description: compiled.description,
+            source: compiled.source,
+            target: compiled.target,
+            invertible: compiled.invertible,
+            chain: compiled.chain,
+            field_transforms: compiled.field_transforms,
+            stages: compiled.stages,
+            extensions: compiled.extensions,
+            auto_spec: compiled.auto_spec,
+            symmetric: compiled.symmetric.map(Into::into),
+        }
+    }
+
+    fn into_compiled(self) -> Result<CompiledLens> {
+        if self.format != COMPILED_LENS_ARTIFACT_FORMAT {
+            miette::bail!(
+                "unsupported compiled lens artifact format {:?}",
+                self.format
+            );
+        }
+        if self.step_count != self.chain.steps.len() {
+            miette::bail!(
+                "compiled lens artifact says it has {} structural step(s), but `chain` contains {}",
+                self.step_count,
+                self.chain.steps.len()
+            );
+        }
+        if self.field_transform_vertices != self.field_transforms.len() {
+            miette::bail!(
+                "compiled lens artifact says it has {} field-transform anchor(s), but `field_transforms` contains {}",
+                self.field_transform_vertices,
+                self.field_transforms.len()
+            );
+        }
+
+        Ok(CompiledLens {
+            id: self.id,
+            description: self.description,
+            source: self.source,
+            target: self.target,
+            chain: self.chain,
+            field_transforms: self.field_transforms,
+            stages: self.stages,
+            extensions: self.extensions,
+            auto_spec: self.auto_spec,
+            symmetric: self.symmetric.map(Into::into),
+            invertible: self.invertible,
+        })
+    }
+}
+
+/// Parse a versioned compiled-lens artifact without claiming unrelated JSON.
+fn parse_compiled_lens_artifact(value: &serde_json::Value) -> Result<Option<CompiledLens>> {
+    let Some(format) = value.get("format").and_then(serde_json::Value::as_str) else {
+        return Ok(None);
+    };
+    if !format.starts_with("panproto-compiled-lens-") {
+        return Ok(None);
+    }
+    if format != COMPILED_LENS_ARTIFACT_FORMAT {
+        miette::bail!("unsupported compiled lens artifact format {format:?}");
+    }
+
+    let artifact: CompiledLensArtifact = serde_json::from_value(value.clone())
+        .into_diagnostic()
+        .wrap_err("failed to parse compiled lens artifact")?;
+    artifact.into_compiled().map(Some)
+}
 
 /// Fold candidate / requirements sections into a JSON-mode root
 /// document so `--json` / `--chain` always emit exactly one JSON value.
@@ -214,7 +346,9 @@ pub fn cmd_lens_generate(
 
     // Handle output modes.
     if chain {
-        let mut root = chain_to_json(&result.chain);
+        let mut root = chain_to_json(&result.chain)
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
         augment_json_root(
             &mut root,
             &src_schema,
@@ -353,7 +487,9 @@ pub fn cmd_lens_generate(
 
     // Save the chain if requested.
     if let Some(save_path) = save {
-        let chain_json = chain_to_json(&result.chain);
+        let chain_json = chain_to_json(&result.chain)
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
         let pretty = serde_json::to_string_pretty(&chain_json)
             .into_diagnostic()
             .wrap_err("failed to serialize protolens chain")?;
@@ -417,16 +553,15 @@ pub fn cmd_lens_generate(
     Ok(())
 }
 
-/// Compile a lens DSL document (`.ncl`/`.json`/`.yaml`/`.yml`) into a
-/// protolens chain and emit its JSON.
+/// Compile a lens DSL document (`.ncl`/`.json`/`.yaml`/`.yml`) into an
+/// executable, versioned JSON artifact.
 ///
 /// The document is loaded and compiled via
 /// [`panproto_core::lens_dsl::load_and_compile`], which resolves `compose`
 /// named references against sibling lens documents in the same
-/// directory. The output is a JSON object carrying the document
-/// metadata and, under the `chain` key, the full serde-serialized
-/// [`ProtolensChain`](lens::ProtolensChain) (round-trippable via
-/// `ProtolensChain::from_json`). Written to `out` if given, else stdout.
+/// directory. The output retains the structural chain, value transforms,
+/// and their authoritative execution stages. Written to `out` if given,
+/// else stdout. [`cmd_lens_apply`] accepts the artifact directly.
 pub fn cmd_lens_compile(
     doc_path: &Path,
     body_vertex: &str,
@@ -444,31 +579,10 @@ pub fn cmd_lens_compile(
         .map_err(miette::Report::new)
         .wrap_err_with(|| format!("failed to compile {}", doc_path.display()))?;
 
-    // Embed the engine's own round-trippable chain JSON under `chain`.
-    let chain_json = compiled
-        .chain
-        .to_json()
+    let artifact = CompiledLensArtifact::from_compiled(compiled);
+    let pretty = serde_json::to_string_pretty(&artifact)
         .into_diagnostic()
-        .wrap_err("failed to serialize compiled protolens chain")?;
-    let chain_value: serde_json::Value = serde_json::from_str(&chain_json)
-        .into_diagnostic()
-        .wrap_err("failed to parse serialized protolens chain")?;
-
-    let output = serde_json::json!({
-        "id": compiled.id,
-        "description": compiled.description,
-        "source": compiled.source,
-        "target": compiled.target,
-        "invertible": compiled.invertible,
-        "step_count": compiled.chain.steps.len(),
-        "field_transform_vertices": compiled.field_transforms.len(),
-        "symmetric": compiled.symmetric.is_some(),
-        "chain": chain_value,
-    });
-
-    let pretty = serde_json::to_string_pretty(&output)
-        .into_diagnostic()
-        .wrap_err("failed to serialize compilation output")?;
+        .wrap_err("failed to serialize compiled lens artifact")?;
 
     if let Some(out_path) = out {
         std::fs::write(out_path, &pretty)
@@ -554,14 +668,28 @@ pub fn cmd_lens_apply(
         );
     }
 
-    // Load and parse the protolens chain.
+    // Load the artifact, raw chain, or target schema.
     let chain_json_str = std::fs::read_to_string(lens_path)
         .into_diagnostic()
         .wrap_err_with(|| format!("failed to read chain from {}", lens_path.display()))?;
+    let lens_value: serde_json::Value = serde_json::from_str(&chain_json_str)
+        .into_diagnostic()
+        .wrap_err("lens file is not valid JSON")?;
 
-    // Try parsing as a protolens chain first. If that fails, fall back to
-    // auto-generating a lens from the file treated as a target schema.
-    let the_lens = if let Ok(chain) = lens::ProtolensChain::from_json(&chain_json_str) {
+    // Compiled artifacts must be recognized before the legacy fallbacks:
+    // their `chain` member alone cannot preserve ordered value stages.
+    let the_lens = if let Some(compiled) = parse_compiled_lens_artifact(&lens_value)? {
+        if verbose {
+            eprintln!(
+                "Parsed compiled lens artifact with {} stage(s)",
+                compiled.stages.len()
+            );
+        }
+        compiled
+            .instantiate(&schema, &protocol)
+            .into_diagnostic()
+            .wrap_err("failed to instantiate compiled lens artifact at schema")?
+    } else if let Ok(chain) = serde_json::from_value::<lens::ProtolensChain>(lens_value.clone()) {
         if verbose {
             eprintln!("Parsed protolens chain with {} step(s)", chain.len());
         }
@@ -570,9 +698,11 @@ pub fn cmd_lens_apply(
             .into_diagnostic()
             .wrap_err("failed to instantiate protolens chain at schema")?
     } else {
-        let tgt_schema: Schema = serde_json::from_str(&chain_json_str)
+        let tgt_schema: Schema = serde_json::from_value(lens_value)
             .into_diagnostic()
-            .wrap_err("chain file is neither a valid protolens chain nor a schema")?;
+            .wrap_err(
+                "lens file is neither a compiled lens artifact, a protolens chain, nor a schema",
+            )?;
         let config = lens::AutoLensConfig::default();
         let result = lens::auto_generate(&schema, &tgt_schema, &protocol, &config)
             .into_diagnostic()
@@ -733,41 +863,31 @@ pub fn cmd_lens_compose(
     let first_json: serde_json::Value = load_json(first_path)?;
     let second_json: serde_json::Value = load_json(second_path)?;
 
-    // Check if inputs are schema files or lens chain files.
-    let is_chain =
-        first_json.get("type").and_then(serde_json::Value::as_str) == Some("protolens_chain");
+    let first_chain = serde_json::from_value::<lens::ProtolensChain>(first_json.clone()).ok();
+    let second_chain = serde_json::from_value::<lens::ProtolensChain>(second_json.clone()).ok();
 
-    if is_chain {
-        // Both are chain files; merge steps.
-        let first_steps = first_json
-            .get("steps")
-            .and_then(serde_json::Value::as_array)
-            .map_or(0, Vec::len);
-        let second_steps = second_json
-            .get("steps")
-            .and_then(serde_json::Value::as_array)
-            .map_or(0, Vec::len);
+    if let (Some(mut first_chain), Some(second_chain)) = (first_chain, second_chain) {
+        let first_steps = first_chain.steps.len();
+        let second_steps = second_chain.steps.len();
 
         if verbose {
             eprintln!("Composing chains: {first_steps} + {second_steps} steps");
         }
 
-        let total = first_steps + second_steps;
-        let composed = serde_json::json!({
-            "type": "protolens_chain",
-            "steps": [],
-            "step_count": total,
-            "composed_from": [
-                first_path.display().to_string(),
-                second_path.display().to_string(),
-            ],
-        });
-
+        first_chain.steps.extend(second_chain.steps);
+        let composed = chain_to_json(&first_chain)
+            .into_diagnostic()
+            .wrap_err("failed to serialize composed protolens chain")?;
         let pretty = serde_json::to_string_pretty(&composed)
             .into_diagnostic()
             .wrap_err("failed to serialize composed chain")?;
         println!("{pretty}");
     } else {
+        if first_json.get("steps").is_some() || second_json.get("steps").is_some() {
+            miette::bail!(
+                "compose inputs must both be executable protolens chains or both be schemas"
+            );
+        }
         // Treat as schema files. Generate lens for each pair and compose.
         let schema_a: Schema = serde_json::from_value(first_json)
             .into_diagnostic()
@@ -799,29 +919,11 @@ pub fn cmd_lens_compose(
             .wrap_err("failed to compose lenses")?;
 
         if chain {
-            // Concatenate protolens chain steps.
-            let mut all_steps: Vec<serde_json::Value> = Vec::new();
-            for (i, step) in result_a.chain.steps.iter().enumerate() {
-                all_steps.push(serde_json::json!({
-                    "step": i + 1,
-                    "name": step.name.as_str(),
-                    "lossless": step.is_lossless(),
-                    "source": "first",
-                }));
-            }
-            for (i, step) in result_b.chain.steps.iter().enumerate() {
-                all_steps.push(serde_json::json!({
-                    "step": result_a.chain.steps.len() + i + 1,
-                    "name": step.name.as_str(),
-                    "lossless": step.is_lossless(),
-                    "source": "second",
-                }));
-            }
-            let chain_json = serde_json::json!({
-                "type": "protolens_chain",
-                "steps": all_steps,
-                "step_count": all_steps.len(),
-            });
+            let mut composed_chain = result_a.chain;
+            composed_chain.steps.extend(result_b.chain.steps);
+            let chain_json = chain_to_json(&composed_chain)
+                .into_diagnostic()
+                .wrap_err("failed to serialize composed protolens chain")?;
             let pretty = serde_json::to_string_pretty(&chain_json)
                 .into_diagnostic()
                 .wrap_err("failed to serialize composed chain")?;
@@ -947,7 +1049,10 @@ pub fn cmd_lens_diff(
     .wrap_err("failed to generate lens between committed schemas")?;
 
     if chain_output {
-        let pretty = serde_json::to_string_pretty(&chain_to_json(&result.chain))
+        let chain_json = chain_to_json(&result.chain)
+            .into_diagnostic()
+            .wrap_err("failed to serialize protolens chain")?;
+        let pretty = serde_json::to_string_pretty(&chain_json)
             .into_diagnostic()
             .wrap_err("failed to serialize protolens chain")?;
         println!("{pretty}");
@@ -1101,4 +1206,81 @@ pub fn cmd_lens_lift(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn compiled_lens_artifact_round_trips_every_compiled_field() -> Result<()> {
+        let chain = lens::ProtolensChain::new(vec![lens::elementary::rename_sort("old", "new")]);
+        let field_transforms = HashMap::from([(
+            Name::from("root"),
+            vec![FieldTransform::DropField {
+                key: "obsolete".to_owned(),
+            }],
+        )]);
+        let compiled = CompiledLens {
+            id: "dev.test.complete".to_owned(),
+            description: "complete artifact".to_owned(),
+            source: "source".to_owned(),
+            target: "target".to_owned(),
+            chain: chain.clone(),
+            field_transforms: field_transforms.clone(),
+            stages: vec![CompiledStage {
+                chain: chain.clone(),
+                field_transforms,
+            }],
+            extensions: HashMap::from([("dialect".to_owned(), serde_json::json!("test"))]),
+            auto_spec: Some(AutoSpec {
+                quality_threshold: Some(0.75),
+                enable_overlap: Some(true),
+                max_results: Some(3),
+                hints: None,
+            }),
+            symmetric: Some(SymmetricChains {
+                left: chain,
+                right: lens::ProtolensChain::new(vec![lens::elementary::rename_sort("new", "old")]),
+            }),
+            invertible: Some(true),
+        };
+
+        let encoded = serde_json::to_value(CompiledLensArtifact::from_compiled(compiled))
+            .into_diagnostic()?;
+        assert_eq!(encoded["format"], COMPILED_LENS_ARTIFACT_FORMAT);
+        let artifact: CompiledLensArtifact = serde_json::from_value(encoded).into_diagnostic()?;
+        let restored = artifact.into_compiled()?;
+
+        assert_eq!(restored.id, "dev.test.complete");
+        assert_eq!(restored.description, "complete artifact");
+        assert_eq!(restored.source, "source");
+        assert_eq!(restored.target, "target");
+        assert_eq!(restored.invertible, Some(true));
+        assert_eq!(restored.chain.steps.len(), 1);
+        assert_eq!(restored.field_transforms.len(), 1);
+        assert_eq!(restored.stages.len(), 1);
+        assert_eq!(
+            restored.extensions.get("dialect"),
+            Some(&serde_json::json!("test"))
+        );
+
+        let Some(auto) = restored.auto_spec else {
+            return Err(miette::miette!("auto spec did not survive serialization"));
+        };
+        assert_eq!(auto.quality_threshold, Some(0.75));
+        assert_eq!(auto.enable_overlap, Some(true));
+        assert_eq!(auto.max_results, Some(3));
+        assert!(auto.hints.is_none());
+
+        let Some(symmetric) = restored.symmetric else {
+            return Err(miette::miette!(
+                "symmetric chains did not survive serialization"
+            ));
+        };
+        assert_eq!(symmetric.left.steps[0].name, "rename_sort_old_new");
+        assert_eq!(symmetric.right.steps[0].name, "rename_sort_new_old");
+
+        Ok(())
+    }
 }

@@ -85,90 +85,82 @@ fn encode_get_record(view: &WInstance, complement: &lens::Complement) -> Result<
     canonical::encode(&payload)
 }
 
-/// The [`lens::Complement`] fields keyed by a `(u32, u32)` tuple. `serde`
-/// (via `ciborium`) serializes a tuple-keyed `HashMap` as a CBOR *map*
-/// (array key, value), but the Haskell `Panproto.Instance` complement
-/// codec models these two fields as CBOR *lists of `[ [k0, k1], edge ]`
-/// pairs* (its `decodePairMap` / `encodePairMap`). The other map fields
-/// are `u32`-keyed and agree (both sides use a CBOR map with integer
-/// keys), so only these two need reshaping at the boundary.
+/// The [`lens::Complement`] fields keyed by a `(u32, u32)` tuple.
+/// `panproto-inst` serializes both as CBOR *lists of `[ [k0, k1], edge ]`
+/// pairs*, which is the shape the Haskell `Panproto.Instance` complement
+/// codec models them with (its `decodePairMap` / `encodePairMap`), so the
+/// two sides agree and nothing is rewritten on the way out. A CBOR *map*
+/// (array key, value) is `ciborium`'s default for a tuple-keyed
+/// `HashMap` and is what an older encoding of a complement carries, so
+/// these are the fields [`decode_complement_from_host`] normalizes when
+/// it meets one. The other map fields are `u32`-keyed and agree on both
+/// conventions.
 const COMPLEMENT_PAIR_MAP_FIELDS: [&str; 2] = ["contraction_choices", "arc_edges"];
 
 /// Encode a [`lens::Complement`] in the CBOR shape the Haskell host
-/// decodes: `ciborium`'s default serialization with the tuple-keyed
-/// [`COMPLEMENT_PAIR_MAP_FIELDS`] rewritten from CBOR maps into
-/// lists-of-pairs.
+/// decodes.
 ///
 /// # Errors
 ///
-/// Returns [`FfiError::Serialization`] if (de)serialization fails.
+/// Returns [`FfiError::Serialization`] if serialization fails.
 fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, FfiError> {
-    let bytes = canonical::encode(complement)?;
-    let mut value: CborValue = canonical::decode(&bytes)?;
-    reshape_complement_pair_maps(&mut value, /* to_list */ true);
-    canonical::encode(&value)
+    canonical::encode(complement)
 }
 
 /// Decode a [`lens::Complement`] from the CBOR shape the Haskell host
-/// encodes: the inverse of [`encode_complement_for_host`], rewriting the
-/// tuple-keyed [`COMPLEMENT_PAIR_MAP_FIELDS`] from lists-of-pairs back
-/// into the CBOR maps `ciborium`'s `Deserialize` expects.
+/// encodes: the inverse of [`encode_complement_for_host`].
 ///
-/// Tolerates input that is already in the map shape (a complement
-/// produced by this crate's own `ciborium` encode), so it accepts both
-/// conventions.
+/// Tolerates a complement whose [`COMPLEMENT_PAIR_MAP_FIELDS`] carry the
+/// CBOR map shape, which is what an encoding written before those fields
+/// became lists of pairs holds, so both conventions decode.
 ///
 /// # Errors
 ///
-/// Returns [`FfiError::Serialization`] if (de)serialization fails.
+/// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
+/// that fail to decode in either shape report the failure against the
+/// bytes as they were given.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    let mut value: CborValue = canonical::decode(bytes)?;
-    reshape_complement_pair_maps(&mut value, /* to_list */ false);
-    let normalized = canonical::encode(&value)?;
-    canonical::decode(&normalized)
+    match canonical::decode(bytes) {
+        Ok(complement) => Ok(complement),
+        Err(err) => {
+            let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
+                return Err(err);
+            };
+            if !normalize_complement_pair_maps(&mut value) {
+                return Err(err);
+            }
+            let normalized = canonical::encode(&value)?;
+            canonical::decode(&normalized).map_err(|_| err)
+        }
+    }
 }
 
-/// Rewrite the [`COMPLEMENT_PAIR_MAP_FIELDS`] of a CBOR-`Map` complement
-/// between the `ciborium` map shape and the host list-of-pairs shape.
+/// Rewrite any of the [`COMPLEMENT_PAIR_MAP_FIELDS`] of a CBOR-`Map`
+/// complement that carries the map shape `{ [k0,k1]: edge, … }` into the
+/// list shape `[ [[k0,k1], edge], … ]` the field deserializes from.
 ///
-/// When `to_list` is true, each tuple-keyed map `{ [k0,k1]: edge, … }`
-/// becomes a list `[ [[k0,k1], edge], … ]`; when false, the inverse.
-/// Idempotent against already-correct shapes: a field already in the
-/// target shape is left untouched.
-fn reshape_complement_pair_maps(value: &mut CborValue, to_list: bool) {
+/// Returns whether anything was rewritten, so a caller can tell a
+/// wrong-shaped complement from one that simply does not decode.
+fn normalize_complement_pair_maps(value: &mut CborValue) -> bool {
     let CborValue::Map(entries) = value else {
-        return;
+        return false;
     };
+    let mut rewrote = false;
     for (key, field) in entries.iter_mut() {
         let CborValue::Text(name) = key else { continue };
         if !COMPLEMENT_PAIR_MAP_FIELDS.contains(&name.as_str()) {
             continue;
         }
-        if to_list {
-            if let CborValue::Map(pairs) = field {
-                let list = pairs
-                    .drain(..)
-                    .map(|(k, v)| CborValue::Array(vec![k, v]))
-                    .collect();
-                *field = CborValue::Array(list);
-            }
-        } else if let CborValue::Array(items) = field {
-            let pairs = items
+        if let CborValue::Map(pairs) = field {
+            let list = pairs
                 .drain(..)
-                .filter_map(|item| match item {
-                    CborValue::Array(kv) if kv.len() == 2 => {
-                        let mut it = kv.into_iter();
-                        match (it.next(), it.next()) {
-                            (Some(k), Some(v)) => Some((k, v)),
-                            _ => None,
-                        }
-                    }
-                    _ => None,
-                })
+                .map(|(k, v)| CborValue::Array(vec![k, v]))
                 .collect();
-            *field = CborValue::Map(pairs);
+            *field = CborValue::Array(list);
+            rewrote = true;
         }
     }
+    rewrote
 }
 
 /// Auto-generate a protolens chain between two schemas.
@@ -190,7 +182,7 @@ pub fn pp_lens_auto_generate_protolens(
     guard(|| {
         let tier = parse_stringency(stringency.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&src);
 
@@ -231,7 +223,7 @@ pub fn pp_lens_auto_generate_candidates(
     guard(|| {
         let tier = parse_stringency(stringency.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&src);
 
@@ -484,23 +476,37 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 
 /// Instantiate a protolens chain at a specific schema.
 ///
-/// `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource)
-/// handle; `schema` is a [`Resource::Schema`](crate::handle::Resource)
-/// handle. On success, `out_handle` receives a fresh
+/// `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource) or
+/// compiled lens-document handle; `schema` is a
+/// [`Resource::Schema`](crate::handle::Resource) handle. On success,
+/// `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
-/// Calls `ProtolensChain::instantiate`.
+/// Plain chains call `ProtolensChain::instantiate`; compiled documents use
+/// their ordered-stage instantiation.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
-        let (chain_val, schema_val) = handle::with_two_resources(chain, schema, |r1, r2| {
-            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema()?.clone()))
-        })?;
+        let (chain_val, compiled_doc, schema_val) =
+            handle::with_two_resources(chain, schema, |r1, r2| {
+                let (chain_val, compiled_doc) = match r1 {
+                    Resource::CompiledLensDoc(compiled) => (None, Some((**compiled).clone())),
+                    _ => (Some(r1.as_protolens_chain()?.clone()), None),
+                };
+                Ok((chain_val, compiled_doc, r2.as_schema_arc()?))
+            })?;
         let protocol = protocol_for_schema(&schema_val);
 
-        let lens_obj = chain_val
-            .instantiate(&schema_val, &protocol)
-            .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?;
+        let lens_obj = if let Some(compiled) = compiled_doc {
+            compiled
+                .instantiate(&schema_val, &protocol)
+                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+        } else {
+            chain_val
+                .ok_or_else(|| FfiError::Operation("missing protolens chain".to_owned()))?
+                .instantiate(&schema_val, &protocol)
+                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+        };
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(lens_obj.compiled),
@@ -522,7 +528,7 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
 pub fn pp_protolens_complement_spec(chain: u32, schema: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     guard(|| {
         let (chain_val, schema_val) = handle::with_two_resources(chain, schema, |r1, r2| {
-            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&schema_val);
 
@@ -549,7 +555,7 @@ pub fn pp_protolens_from_diff(
     guard(|| {
         let diff_spec: lens::DiffSpec = canonical::decode(diff.as_slice())?;
         let (src, tgt) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
 
         let chain = lens::diff_to_protolens(&diff_spec, &src, &tgt)
@@ -668,7 +674,7 @@ pub fn pp_protolens_fuse(chain: u32, out_handle: &mut u32) -> i32 {
 pub fn pp_lens_symmetric_from_schemas(schema1: u32, schema2: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
         let (left, right) = handle::with_two_resources(schema1, schema2, |r1, r2| {
-            Ok((r1.as_schema()?.clone(), r2.as_schema()?.clone()))
+            Ok((r1.as_schema_arc()?, r2.as_schema_arc()?))
         })?;
         let protocol = protocol_for_schema(&left);
         let config = lens::AutoLensConfig::default();
@@ -726,7 +732,7 @@ pub fn pp_lens_symmetric_sync(
 /// `source` is UTF-8 DSL source; `format` is the UTF-8 format name
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
-/// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+/// chain-compatible compiled-document handle. Calls
 /// `panproto_core::lens_dsl::{eval, compile}`.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
@@ -762,7 +768,7 @@ pub fn pp_lens_compile_document(
         let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));
+        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
         Ok(PpStatus::Ok)
     })
 }
@@ -775,7 +781,7 @@ pub fn pp_lens_compile_document(
 /// `map<string, string>` from each referenced lens `id` to its document
 /// source (in the same `format`); a `compose` body's `ref` entries are
 /// resolved against this map. On success, `out_handle` receives a fresh
-/// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+/// chain-compatible compiled-document handle. Calls
 /// `panproto_core::lens_dsl::compile_with_refs`.
 ///
 /// Nickel (`ncl`) is intentionally unsupported, matching
@@ -822,7 +828,7 @@ pub fn pp_lens_compile_document_with_refs(
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));
+        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
         Ok(PpStatus::Ok)
     })
 }
@@ -894,6 +900,20 @@ mod tests {
     fn target_schema() -> Schema {
         let proto = crate::api::helpers::default_protocol("test");
         SchemaBuilder::new(&proto)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    fn ordered_value_schema() -> Schema {
+        let proto = crate::api::helpers::default_protocol("test");
+        SchemaBuilder::new(&proto)
+            .entry("post")
             .vertex("post", "record", None::<&str>)
             .unwrap()
             .vertex("post.text", "string", None::<&str>)
@@ -1042,6 +1062,71 @@ mod tests {
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
     }
 
+    #[test]
+    fn compiled_document_instantiates_ordered_value_stages() {
+        let schema = ordered_value_schema();
+        let schema_h = schema_handle(&schema);
+        let doc = br#"{
+            "id": "ordered",
+            "source": "s",
+            "target": "t",
+            "steps": [
+                { "rename_field": { "old": "text", "new": "amount" } },
+                { "compute_field": {
+                    "target": "derived",
+                    "expr": "amount ++ \"!\""
+                } }
+            ]
+        }"#;
+
+        let mut chain_h = u32::MAX;
+        assert_eq!(
+            pp_lens_compile_document(
+                slice(doc).as_ref(),
+                slice(b"json").as_ref(),
+                slice(b"post").as_ref(),
+                &mut chain_h,
+            ),
+            PpStatus::Ok as i32,
+        );
+
+        let mut lens_h = u32::MAX;
+        assert_eq!(
+            pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
+            PpStatus::Ok as i32,
+        );
+
+        let source =
+            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
+                .unwrap();
+        let source_cbor = canonical::encode(&source).unwrap();
+        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
+            PpStatus::Ok as i32,
+        );
+        let (view_cbor, _) = split_get_record(&get_out);
+        pp_buf_free(get_out);
+        let view: WInstance = canonical::decode(&view_cbor).unwrap();
+        let target = handle::with_resource(lens_h, |resource| match resource {
+            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
+            other => Err(FfiError::TypeMismatch {
+                expected: "MigrationWithSchemas",
+                actual: other.type_name(),
+            }),
+        })
+        .unwrap();
+        let json = panproto_core::inst::to_json(&target, &view);
+
+        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
+        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
+        assert!(json.get("text").is_none());
+
+        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
+    }
+
     /// Build a deterministically non-empty two-step chain: drop the
     /// `subtitle` and `byline` sorts. Independent of auto-generation,
     /// which may legitimately realize a morphism with an empty chain.
@@ -1186,10 +1271,10 @@ mod tests {
     }
 
     /// The host-shape complement codec must round-trip: encoding a
-    /// complement for the host (tuple-keyed maps as lists-of-pairs) and
-    /// decoding it back yields an equivalent complement. Exercises a
-    /// complement with populated `contraction_choices` and `arc_edges`,
-    /// the two fields whose CBOR shape differs from `ciborium`'s default.
+    /// complement for the host and decoding it back yields an equivalent
+    /// complement. Exercises a complement with populated
+    /// `contraction_choices` and `arc_edges`, the two tuple-keyed fields,
+    /// and the map shape an older encoding of them carries.
     #[test]
     fn complement_host_shape_round_trips() {
         use panproto_core::gat::Name;
@@ -1228,12 +1313,43 @@ mod tests {
         assert_eq!(restored.original_parent.get(&2), Some(&1));
         assert_eq!(restored.source_fingerprint, 99);
 
-        // decode_complement_from_host also tolerates the ciborium map
-        // shape (a complement this crate encoded directly), so both
-        // conventions decode.
-        let map_bytes = canonical::encode(&comp).unwrap();
-        let from_map = decode_complement_from_host(&map_bytes).unwrap();
+        // An older encoding spells the two tuple-keyed fields as CBOR
+        // maps. Build that shape from the host bytes and check it still
+        // decodes, since that is the whole point of the fallback.
+        let mut legacy: ciborium::value::Value = canonical::decode(&host_bytes).unwrap();
+        let ciborium::value::Value::Map(entries) = &mut legacy else {
+            panic!("a complement encodes as a CBOR map");
+        };
+        let mut rewrote = 0;
+        for (key, field) in entries.iter_mut() {
+            if !matches!(key.as_text(), Some("contraction_choices" | "arc_edges")) {
+                continue;
+            }
+            let ciborium::value::Value::Array(items) = field else {
+                panic!("the tuple-keyed fields encode as lists of pairs");
+            };
+            let pairs = items
+                .drain(..)
+                .map(|item| {
+                    let ciborium::value::Value::Array(kv) = item else {
+                        panic!("each entry is a [key, value] pair");
+                    };
+                    let mut it = kv.into_iter();
+                    (it.next().unwrap(), it.next().unwrap())
+                })
+                .collect();
+            *field = ciborium::value::Value::Map(pairs);
+            rewrote += 1;
+        }
+        assert_eq!(rewrote, 2, "both tuple-keyed fields must be rewritten");
+
+        let legacy_bytes = canonical::encode(&legacy).unwrap();
+        let from_map = decode_complement_from_host(&legacy_bytes).unwrap();
         assert_eq!(from_map.contraction_choices.get(&(1, 2)), Some(&edge));
+        assert_eq!(from_map.arc_edges.get(&(3, 4)), Some(&edge));
+
+        // Bytes that decode in neither shape are still an error.
+        assert!(decode_complement_from_host(b"\xa1\x00\x00").is_err());
     }
 
     #[test]

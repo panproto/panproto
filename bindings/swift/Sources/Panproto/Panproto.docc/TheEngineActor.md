@@ -15,7 +15,7 @@ That is a strong constraint, and it is worth knowing exactly which
 invariant asks for it, because it is narrower than "the engine is not
 thread-safe".
 
-## What is actually thread-local
+## What the isolation actually protects
 
 The resource slab that hands out handles is process-global and
 mutex-guarded on the Rust side. A slab index really is valid from any
@@ -23,27 +23,26 @@ thread, and two threads calling into the engine at once serialize inside
 it rather than corrupting it. Nothing about handles needs a pinned
 thread.
 
-What is thread-local is the *last-error slot*. A failing entry point
-stashes its error envelope where only the calling thread can drain it,
-and `pp_last_error_take` on any other thread answers empty. Every error
-message this package reports is drained from that slot, so every message
-depends on the drain landing on the thread that failed. A ``PanprotoError``
-whose ``PanprotoError/Detail/envelope`` is absent alongside a non-ok
-status is exactly what a drain on the wrong thread produces, and it would
-report a failure with no reason attached.
+The *last-error slot* is process-global too, so a drain reads what a call
+on any thread wrote. What the slot cannot survive is interleaving: it
+holds one envelope, and the most recent write wins. A failing entry point
+and the `pp_last_error_take` that reads its envelope are two separate
+calls, so a second failure landing between them replaces the message the
+binding is about to report. Every error message this package reports is
+drained from that slot, so every message depends on nothing running
+between the failure and the drain. A ``PanprotoError`` whose
+``PanprotoError/Detail/envelope`` is absent alongside a non-ok status is
+what a preempted drain produces, and it would report a failure with no
+reason attached.
 
-A serial queue would give mutual exclusion but not thread identity: GCD
-is free to run two jobs from one serial queue on two different threads,
-one after the other. That is enough today, because no call in this
-package suspends between a failing entry point and the drain that follows
-it, but it makes correctness a property of every future call site rather
-than of the executor. Pinning a thread makes the invariant unconditional.
-
-The cost is one resident thread. Its stack is eight megabytes, which is
-address space rather than resident memory, and deep schema recursion is a
-real shape in this workload. `pp_init` runs once on that thread before
-the first job, which puts the Rust panic hook in place ahead of any call
-that could trip it.
+Isolating every entry point on one actor makes call-plus-drain atomic
+with respect to other engine work, which is the invariant the slot
+actually needs. A pinned thread rather than a queue-backed executor costs
+one resident thread and buys a stack the engine chooses: eight megabytes,
+which is address space rather than resident memory, and deep schema
+recursion is a real shape in this workload. `pp_init` runs once on that
+thread before the first job, which puts the Rust panic hook in place
+ahead of any call that could trip it.
 
 Isolating here buys a second thing. The slab's mutex is taken per access,
 so concurrent hosts serialize inside the engine whether or not Swift

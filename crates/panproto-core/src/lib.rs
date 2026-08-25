@@ -14,9 +14,16 @@
 //! `panproto-expr`, `panproto-expr-parser`, `panproto-lens-dsl`, and
 //! `panproto-theory-dsl`. The support crates `panproto-parse`,
 //! `panproto-project`, and `panproto-git` are re-exported behind cargo
-//! features. The binding crates `panproto-cli`, `panproto-c`,
-//! `panproto-wasm`, and `panproto-py` depend on `panproto-core` alone for
-//! this surface.
+//! features.
+//!
+//! `panproto-c` and `panproto-wasm` reach the whole stack through this
+//! facade and depend on nothing else from the workspace. `panproto-cli`
+//! and `panproto-py` do not: both depend on `panproto-parse`,
+//! `panproto-project`, and `panproto-git` directly, in place of the
+//! feature-gated re-exports, and the CLI additionally depends on
+//! `panproto-xrpc`, which the facade does not re-export at all, and on
+//! `panproto-vcs` directly. A change to a feature gate here therefore
+//! does not reach those two.
 
 /// Re-export of `panproto-check` for validation and axiom checking.
 pub use panproto_check as check;

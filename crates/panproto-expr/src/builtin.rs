@@ -106,14 +106,18 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
 
         // --- Type inspection ---
         BuiltinOp::TypeOf | BuiltinOp::IsNull | BuiltinOp::IsList => apply_inspection(op, args),
-        // Graph traversal builtins require an instance context.
-        // In the standard evaluator (no instance), they return Null.
-        // Use `panproto_inst::instance_env` for instance-aware evaluation.
+        // Graph traversal builtins read an instance, which this evaluator
+        // does not hold. Answering `null` would make "no such edge" and "no
+        // graph was consulted" indistinguishable, so the caller is told
+        // instead. Supply a resolver — `panproto_inst::eval_with_instance`
+        // and `eval_with_element_ops` do — to make these answer.
         BuiltinOp::Edge
         | BuiltinOp::Children
         | BuiltinOp::HasEdge
         | BuiltinOp::EdgeCount
-        | BuiltinOp::Anchor => Ok(Literal::Null),
+        | BuiltinOp::Anchor => Err(ExprError::NoInstanceContext {
+            op: format!("{op:?}"),
+        }),
     }
 }
 
@@ -135,9 +139,14 @@ fn apply_arithmetic(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErro
                 numeric_binop(&args[0], &args[1], i64::checked_div, |a, b| a / b)
             }
         }
+        // `i64::MIN % -1` overflows, so the remainder is taken through
+        // `checked_rem` like every other integer operation here.
         BuiltinOp::Mod => match (&args[0], &args[1]) {
             (Literal::Int(_), Literal::Int(0)) => Err(ExprError::DivisionByZero),
-            (Literal::Int(a), Literal::Int(b)) => Ok(Literal::Int(a % b)),
+            (Literal::Int(a), Literal::Int(b)) => a
+                .checked_rem(*b)
+                .map(Literal::Int)
+                .ok_or(ExprError::Overflow),
             _ => Err(type_err("int", &args[0])),
         },
         BuiltinOp::Neg => match &args[0] {
@@ -511,12 +520,7 @@ fn numeric_binop(
 ) -> Result<Literal, ExprError> {
     match (a, b) {
         (Literal::Int(x), Literal::Int(y)) => {
-            int_op(*x, *y)
-                .map(Literal::Int)
-                .ok_or_else(|| ExprError::TypeError {
-                    expected: "non-overflowing arithmetic".into(),
-                    got: "integer overflow".into(),
-                })
+            int_op(*x, *y).map(Literal::Int).ok_or(ExprError::Overflow)
         }
         (Literal::Float(x), Literal::Float(y)) => Ok(Literal::Float(float_op(*x, *y))),
         #[allow(clippy::cast_precision_loss)]

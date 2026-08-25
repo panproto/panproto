@@ -6,7 +6,7 @@ This distinction changes the form of a conflict. A text merge reports overlappin
 
 ## Objects and references
 
-Every object identifier is a BLAKE3 digest of the object's canonical serialization. Objects are stored under `.panproto/objects/`, branch references under `.panproto/refs/heads/`, and tag references under `.panproto/refs/tags/`.
+Every object identifier is a BLAKE3 digest of the object's type-specific canonical serialization. Objects are stored under `.panproto/objects/`, branch references under `.panproto/refs/heads/`, and tag references under `.panproto/refs/tags/`. The filesystem store writes objects and refs through a flushed sibling temporary file followed by a same-directory rename. It recomputes an object's identifier when reading it and returns `ObjectCorrupted` if the stored object does not match its path. Ref names must consist only of ordinary relative path components.
 
 | Object | Contents |
 |---|---|
@@ -26,7 +26,7 @@ Migration validation checks that mapped vertex and edge identifiers exist at bot
 
 Verification can be bypassed deliberately at two points. `AddOptions::skip_verify` permits an object to remain pending at stage time, and `CommitOptions::skip_verify` bypasses the commit-time check. These options weaken the repository invariant and should be treated as explicit overrides rather than ordinary workflow.
 
-When a registered protocol theory contains equations, model validation checks the schema against them. The evaluator considers at most 10,000 variable assignments for an equation; exceeding that bound returns `ModelCheckLimitExceeded` instead of accepting the equation. If no theory is registered, validation records an advisory that no equations were checked while retaining the available structural checks. The current foundational theories and the built-in ATProto composition do not themselves supply equations, so the presence of a registered theory does not imply that an equation check has substantive cases.
+When a registered protocol theory contains equations, model validation checks the supplied finite model against them. The evaluator considers at most 10,000 variable assignments for an equation; exceeding that bound returns `ModelCheckLimitExceeded` instead of accepting the equation. If no theory is registered, validation records an advisory that no equations were checked while retaining the available structural checks. `ThWType`, used as an instance theory by several protocol groups, contains two equations connecting arc endpoints to schema-edge endpoints. The schema theory and instance theory remain separate, so the presence of those equations does not mean that `panproto_schema::validate` evaluates them over a `Schema`.
 
 ## Structural three-way merge
 
@@ -42,15 +42,17 @@ $$
 
 The implementation constructs $M$ with a field-by-field structural three-way merge. Compatible additions and modifications are combined. Incompatible edits become `MergeConflict` variants, and conflicted elements retain their base values until the caller supplies a resolution. `apply_resolutions` requires a choice of ours or theirs for every reported conflict and then verifies the resulting square.
 
-The routine `verify_pushout` checks the generated cocone: both branch maps must be total, every merged vertex must come from a branch, surviving base vertices must remain present, and the two paths from the base must agree on mapped vertices and edges. A failure returns `VcsError::PushoutVerification`. This is a cocone check, not a complete runtime proof of the universal property.
+Combining compatible additions means that two branches adding the same name compatibly contribute one element rather than one each, so $M$ is the pushout quotiented by same-name identification. `MergeResult::identified_additions` reports every name collapsed this way. [Pushouts and merge](./semantics/pushouts-and-merge.md) states what that quotient costs.
+
+The routine `verify_pushout` checks the generated cocone: both branch vertex maps must be total, every merged vertex must come from a branch, surviving base vertices must remain present, and the two paths from the base must agree on mapped vertices and mapped base edges. A failure returns `VcsError::PushoutVerification`. This is a cocone check, not a complete runtime proof of the universal property.
 
 `verify_pushout_universal` provides an additional on-demand check against a caller-supplied alternative cocone. It constructs and checks a mediator on vertices. The current API does not establish edge-level factorization, and ordinary merge does not call this verifier. [Pushouts and merge](./semantics/pushouts-and-merge.md) states the distinction formally.
 
-Merge also computes a pullback overlap to recognize additions shared by both branches. If that computation fails, the result stores a `pullback_error` and the CLI reports it. The failure is not interpreted as an empty overlap.
+Merge also computes a pullback of theory presentations derived from the base-to-branch diffs. The resulting `PullbackOverlap` is diagnostic metadata in `MergeResult`; the field-by-field merge does not use it to decide whether additions are identical or conflicting. If pullback construction fails, the result stores a `pullback_error` and the CLI reports it. The failure is not interpreted as an empty overlap.
 
 ## Data associated with history
 
-Commits may reference data sets and migration complements. During merge, data from both parents is lifted to the merged schema, fresh complement objects are recorded, and duplicate migrated data sets are removed. Rebase and cherry-pick similarly lift the replayed commit's data and verify the relevant migration square. These operations follow the schema-evolution account of migrations connected by lenses in Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria].
+Commits may reference data sets and migration complements. During a committed merge, data from both parents is lifted to the merged schema, fresh complement objects are recorded, and duplicate migrated data sets are removed. Rebase and cherry-pick similarly lift the replayed commit's data and call `verify_square`. Despite its name, that function checks one necessary condition: it migrates the lifted data backward through the saved complement and requires recovery of the original data. This is GetPut for the vertical migration, or the square condition with an identity horizontal edge. It does not compare the two paths around a general data-migration square. These operations follow the schema-evolution account of migrations connected by lenses in Cambria [@littvanhardenberghenry2020cambria; @littvanhardenberghenry2021cambria].
 
 Ordinary commit records data that was staged for that commit; it does not automatically copy or migrate all data from the previous commit. Amend preserves existing data identifiers unless the caller stages replacements. A schema change made through either operation thus does not by itself imply that associated data was transformed.
 

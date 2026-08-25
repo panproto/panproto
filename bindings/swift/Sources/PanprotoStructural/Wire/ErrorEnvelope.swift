@@ -1,7 +1,7 @@
 /// The CBOR error payload panproto-c leaves behind after a failed call.
 ///
 /// Entry points return only a coarse status code. The detail goes into
-/// a thread-local slot that the host drains with `pp_last_error_take`,
+/// a process-global slot that the host drains with `pp_last_error_take`,
 /// which answers with this envelope. An empty buffer means no error is
 /// pending.
 public struct ErrorEnvelope: Codable, Hashable, Sendable {

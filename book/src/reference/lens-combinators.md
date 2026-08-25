@@ -8,7 +8,7 @@ $$
 \operatorname{put} : V \times C \to S.
 $$
 
-Both Rust functions return `Result`. `get(&Lens, &WInstance)` returns the view and its `Complement`; `put(&Lens, &WInstance, &Complement)` reconstructs a source or returns `LensError`.
+Both Rust functions return `Result`. [`get`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.get.html) accepts an instance of the source schema and runs the source-to-target restrict pipeline, returning the target-schema view and its `Complement`. [`put`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.put.html) accepts that target-schema view and complement and reconstructs a source or returns `LensError`.
 
 ## Law-checking API
 
@@ -18,13 +18,13 @@ Both Rust functions return `Result`. `get(&Lens, &WInstance)` returns the view a
 | [`check_put_get`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.check_put_get.html) | Checks the original view and one deterministic scalar mutation. Comparison ignores fields marked as derived. |
 | [`check_laws`](https://docs.rs/panproto-lens/latest/panproto_lens/fn.check_laws.html) | Runs the two checks above. It does not run PutPut. |
 | [`check_put_put`](https://docs.rs/panproto-lens/latest/panproto_lens/laws/fn.check_put_put.html) | Compares a chained put with a direct put for one supplied source and second view. |
-| [`check_optic_laws`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/fn.check_optic_laws.html) | Runs the checks selected for one `OpticKind`, lens, and concrete instance. |
+| [`check_optic_laws`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/fn.check_optic_laws.html) | For every kind, checks GetPut and PutGet on the unedited view. `Prism` and `Affine` add preview stability. `Traversal` and `Affine` add one deterministic perturbed-view round trip. `Iso` also requires a complement with no recorded data loss. |
 
 These functions are on-demand checks over their supplied values. Property tests exercise generated lenses, instances, and views, but a passing test run is not a proof for every constructor input. [What panproto verifies](../explanation/what-is-verified.md#lenses-coercions-and-expressions) records the corresponding limits.
 
 ## Optic kinds
 
-[`OpticKind`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/enum.OpticKind.html) is a structural classification derived from `TheoryTransform`; classification itself does not run an optic-law checker.
+[`OpticKind`](https://docs.rs/panproto-lens/latest/panproto_lens/optic/enum.OpticKind.html) is a structural classification derived from `TheoryTransform`. Classification itself does not run an optic-law checker.
 
 | Kind | Classified shape | Recorded complement |
 |---|---|---|
@@ -34,7 +34,7 @@ These functions are on-demand checks over their supplied values. Property tests 
 | `Affine` | composition mixing `Lens` and `Prism` | both components |
 | `Traversal` | scoped focus through `item` or `items` | per-position data |
 
-`OpticKind::compose` uses `Iso` as the identity and `Traversal` as an absorbing element. `Lens` composed with `Prism`, or either composed with `Affine`, yields `Affine`. This table describes the enum's implementation; it does not certify the full laws of profunctor optics [@pickeringgibbonswu2017profunctor].
+`OpticKind::compose` uses `Iso` as the identity and `Traversal` as an absorbing element. `Lens` composed with `Prism`, or either composed with `Affine`, yields `Affine`. This table describes the enum's implementation. It does not certify the full laws of profunctor optics [@pickeringgibbonswu2017profunctor].
 
 ## Constructor modules
 
@@ -47,7 +47,7 @@ These functions are on-demand checks over their supplied values. Property tests 
 | [`fibration`](https://docs.rs/panproto-lens/latest/panproto_lens/fibration/) | checker results | Cartesian-lift and factorization checks over supplied data. |
 | [`enrichment_registry`](https://docs.rs/panproto-lens/latest/panproto_lens/enrichment_registry/) | registered trait objects | Cross-crate lookup for schema-enrichment synthesis, including layout. |
 
-The full parameter types are the public Rust signatures in those module indexes. Several elementary constructors accept `impl Into<Name>`; checked coercion constructors additionally return `Result` when their finite honesty samples fail.
+The full parameter types are the public Rust signatures in those module indexes. Several elementary constructors accept `impl Into<Name>`. Checked coercion constructors additionally return `Result` when their finite honesty samples fail. The elementary `pullback` constructor stores a supplied `TheoryMorphism` in `TheoryTransform::Pullback`. It does not construct a categorical pullback object or return a certificate of a pullback universal property.
 
 ## Complement composition
 
@@ -55,9 +55,9 @@ The full parameter types are the public Rust signatures in those module indexes.
 
 ## Protolens composition and instantiation
 
-A `Protolens` stores source and target theory endofunctors, a schema precondition, and a complement constructor. The intended natural-transformation structure uses the standard categorical definition [@eilenbergmaclane1945general]; constructing a value does not verify naturality over every schema.
+A `Protolens` stores source and target theory endofunctors, a schema precondition, and a complement constructor. The intended natural-transformation structure uses the standard categorical definition [@eilenbergmaclane1945general]. Constructing a value does not verify naturality over every schema.
 
-`protolens_composable(eta, theta)` accepts either structurally equal intermediate endofunctors or an identity transform on `theta.source`. The identity-source case retains `theta`'s source precondition in the composite. `vertical_compose` rejects other pairs with `CompositionMismatch`; `horizontal_compose` currently returns `Ok` without an additional compatibility check.
+`protolens_composable(eta, theta)` accepts either structurally equal intermediate endofunctors or an identity transform on `theta.source`. The identity-source case retains `theta`'s source precondition in the composite. `vertical_compose` rejects other pairs with `CompositionMismatch`. `horizontal_compose` currently returns `Ok` without an additional compatibility check.
 
 | Chain operation | Behavior |
 |---|---|
@@ -65,7 +65,7 @@ A `Protolens` stores source and target theory endofunctors, a schema preconditio
 | `instantiate` | Fuses the chain and computes one migration. It does not call the applicability check automatically. |
 | `instantiate_sequential` | Checks each step against the running schema, instantiates it, and composes the concrete lenses. |
 
-Call `check_applicability_with` before fused instantiation when preconditions must be enforced. Fused and sequential instantiation are compared in property tests; neither return value is a proof of the lens laws for all instances.
+Call `check_applicability_with` before fused instantiation when preconditions must be enforced. Fused and sequential instantiation are compared in property tests. Neither return value is a proof of the lens laws for all instances.
 
 ## See also
 

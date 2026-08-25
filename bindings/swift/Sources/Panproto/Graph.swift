@@ -214,7 +214,7 @@ public struct LensGraph: Hashable, Sendable, Codable {
             targetSchema: target
         )
         if result.status == .operation {
-            // Draining leaves the thread-local slot clean for the next
+            // Draining leaves the last-error slot clean for the next
             // call. The message says only that no path exists, which is
             // what the `nil` reports.
             _ = PanprotoError.take(status: result.status, domain: .lens, operation: operation)

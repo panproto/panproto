@@ -26,7 +26,9 @@ impl ColimitResult {
     /// Verify the cocone (commutativity) condition: `j1 ∘ i1 = j2 ∘ i2`.
     ///
     /// For every sort and operation in the shared theory, the two paths
-    /// through the pushout must agree.
+    /// through the pushout must agree. `t1` and `t2` are the span's two
+    /// legs' codomains, i.e. the theories the inclusions map out of; they
+    /// supply the operation signatures each composition needs.
     ///
     /// # Errors
     ///
@@ -37,9 +39,11 @@ impl ColimitResult {
         i1: &TheoryMorphism,
         i2: &TheoryMorphism,
         shared: &Theory,
+        t1: &Theory,
+        t2: &Theory,
     ) -> Result<(), GatError> {
-        let lhs = i1.compose(&self.inclusion1)?;
-        let rhs = i2.compose(&self.inclusion2)?;
+        let lhs = i1.compose(&self.inclusion1, t1)?;
+        let rhs = i2.compose(&self.inclusion2, t2)?;
 
         for sort in &shared.sorts {
             let l = lhs.sort_map.get(&sort.name);
@@ -129,7 +133,7 @@ pub fn colimit(
 ) -> Result<ColimitResult, GatError> {
     let (sort_rename, op_rename) = build_rename_maps(i1, i2)?;
 
-    let sorts = merge_sorts(t1, t2, &sort_rename)?;
+    let sorts = merge_sorts(t1, t2, &sort_rename, &op_rename)?;
     let ops = merge_ops(t1, t2, &sort_rename, &op_rename)?;
 
     let eqs = merge_equations(t1, t2, &op_rename)?;
@@ -169,7 +173,7 @@ pub fn colimit(
     // standalone-total theories can invoke
     // [`ColimitResult::verify_universal_identity`] explicitly to additionally
     // gate on the universal property.
-    verify_cocone(i1, i2, &result)?;
+    verify_cocone(i1, i2, t1, t2, &result)?;
     Ok(result)
 }
 
@@ -287,8 +291,8 @@ impl ColimitResult {
         // sending an operation to one whose signature q does not preserve.
         check_morphism(&mediator, &self.theory, q)?;
 
-        let m_j1 = self.inclusion1.compose(&mediator)?;
-        let m_j2 = self.inclusion2.compose(&mediator)?;
+        let m_j1 = self.inclusion1.compose(&mediator, &self.theory)?;
+        let m_j2 = self.inclusion2.compose(&mediator, &self.theory)?;
         if m_j1.sort_map != k1.sort_map || m_j1.op_map != k1.op_map {
             return Err(GatError::EquationNotPreserved {
                 equation: "universal property: m ∘ j1 = k1".to_string(),
@@ -448,14 +452,20 @@ fn build_one_rename_map(
     Ok(rename)
 }
 
-/// Merge T2's sorts into T1's, resolving identifications via `sort_rename`.
+/// Merge T2's sorts into T1's, resolving identifications via `sort_rename`
+/// and `op_rename`.
+///
+/// A T2 sort is rewritten into T1's naming convention before it is compared
+/// or kept, so a dependent parameter sort whose head or whose argument
+/// terms name identified elements lands in the pushout's namespace.
 ///
 /// Returns [`GatError::SortConflict`] if two independently-declared sorts
-/// share a name but disagree on parameters or kind.
+/// share a name but, after renaming, disagree on parameters or kind.
 fn merge_sorts(
     t1: &Theory,
     t2: &Theory,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> Result<Vec<crate::sort::Sort>, GatError> {
     let mut sorts = t1.sorts.clone();
     for sort in &t2.sorts {
@@ -463,6 +473,7 @@ fn merge_sorts(
             .get(&sort.name)
             .cloned()
             .unwrap_or_else(|| Arc::clone(&sort.name));
+        let renamed = rename_sort_refs(sort, sort_rename, op_rename);
         if t1.has_sort(&effective_name) {
             if sort_rename.contains_key(&sort.name) {
                 continue;
@@ -472,13 +483,13 @@ fn merge_sorts(
                 .ok_or_else(|| GatError::SortConflict {
                     name: effective_name.to_string(),
                 })?;
-            if t1_sort.params != sort.params || t1_sort.kind != sort.kind {
+            if t1_sort.params != renamed.params || t1_sort.kind != renamed.kind {
                 return Err(GatError::SortConflict {
                     name: effective_name.to_string(),
                 });
             }
         } else {
-            sorts.push(rename_sort_refs(sort, sort_rename));
+            sorts.push(renamed);
         }
     }
     Ok(sorts)
@@ -501,6 +512,7 @@ fn merge_ops(
             .get(&op.name)
             .cloned()
             .unwrap_or_else(|| Arc::clone(&op.name));
+        let renamed_op = rename_op_sort_refs(op, sort_rename, op_rename);
         if t1.has_op(&effective_name) {
             if op_rename.contains_key(&op.name) {
                 continue;
@@ -510,7 +522,6 @@ fn merge_ops(
                 .ok_or_else(|| GatError::OpConflict {
                     name: effective_name.to_string(),
                 })?;
-            let renamed_op = rename_op_sort_refs(op, sort_rename);
             if !signatures_equivalent_modulo_param_rename(
                 &t1_op.inputs,
                 &t1_op.output,
@@ -522,7 +533,7 @@ fn merge_ops(
                 });
             }
         } else {
-            ops.push(rename_op_sort_refs(op, sort_rename));
+            ops.push(renamed_op);
         }
     }
     Ok(ops)
@@ -532,10 +543,12 @@ fn merge_ops(
 fn verify_cocone(
     i1: &TheoryMorphism,
     i2: &TheoryMorphism,
+    t1: &Theory,
+    t2: &Theory,
     result: &ColimitResult,
 ) -> Result<(), GatError> {
-    let lhs = i1.compose(&result.inclusion1)?;
-    let rhs = i2.compose(&result.inclusion2)?;
+    let lhs = i1.compose(&result.inclusion1, t1)?;
+    let rhs = i2.compose(&result.inclusion2, t2)?;
     for shared_sort in i1.sort_map.keys() {
         let l = lhs.sort_map.get(shared_sort);
         let r = rhs.sort_map.get(shared_sort);
@@ -572,17 +585,23 @@ fn verify_cocone(
 /// Applies `op_rename` to T2's equation terms before comparison so that
 /// operations identified via the morphisms are properly aligned with T1's
 /// naming convention.
-/// Rename sort references in a sort's dependent parameters using the rename map.
+/// Rewrite a sort's dependent parameters into the pushout's namespace.
+///
+/// Each parameter's sort expression has its head rewritten through
+/// `sort_rename` and every operation named inside its argument terms
+/// rewritten through `op_rename`, so a parameter sort such as
+/// `Fib(base())` follows both identifications the span makes.
 fn rename_sort_refs(
     sort: &crate::sort::Sort,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> crate::sort::Sort {
     let params = sort
         .params
         .iter()
         .map(|p| crate::sort::SortParam {
             name: Arc::clone(&p.name),
-            sort: p.sort.rename_head(sort_rename),
+            sort: p.sort.apply_maps(sort_rename, op_rename),
         })
         .collect();
     crate::sort::Sort {
@@ -593,20 +612,32 @@ fn rename_sort_refs(
     }
 }
 
-/// Rename sort references in an operation's input / output sorts using
-/// the rename map. Renames only the sort heads; argument terms of
-/// dependent sorts refer to parameter names that are local to each
-/// operation and are therefore unaffected.
+/// Rewrite an operation's input and output sorts into the pushout's
+/// namespace.
+///
+/// Sort heads follow `sort_rename` and every operation applied inside a
+/// dependent sort's argument terms follows `op_rename`. A dependent sort
+/// argument may name an operation the span identifies — `Hom(pt(), pt())`
+/// is a sort expression whose arguments are terms — so renaming only the
+/// head would leave the surviving signature pointing at an operation the
+/// pushout no longer declares.
 fn rename_op_sort_refs(
     op: &crate::op::Operation,
     sort_rename: &HashMap<Arc<str>, Arc<str>>,
+    op_rename: &HashMap<Arc<str>, Arc<str>>,
 ) -> crate::op::Operation {
     let inputs: Vec<(Arc<str>, crate::sort::SortExpr, crate::op::Implicit)> = op
         .inputs
         .iter()
-        .map(|(name, sort, imp)| (Arc::clone(name), sort.rename_head(sort_rename), *imp))
+        .map(|(name, sort, imp)| {
+            (
+                Arc::clone(name),
+                sort.apply_maps(sort_rename, op_rename),
+                *imp,
+            )
+        })
         .collect();
-    let output = op.output.rename_head(sort_rename);
+    let output = op.output.apply_maps(sort_rename, op_rename);
     crate::op::Operation::with_implicit(Arc::clone(&op.name), inputs, output)
 }
 
@@ -1890,5 +1921,152 @@ mod tests {
         result
             .verify_universal_identity()
             .expect("canonical cocone factors via the identity mediator");
+    }
+
+    // --- operation renaming inside dependent-sort argument terms ---
+
+    /// A theory carrying one point and one dependent sort whose argument
+    /// term mentions that point.
+    fn pointed_loop_theory(name: &str, point_sort: &str, point: &str, loop_op: &str) -> Theory {
+        Theory::new(
+            name,
+            vec![
+                Sort::simple(point_sort),
+                Sort::dependent("Loop", vec![SortParam::new("p", point_sort)]),
+            ],
+            vec![
+                Operation::new(point, vec![], point_sort),
+                Operation::new(
+                    loop_op,
+                    vec![],
+                    crate::sort::SortExpr::app("Loop", vec![Term::constant(point)]),
+                ),
+            ],
+            vec![],
+        )
+    }
+
+    #[test]
+    fn pushout_merges_same_name_sorts_compatible_after_renaming() {
+        // T1 and T2 both declare `Loop`, over point sorts the span
+        // identifies. The two declarations agree once the identification is
+        // applied, so the pushout carries a single `Loop`.
+        let t1 = pointed_loop_theory("T1", "Pt", "pt", "loop1");
+        let t2 = pointed_loop_theory("T2", "Pt2", "pt2", "loop2");
+        let i1 = TheoryMorphism::new(
+            "i1",
+            "S",
+            "T1",
+            HashMap::from([(Arc::from("Pt"), Arc::from("Pt"))]),
+            HashMap::from([(Arc::from("pt"), Arc::from("pt"))]),
+        );
+        let i2 = TheoryMorphism::new(
+            "i2",
+            "S",
+            "T2",
+            HashMap::from([(Arc::from("Pt"), Arc::from("Pt2"))]),
+            HashMap::from([(Arc::from("pt"), Arc::from("pt2"))]),
+        );
+        let result = colimit(&t1, &t2, &i1, &i2).expect("pushout exists");
+        assert_eq!(
+            result
+                .theory
+                .sorts
+                .iter()
+                .filter(|s| &*s.name == "Loop")
+                .count(),
+            1,
+            "the two Loop declarations agree after renaming: {:?}",
+            result.theory.sorts,
+        );
+    }
+
+    #[test]
+    fn pushout_renames_ops_inside_dependent_sort_arguments() {
+        // The span identifies T1's point with T2's point. T2's `loop2` has
+        // output sort `Loop(pt2())`, so the pushout must rewrite the
+        // argument term too, not just the sort head.
+        let shared = Theory::new(
+            "S",
+            vec![Sort::simple("Pt")],
+            vec![Operation::new("pt", vec![], "Pt")],
+            vec![],
+        );
+        let t1 = pointed_loop_theory("T1", "Pt", "pt", "loop1");
+        let t2 = pointed_loop_theory("T2", "Pt2", "pt2", "loop2");
+
+        let i1 = TheoryMorphism::new(
+            "i1",
+            "S",
+            "T1",
+            HashMap::from([(Arc::from("Pt"), Arc::from("Pt"))]),
+            HashMap::from([(Arc::from("pt"), Arc::from("pt"))]),
+        );
+        let i2 = TheoryMorphism::new(
+            "i2",
+            "S",
+            "T2",
+            HashMap::from([(Arc::from("Pt"), Arc::from("Pt2"))]),
+            HashMap::from([(Arc::from("pt"), Arc::from("pt2"))]),
+        );
+
+        let result = colimit(&t1, &t2, &i1, &i2).expect("pushout exists");
+
+        // No surviving signature may mention a name the pushout quotiented
+        // away.
+        for op in &result.theory.ops {
+            for arg in op.output.args() {
+                for name in referenced_ops(arg) {
+                    assert!(
+                        result.theory.has_op(&name),
+                        "op `{}` output mentions `{name}`, absent from the pushout: {:?}",
+                        op.name,
+                        op.output,
+                    );
+                }
+            }
+        }
+
+        // The T2 inclusion must be a genuine morphism into the pushout.
+        check_morphism(&result.inclusion2, &t2, &result.theory)
+            .expect("T2 inclusion is a morphism into the pushout");
+        check_morphism(&result.inclusion1, &t1, &result.theory)
+            .expect("T1 inclusion is a morphism into the pushout");
+        result
+            .verify_cocone(&i1, &i2, &shared, &t1, &t2)
+            .expect("the pushout cocone commutes");
+    }
+
+    /// Every operation name applied anywhere inside a term.
+    fn referenced_ops(term: &Term) -> Vec<Arc<str>> {
+        let mut names = Vec::new();
+        collect_referenced_ops(term, &mut names);
+        names
+    }
+
+    fn collect_referenced_ops(term: &Term, names: &mut Vec<Arc<str>>) {
+        match term {
+            Term::Var(_) | Term::Hole { .. } => {}
+            Term::App { op, args } => {
+                names.push(Arc::clone(op));
+                for arg in args {
+                    collect_referenced_ops(arg, names);
+                }
+            }
+            Term::Case {
+                scrutinee,
+                branches,
+            } => {
+                collect_referenced_ops(scrutinee, names);
+                for branch in branches {
+                    names.push(Arc::clone(&branch.constructor));
+                    collect_referenced_ops(&branch.body, names);
+                }
+            }
+            Term::Let { bound, body, .. } => {
+                collect_referenced_ops(bound, names);
+                collect_referenced_ops(body, names);
+            }
+        }
     }
 }

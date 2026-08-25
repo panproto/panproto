@@ -1,54 +1,32 @@
 # panproto-grammars-functional
 
-[![PyPI](https://img.shields.io/pypi/v/panproto-grammars-functional)](https://pypi.org/project/panproto-grammars-functional/)
-[![Python](https://img.shields.io/pypi/pyversions/panproto-grammars-functional)](https://pypi.org/project/panproto-grammars-functional/)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/panproto/panproto/blob/main/LICENSE)
+Python companion package for Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, and Racket.
 
-Companion grammar pack for [panproto] shipping tree-sitter grammars for functional-language source: Haskell, OCaml, Elm, Gleam, Erlang, Elixir, PureScript, F#, Clojure, Scheme, and Racket.
-
-Companion packs are how the Python wheel adds tree-sitter grammars without bloating the core: `panproto` itself bundles only the 11-language `group-core` baseline, and packs like this one extend that surface as separate pip-installable wheels. Installing this package makes its grammars available to `panproto.AstParserRegistry()` automatically.
-
-[panproto]: https://pypi.org/project/panproto/
-
-## Status
-
-Pre-1.0 with arbitrary breaking changes between minor versions. The pack version tracks the workspace `panproto` version on every release; consumers should pin both to the same minor (e.g. `panproto>=0.45,<0.46` and `panproto-grammars-functional>=0.45,<0.46`).
-
-Python 3.13+ required.
-
-## Installation
+## Install
 
 ```bash
 pip install panproto-grammars-functional
 ```
 
-Wheels are published on PyPI for Linux x86_64 / aarch64, macOS arm64 / x86_64, and Windows x86_64. No Rust toolchain is required.
+The package requires Python 3.13 or newer. Its current metadata requires the matching panproto minor release, `panproto>=0.72,<0.73`.
 
-Pulls in `panproto>=0.45` as a runtime dependency. If `panproto` is not already installed, pip resolves it automatically.
+## Discovery
 
-## Synopsis
+The wheel registers `panproto_grammars_functional._impl` in the `panproto.grammars` entry-point group. Each call to `panproto.AstParserRegistry()` loads installed entries and calls their `grammars_metadata()` functions. Duplicate names already registered by the core wheel or another pack are ignored. A pack that cannot load produces a `RuntimeWarning`. Registry construction continues without its grammars.
+
+Application code does not need to import this companion package. Its top-level Python package exposes only `__version__`. Calling `panproto._native.AstParserRegistry()` directly bypasses companion discovery.
+
+## Use
 
 ```python
 import panproto
 
-reg = panproto.AstParserRegistry()
-# The grammars from this pack are now in the registry alongside the
-# group-core ones (Python, JavaScript, Rust, ...).
-# schema = reg.parse_with_protocol("haskell", b"f x = x", "main.hs")
+registry = panproto.AstParserRegistry()
+schema = registry.parse_with_protocol("haskell", b"f x = x", "main.hs")
 ```
 
-Nothing to import from this package directly. The architecture is described in [bindings/python/README.md](https://github.com/panproto/panproto/tree/main/bindings/python#companion-grammar-packs).
-
-## Languages
-
-Haskell · OCaml · Elm · Gleam · Erlang · Elixir · PureScript · F# · Clojure · Scheme · Racket.
-
-## Architecture
-
-Each companion is a separate pyo3 cdylib depending on `panproto-grammars` with one `group-*` feature flag. On installation it registers a `panproto.grammars` entry point that points at its `_impl` submodule; on construction `panproto.AstParserRegistry()` walks every such entry point and threads the discovered grammar metadata into the native registry. Cross-cdylib transport uses raw FFI pointers cast to integers; the trust boundary lives on the panproto side.
-
-Source: [`crates/panproto-grammars-functional`](https://github.com/panproto/panproto/tree/main/crates/panproto-grammars-functional) on the Rust side, [`bindings/python-grammars-functional`](https://github.com/panproto/panproto/tree/main/bindings/python-grammars-functional) on the Python side.
+The Rust extension is implemented in `crates/panproto-grammars-functional/`. The wheel metadata and Python package are in this directory.
 
 ## License
 
-[MIT](https://github.com/panproto/panproto/blob/main/LICENSE)
+MIT.

@@ -164,15 +164,14 @@ struct ComplementSpecFixtureTests {
         #expect(spec.summary == "1 default(s) required, 3 field(s) captured in complement.")
     }
 
-    @Test("a suggested default arrives as the explicit null")
-    func suggestedDefaultIsExplicitNull() throws {
+    @Test("an unavailable suggested default is absent")
+    func unavailableSuggestedDefaultIsAbsent() throws {
         let spec = try replayed(ComplementSpec.self, from: "complement-spec")
         let requirement = try #require(spec.forwardDefaults.first)
 
         #expect(requirement.elementName == "blob")
         #expect(requirement.elementKind == "blob")
-        #expect(requirement.suggestedDefault == .null)
-        #expect(requirement.suggestedDefault?.isNull == true)
+        #expect(requirement.suggestedDefault == nil)
     }
 
     @Test("the captured fields name their kinds")

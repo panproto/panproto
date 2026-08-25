@@ -2,7 +2,7 @@
 
 A migration can connect schemas registered under different protocols when their relevant structure agrees. This tutorial converts a `User` record from a [JSON Schema](https://json-schema.org/) graph to an [OpenAPI](https://www.openapis.org/) schema graph by mapping each object and property explicitly. It is the advanced continuation of [Your first migration](./your-first-migration.md).
 
-The example is deliberately narrow. JSON Schema and OpenAPI use compatible object, scalar, and property structure in this case. The TypeScript existence check selects the source schema's registered protocol, so this example does not establish general cross-protocol checking. Protocol pairs with different structural rules require a repository-level bridge; [Translate across protocols](../how-to/cross-protocol.md) records the current boundary.
+The example is deliberately narrow. JSON Schema and OpenAPI use compatible object, scalar, and property structure in this case. The TypeScript existence check selects the source schema's registered protocol, so this example does not establish general cross-protocol checking. Protocol pairs with different structural rules require a repository-level bridge. [Translate across protocols](../how-to/cross-protocol.md) records the current boundary.
 
 ## Build both endpoints
 

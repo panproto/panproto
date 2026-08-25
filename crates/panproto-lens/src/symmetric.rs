@@ -36,34 +36,101 @@ pub struct SymmetricLens {
     pub middle: Schema,
 }
 
+/// Describe the first way two candidate middles differ, or `None` when
+/// they are the same schema.
+///
+/// Compares everything the two legs read while synchronizing: the
+/// protocol, the vertices and their kinds, the edges and their kinds,
+/// hyper-edges, constraints, requiredness, variants, edge orderings,
+/// recursion points, and nominal identity. Byte spans and usage modes
+/// are parse decoration and are deliberately left out, so a middle read
+/// from a file and the same middle built in memory still count as one
+/// schema.
+fn middle_disagreement(left: &Schema, right: &Schema) -> Option<String> {
+    if left.protocol != right.protocol {
+        return Some(format!(
+            "protocols differ: {:?} and {:?}",
+            left.protocol, right.protocol
+        ));
+    }
+    if left.vertices != right.vertices {
+        let only_left = name_difference(left.vertices.keys(), right.vertices.keys());
+        let only_right = name_difference(right.vertices.keys(), left.vertices.keys());
+        return Some(if only_left.is_empty() && only_right.is_empty() {
+            "the two middles name the same vertices with different kinds".to_owned()
+        } else {
+            format!(
+                "vertices differ: only on the left {only_left:?}, only on the right {only_right:?}"
+            )
+        });
+    }
+    if left.edges != right.edges {
+        return Some(format!(
+            "edges differ: {} on the left, {} on the right",
+            left.edges.len(),
+            right.edges.len()
+        ));
+    }
+    if left.hyper_edges != right.hyper_edges {
+        return Some("hyper-edges differ".to_owned());
+    }
+    if left.constraints != right.constraints {
+        return Some("constraints differ".to_owned());
+    }
+    if left.required != right.required {
+        return Some("required edges differ".to_owned());
+    }
+    if left.variants != right.variants {
+        return Some("variants differ".to_owned());
+    }
+    if left.orderings != right.orderings {
+        return Some("edge orderings differ".to_owned());
+    }
+    if left.recursion_points != right.recursion_points {
+        return Some("recursion points differ".to_owned());
+    }
+    if left.nominal != right.nominal {
+        return Some("nominal identity differs".to_owned());
+    }
+    None
+}
+
+/// The names in the first iterator that the second does not carry, sorted.
+fn name_difference<'a>(
+    present: impl Iterator<Item = &'a panproto_gat::Name>,
+    absent_from: impl Iterator<Item = &'a panproto_gat::Name>,
+) -> Vec<&'a str> {
+    let absent_from: std::collections::BTreeSet<&str> = absent_from.map(AsRef::as_ref).collect();
+    let mut out: Vec<&str> = present
+        .map(AsRef::as_ref)
+        .filter(|n| !absent_from.contains(n))
+        .collect();
+    out.sort_unstable();
+    out
+}
+
 impl SymmetricLens {
     /// Create a symmetric lens from two asymmetric lenses that share the
     /// same source schema (the "middle").
     ///
+    /// Synchronization puts a view back through one leg and gets through
+    /// the other, so the instance one leg produces is read by the other
+    /// against the schema it was built for. That only makes sense when
+    /// the two source schemas are the same schema, and the check is over
+    /// everything the two legs traverse, not just the vertex names: two
+    /// schemas that agree on vertices while disagreeing on edges, kinds,
+    /// or requiredness would lose arcs on every sync without saying so.
+    ///
+    /// Parse decoration (byte spans, usage modes) is not compared: it
+    /// records where a schema was read from, not what it is.
+    ///
     /// # Errors
     ///
-    /// Returns `LensError::CompositionMismatch` if the source schemas of
-    /// the two lenses do not match.
+    /// Returns [`LensError::NoSharedMiddle`] naming the first
+    /// disagreement when the two source schemas are not the same schema.
     pub fn from_span(left: Lens, right: Lens) -> Result<Self, LensError> {
-        // Verify that both lenses have the same source schema (middle)
-        if left.src_schema.protocol != right.src_schema.protocol
-            || left.src_schema.vertex_count() != right.src_schema.vertex_count()
-        {
-            return Err(LensError::CompositionMismatch);
-        }
-        // Check that vertex IDs match exactly
-        if left
-            .src_schema
-            .vertices
-            .keys()
-            .collect::<std::collections::BTreeSet<_>>()
-            != right
-                .src_schema
-                .vertices
-                .keys()
-                .collect::<std::collections::BTreeSet<_>>()
-        {
-            return Err(LensError::CompositionMismatch);
+        if let Some(detail) = middle_disagreement(&left.src_schema, &right.src_schema) {
+            return Err(LensError::NoSharedMiddle { detail });
         }
         let middle = left.src_schema.clone();
         Ok(Self {
@@ -327,6 +394,43 @@ mod tests {
         let right = identity_lens(&schema);
         let sym = SymmetricLens::from_span(left, right).unwrap();
         assert_eq!(sym.middle.vertices.len(), schema.vertices.len());
+    }
+
+    #[test]
+    fn legs_that_agree_only_on_vertex_names_do_not_share_a_middle() {
+        // Both middles carry the same three vertices; one of them has no
+        // edges. Synchronizing puts a view back through one leg and reads
+        // the result through the other, so a middle instance built to the
+        // edgeless schema loses every arc when the other leg reads it.
+        let schema = three_node_schema();
+        let mut edgeless = schema.clone();
+        edgeless.edges.clear();
+        edgeless.outgoing.clear();
+        edgeless.incoming.clear();
+        edgeless.between.clear();
+        assert_eq!(
+            edgeless
+                .vertices
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>(),
+            schema
+                .vertices
+                .keys()
+                .collect::<std::collections::BTreeSet<_>>(),
+            "the two middles must agree on vertex names for this test to mean anything",
+        );
+
+        let left = identity_lens(&schema);
+        let right = identity_lens(&edgeless);
+        match SymmetricLens::from_span(left, right) {
+            Err(LensError::NoSharedMiddle { detail }) => {
+                assert!(detail.contains("edges"), "{detail}");
+            }
+            other => panic!(
+                "legs whose middles differ in their edges must be refused, got {:?}",
+                other.map(|_| ()),
+            ),
+        }
     }
 
     #[test]

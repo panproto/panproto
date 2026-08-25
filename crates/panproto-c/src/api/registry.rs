@@ -85,7 +85,7 @@ pub fn pp_io_parse_instance(
         let name = std::str::from_utf8(proto_name.as_slice())
             .map_err(|e| FfiError::Operation(format!("invalid protocol name UTF-8: {e}")))?;
 
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         let bytes = handle::with_resource(registry, |r| {
             let reg = r.as_io_registry()?;
@@ -140,7 +140,7 @@ pub fn pp_io_emit_instance(
         let name = std::str::from_utf8(proto_name.as_slice())
             .map_err(|e| FfiError::Operation(format!("invalid protocol name UTF-8: {e}")))?;
 
-        let schema = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let schema = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
 
         // Determine the native representation under the registry borrow,
         // then decode the matching instance type. The decode happens

@@ -47,8 +47,8 @@ import GHC.Generics (Generic)
 -- The Rust @Schema@ struct has twenty-odd fields, including
 -- @HashMap@s with custom serde helpers, @Expr@-valued enrichment
 -- maps, and precomputed adjacency indices. Mirroring the full
--- structure on the Haskell side is large project — out of scope
--- for the @0.41.0@ release — so this 'CanonicalSchema' carries the
+-- structure on the Haskell side is not implemented, so this
+-- 'CanonicalSchema' carries the
 -- CBOR bytes verbatim rather than a structured ADT. Use the Rust
 -- backend (which round-trips through @ciborium@) to introspect.
 --

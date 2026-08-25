@@ -318,18 +318,29 @@ impl TheoryMorphism {
     ///
     /// The sort and operation maps are composed: for each `a ↦ b` in `self` and
     /// `b ↦ c` in `other`, the composed map has `a ↦ c`. When `self` assigns an
-    /// operation a derived term, the operations inside that term (which name
-    /// `self`'s codomain, i.e. `other`'s domain) are renamed through `other`'s
-    /// operation-rename view to land in `C`.
+    /// operation a derived term, that term names `B`'s operations, and each is
+    /// pushed through `other`: a renamed operation is substituted by name, and
+    /// one that `other` sends to a derived term is expanded by substituting the
+    /// mapped arguments for the operation's declared parameters. `middle`
+    /// supplies those parameter names and must be `B` itself.
     ///
     /// # Errors
     ///
+    /// Returns [`GatError::ComposeDomainMismatch`] if `self`'s codomain is not
+    /// `other`'s domain, or if `middle` is not that theory.
+    ///
     /// Returns [`GatError::ComposeUnmapped`] if a sort or operation in `self`'s
     /// codomain image has no mapping in `other`.
-    pub fn compose(&self, other: &Self) -> Result<Self, crate::error::GatError> {
+    pub fn compose(&self, other: &Self, middle: &Theory) -> Result<Self, crate::error::GatError> {
         if self.codomain != other.domain {
             return Err(crate::error::GatError::ComposeDomainMismatch {
                 first_codomain: self.codomain.to_string(),
+                second_domain: other.domain.to_string(),
+            });
+        }
+        if middle.name != other.domain {
+            return Err(crate::error::GatError::ComposeDomainMismatch {
+                first_codomain: middle.name.to_string(),
                 second_domain: other.domain.to_string(),
             });
         }
@@ -346,7 +357,6 @@ impl TheoryMorphism {
                     })?;
             sort_map.insert(Arc::clone(a), Arc::clone(c));
         }
-        let other_rename = other.op_rename_map();
         let mut op_map = HashMap::with_capacity(self.op_map.len());
         for (a, assignment) in &self.op_map {
             let composed = match assignment {
@@ -357,7 +367,9 @@ impl TheoryMorphism {
                         image: b.to_string(),
                     }
                 })?,
-                OpAssignment::Term(term) => OpAssignment::Term(term.rename_ops(&other_rename)),
+                OpAssignment::Term(term) => {
+                    OpAssignment::Term(other.apply_to_term_substituting(term, middle))
+                }
             };
             op_map.insert(Arc::clone(a), composed);
         }
@@ -1580,13 +1592,13 @@ mod tests {
         );
 
         // id ; f == f
-        let id_then_f = id.compose(&f).unwrap();
+        let id_then_f = id.compose(&f, &t).unwrap();
         assert_eq!(id_then_f.sort_map, f.sort_map);
         assert_eq!(id_then_f.op_map, f.op_map);
 
         // f ; id_codomain == f
         let id_cod = TheoryMorphism::identity(&codomain);
-        let f_then_id = f.compose(&id_cod).unwrap();
+        let f_then_id = f.compose(&id_cod, &codomain).unwrap();
         assert_eq!(f_then_id.sort_map, f.sort_map);
         assert_eq!(f_then_id.op_map, f.op_map);
     }
@@ -1599,13 +1611,13 @@ mod tests {
             vec![Operation::unary("f", "x", "A", "A")],
             Vec::new(),
         );
-        let _t2 = Theory::new(
+        let t2 = Theory::new(
             "T2",
             vec![Sort::simple("B")],
             vec![Operation::unary("g", "x", "B", "B")],
             Vec::new(),
         );
-        let _t3 = Theory::new(
+        let t3 = Theory::new(
             "T3",
             vec![Sort::simple("C")],
             vec![Operation::unary("h", "x", "C", "C")],
@@ -1640,8 +1652,8 @@ mod tests {
             HashMap::from([(Arc::from("h"), Arc::from("k"))]),
         );
 
-        let left = m1.compose(&m2).unwrap().compose(&m3).unwrap();
-        let right = m1.compose(&m2.compose(&m3).unwrap()).unwrap();
+        let left = m1.compose(&m2, &t2).unwrap().compose(&m3, &t3).unwrap();
+        let right = m1.compose(&m2.compose(&m3, &t3).unwrap(), &t2).unwrap();
 
         assert_eq!(left.sort_map, right.sort_map);
         assert_eq!(left.op_map, right.op_map);
@@ -2037,7 +2049,7 @@ mod tests {
         // An identity morphism on t1 composes with itself without
         // picking up any structure from t2.
         let id1 = TheoryMorphism::identity(&t1);
-        let id1_twice = id1.compose(&id1).unwrap();
+        let id1_twice = id1.compose(&id1, &t1).unwrap();
         assert_eq!(id1_twice.sort_map, id1.sort_map);
         assert_eq!(id1_twice.op_map, id1.op_map);
         // t1 and t2 do not share mutable state: their equations are
@@ -2507,10 +2519,10 @@ mod tests {
 
             #[test]
             fn composition_is_associative(
-                (_t1, _t2, _t3, _t4, m1, m2, m3) in arb_composable_triple()
+                (_t1, t2, t3, _t4, m1, m2, m3) in arb_composable_triple()
             ) {
-                let left = m1.compose(&m2).unwrap().compose(&m3).unwrap();
-                let right = m1.compose(&m2.compose(&m3).unwrap()).unwrap();
+                let left = m1.compose(&m2, &t2).unwrap().compose(&m3, &t3).unwrap();
+                let right = m1.compose(&m2.compose(&m3, &t3).unwrap(), &t2).unwrap();
                 prop_assert_eq!(&left.sort_map, &right.sort_map);
                 prop_assert_eq!(&left.op_map, &right.op_map);
                 prop_assert_eq!(&left.domain, &right.domain);
@@ -2520,7 +2532,7 @@ mod tests {
             #[test]
             fn identity_is_left_unit((t1, _t2, _t3, m1, _m2) in arb_composable_pair()) {
                 let id = TheoryMorphism::identity(&t1);
-                let id_then_m = id.compose(&m1).unwrap();
+                let id_then_m = id.compose(&m1, &t1).unwrap();
                 prop_assert_eq!(&id_then_m.sort_map, &m1.sort_map);
                 prop_assert_eq!(&id_then_m.op_map, &m1.op_map);
             }
@@ -2528,7 +2540,7 @@ mod tests {
             #[test]
             fn identity_is_right_unit((_t1, t2, _t3, m1, _m2) in arb_composable_pair()) {
                 let id = TheoryMorphism::identity(&t2);
-                let m_then_id = m1.compose(&id).unwrap();
+                let m_then_id = m1.compose(&id, &t2).unwrap();
                 prop_assert_eq!(&m_then_id.sort_map, &m1.sort_map);
                 prop_assert_eq!(&m_then_id.op_map, &m1.op_map);
             }
@@ -2550,12 +2562,90 @@ mod tests {
                 prop_assert!(check_morphism(&m1, &t1, &t2).is_ok());
                 prop_assert!(check_morphism(&m2, &t2, &t3).is_ok());
                 // Composition must also be valid.
-                let composed = m1.compose(&m2).unwrap();
+                let composed = m1.compose(&m2, &t2).unwrap();
                 prop_assert!(
                     check_morphism(&composed, &t1, &t3).is_ok(),
                     "composed morphism should be valid",
                 );
             }
         }
+    }
+
+    // --- composition through derived-term assignments ---
+
+    /// `S` with one unary operation over it.
+    fn unary_theory(theory: &str, op: &str) -> Theory {
+        Theory::new(
+            theory,
+            vec![Sort::simple("S")],
+            vec![Operation::new(
+                op,
+                vec![(Arc::from("x"), crate::sort::SortExpr::from("S"))],
+                "S",
+            )],
+            vec![],
+        )
+    }
+
+    /// `op` applied to itself over the variable `x`.
+    fn twice(op: &str) -> Term {
+        Term::app(op, vec![Term::app(op, vec![Term::var("x")])])
+    }
+
+    fn derived_morphism(
+        name: &str,
+        domain: &str,
+        codomain: &str,
+        op: &str,
+        image: Term,
+    ) -> TheoryMorphism {
+        TheoryMorphism::new(
+            name,
+            domain,
+            codomain,
+            HashMap::from([(Arc::from("S"), Arc::from("S"))]),
+            HashMap::from([(Arc::<str>::from(op), OpAssignment::Term(image))]),
+        )
+    }
+
+    #[test]
+    fn compose_expands_derived_term_assignments() {
+        let a = unary_theory("A", "f");
+        let b = unary_theory("B", "g");
+        let c = unary_theory("C", "k");
+
+        let f_to_gg = derived_morphism("F", "A", "B", "f", twice("g"));
+        let g_to_kk = derived_morphism("G", "B", "C", "g", twice("k"));
+        check_morphism(&f_to_gg, &a, &b).unwrap();
+        check_morphism(&g_to_kk, &b, &c).unwrap();
+
+        let composed = f_to_gg.compose(&g_to_kk, &b).unwrap();
+
+        let expected = Term::app(
+            "k",
+            vec![Term::app(
+                "k",
+                vec![Term::app("k", vec![Term::app("k", vec![Term::var("x")])])],
+            )],
+        );
+        assert_eq!(
+            composed.op_map.get(&Arc::<str>::from("f")),
+            Some(&OpAssignment::Term(expected)),
+            "f must land on k applied four times: {:?}",
+            composed.op_map,
+        );
+        check_morphism(&composed, &a, &c).unwrap();
+    }
+
+    #[test]
+    fn compose_rejects_a_middle_theory_that_is_not_the_second_domain() {
+        let c = unary_theory("C", "k");
+        let f_to_gg = derived_morphism("F", "A", "B", "f", twice("g"));
+        let g_to_kk = derived_morphism("G", "B", "C", "g", twice("k"));
+        let err = f_to_gg.compose(&g_to_kk, &c).unwrap_err();
+        assert!(
+            matches!(err, crate::error::GatError::ComposeDomainMismatch { .. }),
+            "got {err:?}",
+        );
     }
 }

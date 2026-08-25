@@ -1,7 +1,6 @@
 # panproto-grammars-web
 
-A panproto companion package shipping tree-sitter grammars for
-web languages: HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, GraphQL.
+Python companion package for HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, and GraphQL.
 
 ## Install
 
@@ -9,24 +8,24 @@ web languages: HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro,
 pip install panproto-grammars-web
 ```
 
-The package declares an entry point under `panproto.grammars`.
-panproto's `AstParserRegistry` factory picks it up automatically;
-there is nothing to import from this package directly.
+The package requires Python 3.13 or newer. Its current metadata requires the matching panproto minor release, `panproto>=0.72,<0.73`.
+
+## Discovery
+
+The wheel registers `panproto_grammars_web._impl` in the `panproto.grammars` entry-point group. Each call to `panproto.AstParserRegistry()` loads installed entries and calls their `grammars_metadata()` functions. Duplicate names already registered by the core wheel or another pack are ignored. A pack that cannot load produces a `RuntimeWarning`. Registry construction continues without its grammars.
+
+Application code does not need to import this companion package. Its top-level Python package exposes only `__version__`. Calling `panproto._native.AstParserRegistry()` directly bypasses companion discovery.
 
 ## Use
 
 ```python
 import panproto
 
-reg = panproto.AstParserRegistry()
-# parse one of the grammars this pack adds:
-# schema = reg.parse_with_protocol("typescript", b"...", "main.ts")
+registry = panproto.AstParserRegistry()
+schema = registry.parse_with_protocol("html", b"<p>x</p>", "index.html")
 ```
 
-See the panproto repository for the full list of available grammar
-packs and the source for this one at
-`crates/panproto-grammars-web/` and
-`bindings/python-grammars-web/`.
+The Rust extension is implemented in `crates/panproto-grammars-web/`. The wheel metadata and Python package are in this directory.
 
 ## License
 

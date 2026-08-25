@@ -1,10 +1,12 @@
 # Translate across protocols
 
-panproto does not currently expose an end-to-end CLI or SDK operation that parses a schema in one built-in protocol, constructs a shared theory with another built-in protocol, and emits the target protocol's schema or data. The CLI's `--protocol` arguments select one registered protocol for both schemas.
+panproto has two different cross-protocol cases. The TypeScript SDK can apply an explicit vertex-and-edge mapping between two protocol-tagged schema handles. It does not construct a shared theory or emit a complete target-language document. The CLI does not expose that limited two-protocol path: each `--protocol` argument selects one protocol for both schemas, and the current CLI resolver accepts only `atproto`.
 
 ## Decide whether the task is supported
 
-Use [Convert data between schemas](./convert-data.md) when both schemas already name the same protocol. For different protocol names, a bridge requires repository-level implementation: a shared protocol theory, source and target schema translations into that theory, and format-specific parsing and emission at the boundaries.
+Use [Convert data between schemas](./convert-data.md) when both schemas use `atproto` and are already stored as panproto schema JSON. For a small explicit map in TypeScript, build both schema handles, map every relevant vertex and edge, and compile the migration as shown in [Cross-protocol translation](../tutorials/cross-protocol-translation.md). `checkExistence` selects the source schema's registered protocol, so that report does not establish validity under both protocols. The result of `liftJson` is target-shaped JSON, not a complete OpenAPI, Protobuf, or other target document.
+
+A general bridge requires repository-level implementation: a shared protocol theory, explicit source and target translations into that theory, and format-specific parsing and emission at the boundaries.
 
 The theory DSL can compile a colimit of building-block theories, but compilation alone does not register a runtime protocol or translate existing JSON Schema, Protobuf, ATProto, or other built-in schemas into the result. Thus a DSL `compose` document is only one component of a cross-protocol bridge.
 
@@ -24,12 +26,12 @@ Each translation in steps 3 and 5 is format-specific code. panproto does not inf
 
 Test the three boundaries separately: source parsing into the shared schema, migration or lens laws over representative instances, and target emission followed by the target protocol's parser. Constraints with no representation in the shared theory must be reported or handled explicitly; no current generic command detects and reports every such loss.
 
-## Unsupported commands
+## CLI boundaries
 
 The following patterns do not provide cross-protocol translation:
 
-- `schema data convert --protocol <name>` accepts one protocol name and loads both schemas under it.
-- `schema lens generate --protocol <name>` likewise resolves one protocol for the entire lens.
+- `schema data convert --protocol <name>` accepts one protocol name and loads both schemas under it. The current resolver accepts only `atproto`.
+- `schema lens generate --protocol <name>` likewise resolves one protocol for the entire lens, again only `atproto` in the current CLI.
 - `schema theory compile` validates and compiles a theory document but does not add it to the running CLI's built-in protocol lookup.
 
 ## See also

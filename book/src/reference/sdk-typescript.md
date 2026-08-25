@@ -30,7 +30,7 @@ The generated declaration file in the package is the signature authority. The ta
 |---|---|
 | `Panproto` | Engine initialization and convenience methods for protocols, parsing, diffs, migrations, lenses, instance I/O, VCS, and data sets |
 | `Protocol` | Protocol specification and `schema(): SchemaBuilder` |
-| `SchemaBuilder` | Immutable builder; each mutation returns a new builder and `build()` returns `BuiltSchema` |
+| `SchemaBuilder` | Immutable builder. Each mutation returns a new builder, and `build()` returns `BuiltSchema`. |
 | `BuiltSchema` | Engine-backed schema with structural metadata, normalization, and validation |
 | `MigrationBuilder` | Immutable vertex, edge, and resolver mapping builder |
 | `CompiledMigration` | `lift`, complement-carrying `get` and `put`, plus JSON convenience methods |
@@ -40,7 +40,7 @@ The generated declaration file in the package is the signature authority. The ta
 | `TheoryHandle`, `TheoryBuilder` | GAT construction, colimits, and morphism operations |
 | `Repository`, `DataSetHandle` | In-memory VCS and data-versioning resources |
 | `parseExpr`, `evalExpr`, `formatExpr`, `ExprBuilder` | Expression parsing, evaluation, formatting, and construction |
-| `executeQuery`, `fiberAt`, `fiberDecomposition`, `polyHom` | Instance-query and structural operations |
+| `executeQuery`, `fiberAt`, `fiberDecomposition`, `polyHom` | Instance-query and structural exports. `executeQuery` has the boundary mismatch described below. |
 
 The source export list is [`bindings/typescript/src/index.ts`](https://github.com/panproto/panproto/blob/main/bindings/typescript/src/index.ts). Package consumers should import from `@panproto/core`, since files under `src` are not package subpath exports.
 
@@ -68,7 +68,9 @@ class CompiledMigration {
 }
 ```
 
-`LiftResult.data` is `unknown`. `GetResult` contains `view: unknown` and `complement: Uint8Array`; the complement must be passed back unchanged unless an operation explicitly returns a replacement.
+`LiftResult.data` is `unknown`. `GetResult` contains `view: unknown` and `complement: Uint8Array`. The complement must be passed back unchanged unless an operation explicitly returns a replacement.
+
+If the compiled mapping has schema direction \(S\to T\), `lift` accepts an \(S\)-record and returns the surviving fragment as a \(T\)-record. It calls Rust's restrict-based `lift_wtype`. It is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). `get` has the same source-to-target direction and additionally captures the complement. `put` takes a \(T\)-view and that complement and reconstructs an \(S\)-record.
 
 ## Resource ownership
 
@@ -78,7 +80,7 @@ Engine-backed wrappers implement `Disposable`. This includes `Protocol`, `BuiltS
 using schema = protocol.schema().vertex('root', 'object').build();
 ```
 
-Disposal is idempotent. Accessing a disposed handle raises `WasmError`. A `FinalizationRegistry` frees a leaked handle as a fallback, but collection time is nondeterministic. Disposing `Panproto` releases its cached `Protocol` objects; it does not own every schema, migration, lens, registry, repository, or data-set wrapper created from it.
+Disposal is idempotent. Accessing a disposed handle raises `WasmError`. A `FinalizationRegistry` frees a leaked handle as a fallback, but collection time is nondeterministic. Disposing `Panproto` releases its cached `Protocol` objects. It does not own every schema, migration, lens, registry, repository, or data-set wrapper created from it.
 
 `Instance`, result objects, and `SpanResponse` are plain JavaScript data and do not implement `Disposable`.
 
@@ -99,6 +101,8 @@ The WASM surface exposes span search but not the Rust total-morphism functions `
 ## Boundary limits
 
 The SDK passes structured payloads through the WASM layer and stores live engine resources behind integer handles. The package does not expose the Rust `panproto-parse` full-AST registry, multi-file `panproto-project` builder, or `panproto-git` bridge. Schema-document and schema-source parsers available through `Panproto.parseSchemaDocument` and `Panproto.parseSchemaSource` are separate from that full-AST surface.
+
+The current `executeQuery` wrapper does not match the current WASM entry point. TypeScript sends only a query and instance, while Rust requires query, instance, and schema payloads. The TypeScript wire fields also use `projection`, `groupBy`, and `nodeId`, while the Rust query types use `project`, `group_by`, and `node_id`. Treat `executeQuery` as unavailable until the binding and WASM signatures are aligned.
 
 ## See also
 

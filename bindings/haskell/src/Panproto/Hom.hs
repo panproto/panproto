@@ -25,7 +25,7 @@
 -- (see "Panproto.Gat") renames sorts and operations; pushed through a
 -- concrete schema it induces a 'SchemaMorphism' (vertex and edge maps
 -- plus the site-qualified renames that produced them), which in turn
--- induces a data migration via Spivak's pullback functor. Both
+-- compiles into the tables used by the forward restrict pipeline. Both
 -- cascade steps read a schema's vertices and edges, so they live on
 -- the 'HomBackend' capability class, not as pure functions.
 --
@@ -632,8 +632,8 @@ class
 
     -- | Induce a complete migration pipeline from a 'TheoryMorphism' and
     -- a source/target schema pair: the induced 'SchemaMorphism' together
-    -- with the compiled migration (Spivak's @Δ_F@ pullback) the restrict
-    -- pipeline applies. Wraps @pp_hom_induce_migration_from_theory@
+    -- with the compiled source-to-target mapping the restrict pipeline
+    -- applies. Wraps @pp_hom_induce_migration_from_theory@
     -- (@cascade::induce_migration_from_theory@).
     induceMigrationFromTheory
         :: TheoryMorphism

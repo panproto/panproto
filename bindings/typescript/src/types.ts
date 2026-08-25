@@ -43,13 +43,14 @@ export interface MigrationHandle extends Handle {
  * Tier that controls which alignment strategies run during autolens
  * generation.
  *
- * - `strict` — only kind-exact name equality.
- * - `balanced` — alias dictionary + tight token similarity (default).
- * - `lenient` — adds span search over the shared subtheory + structural
- *   priors; engine emits real `DropSort` / `AddSort` steps for sorts
- *   with no counterpart in the other schema.
- * - `exploratory` — adds sort-coercion witness bridges and further
- *   loosens thresholds.
+ * - `strict` — exact identifiers, exact suffixes, and edge labels; total
+ *   morphisms only.
+ * - `balanced` — adds aliases, token similarity, and description similarity
+ *   (default); total morphisms only.
+ * - `lenient` — adds wrap/unwrap, type-signature, WL-refinement, and
+ *   neighborhood evidence; permits spans.
+ * - `exploratory` — adds structural and registered coercion-witness
+ *   proposals; permits spans.
  */
 export type Stringency = 'strict' | 'balanced' | 'lenient' | 'exploratory';
 
@@ -67,12 +68,18 @@ export type CoercionClass = 'Iso' | 'Retraction' | 'Projection' | 'Opaque';
 export type StrategyTag =
   | 'user_hint'
   | 'exact'
+  | 'exact_suffix'
+  | 'edge_label'
   | 'alias'
   | 'token_similarity'
+  | 'description_similarity'
   | 'type_signature'
   | 'wrap_unwrap'
   | 'coerce'
+  | 'neighborhood'
+  | 'wl_refinement'
   | 'structural'
+  /** Reserved for proposals supplied by an external language-model caller. */
   | 'llm';
 
 /**
@@ -711,7 +718,16 @@ export interface WasmExports {
   ): number;
   parse_expr(source: string): Uint8Array;
   eval_func_expr(expr_bytes: Uint8Array, env_bytes: Uint8Array): Uint8Array;
-  execute_query(query_bytes: Uint8Array, instance_bytes: Uint8Array): Uint8Array;
+  execute_query(
+    query_bytes: Uint8Array,
+    instance_bytes: Uint8Array,
+    schema_bytes: Uint8Array,
+  ): Uint8Array;
+  execute_query_with_schema_handle(
+    query_bytes: Uint8Array,
+    instance_bytes: Uint8Array,
+    schema_handle: number,
+  ): Uint8Array;
   // Phase 12: Fiber, hom, and graph operations
   fiber_at(instance_bytes: Uint8Array, migration_bytes: Uint8Array, target_anchor: string): Uint8Array;
   fiber_decomposition_wasm(instance_bytes: Uint8Array, migration_bytes: Uint8Array): Uint8Array;
@@ -776,7 +792,8 @@ export type Pattern =
   | { readonly type: 'var'; readonly name: string }
   | { readonly type: 'lit'; readonly value: Literal }
   | { readonly type: 'record'; readonly fields: readonly [string, Pattern][] }
-  | { readonly type: 'list'; readonly items: readonly Pattern[] };
+  | { readonly type: 'list'; readonly items: readonly Pattern[] }
+  | { readonly type: 'constructor'; readonly name: string; readonly args: readonly Pattern[] };
 
 /** Expression in the pure functional language. */
 export type Expr =
@@ -795,25 +812,34 @@ export type Expr =
 /** Literal value. */
 export type Literal =
   | { readonly type: 'bool'; readonly value: boolean }
-  | { readonly type: 'int'; readonly value: number }
+  /** Safe integers use `number`; larger Rust i64 values use `bigint`. */
+  | { readonly type: 'int'; readonly value: number | bigint }
   | { readonly type: 'float'; readonly value: number }
   | { readonly type: 'str'; readonly value: string }
   | { readonly type: 'bytes'; readonly value: Uint8Array }
   | { readonly type: 'null' }
   | { readonly type: 'record'; readonly fields: readonly [string, Literal][] }
-  | { readonly type: 'list'; readonly items: readonly Literal[] };
+  | { readonly type: 'list'; readonly items: readonly Literal[] }
+  | {
+      readonly type: 'closure';
+      readonly param: string;
+      readonly body: Expr;
+      readonly env: readonly [string, Literal][];
+    };
 
 /** All builtin operations. */
 export type BuiltinOp =
   | 'Add' | 'Sub' | 'Mul' | 'Div' | 'Mod' | 'Neg' | 'Abs'
-  | 'Floor' | 'Ceil'
+  | 'Floor' | 'Ceil' | 'Round'
   | 'Eq' | 'Neq' | 'Lt' | 'Lte' | 'Gt' | 'Gte'
   | 'And' | 'Or' | 'Not'
   | 'Concat' | 'Len' | 'Slice' | 'Upper' | 'Lower' | 'Trim' | 'Split' | 'Join' | 'Replace' | 'Contains'
   | 'Map' | 'Filter' | 'Fold' | 'Append' | 'Head' | 'Tail' | 'Reverse' | 'FlatMap' | 'Length' | 'Range'
   | 'MergeRecords' | 'Keys' | 'Values' | 'HasField'
+  | 'DefaultVal' | 'Clamp' | 'TruncateStr'
   | 'IntToFloat' | 'FloatToInt' | 'IntToStr' | 'FloatToStr' | 'StrToInt' | 'StrToFloat'
-  | 'TypeOf' | 'IsNull' | 'IsList';
+  | 'TypeOf' | 'IsNull' | 'IsList'
+  | 'Edge' | 'Children' | 'HasEdge' | 'EdgeCount' | 'Anchor';
 
 /** Coverage report from dry-run migration. */
 export interface CoverageReport {

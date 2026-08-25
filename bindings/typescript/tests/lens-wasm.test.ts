@@ -149,6 +149,20 @@ describe('LensHandle', () => {
     lensHandle[Symbol.dispose]();
     expect(() => lensHandle.get(new Uint8Array())).toThrow('disposed');
   });
+
+  it('disposes the temporary chain when autoGenerate instantiation fails', () => {
+    const schema1 = createTestSchema(wasm, 'v1');
+    const schema2 = createTestSchema(wasm, 'v2');
+    vi.mocked(wasm.exports.auto_generate_protolens).mockReturnValueOnce(123);
+    vi.mocked(wasm.exports.instantiate_protolens).mockImplementationOnce(() => {
+      throw new Error('cannot instantiate');
+    });
+
+    expect(() => LensHandle.autoGenerate(schema1, schema2, wasm)).toThrow(
+      'autoGenerate failed: cannot instantiate',
+    );
+    expect(wasm.exports.free_handle).toHaveBeenCalledWith(123);
+  });
 });
 
 describe('ProtolensChainHandle', () => {

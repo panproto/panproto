@@ -199,7 +199,7 @@ pub fn pp_schema_metadata(schema_handle: u32, out: &mut repr_c::Vec<u8>) -> i32 
 #[ffi_export]
 pub fn pp_schema_normalize(schema_handle: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
-        let original = handle::with_resource(schema_handle, |r| Ok(r.as_schema()?.clone()))?;
+        let original = handle::with_resource(schema_handle, Resource::as_schema_arc)?;
         let normalized = schema::normalize(&original);
         *out_handle = handle::alloc(Resource::Schema(Arc::new(normalized)));
         Ok(PpStatus::Ok)

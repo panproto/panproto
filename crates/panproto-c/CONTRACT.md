@@ -32,7 +32,7 @@ conventions for each function.
 
 ## Resource handle taxonomy
 
-Handles index a thread-local slab whose variants mirror
+Handles index a process-global slab whose variants mirror
 `panproto_wasm::slab`: `Protocol`, `Schema`, `Migration`,
 `MigrationWithSchemas`, `IoRegistry`, `Theory`, `VcsRepo`,
 `ProtolensChain`, `SymmetricLens`, `DataSet`, plus feature-gated
@@ -47,7 +47,7 @@ never crosses the boundary as data; `pp_gat_eval_in_model` and
 
 | Signature | Notes |
 | --- | --- |
-| `int32_t pp_init(void)` | Install the panic hook; idempotent. |
+| `int32_t pp_init(void)` | Install the panic hook, which silences only panics raised inside a panproto entry point and forwards the rest to the host's own hook; installs once, however often it is called. |
 | `int32_t pp_handle_free(uint32_t handle)` | Free a slab handle; double-free safe. |
 | `int32_t pp_last_error_take(Vec_uint8_t *out)` | Drain last error as CBOR `ErrorEnvelope`; empty buffer when none. |
 | `void pp_buf_free(Vec_uint8_t buf)` | Free an owned output buffer. |

@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "panproto-grammars-all"
 dynamic = ["version"]
-description = "panproto grammar pack: All — every tree-sitter grammar bundled in panproto-grammars (~248 languages)"
+description = "panproto grammar pack: all 261 entries in the panproto-grammars manifest"
 readme = "README.md"
 license = "MIT"
 requires-python = ">=3.13"
@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Rust",
 ]
 dependencies = [
-    "panproto>=0.71,<0.72",
+    "panproto>=0.72,<0.73",
 ]
 
 [project.entry-points."panproto.grammars"]

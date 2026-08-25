@@ -20,7 +20,7 @@ import PanprotoStructural
 // individual declarations. First, an out-parameter is meaningful only
 // when the returned status is ``RawStatus/ok``: on any other status the
 // handle reads back as zero and must not be freed or passed on, and the
-// detail is waiting in the thread-local last-error slot. Second, every
+// detail is waiting in the process-global last-error slot. Second, every
 // returned buffer has already been copied out of engine storage and
 // freed, so nothing here borrows memory the engine owns.
 

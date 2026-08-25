@@ -24,6 +24,8 @@
 
 //! `emit_pretty::complement` (Phase A decomposition).
 
+use panproto_gat::is_interstitial_text_sort;
+
 use super::{
     ChildCursor, Edge, Grammar, Production, Schema, literal_choice_set, literal_strings,
     yield_of_production,
@@ -651,7 +653,7 @@ pub(crate) fn reconstruct_subtree_bytes(
         }
         for c in cons {
             let sort = c.sort.as_ref();
-            if sort.starts_with("interstitial-") && !sort.ends_with("-start-byte") {
+            if is_interstitial_text_sort(sort) {
                 let pos_sort = format!("{sort}-start-byte");
                 if let Some(pos) = cons
                     .iter()

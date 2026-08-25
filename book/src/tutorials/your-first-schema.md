@@ -1,6 +1,6 @@
 # Your first schema
 
-The first diff showed that panproto can inspect an existing source file. This tutorial builds a small `User` schema, parses two records, and catches a missing required field.
+This tutorial builds a small `User` schema, parses two records, and reports a missing required field.
 
 The walkthrough uses the [TypeScript](https://www.typescriptlang.org/) SDK. The [Python](../how-to/define-schema/python.md) and [Rust](../how-to/define-schema/rust.md) how-to guides present the same construction through their native APIs.
 
@@ -43,8 +43,6 @@ console.log('Alice:', alice.validate());
 console.log('Missing name:', missingName.validate());
 console.log('JSON:', new TextDecoder().decode(alice.toJson()));
 
-alice[Symbol.dispose]();
-missingName[Symbol.dispose]();
 schema[Symbol.dispose]();
 p[Symbol.dispose]();
 ```
@@ -69,7 +67,7 @@ JSON: {"age":30,"name":"Alice"}
 
 The `atproto` **protocol** supplies the permitted vertex kinds and edge rules. From those rules, the program builds a **schema** with one object vertex, two value vertices, and two property edges, then parses two **instances** against it. `validate()` checks those records, including the required-edge condition used here.
 
-`SchemaBuilder` is immutable in the TypeScript SDK: every call to `vertex`, `edge`, or `required` returns a new builder. `build()` sends the accumulated operations to the [WebAssembly](https://webassembly.org/) engine and returns a `BuiltSchema`. Both the SDK root and the built schema own WebAssembly resources, which is why the program disposes them explicitly.
+`SchemaBuilder` is immutable in the TypeScript SDK: every call to `vertex`, `edge`, or `required` returns a new builder. `build()` sends the accumulated operations to the [WebAssembly](https://webassembly.org/) engine and returns a `BuiltSchema`. The SDK root and the built schema own WebAssembly handles, which is why the program disposes them explicitly. `Instance` stores encoded bytes rather than a WebAssembly handle and has no `Symbol.dispose` method.
 
 ## Next
 

@@ -14,7 +14,7 @@ import PanprotoStructural
 // First, an out-parameter is meaningful only when the returned status
 // is ``RawStatus/ok``. On any other status the handle, buffer, count,
 // or flag that comes back carries no information and the detail is
-// waiting in the thread-local last-error slot.
+// waiting in the process-global last-error slot.
 //
 // Second, every handle the engine allocates here is a slab handle the
 // host owns: the theories from `gatCreateTheory` and `gatColimit`, the

@@ -2,7 +2,7 @@
 
 panproto uses *verification* for checks with different logical strengths. A runtime gate can reject one schema or migration. An exhaustive checker can establish a property of one finite model. Unit tests, property tests, and corpus sweeps supply evidence about the implementation, but none quantifies over every input. This distinction is the **verification ladder**: each result should be read at the level where it was obtained.
 
-No part of panproto has been proved correct in a proof assistant, and the test suite is not a mathematical proof of the algorithms. The mechanically checked claims are narrower and still useful: malformed inputs are rejected at named boundaries, bounded searches report whether optimality was established, and enumerative test oracles exercise the implementations on enumerable cases.
+No part of panproto has been proved correct in a proof assistant, and the test suite is not a mathematical proof of the algorithms. The mechanically checked claims are narrower: malformed inputs are rejected at named boundaries, bounded searches report whether optimality was established, and enumerative test oracles exercise the implementations on enumerable cases.
 
 ## Checks on a particular operation
 
@@ -18,7 +18,7 @@ The standalone `schema verify` command has a different failure contract. It acce
 
 Migration existence and migration compilation are also separate. [`check_existence`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.check_existence.html) returns the unconditional structural findings and any conditional obligations available from the supplied theory registry; `schema check` turns an invalid report into a nonzero exit. [`compile`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compile.html) checks that the mapped fragment is a theory morphism, including target landing and endpoint preservation for the mapped fragment. Compilation does not call `check_existence`, so compiling a migration establishes the mapped-fragment condition alone.
 
-Protocol registration is another construction-time gate. The built-in registrars compose theories through `pushout_by_name` and panic if a named pushout step fails. Rewrite-system validation is advisory: a failure is printed to stderr and does not block registration. Registration thus establishes successful composition, not the validity of every property attached to the resulting theory.
+Protocol registration is another construction-time gate. The built-in registrars compose theories through `pushout_by_name` and panic if a named pushout step fails. They also run `validate_rewrite_system` and panic when analysis fails or reports a non-joining critical pair or a lexicographic-path-order violation. User-supplied theory compilation returns `RewriteSystemCheck` or `UnsoundRewriteSystem` for the corresponding failures. This gate establishes the implemented local-confluence and termination criteria, not every semantic property of the registered theory.
 
 ### Search results
 
@@ -38,7 +38,7 @@ The edit-lens checkers compare translate-then-apply with apply-then-get, and com
 
 Declared coercion classes receive sample-based checks. The checked elementary constructors, the lens DSL compiler, and the default theory DSL compiler reject an `Iso` or `Retraction` whose expressions fail the required round trip on their finite sample set. The theory DSL exposes `compile_unchecked`, and the elementary API retains unchecked constructors. Passing the checked path supplies evidence over those samples only.
 
-Expression evaluation is bounded on every call by configurable step, recursion-depth, and list-length limits. Integer operations use checked arithmetic, division and remainder reject zero divisors, and a misrouted builtin returns `InternalDispatch` instead of panicking. These errors make evaluation fail explicitly; they do not prove termination without a bound or semantic correctness of the expression.
+Expression evaluation is bounded on every call by configurable step, recursion-depth, and list-length limits. The defaults are 100,000 steps, depth 256, and 10,000 list elements. Integer operations use checked arithmetic, and division and remainder reject zero divisors. A graph-traversal builtin evaluated without an instance returns `NoInstanceContext`; `InternalDispatch` is reserved for a builtin routed to the wrong internal category handler. These errors make evaluation fail explicitly. They do not prove termination without a bound or semantic correctness of the expression.
 
 ### Pushouts and merges
 
@@ -46,13 +46,13 @@ Expression evaluation is bounded on every call by configurable step, recursion-d
 
 `ColimitResult::verify_universal` is an on-demand checker for one supplied alternative cocone. It constructs a mediator, checks that mediator as a theory morphism, and compares both factorization paths. Construction does not invoke this checker automatically, and checking a supplied cocone is not a formal proof over all possible cocones.
 
-A clean automatic schema merge always calls `panproto_vcs::merge::verify_pushout` before committing. That function checks totality of the two merge legs, coverage of merged vertices, survival of retained base vertices, and cocone commutativity on vertices and mapped edges. `verify_pushout_universal` is not called by merge and checks only a supplied vertex-level alternative cocone; its API has no alternative edge maps, so it cannot establish edge-level universal factorization.
+A clean automatic schema merge calls `panproto_vcs::merge::verify_pushout` before creating a merge commit. A clean merge requested with `no_commit` or `squash` does not take that commit path. `apply_resolutions`, rebase, and cherry-pick also call the verifier at their corresponding resolved boundaries. The function checks vertex-map totality of the two merge legs, coverage of merged vertices, survival of retained base vertices, and cocone commutativity on vertices and mapped base edges. `verify_pushout_universal` is not called by ordinary merge and checks only a supplied vertex-level alternative cocone; its API has no alternative edge maps, so it cannot establish edge-level universal factorization.
 
 ## Evidence from the test suite
 
 ### Solver agreement
 
-The span solver has four principal paths. Bucket elimination supplies exact inference over the `(min, ⊕)` cost semiring [@dechter1999bucket]. The fallback is hybrid best-first search [@allouchedegivrykatsirelosschiexzytnicki2015anytime] over depth-first branch and bound with soft consistency up to EDAC\* [@larrosaschiex2004solving; @degivryheraszytnickilarrosa2005existential]. The injective path adds a counting all-different propagator [@mccreeshprosser2015backjumping], and the isomorphism path uses maximum common induced sub-schema partitioning [@mccreeshprossertrimble2017partitioning].
+The span solver has four principal paths. Bucket elimination computes an exact optimum when the width-derived memory budget fits [@dechter1999bucket]. Otherwise, hybrid best-first search interleaves best-first selection with bounded depth-first branch and bound [@allouchedegivrykatsirelosschiexzytnicki2015anytime]. EDAC\* cost propagation tightens the lower bounds used by that search [@larrosaschiex2004solving; @degivryheraszytnickilarrosa2005existential]. Injective searches require distinct target vertices through a counting all-different propagator [@mccreeshprosser2015backjumping]. Isomorphism searches partition the two schemas to find a maximum common induced sub-schema [@mccreeshprossertrimble2017partitioning].
 
 The test oracle in `solve::oracle::brute_force` independently walks every assignment of a network whose domain product is at most 100,000. It uses the same cost-function network and evaluator as the solver, so it checks optimization and decoding after network construction; it is not an independent specification of the objective or of how schemas become networks. A separate property test compares the oracle's domain walk with another enumeration.
 
@@ -66,7 +66,7 @@ The corpus sweep contains a 50 ms per-pair assertion for release builds. The sta
 
 Lens property tests generate identity and projection lenses, nested instances, vertex and edge remaps, field transforms, put-side views, edit words, and complement constructors. They exercise GetPut, PutGet, PutPut, edit-action coherence, edit-lens consistency, complement coherence, and complement-cost composition. A passing run says that the generated cases passed under that run's property-test configuration.
 
-The source emitter has a programmatic two-basis status. `VERIFIED_EMIT_PROTOCOLS` contains 255 of the 261 vendored grammars. Of those, 248 appear in `CORPUS_VERIFIED`; the scheduled all-features corpus gate requires every vendored upstream corpus entry to reach an emit fixed point while preserving vertex-kind and edge-shape multisets. The other seven are admitted by dedicated backend regression tests over the constructs their transpilers emit. Thus the `Verified` status does not mean full-corpus coverage for all 255. [Source-code emission](./emit-pretty.md#the-verification-tier-api) lists the seven backend cases and the six grammars outside the verified set.
+The source emitter has a programmatic two-basis status. `VERIFIED_EMIT_PROTOCOLS` contains 255 of the 261 vendored grammars. Of those, 248 appear in `CORPUS_VERIFIED`; the scheduled all-features corpus gate requires every vendored upstream corpus entry to reach an emit fixed point while preserving vertex-kind and edge-shape multisets. The other seven are admitted by dedicated backend regression tests over the constructs their transpilers emit. Thus the `Verified` status does not mean full-corpus coverage for all 255. [Source-code emission](./emit-pretty.md#verification-tiers) defines the status and its two admission routes.
 
 ## Claims outside the ladder
 

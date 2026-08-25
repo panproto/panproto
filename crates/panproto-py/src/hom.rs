@@ -403,8 +403,8 @@ impl PySchemaSpan {
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false, max_results=0))]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn find_morphisms(
-    src: &PySchema,
-    tgt: &PySchema,
+    src: &Bound<'_, PySchema>,
+    tgt: &Bound<'_, PySchema>,
     anchors: Option<HashMap<String, String>>,
     monic: bool,
     epic: bool,
@@ -423,7 +423,14 @@ pub fn find_morphisms(
         max_results,
         hard_pins,
     };
-    let found = hom_search::find_morphisms(&src.inner, &tgt.inner, &opts)
+    // The search solves a constraint network over the two schemas; it
+    // holds no Python state, so it runs with the GIL released. Both
+    // schemas are taken as `Bound` so the token comes from an argument
+    // rather than a parameter of its own.
+    let py = src.py();
+    let (src, tgt) = (Arc::clone(&src.get().inner), Arc::clone(&tgt.get().inner));
+    let found = py
+        .detach(|| hom_search::find_morphisms(&src, &tgt, &opts))
         .map_err(|e| MigrationError::new_err(format!("morphism search failed: {e}")))?;
     Ok(found
         .morphisms
@@ -443,6 +450,7 @@ pub fn find_morphisms(
 #[pyo3(signature = (src, tgt, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn find_best_morphism(
+    py: Python<'_>,
     src: &PySchema,
     tgt: &PySchema,
     anchors: Option<HashMap<String, String>>,
@@ -462,7 +470,8 @@ pub fn find_best_morphism(
         max_results: 1,
         hard_pins,
     };
-    hom_search::find_best_morphism(&src.inner, &tgt.inner, &opts)
+    // Runs with the GIL released; see `find_morphisms`.
+    py.detach(|| hom_search::find_best_morphism(&src.inner, &tgt.inner, &opts))
         .map(|found| found.map(|inner| PyFoundMorphism { inner }))
         .map_err(|e| MigrationError::new_err(format!("morphism search failed: {e}")))
 }
@@ -497,8 +506,8 @@ pub fn find_best_morphism(
 #[pyo3(signature = (src, tgt, protocol, anchors=None, monic=false, epic=false, iso=false))]
 #[allow(clippy::fn_params_excessive_bools)]
 pub fn find_span(
-    src: &PySchema,
-    tgt: &PySchema,
+    src: &Bound<'_, PySchema>,
+    tgt: &Bound<'_, PySchema>,
     protocol: &PyProtocol,
     anchors: Option<HashMap<String, String>>,
     monic: bool,
@@ -517,7 +526,10 @@ pub fn find_span(
         max_results: 1,
         hard_pins,
     };
-    hom_search::find_span(&src.inner, &tgt.inner, &protocol.inner, &opts)
+    // Runs with the GIL released; see `find_morphisms`.
+    let py = src.py();
+    let (src, tgt) = (Arc::clone(&src.get().inner), Arc::clone(&tgt.get().inner));
+    py.detach(|| hom_search::find_span(&src, &tgt, &protocol.inner, &opts))
         .map(|inner| PySchemaSpan { inner })
         .map_err(|e| MigrationError::new_err(format!("span search failed: {e}")))
 }

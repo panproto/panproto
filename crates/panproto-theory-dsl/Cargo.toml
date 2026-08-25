@@ -23,6 +23,7 @@ miette = { workspace = true }
 
 [dev-dependencies]
 proptest.workspace = true
+rustc-hash = { workspace = true }
 divan = { workspace = true }
 
 [[bench]]

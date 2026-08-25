@@ -49,7 +49,7 @@ $$
 The apex is the sub-schema of `old` whose vertices found a target in `new`. That
 search never refuses for want of a match: leaving every source vertex out of the
 apex is always feasible, so two schemas with nothing in common come back with an
-empty apex rather than with an error. Two of the three flags below therefore
+empty apex rather than with an error. Two of the three flags below thus
 select which of its answers counts as an answer, and the search underneath is the
 same one either way; the third constrains the search itself.
 
@@ -66,8 +66,9 @@ drops a vertex is no evidence about whether a total morphism exists, because spa
 quality excludes the drop count while the objective is lexicographic in quality
 first and drops second, so a span that drops a vertex can score strictly better
 than a total morphism that keeps it. When the optimal span is not total, the
-command runs the total-morphism search before giving up, and it fails only when
-that second search comes back empty, quoting the coverage the span did reach.
+command runs the total-morphism search before giving up. The command fails only
+when that second search returns no total morphism. Its error includes the
+coverage reached by the span.
 `--total` and `--span` conflict, and the pair is rejected before either search
 runs.
 

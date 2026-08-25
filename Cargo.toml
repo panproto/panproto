@@ -43,7 +43,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.71.0"
+version = "0.72.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT"
@@ -74,7 +74,9 @@ safer-ffi = "0.1.13"
 ciborium = "0.2.2"
 
 # Python bindings
-pyo3 = { version = "0.29", features = ["extension-module", "abi3-py313"] }
+# Maturin enables `extension-module` for wheel builds. Keeping it off for
+# ordinary workspace builds lets Cargo test harnesses link libpython.
+pyo3 = { version = "0.29", features = ["abi3-py313"] }
 pythonize = "0.29"
 
 # CLI
@@ -107,27 +109,27 @@ tree-sitter = "0.26"
 tree-sitter-tags = "0.26"
 
 # Workspace crates
-panproto-gat = { version = "0.71.0", path = "crates/panproto-gat" }
-panproto-gat-macros = { version = "0.71.0", path = "crates/panproto-gat-macros" }
-panproto-schema = { version = "0.71.0", path = "crates/panproto-schema" }
-panproto-inst = { version = "0.71.0", path = "crates/panproto-inst" }
-panproto-mig = { version = "0.71.0", path = "crates/panproto-mig" }
-panproto-lens = { version = "0.71.0", path = "crates/panproto-lens" }
-panproto-dsl-eval = { version = "0.71.0", path = "crates/panproto-dsl-eval" }
-panproto-lens-dsl = { version = "0.71.0", path = "crates/panproto-lens-dsl" }
-panproto-theory-dsl = { version = "0.71.0", path = "crates/panproto-theory-dsl" }
-panproto-check = { version = "0.71.0", path = "crates/panproto-check" }
-panproto-protocols = { version = "0.71.0", path = "crates/panproto-protocols" }
-panproto-core = { version = "0.71.0", path = "crates/panproto-core" }
-panproto-io = { version = "0.71.0", path = "crates/panproto-io" }
-panproto-vcs = { version = "0.71.0", path = "crates/panproto-vcs" }
-panproto-expr = { version = "0.71.0", path = "crates/panproto-expr" }
-panproto-expr-parser = { version = "0.71.0", path = "crates/panproto-expr-parser" }
-panproto-grammars = { version = "0.71.0", path = "crates/panproto-grammars", default-features = false }
-panproto-parse = { version = "0.71.0", path = "crates/panproto-parse" }
-panproto-project = { version = "0.71.0", path = "crates/panproto-project" }
-panproto-git = { version = "0.71.0", path = "crates/panproto-git" }
-panproto-xrpc = { version = "0.71.0", path = "crates/panproto-xrpc" }
+panproto-gat = { version = "0.72.0", path = "crates/panproto-gat" }
+panproto-gat-macros = { version = "0.72.0", path = "crates/panproto-gat-macros" }
+panproto-schema = { version = "0.72.0", path = "crates/panproto-schema" }
+panproto-inst = { version = "0.72.0", path = "crates/panproto-inst" }
+panproto-mig = { version = "0.72.0", path = "crates/panproto-mig" }
+panproto-lens = { version = "0.72.0", path = "crates/panproto-lens" }
+panproto-dsl-eval = { version = "0.72.0", path = "crates/panproto-dsl-eval" }
+panproto-lens-dsl = { version = "0.72.0", path = "crates/panproto-lens-dsl" }
+panproto-theory-dsl = { version = "0.72.0", path = "crates/panproto-theory-dsl" }
+panproto-check = { version = "0.72.0", path = "crates/panproto-check" }
+panproto-protocols = { version = "0.72.0", path = "crates/panproto-protocols" }
+panproto-core = { version = "0.72.0", path = "crates/panproto-core" }
+panproto-io = { version = "0.72.0", path = "crates/panproto-io" }
+panproto-vcs = { version = "0.72.0", path = "crates/panproto-vcs" }
+panproto-expr = { version = "0.72.0", path = "crates/panproto-expr" }
+panproto-expr-parser = { version = "0.72.0", path = "crates/panproto-expr-parser" }
+panproto-grammars = { version = "0.72.0", path = "crates/panproto-grammars", default-features = false }
+panproto-parse = { version = "0.72.0", path = "crates/panproto-parse" }
+panproto-project = { version = "0.72.0", path = "crates/panproto-project" }
+panproto-git = { version = "0.72.0", path = "crates/panproto-git" }
+panproto-xrpc = { version = "0.72.0", path = "crates/panproto-xrpc" }
 
 [workspace.lints.rust]
 unsafe_code = "deny"

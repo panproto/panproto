@@ -33,15 +33,18 @@ The chain captures a precondition on the source theory and a sequence of transfo
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let rename_legacy_id: ProtolensChain = combinators::rename_field("user", "user:legacy_id", "legacy_id", "id");
 # let protocol: Protocol = panproto_core::protocols::atproto::protocol();
-# let user_schema: Schema = SchemaBuilder::new(&protocol).vertex("user", "object", None)?.entry("user").build()?;
-# let post_schema: Schema = user_schema.clone();
+# let user_schema: Schema = SchemaBuilder::new(&protocol)
+#     .vertex("user", "object", None)?
+#     .vertex("user:legacy_id", "string", None)?
+#     .edge("user", "user:legacy_id", "prop", Some("legacy_id"))?
+#     .entry("user")
+#     .build()?;
 let lens_for_users = rename_legacy_id.instantiate(&user_schema, &protocol)?;
-let lens_for_posts = rename_legacy_id.instantiate(&post_schema, &protocol)?;
-# let _ = (lens_for_users, lens_for_posts);
+# let _ = lens_for_users;
 # Ok(()) }
 ```
 
-Each call produces a concrete `Lens` against a specific schema, with the migration metadata preserved as a single fused morphism.
+The precondition requires the named property edge in addition to the `user` vertex. Instantiation produces a concrete `Lens` for any schema containing that structure. For a multi-step chain, the fused path compiles the composed transform in one pass and retains the migration metadata computed for the whole chain.
 
 ### Apply (sequential)
 
@@ -51,22 +54,28 @@ Each call produces a concrete `Lens` against a specific schema, with the migrati
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let rename_legacy_id: ProtolensChain = combinators::rename_field("user", "user:legacy_id", "legacy_id", "id");
 # let protocol: Protocol = panproto_core::protocols::atproto::protocol();
-# let base_schema: Schema = SchemaBuilder::new(&protocol).vertex("user", "object", None)?.entry("user").build()?;
+# let base_schema: Schema = SchemaBuilder::new(&protocol)
+#     .vertex("user", "object", None)?
+#     .vertex("user:legacy_id", "string", None)?
+#     .edge("user", "user:legacy_id", "prop", Some("legacy_id"))?
+#     .entry("user")
+#     .build()?;
 let stepwise = rename_legacy_id.instantiate_sequential(&base_schema, &protocol)?;
 # let _ = stepwise;
 # Ok(()) }
 ```
 
-Sequential instantiation yields one lens per step; useful in property tests when each intermediate state needs to be inspected.
+Sequential instantiation applies each step to the running schema and composes the resulting lenses. It returns one composed `Lens`, not a list of intermediate lenses. The implementation exists to exercise the stepwise path in tests; it does not expose the intermediate schemas to the caller.
 
 ### Compose
 
 ```rust,no_run
+use panproto_inst::Value;
 use panproto_lens::protolens::{Protolens, vertical_compose, elementary};
 
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
-let first:  Protolens = elementary::drop_sort("old_field");
-let second: Protolens = elementary::drop_sort("legacy_id");
+let first: Protolens = elementary::rename_sort("string", "text");
+let second: Protolens = elementary::add_sort("tags", "array", Value::Null);
 let composed = vertical_compose(&first, &second)?;
 # let _ = composed;
 # Ok(()) }

@@ -26,13 +26,13 @@ use panproto_core::lens::Stringency;
 #[derive(Copy, Clone, Debug, PartialEq, Eq, ValueEnum)]
 #[clap(rename_all = "snake_case")]
 pub enum StringencyArg {
-    /// Kind-exact, edge-name-pruned CSP search; total morphism only.
+    /// `Exact`, `ExactSuffix`, and `EdgeLabel`; total morphism only.
     Strict,
-    /// Adds alias dictionary and tight token-similarity priors (default).
+    /// Adds `Alias`, `TokenSimilarity`, and `DescriptionSimilarity` (default).
     Balanced,
-    /// Adds span-search and structural priors.
+    /// Adds `WrapUnwrap`, `TypeSignature`, `WlRefinement`, and `Neighborhood`; spans allowed.
     Lenient,
-    /// Adds lossy retraction witnesses.
+    /// Adds `Structural` and `Coerce` proposals; spans allowed.
     Exploratory,
 }
 
@@ -280,7 +280,7 @@ enum Command {
         #[arg(long)]
         graph: bool,
 
-        /// Show all branches, not just the current one.
+        /// Show all branches.
         #[arg(long)]
         all: bool,
 
@@ -601,7 +601,9 @@ enum Command {
         /// Path to the record JSON file.
         record: PathBuf,
 
-        /// Migration direction: restrict (default, `Delta_F`), sigma (`Sigma_F`), or pi (`Pi_F`).
+        /// Migration direction: restrict (default, filtered source-to-target),
+        /// sigma (source-to-target `Sigma_F`), or pi (source-to-target; W-type
+        /// `pi` only relabels vertex-injective mappings).
         #[arg(long, default_value = "restrict")]
         direction: String,
 
@@ -988,10 +990,12 @@ enum LensAction {
         /// Accepted case-insensitively for parity with the Python and
         /// WASM bindings, both of which trim and lowercase their input.
         ///
-        /// `strict`: only kind-exact name equality.
-        /// `balanced`: alias dictionary + tight token similarity (default).
-        /// `lenient`: span-search and structural priors.
-        /// `exploratory`: lossy retraction witnesses.
+        /// strict: `Exact`, `ExactSuffix`, and `EdgeLabel`; total morphism only.
+        /// balanced: adds `Alias`, `TokenSimilarity`, and `DescriptionSimilarity`;
+        /// total morphism only (default).
+        /// lenient: adds `WrapUnwrap`, `TypeSignature`, `WlRefinement`, and
+        /// `Neighborhood`; spans allowed.
+        /// exploratory: adds `Structural` and `Coerce` proposals; spans allowed.
         #[arg(long, value_name = "TIER", ignore_case = true)]
         stringency: Option<StringencyArg>,
         /// Emit up to N ranked candidate lenses instead of the single
@@ -1057,8 +1061,8 @@ enum LensAction {
         /// Protocol name.
         #[arg(long)]
         protocol: String,
-        /// Schema file (second schema is optional).
-        schema: Option<PathBuf>,
+        /// Schema used to parse the test data.
+        schema: PathBuf,
     },
     /// Inspect a saved protolens chain.
     Inspect {
@@ -1132,7 +1136,7 @@ enum DataAction {
         /// Protocol name.
         #[arg(long)]
         protocol: String,
-        /// Pre-built protolens chain JSON (alternative to --from/--to).
+        /// Pre-built protolens chain JSON to instantiate with --from and --to.
         #[arg(long)]
         chain: Option<PathBuf>,
         /// Output file or directory.
@@ -1707,7 +1711,7 @@ fn dispatch_lens_commands(action: LensAction, verbose: bool) -> Result<()> {
             data,
             protocol,
             schema,
-        } => cmd::lens::cmd_lens_verify(&data, schema.as_deref(), &protocol, None, false, verbose),
+        } => cmd::lens::cmd_lens_verify(&schema, None, &protocol, Some(&data), false, verbose),
         LensAction::Inspect { chain, protocol } => {
             cmd::lens::cmd_lens_inspect(&chain, &protocol, verbose)
         }
@@ -1808,7 +1812,7 @@ fn dispatch_git_commands(action: GitAction, verbose: bool) -> Result<()> {
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::{Cli, Stringency, StringencyArg};
-    use clap::{Parser, ValueEnum};
+    use clap::{CommandFactory, Parser, ValueEnum};
 
     /// `--stringency` is rendered by `clap` with `rename_all =
     /// "snake_case"`, so the four accepted tokens must be exactly
@@ -1870,6 +1874,89 @@ mod tests {
             assert!(
                 StringencyArg::from_str(bad, true).is_err(),
                 "clap should reject `{bad}`",
+            );
+        }
+    }
+
+    #[test]
+    fn lens_verify_requires_test_data_and_its_schema() {
+        let missing_schema = Cli::try_parse_from([
+            "schema",
+            "lens",
+            "verify",
+            "record.json",
+            "--protocol",
+            "atproto",
+        ]);
+        assert!(
+            missing_schema.is_err(),
+            "lens verify cannot parse test data without its schema",
+        );
+
+        let complete = Cli::try_parse_from([
+            "schema",
+            "lens",
+            "verify",
+            "record.json",
+            "schema.json",
+            "--protocol",
+            "atproto",
+        ]);
+        assert!(
+            complete.is_ok(),
+            "lens verify must accept a test-data path followed by its schema: {:?}",
+            complete.err().map(|error| error.to_string()),
+        );
+    }
+
+    #[test]
+    fn lift_help_describes_restrict_as_filtered_forward_transport() {
+        let mut command = Cli::command();
+        let lift = command
+            .find_subcommand_mut("lift")
+            .unwrap_or_else(|| panic!("the CLI must retain the `lift` subcommand"));
+        let help = lift.render_long_help().to_string();
+
+        assert!(
+            help.contains("restrict (default, filtered source-to-target)"),
+            "lift help must state the implemented restrict direction, got: {help}",
+        );
+        assert!(
+            help.contains("W-type") && help.contains("vertex-injective"),
+            "lift help must state the W-type pi limitation, got: {help}",
+        );
+        assert!(
+            !help.contains("Delta_F"),
+            "lift help must not identify restrict with categorical Delta_F, got: {help}",
+        );
+    }
+
+    #[test]
+    fn stringency_help_lists_the_implemented_strategy_tiers() {
+        let mut command = Cli::command();
+        let lens = command
+            .find_subcommand_mut("lens")
+            .unwrap_or_else(|| panic!("the CLI must retain the `lens` subcommand"));
+        let generate = lens
+            .find_subcommand_mut("generate")
+            .unwrap_or_else(|| panic!("the CLI must retain the `lens generate` subcommand"));
+        let help = generate
+            .render_long_help()
+            .to_string()
+            .replace('`', "")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+
+        for expected in [
+            "strict: Exact, ExactSuffix, and EdgeLabel",
+            "balanced: adds Alias, TokenSimilarity, and DescriptionSimilarity",
+            "lenient: adds WrapUnwrap, TypeSignature, WlRefinement, and Neighborhood",
+            "exploratory: adds Structural and Coerce proposals",
+        ] {
+            assert!(
+                help.contains(expected),
+                "stringency help must describe `{expected}`, got: {help}",
             );
         }
     }

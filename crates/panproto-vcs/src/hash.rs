@@ -280,6 +280,11 @@ impl From<&Schema> for CanonicalSchema {
     }
 }
 
+/// The canonical hyper-edge resolver: a fan shape — hyper-edge ID with the
+/// sorted, deduplicated label set it governs — to the target hyper-edge and
+/// its label remapping.
+type CanonicalHyperResolver = BTreeMap<(String, Vec<String>), (String, BTreeMap<String, String>)>;
+
 /// Canonical migration where all `HashMap` fields become `BTreeMap`.
 #[derive(Serialize)]
 struct CanonicalMigration {
@@ -290,8 +295,9 @@ struct CanonicalMigration {
     hyper_edge_map: BTreeMap<String, String>,
     label_map: BTreeMap<(String, String), String>,
     resolver: BTreeMap<(String, String), Edge>,
-    hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)>,
+    hyper_resolver: CanonicalHyperResolver,
     expr_resolvers: BTreeMap<(String, String), panproto_expr::Expr>,
+    coercions: BTreeMap<String, panproto_schema::CoercionSpec>,
 }
 
 // ---------------------------------------------------------------------------
@@ -326,16 +332,25 @@ pub fn hash_migration(
     tgt: ObjectId,
     migration: &Migration,
 ) -> Result<ObjectId, VcsError> {
-    // Flatten hyper_resolver to BTreeMap with sorted inner maps.
-    let hyper_resolver: BTreeMap<String, (String, BTreeMap<String, String>)> = migration
+    // Canonicalize hyper_resolver on its whole key. The label component is a
+    // set, so it is sorted and deduplicated: a permutation names the same
+    // migration, while two entries governing different label sets on one
+    // hyper-edge stay distinct.
+    let hyper_resolver: CanonicalHyperResolver = migration
         .hyper_resolver
         .iter()
-        .map(|((he_id, _labels), (tgt_he, remap))| {
+        .map(|((he_id, labels), (tgt_he, remap))| {
+            let mut labels: Vec<String> = labels.iter().map(ToString::to_string).collect();
+            labels.sort_unstable();
+            labels.dedup();
             let sorted_remap: BTreeMap<String, String> = remap
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
                 .collect();
-            (he_id.to_string(), (tgt_he.to_string(), sorted_remap))
+            (
+                (he_id.to_string(), labels),
+                (tgt_he.to_string(), sorted_remap),
+            )
         })
         .collect();
 
@@ -372,6 +387,11 @@ pub fn hash_migration(
             .expr_resolvers
             .iter()
             .map(|((k1, k2), v)| ((k1.to_string(), k2.to_string()), v.clone()))
+            .collect(),
+        coercions: migration
+            .coercions
+            .iter()
+            .map(|(k, v)| (k.to_string(), v.clone()))
             .collect(),
     };
     let bytes = rmp_serde::to_vec(&canonical)?;
@@ -630,6 +650,36 @@ pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<Object
         }
     }
     Ok(ObjectId(hasher.finalize().into()))
+}
+
+/// Compute the content address of any [`Object`](crate::object::Object).
+///
+/// This is the single definition of "which ID does this object have":
+/// stores use it to file an object on write and to verify it on read,
+/// and a client that fetches an object over the network uses it to
+/// check that the bytes it received are the ones it asked for.
+///
+/// # Errors
+///
+/// Returns an error if the object's canonical serialization fails.
+pub fn object_id(object: &crate::object::Object) -> Result<ObjectId, VcsError> {
+    use crate::object::Object;
+    match object {
+        Object::Migration { src, tgt, mapping } => hash_migration(*src, *tgt, mapping),
+        Object::Commit(commit) => hash_commit(commit),
+        Object::Tag(tag) => hash_tag(tag),
+        Object::DataSet(dataset) => hash_dataset(dataset),
+        Object::Complement(complement) => hash_complement(complement),
+        Object::Protocol(protocol) => hash_protocol(protocol),
+        Object::Expr(expr) => hash_expr(expr),
+        Object::EditLog(edit_log) => hash_edit_log(edit_log),
+        Object::Theory(theory) => hash_theory(theory),
+        Object::TheoryMorphism(morphism) => hash_theory_morphism(morphism),
+        Object::CstComplement(cst_comp) => hash_cst_complement(cst_comp),
+        Object::FileSchema(file) => hash_file_schema(file),
+        Object::SchemaTree(tree) => hash_schema_tree(tree),
+        Object::FlatSchema(schema) => hash_schema(schema),
+    }
 }
 
 #[cfg(test)]

@@ -239,10 +239,9 @@ struct InstanceAPITests {
 /// Run `body` and answer the ``PanprotoError`` it raised, or `nil` when
 /// it returned instead.
 ///
-/// The engine's error slot is thread-local and every domain method
-/// drains it before returning, so the error a call answers with is
-/// already complete by the time it reaches here; nothing has to run on
-/// the engine thread to read it.
+/// Every domain method drains the engine's error slot before returning,
+/// so the error a call answers with is already complete by the time it
+/// reaches here; nothing has to run on the engine thread to read it.
 func captureFailure(_ body: () async throws -> Void) async -> PanprotoError? {
     do {
         try await body()

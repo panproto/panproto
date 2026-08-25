@@ -584,7 +584,8 @@ public enum StrategyTag: String, Codable, Hashable, Sendable, CaseIterable {
     case wlRefinement = "wl_refinement"
     /// Degree and kind signature alone, the last resort.
     case structural
-    /// A correspondence a language model proposed.
+    /// Reserved for a correspondence supplied by an external
+    /// language-model integration. The engine does not emit this tag.
     case llm
 }
 

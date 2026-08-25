@@ -1,6 +1,6 @@
 # Swift SDK reference
 
-The Swift package lives in [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift). It uses Swift 6 language mode and supports macOS 14 and iOS 17. The engine-backed products call [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c); `PanprotoStructural` has no FFI dependency.
+The Swift package lives in [`bindings/swift/`](https://github.com/panproto/panproto/tree/main/bindings/swift). It uses Swift 6 language mode and supports macOS 14 and iOS 17. The engine-backed products call [`panproto-c`](https://github.com/panproto/panproto/tree/main/crates/panproto-c). `PanprotoStructural` has no FFI dependency.
 
 See [Install the Swift SDK](../how-to/install/swift.md) for package and library setup.
 
@@ -27,7 +27,7 @@ Engine resources are subclasses of `PanprotoHandle`:
 |---|---|
 | `ProtocolHandle` | A protocol specification loaded by the engine |
 | `SchemaHandle` | A schema stored in the engine |
-| `MigrationHandle` | An uncompiled migration |
+| `MigrationHandle` | A compiled migration payload without retained source and target schema handles. Operations reconstruct minimal schemas when needed. |
 | `CompiledMigrationHandle` | A migration compiled against source and target schemas |
 | `ProtolensChainHandle`, `SymmetricLensHandle` | Engine-backed lens resources |
 | `IoRegistryHandle` | Protocol-specific instance parsers and emitters |
@@ -41,7 +41,7 @@ Engine resources are subclasses of `PanprotoHandle`:
 
 ## Engine isolation
 
-Every operation that consumes a handle is isolated to the `PanprotoEngine` global actor. The actor uses one pinned thread because the C ABI's last-error slot is thread-local. Calls from outside the actor consequently use `await`:
+Every operation that consumes a handle is isolated to the `PanprotoEngine` global actor. The C ABI protects its resource slab and last-error slot with process-global mutexes, so a handle is valid from any thread. The error slot holds only one pending envelope, however, and an interleaved failure can overwrite it before Swift drains it. The actor's pinned serial executor keeps each call and error drain together and makes the engine's serial contention visible to Swift concurrency. Calls from outside the actor consequently use `await`:
 
 ```swift
 let protocolHandle = try await ProtocolHandle.builtin("atproto")
@@ -68,9 +68,11 @@ func get(_ source: Instance) throws(PanprotoError) -> LensProjection
 func put(view: Instance, complement: Complement) throws(PanprotoError) -> Instance
 ```
 
-`LensProjection` carries the view and the complement captured during `get`. Pass that complement to `put`; complements are tied to the source schema and may conflict when composed.
+`LensProjection` carries the view and the complement captured during `get`. Pass that complement to `put`. Complements are tied to the source schema and may conflict when composed.
 
-Law-checking methods return `LawCheckResult` rather than throwing when a law is false. They can still throw when the operation itself cannot be evaluated.
+For a compiled schema mapping \(S\to T\), `lift` accepts an \(S\)-instance and returns the surviving fragment as a \(T\)-instance. It wraps the restrict-based Rust `mig::lift_wtype`. It is neither the left Kan extension \(\Sigma_F\) nor precomposition \(\Delta_F\). `get` has the same source-to-target direction and captures the complement. `put` accepts the target view and complement and reconstructs a source instance.
+
+Law-checking methods return `LawCheckResult` rather than throwing when a law is false. They can still throw when the operation itself cannot be evaluated. `checkLaws` checks GetPut and a deterministic two-view PutGet smoke test at the supplied source instance. It is not a proof for all instances or edits.
 
 ## Morphism and span search
 
@@ -97,11 +99,11 @@ func findSpan(
 
 `findMorphisms` returns total morphisms that attain the optimum. An empty array means that no total morphism exists. The Swift array does not expose the Rust `MorphismList.truncated` field, so callers cannot distinguish complete enumeration of tied optima from an answer stopped by the engine cap.
 
-`findSpan` admits a partial match and may return an empty apex. The protocol handle is required because the induced apex is validated as a schema. The span result is a Swift value; call `SchemaSpan.overlap()` when the identification pairs for a pushout are needed.
+`findSpan` admits a partial match and may return an empty apex. The protocol handle is required because the induced apex is validated as a schema. The span result is a Swift value. Call `SchemaSpan.overlap()` when the identification pairs for a pushout are needed.
 
 ## Ownership
 
-Each `PanprotoHandle` owns one engine slab entry. `release()` returns that entry early and is idempotent. If a live handle reaches deinitialization, its release is queued onto the engine thread. Do not call engine operations on a handle after releasing it; the engine reports the slab index as invalid or may have reused it for another resource.
+Each `PanprotoHandle` owns one engine slab entry. `release()` returns that entry early and is idempotent. If a live handle reaches deinitialization, its release is queued onto the engine thread. Do not call engine operations on a handle after releasing it. The engine reports the slab index as invalid or may have reused it for another resource.
 
 ## Errors
 
@@ -119,7 +121,7 @@ The linked C library and selected package traits must agree. Enabling a trait wh
 
 ## Boundary limits
 
-`PanprotoStructural` can decode, encode, compare, and transform its value types without starting the engine. Validation, migration compilation, lens execution, search, law checks, and other semantic operations require an engine-backed product. The Swift API exposes only operations exported by `panproto-c`; Rust APIs with no C entry point are not available through this binding.
+`PanprotoStructural` can decode, encode, compare, and transform its value types without starting the engine. Validation, migration compilation, lens execution, search, law checks, and other semantic operations require an engine-backed product. The Swift API exposes only operations exported by `panproto-c`. Rust APIs with no C entry point are not available through this binding.
 
 ## See also
 

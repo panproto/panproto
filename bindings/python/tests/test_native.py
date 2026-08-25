@@ -515,6 +515,192 @@ class TestProtolensChain:
         lens = chain.instantiate(schema, proto)
         assert lens is not None
 
+    def test_auto_generate_retains_concrete_field_transforms(self) -> None:
+        proto = panproto.define_protocol(
+            {
+                "name": "auto-transform-test",
+                "schema_theory": "ThGraph",
+                "instance_theory": "ThWType",
+                "edge_rules": [],
+                "obj_kinds": ["object", "string"],
+                "constraint_sorts": [],
+            }
+        )
+        source_builder = proto.schema()
+        source_builder.vertex("r", "object")
+        source_builder.vertex("r.text", "string")
+        source_builder.edge("r", "r.text", "text", "text")
+        source = source_builder.build()
+
+        target_builder = proto.schema()
+        target_builder.vertex("r", "object")
+        target_builder.vertex("r.text", "string")
+        target = target_builder.build()
+
+        chain = panproto.ProtolensChain.auto_generate(
+            source, target, proto, "exploratory"
+        )
+        encoded = json.loads(chain.to_json())
+        assert encoded["field_transforms"] == {
+            "r": [{"DropField": {"key": "text"}}]
+        }
+
+    @staticmethod
+    def _value_transform_context() -> tuple[
+        panproto.Protocol, panproto.Schema, panproto.Instance
+    ]:
+        proto = panproto.get_builtin_protocol("atproto")
+        builder = proto.schema()
+        builder.vertex("r:body", "object")
+        builder.vertex("r:body.count", "integer")
+        builder.edge("r:body", "r:body.count", "prop", "count")
+        schema = builder.build()
+        instance = panproto.Instance.from_json(schema, "r:body", '{"count": 5}')
+        return proto, schema, instance
+
+    @classmethod
+    def _assert_compute_transform(cls, chain: panproto.ProtolensChain) -> None:
+        proto, schema, instance = cls._value_transform_context()
+        lens = chain.instantiate(schema, proto)
+        view, _complement = lens.get(instance)
+        assert json.loads(view.to_json())["derived"] == 6
+
+    def test_from_dsl_json_retains_compute_field(self) -> None:
+        source = """{
+          "id": "test-compute",
+          "source": "s",
+          "target": "t",
+          "steps": [{
+            "compute_field": {
+              "target": "derived",
+              "expr": "add count 1"
+            }
+          }]
+        }"""
+        chain = panproto.ProtolensChain.from_dsl_json(source, "r:body")
+
+        encoded = chain.to_json()
+        assert "field_transforms" in json.loads(encoded)
+        restored = panproto.ProtolensChain.from_json(encoded)
+        self._assert_compute_transform(restored)
+
+    def test_from_dsl_yaml_retains_compute_field(self) -> None:
+        source = """
+        id: test-compute
+        source: s
+        target: t
+        steps:
+          - compute_field:
+              target: derived
+              expr: add count 1
+        """
+        chain = panproto.ProtolensChain.from_dsl_yaml(source, "r:body")
+        self._assert_compute_transform(chain)
+
+    def test_from_dsl_nickel_retains_compute_field(self) -> None:
+        source = """
+        let L = import "panproto/lens.ncl" in
+        {
+          id = "test-compute",
+          source = "s",
+          target = "t",
+          steps = [L.compute "derived" "add count 1"],
+        } | L.Lens
+        """
+        chain = panproto.ProtolensChain.from_dsl_nickel(source, "r:body")
+        self._assert_compute_transform(chain)
+
+    def test_from_dsl_path_retains_compute_field(self, tmp_path: Path) -> None:
+        source = """{
+          "id": "test-compute",
+          "source": "s",
+          "target": "t",
+          "steps": [{
+            "compute_field": {
+              "target": "derived",
+              "expr": "add count 1"
+            }
+          }]
+        }"""
+        path = tmp_path / "compute.json"
+        path.write_text(source)
+        chain = panproto.ProtolensChain.from_dsl_path(path, "r:body")
+        self._assert_compute_transform(chain)
+
+    @staticmethod
+    def _rename_then_compute_sources() -> tuple[str, str, str]:
+        rename = """{
+          "id": "rename", "source": "s", "target": "m",
+          "steps": [{"rename_field": {"old": "count", "new": "amount"}}]
+        }"""
+        compute = """{
+          "id": "compute", "source": "m", "target": "t",
+          "steps": [{"compute_field": {
+            "target": "derived", "expr": "add amount 1"
+          }}]
+        }"""
+        mixed = """{
+          "id": "mixed", "source": "s", "target": "t",
+          "steps": [
+            {"rename_field": {"old": "count", "new": "amount"}},
+            {"compute_field": {
+              "target": "derived", "expr": "add amount 1"
+            }}
+          ]
+        }"""
+        return rename, compute, mixed
+
+    @classmethod
+    def _assert_rename_then_compute(cls, chain: panproto.ProtolensChain) -> None:
+        proto, schema, instance = cls._value_transform_context()
+        lens = chain.instantiate(schema, proto)
+        view, _complement = lens.get(instance)
+        data = json.loads(view.to_json())
+        assert data == {"amount": 5, "derived": 6}
+
+    def test_mixed_dsl_preserves_transform_order(self) -> None:
+        _rename, _compute, mixed = self._rename_then_compute_sources()
+        chain = panproto.ProtolensChain.from_dsl_json(mixed, "r:body")
+        self._assert_rename_then_compute(chain)
+
+        encoded = chain.to_json()
+        assert "stages" in json.loads(encoded)
+        self._assert_rename_then_compute(
+            panproto.ProtolensChain.from_json(encoded)
+        )
+
+    def test_compose_preserves_transform_order(self) -> None:
+        rename, compute, _mixed = self._rename_then_compute_sources()
+        first = panproto.ProtolensChain.from_dsl_json(rename, "r:body")
+        second = panproto.ProtolensChain.from_dsl_json(compute, "r:body")
+        self._assert_rename_then_compute(first.compose(second))
+
+    def test_pipeline_preserves_transform_order(self) -> None:
+        rename, compute, _mixed = self._rename_then_compute_sources()
+        first = panproto.ProtolensChain.from_dsl_json(rename, "r:body")
+        second = panproto.ProtolensChain.from_dsl_json(compute, "r:body")
+        self._assert_rename_then_compute(panproto.pipeline([first, second]))
+
+    def test_transform_only_chain_can_be_fused(self) -> None:
+        source = """{
+          "id": "compute", "source": "s", "target": "t",
+          "steps": [{"compute_field": {
+            "target": "derived", "expr": "add count 1"
+          }}]
+        }"""
+        chain = panproto.ProtolensChain.from_dsl_json(source, "r:body")
+        proto, schema, instance = self._value_transform_context()
+        view, _complement = chain.fuse().instantiate(schema, proto).get(instance)
+        assert json.loads(view.to_json())["derived"] == 6
+
+    def test_structural_default_survives_ordered_instantiation(self) -> None:
+        proto, schema, instance = self._value_transform_context()
+        chain = panproto.add_field("r:body", "note", "string")
+        view, _complement = chain.instantiate(schema, proto).get(instance)
+
+        assert "note" in json.loads(view.to_json())
+        assert json.loads(view.to_json())["note"] is None
+
 
 # ---------------------------------------------------------------------------
 # Migration
@@ -744,6 +930,44 @@ class TestAstParserRegistryOverride:
                 node_types=b"",
             )
 
+    def test_companion_tags_query_must_be_utf8(self) -> None:
+        """A companion's tags query is checked, not trusted.
+
+        The bytes come from a third-party package, and an unchecked
+        conversion would hand tree-sitter's query compiler a ``str``
+        whose contents are not UTF-8. The check has to run before the
+        language pointer is touched, so the deliberately bogus
+        ``language_ptr`` below is never dereferenced: registration is
+        refused first, and the constructor turns the refusal into a
+        warning naming the grammar.
+        """
+        import ctypes
+        import warnings
+
+        from panproto import _native
+
+        node_types = ctypes.create_string_buffer(b"[]")
+        # 0xff and 0xfe cannot begin a valid UTF-8 sequence.
+        tags = ctypes.create_string_buffer(b"\xff\xfe(identifier) @name")
+
+        entry = {
+            "name": "notutf8grammar",
+            "extensions": ["notutf8grammar"],
+            "language_ptr": 0xDEADBEEF,
+            "node_types_ptr": ctypes.addressof(node_types),
+            "node_types_len": 2,
+            "tags_query_ptr": ctypes.addressof(tags),
+            "tags_query_len": len(tags.raw) - 1,
+        }
+
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            reg = _native.AstParserRegistry(extra_grammars=[entry])
+
+        messages = [str(w.message) for w in caught]
+        assert any("tags_query is not valid UTF-8" in m for m in messages), messages
+        assert "notutf8grammar" not in reg.protocol_names()
+
     def test_rejects_shared_handle(self) -> None:
         # `lens(...)` clones the registry's Arc, blocking override until
         # the lens handle is dropped.
@@ -760,6 +984,90 @@ class TestAstParserRegistryOverride:
                 node_types=b"[]",
             )
         del lens
+
+
+# ---------------------------------------------------------------------------
+# GIL release around native work
+# ---------------------------------------------------------------------------
+
+
+class TestGilRelease:
+    """The long native operations must not hold the interpreter lock."""
+
+    def test_parsing_lets_other_python_threads_run(self) -> None:
+        """A parse in flight must not starve the rest of the interpreter.
+
+        The measurement is relative rather than absolute so it says the
+        same thing on any machine and in any build profile: count how
+        much pure-Python work a spinning thread gets through while a
+        parse runs, and compare it against the same interval spent in
+        ``time.sleep``, which releases the lock by definition. A parse
+        that holds the lock scores a fraction of a percent of the sleep
+        baseline; one that releases it scores the same order of
+        magnitude.
+        """
+        import threading
+        import time
+
+        reg = panproto.AstParserRegistry()
+        if "python" not in reg.protocol_names():
+            pytest.skip("this build has no python grammar")
+
+        source = b"".join(
+            f"def f_{i}(a, b):\n    return a + b * {i}\n\n".encode() for i in range(200)
+        )
+        # Warm up: grammar construction and theory extraction happen once.
+        reg.parse_with_protocol("python", source, "warm.py")
+
+        # Size the sample so the measurement window is long enough to
+        # dwarf thread-scheduling noise in either build profile.
+        rounds = 1
+        while True:
+            start = time.perf_counter()
+            for _ in range(rounds):
+                reg.parse_with_protocol("python", source, "sample.py")
+            window = time.perf_counter() - start
+            if window >= 0.2 or rounds >= 512:
+                break
+            rounds *= 4
+
+        ticks = 0
+        stop = threading.Event()
+
+        def spin() -> None:
+            nonlocal ticks
+            while not stop.is_set():
+                ticks += 1
+
+        spinner = threading.Thread(target=spin)
+        spinner.start()
+        try:
+            # Baseline: the lock is demonstrably released for `window`.
+            time.sleep(0.05)
+            ticks = 0
+            start = time.perf_counter()
+            time.sleep(window)
+            asleep = time.perf_counter() - start
+            baseline = ticks
+
+            ticks = 0
+            start = time.perf_counter()
+            for _ in range(rounds):
+                reg.parse_with_protocol("python", source, "measured.py")
+            parsing = time.perf_counter() - start
+            during = ticks
+        finally:
+            stop.set()
+            spinner.join()
+
+        # Normalize for any drift between the two windows.
+        rate_asleep = baseline / asleep
+        rate_parsing = during / parsing
+        assert rate_parsing > rate_asleep * 0.2, (
+            f"python made {rate_parsing:.0f} iterations/s during parsing but "
+            f"{rate_asleep:.0f} iterations/s while sleeping: the parse is "
+            f"holding the interpreter lock"
+        )
 
 
 # ---------------------------------------------------------------------------

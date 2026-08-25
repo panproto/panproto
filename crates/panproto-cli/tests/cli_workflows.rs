@@ -2221,6 +2221,7 @@ fn make_migration(
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         expr_resolvers: HashMap::new(),
+        coercions: HashMap::new(),
         domain: None,
         codomain: None,
     }
@@ -2644,12 +2645,17 @@ fn write_honest_identity_theory(dir: &Path, name: &str) {
         "sorts": [
             { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
         ],
-        "ops": [],
+        // `id(x) -> x` rather than `x -> x`: a rule whose two sides are the
+        // same term never makes progress, so it is not LPO-terminating and
+        // the rewrite-system gate refuses it.
+        "ops": [
+            { "name": "id", "input": "Str", "output": "Str" }
+        ],
         "equations": [],
         "directed_equations": [
             {
                 "name": "identity_iso",
-                "lhs": "x",
+                "lhs": "id(x)",
                 "rhs": "x",
                 "impl_expr": "x",
                 "inverse": "x",
@@ -2828,12 +2834,18 @@ fn write_theory_binding_alternate_var(dir: &Path, name: &str) {
         "sorts": [
             { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
         ],
-        "ops": [],
+        // `id(v) -> v` rather than `v -> v`: a rule whose two sides are the
+        // same term never makes progress, so it is not LPO-terminating and
+        // the rewrite-system gate refuses it. The bound variable stays `v`,
+        // which is what these tests are about.
+        "ops": [
+            { "name": "id", "input": "Str", "output": "Str" }
+        ],
         "equations": [],
         "directed_equations": [
             {
                 "name": "alt_var_iso",
-                "lhs": "v",
+                "lhs": "id(v)",
                 "rhs": "v",
                 "impl_expr": "v",
                 "inverse": "v",
@@ -2923,8 +2935,8 @@ fn theory_compile_json_output_is_deterministic_across_runs() {
 // ---------------------------------------------------------------------------
 
 /// `schema lens compile <doc.yaml> --body-vertex <v>` loads a lens DSL
-/// document, compiles it to a protolens chain, and prints a single JSON
-/// object carrying the chain under a `chain` key.
+/// document and prints one versioned JSON artifact carrying the executable
+/// chain and its ordered stages.
 #[test]
 fn cli_lens_compile_yaml_emits_chain_json() {
     let tmp = tempfile::tempdir().unwrap();
@@ -2952,6 +2964,7 @@ fn cli_lens_compile_yaml_emits_chain_json() {
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap_or_else(|e| {
         panic!("stdout was not a single JSON document: {e}\n---\n{stdout}\n---")
     });
+    assert_eq!(parsed["format"], "panproto-compiled-lens-v1");
     assert!(
         parsed.get("chain").is_some(),
         "compile output must carry a `chain` key; got keys {:?}",
@@ -2962,6 +2975,110 @@ fn cli_lens_compile_yaml_emits_chain_json() {
         parsed["chain"].get("steps").is_some(),
         "chain value must be the serde ProtolensChain shape"
     );
+    assert_eq!(parsed["stages"].as_array().unwrap().len(), 1);
+    assert!(parsed.get("field_transforms").is_some());
+}
+
+fn write_ordered_lens_document(dir: &Path, name: &str) {
+    std::fs::write(
+        dir.join(name),
+        r#"{
+          "id": "dev.test.ordered",
+          "source": "s",
+          "target": "t",
+          "steps": [
+            { "rename_field": { "old": "text", "new": "amount" } },
+            { "compute_field": {
+                "target": "derived",
+                "expr": "amount ++ \"!\""
+            } }
+          ]
+        }"#,
+    )
+    .unwrap();
+}
+
+#[test]
+fn cli_lens_compile_retains_value_transforms_and_stage_order() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_ordered_lens_document(tmp.path(), "ordered.json");
+
+    let output = schema_cmd()
+        .args(["lens", "compile", "ordered.json", "--body-vertex", "root"])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let artifact: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(artifact["format"], "panproto-compiled-lens-v1");
+    assert_eq!(artifact["step_count"], 1);
+    assert_eq!(artifact["field_transform_vertices"], 1);
+    assert_eq!(artifact["stages"].as_array().unwrap().len(), 2);
+    assert_eq!(
+        artifact["field_transforms"]["root"][0]["ComputeField"]["target_key"],
+        "derived"
+    );
+    assert!(
+        artifact["stages"][0]["chain"]["steps"]
+            .as_array()
+            .is_some_and(|steps| !steps.is_empty())
+    );
+    assert_eq!(
+        artifact["stages"][1]["field_transforms"]["root"][0]["ComputeField"]["target_key"],
+        "derived"
+    );
+}
+
+#[test]
+fn cli_lens_apply_accepts_compiled_artifact_with_ordered_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_ordered_lens_document(tmp.path(), "ordered.json");
+    write_schema_with_edges(
+        tmp.path(),
+        "source.json",
+        "atproto",
+        &[("root", "object"), ("root.text", "string")],
+        &[("root", "root.text", "prop", "text")],
+    );
+    std::fs::write(tmp.path().join("data.json"), r#"{"text":"hello"}"#).unwrap();
+
+    schema_cmd()
+        .args([
+            "lens",
+            "compile",
+            "ordered.json",
+            "--body-vertex",
+            "root",
+            "--out",
+            "compiled.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success();
+
+    let output = schema_cmd()
+        .args([
+            "lens",
+            "apply",
+            "compiled.json",
+            "data.json",
+            "--protocol",
+            "atproto",
+            "--schema",
+            "source.json",
+        ])
+        .current_dir(tmp.path())
+        .assert()
+        .success()
+        .get_output()
+        .clone();
+
+    let view: serde_json::Value = serde_json::from_slice(&output.stdout).unwrap();
+    assert_eq!(view["amount"], "hello");
+    assert_eq!(view["derived"], "hello!");
+    assert!(view.get("text").is_none());
 }
 
 /// `schema lens compile` on an `auto` body without schema context must

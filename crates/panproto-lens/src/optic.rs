@@ -107,6 +107,9 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         | TheoryTransform::CoerceSort { .. }
         | TheoryTransform::MergeSorts { .. }
         | TheoryTransform::AddSortWithDefault { .. }
+        | TheoryTransform::AddSchemaVertex { .. }
+        | TheoryTransform::DropSchemaVertex { .. }
+        | TheoryTransform::ChangeSchemaVertexKind { .. }
         | TheoryTransform::AddDirectedEquation(_)
         | TheoryTransform::DropDirectedEquation(_)
         | TheoryTransform::StripEnrichment(_)
@@ -189,17 +192,17 @@ pub fn check_optic_laws(
         detail: format!("get failed: {e}"),
     })?;
 
-    // PutGet: put(get(s), complement) should reconstruct s.
+    // GetPut: putting back an unmodified view reconstructs the source.
     let restored = put(lens, &view, &complement).map_err(|e| OpticLawViolation {
         kind,
-        law: "PutGet",
+        law: "GetPut",
         detail: format!("put failed: {e}"),
     })?;
 
     if !crate::laws::instances_equivalent(instance, &restored) {
         return Err(OpticLawViolation {
             kind,
-            law: "PutGet",
+            law: "GetPut",
             detail: format!(
                 "structural mismatch: original {} nodes/{} arcs, restored {} nodes/{} arcs",
                 instance.node_count(),
@@ -210,17 +213,17 @@ pub fn check_optic_laws(
         });
     }
 
-    // GetPut: get(put(v, c)) should return v.
+    // PutGet: getting from the put-back source returns the view again.
     let (view2, _complement2) = get(lens, &restored).map_err(|e| OpticLawViolation {
         kind,
-        law: "GetPut",
+        law: "PutGet",
         detail: format!("get after put failed: {e}"),
     })?;
 
     if !crate::laws::instances_equivalent(&view, &view2) {
         return Err(OpticLawViolation {
             kind,
-            law: "GetPut",
+            law: "PutGet",
             detail: format!(
                 "view structural mismatch: original {} nodes/{} arcs, after round-trip {} nodes/{} arcs",
                 view.node_count(),

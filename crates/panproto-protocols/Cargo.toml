@@ -19,6 +19,10 @@ blake3 = { workspace = true }
 smallvec = { workspace = true }
 
 [dev-dependencies]
+# Needed only to build a `CoercionSpec` in tests: the spec's expressions
+# are `panproto_expr::Expr`, which this crate otherwise only ever passes
+# through.
+panproto-expr = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }
 

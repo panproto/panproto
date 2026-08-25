@@ -31,6 +31,34 @@ export function unpackFromWasm<T = unknown>(bytes: Uint8Array): T {
 }
 
 /**
+ * Encode a value whose wire representation may contain 64-bit integers.
+ *
+ * The default encoder treats JavaScript numbers outside the safe-integer
+ * range as floats and does not accept `bigint`. Expression literals use Rust
+ * `i64`, so their boundary must opt into MessagePack's 64-bit bigint support.
+ *
+ * @param value - The value to encode
+ * @returns MessagePack-encoded bytes
+ */
+export function packToWasmWithBigInt(value: unknown): Uint8Array {
+  return encode(value, { useBigInt64: true });
+}
+
+/**
+ * Decode a value whose wire representation may contain 64-bit integers.
+ *
+ * Values encoded with an i64/u64 MessagePack marker are returned as `bigint`;
+ * smaller integer markers remain JavaScript numbers.
+ *
+ * @typeParam T - The expected decoded type
+ * @param bytes - MessagePack-encoded bytes from WASM
+ * @returns The decoded value
+ */
+export function unpackFromWasmWithBigInt<T = unknown>(bytes: Uint8Array): T {
+  return decode(bytes, { useBigInt64: true }) as T;
+}
+
+/**
  * Encode a schema operations list for the `build_schema` entry point.
  *
  * @param ops - Array of builder operations

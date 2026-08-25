@@ -138,6 +138,35 @@ pub enum TheoryTransform {
         /// The new edge label.
         new_name: Arc<str>,
     },
+    /// Add one schema vertex without changing the underlying theory.
+    ///
+    /// This is a fiber-level operation for transformations that must retain
+    /// a concrete schema vertex id rather than treating that id as a theory
+    /// sort name.
+    AddSchemaVertex {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+        /// The schema vertex kind.
+        vertex_kind: Arc<str>,
+        /// Optional vertex namespace.
+        namespace: Option<Arc<str>>,
+        /// Whether the vertex is a declared schema entry.
+        is_entry: bool,
+    },
+    /// Drop one schema vertex by exact id without changing the theory.
+    DropSchemaVertex {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+    },
+    /// Change the kind of one schema vertex without renaming the theory sort.
+    ChangeSchemaVertexKind {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+        /// The expected current vertex kind.
+        old_kind: Arc<str>,
+        /// The replacement vertex kind.
+        new_kind: Arc<str>,
+    },
     /// Add a single edge with a specific `(src, tgt, name, kind)` tuple.
     ///
     /// This is a fiber-level operation: the theory is unchanged (edges of
@@ -153,18 +182,19 @@ pub enum TheoryTransform {
         src_sort: Arc<str>,
         /// Target vertex id (not sort).
         tgt_sort: Arc<str>,
-        /// The edge label (JSON property key).
-        edge_name: Arc<str>,
+        /// The optional edge label (JSON property key).
+        edge_name: Option<Arc<str>>,
         /// The edge kind (e.g., `"prop"`, `"item"`).
         edge_kind: Arc<str>,
     },
-    /// Drop a single edge identified by its `(src, tgt, name)` triple.
+    /// Drop a single edge identified by `(src, tgt, name)` and, when
+    /// supplied, its kind.
     ///
     /// This is a fiber-level operation: the theory is unchanged, only the
     /// targeted edge is removed from the schema. Unlike `DropOp`, which
-    /// removes every edge of a given kind, `DropEdge` targets a specific
-    /// edge instance by its label. Classified as `Lens` (the complement
-    /// captures the dropped edge's kind so `put` can restore it).
+    /// removes every edge of a given kind, `DropEdge` can target a specific
+    /// edge instance by its complete identity. Classified as `Lens` (the
+    /// complement captures the dropped edge's kind so `put` can restore it).
     DropEdge {
         /// Source vertex id.
         src_sort: Arc<str>,
@@ -172,14 +202,15 @@ pub enum TheoryTransform {
         tgt_sort: Arc<str>,
         /// The edge label to drop. `None` matches edges with no label.
         edge_name: Option<Arc<str>>,
+        /// Restrict the removal to this edge kind. `None` preserves the
+        /// legacy `(src, tgt, name)` matching behavior.
+        edge_kind: Option<Arc<str>>,
     },
     /// Apply a transform to the sub-theory reachable from a focus sort.
     ///
-    /// Categorically, this is the left Kan extension along the inclusion
-    /// `ι : Sub(T, focus) ↪ T` of the sub-theory at the focus sort.
-    /// The inner transform is applied only to the sub-theory; the rest
-    /// of `T` is unchanged. The result is the pushout of `T` and
-    /// `inner(Sub(T, focus))` over `Sub(T, focus)`.
+    /// The inner transform is applied to the reachable sub-theory rooted at
+    /// `focus`, then the transformed sub-theory is spliced back into the
+    /// surrounding theory. The rest of the theory is left unchanged.
     ///
     /// At the instance level, the optic class depends on the edge kind
     /// connecting the parent to the focus sort:
@@ -281,41 +312,33 @@ fn apply_drop_sort(theory: &Theory, name: &Arc<str>) -> Theory {
     Theory::new(Arc::clone(&theory.name), sorts, ops, eqs)
 }
 
-/// Rename a sort throughout a theory (sort defs, sort param refs, op signatures).
+/// Rename a sort throughout a theory: its declaration, every dependent
+/// parameter reference (including the renamed sort's own parameters, which
+/// a self-dependent sort points back at), and every operation signature.
 fn apply_rename_sort(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(old), Arc::clone(new));
     let sorts: Vec<_> = theory
         .sorts
         .iter()
-        .map(|s| {
-            if s.name == *old {
-                Sort {
-                    name: Arc::clone(new),
-                    params: s.params.clone(),
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                }
+        .map(|s| Sort {
+            name: if s.name == *old {
+                Arc::clone(new)
             } else {
-                let mut rename_map = std::collections::HashMap::new();
-                rename_map.insert(Arc::clone(old), Arc::clone(new));
-                let params = s
-                    .params
-                    .iter()
-                    .map(|p| SortParam {
-                        name: Arc::clone(&p.name),
-                        sort: p.sort.rename_head(&rename_map),
-                    })
-                    .collect();
-                Sort {
-                    name: Arc::clone(&s.name),
-                    params,
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                }
-            }
+                Arc::clone(&s.name)
+            },
+            params: s
+                .params
+                .iter()
+                .map(|p| SortParam {
+                    name: Arc::clone(&p.name),
+                    sort: p.sort.rename_head(&rename_map),
+                })
+                .collect(),
+            kind: s.kind.clone(),
+            closure: s.closure.clone(),
         })
         .collect();
-    let mut rename_map = std::collections::HashMap::new();
-    rename_map.insert(Arc::clone(old), Arc::clone(new));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -348,27 +371,53 @@ fn apply_drop_op(theory: &Theory, name: &Arc<str>) -> Theory {
     Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
 }
 
-/// Rename an operation throughout a theory (op defs and equation terms).
+/// Rename an operation throughout a theory: its declaration, every
+/// equation term, and every reference inside a dependent sort's argument
+/// terms, whether those sit on a sort declaration's parameters or on an
+/// operation's signature.
 fn apply_rename_op(theory: &Theory, old: &Arc<str>, new: &Arc<str>) -> Theory {
+    let mut op_map = std::collections::HashMap::new();
+    op_map.insert(Arc::clone(old), Arc::clone(new));
+    let no_sort_rename = std::collections::HashMap::new();
+
+    let sorts: Vec<_> = theory
+        .sorts
+        .iter()
+        .map(|s| Sort {
+            name: Arc::clone(&s.name),
+            params: s
+                .params
+                .iter()
+                .map(|p| SortParam {
+                    name: Arc::clone(&p.name),
+                    sort: p.sort.apply_maps(&no_sort_rename, &op_map),
+                })
+                .collect(),
+            kind: s.kind.clone(),
+            closure: s.closure.clone(),
+        })
+        .collect();
+
     let ops: Vec<_> = theory
         .ops
         .iter()
-        .map(|o| {
-            if o.name == *old {
-                Operation {
-                    name: Arc::clone(new),
-                    inputs: o.inputs.clone(),
-                    output: o.output.clone(),
-                }
+        .map(|o| Operation {
+            name: if o.name == *old {
+                Arc::clone(new)
             } else {
-                o.clone()
-            }
+                Arc::clone(&o.name)
+            },
+            inputs: o
+                .inputs
+                .iter()
+                .map(|(n, s, imp)| (Arc::clone(n), s.apply_maps(&no_sort_rename, &op_map), *imp))
+                .collect(),
+            output: o.output.apply_maps(&no_sort_rename, &op_map),
         })
         .collect();
-    let mut op_map = std::collections::HashMap::new();
-    op_map.insert(Arc::clone(old), Arc::clone(new));
+
     let eqs: Vec<_> = theory.eqs.iter().map(|eq| eq.rename_ops(&op_map)).collect();
-    Theory::new(Arc::clone(&theory.name), theory.sorts.clone(), ops, eqs)
+    Theory::new(Arc::clone(&theory.name), sorts, ops, eqs)
 }
 
 /// Apply a pullback (sort/op renaming) from a theory morphism.
@@ -439,38 +488,47 @@ fn filter_eqs_by_remaining_ops(eqs: &[Equation], ops: &[Operation]) -> Vec<Equat
         .collect()
 }
 
-/// Merge two sorts into one, renaming every reference in ops.
+/// Merge two sorts into one, renaming every reference to either.
 ///
-/// `sort_a` is kept (renamed to `merged_name`); `sort_b` is dropped.
-/// All op inputs/outputs that reference `sort_a` or `sort_b` are rewritten
-/// to `merged_name`.
+/// `sort_a` is kept (renamed to `merged_name`); `sort_b` is dropped. Every
+/// dependent parameter reference and every operation input and output that
+/// names either sort is rewritten to `merged_name`, the kept sort's own
+/// parameters included.
 fn apply_merge_sorts(
     theory: &Theory,
     sort_a: &Arc<str>,
     sort_b: &Arc<str>,
     merged_name: &Arc<str>,
 ) -> Theory {
+    let mut rename_map = std::collections::HashMap::new();
+    rename_map.insert(Arc::clone(sort_a), Arc::clone(merged_name));
+    rename_map.insert(Arc::clone(sort_b), Arc::clone(merged_name));
     let sorts: Vec<_> = theory
         .sorts
         .iter()
         .filter_map(|s| {
-            if s.name == *sort_a {
-                Some(Sort {
-                    name: Arc::clone(merged_name),
-                    params: s.params.clone(),
-                    kind: s.kind.clone(),
-                    closure: s.closure.clone(),
-                })
-            } else if s.name == *sort_b {
-                None
-            } else {
-                Some(s.clone())
+            if s.name == *sort_b {
+                return None;
             }
+            Some(Sort {
+                name: if s.name == *sort_a {
+                    Arc::clone(merged_name)
+                } else {
+                    Arc::clone(&s.name)
+                },
+                params: s
+                    .params
+                    .iter()
+                    .map(|p| SortParam {
+                        name: Arc::clone(&p.name),
+                        sort: p.sort.rename_head(&rename_map),
+                    })
+                    .collect(),
+                kind: s.kind.clone(),
+                closure: s.closure.clone(),
+            })
         })
         .collect();
-    let mut rename_map = std::collections::HashMap::new();
-    rename_map.insert(Arc::clone(sort_a), Arc::clone(merged_name));
-    rename_map.insert(Arc::clone(sort_b), Arc::clone(merged_name));
     let ops: Vec<_> = theory
         .ops
         .iter()
@@ -807,7 +865,12 @@ impl TheoryTransform {
             }
             Self::DropDirectedEquation(name) => Ok(apply_drop_directed_equation(theory, name)),
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
-            Self::RenameEdgeName { .. } | Self::AddEdge { .. } | Self::DropEdge { .. } => {
+            Self::RenameEdgeName { .. }
+            | Self::AddSchemaVertex { .. }
+            | Self::DropSchemaVertex { .. }
+            | Self::ChangeSchemaVertexKind { .. }
+            | Self::AddEdge { .. }
+            | Self::DropEdge { .. } => {
                 // Fiber-level operations: the theory is unchanged.
                 // The actual schema mutation happens in
                 // apply_theory_transform_to_schema.
@@ -1180,5 +1243,104 @@ mod tests {
         assert_eq!(result.sorts.len(), 1);
         assert_eq!(result.ops.len(), 0); // f and a0 reference A
         assert_eq!(result.eqs.len(), 0); // law uses f which was dropped
+    }
+
+    #[test]
+    fn rename_op_rewrites_dependent_sort_argument_terms() {
+        // `loop_ : Hom(pt(), pt())` must follow a rename of `pt`.
+        let theory = Theory::new(
+            "Pointed",
+            vec![
+                crate::sort::Sort::simple("Pt"),
+                crate::sort::Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Pt"), SortParam::new("b", "Pt")],
+                ),
+            ],
+            vec![
+                Operation::new("pt", vec![], "Pt"),
+                Operation::new(
+                    "loop_",
+                    vec![],
+                    crate::sort::SortExpr::app(
+                        "Hom",
+                        vec![
+                            crate::eq::Term::constant("pt"),
+                            crate::eq::Term::constant("pt"),
+                        ],
+                    ),
+                ),
+            ],
+            vec![],
+        );
+        let renamed = apply_rename_op(&theory, &Arc::from("pt"), &Arc::from("base"));
+        let Some(loop_op) = renamed.find_op("loop_") else {
+            panic!("loop_ survives the rename");
+        };
+        let heads: Vec<&str> = loop_op
+            .output
+            .args()
+            .iter()
+            .filter_map(|t| match t {
+                crate::eq::Term::App { op, .. } => Some(&**op),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            heads,
+            vec!["base", "base"],
+            "renamed op must be referenced by its new name: {:?}",
+            loop_op.output,
+        );
+    }
+
+    #[test]
+    fn rename_sort_rewrites_its_own_dependent_parameters() {
+        // `Slice(of: Slice)` is dependent on itself; renaming it must
+        // rewrite the parameter reference too.
+        let theory = Theory::new(
+            "Sliced",
+            vec![crate::sort::Sort::dependent(
+                "Slice",
+                vec![SortParam::new("of", "Slice")],
+            )],
+            vec![],
+            vec![],
+        );
+        let renamed = apply_rename_sort(&theory, &Arc::from("Slice"), &Arc::from("Segment"));
+        let Some(sort) = renamed.find_sort("Segment") else {
+            panic!("the sort survives the rename: {:?}", renamed.sorts);
+        };
+        assert_eq!(
+            &**sort.params[0].sort.head(),
+            "Segment",
+            "the parameter must follow the rename: {:?}",
+            sort.params,
+        );
+    }
+
+    #[test]
+    fn merge_sorts_rewrites_the_kept_sorts_dependent_parameters() {
+        // Merging `A` and `B` must rewrite `A`'s own parameter reference to
+        // `B`, not just the references held by other declarations.
+        let theory = Theory::new(
+            "Pair",
+            vec![
+                crate::sort::Sort::dependent("A", vec![SortParam::new("b", "B")]),
+                crate::sort::Sort::simple("B"),
+            ],
+            vec![],
+            vec![],
+        );
+        let merged = apply_merge_sorts(&theory, &Arc::from("A"), &Arc::from("B"), &Arc::from("AB"));
+        let Some(sort) = merged.find_sort("AB") else {
+            panic!("the merged sort exists: {:?}", merged.sorts);
+        };
+        assert_eq!(
+            &**sort.params[0].sort.head(),
+            "AB",
+            "the parameter must follow the merge: {:?}",
+            sort.params,
+        );
     }
 }

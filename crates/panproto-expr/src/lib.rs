@@ -27,7 +27,7 @@ pub mod typecheck;
 pub use builtin::apply_builtin;
 pub use env::Env;
 pub use error::ExprError;
-pub use eval::{EvalConfig, eval};
+pub use eval::{BuiltinResolver, EvalConfig, eval, eval_with_resolver};
 pub use expr::{BuiltinOp, Expr, ExprType, Pattern};
 pub use literal::Literal;
 pub use subst::{free_vars, pattern_vars, substitute};

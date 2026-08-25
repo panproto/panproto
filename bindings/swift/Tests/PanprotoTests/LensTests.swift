@@ -521,24 +521,23 @@ struct LensTests {
     @Test("a diff spec becomes one step per entry")
     func diffBecomesAChain() async throws {
         let summary = try await PanprotoEngine.run { () throws -> ProtolensChain in
-            let fixtures = try LensFixtures()
-            // `langs` is the array the post schema carries and the
-            // profile schema does not, which makes it the honest thing
-            // for a hand-written diff to remove.
-            let diff = DiffSpec(removedVertices: ["app.bsky.feed.post:body.langs"])
+            let source = try smallSchema(fields: ["title", "subtitle"])
+            let target = try smallSchema(fields: ["title"])
+            let diff = DiffSpec(removedVertices: ["post.subtitle"])
             let chain = try ProtolensChainHandle.fromDiff(
                 diff,
-                from: fixtures.post,
-                to: fixtures.profile
+                from: source,
+                to: target
             )
             return try chain.stepSummaries()
         }
 
-        // The builder names a dropped sort by the vertex's kind, which
-        // is why the step reads `array` rather than `langs`.
+        // The builder gives a diff-derived step a stable name that identifies
+        // the removed schema vertex rather than one of the hand-written DSL
+        // step names.
         #expect(summary.count == 1)
-        #expect(summary[0].name == "drop_sort_array")
-        #expect(ElementaryStep(stepName: summary[0].name) == .dropSort)
+        #expect(summary[0].name == "drop_schema_vertex_post.subtitle")
+        #expect(ElementaryStep(stepName: summary[0].name) == nil)
         #expect(summary[0].lossless == false)
     }
 

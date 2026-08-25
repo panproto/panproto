@@ -1,6 +1,6 @@
 # Your first diff
 
-A schema change should be inspectable before any data moves. In this tutorial, panproto compares two [ATProto](https://atproto.com/) Lexicon documents and reports that one field disappeared while another appeared.
+This tutorial compares two [ATProto](https://atproto.com/) Lexicon documents and reports one removed field and one added field.
 
 You will create two versions of a `User` record and run one structural diff. The inputs remain ordinary Lexicon JSON rather than panproto's internal schema representation.
 
@@ -79,7 +79,7 @@ From `panproto-first-diff/`, run:
 schema diff user-v1.json user-v2.json
 ```
 
-The command uses `panproto.toml` to select the ATProto document parser, then compares the resulting schema graphs. Its report includes a removed `com.example.user:body.age` vertex and an added `com.example.user:body.years` vertex, together with the corresponding property edges. That report establishes the structural removal/addition pair; the rename interpretation requires the second pass below.
+The command uses `panproto.toml` to select the ATProto document parser, then compares the resulting schema graphs. Its report includes a removed `com.example.user:body.age` vertex and an added `com.example.user:body.years` vertex, together with the corresponding property edges. That report establishes the structural removal/addition pair. The rename interpretation requires the second pass below.
 
 Rename detection is a second pass over that structural result:
 
@@ -87,7 +87,7 @@ Rename detection is a second pass over that structural result:
 schema diff user-v1.json user-v2.json --detect-renames
 ```
 
-If a removed and added element clear the detector's similarity threshold, the command adds them to a `Detected renames` section with confidence scores. This score is evidence for a possible correspondence; [Your first migration](./your-first-migration.md) later records the correspondence explicitly.
+If a removed and added element clear the detector's similarity threshold, the command adds them to a `Detected renames` section with confidence scores. This score is evidence for a possible correspondence. [Your first migration](./your-first-migration.md) later records the correspondence explicitly.
 
 For a compact count rather than the element-by-element report, run:
 

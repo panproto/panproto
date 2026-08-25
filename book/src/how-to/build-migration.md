@@ -4,7 +4,7 @@ A migration maps vertices and edges in a source schema to a target schema. Build
 
 ## Prerequisites
 
-Two schemas using the same registered protocol and the `schema` CLI. Cross-protocol mappings require a separately constructed shared theory; see [Translate across protocols](./cross-protocol.md).
+Two panproto schema JSON files and the `schema` CLI. The current CLI protocol resolver supports `atproto`. The TypeScript SDK can check a narrow explicit mapping between two protocol-tagged schema handles, with the qualifications in [Translate across protocols](./cross-protocol.md).
 
 ## Derive a mapping
 
@@ -54,7 +54,7 @@ schema lift \
   data/user.json > data/user-v2.json
 ```
 
-The default direction is `restrict` and the default instance type is `wtype`. The command infers the record root from the migration's mapped vertices. A mapping with no vertex entries cannot be lifted.
+The default direction is `restrict` and the default instance type is `wtype`. In this command, `restrict` reads a source-shaped record, follows the compiled source-to-target migration, retains the part represented by mapped vertices, and serializes that result with the target schema. It is not the categorical precomposition functor \(\Delta_F\), which has the opposite instance-level direction, from a target instance to a source instance. Both other modes also run source to target. `sigma` uses the total extension path. For functor instances, `pi` forms Cartesian products from the values associated with each target vertex (its fiber). For W-type instances, `pi` only accepts vertex-injective mappings and relabels the tree; it does not construct the general right Kan extension. [The vocabulary in plain terms](../explanation/decoder-ring.md) gives the categorical directions. The command infers the record root from the migration's mapped source vertices; a mapping with no vertex entries cannot be applied.
 
 ## Build a mapping in TypeScript
 
@@ -88,6 +88,7 @@ The command exits `0` when it finds no breaking change, `1` for a breaking chang
 - `schema check` does not measure how much of the source schema is mapped.
 - Automatic alignment ranks candidates; it does not certify that the selected correspondence matches domain intent. Review every generated map.
 - A vertex map cannot split one value across several targets or compute a new value. Those operations require field transforms.
+- `schema lift --direction restrict` is named after `panproto-mig`'s surviving-fragment operation. Do not identify it with `panproto-inst::adjunction::w_delta` or `f_delta`, which implement target-to-source precomposition.
 
 ## See also
 

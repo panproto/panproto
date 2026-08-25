@@ -39,7 +39,7 @@ extension Raw {
     /// Installs the process-global Rust panic hook that suppresses the
     /// default stderr output; panics stay observable because every
     /// entry point catches them and stashes the message in the
-    /// thread-local last-error slot, which ``lastErrorTake()`` drains.
+    /// process-global last-error slot, which ``lastErrorTake()`` drains.
     /// Idempotent, and always answers ``RawStatus/ok``. No payload
     /// crosses the boundary.
     @inlinable

@@ -273,7 +273,7 @@ pub fn pp_vcs_add(repo: u32, schema: u32, out: &mut repr_c::Vec<u8>) -> i32 {
     guard(|| {
         // Clone the schema out of its handle first, then take the
         // mutable borrow on the repo (two distinct slab entries).
-        let schema_val = handle::with_resource(schema, |r| Ok(r.as_schema()?.clone()))?;
+        let schema_val = handle::with_resource(schema, Resource::as_schema_arc)?;
 
         let result = handle::with_resource_mut(repo, |r| {
             let repository = r.as_vcs_repo_mut()?;
