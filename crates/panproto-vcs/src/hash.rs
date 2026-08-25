@@ -652,7 +652,7 @@ pub fn hash_schema_tree(tree: &crate::object::SchemaTreeObject) -> Result<Object
     Ok(ObjectId(hasher.finalize().into()))
 }
 
-/// Compute the content address of any [`Object`].
+/// Compute the content address of any [`Object`](crate::object::Object).
 ///
 /// This is the single definition of "which ID does this object have":
 /// stores use it to file an object on write and to verify it on read,

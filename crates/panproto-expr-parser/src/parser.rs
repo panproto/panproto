@@ -1,6 +1,5 @@
 //! Chumsky parser producing `panproto_expr::Expr` from the token stream.
 //!
-//! Implements the grammar defined in `notes/POLY_IMPLEMENTATION_PLAN.md`.
 //! Uses Pratt parsing for operator precedence and recursive descent for
 //! the rest. Layout tokens (`Indent`/`Dedent`/`Newline`) from the lexer
 //! are consumed directly as delimiters for layout-sensitive blocks.
