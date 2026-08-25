@@ -26,7 +26,10 @@ function createMockWasm(): WasmModule {
     compile_migration: vi.fn(() => ++handleCounter),
     lift_record: vi.fn(() => packToWasm({})),
     get_record: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array(0) })),
+    get_json: vi.fn(() => packToWasm({ view: {}, complement: new Uint8Array(0) })),
     put_record: vi.fn(() => packToWasm({})),
+    auto_generate_protolens: vi.fn(() => ++handleCounter),
+    instantiate_protolens: vi.fn(() => ++handleCounter),
     compose_migrations: vi.fn(() => ++handleCounter),
     diff_schemas: vi.fn(() => packToWasm({ compatibility: 'fully-compatible', changes: [] })),
     free_handle: vi.fn(),
@@ -157,5 +160,87 @@ describe('Panproto (integration with mocks)', () => {
     schema[Symbol.dispose]();
     tgtSchema[Symbol.dispose]();
     proto[Symbol.dispose]();
+  });
+
+  it('convert sends ordinary objects through the JSON lens path', async () => {
+    const wasm = createMockWasm();
+    vi.mocked(wasm.exports.get_json).mockReturnValue(packToWasm({
+      view: { converted: true },
+      complement: new Uint8Array(0),
+    }));
+    const panproto = Reflect.construct(Panproto, [wasm]) as Panproto;
+    const proto = defineProtocol(MOCK_SPEC, wasm);
+    const source = proto.schema().vertex('body', 'object').build();
+    const target = proto.schema().vertex('body', 'object').build();
+    const input = { text: 'hello' };
+
+    await expect(panproto.convert(input, {
+      from: source,
+      to: target,
+      rootVertex: 'body',
+    })).resolves.toEqual({ converted: true });
+
+    expect(wasm.exports.get_record).not.toHaveBeenCalled();
+    const call = vi.mocked(wasm.exports.get_json).mock.calls[0];
+    expect(call).toBeDefined();
+    expect(JSON.parse(new TextDecoder().decode(call![1]))).toEqual(input);
+    expect(call![2]).toBe('body');
+  });
+
+  it('convert applies defaults only to missing top-level fields', async () => {
+    const wasm = createMockWasm();
+    vi.mocked(wasm.exports.get_json).mockReturnValue(packToWasm({
+      view: { existing: 'converted', preserved: true },
+      complement: new Uint8Array(0),
+    }));
+    const panproto = Reflect.construct(Panproto, [wasm]) as Panproto;
+    const proto = defineProtocol(MOCK_SPEC, wasm);
+    const source = proto.schema().vertex('body', 'object').build();
+    const target = proto.schema().vertex('body', 'object').build();
+
+    await expect(panproto.convert({}, {
+      from: source,
+      to: target,
+      defaults: { existing: 'default', added: 42 },
+    })).resolves.toEqual({
+      existing: 'converted',
+      preserved: true,
+      added: 42,
+    });
+
+    expect(vi.mocked(wasm.exports.get_json).mock.calls[0]?.[2]).toBe('');
+  });
+
+  it('convert preserves the internal WInstance byte path', async () => {
+    const wasm = createMockWasm();
+    vi.mocked(wasm.exports.get_record).mockReturnValue(packToWasm({
+      view: { binary: true },
+      complement: new Uint8Array(0),
+    }));
+    const panproto = Reflect.construct(Panproto, [wasm]) as Panproto;
+    const proto = defineProtocol(MOCK_SPEC, wasm);
+    const source = proto.schema().vertex('body', 'object').build();
+    const target = proto.schema().vertex('body', 'object').build();
+    const input = packToWasm({ nodes: {} });
+
+    await expect(panproto.convert(input, { from: source, to: target }))
+      .resolves.toEqual({ binary: true });
+    expect(wasm.exports.get_record).toHaveBeenCalledWith(expect.any(Number), input);
+    expect(wasm.exports.get_json).not.toHaveBeenCalled();
+  });
+
+  it('convert rejects defaults for internal WInstance bytes', async () => {
+    const wasm = createMockWasm();
+    const panproto = Reflect.construct(Panproto, [wasm]) as Panproto;
+    const proto = defineProtocol(MOCK_SPEC, wasm);
+    const source = proto.schema().vertex('body', 'object').build();
+    const target = proto.schema().vertex('body', 'object').build();
+
+    await expect(panproto.convert(new Uint8Array([1]), {
+      from: source,
+      to: target,
+      defaults: { x: 1 },
+    })).rejects.toThrow('defaults require JSON object input');
+    expect(wasm.exports.auto_generate_protolens).not.toHaveBeenCalled();
   });
 });

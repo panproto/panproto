@@ -107,6 +107,9 @@ pub fn classify_transform(transform: &TheoryTransform) -> OpticKind {
         | TheoryTransform::CoerceSort { .. }
         | TheoryTransform::MergeSorts { .. }
         | TheoryTransform::AddSortWithDefault { .. }
+        | TheoryTransform::AddSchemaVertex { .. }
+        | TheoryTransform::DropSchemaVertex { .. }
+        | TheoryTransform::ChangeSchemaVertexKind { .. }
         | TheoryTransform::AddDirectedEquation(_)
         | TheoryTransform::DropDirectedEquation(_)
         | TheoryTransform::StripEnrichment(_)

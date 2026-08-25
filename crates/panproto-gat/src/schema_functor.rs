@@ -138,6 +138,35 @@ pub enum TheoryTransform {
         /// The new edge label.
         new_name: Arc<str>,
     },
+    /// Add one schema vertex without changing the underlying theory.
+    ///
+    /// This is a fiber-level operation for transformations that must retain
+    /// a concrete schema vertex id rather than treating that id as a theory
+    /// sort name.
+    AddSchemaVertex {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+        /// The schema vertex kind.
+        vertex_kind: Arc<str>,
+        /// Optional namespace identifier.
+        nsid: Option<Arc<str>>,
+        /// Whether the vertex is a declared schema entry.
+        is_entry: bool,
+    },
+    /// Drop one schema vertex by exact id without changing the theory.
+    DropSchemaVertex {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+    },
+    /// Change the kind of one schema vertex without renaming the theory sort.
+    ChangeSchemaVertexKind {
+        /// The exact schema vertex id.
+        vertex_id: Arc<str>,
+        /// The expected current vertex kind.
+        old_kind: Arc<str>,
+        /// The replacement vertex kind.
+        new_kind: Arc<str>,
+    },
     /// Add a single edge with a specific `(src, tgt, name, kind)` tuple.
     ///
     /// This is a fiber-level operation: the theory is unchanged (edges of
@@ -153,18 +182,19 @@ pub enum TheoryTransform {
         src_sort: Arc<str>,
         /// Target vertex id (not sort).
         tgt_sort: Arc<str>,
-        /// The edge label (JSON property key).
-        edge_name: Arc<str>,
+        /// The optional edge label (JSON property key).
+        edge_name: Option<Arc<str>>,
         /// The edge kind (e.g., `"prop"`, `"item"`).
         edge_kind: Arc<str>,
     },
-    /// Drop a single edge identified by its `(src, tgt, name)` triple.
+    /// Drop a single edge identified by `(src, tgt, name)` and, when
+    /// supplied, its kind.
     ///
     /// This is a fiber-level operation: the theory is unchanged, only the
     /// targeted edge is removed from the schema. Unlike `DropOp`, which
-    /// removes every edge of a given kind, `DropEdge` targets a specific
-    /// edge instance by its label. Classified as `Lens` (the complement
-    /// captures the dropped edge's kind so `put` can restore it).
+    /// removes every edge of a given kind, `DropEdge` can target a specific
+    /// edge instance by its complete identity. Classified as `Lens` (the
+    /// complement captures the dropped edge's kind so `put` can restore it).
     DropEdge {
         /// Source vertex id.
         src_sort: Arc<str>,
@@ -172,14 +202,15 @@ pub enum TheoryTransform {
         tgt_sort: Arc<str>,
         /// The edge label to drop. `None` matches edges with no label.
         edge_name: Option<Arc<str>>,
+        /// Restrict the removal to this edge kind. `None` preserves the
+        /// legacy `(src, tgt, name)` matching behavior.
+        edge_kind: Option<Arc<str>>,
     },
     /// Apply a transform to the sub-theory reachable from a focus sort.
     ///
-    /// Categorically, this is the left Kan extension along the inclusion
-    /// `ι : Sub(T, focus) ↪ T` of the sub-theory at the focus sort.
-    /// The inner transform is applied only to the sub-theory; the rest
-    /// of `T` is unchanged. The result is the pushout of `T` and
-    /// `inner(Sub(T, focus))` over `Sub(T, focus)`.
+    /// The inner transform is applied to the reachable sub-theory rooted at
+    /// `focus`, then the transformed sub-theory is spliced back into the
+    /// surrounding theory. The rest of the theory is left unchanged.
     ///
     /// At the instance level, the optic class depends on the edge kind
     /// connecting the parent to the focus sort:
@@ -834,7 +865,12 @@ impl TheoryTransform {
             }
             Self::DropDirectedEquation(name) => Ok(apply_drop_directed_equation(theory, name)),
             Self::Pullback(morphism) => Ok(apply_pullback(theory, morphism)),
-            Self::RenameEdgeName { .. } | Self::AddEdge { .. } | Self::DropEdge { .. } => {
+            Self::RenameEdgeName { .. }
+            | Self::AddSchemaVertex { .. }
+            | Self::DropSchemaVertex { .. }
+            | Self::ChangeSchemaVertexKind { .. }
+            | Self::AddEdge { .. }
+            | Self::DropEdge { .. } => {
                 // Fiber-level operations: the theory is unchanged.
                 // The actual schema mutation happens in
                 // apply_theory_transform_to_schema.

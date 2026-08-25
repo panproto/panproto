@@ -34,6 +34,7 @@ pub mod coercion_laws;
 pub mod complement_type;
 pub mod compose;
 pub mod cost;
+mod default_synthesis;
 pub mod derived;
 pub mod diff_to_protolens;
 pub mod edit_error;

@@ -515,6 +515,192 @@ class TestProtolensChain:
         lens = chain.instantiate(schema, proto)
         assert lens is not None
 
+    def test_auto_generate_retains_concrete_field_transforms(self) -> None:
+        proto = panproto.define_protocol(
+            {
+                "name": "auto-transform-test",
+                "schema_theory": "ThGraph",
+                "instance_theory": "ThWType",
+                "edge_rules": [],
+                "obj_kinds": ["object", "string"],
+                "constraint_sorts": [],
+            }
+        )
+        source_builder = proto.schema()
+        source_builder.vertex("r", "object")
+        source_builder.vertex("r.text", "string")
+        source_builder.edge("r", "r.text", "text", "text")
+        source = source_builder.build()
+
+        target_builder = proto.schema()
+        target_builder.vertex("r", "object")
+        target_builder.vertex("r.text", "string")
+        target = target_builder.build()
+
+        chain = panproto.ProtolensChain.auto_generate(
+            source, target, proto, "exploratory"
+        )
+        encoded = json.loads(chain.to_json())
+        assert encoded["field_transforms"] == {
+            "r": [{"DropField": {"key": "text"}}]
+        }
+
+    @staticmethod
+    def _value_transform_context() -> tuple[
+        panproto.Protocol, panproto.Schema, panproto.Instance
+    ]:
+        proto = panproto.get_builtin_protocol("atproto")
+        builder = proto.schema()
+        builder.vertex("r:body", "object")
+        builder.vertex("r:body.count", "integer")
+        builder.edge("r:body", "r:body.count", "prop", "count")
+        schema = builder.build()
+        instance = panproto.Instance.from_json(schema, "r:body", '{"count": 5}')
+        return proto, schema, instance
+
+    @classmethod
+    def _assert_compute_transform(cls, chain: panproto.ProtolensChain) -> None:
+        proto, schema, instance = cls._value_transform_context()
+        lens = chain.instantiate(schema, proto)
+        view, _complement = lens.get(instance)
+        assert json.loads(view.to_json())["derived"] == 6
+
+    def test_from_dsl_json_retains_compute_field(self) -> None:
+        source = """{
+          "id": "test-compute",
+          "source": "s",
+          "target": "t",
+          "steps": [{
+            "compute_field": {
+              "target": "derived",
+              "expr": "add count 1"
+            }
+          }]
+        }"""
+        chain = panproto.ProtolensChain.from_dsl_json(source, "r:body")
+
+        encoded = chain.to_json()
+        assert "field_transforms" in json.loads(encoded)
+        restored = panproto.ProtolensChain.from_json(encoded)
+        self._assert_compute_transform(restored)
+
+    def test_from_dsl_yaml_retains_compute_field(self) -> None:
+        source = """
+        id: test-compute
+        source: s
+        target: t
+        steps:
+          - compute_field:
+              target: derived
+              expr: add count 1
+        """
+        chain = panproto.ProtolensChain.from_dsl_yaml(source, "r:body")
+        self._assert_compute_transform(chain)
+
+    def test_from_dsl_nickel_retains_compute_field(self) -> None:
+        source = """
+        let L = import "panproto/lens.ncl" in
+        {
+          id = "test-compute",
+          source = "s",
+          target = "t",
+          steps = [L.compute "derived" "add count 1"],
+        } | L.Lens
+        """
+        chain = panproto.ProtolensChain.from_dsl_nickel(source, "r:body")
+        self._assert_compute_transform(chain)
+
+    def test_from_dsl_path_retains_compute_field(self, tmp_path: Path) -> None:
+        source = """{
+          "id": "test-compute",
+          "source": "s",
+          "target": "t",
+          "steps": [{
+            "compute_field": {
+              "target": "derived",
+              "expr": "add count 1"
+            }
+          }]
+        }"""
+        path = tmp_path / "compute.json"
+        path.write_text(source)
+        chain = panproto.ProtolensChain.from_dsl_path(path, "r:body")
+        self._assert_compute_transform(chain)
+
+    @staticmethod
+    def _rename_then_compute_sources() -> tuple[str, str, str]:
+        rename = """{
+          "id": "rename", "source": "s", "target": "m",
+          "steps": [{"rename_field": {"old": "count", "new": "amount"}}]
+        }"""
+        compute = """{
+          "id": "compute", "source": "m", "target": "t",
+          "steps": [{"compute_field": {
+            "target": "derived", "expr": "add amount 1"
+          }}]
+        }"""
+        mixed = """{
+          "id": "mixed", "source": "s", "target": "t",
+          "steps": [
+            {"rename_field": {"old": "count", "new": "amount"}},
+            {"compute_field": {
+              "target": "derived", "expr": "add amount 1"
+            }}
+          ]
+        }"""
+        return rename, compute, mixed
+
+    @classmethod
+    def _assert_rename_then_compute(cls, chain: panproto.ProtolensChain) -> None:
+        proto, schema, instance = cls._value_transform_context()
+        lens = chain.instantiate(schema, proto)
+        view, _complement = lens.get(instance)
+        data = json.loads(view.to_json())
+        assert data == {"amount": 5, "derived": 6}
+
+    def test_mixed_dsl_preserves_transform_order(self) -> None:
+        _rename, _compute, mixed = self._rename_then_compute_sources()
+        chain = panproto.ProtolensChain.from_dsl_json(mixed, "r:body")
+        self._assert_rename_then_compute(chain)
+
+        encoded = chain.to_json()
+        assert "stages" in json.loads(encoded)
+        self._assert_rename_then_compute(
+            panproto.ProtolensChain.from_json(encoded)
+        )
+
+    def test_compose_preserves_transform_order(self) -> None:
+        rename, compute, _mixed = self._rename_then_compute_sources()
+        first = panproto.ProtolensChain.from_dsl_json(rename, "r:body")
+        second = panproto.ProtolensChain.from_dsl_json(compute, "r:body")
+        self._assert_rename_then_compute(first.compose(second))
+
+    def test_pipeline_preserves_transform_order(self) -> None:
+        rename, compute, _mixed = self._rename_then_compute_sources()
+        first = panproto.ProtolensChain.from_dsl_json(rename, "r:body")
+        second = panproto.ProtolensChain.from_dsl_json(compute, "r:body")
+        self._assert_rename_then_compute(panproto.pipeline([first, second]))
+
+    def test_transform_only_chain_can_be_fused(self) -> None:
+        source = """{
+          "id": "compute", "source": "s", "target": "t",
+          "steps": [{"compute_field": {
+            "target": "derived", "expr": "add count 1"
+          }}]
+        }"""
+        chain = panproto.ProtolensChain.from_dsl_json(source, "r:body")
+        proto, schema, instance = self._value_transform_context()
+        view, _complement = chain.fuse().instantiate(schema, proto).get(instance)
+        assert json.loads(view.to_json())["derived"] == 6
+
+    def test_structural_default_survives_ordered_instantiation(self) -> None:
+        proto, schema, instance = self._value_transform_context()
+        chain = panproto.add_field("r:body", "note", "string")
+        view, _complement = chain.instantiate(schema, proto).get(instance)
+
+        assert "note" in json.loads(view.to_json())
+        assert json.loads(view.to_json())["note"] is None
+
 
 # ---------------------------------------------------------------------------
 # Migration

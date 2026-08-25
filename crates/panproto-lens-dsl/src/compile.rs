@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_inst::FieldTransform;
 use panproto_lens::{
-    AutoLensConfig, DiffSpec, KindChange, ProtolensChain, Stringency, auto_generate,
+    AutoLensConfig, DiffSpec, KindChange, Lens, ProtolensChain, Stringency, auto_generate,
     auto_generate_with_hints, combinators, diff_to_protolens,
 };
 use panproto_schema::{Edge, Protocol, Schema, primary_entry};
@@ -50,6 +50,12 @@ pub struct CompiledLens {
     pub chain: ProtolensChain,
     /// Value-level field transforms, keyed by parent vertex.
     pub field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    /// Ordered concrete-migration stages.
+    ///
+    /// This is authoritative for instantiation. `chain` and
+    /// `field_transforms` remain as compatibility summaries, but cannot by
+    /// themselves represent a value transform between two structural steps.
+    pub stages: Vec<crate::steps::CompiledStage>,
     /// Protocol-specific extension metadata (opaque).
     pub extensions: HashMap<String, serde_json::Value>,
     /// Auto-generation spec, if the `auto` body variant was used.
@@ -79,7 +85,44 @@ pub struct SymmetricChains {
 struct BodyOutput {
     chain: ProtolensChain,
     field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    stages: Vec<crate::steps::CompiledStage>,
     symmetric: Option<SymmetricChains>,
+}
+
+impl CompiledLens {
+    /// Instantiate the ordered structural and value-level stages.
+    ///
+    /// # Errors
+    ///
+    /// Returns a lens error when a stage cannot be instantiated or adjacent
+    /// concrete lenses cannot be composed.
+    pub fn instantiate(
+        &self,
+        schema: &Schema,
+        protocol: &Protocol,
+    ) -> Result<Lens, panproto_lens::LensError> {
+        let mut composed: Option<Lens> = None;
+        for stage in &self.stages {
+            let running_schema = composed.as_ref().map_or(schema, |lens| &lens.tgt_schema);
+            let mut stage_lens = stage.chain.instantiate(running_schema, protocol)?;
+            for (anchor, transforms) in &stage.field_transforms {
+                stage_lens
+                    .compiled
+                    .field_transforms
+                    .entry(anchor.clone())
+                    .or_default()
+                    .extend(transforms.iter().cloned());
+            }
+            composed = Some(match composed {
+                Some(accumulated) => panproto_lens::compose(&accumulated, &stage_lens)?,
+                None => stage_lens,
+            });
+        }
+        composed.map_or_else(
+            || ProtolensChain::new(Vec::new()).instantiate(schema, protocol),
+            Ok,
+        )
+    }
 }
 
 /// Validate that exactly one body variant is present, returning its name.
@@ -211,6 +254,7 @@ fn compile_schema_free_body(
             Ok(BodyOutput {
                 chain: compiled.chain,
                 field_transforms: compiled.field_transforms,
+                stages: compiled.stages,
                 symmetric: None,
             })
         }
@@ -220,6 +264,7 @@ fn compile_schema_free_body(
             Ok(BodyOutput {
                 chain: compiled.chain,
                 field_transforms: compiled.field_transforms,
+                stages: compiled.stages,
                 symmetric: None,
             })
         }
@@ -232,6 +277,7 @@ fn compile_schema_free_body(
             Ok(BodyOutput {
                 chain: compiled.chain,
                 field_transforms: compiled.field_transforms,
+                stages: compiled.stages,
                 symmetric: None,
             })
         }
@@ -254,6 +300,7 @@ fn compile_schema_free_body(
             Ok(BodyOutput {
                 chain: left.chain.clone(),
                 field_transforms,
+                stages: left.stages,
                 symmetric: Some(SymmetricChains {
                     left: left.chain,
                     right: right.chain,
@@ -326,9 +373,15 @@ fn compile_auto_body(
         })?
     };
 
+    let field_transforms = result.lens.compiled.field_transforms;
+    let chain = result.chain;
     Ok(BodyOutput {
-        chain: result.chain,
-        field_transforms: HashMap::new(),
+        stages: vec![crate::steps::CompiledStage {
+            chain: chain.clone(),
+            field_transforms: field_transforms.clone(),
+        }],
+        chain,
+        field_transforms,
         symmetric: None,
     })
 }
@@ -355,6 +408,10 @@ fn compile_from_diff_body(
         }
     })?;
     Ok(BodyOutput {
+        stages: vec![crate::steps::CompiledStage {
+            chain: chain.clone(),
+            field_transforms: HashMap::new(),
+        }],
         chain,
         field_transforms: HashMap::new(),
         symmetric: None,
@@ -365,12 +422,17 @@ fn compile_from_diff_body(
 /// invertibility check.
 fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDslError> {
     let mut chain = body.chain;
+    let mut stages = body.stages;
 
     // Directed-equation modifier: append oriented rewrites to the chain.
     if let Some(equations) = &doc.directed_equations {
         if !equations.is_empty() {
             let eq_chain = crate::steps::compile_directed_equations(equations)?;
-            chain = combinators::pipeline(vec![chain, eq_chain]);
+            chain = combinators::pipeline(vec![chain, eq_chain.clone()]);
+            stages.push(crate::steps::CompiledStage {
+                chain: eq_chain,
+                field_transforms: HashMap::new(),
+            });
         }
     }
 
@@ -381,6 +443,7 @@ fn finalize(doc: &LensDocument, body: BodyOutput) -> Result<CompiledLens, LensDs
         target: doc.target.clone(),
         chain,
         field_transforms: body.field_transforms,
+        stages,
         extensions: doc.extensions.clone(),
         auto_spec: doc.auto.clone(),
         symmetric: body.symmetric,
@@ -441,13 +504,13 @@ fn verify_target(
         return Ok(());
     }
 
-    let lens = compiled
-        .chain
-        .instantiate(source_schema, protocol)
-        .map_err(|e| LensDslError::Generation {
-            id: compiled.id.clone(),
-            message: format!("cannot instantiate chain at source schema to verify target: {e}"),
-        })?;
+    let lens =
+        compiled
+            .instantiate(source_schema, protocol)
+            .map_err(|e| LensDslError::Generation {
+                id: compiled.id.clone(),
+                message: format!("cannot instantiate chain at source schema to verify target: {e}"),
+            })?;
 
     // The produced schema's identity is the NSID of its primary entry.
     // When absent, we cannot verify and do not fail.
@@ -598,6 +661,34 @@ mod tests {
             .unwrap()
     }
 
+    /// Source whose operation kind and JSON label are both `text`.
+    fn generated_transform_source_schema() -> Schema {
+        let proto = test_protocol();
+        SchemaBuilder::new(&proto)
+            .entry("post")
+            .vertex("post", "record", Some("app.test.post"))
+            .unwrap()
+            .vertex("post.text", "string", None)
+            .unwrap()
+            .edge("post", "post.text", "text", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    /// Same vertices as [`generated_transform_source_schema`], without its edge.
+    fn generated_transform_target_schema() -> Schema {
+        let proto = test_protocol();
+        SchemaBuilder::new(&proto)
+            .entry("post")
+            .vertex("post", "record", Some("app.test.post"))
+            .unwrap()
+            .vertex("post.text", "string", None)
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
     fn doc(json: &str) -> LensDocument {
         eval_json(json).unwrap()
     }
@@ -676,6 +767,51 @@ mod tests {
             compiled.chain.to_json().unwrap(),
             direct.chain.to_json().unwrap(),
             "DSL auto chain must match direct auto_generate output"
+        );
+        assert_eq!(
+            serde_json::to_value(&compiled.field_transforms).unwrap(),
+            serde_json::to_value(&direct.lens.compiled.field_transforms).unwrap(),
+            "DSL auto must retain the generated value-level transforms"
+        );
+        assert_eq!(compiled.stages.len(), 1);
+    }
+
+    #[test]
+    fn auto_body_retains_generated_field_transforms() {
+        let src = generated_transform_source_schema();
+        let tgt = generated_transform_target_schema();
+        let proto = test_protocol();
+        let d = doc(
+            r#"{ "id": "a", "source": "app.test.post", "target": "app.test.post",
+                 "auto": { "hints": { "stringency": "exploratory" } } }"#,
+        );
+
+        let compiled =
+            compile_with_schemas(&d, "post", &src, &tgt, &proto, &null_resolver).unwrap();
+        let direct = auto_generate(
+            &src,
+            &tgt,
+            &proto,
+            &AutoLensConfig {
+                stringency: Stringency::Exploratory,
+                ..AutoLensConfig::default()
+            },
+        )
+        .unwrap();
+
+        assert!(
+            !direct.lens.compiled.field_transforms.is_empty(),
+            "drop-op fixture must produce a generated value-level transform"
+        );
+        assert_eq!(
+            serde_json::to_value(&compiled.field_transforms).unwrap(),
+            serde_json::to_value(&direct.lens.compiled.field_transforms).unwrap(),
+            "DSL auto must retain the generated value-level transforms"
+        );
+        assert_eq!(
+            serde_json::to_value(&compiled.stages[0].field_transforms).unwrap(),
+            serde_json::to_value(&direct.lens.compiled.field_transforms).unwrap(),
+            "ordered auto stage must carry the generated transforms"
         );
     }
 

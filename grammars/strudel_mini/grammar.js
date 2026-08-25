@@ -115,9 +115,8 @@ module.exports = grammar({
       ')',
     ),
 
-    // Identifier alphabet matches Tidal: alphanumeric plus underscore,
-    // letter-leading. The Strudel docs use names like `bd`, `c5`,
-    // `g3`, `e5`, etc.
+    // Identifiers are letter-leading and may continue with letters,
+    // digits, or underscores.
     identifier: $ => /[a-zA-Z][a-zA-Z0-9_]*/,
 
     number: $ => /[0-9]+(\.[0-9]+)?/,

@@ -16,7 +16,17 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { decode } from '@msgpack/msgpack';
 import { pathToFileURL } from 'node:url';
 import { resolve } from 'node:path';
-import { Panproto, TheoryBuilder, checkMorphism, getBuiltinProtocol } from '../src/index.js';
+import { packToWasm } from '../src/msgpack.js';
+import {
+  Panproto,
+  ExprBuilder,
+  TheoryBuilder,
+  checkMorphism,
+  evalExpr,
+  executeQuery,
+  getBuiltinProtocol,
+  parseExpr,
+} from '../src/index.js';
 import type { TheoryMorphism } from '../src/index.js';
 
 /**
@@ -181,6 +191,137 @@ describe('CompiledMigration.get', () => {
     const result = mig.get(inst);
     expect(result.view).toBeDefined();
     expect(result.complement).toBeInstanceOf(Uint8Array);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// execute_query — preserve the raw schema-byte ABI alongside the SDK's
+// schema-handle path; query/result fields cross in Rust's wire shape.
+// ---------------------------------------------------------------------------
+
+describe('executeQuery', () => {
+  it('supports both the wrapper handle path and the published raw schema-byte ABI', () => {
+    const atp = pp.protocol('atproto');
+    const schema = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.query' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .build();
+    const instance = pp.parseJson(schema, JSON.stringify({ x: 'hi' }));
+
+    const matches = executeQuery(
+      {
+        anchor: 'r:body',
+        predicate: ExprBuilder.builtin(
+          'Eq',
+          ExprBuilder.var_('x'),
+          ExprBuilder.lit({ type: 'str', value: 'hi' }),
+        ),
+        projection: ['x'],
+      },
+      instance,
+      pp._wasm,
+    );
+
+    expect(matches).toHaveLength(1);
+    expect(matches[0]?.nodeId).toEqual(expect.any(Number));
+    expect(matches[0]?.anchor).toBe('r:body');
+    expect(matches[0]?.fields).toHaveProperty('x');
+    expect(matches[0]).not.toHaveProperty('node_id');
+
+    const rawSchemaBytes = packToWasm({
+      protocol: 'atproto',
+      vertices: {
+        'r:body': { id: 'r:body', kind: 'object', nsid: null },
+      },
+      edges: [],
+      hyper_edges: {},
+      constraints: {},
+      required: {},
+      nsids: {},
+      outgoing: { 'r:body': [] },
+      incoming: { 'r:body': [] },
+      between: [],
+    });
+    const rawMatches = decode(
+      pp._wasm.exports.execute_query(
+        packToWasm({ anchor: 'r:body', path: [] }),
+        instance._bytes,
+        rawSchemaBytes,
+      ),
+    ) as readonly { readonly node_id: number; readonly anchor: string }[];
+
+    expect(rawMatches).toHaveLength(1);
+    expect(rawMatches[0]?.node_id).toEqual(expect.any(Number));
+    expect(rawMatches[0]?.anchor).toBe('r:body');
+  });
+});
+
+describe('expression wire boundary', () => {
+  it('parses Rust enums and evaluates a public expression with an environment', () => {
+    const parsed = parseExpr('x + 1', pp._wasm);
+
+    expect(parsed).toEqual({
+      type: 'builtin',
+      op: 'Add',
+      args: [
+        { type: 'var', name: 'x' },
+        { type: 'lit', value: { type: 'int', value: 1 } },
+      ],
+    });
+    expect(evalExpr(parsed, { x: { type: 'int', value: 41 } }, pp._wasm)).toEqual({
+      type: 'int',
+      value: 42,
+    });
+
+    const closure = evalExpr(parseExpr('\\y -> y + 1', pp._wasm), undefined, pp._wasm);
+    expect(closure).toMatchObject({ type: 'closure', param: 'y', env: [] });
+  });
+
+  it('evaluates the minimum and maximum i64 without rounding', () => {
+    const min = -(1n << 63n);
+    const max = (1n << 63n) - 1n;
+
+    expect(evalExpr(ExprBuilder.lit({ type: 'int', value: min }), undefined, pp._wasm)).toEqual({
+      type: 'int',
+      value: min,
+    });
+    expect(evalExpr(ExprBuilder.lit({ type: 'int', value: max }), undefined, pp._wasm)).toEqual({
+      type: 'int',
+      value: max,
+    });
+    expect(parseExpr(max.toString(), pp._wasm)).toEqual(
+      ExprBuilder.lit({ type: 'int', value: max }),
+    );
+  });
+});
+
+describe('Panproto.convert', () => {
+  it('uses the JSON path and applies defaults without replacing converted fields', async () => {
+    const atp = pp.protocol('atproto');
+    const schema = atp
+      .schema()
+      .vertex('r', 'record', { nsid: 'local.regression.convert' })
+      .vertex('r:body', 'object')
+      .vertex('r:body.x', 'string')
+      .edge('r', 'r:body', 'record-schema')
+      .edge('r:body', 'r:body.x', 'prop', { name: 'x' })
+      .build();
+
+    const converted = await pp.convert(
+      { x: 'from-lens' },
+      {
+        from: schema,
+        to: schema,
+        rootVertex: 'r:body',
+        defaults: { x: 'fallback', added: 42 },
+      },
+    );
+
+    expect(converted).toEqual({ x: 'from-lens', added: 42 });
   });
 });
 

@@ -31,6 +31,24 @@ import type {
   StrategyTag,
 } from '../src/types.js';
 
+const STRATEGY_TAG_FIXTURE = {
+  user_hint: true,
+  exact: true,
+  edge_label: true,
+  exact_suffix: true,
+  alias: true,
+  type_signature: true,
+  wrap_unwrap: true,
+  token_similarity: true,
+  description_similarity: true,
+  coerce: true,
+  neighborhood: true,
+  wl_refinement: true,
+  structural: true,
+  // Reserved for proposals supplied by external callers.
+  llm: true,
+} as const satisfies Record<StrategyTag, true>;
+
 /** A tiny WASM mock covering just the autolens entry points we exercise. */
 function createMockWasm(overrides: Partial<WasmExports> = {}): WasmModule {
   let counter = 0;
@@ -107,6 +125,12 @@ function createTestSchema(wasm: WasmModule, name: string): BuiltSchema {
     .edge('r', 'r.n', 'prop')
     .build();
 }
+
+describe('StrategyTag wire values', () => {
+  it('covers every snake-case tag serialized by Rust', () => {
+    expect(Object.keys(STRATEGY_TAG_FIXTURE)).toHaveLength(14);
+  });
+});
 
 describe('ProtolensChainHandle.autoGenerate stringency passthrough', () => {
   it('forwards the stringency string unchanged to WASM', () => {

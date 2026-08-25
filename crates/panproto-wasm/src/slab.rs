@@ -12,6 +12,7 @@ use panproto_core::gat::{Name, Theory};
 use panproto_core::inst::{CompiledMigration, FieldTransform};
 use panproto_core::io::ProtocolRegistry;
 use panproto_core::lens::{ProtolensChain, SymmetricLens};
+use panproto_core::lens_dsl::{CompiledLens, steps::CompiledStage};
 use panproto_core::schema::{Protocol, Schema};
 use panproto_core::vcs::{DataSetObject, MemStore};
 use wasm_bindgen::JsError;
@@ -40,7 +41,7 @@ pub enum Resource {
         /// The target schema (post-migration).
         tgt_schema: Arc<Schema>,
     },
-    /// An I/O protocol registry with all 77 protocol codecs.
+    /// An I/O protocol registry with the 50 base protocol codecs.
     IoRegistry(Box<ProtocolRegistry>),
     /// A GAT theory.
     Theory(Box<Theory>),
@@ -48,22 +49,14 @@ pub enum Resource {
     VcsRepo(Box<MemStore>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
-    /// A compiled lens document: a protolens chain paired with the
-    /// value-level field transforms compiled from the same document.
+    /// A compiled lens document with ordered structural and value stages.
     ///
-    /// A lens DSL document's `apply_expr`, `compute_field`,
-    /// `hoist_field`, and `nest_field` steps compile to field
-    /// transforms, not to structural chain steps. Keeping both halves on
-    /// one handle lets [`crate::api::lens::instantiate_protolens`] fold
-    /// the transforms into the `CompiledMigration` it produces, so
-    /// `get_record` / `put_record` apply them. Wherever a plain
-    /// `ProtolensChain` is expected, this variant supplies its `chain`.
-    CompiledLensDoc {
-        /// The structural half.
-        chain: Box<ProtolensChain>,
-        /// The value-level half, keyed by parent vertex.
-        field_transforms: HashMap<Name, Vec<FieldTransform>>,
-    },
+    /// A lens DSL document's `apply_expr` and `compute_field` steps compile
+    /// to field transforms. Keeping the complete document on one handle lets
+    /// [`crate::api::lens::instantiate_protolens`] run each transform in its
+    /// original position. Wherever a plain `ProtolensChain` is expected, this
+    /// variant supplies its compatibility `chain` summary.
+    CompiledLensDoc(Box<CompiledLens>),
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
     /// A data set (instances bound to a schema).
@@ -313,7 +306,8 @@ pub fn as_vcs_repo(resource: &Resource) -> Result<&MemStore, WasmError> {
 /// every export that consumes a chain handle accepts either variant.
 pub fn as_protolens_chain(resource: &Resource) -> Result<&ProtolensChain, WasmError> {
     match resource {
-        Resource::ProtolensChain(c) | Resource::CompiledLensDoc { chain: c, .. } => Ok(c),
+        Resource::ProtolensChain(c) => Ok(c),
+        Resource::CompiledLensDoc(compiled) => Ok(&compiled.chain),
         _ => Err(WasmError::TypeMismatch {
             expected: "ProtolensChain",
             actual: resource_type_name(resource),
@@ -331,9 +325,31 @@ pub fn as_field_transforms(
 ) -> Result<HashMap<Name, Vec<FieldTransform>>, WasmError> {
     match resource {
         Resource::ProtolensChain(_) => Ok(HashMap::new()),
-        Resource::CompiledLensDoc {
-            field_transforms, ..
-        } => Ok(field_transforms.clone()),
+        Resource::CompiledLensDoc(compiled) => Ok(compiled.field_transforms.clone()),
+        _ => Err(WasmError::TypeMismatch {
+            expected: "ProtolensChain",
+            actual: resource_type_name(resource),
+        }),
+    }
+}
+
+/// Extract the ordered stages carried by a chain-shaped resource.
+///
+/// A legacy plain chain is represented as one structural-only stage. An
+/// empty identity chain has no stages.
+pub fn as_compiled_stages(resource: &Resource) -> Result<Vec<CompiledStage>, WasmError> {
+    match resource {
+        Resource::ProtolensChain(chain) => {
+            if chain.steps.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Ok(vec![CompiledStage {
+                    chain: (**chain).clone(),
+                    field_transforms: HashMap::new(),
+                }])
+            }
+        }
+        Resource::CompiledLensDoc(compiled) => Ok(compiled.stages.clone()),
         _ => Err(WasmError::TypeMismatch {
             expected: "ProtolensChain",
             actual: resource_type_name(resource),
@@ -376,7 +392,7 @@ const fn resource_type_name(resource: &Resource) -> &'static str {
         Resource::Theory(_) => "Theory",
         Resource::VcsRepo(_) => "VcsRepo",
         Resource::ProtolensChain(_) => "ProtolensChain",
-        Resource::CompiledLensDoc { .. } => "CompiledLensDoc",
+        Resource::CompiledLensDoc(_) => "CompiledLensDoc",
         Resource::SymmetricLensHandle(_) => "SymmetricLens",
         Resource::DataSet(_) => "DataSet",
     }

@@ -22,7 +22,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 HASKELL_DIR="$(pwd)"
 
-VERSION="${1:-v0.41.0}"
+VERSION="${1:-v0.72.0}"
 DEST="$HASKELL_DIR/.panproto-c"
 
 # Detect target.

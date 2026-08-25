@@ -1176,6 +1176,7 @@ pub fn reconstruct_fans(
 ///
 /// Returns `RestrictError` if edge resolution fails or the root
 /// is pruned during restriction.
+#[allow(clippy::too_many_lines)] // The fused traversal keeps all node decisions in one pass.
 pub fn wtype_restrict(
     instance: &WInstance,
     src_schema: &Schema,
@@ -1256,6 +1257,34 @@ pub fn wtype_restrict(
             if migration.surviving_verts.contains(target_anchor)
                 && !conditional_fail.contains(&child_id)
             {
+                // A direct source arc must travel by its own complete edge
+                // identity. Endpoint-only resolution is reserved for genuine
+                // ancestor contraction, where no direct source edge exists.
+                // Otherwise two parallel source fields can collapse onto one
+                // surviving target field merely because their endpoints agree.
+                let direct_edge_image = if current_survives {
+                    match direct_arc_disposition(
+                        instance,
+                        &new_nodes,
+                        src_schema,
+                        tgt_schema,
+                        migration,
+                        current_id,
+                        child_id,
+                        target_anchor,
+                    )? {
+                        DirectArcDisposition::Mapped(edge) => Some(edge),
+                        DirectArcDisposition::Expansion => None,
+                        DirectArcDisposition::Drop => {
+                            // The source edge has no target image. Drop this
+                            // subtree; the lens complement records it.
+                            continue;
+                        }
+                    }
+                } else {
+                    None
+                };
+
                 // This child survives; add it to results
                 surviving_set.insert(child_id);
                 let mut new_node = child_node.clone();
@@ -1295,6 +1324,7 @@ pub fn wtype_restrict(
                         &mut next_synth_id,
                         migration,
                         tgt_schema,
+                        direct_edge_image,
                     )?;
                 }
             }
@@ -1305,12 +1335,29 @@ pub fn wtype_restrict(
         }
     }
 
-    // Step 5: Fan reconstruction (separate pass: operates on original fans)
-    let fused_surviving = &surviving_set;
+    finish_wtype_restriction(
+        instance,
+        migration,
+        tgt_schema,
+        new_nodes,
+        new_arcs,
+        &surviving_set,
+    )
+}
+
+fn finish_wtype_restriction(
+    instance: &WInstance,
+    migration: &CompiledMigration,
+    tgt_schema: &Schema,
+    new_nodes: HashMap<u32, Node>,
+    new_arcs: Vec<(u32, u32, Edge)>,
+    surviving_set: &FxHashSet<u32>,
+) -> Result<WInstance, RestrictError> {
+    // Fan reconstruction is a separate pass over the original fans.
     let empty_ancestors = FxHashMap::default();
     let new_fans = reconstruct_fans(
         instance,
-        fused_surviving,
+        surviving_set,
         &empty_ancestors,
         migration,
         tgt_schema,
@@ -1329,6 +1376,54 @@ pub fn wtype_restrict(
         instance.root,
         new_schema_root,
     ))
+}
+
+enum DirectArcDisposition {
+    Mapped(Edge),
+    Expansion,
+    Drop,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn direct_arc_disposition(
+    instance: &WInstance,
+    new_nodes: &HashMap<u32, Node>,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    current_id: u32,
+    child_id: u32,
+    target_anchor: &Name,
+) -> Result<DirectArcDisposition, RestrictError> {
+    let source_edge = instance
+        .arcs
+        .iter()
+        .find(|(parent, child, _)| *parent == current_id && *child == child_id)
+        .map(|(_, _, edge)| edge);
+    let parent_anchor = &new_nodes
+        .get(&current_id)
+        .ok_or(RestrictError::RootPruned)?
+        .anchor;
+    let image = source_edge.and_then(|edge| {
+        direct_source_edge_image(
+            src_schema,
+            tgt_schema,
+            migration,
+            parent_anchor,
+            target_anchor,
+            edge,
+        )
+    });
+    Ok(match image {
+        Some(edge) => DirectArcDisposition::Mapped(edge),
+        None if migration
+            .expansion_path
+            .contains_key(&(parent_anchor.clone(), target_anchor.clone())) =>
+        {
+            DirectArcDisposition::Expansion
+        }
+        None => DirectArcDisposition::Drop,
+    })
 }
 
 /// Precompute the set of node ids whose conditional-survival predicate
@@ -1374,6 +1469,7 @@ fn connect_ancestor_to_child(
     next_synth_id: &mut u32,
     migration: &CompiledMigration,
     tgt_schema: &Schema,
+    direct_edge_image: Option<Edge>,
 ) -> Result<(), RestrictError> {
     let anc_anchor = new_nodes
         .get(&anc_id)
@@ -1381,6 +1477,10 @@ fn connect_ancestor_to_child(
         .anchor
         .clone();
     let child_anchor = child_anchor.clone();
+    if let Some(edge) = direct_edge_image {
+        new_arcs.push((anc_id, child_id, edge));
+        return Ok(());
+    }
     match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor) {
         Ok(edge) => {
             new_arcs.push((anc_id, child_id, edge));
@@ -1419,6 +1519,47 @@ fn connect_ancestor_to_child(
             Ok(())
         }
     }
+}
+
+/// Resolve the image of a direct source arc by complete edge identity.
+///
+/// `edge_remap` is the explicit source-to-target map. An unchanged label and
+/// kind may also carry across remapped endpoint vertices. The legacy
+/// endpoint resolver is consulted only when the source endpoint pair has one
+/// edge; with parallel source edges it cannot identify which edge it maps.
+fn direct_source_edge_image(
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    parent_anchor: &Name,
+    child_anchor: &Name,
+    source_edge: &Edge,
+) -> Option<Edge> {
+    if let Some(mapped) = migration.edge_remap.get(source_edge) {
+        return Some(mapped.clone());
+    }
+
+    if let Some(carried) = tgt_schema
+        .edges_between(parent_anchor.as_str(), child_anchor.as_str())
+        .iter()
+        .find(|candidate| candidate.kind == source_edge.kind && candidate.name == source_edge.name)
+    {
+        return Some(carried.clone());
+    }
+
+    if src_schema
+        .edges_between(source_edge.src.as_str(), source_edge.tgt.as_str())
+        .len()
+        == 1
+    {
+        for ((src, tgt), resolved) in &migration.resolver {
+            if src == parent_anchor && tgt == child_anchor {
+                return Some(resolved.clone());
+            }
+        }
+    }
+
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -3097,9 +3238,19 @@ mod tests {
     #[test]
     #[allow(clippy::expect_used, clippy::too_many_lines)]
     fn restrict_renamed_vertex_preserves_value() {
-        use smallvec::smallvec;
-
         // Source instance: post:body { text: "hello", title: "world" }
+        let src_text_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:text".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        };
+        let src_title_edge = Edge {
+            src: "post:body".into(),
+            tgt: "post:title".into(),
+            kind: "prop".into(),
+            name: Some("title".into()),
+        };
         let mut nodes = HashMap::new();
         nodes.insert(0, Node::new(0, Name::from("post:body")));
         nodes.insert(
@@ -3113,26 +3264,8 @@ mod tests {
                 .with_value(FieldPresence::Present(Value::Str("world".into()))),
         );
         let arcs = vec![
-            (
-                0,
-                1,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:text".into(),
-                    kind: "prop".into(),
-                    name: Some("text".into()),
-                },
-            ),
-            (
-                0,
-                2,
-                Edge {
-                    src: "post:body".into(),
-                    tgt: "post:title".into(),
-                    kind: "prop".into(),
-                    name: Some("title".into()),
-                },
-            ),
+            (0, 1, src_text_edge.clone()),
+            (0, 2, src_title_edge.clone()),
         ];
         let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("post:body"));
 
@@ -3152,11 +3285,11 @@ mod tests {
         let mut tgt_between = HashMap::new();
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:content")),
-            smallvec![tgt_content_edge],
+            smallvec::smallvec![tgt_content_edge.clone()],
         );
         tgt_between.insert(
             (Name::from("post:body"), Name::from("post:title")),
-            smallvec![tgt_title_edge],
+            smallvec::smallvec![tgt_title_edge.clone()],
         );
         let tgt_schema = Schema {
             protocol: "test".into(),
@@ -3182,7 +3315,8 @@ mod tests {
             between: tgt_between,
         };
 
-        // Migration: post:text → post:content (renamed), post:title stays
+        // Migration: post:text → post:content and its incident edge are
+        // both renamed; post:title and its edge keep their names.
         let mut surviving_verts = HashSet::new();
         surviving_verts.insert(Name::from("post:body"));
         surviving_verts.insert(Name::from("post:content")); // target name
@@ -3193,9 +3327,9 @@ mod tests {
 
         let migration = CompiledMigration {
             surviving_verts,
-            surviving_edges: HashSet::new(),
+            surviving_edges: HashSet::from([tgt_content_edge.clone(), tgt_title_edge]),
             vertex_remap,
-            edge_remap: HashMap::new(),
+            edge_remap: HashMap::from([(src_text_edge.clone(), tgt_content_edge.clone())]),
             resolver: HashMap::new(),
             hyper_resolver: HashMap::new(),
             field_transforms: HashMap::new(),
@@ -3204,29 +3338,10 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let src_schema = Schema {
-            protocol: "test".into(),
-            vertices: HashMap::new(),
-            edges: HashMap::new(),
-            hyper_edges: HashMap::new(),
-            constraints: HashMap::new(),
-            required: HashMap::new(),
-            nsids: HashMap::new(),
-            entries: Vec::new(),
-            variants: HashMap::new(),
-            orderings: HashMap::new(),
-            recursion_points: HashMap::new(),
-            spans: HashMap::new(),
-            usage_modes: HashMap::new(),
-            nominal: HashMap::new(),
-            coercions: HashMap::new(),
-            mergers: HashMap::new(),
-            defaults: HashMap::new(),
-            policies: HashMap::new(),
-            outgoing: HashMap::new(),
-            incoming: HashMap::new(),
-            between: HashMap::new(),
-        };
+        let src_schema = make_test_schema(
+            &["post:body", "post:text", "post:title"],
+            &[src_text_edge, src_title_edge],
+        );
 
         let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration)
             .expect("restrict should succeed");
@@ -3238,6 +3353,12 @@ mod tests {
         let renamed_node = result.nodes.get(&1).expect("node 1 should survive");
         assert_eq!(renamed_node.anchor.as_ref(), "post:content");
         assert!(renamed_node.has_value(), "renamed node must keep its value");
+        assert!(
+            result.arcs.iter().any(|(parent, child, edge)| *parent == 0
+                && *child == 1
+                && edge == &tgt_content_edge),
+            "the renamed node must be attached by the mapped target edge"
+        );
 
         // The value should be preserved
         assert!(
@@ -3248,6 +3369,62 @@ mod tests {
             "expected Some(Present(Str(\"hello\"))), got {:?}",
             renamed_node.value,
         );
+    }
+
+    /// Restriction must not infer the image of an unmapped parallel source
+    /// edge from endpoints alone.
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn restrict_drops_an_unmapped_parallel_edge_instead_of_relabelling_it() {
+        let src_a = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+        let src_b = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "prop".into(),
+            name: Some("b".into()),
+        };
+        let tgt_a = Edge {
+            src: "root".into(),
+            tgt: "leaf2".into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
+
+        let mut nodes = HashMap::new();
+        nodes.insert(0, Node::new(0, "root"));
+        nodes.insert(1, Node::new(1, "leaf"));
+        nodes.insert(2, Node::new(2, "leaf"));
+        let instance = WInstance::new(
+            nodes,
+            vec![(0, 1, src_a.clone()), (0, 2, src_b.clone())],
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let src_schema = make_test_schema(&["root", "leaf"], &[src_a.clone(), src_b]);
+        let tgt_schema = make_test_schema(&["root", "leaf2"], std::slice::from_ref(&tgt_a));
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("root"), Name::from("leaf2")]),
+            surviving_edges: HashSet::from([tgt_a.clone()]),
+            vertex_remap: HashMap::from([(Name::from("leaf"), Name::from("leaf2"))]),
+            edge_remap: HashMap::from([(src_a, tgt_a.clone())]),
+            resolver: HashMap::new(),
+            hyper_resolver: HashMap::new(),
+            field_transforms: HashMap::new(),
+            conditional_survival: HashMap::new(),
+            op_term_assignments: HashMap::new(),
+            expansion_path: HashMap::new(),
+        };
+
+        let restricted = wtype_restrict(&instance, &src_schema, &tgt_schema, &migration).unwrap();
+        assert!(restricted.nodes.contains_key(&1));
+        assert!(!restricted.nodes.contains_key(&2));
+        assert_eq!(restricted.arcs, vec![(0, 1, tgt_a)]);
     }
 
     // --- PathTransform tests ---

@@ -146,6 +146,7 @@ export interface WasmGlueModule {
   parse_expr: WasmExports['parse_expr'];
   eval_func_expr: WasmExports['eval_func_expr'];
   execute_query: WasmExports['execute_query'];
+  execute_query_with_schema_handle: WasmExports['execute_query_with_schema_handle'];
   // Phase 12: Fiber, hom, and graph operations
   fiber_at: WasmExports['fiber_at'];
   fiber_decomposition_wasm: WasmExports['fiber_decomposition_wasm'];
@@ -292,6 +293,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       parse_expr: glue.parse_expr,
       eval_func_expr: glue.eval_func_expr,
       execute_query: glue.execute_query,
+      execute_query_with_schema_handle: glue.execute_query_with_schema_handle,
       // Phase 12: Fiber, hom, and graph
       fiber_at: glue.fiber_at,
       fiber_decomposition_wasm: glue.fiber_decomposition_wasm,

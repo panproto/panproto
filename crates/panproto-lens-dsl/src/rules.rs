@@ -46,11 +46,18 @@ pub fn compile_rules(
     // Emit KeepFields for per-rule keep_attrs.
     if !all_keep_attrs.is_empty() {
         let body_key = panproto_gat::Name::from(body_vertex);
-        compiled.field_transforms.entry(body_key).or_default().push(
-            panproto_inst::FieldTransform::KeepFields {
-                keys: all_keep_attrs,
-            },
-        );
+        let transform = panproto_inst::FieldTransform::KeepFields {
+            keys: all_keep_attrs,
+        };
+        compiled
+            .field_transforms
+            .entry(body_key.clone())
+            .or_default()
+            .push(transform.clone());
+        compiled.stages.push(steps::CompiledStage {
+            chain: panproto_lens::ProtolensChain::new(Vec::new()),
+            field_transforms: std::collections::HashMap::from([(body_key, vec![transform])]),
+        });
     }
 
     // If passthrough is "drop", emit a KeepFields transform that retains
@@ -80,11 +87,16 @@ pub fn compile_rules(
 
         if !kept.is_empty() {
             let body_key = panproto_gat::Name::from(body_vertex);
+            let transform = panproto_inst::FieldTransform::KeepFields { keys: kept };
             compiled
                 .field_transforms
-                .entry(body_key)
+                .entry(body_key.clone())
                 .or_default()
-                .push(panproto_inst::FieldTransform::KeepFields { keys: kept });
+                .push(transform.clone());
+            compiled.stages.push(steps::CompiledStage {
+                chain: panproto_lens::ProtolensChain::new(Vec::new()),
+                field_transforms: std::collections::HashMap::from([(body_key, vec![transform])]),
+            });
         }
     }
 

@@ -265,8 +265,8 @@ extension SchemaHandle {
     /// This is the whole cascade in one call: the theory morphism induces
     /// a schema morphism on this schema (the same one
     /// ``induceSchemaMorphism(along:)`` answers with), the morphism is
-    /// turned into the pullback functor between the two schemas, and
-    /// that is compiled against both.
+    /// lowered to the source-to-target tables used by the forward
+    /// restrict pipeline, and those tables are bundled with both schemas.
     ///
     /// Both halves come back. `morphism` is the schema-level map, which
     /// is what to inspect when a migration moved something unexpected;

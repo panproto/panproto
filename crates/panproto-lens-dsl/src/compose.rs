@@ -37,6 +37,7 @@ pub fn compile_compose(
                 compiled_parts.push(steps::CompiledSteps {
                     chain: compiled_ref.chain,
                     field_transforms: compiled_ref.field_transforms,
+                    stages: compiled_ref.stages,
                 });
             }
             LensRef::Inline { inline } => {
@@ -61,6 +62,7 @@ fn compose_parts(
                 compiled_parts.iter().map(|c| c.chain.clone()).collect();
 
             let mut all_transforms = std::collections::HashMap::new();
+            let mut stages = Vec::new();
             for part in compiled_parts {
                 for (k, v) in &part.field_transforms {
                     all_transforms
@@ -68,11 +70,13 @@ fn compose_parts(
                         .or_insert_with(Vec::new)
                         .extend(v.clone());
                 }
+                stages.extend(part.stages.iter().cloned());
             }
 
             Ok(steps::CompiledSteps {
                 chain: combinators::pipeline(chains),
                 field_transforms: all_transforms,
+                stages,
             })
         }
 
@@ -87,6 +91,7 @@ fn compose_parts(
                 return Ok(steps::CompiledSteps {
                     chain: ProtolensChain::new(vec![]),
                     field_transforms: std::collections::HashMap::new(),
+                    stages: Vec::new(),
                 });
             }
 
@@ -121,9 +126,15 @@ fn compose_parts(
                 }
             }
 
+            let chain = ProtolensChain::new(vec![fused]);
+            let stages = vec![steps::CompiledStage {
+                chain: chain.clone(),
+                field_transforms: all_transforms.clone(),
+            }];
             Ok(steps::CompiledSteps {
-                chain: ProtolensChain::new(vec![fused]),
+                chain,
                 field_transforms: all_transforms,
+                stages,
             })
         }
     }

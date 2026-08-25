@@ -188,10 +188,12 @@ impl AttributeSchema {
 
 /// Returns `true` if a value is admissible for a declared scalar kind.
 ///
-/// Recognized primitive kinds are matched structurally; kinds the classifier
-/// does not recognize accept any value, and an explicit null is always
-/// admissible (it stands for an absent optional attribute).
-fn kind_accepts(kind: &Name, value: &Value) -> bool {
+/// Recognized primitive and JSON-container kinds are matched structurally;
+/// kinds the classifier does not recognize remain permissive because protocol
+/// extensions may define their own value representations. An explicit null is
+/// always admissible (it stands for an absent optional attribute).
+#[must_use]
+pub fn kind_accepts(kind: &Name, value: &Value) -> bool {
     if matches!(value, Value::Null) {
         return true;
     }
@@ -199,12 +201,34 @@ fn kind_accepts(kind: &Name, value: &Value) -> bool {
         "string" | "str" | "text" => {
             matches!(value, Value::Str(_) | Value::Token(_) | Value::CidLink(_))
         }
-        "int" | "integer" => matches!(value, Value::Int(_)),
-        "float" | "number" | "double" | "decimal" => {
+        "int" | "integer" | "long" | "short" | "bigint" | "tinyint" | "smallint" | "int8"
+        | "int16" | "int32" | "int64" | "int96" | "i8" | "i16" | "i32" | "i64" => {
+            matches!(value, Value::Int(_))
+        }
+        "uint" | "unsigned" | "uint8" | "uint16" | "uint32" | "uint64" | "u8" | "u16" | "u32"
+        | "u64" | "usize" => matches!(value, Value::Int(number) if *number >= 0),
+        "float" | "number" | "double" | "decimal" | "real" | "numeric" | "float16" | "float32"
+        | "float64" | "f16" | "f32" | "f64" => {
             matches!(value, Value::Float(_) | Value::Int(_))
         }
         "bool" | "boolean" => matches!(value, Value::Bool(_)),
-        "bytes" | "blob" => matches!(value, Value::Bytes(_) | Value::Blob { .. }),
+        "bytes" | "byte" | "binary" | "blob" | "octet-string" | "large-binary" => {
+            matches!(value, Value::Bytes(_) | Value::Blob { .. })
+        }
+        "token" | "enum" | "enumerated" | "enum-symbol" | "enum-value" => {
+            matches!(value, Value::Token(_) | Value::Str(_))
+        }
+        "cid" | "cid-link" => matches!(value, Value::CidLink(_) | Value::Str(_)),
+        "date" | "date32" | "date64" | "time" | "time32" | "time64" | "datetime" | "dateTime"
+        | "timestamp" | "duration" | "timedelta" | "timezone" | "uuid" | "uri" | "url" => {
+            matches!(value, Value::Str(_) | Value::Token(_) | Value::Int(_))
+        }
+        "array" | "list" | "sequence" | "set" | "tuple" | "vector" | "string-list"
+        | "integer-list" => matches!(value, Value::List(_)),
+        "object" | "record" | "map" | "dict" | "struct" | "schema-object" => {
+            matches!(value, Value::Unknown(_) | Value::Opaque { .. })
+        }
+        "null" | "nil" => matches!(value, Value::Null),
         // Unrecognized kinds cannot be classified, so anything is admissible.
         _ => true,
     }
@@ -219,6 +243,41 @@ mod tests {
 
     use super::*;
     use crate::metadata::Node;
+
+    #[test]
+    fn primitive_aliases_reject_wrong_default_shapes() {
+        assert!(kind_accepts(&Name::from("uint"), &Value::Int(7)));
+        assert!(!kind_accepts(&Name::from("uint"), &Value::Int(-1)));
+        assert!(!kind_accepts(
+            &Name::from("uint"),
+            &Value::Str("7".to_owned())
+        ));
+        assert!(kind_accepts(
+            &Name::from("datetime"),
+            &Value::Str("2026-08-25T12:00:00Z".to_owned())
+        ));
+        assert!(!kind_accepts(&Name::from("datetime"), &Value::Bool(true)));
+        assert!(kind_accepts(
+            &Name::from("array"),
+            &Value::List(vec![Value::Int(1)])
+        ));
+        assert!(!kind_accepts(
+            &Name::from("array"),
+            &Value::Unknown(HashMap::new())
+        ));
+        assert!(kind_accepts(
+            &Name::from("record"),
+            &Value::Unknown(HashMap::new())
+        ));
+        assert!(!kind_accepts(
+            &Name::from("record"),
+            &Value::List(Vec::new())
+        ));
+        assert!(kind_accepts(
+            &Name::from("protocol-specific"),
+            &Value::Bool(true)
+        ));
+    }
 
     fn attr_schema() -> Schema {
         use smallvec::{SmallVec, smallvec};

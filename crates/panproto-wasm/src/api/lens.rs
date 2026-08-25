@@ -37,6 +37,31 @@ fn parse_stringency(raw: Option<&str>) -> Result<Option<Stringency>, JsError> {
     }
 }
 
+/// Build a compiled-document resource for chain operations that combine
+/// legacy chains with ordered lens-document handles.
+fn compiled_lens_doc_resource(
+    chain: lens::ProtolensChain,
+    field_transforms: std::collections::HashMap<
+        panproto_core::gat::Name,
+        Vec<panproto_core::inst::FieldTransform>,
+    >,
+    stages: Vec<panproto_core::lens_dsl::steps::CompiledStage>,
+) -> Resource {
+    Resource::CompiledLensDoc(Box::new(panproto_core::lens_dsl::CompiledLens {
+        id: String::new(),
+        description: String::new(),
+        source: String::new(),
+        target: String::new(),
+        chain,
+        field_transforms,
+        stages,
+        extensions: std::collections::HashMap::new(),
+        auto_spec: None,
+        symmetric: None,
+        invertible: None,
+    }))
+}
+
 // ---------------------------------------------------------------------------
 // Phase 3: Lens & migration enhancements
 // ---------------------------------------------------------------------------
@@ -497,11 +522,10 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 /// Instantiate a protolens chain at a specific schema.
 ///
 /// When `chain` is a handle from [`compile_lens_document`] (a
-/// `CompiledLensDoc`), the document's value-level field transforms are
-/// folded into the compiled migration alongside the structural steps, so
-/// a subsequent [`get_record`](crate::get_record) applies them and
-/// [`put_record`](crate::put_record) inverts them. A plain `ProtolensChain`
-/// handle carries none and instantiates unchanged.
+/// `CompiledLensDoc`), its ordered stages are instantiated at their running
+/// schemas. A subsequent [`get_record`](crate::get_record) thus applies each
+/// value transform in the field-name frame established by the preceding
+/// structural steps. A plain `ProtolensChain` instantiates unchanged.
 ///
 /// Returns a handle to the resulting compiled lens (stored as
 /// `MigrationWithSchemas`).
@@ -511,33 +535,27 @@ pub fn compose_lenses(l1: u32, l2: u32) -> Result<u32, JsError> {
 /// Returns `JsError` if handles are invalid or instantiation fails.
 #[wasm_bindgen]
 pub fn instantiate_protolens(chain: u32, schema: u32) -> Result<u32, JsError> {
-    let (chain_val, field_transforms) = slab::with_resource(chain, |r| {
-        Ok((
-            slab::as_protolens_chain(r)?.clone(),
-            slab::as_field_transforms(r)?,
-        ))
+    let (chain_val, compiled_doc) = slab::with_resource(chain, |r| match r {
+        Resource::CompiledLensDoc(compiled) => Ok((None, Some((**compiled).clone()))),
+        _ => Ok((Some(slab::as_protolens_chain(r)?.clone()), None)),
     })?;
     let schema_val = slab::with_resource(schema, |r| Ok(slab::as_schema(r)?.clone()))?;
 
     let protocol = lookup_builtin_protocol(&schema_val.protocol)
         .unwrap_or_else(|| default_protocol(&schema_val.protocol));
 
-    let mut lens_obj = chain_val.instantiate(&schema_val, &protocol).map_err(|e| {
-        WasmError::LensConstructionFailed {
-            reason: e.to_string(),
-        }
-    })?;
-
-    // Merge rather than overwrite: a chain step may already have
-    // contributed transforms at a vertex the document also targets.
-    for (anchor, transforms) in field_transforms {
-        lens_obj
-            .compiled
-            .field_transforms
-            .entry(anchor)
-            .or_default()
-            .extend(transforms);
+    let lens_obj = if let Some(compiled) = compiled_doc {
+        compiled.instantiate(&schema_val, &protocol)
+    } else {
+        chain_val
+            .ok_or_else(|| WasmError::LensConstructionFailed {
+                reason: "missing protolens chain".to_owned(),
+            })?
+            .instantiate(&schema_val, &protocol)
     }
+    .map_err(|e| WasmError::LensConstructionFailed {
+        reason: e.to_string(),
+    })?;
 
     Ok(slab::alloc(Resource::MigrationWithSchemas {
         compiled: lens_obj.compiled,
@@ -618,16 +636,19 @@ pub fn protolens_from_diff(diff_bytes: &[u8], schema1: u32, schema2: u32) -> Res
 /// Returns `JsError` if either handle is invalid.
 #[wasm_bindgen]
 pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
-    let (c1, c2, ft1, ft2) = slab::with_two_resources(chain1, chain2, |r1, r2| {
-        let ch1 = slab::as_protolens_chain(r1)?.clone();
-        let ch2 = slab::as_protolens_chain(r2)?.clone();
-        Ok((
-            ch1,
-            ch2,
-            slab::as_field_transforms(r1)?,
-            slab::as_field_transforms(r2)?,
-        ))
-    })?;
+    let (c1, c2, ft1, ft2, stages1, stages2) =
+        slab::with_two_resources(chain1, chain2, |r1, r2| {
+            let ch1 = slab::as_protolens_chain(r1)?.clone();
+            let ch2 = slab::as_protolens_chain(r2)?.clone();
+            Ok((
+                ch1,
+                ch2,
+                slab::as_field_transforms(r1)?,
+                slab::as_field_transforms(r2)?,
+                slab::as_compiled_stages(r1)?,
+                slab::as_compiled_stages(r2)?,
+            ))
+        })?;
 
     let mut combined_steps = c1.steps;
     combined_steps.extend(c2.steps);
@@ -640,18 +661,21 @@ pub fn protolens_compose(chain1: u32, chain2: u32) -> Result<u32, JsError> {
             .extend(transforms);
     }
 
-    Ok(slab::alloc(Resource::CompiledLensDoc {
-        chain: Box::new(lens::ProtolensChain::new(combined_steps)),
+    let chain = lens::ProtolensChain::new(combined_steps);
+    let mut stages = stages1;
+    stages.extend(stages2);
+    Ok(slab::alloc(compiled_lens_doc_resource(
+        chain,
         field_transforms,
-    }))
+        stages,
+    )))
 }
 
 /// List the value-level field transforms a compiled lens document
 /// carries, keyed by the parent vertex they attach to.
 ///
-/// A lens DSL document's `apply_expr`, `compute_field`, `hoist_field`,
-/// and `nest_field` steps compile to field transforms rather than to
-/// structural chain steps, so they do not appear in
+/// A lens DSL document's `apply_expr` and `compute_field` steps compile to
+/// field transforms rather than structural chain steps, so they do not appear in
 /// [`protolens_chain_to_json`]. This export is how a caller confirms
 /// such a step survived compilation.
 ///
@@ -940,10 +964,7 @@ pub fn compile_lens_document(
         }
     })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc {
-        chain: Box::new(compiled.chain),
-        field_transforms: compiled.field_transforms,
-    }))
+    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
 }
 
 /// Compile a lens DSL document, resolving `compose` named references
@@ -1006,10 +1027,7 @@ pub fn compile_lens_document_with_refs(
             reason: e.to_string(),
         })?;
 
-    Ok(slab::alloc(Resource::CompiledLensDoc {
-        chain: Box::new(compiled.chain),
-        field_transforms: compiled.field_transforms,
-    }))
+    Ok(slab::alloc(Resource::CompiledLensDoc(Box::new(compiled))))
 }
 
 /// Deserialize a protolens chain from JSON bytes.
@@ -1475,5 +1493,68 @@ mod tests {
         );
 
         slab::free(handle);
+    }
+
+    #[test]
+    fn compiled_document_instantiates_ordered_value_stages() {
+        let protocol = default_protocol("test");
+        let schema = panproto_core::schema::SchemaBuilder::new(&protocol)
+            .entry("post")
+            .vertex("post", "record", None::<&str>)
+            .expect("record vertex")
+            .vertex("post.text", "string", None::<&str>)
+            .expect("field vertex")
+            .edge("post", "post.text", "prop", Some("text"))
+            .expect("field edge")
+            .build()
+            .expect("schema builds");
+        let schema_handle = slab::alloc(Resource::Schema(std::sync::Arc::new(schema.clone())));
+        let doc = serde_json::json!({
+            "id": "ordered",
+            "source": "s",
+            "target": "t",
+            "steps": [
+                { "rename_field": { "old": "text", "new": "amount" } },
+                { "compute_field": {
+                    "target": "derived",
+                    "expr": "amount ++ \"!\""
+                } }
+            ]
+        })
+        .to_string();
+
+        let chain_handle =
+            compile_lens_document(doc.as_bytes(), "json", "post").expect("document compiles");
+        let lens_handle = instantiate_protolens(chain_handle, schema_handle)
+            .expect("ordered document instantiates");
+        let lens_obj = slab::with_resource(lens_handle, |resource| match resource {
+            Resource::MigrationWithSchemas {
+                compiled,
+                src_schema,
+                tgt_schema,
+            } => Ok(lens::Lens {
+                compiled: compiled.clone(),
+                src_schema: (**src_schema).clone(),
+                tgt_schema: (**tgt_schema).clone(),
+            }),
+            _ => Err(WasmError::TypeMismatch {
+                expected: "MigrationWithSchemas",
+                actual: "non-migration resource",
+            }),
+        })
+        .expect("lens handle has schemas");
+        let source =
+            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
+                .expect("source parses");
+        let (view, _) = lens::get(&lens_obj, &source).expect("get succeeds");
+        let json = panproto_core::inst::to_json(&lens_obj.tgt_schema, &view);
+
+        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
+        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
+        assert!(json.get("text").is_none());
+
+        slab::free(lens_handle);
+        slab::free(chain_handle);
+        slab::free(schema_handle);
     }
 }

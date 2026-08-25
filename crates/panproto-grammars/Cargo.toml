@@ -47,7 +47,7 @@ expect_used = "warn"
 [features]
 default = ["group-core"]
 
-# Top 10 GitHub languages
+# Fixed 11-language core bundle
 group-core = ["lang-python", "lang-javascript", "lang-typescript", "lang-java", "lang-csharp", "lang-cpp", "lang-php", "lang-bash", "lang-c", "lang-go", "lang-rust"]
 
 # Thematic groups

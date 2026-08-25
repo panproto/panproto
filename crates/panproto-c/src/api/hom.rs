@@ -582,7 +582,8 @@ pub fn pp_hom_induce_schema_morphism(
 /// success, `out` receives the CBOR-encoded induced `SchemaMorphism`
 /// and `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle
-/// (the compiled `Delta_F` pullback bundled with its anchoring schemas).
+/// (the compiled source-to-target mapping bundled with its anchoring
+/// schemas).
 /// Calls `mig::cascade::induce_migration_from_theory`.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]

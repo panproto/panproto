@@ -441,8 +441,10 @@ class (SchemaBackend back, InstanceBackend back) => MigrationBackend back where
         -- ^ Target schema.
         -> IO [Text]
 
-    -- | Lift a record through a compiled migration (the left Kan
-    -- extension). Wraps @pp_mig_lift_record@ (@mig::lift_wtype@).
+    -- | Carry the surviving fragment of a record forward through a
+    -- compiled migration. This is the restrict-based projection used by
+    -- @mig::lift_wtype@, not a left Kan extension or categorical
+    -- restriction. Wraps @pp_mig_lift_record@.
     liftRecord :: CompiledRep back -> InstanceRep back -> IO (InstanceRep back)
 
     -- | Compose two compiled migrations, engine-validated: recomputes

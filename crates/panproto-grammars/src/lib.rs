@@ -5,7 +5,7 @@
 //! Each grammar is gated behind a `lang-{name}` feature flag. Group features like
 //! `group-core`, `group-web`, `group-all` etc. enable sets of languages at once.
 //!
-//! The default feature is `group-core` (GitHub's top 10 languages + Rust).
+//! The default feature is `group-core`, a fixed set of 11 languages.
 
 #[allow(
     clippy::vec_init_then_push,

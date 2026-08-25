@@ -3,7 +3,7 @@
 -- | Schema round-trip and validation tests against the Rust backend.
 --
 -- 'CanonicalSchema' is opaque CBOR bytes (the Haskell side does not
--- mirror the structured @Schema@ representation in @0.41.0@), so the
+-- mirror the structured @Schema@ representation), so the
 -- agreement contract is bytewise: @reify (hoist x) ≡ x@. The
 -- @Spec.SchemaRoundtrip.crossBackend@ test verifies this against
 -- a schema produced by hoisting an empty Rust 'Schema' through the
@@ -59,8 +59,7 @@ tests =
 -- encoded empty 'Schema' map (every required field present with
 -- empty-collection defaults). We construct the bytes by hand from
 -- the @ciborium@-compatible serde shape rather than going through a
--- structured Haskell 'Schema' type, which does not exist in
--- @0.41.0@.
+-- structured Haskell 'Schema' type, which does not exist.
 emptyCanonicalSchema :: CanonicalSchema
 emptyCanonicalSchema =
     CanonicalSchema . CBOR.toLazyByteString $

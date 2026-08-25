@@ -85,7 +85,7 @@ pub enum ComplementConstructor {
         /// The operation whose data is captured.
         op: Name,
     },
-    /// Complement captures a single dropped edge (by `(src, tgt, name)` triple).
+    /// Complement captures a single dropped edge by its complete identity.
     ///
     /// Used by `elementary::drop_edge` to record enough information to
     /// restore the specific edge in the `put` direction.
@@ -228,6 +228,13 @@ impl Protolens {
     /// dropping a sort the schema lacks) instantiates to a no-op lens
     /// rather than erroring.
     ///
+    /// A literal default retained by a [`ComplementConstructor::AddedElement`]
+    /// becomes an executable field transform when the transformed schema places
+    /// that element behind one named edge from a surviving source vertex. An
+    /// isolated added sort has no position in a rooted `WInstance`; its default
+    /// remains a static complement requirement rather than being guessed onto a
+    /// source node.
+    ///
     /// # Errors
     ///
     /// Returns [`LensError::ProtolensError`] if either endofunctor's
@@ -247,11 +254,17 @@ impl Protolens {
         // 3. Compute the migration from F(S) to G(S)
         let compiled = compute_migration_between(&src_schema, &tgt_schema);
 
-        Ok(Lens {
+        let mut lens = Lens {
             compiled,
             src_schema,
             tgt_schema,
-        })
+        };
+        attach_exact_vertex_kind_coercions(&mut lens, &self.target.transform)?;
+        let defaults =
+            crate::default_synthesis::constructor_defaults(&self.complement_constructor)?;
+        let target_schema = lens.tgt_schema.clone();
+        crate::default_synthesis::attach_defaults(&mut lens, &target_schema, &defaults, false)?;
+        Ok(lens)
     }
 
     /// Instantiate this protolens as an [`crate::EditLens`] at a specific schema.
@@ -321,6 +334,55 @@ impl Protolens {
     /// Returns a [`serde_json::Error`] if deserialization fails.
     pub fn from_json(json: &str) -> Result<Self, serde_json::Error> {
         serde_json::from_str(json)
+    }
+}
+
+/// Install value transforms for exact per-vertex kind changes.
+///
+/// A schema kind mutation is not a value coercion by itself. The target
+/// schema must register the coercion for the old/new kind pair; otherwise
+/// instantiation fails instead of emitting values that violate the target
+/// schema. Composite transforms preserve step order.
+fn attach_exact_vertex_kind_coercions(
+    lens: &mut Lens,
+    transform: &TheoryTransform,
+) -> Result<(), LensError> {
+    match transform {
+        TheoryTransform::ChangeSchemaVertexKind {
+            vertex_id,
+            old_kind,
+            new_kind,
+        } => {
+            let id = Name::from(&**vertex_id);
+            if !lens.src_schema.vertices.contains_key(&id)
+                || !lens.tgt_schema.vertices.contains_key(&id)
+            {
+                return Ok(());
+            }
+            let key = (Name::from(&**old_kind), Name::from(&**new_kind));
+            let spec = lens.tgt_schema.coercions.get(&key).ok_or_else(|| {
+                LensError::ProtolensError(format!(
+                    "kind change for vertex `{vertex_id}` from `{old_kind}` to `{new_kind}` has no registered coercion"
+                ))
+            })?;
+            lens.compiled.field_transforms.entry(id).or_default().push(
+                panproto_inst::FieldTransform::ApplyExpr {
+                    key: "__value__".to_owned(),
+                    expr: spec.forward.clone(),
+                    inverse: spec.inverse.clone(),
+                    coercion_class: spec.class,
+                },
+            );
+            Ok(())
+        }
+        TheoryTransform::Compose(first, second) => {
+            attach_exact_vertex_kind_coercions(lens, first)?;
+            attach_exact_vertex_kind_coercions(lens, second)
+        }
+        TheoryTransform::ScopedTransform { inner, .. } => {
+            attach_exact_vertex_kind_coercions(lens, inner)
+        }
+        _ => Ok(()),
     }
 }
 
@@ -1148,6 +1210,27 @@ pub mod elementary {
         vertex_kind: impl Into<Name>,
         default: Value,
     ) -> Protolens {
+        add_sort_with_optional_default(sort_name, vertex_kind, Some(default))
+    }
+
+    /// Add a sort without inventing a data-level default.
+    ///
+    /// Automatic synthesis uses this path when the caller supplied no
+    /// default. An explicit [`Value::Null`] remains available through
+    /// [`add_sort`]; it is not used as a sentinel for absence.
+    #[must_use]
+    pub(crate) fn add_sort_without_default(
+        sort_name: impl Into<Name>,
+        vertex_kind: impl Into<Name>,
+    ) -> Protolens {
+        add_sort_with_optional_default(sort_name, vertex_kind, None)
+    }
+
+    fn add_sort_with_optional_default(
+        sort_name: impl Into<Name>,
+        vertex_kind: impl Into<Name>,
+        default: Option<Value>,
+    ) -> Protolens {
         let sort_name = sort_name.into();
         let vertex_kind = vertex_kind.into();
         Protolens {
@@ -1168,8 +1251,101 @@ pub mod elementary {
             complement_constructor: ComplementConstructor::AddedElement {
                 element_name: sort_name,
                 element_kind: format!("{vertex_kind}"),
-                default_value: Some(default),
+                default_value: default,
             },
+        }
+    }
+
+    /// Add one concrete schema vertex without interpreting its id as a
+    /// theory sort name.
+    #[must_use]
+    pub(crate) fn add_schema_vertex(
+        vertex_id: impl Into<Name>,
+        vertex_kind: impl Into<Name>,
+        nsid: Option<&Name>,
+        is_entry: bool,
+        default: Option<Value>,
+    ) -> Protolens {
+        let vertex_id = vertex_id.into();
+        let vertex_kind = vertex_kind.into();
+        let id_arc = name_arc_clone(&vertex_id);
+        let kind_arc = name_arc_clone(&vertex_kind);
+        let nsid_arc = nsid.map(name_arc_clone);
+        Protolens {
+            name: Name::from(format!("add_schema_vertex_{vertex_id}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_schema_vertex_{vertex_id}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddSchemaVertex {
+                    vertex_id: id_arc,
+                    vertex_kind: kind_arc,
+                    nsid: nsid_arc,
+                    is_entry,
+                },
+            },
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: vertex_id,
+                element_kind: vertex_kind.to_string(),
+                default_value: default,
+            },
+        }
+    }
+
+    /// Drop one concrete schema vertex by exact id.
+    #[must_use]
+    pub(crate) fn drop_schema_vertex(vertex_id: impl Into<Name>) -> Protolens {
+        let vertex_id = vertex_id.into();
+        let id_arc = name_arc_clone(&vertex_id);
+        Protolens {
+            name: Name::from(format!("drop_schema_vertex_{vertex_id}")),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("drop_schema_vertex_{vertex_id}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::DropSchemaVertex { vertex_id: id_arc },
+            },
+            complement_constructor: ComplementConstructor::DroppedSortData { sort: vertex_id },
+        }
+    }
+
+    /// Change the kind of one concrete schema vertex by exact id.
+    #[must_use]
+    pub(crate) fn change_schema_vertex_kind(
+        vertex_id: impl Into<Name>,
+        old_kind: impl Into<Name>,
+        new_kind: impl Into<Name>,
+    ) -> Protolens {
+        let vertex_id = vertex_id.into();
+        let old_kind = old_kind.into();
+        let new_kind = new_kind.into();
+        Protolens {
+            name: Name::from(format!(
+                "change_schema_vertex_kind_{vertex_id}_{old_kind}_{new_kind}"
+            )),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("change_schema_vertex_kind_{vertex_id}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::ChangeSchemaVertexKind {
+                    vertex_id: name_arc_clone(&vertex_id),
+                    old_kind: name_arc_clone(&old_kind),
+                    new_kind: name_arc_clone(&new_kind),
+                },
+            },
+            complement_constructor: ComplementConstructor::Empty,
         }
     }
 
@@ -1359,7 +1535,7 @@ pub mod elementary {
                 transform: TheoryTransform::AddEdge {
                     src_sort: src_arc,
                     tgt_sort: tgt_arc,
-                    edge_name: name_arc,
+                    edge_name: Some(name_arc),
                     edge_kind: kind_arc,
                 },
             },
@@ -1371,8 +1547,8 @@ pub mod elementary {
         }
     }
 
-    /// `η : Id ⟹ DropEdge(src, tgt, name)`: drops a single edge by
-    /// its `(src, tgt, name)` triple.
+    /// `η : Id ⟹ DropEdge(src, tgt, name)`: drops edges matching the
+    /// `(src, tgt, name)` triple without restricting the kind.
     ///
     /// Fiber-level operation: the underlying theory is unchanged. Unlike
     /// [`drop_op`], which removes every edge of a given kind, `drop_edge`
@@ -1406,6 +1582,7 @@ pub mod elementary {
                     src_sort: src_arc,
                     tgt_sort: tgt_arc,
                     edge_name: name_arc,
+                    edge_kind: None,
                 },
             },
             // The actual dropped edge's kind is filled in at instantiate
@@ -1417,6 +1594,77 @@ pub mod elementary {
                 tgt: tgt_sort,
                 edge_name,
                 edge_kind: Name::from(""),
+            },
+        }
+    }
+
+    /// Add one concrete schema edge, including an optional label.
+    #[must_use]
+    pub(crate) fn add_schema_edge(edge: &panproto_schema::Edge) -> Protolens {
+        let label_display = edge
+            .name
+            .as_ref()
+            .map_or_else(|| "unnamed".to_owned(), ToString::to_string);
+        Protolens {
+            name: Name::from(format!(
+                "add_schema_edge_{}_{}_{}_{}",
+                edge.src, edge.tgt, edge.kind, label_display
+            )),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("add_schema_edge_{label_display}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::AddEdge {
+                    src_sort: name_arc_clone(&edge.src),
+                    tgt_sort: name_arc_clone(&edge.tgt),
+                    edge_name: edge.name.as_ref().map(name_arc_clone),
+                    edge_kind: name_arc_clone(&edge.kind),
+                },
+            },
+            complement_constructor: ComplementConstructor::AddedElement {
+                element_name: edge.name.clone().unwrap_or_else(|| edge.kind.clone()),
+                element_kind: edge.kind.to_string(),
+                default_value: None,
+            },
+        }
+    }
+
+    /// Drop one concrete schema edge by its complete identity.
+    #[must_use]
+    pub(crate) fn drop_schema_edge(edge: &panproto_schema::Edge) -> Protolens {
+        let label_display = edge
+            .name
+            .as_ref()
+            .map_or_else(|| "unnamed".to_owned(), ToString::to_string);
+        Protolens {
+            name: Name::from(format!(
+                "drop_schema_edge_{}_{}_{}_{}",
+                edge.src, edge.tgt, edge.kind, label_display
+            )),
+            source: TheoryEndofunctor {
+                name: Arc::from("id"),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::Identity,
+            },
+            target: TheoryEndofunctor {
+                name: Arc::from(&*format!("drop_schema_edge_{label_display}")),
+                precondition: TheoryConstraint::Unconstrained,
+                transform: TheoryTransform::DropEdge {
+                    src_sort: name_arc_clone(&edge.src),
+                    tgt_sort: name_arc_clone(&edge.tgt),
+                    edge_name: edge.name.as_ref().map(name_arc_clone),
+                    edge_kind: Some(name_arc_clone(&edge.kind)),
+                },
+            },
+            complement_constructor: ComplementConstructor::DroppedEdge {
+                src: edge.src.clone(),
+                tgt: edge.tgt.clone(),
+                edge_name: edge.name.clone(),
+                edge_kind: edge.kind.clone(),
             },
         }
     }
@@ -1772,9 +2020,6 @@ pub mod elementary {
     /// `η : Id ⟹ Scope(focus, inner)`: apply a protolens within the
     /// sub-schema rooted at the focus vertex.
     ///
-    /// Categorically, this is the left Kan extension of the inner
-    /// protolens along the inclusion `ι : Sub(S, focus) ↪ S`.
-    ///
     /// At the instance level, the optic class depends on the edge kind
     /// connecting the parent to the focus vertex:
     ///   - `prop` edge → Lens (apply once, single-element focus)
@@ -1873,12 +2118,30 @@ pub mod combinators {
         field_kind: impl Into<Name>,
         default: Value,
     ) -> ProtolensChain {
-        let parent = parent.into();
         let field_name = field_name.into();
+        add_field_with_label(parent, field_name.clone(), field_name, field_kind, default)
+    }
+
+    /// Add a field whose schema vertex ID and property label differ.
+    ///
+    /// `field_vertex` identifies the added vertex in the schema graph, while
+    /// `property_name` is the label emitted by JSON-like codecs. The edge is a
+    /// `prop` edge from `parent` to the added vertex.
+    #[must_use]
+    pub fn add_field_with_label(
+        parent: impl Into<Name>,
+        field_vertex: impl Into<Name>,
+        property_name: impl Into<Name>,
+        field_kind: impl Into<Name>,
+        default: Value,
+    ) -> ProtolensChain {
+        let parent = parent.into();
+        let field_vertex = field_vertex.into();
+        let property_name = property_name.into();
         let field_kind = field_kind.into();
         ProtolensChain::new(vec![
-            elementary::add_sort(field_name.clone(), field_kind, default),
-            elementary::add_op(field_name.clone(), parent, field_name.clone(), field_name),
+            elementary::add_sort(field_vertex.clone(), field_kind, default),
+            elementary::add_edge(parent, field_vertex, property_name, "prop"),
         ])
     }
 
@@ -2130,7 +2393,9 @@ fn compute_edge_remap(
     let mut remap = HashMap::new();
     let mut claimed: HashSet<Edge> = HashSet::new();
 
-    for src_edge in src.edges.keys() {
+    let mut source_edges: Vec<&Edge> = src.edges.keys().collect();
+    source_edges.sort();
+    for src_edge in source_edges {
         // An edge present verbatim in the target was not renamed.
         if tgt.edges.contains_key(src_edge) {
             continue;
@@ -2378,23 +2643,51 @@ fn apply_theory_transform_to_schema(
         } => Ok(apply_rename_edge_name(
             schema, src_sort, tgt_sort, old_name, new_name,
         )),
+        TheoryTransform::AddSchemaVertex {
+            vertex_id,
+            vertex_kind,
+            nsid,
+            is_entry,
+        } => Ok(apply_add_schema_vertex(
+            schema,
+            vertex_id,
+            vertex_kind,
+            nsid.as_ref(),
+            *is_entry,
+        )),
+        TheoryTransform::DropSchemaVertex { vertex_id } => {
+            Ok(apply_drop_schema_vertex(schema, vertex_id))
+        }
+        TheoryTransform::ChangeSchemaVertexKind {
+            vertex_id,
+            old_kind,
+            new_kind,
+        } => Ok(apply_change_schema_vertex_kind(
+            schema, vertex_id, old_kind, new_kind,
+        )),
         TheoryTransform::AddEdge {
             src_sort,
             tgt_sort,
             edge_name,
             edge_kind,
         } => Ok(apply_add_edge_to_schema(
-            schema, src_sort, tgt_sort, edge_name, edge_kind,
+            schema,
+            src_sort,
+            tgt_sort,
+            edge_name.as_ref(),
+            edge_kind,
         )),
         TheoryTransform::DropEdge {
             src_sort,
             tgt_sort,
             edge_name,
+            edge_kind,
         } => Ok(apply_drop_edge_from_schema(
             schema,
             src_sort,
             tgt_sort,
             edge_name.as_ref(),
+            edge_kind.as_ref(),
         )),
         TheoryTransform::ScopedTransform { focus, inner } => {
             apply_scoped_schema_transform(schema, focus, inner, protocol)
@@ -2548,6 +2841,51 @@ fn apply_add_sort(
     new_schema.vertices.insert(name.clone(), vertex);
     if let Some(expr) = default_expr {
         new_schema.defaults.insert(name, expr.clone());
+    }
+    new_schema
+}
+
+/// Add one exact schema vertex without interpreting its id as a theory sort.
+pub(crate) fn apply_add_schema_vertex(
+    schema: &Schema,
+    vertex_id: &Arc<str>,
+    vertex_kind: &Arc<str>,
+    nsid: Option<&Arc<str>>,
+    is_entry: bool,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let id = Name::from(&**vertex_id);
+    let nsid = nsid.map(|value| Name::from(&**value));
+    new_schema.vertices.insert(
+        id.clone(),
+        Vertex {
+            id: id.clone(),
+            kind: Name::from(&**vertex_kind),
+            nsid: nsid.clone(),
+        },
+    );
+    if let Some(nsid) = nsid {
+        new_schema.nsids.insert(id.clone(), nsid);
+    }
+    if is_entry && !new_schema.entries.contains(&id) {
+        new_schema.entries.push(id);
+    }
+    new_schema
+}
+
+/// Change the kind of one exact schema vertex.
+pub(crate) fn apply_change_schema_vertex_kind(
+    schema: &Schema,
+    vertex_id: &Arc<str>,
+    old_kind: &Arc<str>,
+    new_kind: &Arc<str>,
+) -> Schema {
+    let mut new_schema = schema.clone();
+    let id = Name::from(&**vertex_id);
+    if let Some(vertex) = new_schema.vertices.get_mut(&id)
+        && *vertex.kind == **old_kind
+    {
+        vertex.kind = Name::from(&**new_kind);
     }
     new_schema
 }
@@ -2806,6 +3144,52 @@ fn apply_drop_sort_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
     new_schema
 }
 
+/// Drop one schema vertex by exact id and cascade its dependent metadata.
+pub(crate) fn apply_drop_schema_vertex(schema: &Schema, vertex_id: &Arc<str>) -> Schema {
+    let mut new_schema = schema.clone();
+    let id = Name::from(&**vertex_id);
+    new_schema.vertices.remove(&id);
+    new_schema
+        .edges
+        .retain(|edge, _| edge.src != id && edge.tgt != id);
+    new_schema.mergers.remove(&id);
+    new_schema.defaults.remove(&id);
+    new_schema.constraints.remove(&id);
+    new_schema.required.remove(&id);
+    for required in new_schema.required.values_mut() {
+        required.retain(|edge| edge.src != id && edge.tgt != id);
+    }
+    new_schema.required.retain(|_, edges| !edges.is_empty());
+    new_schema.nsids.remove(&id);
+    new_schema.entries.retain(|entry| entry != &id);
+    new_schema.variants.remove(&id);
+    for variants in new_schema.variants.values_mut() {
+        variants.retain(|variant| variant.id != id && variant.parent_vertex != id);
+    }
+    new_schema
+        .variants
+        .retain(|_, variants| !variants.is_empty());
+    new_schema
+        .orderings
+        .retain(|edge, _| edge.src != id && edge.tgt != id);
+    new_schema
+        .usage_modes
+        .retain(|edge, _| edge.src != id && edge.tgt != id);
+    new_schema.nominal.remove(&id);
+    new_schema.recursion_points.remove(&id);
+    new_schema
+        .recursion_points
+        .retain(|_, point| point.target_vertex != id);
+    new_schema
+        .spans
+        .retain(|_, span| span.left != id && span.right != id);
+    new_schema
+        .hyper_edges
+        .retain(|_, hyper_edge| !hyper_edge.signature.values().any(|vertex| vertex == &id));
+    rebuild_indices(&mut new_schema);
+    new_schema
+}
+
 /// Drop an operation (edge kind) from a schema.
 fn apply_drop_op_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
     let mut new_schema = schema.clone();
@@ -2825,11 +3209,11 @@ fn apply_drop_op_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
 /// Mirrors the fiber-level semantics of `TheoryTransform::AddEdge`: the
 /// theory is unchanged, only the schema's edge set is extended. Silently
 /// no-ops if either endpoint vertex is missing, matching `AddOp`.
-fn apply_add_edge_to_schema(
+pub(crate) fn apply_add_edge_to_schema(
     schema: &Schema,
     src_sort: &Arc<str>,
     tgt_sort: &Arc<str>,
-    edge_name: &Arc<str>,
+    edge_name: Option<&Arc<str>>,
     edge_kind: &Arc<str>,
 ) -> Schema {
     let mut new_schema = schema.clone();
@@ -2839,38 +3223,27 @@ fn apply_add_edge_to_schema(
         return new_schema;
     }
     let edge = Edge {
-        src: src.clone(),
-        tgt: tgt.clone(),
+        src,
+        tgt,
         kind: Name::from(&**edge_kind),
-        name: Some(Name::from(&**edge_name)),
+        name: edge_name.map(|name| Name::from(&**name)),
     };
-    new_schema
-        .edges
-        .insert(edge.clone(), Name::from(&**edge_kind));
-    new_schema
-        .outgoing
-        .entry(src.clone())
-        .or_default()
-        .push(edge.clone());
-    new_schema
-        .incoming
-        .entry(tgt.clone())
-        .or_default()
-        .push(edge.clone());
-    new_schema.between.entry((src, tgt)).or_default().push(edge);
+    new_schema.edges.insert(edge, Name::from(&**edge_kind));
+    rebuild_indices(&mut new_schema);
     new_schema
 }
 
-/// Drop a single edge identified by its `(src, tgt, name)` triple.
+/// Drop edges identified by `(src, tgt, name)` and, when supplied, kind.
 ///
 /// Unlike `apply_drop_op_from_schema`, which removes every edge of a given
-/// kind, this removes exactly one edge (or all edges with the matching
-/// triple, which should be at most one in a well-formed schema).
-fn apply_drop_edge_from_schema(
+/// kind, this can remove one edge by complete identity. Omitting `edge_kind`
+/// preserves the legacy behavior of removing all matches for the triple.
+pub(crate) fn apply_drop_edge_from_schema(
     schema: &Schema,
     src_sort: &Arc<str>,
     tgt_sort: &Arc<str>,
     edge_name: Option<&Arc<str>>,
+    edge_kind: Option<&Arc<str>>,
 ) -> Schema {
     let mut new_schema = schema.clone();
     let target_name: Option<&str> = edge_name.map(|a| &**a);
@@ -2878,13 +3251,29 @@ fn apply_drop_edge_from_schema(
         .edges
         .iter()
         .filter(|(e, _)| {
-            let matches =
-                *e.src == **src_sort && *e.tgt == **tgt_sort && e.name.as_deref() == target_name;
+            let matches = *e.src == **src_sort
+                && *e.tgt == **tgt_sort
+                && e.name.as_deref() == target_name
+                && edge_kind.is_none_or(|kind| *e.kind == **kind);
             !matches
         })
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+    let matches_target = |edge: &Edge| {
+        edge.src == **src_sort
+            && edge.tgt == **tgt_sort
+            && edge.name.as_deref() == target_name
+            && edge_kind.is_none_or(|kind| edge.kind == **kind)
+    };
+    for required in new_schema.required.values_mut() {
+        required.retain(|edge| !matches_target(edge));
+    }
+    new_schema.required.retain(|_, edges| !edges.is_empty());
+    new_schema.orderings.retain(|edge, _| !matches_target(edge));
+    new_schema
+        .usage_modes
+        .retain(|edge, _| !matches_target(edge));
     rebuild_indices(&mut new_schema);
     new_schema
 }
@@ -3020,8 +3409,8 @@ mod tests {
     use panproto_schema::Protocol;
 
     use super::{
-        ComplementConstructor, ProtolensChain, elementary, horizontal_compose, identity_lens,
-        schema_to_implicit_theory, theory_endofunctor_equiv, vertical_compose,
+        ComplementConstructor, ProtolensChain, combinators, elementary, horizontal_compose,
+        identity_lens, schema_to_implicit_theory, theory_endofunctor_equiv, vertical_compose,
     };
     use crate::tests::{three_node_instance, three_node_schema};
 
@@ -3147,6 +3536,23 @@ mod tests {
         assert_eq!(
             lens.tgt_schema.vertices.len(),
             lens.src_schema.vertices.len() + 1
+        );
+    }
+
+    #[test]
+    fn chain_instantiate_executes_retained_add_field_default() {
+        let schema = three_node_schema();
+        let instance = three_node_instance();
+        let protocol = test_protocol();
+        let chain =
+            combinators::add_field("post:body", "locale", "string", Value::Str("en".to_owned()));
+
+        let lens = chain.instantiate(&schema, &protocol).unwrap();
+        let (view, _) = crate::get(&lens, &instance).unwrap();
+        assert_eq!(
+            panproto_inst::to_json(&lens.tgt_schema, &view)["locale"],
+            serde_json::json!("en"),
+            "fusing a chain must not discard its constructor default"
         );
     }
 

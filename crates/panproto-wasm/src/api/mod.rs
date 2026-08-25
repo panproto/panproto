@@ -93,7 +93,7 @@ pub use vcs::*;
 // A few `#[wasm_bindgen]` entry points (expression parser, query engine)
 // live in the internal helpers module; re-export them explicitly rather
 // than leaking every `pub(super)` helper.
-pub use helpers::{eval_func_expr, execute_query, parse_expr};
+pub use helpers::{eval_func_expr, execute_query, execute_query_with_schema_handle, parse_expr};
 
 /// Shared fixtures for the per-module native smoke tests.
 ///
@@ -312,5 +312,6 @@ mod export_guard {
         let _ = parse_expr as *const () as usize;
         let _ = eval_func_expr as *const () as usize;
         let _ = execute_query as *const () as usize;
+        let _ = execute_query_with_schema_handle as *const () as usize;
     }
 }

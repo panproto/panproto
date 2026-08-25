@@ -181,17 +181,18 @@ instance Monoid OpticKind where
 -- Stringency
 
 -- | The auto-generation alignment tier. Mirrors
--- @panproto_lens::Stringency@ (serialized snake_case). Each tier admits
--- the strategies of the tiers below it and adds more:
+-- @panproto_lens::Stringency@ (serialized snake_case). The tiers are
+-- strategy presets; threshold changes and evidence-dependent strategies
+-- mean that their final candidate pools are not guaranteed to be nested:
 --
--- * 'Strict': kind-exact, edge-name-pruned CSP search; total morphisms
---   only.
--- * 'Balanced' (the engine default): adds an alias dictionary and tight
---   token-similarity priors.
--- * 'Lenient': adds span search over maximal common subtheories and
---   structural priors.
--- * 'Exploratory': adds lossy retraction witnesses and
---   language-model-proposed alignments.
+-- * 'Strict': exact identifiers, exact suffixes, and edge labels; total
+--   morphisms only.
+-- * 'Balanced' (the engine default): adds aliases, token similarity, and
+--   description similarity; total morphisms only.
+-- * 'Lenient': adds wrap/unwrap, type-signature, WL-refinement, and
+--   neighborhood evidence; permits spans.
+-- * 'Exploratory': adds structural and registered coercion-witness
+--   proposals; permits spans.
 data Stringency
     = Strict
     | Balanced
@@ -200,8 +201,8 @@ data Stringency
     deriving stock (Eq, Show, Bounded, Enum, Generic)
     deriving anyclass (NFData, Hashable)
 
--- | The looser of two tiers wins, matching the \"adds the strategies of
--- the tiers below\" reading: combining tiers takes the maximum.
+-- | Combining two tier presets takes the one with the higher permissiveness
+-- rank.
 instance Semigroup Stringency where
     a <> b = if fromEnum a >= fromEnum b then a else b
 

@@ -1,7 +1,7 @@
 //! Companion grammar package: all languages.
 //!
 //! pyo3 cdylib that bakes the `panproto-grammars` `group-all`
-//! feature (every tree-sitter grammar bundled in panproto-grammars (~248 languages))
+//! feature (all 261 entries in `panproto-grammars/grammars.toml`)
 //! into static memory and exposes the metadata `panproto`'s
 //! `AstParserRegistry` consumes through the `panproto.grammars`
 //! entry point. See the architecture notes in the sibling

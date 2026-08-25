@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
-description = "Instance-level presentation functors for panproto — blazingly fast parse/emit for 50 protocols"
+description = "Instance parsing and emission for panproto protocols"
 
 [lints]
 workspace = true

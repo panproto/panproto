@@ -476,23 +476,37 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
 
 /// Instantiate a protolens chain at a specific schema.
 ///
-/// `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource)
-/// handle; `schema` is a [`Resource::Schema`](crate::handle::Resource)
-/// handle. On success, `out_handle` receives a fresh
+/// `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource) or
+/// compiled lens-document handle; `schema` is a
+/// [`Resource::Schema`](crate::handle::Resource) handle. On success,
+/// `out_handle` receives a fresh
 /// [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
-/// Calls `ProtolensChain::instantiate`.
+/// Plain chains call `ProtolensChain::instantiate`; compiled documents use
+/// their ordered-stage instantiation.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
-        let (chain_val, schema_val) = handle::with_two_resources(chain, schema, |r1, r2| {
-            Ok((r1.as_protolens_chain()?.clone(), r2.as_schema_arc()?))
-        })?;
+        let (chain_val, compiled_doc, schema_val) =
+            handle::with_two_resources(chain, schema, |r1, r2| {
+                let (chain_val, compiled_doc) = match r1 {
+                    Resource::CompiledLensDoc(compiled) => (None, Some((**compiled).clone())),
+                    _ => (Some(r1.as_protolens_chain()?.clone()), None),
+                };
+                Ok((chain_val, compiled_doc, r2.as_schema_arc()?))
+            })?;
         let protocol = protocol_for_schema(&schema_val);
 
-        let lens_obj = chain_val
-            .instantiate(&schema_val, &protocol)
-            .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?;
+        let lens_obj = if let Some(compiled) = compiled_doc {
+            compiled
+                .instantiate(&schema_val, &protocol)
+                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+        } else {
+            chain_val
+                .ok_or_else(|| FfiError::Operation("missing protolens chain".to_owned()))?
+                .instantiate(&schema_val, &protocol)
+                .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
+        };
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(lens_obj.compiled),
@@ -718,7 +732,7 @@ pub fn pp_lens_symmetric_sync(
 /// `source` is UTF-8 DSL source; `format` is the UTF-8 format name
 /// (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
 /// field-level steps. On success, `out_handle` receives a fresh
-/// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+/// chain-compatible compiled-document handle. Calls
 /// `panproto_core::lens_dsl::{eval, compile}`.
 ///
 /// Nickel (`ncl`) is intentionally unsupported here, matching the WASM
@@ -754,7 +768,7 @@ pub fn pp_lens_compile_document(
         let compiled = panproto_core::lens_dsl::compile(&doc, body, &|_| None)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));
+        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
         Ok(PpStatus::Ok)
     })
 }
@@ -767,7 +781,7 @@ pub fn pp_lens_compile_document(
 /// `map<string, string>` from each referenced lens `id` to its document
 /// source (in the same `format`); a `compose` body's `ref` entries are
 /// resolved against this map. On success, `out_handle` receives a fresh
-/// [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+/// chain-compatible compiled-document handle. Calls
 /// `panproto_core::lens_dsl::compile_with_refs`.
 ///
 /// Nickel (`ncl`) is intentionally unsupported, matching
@@ -814,7 +828,7 @@ pub fn pp_lens_compile_document_with_refs(
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body, &docs_by_id)
             .map_err(|e| FfiError::Operation(format!("lens DSL compile: {e}")))?;
 
-        *out_handle = handle::alloc(Resource::ProtolensChain(Box::new(compiled.chain)));
+        *out_handle = handle::alloc(Resource::CompiledLensDoc(Box::new(compiled)));
         Ok(PpStatus::Ok)
     })
 }
@@ -886,6 +900,20 @@ mod tests {
     fn target_schema() -> Schema {
         let proto = crate::api::helpers::default_protocol("test");
         SchemaBuilder::new(&proto)
+            .vertex("post", "record", None::<&str>)
+            .unwrap()
+            .vertex("post.text", "string", None::<&str>)
+            .unwrap()
+            .edge("post", "post.text", "prop", Some("text"))
+            .unwrap()
+            .build()
+            .unwrap()
+    }
+
+    fn ordered_value_schema() -> Schema {
+        let proto = crate::api::helpers::default_protocol("test");
+        SchemaBuilder::new(&proto)
+            .entry("post")
             .vertex("post", "record", None::<&str>)
             .unwrap()
             .vertex("post.text", "string", None::<&str>)
@@ -1032,6 +1060,71 @@ mod tests {
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(src_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(tgt_h), PpStatus::Ok as i32);
+    }
+
+    #[test]
+    fn compiled_document_instantiates_ordered_value_stages() {
+        let schema = ordered_value_schema();
+        let schema_h = schema_handle(&schema);
+        let doc = br#"{
+            "id": "ordered",
+            "source": "s",
+            "target": "t",
+            "steps": [
+                { "rename_field": { "old": "text", "new": "amount" } },
+                { "compute_field": {
+                    "target": "derived",
+                    "expr": "amount ++ \"!\""
+                } }
+            ]
+        }"#;
+
+        let mut chain_h = u32::MAX;
+        assert_eq!(
+            pp_lens_compile_document(
+                slice(doc).as_ref(),
+                slice(b"json").as_ref(),
+                slice(b"post").as_ref(),
+                &mut chain_h,
+            ),
+            PpStatus::Ok as i32,
+        );
+
+        let mut lens_h = u32::MAX;
+        assert_eq!(
+            pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
+            PpStatus::Ok as i32,
+        );
+
+        let source =
+            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
+                .unwrap();
+        let source_cbor = canonical::encode(&source).unwrap();
+        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
+        assert_eq!(
+            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
+            PpStatus::Ok as i32,
+        );
+        let (view_cbor, _) = split_get_record(&get_out);
+        pp_buf_free(get_out);
+        let view: WInstance = canonical::decode(&view_cbor).unwrap();
+        let target = handle::with_resource(lens_h, |resource| match resource {
+            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
+            other => Err(FfiError::TypeMismatch {
+                expected: "MigrationWithSchemas",
+                actual: other.type_name(),
+            }),
+        })
+        .unwrap();
+        let json = panproto_core::inst::to_json(&target, &view);
+
+        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
+        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
+        assert!(json.get("text").is_none());
+
+        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
     }
 
     /// Build a deterministically non-empty two-step chain: drop the

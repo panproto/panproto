@@ -5,10 +5,13 @@
 //! type (from `panproto-lens`) is Serialize-able, unlike the `inst`
 //! version.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use pyo3::prelude::*;
 
+use panproto_core::gat::Name;
+use panproto_core::inst::FieldTransform;
 use panproto_core::lens::{self, AutoLensConfig, Complement, Lens, Stringency};
 
 /// Parse a Python-side stringency string into the engine [`Stringency`].
@@ -262,6 +265,66 @@ fn coerce_proposals_to_json(
 #[pyclass(name = "ProtolensChain", frozen, module = "panproto._native")]
 pub struct PyProtolensChain {
     pub(crate) inner: Arc<lens::ProtolensChain>,
+    field_transforms: Arc<HashMap<Name, Vec<FieldTransform>>>,
+    stages: Arc<Vec<panproto_core::lens_dsl::steps::CompiledStage>>,
+}
+
+/// Serialized Python representation of a compiled protolens chain.
+///
+/// `steps` and `field_transforms` retain the previous flat summaries. `stages`
+/// records the execution order and is authoritative when present. Each added
+/// member defaults to empty so legacy transform-free and flat-transform JSON
+/// remain readable.
+#[derive(serde::Deserialize, serde::Serialize)]
+struct SerializedProtolensChain {
+    steps: Vec<lens::Protolens>,
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    stages: Vec<panproto_core::lens_dsl::steps::CompiledStage>,
+}
+
+impl PyProtolensChain {
+    fn from_chain(chain: lens::ProtolensChain) -> Self {
+        Self::from_parts(chain, HashMap::new())
+    }
+
+    fn from_parts(
+        chain: lens::ProtolensChain,
+        field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    ) -> Self {
+        let stages = if chain.steps.is_empty() && field_transforms.is_empty() {
+            Vec::new()
+        } else {
+            vec![panproto_core::lens_dsl::steps::CompiledStage {
+                chain,
+                field_transforms,
+            }]
+        };
+        Self::from_stages(stages)
+    }
+
+    fn from_stages(stages: Vec<panproto_core::lens_dsl::steps::CompiledStage>) -> Self {
+        let mut steps = Vec::new();
+        let mut field_transforms = HashMap::new();
+        for stage in &stages {
+            steps.extend(stage.chain.steps.iter().cloned());
+            extend_field_transforms(&mut field_transforms, &stage.field_transforms);
+        }
+        Self {
+            inner: Arc::new(lens::ProtolensChain::new(steps)),
+            field_transforms: Arc::new(field_transforms),
+            stages: Arc::new(stages),
+        }
+    }
+
+    fn from_compiled(compiled: panproto_core::lens_dsl::CompiledLens) -> Self {
+        Self::from_stages(compiled.stages)
+    }
+
+    fn from_auto_result(result: lens::AutoLensResult) -> Self {
+        Self::from_parts(result.chain, result.lens.compiled.field_transforms)
+    }
 }
 
 #[pymethods]
@@ -290,9 +353,7 @@ impl PyProtolensChain {
                 )
             })
             .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
-        Ok(Self {
-            inner: Arc::new(result.chain),
-        })
+        Ok(Self::from_auto_result(result))
     }
 
     /// Auto-generate with morphism hints (vertex correspondences).
@@ -307,8 +368,6 @@ impl PyProtolensChain {
         hints: std::collections::HashMap<String, String>,
         stringency: Option<&str>,
     ) -> PyResult<Self> {
-        use panproto_core::gat::Name;
-
         let mut hard_pins = std::collections::HashMap::new();
         for (src, tgt) in &hints {
             hard_pins.insert(Name::from(src.as_str()), Name::from(tgt.as_str()));
@@ -334,9 +393,7 @@ impl PyProtolensChain {
                 )
             })
             .map_err(|e| crate::error::LensError::new_err(format!("auto-generate failed: {e}")))?;
-        Ok(Self {
-            inner: Arc::new(result.chain),
-        })
+        Ok(Self::from_auto_result(result))
     }
 
     /// Auto-generate with a full hint specification.
@@ -403,17 +460,41 @@ impl PyProtolensChain {
                 crate::error::LensError::new_err(format!("auto-generate with hints failed: {e}"))
             })?;
 
-        Ok(Self {
-            inner: Arc::new(result.chain),
-        })
+        Ok(Self::from_auto_result(result))
     }
 
     /// Instantiate against a concrete schema to produce a ``Lens``.
     fn instantiate(&self, schema: &PySchema, protocol: &PyProtocol) -> PyResult<PyLens> {
-        let lens_obj = self
-            .inner
-            .instantiate(&schema.inner, &protocol.inner)
-            .map_err(|e| crate::error::LensError::new_err(format!("instantiate failed: {e}")))?;
+        let mut lens_obj: Option<Lens> = None;
+        for stage in self.stages.iter() {
+            let running_schema = lens_obj
+                .as_ref()
+                .map_or_else(|| schema.inner.as_ref(), |lens| &lens.tgt_schema);
+            let mut stage_lens = stage
+                .chain
+                .instantiate(running_schema, &protocol.inner)
+                .map_err(|e| {
+                    crate::error::LensError::new_err(format!("instantiate failed: {e}"))
+                })?;
+            extend_field_transforms(
+                &mut stage_lens.compiled.field_transforms,
+                &stage.field_transforms,
+            );
+            lens_obj = Some(match lens_obj {
+                Some(accumulated) => lens::compose(&accumulated, &stage_lens).map_err(|e| {
+                    crate::error::LensError::new_err(format!("instantiate failed: {e}"))
+                })?,
+                None => stage_lens,
+            });
+        }
+        let lens_obj = match lens_obj {
+            Some(lens) => lens,
+            None => lens::ProtolensChain::new(Vec::new())
+                .instantiate(&schema.inner, &protocol.inner)
+                .map_err(|e| {
+                    crate::error::LensError::new_err(format!("instantiate failed: {e}"))
+                })?,
+        };
         Ok(PyLens {
             inner: Arc::new(lens_obj),
         })
@@ -421,39 +502,60 @@ impl PyProtolensChain {
 
     /// Compose with another chain (vertical composition).
     fn compose(&self, other: &Self) -> Self {
-        let mut steps = self.inner.steps.clone();
-        steps.extend(other.inner.steps.clone());
-        Self {
-            inner: Arc::new(lens::ProtolensChain::new(steps)),
-        }
+        let mut stages = self.stages.as_ref().clone();
+        stages.extend(other.stages.iter().cloned());
+        Self::from_stages(stages)
     }
 
-    /// Fuse all steps into a single protolens.
+    /// Fuse the structural steps within each ordered execution stage.
+    ///
+    /// A value-transform boundary remains a separate stage because moving a
+    /// transform across that boundary would change the field-name frame in
+    /// which its expression is evaluated.
     fn fuse(&self) -> PyResult<Self> {
-        let fused = self
-            .inner
-            .fuse()
-            .map_err(|e| crate::error::LensError::new_err(format!("fuse failed: {e}")))?;
-        Ok(Self {
-            inner: Arc::new(lens::ProtolensChain::new(vec![fused])),
-        })
+        let mut stages = Vec::with_capacity(self.stages.len());
+        for stage in self.stages.iter() {
+            let chain = match stage.chain.steps.as_slice() {
+                [] => lens::ProtolensChain::new(Vec::new()),
+                [only] => lens::ProtolensChain::new(vec![only.clone()]),
+                _ => {
+                    let fused = stage.chain.fuse().map_err(|e| {
+                        crate::error::LensError::new_err(format!("fuse failed: {e}"))
+                    })?;
+                    lens::ProtolensChain::new(vec![fused])
+                }
+            };
+            stages.push(panproto_core::lens_dsl::steps::CompiledStage {
+                chain,
+                field_transforms: stage.field_transforms.clone(),
+            });
+        }
+        Ok(Self::from_stages(stages))
     }
 
     /// Serialize to JSON.
     fn to_json(&self) -> PyResult<String> {
-        self.inner
-            .to_json()
-            .map_err(|e| crate::error::LensError::new_err(format!("to_json failed: {e}")))
+        serde_json::to_string_pretty(&SerializedProtolensChain {
+            steps: self.inner.steps.clone(),
+            field_transforms: self.field_transforms.as_ref().clone(),
+            stages: self.stages.as_ref().clone(),
+        })
+        .map_err(|e| crate::error::LensError::new_err(format!("to_json failed: {e}")))
     }
 
     /// Deserialize from JSON.
     #[staticmethod]
     fn from_json(json: &str) -> PyResult<Self> {
-        let chain = lens::ProtolensChain::from_json(json)
+        let serialized: SerializedProtolensChain = serde_json::from_str(json)
             .map_err(|e| crate::error::LensError::new_err(format!("from_json failed: {e}")))?;
-        Ok(Self {
-            inner: Arc::new(chain),
-        })
+        if serialized.stages.is_empty() {
+            Ok(Self::from_parts(
+                lens::ProtolensChain::new(serialized.steps),
+                serialized.field_transforms,
+            ))
+        } else {
+            Ok(Self::from_stages(serialized.stages))
+        }
     }
 
     /// Compile a JSON lens-DSL document into a protolens chain.
@@ -469,9 +571,7 @@ impl PyProtolensChain {
         let doc = panproto_core::lens_dsl::eval::eval_json(source).map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
-        Ok(Self {
-            inner: Arc::new(compiled.chain),
-        })
+        Ok(Self::from_compiled(compiled))
     }
 
     /// Compile a YAML lens-DSL document into a protolens chain.
@@ -482,9 +582,7 @@ impl PyProtolensChain {
         let doc = panproto_core::lens_dsl::eval::eval_yaml(source).map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
-        Ok(Self {
-            inner: Arc::new(compiled.chain),
-        })
+        Ok(Self::from_compiled(compiled))
     }
 
     /// Compile a Nickel lens-DSL document into a protolens chain.
@@ -505,9 +603,7 @@ impl PyProtolensChain {
             .map_err(|e| lens_dsl_err(&e))?;
         let compiled = panproto_core::lens_dsl::compile(&doc, body_vertex, &|_| None)
             .map_err(|e| lens_dsl_err(&e))?;
-        Ok(Self {
-            inner: Arc::new(compiled.chain),
-        })
+        Ok(Self::from_compiled(compiled))
     }
 
     /// Compile a lens-DSL document from a file, dispatching on
@@ -521,9 +617,7 @@ impl PyProtolensChain {
     fn from_dsl_path(path: std::path::PathBuf, body_vertex: &str) -> PyResult<Self> {
         let compiled = panproto_core::lens_dsl::load_and_compile(&path, body_vertex)
             .map_err(|e| lens_dsl_err(&e))?;
-        Ok(Self {
-            inner: Arc::new(compiled.chain),
-        })
+        Ok(Self::from_compiled(compiled))
     }
 
     /// Compile a JSON or YAML lens-DSL document, resolving ``compose``
@@ -576,9 +670,7 @@ impl PyProtolensChain {
 
         let compiled = panproto_core::lens_dsl::compile_with_refs(&doc, body_vertex, &docs_by_id)
             .map_err(|e| lens_dsl_err(&e))?;
-        Ok(Self {
-            inner: Arc::new(compiled.chain),
-        })
+        Ok(Self::from_compiled(compiled))
     }
 
     /// Number of steps in the chain.
@@ -609,61 +701,62 @@ impl PyProtolensChain {
 ///     The new edge label.
 #[pyfunction]
 pub fn rename_field(parent: &str, field: &str, old_name: &str, new_name: &str) -> PyProtolensChain {
-    use panproto_core::gat::Name;
-    PyProtolensChain {
-        inner: Arc::new(lens::combinators::rename_field(
-            Name::from(parent),
-            Name::from(field),
-            Name::from(old_name),
-            Name::from(new_name),
-        )),
-    }
+    PyProtolensChain::from_chain(lens::combinators::rename_field(
+        Name::from(parent),
+        Name::from(field),
+        Name::from(old_name),
+        Name::from(new_name),
+    ))
 }
 
 /// Remove a field (drop sort with edge cascade).
 #[pyfunction]
 pub fn remove_field(field: &str) -> PyProtolensChain {
-    use panproto_core::gat::Name;
-    PyProtolensChain {
-        inner: Arc::new(lens::combinators::remove_field(Name::from(field))),
-    }
+    PyProtolensChain::from_chain(lens::combinators::remove_field(Name::from(field)))
 }
 
 /// Add a field with a default value.
 #[pyfunction]
 pub fn add_field(parent: &str, name: &str, kind: &str) -> PyProtolensChain {
-    use panproto_core::gat::Name;
     use panproto_core::inst::value::Value;
-    PyProtolensChain {
-        inner: Arc::new(lens::combinators::add_field(
-            Name::from(parent),
-            Name::from(name),
-            Name::from(kind),
-            Value::Null,
-        )),
-    }
+    PyProtolensChain::from_chain(lens::combinators::add_field(
+        Name::from(parent),
+        Name::from(name),
+        Name::from(kind),
+        Value::Null,
+    ))
 }
 
 /// Hoist a nested field up one level.
 #[pyfunction]
 pub fn hoist_field(parent: &str, intermediate: &str, child: &str) -> PyProtolensChain {
-    use panproto_core::gat::Name;
-    PyProtolensChain {
-        inner: Arc::new(lens::combinators::hoist_field(
-            Name::from(parent),
-            Name::from(intermediate),
-            Name::from(child),
-        )),
-    }
+    PyProtolensChain::from_chain(lens::combinators::hoist_field(
+        Name::from(parent),
+        Name::from(intermediate),
+        Name::from(child),
+    ))
 }
 
 /// Build a pipeline from multiple protolens chains (vertical composition).
 #[pyfunction]
 #[allow(clippy::needless_pass_by_value)]
 pub fn pipeline(chains: Vec<PyRef<'_, PyProtolensChain>>) -> PyProtolensChain {
-    let all_chains: Vec<lens::ProtolensChain> = chains.iter().map(|c| (*c.inner).clone()).collect();
-    PyProtolensChain {
-        inner: Arc::new(lens::combinators::pipeline(all_chains)),
+    let mut stages = Vec::new();
+    for chain in &chains {
+        stages.extend(chain.stages.iter().cloned());
+    }
+    PyProtolensChain::from_stages(stages)
+}
+
+fn extend_field_transforms(
+    target: &mut HashMap<Name, Vec<FieldTransform>>,
+    source: &HashMap<Name, Vec<FieldTransform>>,
+) {
+    for (anchor, transforms) in source {
+        target
+            .entry(anchor.clone())
+            .or_default()
+            .extend(transforms.iter().cloned());
     }
 }
 
@@ -757,4 +850,69 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
 /// Map a `panproto-lens-dsl` error to a Python exception.
 fn lens_dsl_err(e: &panproto_core::lens_dsl::LensDslError) -> PyErr {
     crate::error::LensError::new_err(format!("lens DSL error: {e}"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const COMPUTE_FIELD_JSON: &str = r#"{
+        "id": "test-compute",
+        "source": "s",
+        "target": "t",
+        "steps": [{
+            "compute_field": {
+                "target": "derived",
+                "expr": "add count 1"
+            }
+        }]
+    }"#;
+
+    #[test]
+    fn dsl_field_transform_survives_json_round_trip() -> PyResult<()> {
+        let chain = PyProtolensChain::from_dsl_json(COMPUTE_FIELD_JSON, "r:body")?;
+        assert!(has_derived_compute(&chain));
+
+        let json = chain.to_json()?;
+        let serialized: serde_json::Value = serde_json::from_str(&json)
+            .map_err(|e| crate::error::LensError::new_err(e.to_string()))?;
+        assert!(serialized.get("field_transforms").is_some());
+
+        let structural = lens::ProtolensChain::from_json(&json)
+            .map_err(|e| crate::error::LensError::new_err(e.to_string()))?;
+        assert_eq!(structural.steps.len(), chain.inner.steps.len());
+
+        let restored = PyProtolensChain::from_json(&json)?;
+        assert!(has_derived_compute(&restored));
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_chain_json_remains_compatible() -> PyResult<()> {
+        let json = lens::ProtolensChain::new(Vec::new())
+            .to_json()
+            .map_err(|e| crate::error::LensError::new_err(e.to_string()))?;
+        let restored = PyProtolensChain::from_json(&json)?;
+        assert!(restored.field_transforms.is_empty());
+
+        let reserialized: serde_json::Value = serde_json::from_str(&restored.to_json()?)
+            .map_err(|e| crate::error::LensError::new_err(e.to_string()))?;
+        assert!(reserialized.get("field_transforms").is_none());
+        Ok(())
+    }
+
+    fn has_derived_compute(chain: &PyProtolensChain) -> bool {
+        chain
+            .field_transforms
+            .get(&Name::from("r:body"))
+            .is_some_and(|transforms| {
+                transforms.iter().any(|transform| {
+                    matches!(
+                        transform,
+                        FieldTransform::ComputeField { target_key, .. }
+                            if target_key == "derived"
+                    )
+                })
+            })
+    }
 }

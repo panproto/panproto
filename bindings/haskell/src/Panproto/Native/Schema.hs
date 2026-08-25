@@ -10,7 +10,7 @@
 --
 -- This backend does not implement 'SchemaValidate'. Validation
 -- requires walking the structured @panproto_schema::Schema@
--- representation, which lives only on the Rust side at @0.41.0@.
+-- representation, which lives only on the Rust side.
 -- Callers needing validation should use the 'Rust' backend.
 module Panproto.Native.Schema () where
 

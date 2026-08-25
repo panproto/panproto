@@ -955,7 +955,7 @@ pub(super) fn classify_complement(
     }
 }
 
-// ── Expression parser and query engine (70-72) ─────────────────────
+// ── Expression parser and query engine (70-73) ─────────────────────
 
 /// Parse source text into a panproto expression.
 ///
@@ -1036,10 +1036,11 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
 
 /// Decode the schema argument for [`execute_query`].
 ///
-/// Queries are schema-typed: a match's anchor must exist in the schema.
-/// An empty `schema_bytes` is therefore rejected rather than fabricated
-/// into a placeholder schema, so a caller cannot silently query against
-/// a schema it never supplied.
+/// The query engine accepts a schema for forward compatibility with
+/// schema-aware query operations. It does not currently reject an anchor that
+/// is absent from that schema. Empty bytes are rejected because this ABI
+/// requires callers to supply the schema argument rather than silently
+/// substituting a placeholder.
 ///
 /// # Errors
 ///
@@ -1048,8 +1049,8 @@ pub fn eval_func_expr(expr_bytes: &[u8], env_bytes: &[u8]) -> Result<Vec<u8>, Js
 fn decode_query_schema(schema_bytes: &[u8]) -> Result<Schema, WasmError> {
     if schema_bytes.is_empty() {
         return Err(WasmError::DeserializationFailed {
-            reason: "schema: query execution requires a schema, but schema_bytes was empty; \
-                     queries are schema-typed, so a match anchor must exist in the schema"
+            reason: "schema: execute_query requires a MessagePack-encoded schema argument; \
+                     schema_bytes was empty"
                 .to_owned(),
         });
     }
@@ -1058,29 +1059,12 @@ fn decode_query_schema(schema_bytes: &[u8]) -> Result<Schema, WasmError> {
     })
 }
 
-/// Execute a declarative query against a W-type instance.
-///
-/// The `query_bytes` are `MessagePack`-encoded [`inst::InstanceQuery`].
-/// The `instance_bytes` are `MessagePack`-encoded [`WInstance`].
-/// The `schema_bytes` are `MessagePack`-encoded [`Schema`] and must be
-/// non-empty. Queries are schema-typed: a match's anchor must exist in
-/// the schema, so a query cannot be interpreted without one. Empty
-/// `schema_bytes` are therefore rejected with a deserialization error
-/// rather than run against a fabricated placeholder that could return
-/// misleading matches.
-/// Returns `MessagePack`-encoded query results as a list of match objects,
-/// each containing `node_id`, `anchor`, `value`, and `fields`.
-///
-/// # Errors
-///
-/// Returns `JsError` if `query_bytes`, `instance_bytes`, or
-/// `schema_bytes` fail to deserialize, or if `schema_bytes` is empty.
-#[wasm_bindgen]
-pub fn execute_query(
+/// Execute a decoded query against a decoded instance and schema.
+fn execute_query_against_schema(
     query_bytes: &[u8],
     instance_bytes: &[u8],
-    schema_bytes: &[u8],
-) -> Result<Vec<u8>, JsError> {
+    schema: &Schema,
+) -> Result<Vec<u8>, WasmError> {
     let query: inst::InstanceQuery =
         rmp_serde::from_slice(query_bytes).map_err(|e| WasmError::DeserializationFailed {
             reason: format!("query: {e}"),
@@ -1091,9 +1075,7 @@ pub fn execute_query(
             reason: format!("instance: {e}"),
         })?;
 
-    let schema: Schema = decode_query_schema(schema_bytes)?;
-
-    let matches = inst::execute_query(&query, &instance, &schema);
+    let matches = inst::execute_query(&query, &instance, schema);
 
     // Convert QueryMatch results to a serializable form.
     let results: Vec<serde_json::Value> = matches
@@ -1116,11 +1098,55 @@ pub fn execute_query(
         })
         .collect();
 
-    rmp_serde::to_vec_named(&results).map_err(|e| -> JsError {
-        WasmError::SerializationFailed {
-            reason: e.to_string(),
-        }
-        .into()
+    rmp_serde::to_vec_named(&results).map_err(|e| WasmError::SerializationFailed {
+        reason: e.to_string(),
+    })
+}
+
+/// Execute a declarative query against a W-type instance using schema bytes.
+///
+/// The `query_bytes` are `MessagePack`-encoded [`inst::InstanceQuery`].
+/// The `instance_bytes` are `MessagePack`-encoded [`WInstance`].
+/// The `schema_bytes` are `MessagePack`-encoded [`Schema`] and must be
+/// non-empty. This is the published raw-byte ABI; handle-based SDK callers
+/// should use [`execute_query_with_schema_handle`].
+/// Returns `MessagePack`-encoded query results as a list of match objects,
+/// each containing `node_id`, `anchor`, `value`, and `fields`.
+///
+/// # Errors
+///
+/// Returns `JsError` if `query_bytes`, `instance_bytes`, or `schema_bytes`
+/// fail to deserialize, or if `schema_bytes` is empty.
+#[wasm_bindgen]
+pub fn execute_query(
+    query_bytes: &[u8],
+    instance_bytes: &[u8],
+    schema_bytes: &[u8],
+) -> Result<Vec<u8>, JsError> {
+    let schema = decode_query_schema(schema_bytes)?;
+    execute_query_against_schema(query_bytes, instance_bytes, &schema).map_err(Into::into)
+}
+
+/// Execute a declarative query using a schema resource handle.
+///
+/// This companion to [`execute_query`] avoids serializing a schema that is
+/// already resident in the WASM resource slab. It is intended for SDK wrappers
+/// that own schema handles; the raw byte-oriented export remains available for
+/// direct consumers.
+///
+/// # Errors
+///
+/// Returns `JsError` if the query or instance fails to deserialize, or if
+/// `schema_handle` is invalid or does not identify a schema resource.
+#[wasm_bindgen]
+pub fn execute_query_with_schema_handle(
+    query_bytes: &[u8],
+    instance_bytes: &[u8],
+    schema_handle: u32,
+) -> Result<Vec<u8>, JsError> {
+    slab::with_resource(schema_handle, |resource| {
+        let schema = slab::as_schema(resource)?;
+        execute_query_against_schema(query_bytes, instance_bytes, schema)
     })
 }
 
@@ -1135,14 +1161,17 @@ mod smoke_tests {
         assert!(!bytes.is_empty(), "parsed expression must encode to bytes");
     }
 
-    fn single_node_schema_bytes() -> Vec<u8> {
+    fn single_node_schema() -> Schema {
         use panproto_core::schema::{Protocol, SchemaBuilder};
-        let schema = SchemaBuilder::new(&Protocol::default())
+        SchemaBuilder::new(&Protocol::default())
             .vertex("document", "record", None)
             .unwrap()
             .build()
-            .unwrap();
-        rmp_serde::to_vec_named(&schema).unwrap()
+            .unwrap()
+    }
+
+    fn single_node_schema_bytes() -> Vec<u8> {
+        rmp_serde::to_vec_named(&single_node_schema()).unwrap()
     }
 
     fn single_node_instance_bytes() -> Vec<u8> {
@@ -1163,36 +1192,44 @@ mod smoke_tests {
         rmp_serde::to_vec_named(&query).unwrap()
     }
 
+    fn assert_single_query_match(bytes: &[u8]) {
+        let matches: Vec<serde_json::Value> =
+            rmp_serde::from_slice(bytes).expect("results decode as a match list");
+        assert_eq!(matches.len(), 1, "the document node must match the anchor");
+    }
+
     #[test]
     fn execute_query_rejects_empty_schema() {
-        // The empty-schema contract: rather than fabricate a
-        // placeholder, execute_query rejects an empty schema so a
-        // caller cannot silently query against a schema it never
-        // supplied. The check lives in decode_query_schema, tested
-        // directly here because constructing the JsError that
-        // execute_query would return is a no-op only on the wasm
-        // target.
         let err = decode_query_schema(&[]).expect_err("empty schema_bytes must be rejected");
         assert!(
             matches!(err, WasmError::DeserializationFailed { .. }),
             "empty schema_bytes must fail as a deserialization error, got {err:?}"
         );
-        // The same decoder accepts real schema bytes.
         decode_query_schema(&single_node_schema_bytes()).expect("valid schema bytes must decode");
     }
 
     #[test]
-    fn execute_query_runs_with_real_schema() {
-        let result = execute_query(
+    fn execute_query_runs_with_schema_bytes() {
+        let bytes = execute_query(
             &anchor_query_bytes(),
             &single_node_instance_bytes(),
             &single_node_schema_bytes(),
+        )
+        .expect("query with schema bytes must succeed");
+        assert_single_query_match(&bytes);
+    }
+
+    #[test]
+    fn execute_query_runs_with_schema_handle() {
+        let schema_handle =
+            slab::alloc(Resource::Schema(std::sync::Arc::new(single_node_schema())));
+        let result = execute_query_with_schema_handle(
+            &anchor_query_bytes(),
+            &single_node_instance_bytes(),
+            schema_handle,
         );
-        let bytes = result.expect("query with a real schema must succeed");
-        // The result is a MessagePack-encoded match list; the single
-        // "document" node matches the anchor query.
-        let matches: Vec<serde_json::Value> =
-            rmp_serde::from_slice(&bytes).expect("results decode as a match list");
-        assert_eq!(matches.len(), 1, "the document node must match the anchor");
+        slab::free(schema_handle);
+        let bytes = result.expect("query with a schema handle must succeed");
+        assert_single_query_match(&bytes);
     }
 }

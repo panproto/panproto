@@ -17,6 +17,9 @@ use super::helpers::{
 use super::load;
 use crate::format;
 
+const WTYPE_RESTRICT_ERROR: &str = "filtered source-to-target W-type lift failed";
+const FUNCTOR_RESTRICT_ERROR: &str = "filtered source-to-target functor lift failed";
+
 pub fn cmd_validate(protocol_name: &str, schema_path: &Path, verbose: bool) -> Result<()> {
     let schema: Schema = load_json(schema_path)?;
     let protocol = resolve_protocol(protocol_name)?;
@@ -216,13 +219,13 @@ pub fn cmd_lift(
     let lifted = match direction {
         "restrict" => mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance)
             .into_diagnostic()
-            .wrap_err("lift (restrict / `Delta_F`) operation failed")?,
+            .wrap_err(WTYPE_RESTRICT_ERROR)?,
         "sigma" => mig::lift_wtype_sigma(&compiled, &tgt_schema, &instance)
             .into_diagnostic()
-            .wrap_err("lift (`Sigma_F`) operation failed")?,
+            .wrap_err("source-to-target W-type `Sigma_F` lift failed")?,
         "pi" => mig::lift_wtype_pi(&compiled, &tgt_schema, &instance, 10_000)
             .into_diagnostic()
-            .wrap_err("lift (`Pi_F`) operation failed")?,
+            .wrap_err("source-to-target W-type `pi` relabeling failed")?,
         other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
     };
 
@@ -247,13 +250,13 @@ pub fn cmd_lift_functor(
     let lifted = match direction {
         "restrict" => mig::lift_functor(compiled, &instance)
             .into_diagnostic()
-            .wrap_err("lift functor (restrict to the surviving fragment) operation failed")?,
+            .wrap_err(FUNCTOR_RESTRICT_ERROR)?,
         "sigma" => inst::functor_extend(&instance, compiled)
             .into_diagnostic()
-            .wrap_err("lift functor (`Sigma_F`) operation failed")?,
+            .wrap_err("source-to-target functor `Sigma_F` lift failed")?,
         "pi" => mig::lift_functor_pi(compiled, &instance, 10_000)
             .into_diagnostic()
-            .wrap_err("lift functor (`Pi_F`) operation failed")?,
+            .wrap_err("source-to-target functor `Pi_F` lift failed")?,
         other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
     };
 
@@ -1525,7 +1528,23 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::report_theory_typecheck;
+    use super::{FUNCTOR_RESTRICT_ERROR, WTYPE_RESTRICT_ERROR, report_theory_typecheck};
+
+    #[test]
+    fn restrict_lift_errors_name_filtered_forward_transport() {
+        assert_eq!(
+            WTYPE_RESTRICT_ERROR, "filtered source-to-target W-type lift failed",
+            "the W-type restrict error must state the implemented direction",
+        );
+        assert_eq!(
+            FUNCTOR_RESTRICT_ERROR, "filtered source-to-target functor lift failed",
+            "the functor restrict error must state the implemented direction",
+        );
+        assert!(
+            !WTYPE_RESTRICT_ERROR.contains("Delta") && !FUNCTOR_RESTRICT_ERROR.contains("Delta"),
+            "restrict errors must not use categorical Delta terminology",
+        );
+    }
 
     #[test]
     fn theory_typecheck_ok_when_no_errors() {

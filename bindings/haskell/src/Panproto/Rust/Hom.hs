@@ -44,18 +44,12 @@
 --   a /dual out/: a CBOR 'SchemaMorphism' written to a 'VecU8' buffer
 --   /and/ a fresh @MigrationWithSchemas@ slab handle written to a
 --   @Ptr Word32@. The buffer and the handle out-params are marshalled
---   together by 'withVecAndHandleOut'. The @CompiledRep Rust@ that this
---   method must return is then materialized from the public
---   'MigrationBackend' surface: the induced 'SchemaMorphism' is lowered
---   to a 'Migration' (carrying the same vertex and edge maps the cascade
---   computed) and 'compile'd against the same source and target schemas,
---   producing an equivalent applyable @CompiledMigration@. The engine's
---   transient dual-out handle is released, since the data-family
---   constructor for @CompiledRep Rust@ is private to
---   "Panproto.Rust.Migration".
+--   together by 'withVecAndHandleOut'. The returned engine handle already
+--   owns the compiled migration and its anchoring schemas, so
+--   'adoptCompiled' wraps that exact handle as @CompiledRep Rust@.
 module Panproto.Rust.Hom () where
 
-import Control.Exception (throwIO)
+import Control.Exception (mask, onException, throwIO)
 import Data.ByteString.Lazy qualified as LBS
 import Data.HashMap.Strict (HashMap)
 import Data.HashMap.Strict qualified as HM
@@ -77,7 +71,6 @@ import Panproto.Gat (encodeMorphism)
 import Panproto.Hom
     ( FoundMorphism (..)
     , HomBackend (..)
-    , SchemaMorphism (..)
     , decodeFoundSpan
     , decodeSchemaMorphism
     , decodeSchemaOverlap
@@ -85,7 +78,6 @@ import Panproto.Hom
     , encodeFoundSpan
     , encodeSearchOptions
     )
-import Panproto.Migration (Migration (..), MigrationBackend (..), emptyMigration)
 import Panproto.Rust (protocolRepHandle, schemaRepHandle)
 import Panproto.Rust.FFI
     ( VecU8
@@ -104,7 +96,7 @@ import Panproto.Rust.Handle
     , withSliceIn
     , withVecU8Out
     )
-import Panproto.Rust.Migration ()
+import Panproto.Rust.Migration (RustCompiled (..), adoptCompiled)
 import Panproto.Schema (Edge (..))
 
 import Codec.CBOR.Decoding (Decoder)
@@ -161,7 +153,7 @@ instance HomBackend Rust where
             Right m -> pure m
             Left err -> throwIO (hostDecodeError "pp_hom_induce_schema_morphism" err)
 
-    induceMigrationFromTheory theoryMorph src tgt = do
+    induceMigrationFromTheory theoryMorph src tgt = mask $ \restore -> do
         let sh = schemaRepHandle src
             th = schemaRepHandle tgt
         -- The dual-out FFI writes the CBOR schema morphism to the buffer
@@ -169,29 +161,20 @@ instance HomBackend Rust where
         (bs, engineHandle) <-
             withSliceIn (encodeMorphism theoryMorph) $ \ptr len ->
                 withVecAndHandleOut (pp_hom_induce_migration_from_theory_at ptr len sh th)
-        schemaMorph <- case decodeSchemaMorphism bs of
-            Right m -> pure m
-            Left err -> throwIO (hostDecodeError "pp_hom_induce_migration_from_theory" err)
-        -- The engine's transient dual-out handle cannot be wrapped as a
-        -- @CompiledRep Rust@ from here (its data-family constructor is
-        -- private to "Panproto.Rust.Migration"), so release it and
-        -- rebuild an equivalent compiled migration through the public
-        -- 'compile' surface from the induced schema morphism.
-        --
-        -- The cascade preserves vertex IDs (the induced morphism's
-        -- vertex map is the identity on the source vertices, with only
-        -- vertex /kinds/ and edge /kinds/ renamed), so the lowered
-        -- migration's vertex-map targets live in the source vertex
-        -- namespace. It is therefore compiled against @src@ as both
-        -- endpoints: @mig::compile@ validates that every vertex-map
-        -- target exists in the target schema, which holds for @src@ but
-        -- not for an unrelated @tgt@. The compiled @Delta_F@ pullback
-        -- this produces remaps the renamed edge kinds over the
-        -- ID-stable vertex set, matching the cascade's own
-        -- @induce_data_migration@ behavior.
-        pp_handle_free engineHandle >>= checkStatus
-        compiled <- compile (schemaMorphismToMigration schemaMorph) src src
-        pure (schemaMorph, compiled)
+        let releaseEngineHandle = pp_handle_free engineHandle >>= checkStatus
+        schemaMorph <-
+            restore
+                ( case decodeSchemaMorphism bs of
+                    Right m -> pure m
+                    Left err ->
+                        throwIO (hostDecodeError "pp_hom_induce_migration_from_theory" err)
+                )
+                `onException` releaseEngineHandle
+        -- Adopt the dual-out handle directly. Recompiling the decoded
+        -- schema morphism against @src@ as both endpoints loses the real
+        -- target schema and fails as soon as the theory morphism renames
+        -- an edge kind that exists only in @tgt@.
+        pure (schemaMorph, adoptCompiled (RustCompiled engineHandle))
 
 -- ---------------------------------------------------------------------------
 -- Dual-out marshalling
@@ -461,24 +444,4 @@ hostDecodeError site reason =
                             <> ": "
                             <> T.pack reason
                     }
-        }
-
--- ---------------------------------------------------------------------------
--- Migration lowering
-
--- | Lower a 'SchemaMorphism' to a 'Migration' for compilation, mirroring
--- @panproto_mig::hom_search::morphism_to_migration@: carry the vertex
--- and edge maps straight across and leave every resolver table empty (a
--- cascade-induced morphism is total on the source schema, so no
--- contraction resolution is needed).
-schemaMorphismToMigration :: SchemaMorphism -> Migration
-schemaMorphismToMigration m =
-    Migration
-        { vertexMap = m.vertexMap
-        , edgeMap = m.edgeMap
-        , hyperEdgeMap = emptyMigration.hyperEdgeMap
-        , labelMap = emptyMigration.labelMap
-        , resolver = emptyMigration.resolver
-        , hyperResolver = emptyMigration.hyperResolver
-        , exprResolvers = emptyMigration.exprResolvers
         }

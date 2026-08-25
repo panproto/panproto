@@ -10,7 +10,7 @@
 //!
 //! 1. Surface syntax (Nickel/JSON/YAML) is evaluated to a normalized record
 //! 2. The record is deserialized into a [`LensDocument`]
-//! 3. The document is compiled to a `ProtolensChain` + `FieldTransform`s
+//! 3. The document is compiled to ordered structural and value-level stages
 //!
 //! ## Example
 //!
@@ -18,8 +18,8 @@
 //! use panproto_lens_dsl::load_and_compile;
 //!
 //! let compiled = load_and_compile(std::path::Path::new("my_lens.ncl"), "record:body").unwrap();
-//! // compiled.chain is a ProtolensChain ready for instantiation
-//! // compiled.field_transforms are value-level transforms
+//! // compiled.instantiate(schema, protocol) applies the ordered stages;
+//! // chain and field_transforms are flat compatibility summaries.
 //! // Named `compose` references resolve against sibling files in the same directory.
 //! ```
 

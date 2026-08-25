@@ -46,6 +46,7 @@
 -- (@pp_handle_free@) or the 'withCompiled' bracket.
 module Panproto.Rust.Migration
     ( RustCompiled (..)
+    , adoptCompiled
     , rustCompiled
     , releaseCompiled
     , withCompiled
@@ -196,6 +197,13 @@ instance MigrationBackend Rust where
 
 -- ---------------------------------------------------------------------------
 -- Handle lifecycle
+
+-- | Adopt a slab handle returned by an FFI operation as a compiled
+-- migration representation. The returned value owns the handle and must
+-- eventually be passed to 'releaseCompiled' (usually through
+-- 'withCompiled').
+adoptCompiled :: RustCompiled -> CompiledRep Rust
+adoptCompiled = RustCompiledRep
 
 -- | Project the 'RustCompiled' slab handle out of a @'CompiledRep'
 -- 'Rust'@ (the value 'compile' and 'composeMigrations' return). The

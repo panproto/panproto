@@ -49,6 +49,7 @@ use panproto_core::gat::{Model, Theory};
 use panproto_core::inst::CompiledMigration;
 use panproto_core::io::ProtocolRegistry;
 use panproto_core::lens::{ProtolensChain, SymmetricLens};
+use panproto_core::lens_dsl::CompiledLens;
 use panproto_core::schema::{Protocol, Schema};
 use panproto_core::vcs::{DataSetObject, Repository};
 
@@ -99,6 +100,12 @@ pub enum Resource {
     VcsRepo(Box<Repository>),
     /// A protolens chain (reusable, schema-independent).
     ProtolensChain(Box<ProtolensChain>),
+    /// A compiled lens document with authoritative ordered stages.
+    ///
+    /// Chain-shaped C functions continue to expose its structural summary,
+    /// while instantiation uses the complete document so value transforms
+    /// retain their position relative to structural steps.
+    CompiledLensDoc(Box<CompiledLens>),
     /// A symmetric lens.
     SymmetricLensHandle(Box<SymmetricLens>),
     /// A data set (instances bound to a schema).
@@ -269,11 +276,13 @@ impl Resource {
     ///
     /// # Errors
     ///
-    /// Returns [`FfiError::TypeMismatch`] when the variant is not
-    /// [`Resource::ProtolensChain`].
+    /// A [`Resource::CompiledLensDoc`] supplies its compatibility chain, so
+    /// existing chain-oriented ABI functions accept handles returned by the
+    /// lens-document compiler.
     pub fn as_protolens_chain(&self) -> Result<&ProtolensChain, FfiError> {
         match self {
             Self::ProtolensChain(c) => Ok(c),
+            Self::CompiledLensDoc(compiled) => Ok(&compiled.chain),
             _ => Err(FfiError::TypeMismatch {
                 expected: "ProtolensChain",
                 actual: self.type_name(),
@@ -379,6 +388,7 @@ impl Resource {
             Self::Model(_) => "Model",
             Self::VcsRepo(_) => "VcsRepo",
             Self::ProtolensChain(_) => "ProtolensChain",
+            Self::CompiledLensDoc(_) => "CompiledLensDoc",
             Self::SymmetricLensHandle(_) => "SymmetricLens",
             Self::DataSet(_) => "DataSet",
             #[cfg(feature = "full-parse")]

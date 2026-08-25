@@ -166,7 +166,7 @@ impl PyCompiledMigration {
 
 #[pymethods]
 impl PyCompiledMigration {
-    /// Lift a W-type instance through this migration (left Kan extension).
+    /// Project the surviving source fragment into the target schema.
     fn lift(&self, instance: &PyInstance) -> PyResult<PyInstance> {
         let lifted = mig::lift_wtype(
             &self.compiled,

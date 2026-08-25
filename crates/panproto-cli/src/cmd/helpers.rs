@@ -139,25 +139,19 @@ pub fn auto_lens_result_to_json(result: &lens::AutoLensResult) -> serde_json::Va
     })
 }
 
-/// Build a serializable chain representation for `--chain` output.
-pub fn chain_to_json(chain: &lens::ProtolensChain) -> serde_json::Value {
-    let steps: Vec<serde_json::Value> = chain
-        .steps
-        .iter()
-        .enumerate()
-        .map(|(i, step)| {
-            serde_json::json!({
-                "step": i + 1,
-                "name": step.name.as_str(),
-                "lossless": step.is_lossless(),
-            })
-        })
-        .collect();
-    serde_json::json!({
-        "type": "protolens_chain",
-        "steps": steps,
-        "step_count": chain.steps.len(),
-    })
+/// Build a round-trippable chain representation for `--chain` output.
+pub fn chain_to_json(
+    chain: &lens::ProtolensChain,
+) -> std::result::Result<serde_json::Value, serde_json::Error> {
+    let mut value = serde_json::to_value(chain)?;
+    if let serde_json::Value::Object(object) = &mut value {
+        object.insert(
+            "type".to_owned(),
+            serde_json::Value::String("protolens_chain".to_owned()),
+        );
+        object.insert("step_count".to_owned(), chain.steps.len().into());
+    }
+    Ok(value)
 }
 
 pub fn format_timestamp(ts: u64) -> String {
@@ -549,5 +543,25 @@ pub fn print_complement_requirements(
         for cap in &spec.captured_data {
             println!("  - {} (captured in complement)", cap.element_name);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::chain_to_json;
+    use panproto_core::lens::{ProtolensChain, elementary};
+
+    #[test]
+    fn chain_json_retains_executable_steps() -> Result<(), serde_json::Error> {
+        let chain = ProtolensChain::new(vec![elementary::rename_sort("old", "new")]);
+        let value = chain_to_json(&chain)?;
+        let decoded: ProtolensChain = serde_json::from_value(value)?;
+
+        assert_eq!(decoded.steps.len(), 1);
+        assert_eq!(decoded.steps[0].name, chain.steps[0].name);
+        assert_eq!(decoded.steps[0].source, chain.steps[0].source);
+        assert_eq!(decoded.steps[0].target, chain.steps[0].target);
+
+        Ok(())
     }
 }

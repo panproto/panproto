@@ -29,34 +29,31 @@ use crate::protolens::{Protolens, ProtolensChain, elementary};
 /// Stringency tier controlling which alignment strategies run and how
 /// permissively the CSP solver searches.
 ///
-/// Higher tiers form a superset of lower-tier behaviors; nothing
-/// available at `Strict` is suppressed at `Exploratory`. Each tier
-/// preserves categorical soundness: the CSP still validates naturality
-/// for every emitted morphism.
+/// These are strategy presets, not a claim that the final candidate pool is
+/// literally nested across tiers. Threshold changes add possible evidence,
+/// while neighborhood propagation and WL refinement depend on the evidence
+/// available at their tier. The schema-morphism search still checks the
+/// structural constraints of every returned result.
 ///
-/// * **`Strict`** — only kind-exact name equality is consulted; the
-///   solver enforces hard edge-name overlap pruning. Returns either a
-///   total theory morphism or no result.
-/// * **`Balanced`** — runs the alias dictionary and a tight
-///   token-similarity threshold on top of `Strict`'s priors; relaxes
-///   the edge-name pruning to a soft preference.
-/// * **`Lenient`** — opens the search to spans `A ←f− C −g→ B` over a
-///   maximal common subtheory `C`, loosens the token-similarity
-///   threshold, and engages structural matching.
-/// * **`Exploratory`** — additionally admits lossy retraction witnesses
-///   for sort coercion and language-model-proposed alignments
-///   (feature-gated). Candidates are still validated.
+/// * **`Strict`** — exact identifiers, exact terminal suffixes, and matching
+///   edge labels; returns only a total morphism.
+/// * **`Balanced`** — adds aliases, token similarity, and description
+///   similarity; returns only a total morphism.
+/// * **`Lenient`** — adds wrap/unwrap, type-signature, WL-refinement, and
+///   neighborhood evidence; permits spans.
+/// * **`Exploratory`** — adds structural and registered coercion-witness
+///   proposals; permits spans.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Stringency {
-    /// Hard kind-exact, edge-name-pruned CSP search; total morphism only.
+    /// Exact, exact-suffix, and edge-label evidence; total morphism only.
     Strict,
-    /// Adds alias dictionary and tight token-similarity priors.
+    /// Adds alias, token-similarity, and description-similarity evidence.
     #[default]
     Balanced,
-    /// Adds span-search over maximal common subtheories and structural priors.
+    /// Adds wrap/unwrap, type-signature, WL, and neighborhood evidence; permits spans.
     Lenient,
-    /// Adds lossy retraction witnesses and LM-proposed alignments.
+    /// Adds structural and coercion-witness proposals; permits spans.
     Exploratory,
 }
 
@@ -267,7 +264,11 @@ pub struct AutoLensResult {
 /// Configuration for automatic lens generation.
 #[derive(Debug, Clone)]
 pub struct AutoLensConfig {
-    /// User-provided default values for new sorts.
+    /// User-provided values for newly added target fields.
+    ///
+    /// A key resolves first as a target vertex id, then as a unique incoming
+    /// edge label, and finally as a vertex kind. Generation fails rather than
+    /// silently ignoring a default that cannot be placed on the target schema.
     pub defaults: HashMap<Name, Value>,
     /// Search options for morphism discovery.
     pub search_opts: SearchOptions,
@@ -1048,11 +1049,17 @@ fn run_search(
 
     let quality = alignment.quality;
     let mapped_vertices = alignment.vertex_map.len();
-    let chain =
-        protolens_from_alignment_mode(&alignment, src, tgt, config.stringency.allow_spans())?;
+    let chain = protolens_from_alignment_mode_with_defaults(
+        &alignment,
+        src,
+        tgt,
+        config.stringency.allow_spans(),
+        &config.defaults,
+    )?;
     let mut lens = chain.instantiate(src, protocol)?;
     let field_transforms = derive_field_transforms(&chain, src, tgt);
     lens.compiled.field_transforms = field_transforms;
+    crate::default_synthesis::attach_defaults(&mut lens, tgt, &config.defaults, true)?;
 
     Ok(SearchResult {
         chain,
@@ -1226,6 +1233,18 @@ pub fn protolens_from_alignment_mode(
     tgt: &Schema,
     emit_spans: bool,
 ) -> Result<ProtolensChain, LensError> {
+    protolens_from_alignment_mode_with_defaults(alignment, src, tgt, emit_spans, &HashMap::new())
+}
+
+/// Internal alignment-to-chain path that attaches caller defaults to
+/// factorized `AddSort` steps.
+fn protolens_from_alignment_mode_with_defaults(
+    alignment: &FoundMorphism,
+    src: &Schema,
+    tgt: &Schema,
+    emit_spans: bool,
+    defaults: &HashMap<Name, Value>,
+) -> Result<ProtolensChain, LensError> {
     let src_theory = schema_to_implicit_theory(src);
     let tgt_theory = schema_to_implicit_theory(tgt);
     let morphism = alignment_to_theory_morphism_mode(alignment, src, tgt, emit_spans);
@@ -1235,7 +1254,7 @@ pub fn protolens_from_alignment_mode(
 
     let mut steps = Vec::new();
     for endofunctor in &factorization.steps {
-        let protolens = endofunctor_to_protolens(endofunctor)?;
+        let protolens = endofunctor_to_protolens_with_defaults(endofunctor, defaults)?;
         steps.push(protolens);
     }
 
@@ -1412,6 +1431,7 @@ pub fn auto_generate_candidates(
         &search_opts,
         None,
         &seed_anchors,
+        &config.defaults,
         n,
         config.stringency.allow_spans(),
     );
@@ -1423,6 +1443,7 @@ pub fn auto_generate_candidates(
             &soft_opts,
             None,
             &seed_anchors,
+            &config.defaults,
             n,
             config.stringency.allow_spans(),
         )
@@ -1492,6 +1513,7 @@ pub fn auto_generate_candidates_with_hints(
         &search_opts,
         Some(&merged_domain),
         &combined,
+        &config.defaults,
         n,
         config.stringency.allow_spans(),
     );
@@ -1503,6 +1525,7 @@ pub fn auto_generate_candidates_with_hints(
             &soft_opts,
             Some(&merged_domain),
             &combined,
+            &config.defaults,
             n,
             config.stringency.allow_spans(),
         )
@@ -1610,6 +1633,7 @@ fn candidates_from_search(
     search_opts: &SearchOptions,
     domain_constraints: Option<&DomainConstraints>,
     seed_anchors: &[Anchor],
+    defaults: &HashMap<Name, Value>,
     n: usize,
     emit_spans: bool,
 ) -> Result<Vec<crate::candidate::LensCandidate>, LensError> {
@@ -1641,7 +1665,15 @@ fn candidates_from_search(
     // structural bugs invisible.
     let mut last_failure: Option<LensError> = None;
     for morphism in morphisms {
-        match candidate_from_morphism(src, tgt, protocol, &morphism, seed_anchors, emit_spans) {
+        match candidate_from_morphism(
+            src,
+            tgt,
+            protocol,
+            &morphism,
+            seed_anchors,
+            defaults,
+            emit_spans,
+        ) {
             Ok(cand) => candidates.push(cand),
             Err(e) => {
                 last_failure = Some(e);
@@ -1694,11 +1726,14 @@ fn candidate_from_morphism(
     protocol: &Protocol,
     morphism: &FoundMorphism,
     seed_anchors: &[Anchor],
+    defaults: &HashMap<Name, Value>,
     emit_spans: bool,
 ) -> Result<crate::candidate::LensCandidate, LensError> {
-    let chain = protolens_from_alignment_mode(morphism, src, tgt, emit_spans)?;
+    let chain =
+        protolens_from_alignment_mode_with_defaults(morphism, src, tgt, emit_spans, defaults)?;
     let mut lens = chain.instantiate(src, protocol)?;
     lens.compiled.field_transforms = derive_field_transforms(&chain, src, tgt);
+    crate::default_synthesis::attach_defaults(&mut lens, tgt, defaults, true)?;
 
     let coverage = crate::candidate::coverage_ratio(
         src,
@@ -1819,17 +1854,18 @@ fn alignment_to_theory_morphism_mode(
 /// Each elementary endofunctor maps directly to one of the elementary
 /// protolens constructors. `Identity` and `Compose` transforms are
 /// rejected since they should not appear in a factorized sequence.
+#[cfg(test)]
 fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens, LensError> {
+    endofunctor_to_protolens_with_defaults(endofunctor, &HashMap::new())
+}
+
+fn endofunctor_to_protolens_with_defaults(
+    endofunctor: &TheoryEndofunctor,
+    defaults: &HashMap<Name, Value>,
+) -> Result<Protolens, LensError> {
     match &endofunctor.transform {
         TheoryTransform::AddSort { sort, vertex_kind } => {
-            let vk = vertex_kind
-                .as_ref()
-                .map_or_else(|| sort.default_vertex_kind(), Arc::clone);
-            Ok(elementary::add_sort(
-                Name::from(&*sort.name),
-                Name::from(&*vk),
-                Value::Null,
-            ))
+            Ok(add_sort_protolens(sort, vertex_kind.as_ref(), defaults))
         }
         TheoryTransform::AddSortWithDefault {
             sort,
@@ -1911,6 +1947,11 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
         TheoryTransform::RenameEdgeName { .. } => Err(LensError::ProtolensError(
             "unexpected RenameEdgeName in factorization (user-constructed only)".into(),
         )),
+        TheoryTransform::AddSchemaVertex { .. }
+        | TheoryTransform::DropSchemaVertex { .. }
+        | TheoryTransform::ChangeSchemaVertexKind { .. } => Err(LensError::ProtolensError(
+            "unexpected schema-vertex transform in factorization (user-constructed only)".into(),
+        )),
         TheoryTransform::AddEdge { .. } => Err(LensError::ProtolensError(
             "unexpected AddEdge in factorization (user-constructed only)".into(),
         )),
@@ -1928,6 +1969,20 @@ fn endofunctor_to_protolens(endofunctor: &TheoryEndofunctor) -> Result<Protolens
                 "unexpected enrichment transform in factorization (user-constructed only)".into(),
             ))
         }
+    }
+}
+
+fn add_sort_protolens(
+    sort: &panproto_gat::Sort,
+    vertex_kind: Option<&Arc<str>>,
+    defaults: &HashMap<Name, Value>,
+) -> Protolens {
+    let kind = vertex_kind.map_or_else(|| sort.default_vertex_kind(), Arc::clone);
+    let sort_name = Name::from(&*sort.name);
+    if let Some(default) = defaults.get(&sort_name).cloned() {
+        elementary::add_sort(sort_name, Name::from(&*kind), default)
+    } else {
+        elementary::add_sort_without_default(sort_name, Name::from(&*kind))
     }
 }
 
@@ -2031,6 +2086,89 @@ mod tests {
             .unwrap()
             .build()
             .unwrap()
+    }
+
+    #[test]
+    fn auto_generate_applies_configured_default_through_public_get() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("root.active", "boolean", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .edge("root", "root.active", "prop", Some("active"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            defaults: HashMap::from([(Name::from("root.active"), Value::Bool(true))]),
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let source =
+            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let (view, _) = crate::get(&generated.lens, &source).unwrap();
+        assert_eq!(
+            panproto_inst::to_json(&tgt, &view),
+            serde_json::json!({"active": true, "name": "Ada"}),
+            "auto_generate must compile caller defaults into the public get path"
+        );
+    }
+
+    #[test]
+    fn auto_generate_does_not_invent_null_for_an_unspecified_default() {
+        let protocol = test_protocol();
+        let src = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let tgt = SchemaBuilder::new(&protocol)
+            .vertex("root", "record", None::<&str>)
+            .unwrap()
+            .vertex("root.name", "string", None::<&str>)
+            .unwrap()
+            .vertex("root.active", "boolean", None::<&str>)
+            .unwrap()
+            .edge("root", "root.name", "prop", Some("name"))
+            .unwrap()
+            .edge("root", "root.active", "prop", Some("active"))
+            .unwrap()
+            .build()
+            .unwrap();
+        let config = AutoLensConfig {
+            stringency: Stringency::Lenient,
+            ..Default::default()
+        };
+        let source =
+            panproto_inst::parse_json(&src, "root", &serde_json::json!({"name": "Ada"})).unwrap();
+
+        let generated = auto_generate(&src, &tgt, &protocol, &config).unwrap();
+        let (view, _) = crate::get(&generated.lens, &source).unwrap();
+        assert_eq!(
+            panproto_inst::to_json(&tgt, &view),
+            serde_json::json!({"name": "Ada"}),
+            "an omitted default must remain absent rather than becoming explicit null"
+        );
     }
 
     fn schema_message_with_sent(protocol: &Protocol) -> Schema {

@@ -715,7 +715,8 @@ pp_hom_find_span (
  *  success, `out` receives the CBOR-encoded induced `SchemaMorphism`
  *  and `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle
- *  (the compiled `Delta_F` pullback bundled with its anchoring schemas).
+ *  (the compiled source-to-target mapping bundled with its anchoring
+ *  schemas).
  *  Calls `mig::cascade::induce_migration_from_theory`.
  */
 int32_t

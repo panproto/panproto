@@ -25,12 +25,26 @@ use crate::document::{CoercionKind, DirectedEquationSpec, Step};
 use crate::error::LensDslError;
 
 /// Result of compiling a step pipeline.
+#[derive(Debug, Clone, serde::Deserialize, serde::Serialize)]
+pub struct CompiledStage {
+    /// Schema-level operations performed at this point in the pipeline.
+    pub chain: ProtolensChain,
+    /// Value-level operations performed by the same concrete migration.
+    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
+    pub field_transforms: HashMap<Name, Vec<FieldTransform>>,
+}
+
+/// Result of compiling an ordered step pipeline.
 #[derive(Debug)]
 pub struct CompiledSteps {
     /// The schema-level protolens chain.
     pub chain: ProtolensChain,
     /// Value-level field transforms, keyed by parent vertex name.
     pub field_transforms: HashMap<Name, Vec<FieldTransform>>,
+    /// Ordered execution stages. Unlike the compatibility fields above, this
+    /// preserves where value-level transforms occur relative to structural
+    /// changes.
+    pub stages: Vec<CompiledStage>,
 }
 
 /// Compile a sequence of [`Step`]s into a [`ProtolensChain`] and
@@ -46,22 +60,50 @@ pub struct CompiledSteps {
 pub fn compile_steps(steps: &[Step], body_vertex: &str) -> Result<CompiledSteps, LensDslError> {
     let mut chains: Vec<ProtolensChain> = Vec::new();
     let mut transforms: HashMap<Name, Vec<FieldTransform>> = HashMap::new();
+    let mut stages = Vec::new();
     let body_key = Name::from(body_vertex);
 
     for (i, step) in steps.iter().enumerate() {
+        if let Step::Scoped { scoped } = step {
+            let compiled = compile_scoped(scoped, i)?;
+            chains.push(compiled.chain);
+            for (anchor, entries) in compiled.field_transforms {
+                transforms.entry(anchor).or_default().extend(entries);
+            }
+            stages.extend(compiled.stages);
+            continue;
+        }
+
+        let mut step_chains = Vec::new();
+        let mut step_transforms = HashMap::new();
         compile_one_step(
             step,
             body_vertex,
             &body_key,
             i,
-            &mut chains,
-            &mut transforms,
+            &mut step_chains,
+            &mut step_transforms,
         )?;
+        let step_chain = combinators::pipeline(step_chains);
+        chains.push(step_chain.clone());
+        for (anchor, entries) in &step_transforms {
+            transforms
+                .entry(anchor.clone())
+                .or_default()
+                .extend(entries.iter().cloned());
+        }
+        if !step_chain.steps.is_empty() || !step_transforms.is_empty() {
+            stages.push(CompiledStage {
+                chain: step_chain,
+                field_transforms: step_transforms,
+            });
+        }
     }
 
     Ok(CompiledSteps {
         chain: combinators::pipeline(chains),
         field_transforms: transforms,
+        stages,
     })
 }
 
@@ -144,10 +186,6 @@ fn compile_one_step(
             ));
         }
 
-        Step::Scoped { scoped } => {
-            compile_scoped(scoped, body_vertex, index, chains, transforms)?;
-        }
-
         Step::Pullback { pullback } => {
             compile_pullback(pullback, chains);
         }
@@ -174,9 +212,10 @@ fn compile_add_field(
         &add_field.kind,
         &format!("add_field[{index}].{}", add_field.name),
     )?;
-    chains.push(combinators::add_field(
+    chains.push(combinators::add_field_with_label(
         body_vertex,
         &*vertex_id,
+        &*add_field.name,
         &*add_field.kind,
         default,
     ));
@@ -256,29 +295,38 @@ fn compile_compute_field(
     Ok(())
 }
 
-/// Compile a `scoped` step (recursive).
+/// Compile a `scoped` step (recursive) without collapsing the inner stage
+/// boundaries.
 fn compile_scoped(
     scoped: &crate::document::ScopedSpec,
-    _body_vertex: &str,
     index: usize,
-    chains: &mut Vec<ProtolensChain>,
-    transforms: &mut HashMap<Name, Vec<FieldTransform>>,
-) -> Result<(), LensDslError> {
+) -> Result<CompiledSteps, LensDslError> {
     // Inner steps operate on the focused element, not the top-level body.
     let inner = compile_steps(&scoped.inner, &scoped.focus)?;
-    let fused = inner.chain.fuse().map_err(|e| LensDslError::ExprParse {
-        step_desc: format!("scoped[{index}].inner"),
-        message: format!("failed to fuse inner chain: {e}"),
-    })?;
-    chains.push(ProtolensChain::new(vec![combinators::map_items(
-        &*scoped.focus,
-        fused,
-    )]));
-
-    for (k, v) in inner.field_transforms {
-        transforms.entry(k).or_default().extend(v);
+    let mut chains = Vec::new();
+    let mut stages = Vec::with_capacity(inner.stages.len());
+    for (inner_index, stage) in inner.stages.into_iter().enumerate() {
+        let chain = if stage.chain.steps.is_empty() {
+            ProtolensChain::new(Vec::new())
+        } else {
+            let fused = stage.chain.fuse().map_err(|e| LensDslError::ExprParse {
+                step_desc: format!("scoped[{index}].inner[{inner_index}]"),
+                message: format!("failed to fuse inner chain: {e}"),
+            })?;
+            ProtolensChain::new(vec![combinators::map_items(&*scoped.focus, fused)])
+        };
+        chains.push(chain.clone());
+        stages.push(CompiledStage {
+            chain,
+            field_transforms: stage.field_transforms,
+        });
     }
-    Ok(())
+
+    Ok(CompiledSteps {
+        chain: combinators::pipeline(chains),
+        field_transforms: inner.field_transforms,
+        stages,
+    })
 }
 
 /// Compile a `pullback` step.
@@ -376,10 +424,10 @@ fn compile_theory_step(
         | Step::ComputeField { .. }
         | Step::HoistField { .. }
         | Step::NestField { .. }
-        | Step::Scoped { .. }
         | Step::Pullback { .. } => {
             unreachable!("non-theory steps are dispatched in compile_one_step")
         }
+        Step::Scoped { .. } => unreachable!("scoped steps are expanded by compile_steps"),
     }
     Ok(())
 }

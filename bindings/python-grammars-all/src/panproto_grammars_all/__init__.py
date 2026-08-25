@@ -1,8 +1,8 @@
 """panproto grammar pack: all languages.
 
-Companion package to panproto. Brings tree-sitter grammars for
-every tree-sitter grammar bundled in panproto-grammars (~248 languages) into ``panproto.AstParserRegistry`` via the
-``panproto.grammars`` entry point.
+Companion package to panproto. Brings all 261 entries from the
+panproto-grammars manifest into ``panproto.AstParserRegistry`` through
+the ``panproto.grammars`` entry point.
 
 Installation:
 

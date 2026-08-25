@@ -112,8 +112,9 @@ public final class SchemaHandle: PanprotoHandle {
     public override class var slabVariant: String { "Schema" }
 }
 
-/// An uncompiled migration: a mapping between two schemas that has not
-/// yet been checked for existence.
+/// A compiled migration payload without its source and target schemas.
+/// Operations that need schemas reconstruct a minimal pair from the
+/// surviving vertex and edge sets.
 @PanprotoEngine
 public final class MigrationHandle: PanprotoHandle {
     public override class var slabVariant: String { "Migration" }

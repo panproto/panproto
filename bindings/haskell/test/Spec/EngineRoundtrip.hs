@@ -72,6 +72,7 @@ import Panproto.Hom
     , FoundMorphism (..)
     , FoundSpan (..)
     , HomBackend (..)
+    , SchemaMorphism (..)
     , SchemaOverlap (..)
     , defaultDomainConstraints
     , defaultFindOpts
@@ -105,7 +106,7 @@ import Panproto.Rust.Hom ()
 import Panproto.Rust.Instance ()
 import Panproto.Rust.Io ()
 import Panproto.Rust.Lens ()
-import Panproto.Rust.Migration ()
+import Panproto.Rust.Migration (releaseCompiled)
 import Panproto.Rust.Vcs (vcsAdd, vcsCommit, vcsLog, withRepo)
 
 rust :: Proxy Rust
@@ -131,6 +132,7 @@ tests =
         , testCase "hom: a self-span is a total morphism" homFindSpanIsTotal
         , testCase "hom: an excluded source leaves the apex" homFindSpanHonoursExclusions
         , testCase "hom: a span reads back as a pushout overlap" homSpanToOverlap
+        , testCase "hom: induced migration keeps its target schema" homInducedMigration
         , testCase "graph: fiber over a compiled migration anchor" graphFiberAt
         , testCase "data: store + get a JSON dataset" dataStoreGet
         ]
@@ -161,6 +163,15 @@ postSchemaPlus = S.buildSchema "geojson" $ do
     S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "prop", S.name = Just "text"}
     S.edge S.Edge {S.src = "post", S.tgt = "title", S.kind = "prop", S.name = Just "title"}
     S.constraint "title" S.Constraint {S.sort = "maxLength", S.value = "120"}
+
+-- | The shared fixture with its edge kind renamed. This distinguishes the
+-- target schema from the source when the theory-to-data cascade returns a
+-- compiled migration.
+postSchemaRenamedEdge :: Schema
+postSchemaRenamedEdge = S.buildSchema "geojson" $ do
+    S.vertex S.Vertex {S.id = "post", S.kind = "record", S.nsid = Nothing}
+    S.vertex S.Vertex {S.id = "text", S.kind = "string", S.nsid = Nothing}
+    S.edge S.Edge {S.src = "post", S.tgt = "text", S.kind = "field", S.name = Just "text"}
 
 withSchema :: Schema -> (SchemaRep Rust -> IO a) -> IO a
 withSchema s = bracket (fromSchema rust s) releaseSchema
@@ -508,6 +519,33 @@ homSpanToOverlap =
                 assertBool
                     "the record vertex is identified with itself"
                     (("post", "post") `elem` overlap.vertexPairs)
+
+-- | The dual-out cascade already returns a compiled handle bundled with
+-- @src@ and @tgt@. Adopting that handle must preserve a target-only edge
+-- rename; recompiling the decoded morphism against @src@ twice loses this
+-- distinction and fails before the record can be carried forward.
+homInducedMigration :: IO ()
+homInducedMigration =
+    withSchema postSchema $ \src ->
+        withSchema postSchemaRenamedEdge $ \tgt -> do
+            let theoryMorph =
+                    (emptyMorphism "rename-prop" "Source" "Target")
+                        { sortMap = mapOf [("record", "record"), ("string", "string")]
+                        , opMap = mapOf [("prop", "field")]
+                        }
+            bracket
+                (induceMigrationFromTheory theoryMorph src tgt)
+                (releaseCompiled . snd)
+                $ \(schemaMorph, owned) -> do
+                    let targetEdges = case schemaMorph of
+                            SchemaMorphism {edgeMap = edges} -> HM.elems edges
+                    assertBool
+                        "the induced schema morphism must retain the target edge kind"
+                        (any (\S.Edge {S.kind = edgeKind} -> edgeKind == "field") targetEdges)
+                    lifted <- liftJson owned "post" "{\"text\": \"hello\"}"
+                    assertBool
+                        ("induced migration should preserve the text value, got " <> T.unpack lifted)
+                        ("hello" `isInfixOf` T.unpack lifted)
 
 -- ---------------------------------------------------------------------------
 -- Data

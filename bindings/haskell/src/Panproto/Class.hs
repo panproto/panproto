@@ -75,7 +75,7 @@ class ProtocolBackend back where
 -- (see "Panproto.Canonical" for the rationale). Both backends
 -- implement bytewise round-trip (@toCanonical@ / @fromCanonical@);
 -- introspection or validation requires the 'SchemaValidate' refinement
--- below, which only the 'Rust' backend implements at @0.41.0@.
+-- below, which only the 'Rust' backend implements.
 class SchemaBackend back where
     -- | Backend-specific representation of a 'CanonicalSchema'. For
     -- 'Rust' this is an opaque foreign handle; for 'Native' it is a
