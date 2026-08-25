@@ -1,6 +1,6 @@
 # Migrations
 
-A migration $M: S \to T$ is a schema morphism mapping vertices, edges, and hyper-edges from a source schema $S$ to a target schema $T$. Compilation precomputes the restrict functor $M^*: \mathbf{Set}^T \to \mathbf{Set}^S$, which transforms instance data by:
+A migration $M: S \to T$ maps vertices, edges, and hyperedges from a source schema $S$ to a target schema $T$. Compilation validates the mapped fragment and precomputes the tables used by panproto's source-to-target projection:
 
 1. Computing the surviving vertex set (image of the vertex map)
 2. Computing the surviving edge set (image of the edge map)
@@ -35,21 +35,25 @@ Compilation calls `check_existence` internally. If the migration references sort
 
 ## Lifting instances
 
-The `lift` operation applies $M_!(X)$ (left Kan extension):
+For a compiled mapping from a source schema to a target schema, `lift`
+projects the surviving source fragment into the target schema. Categorical
+restriction instead reindexes target data back to the source, while a left Kan
+extension is a separate general source-to-target transport.
 
 ```python
 lifted = compiled.lift(instance)
 ```
 
-## Get (restrict)
+## Get
 
-`get` applies the restrict functor $M^*$ and returns both the projected view and the complement $C$:
+`get` applies the same source-to-target projection and returns both the view
+and the complement $C$:
 
 ```python
 view, complement = compiled.get(instance)
 ```
 
-The complement is a dict summarizing dropped nodes and arcs. `CompiledMigration` does not expose a `put` method directly; for the reverse direction either compile the inverse migration (`invert_migration` below) or generate a full bidirectional `Lens` (`auto_generate_lens` produces a `Lens` whose `.put(view, complement)` reconstructs the source instance).
+The complement is a dict summarizing dropped nodes and arcs. `CompiledMigration` has no `put` method. For the reverse direction, either compile the inverse with `invert_migration` or call `auto_generate_lens`; the returned `Lens.put(view, complement)` reconstructs the source instance.
 
 ## Existence checking
 
@@ -81,9 +85,8 @@ Runs each instance through `lift` and counts successes/failures. The report cont
 ## Finding a morphism, and finding a span
 
 `find_best_morphism` searches for a *total* morphism $S \to T$: every source
-vertex must have an image. It returns `None` when there is none, which on real
-schema pairs is the common case rather than the exceptional one, since dropping
-a single field is enough to make one impossible.
+vertex must have an image. It returns `None` when none exists. This is common
+for schema pairs because dropping one field makes a total morphism impossible.
 
 ```python
 found = panproto.find_best_morphism(src, tgt)

@@ -14,8 +14,10 @@ panproto uses mathematical terms to distinguish operations that ordinary migrati
 | **instance** | Data interpreted under a schema | A row or JSON document |
 | **vertex / edge** | A schema type and a directed field or relation between types | Nodes and arrows in a schema diagram |
 | **migration** (morphism) | A map from source schema elements to target schema elements, with optional value transforms | The structural part of a migration plan |
-| **lift** | Applying a compiled migration to data | Running a data conversion; the exact direction depends on the selected lifting operation |
-| **restrict** | Reinterpreting target-side structure through a migration on the source side | Projecting an interface onto the source fields that support it |
+| **lift** | Applying a compiled migration to data | Running a data conversion; the concrete function determines its behavior |
+| **restrict** | In `lift_wtype`, `lift_functor`, and `schema lift --direction restrict`, forwarding only the source fragment that survives in the target | A filtered source-to-target projection; this API name does not mean categorical $\Delta_f$ |
+| **$\Delta_f$** | In `panproto_inst::adjunction`, reindexing a target instance back to the source of $f:S\to T$ | Precomposition, with direction $T\text{-Inst}\to S\text{-Inst}$ |
+| **$\Sigma_f$** | In `panproto_inst::adjunction`, carrying a source instance forward to the target | A left Kan extension, with direction $S\text{-Inst}\to T\text{-Inst}$ |
 | **lens** | A forward transformation that returns a view and a complement, paired with reconstruction from that view and complement | A bidirectional converter with explicit saved state |
 | **complement** | Information retained during the forward transformation so that reconstruction can restore it | An undo record |
 | **round-trip laws** (GetPut, PutGet, PutPut) | Equations relating forward transformation and reconstruction | Properties checked on concrete inputs or generated test cases |

@@ -87,7 +87,7 @@ if (!laws.holds) throw new Error(laws.violation ?? 'lens law failed');
 
 Value transforms are stored beside the structural `ProtolensChain`; they are not part of `chain.toJson()`. Reconstructing a handle with `ProtolensChainHandle.fromJson(chain.toJson(), wasm)` thus loses them.
 
-The same distinction affects other surfaces. `schema lens compile` reports only the number of field-transform vertices and writes the structural chain, and Python's `ProtolensChain.from_dsl_*` constructors currently return only that structural chain. Use the TypeScript `compileLensDocument` handle or Rust's `panproto_lens_dsl::CompiledLens`, whose `field_transforms` field retains the value-level programs.
+The same distinction affects other surfaces. `schema lens compile` reports only the number of field-transform vertices and writes the structural chain. Python's `ProtolensChain.from_dsl_*` constructors, the TypeScript `compileLensDocument` handle, and Rust's `panproto_lens_dsl::CompiledLens` retain the value-level programs and their order relative to structural steps.
 
 Migration mapping JSON has a separate `expr_resolvers` field, but `panproto_mig::compile` does not install those expressions as `FieldTransform` values. Do not place expression source in a migration mapping and expect `schema lift` to execute it.
 

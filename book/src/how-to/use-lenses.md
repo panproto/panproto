@@ -1,6 +1,6 @@
 # Use lenses
 
-The lens API runs a migration in both directions. `get` lifts data forward, `put` projects an edited view back to the source shape, and the complement retains data needed for reconstruction.
+The lens API relates a source record to a target-shaped view. `get` constructs the view, `put` reconstructs a source-shaped record from an edited view, and the complement retains source data that `get` did not place in the view.
 
 ## Prerequisites
 
@@ -57,7 +57,7 @@ const putget = lens.checkPutGet(instanceBytes);
 
 ## Common mistakes
 
-- Calling `put` with a complement from a different source. `Complement::compose` will refuse with `ComplementFingerprintMismatch`. Recompute the complement from the current source rather than reusing one.
+- Calling `put` with a complement produced for a different source schema. `put` compares the complement's source fingerprint with the lens source and returns `ComplementMismatch` when they differ. Recompute the complement with this lens.
 - Reading `get` and then mutating the source before calling `put`. The complement is computed against the source as it was at `get` time; if you mutate the source, the complement is stale.
 - Composing lenses whose intermediate schemas are isomorphic but not equal. The structural-equality check on `protolens_composable` will reject; rebuild one of the lenses against the other's schema.
 

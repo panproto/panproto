@@ -8,7 +8,7 @@ These chapters specify the behavior of panproto's expression language, DSL compi
 |---|---|
 | [Shared notation](./shared-notation.md) | Judgment forms, environments, semantic functions, errors, and equality. |
 | [Expression language](./expression-language.md) | `panproto-expr`: abstract syntax, best-effort type classification, and resource-bounded evaluation. |
-| [Lens DSL](./lens-dsl.md) | `panproto-lens-dsl`: the lens triple `(get, put, complement)`, the three round-trip laws, complement composition as a partial commutative monoid. |
+| [Lens DSL](./lens-dsl.md) | `panproto-lens-dsl`: `get` and `put` with an explicit returned complement, the round-trip checks, and complement composition as a checked partial operation. |
 | [Theory DSL](./theory-dsl.md) | `panproto-theory-dsl`: GAT presentations, compilation, typechecking, and the boundary of the CwF interpretation. |
 | [Pushouts and merge](./pushouts-and-merge.md) | The GAT colimit construction, its on-demand universal-property check, and the narrower checks run by schema merge. |
 | [Protolens composition](./protolens-composition.md) | Protolenses as natural transformations between schema endofunctors, the structural-equality criterion for composition, sequential vs fused instantiation. |

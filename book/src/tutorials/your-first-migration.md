@@ -87,7 +87,7 @@ round trip: { age: 30, name: 'Alice' }
 
 ## What the checks establish
 
-The structural classifier reports incompatibility because it sees a removed `age` field and an added `years` field; it does not consult the explicit migration. Every required target edge nevertheless has a source, so existence checking passes and `compile()` can produce the migration. Round-trip behavior is checked separately: `getJson()` produces the view and an opaque complement, and `putJson()` uses both to restore the source record. The `assert.deepEqual` call checks that result structurally, so JSON object key order does not affect it.
+The structural classifier reports incompatibility because it sees a removed `age` field and an added `years` field. It does not consult the explicit migration. Every required target edge nevertheless has a source, so existence checking passes and `compile()` can produce the migration. Round-trip behavior is checked separately: `getJson()` produces the view and an opaque complement, and `putJson()` uses both to restore the source record. The `assert.deepEqual` call checks that result structurally, so JSON object key order does not affect it.
 
 ## Next
 

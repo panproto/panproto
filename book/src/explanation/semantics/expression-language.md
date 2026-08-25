@@ -56,11 +56,11 @@ $$
 
 The function `infer_type(e, env)` classifies an expression under an environment $\Gamma$ from variable names to `ExprType`. Literals, records, lists, variables, and builtins with declared result signatures receive specific cases. Lambdas, applications, field access, and index access return `Any`. A match takes the class of its first arm's body, while a let extends the environment with the class inferred for its bound expression. An unbound variable is an error. The classifier does not inspect a builtin application's argument vector.
 
-`validate_coercion` accepts `Any` because the classifier cannot reject an opaque expression. Thus successful validation means that no detectable mismatch was found. It does not establish a typing judgment of the form $\Gamma \vdash e : \tau$, type preservation, or exhaustiveness.
+`validate_coercion` accepts `Any` because the classifier cannot reject an opaque expression. The classifier also does not apply the evaluator's first-class-builtin fallback to `Var`: a builtin represented as a free variable is unbound for `infer_type` unless an earlier parser or compiler lowered it to `Expr::Builtin` or supplied an environment entry. Thus successful validation means that no detectable mismatch was found. It does not establish a typing judgment of the form $\Gamma \vdash e : \tau$, type preservation, or exhaustiveness.
 
 ## Evaluation domain
 
-Values are Rust `Literal`s: integers, floats, strings, booleans, null, bytes, lists, records, and closures. Let $V$ be this set of values and $E$ the set of `ExprError` variants. A configuration sets the maximum number of evaluation steps, recursion depth, and output-list length. The evaluator has the operational type
+Values are Rust `Literal`s: integers, floats, strings, booleans, null, bytes, lists, records, and closures. Let $V$ be this set of values and $E$ the set of `ExprError` variants. A configuration sets the maximum number of evaluation steps, recursion depth, and output-list length. The defaults are 100,000 steps, depth 256, and 10,000 list elements. The evaluator has the operational type
 
 $$
 \mathsf{eval} : \mathsf{Expr} \times \mathsf{Env} \times \mathsf{Config}
@@ -86,9 +86,13 @@ $$
 \end{aligned}
 $$
 
-These equations suppress error propagation and the threaded resource state. The code passes one mutable budget through every subevaluation, so sibling expressions do not each receive a fresh copy of the original budget.
+These equations suppress error propagation, the threaded resource state, and the builtin fallback for a variable absent from $\rho$. The code passes one mutable budget through every subevaluation, so sibling expressions do not each receive a fresh copy of the original budget.
 
-Pattern matching evaluates the scrutinee once, tries arms in order, extends the environment with bindings from the first matching pattern, and evaluates that arm. Exhaustion returns `NonExhaustiveMatch`. Higher-order list builtins apply captured closures through the same evaluator, while graph-traversal builtins require the instance-aware evaluation entry point.
+Pattern matching evaluates the scrutinee once, tries arms in order, extends the environment with bindings from the first matching pattern, and evaluates that arm. Exhaustion returns `NonExhaustiveMatch`. Higher-order list builtins apply captured closures through the same evaluator.
+
+Builtins are first-class curried values. A free variable whose name denotes a builtin evaluates to the corresponding closure, and an explicit `Builtin` node with too few arguments evaluates to a closure over the remaining arguments. Lexical environment bindings take precedence, so a lambda or let binding can shadow a builtin name. Graph-traversal builtins use a `BuiltinResolver` at every application depth. Pure `eval` returns `NoInstanceContext` when one is reached; the instance-aware entry points provide the resolver that interprets it.
+
+The exported `substitute` operation is capture-avoiding for lambda, let, and match-arm binders. It alpha-renames a binder when a free variable of the replacement would otherwise be captured. `free_vars` applies the same binding rules. These utilities support compiler transformations; the evaluator itself uses closure environments rather than substitution for ordinary function application.
 
 ## Checked properties and boundaries
 

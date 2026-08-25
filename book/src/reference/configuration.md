@@ -36,7 +36,7 @@ The top-level `package` array may be omitted and then defaults to empty.
 | `path` | `PathBuf` | yes | none | Package root relative to the manifest directory. |
 | `protocol` | `Option<String>` | no | `None` | Parser override for files below `path`. Without an override, detection uses the file path and parser registry. |
 
-If an overridden parser rejects a file, project assembly falls back to `raw_file`; it does not retry ordinary language detection. Package paths supply protocol-prefix overrides, but do not restrict the directory walk to the declared packages.
+If an overridden parser rejects a file, project assembly falls back to `raw_file`. It does not retry ordinary language detection. Package paths supply protocol-prefix overrides, but do not restrict the directory walk to the declared packages.
 
 ## Generated defaults
 

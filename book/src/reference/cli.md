@@ -29,7 +29,7 @@ $$
 The apex is the sub-schema of `old` whose vertices found a target in `new`. That
 search never refuses for want of a match: leaving every source vertex out of the
 apex is always feasible, so two schemas with nothing in common come back with an
-empty apex rather than with an error. Two of the three flags below therefore
+empty apex rather than with an error. Two of the three flags below thus
 select which of its answers counts as an answer, and the search underneath is the
 same one either way; the third constrains the search itself.
 
@@ -46,8 +46,9 @@ drops a vertex is no evidence about whether a total morphism exists, because spa
 quality excludes the drop count while the objective is lexicographic in quality
 first and drops second, so a span that drops a vertex can score strictly better
 than a total morphism that keeps it. When the optimal span is not total, the
-command runs the total-morphism search before giving up, and it fails only when
-that second search comes back empty, quoting the coverage the span did reach.
+command runs the total-morphism search before giving up. The command fails only
+when that second search returns no total morphism. Its error includes the
+coverage reached by the span.
 `--total` and `--span` conflict, and the pair is rejected before either search
 runs.
 
@@ -353,7 +354,7 @@ Options:
   -v, --verbose          Enable verbose output
       --oneline          Show each commit on a single line
       --graph            Show an ASCII graph of the branch structure
-      --all              Show all branches, not just the current one
+      --all              Show all branches
       --format <FORMAT>  Pretty-print commits using a format string
       --author <AUTHOR>  Filter commits by author
       --grep <GREP>      Filter commits whose message matches a pattern
@@ -718,7 +719,7 @@ Options:
   -v, --verbose                        Enable verbose output
       --src-schema <SRC_SCHEMA>        Path to the source schema JSON file
       --tgt-schema <TGT_SCHEMA>        Path to the target schema JSON file
-      --direction <DIRECTION>          Migration direction: restrict (default, `Delta_F`), sigma (`Sigma_F`), or pi (`Pi_F`) [default: restrict]
+      --direction <DIRECTION>          Migration direction: restrict (default, filtered source-to-target), sigma (source-to-target `Sigma_F`), or pi (source-to-target; W-type `pi` only relabels vertex-injective mappings) [default: restrict]
       --instance-type <INSTANCE_TYPE>  Instance type: wtype (default) or functor [default: wtype]
   -h, --help                           Print help
 ```
@@ -1191,7 +1192,7 @@ Options:
   -v, --verbose                Enable verbose output
       --to <TO>                Target schema
       --protocol <PROTOCOL>    Protocol name
-      --chain <CHAIN>          Pre-built protolens chain JSON (alternative to --from/--to)
+      --chain <CHAIN>          Pre-built protolens chain JSON to instantiate with --from and --to
   -o, --output <OUTPUT>        Output file or directory
       --direction <DIRECTION>  Direction: "forward" or "backward" [default: forward]
       --defaults <DEFAULTS>    Default values as key=value pairs
@@ -1431,13 +1432,13 @@ Options:
           
           Accepted case-insensitively for parity with the Python and WASM bindings, both of which trim and lowercase their input.
           
-          `strict`: only kind-exact name equality. `balanced`: alias dictionary + tight token similarity (default). `lenient`: span-search and structural priors. `exploratory`: lossy retraction witnesses.
+          strict: Exact, ExactSuffix, and EdgeLabel; total morphism only. balanced: adds Alias, TokenSimilarity, and DescriptionSimilarity; total morphism only (default). lenient: adds WrapUnwrap, TypeSignature, WlRefinement, and Neighborhood; spans allowed. exploratory: adds Structural and Coerce proposals; spans allowed.
 
           Possible values:
-          - strict:      Kind-exact, edge-name-pruned CSP search; total morphism only
-          - balanced:    Adds alias dictionary and tight token-similarity priors (default)
-          - lenient:     Adds span-search and structural priors
-          - exploratory: Adds lossy retraction witnesses
+          - strict:      Exact, ExactSuffix, and EdgeLabel; total morphism only
+          - balanced:    Adds Alias, TokenSimilarity, and DescriptionSimilarity (default)
+          - lenient:     Adds WrapUnwrap, TypeSignature, WlRefinement, and Neighborhood; spans allowed
+          - exploratory: Adds Structural and Coerce proposals; spans allowed
 
       --top-n <N>
           Emit up to N ranked candidate lenses instead of the single best one. Output format switches to a JSON array when combined with `--json` or `--chain`
@@ -1512,11 +1513,11 @@ Options:
 ```text
 Verify lens laws on test data
 
-Usage: schema lens verify [OPTIONS] --protocol <PROTOCOL> <DATA> [SCHEMA]
+Usage: schema lens verify [OPTIONS] --protocol <PROTOCOL> <DATA> <SCHEMA>
 
 Arguments:
   <DATA>    Path to test data file
-  [SCHEMA]  Schema file (second schema is optional)
+  <SCHEMA>  Schema used to parse the test data
 
 Options:
       --protocol <PROTOCOL>  Protocol name

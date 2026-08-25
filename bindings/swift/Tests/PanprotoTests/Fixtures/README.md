@@ -1,9 +1,7 @@
 # Engine fixtures
 
-Every file here is the exact byte payload one panproto-c entry point
-answered with. `Scripts/GenerateFixtures` captures them by driving the
-`Raw` shim layer directly, so a fixture that stops matching is a change
-in the engine and not in a Swift wrapper.
+Each file contains bytes returned by a panproto-c entry point.
+`Scripts/GenerateFixtures` captures the payloads through the `Raw` shim layer.
 
 Regenerate the whole directory with:
 
@@ -12,9 +10,9 @@ cd bindings/swift
 swift run generate-fixtures Tests/PanprotoTests/Fixtures
 ```
 
-The generator clears every `.cbor` and `.json` file here before it
-writes, so a payload the engine no longer produces disappears with it.
-Payloads are CBOR (`ciborium`) except where the file name says `.json`.
+The generator removes the existing `.cbor` and `.json` fixtures before writing
+the new set. Payloads are CBOR produced by `ciborium` unless the file name ends
+in `.json`.
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
@@ -97,8 +95,21 @@ Payloads are CBOR (`ciborium`) except where the file name says `.json`.
 
 The `vcs-*` payloads carry commit ids and timestamps from the run that produced them, so regenerating them changes their bytes even when the engine has not changed.
 
-The post and profile schemas align at exactly one stringency tier. `Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` answers `operation` with "no morphism found between schemas" at `strict`, at `balanced`, and at `exploratory`, and succeeds at `lenient`, which is the tier `chain-post-profile.json` is captured at. The tiers are not nested in permissiveness here: `exploratory` swaps in lossy retraction witnesses and a lower similarity threshold rather than adding to what `lenient` already searches over.
+The post and profile schemas align only at the `lenient` tier.
+`Raw.lensAutoGenerateProtolens(schema1:schema2:stringency:)` returns code 7
+with "no morphism found between schemas" at `strict`, `balanced`, and
+`exploratory`. The `exploratory` strategy is not a superset of `lenient`. It
+uses lossy retraction witnesses and a lower similarity threshold.
 
-`Raw.lensGetRecord(migration:record:)` cannot carry the post record through the post to profile chain. The chain generates and the instantiation succeeds; the get then answers code 7 and leaves the envelope "operation: operation error: get: restrict error: no edge found between app.bsky.feed.post:body and app.bsky.feed.post:body.langs:items in target schema". Every post record in `fixtures/atproto/records` carries `langs`, so no choice of record avoids that edge. `get-record.cbor` is therefore captured through the chain the post schema generates against itself, which is the widest get the engine completes on this input.
+`Raw.lensGetRecord(migration:record:)` cannot carry the fixture record through
+the post-to-profile chain. Chain generation and instantiation succeed, but get
+returns code 7 because the target schema has no edge from
+`app.bsky.feed.post:body` to `app.bsky.feed.post:body.langs:items`. Every post
+fixture has `langs`. `get-record.cbor` thus uses the chain from the post
+schema to itself.
 
-`Raw.gatSerializeTheory(theory:)` cannot be reached from a built-in protocol. A protocol payload names its theories (`schema_theory`, `instance_theory`, and the `schema_composition` steps) as strings, and the C ABI exposes no lookup from such a name to a `Theory` handle: `pp_gat_create_theory` takes a full CBOR theory and `pp_gat_colimit` takes handles. The `theory-*` rows in the table above are therefore captured from theories handed to the engine, which is the route the ABI leaves open.
+Built-in protocol payloads name their theories with strings. The C ABI has no
+function that resolves one of those names to a `Theory` handle.
+`pp_gat_create_theory` takes a complete CBOR theory, while `pp_gat_colimit`
+takes theory handles. The `theory-*` fixtures thus come from theories
+created explicitly through `pp_gat_create_theory`.

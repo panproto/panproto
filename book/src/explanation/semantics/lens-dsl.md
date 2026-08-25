@@ -92,15 +92,17 @@ Compilation has two entry points. `compile` handles the schema-parametric bodies
 
 ## Semantic domain
 
-For schemas $S$, $V$ and complement type $C$, the set of *lenses* on $(S, V, C)$ is
+For source instances $S$, view instances $V$, and complement values $C$, panproto's operational lens interface has the shape
 
 $$
-\mathsf{Lens}(S, V, C) \;=\; (S \to V) \times (S \times V \times C \to S) \times (S \to C)
+\mathsf{get}:S\to V\times C,
+\qquad
+\mathsf{put}:V\times C\to S.
 $$
 
-with elements written as triples $(\mathsf{get},\mathsf{put},\mathsf{complement})$. The concrete `panproto_lens::Lens` stores source and target schemas, a compiled migration, and field transforms; the functions in the triple describe the behavior of its `get` and `put` operations. This is the asymmetric-lens model of @foster2007combinators, with complements used in the style of @littvanhardenberghenry2020cambria.
+The complement is returned by `get`; callers do not pass the original source separately to `put`. The concrete `panproto_lens::Lens` stores source and target schemas and a compiled migration containing the field transforms. This is an asymmetric-lens interface with explicit saved state, related to the models of @foster2007combinators and @littvanhardenberghenry2020cambria.
 
-For a steps body, compilation is better described as a function into a schema-parameterized chain and a map of field transforms:
+For a steps body, compilation returns a schema-parameterized chain and a map of field transforms:
 
 $$
 \mathsf{compile}_{\mathsf{steps}} : \mathsf{LensDocument}
@@ -111,23 +113,23 @@ Instantiating the chain at a source schema produces a concrete lens. `auto` and 
 
 ## The three laws
 
-A lens $l=(\mathsf{get},\mathsf{put},\mathsf{complement})$ is *lawful* when the following equations hold for the relevant source values and views.
+A lens is *lawful* when the following equations hold for the relevant source values and views. Write $\mathsf{get}(s)=(v,c)$.
 
 $$
-\textbf{GetPut:} \quad \mathsf{put}(s, \mathsf{get}(s), \mathsf{complement}(s)) = s
+\textbf{GetPut:} \quad \mathsf{put}(v,c)=s
 $$
 
+For an edited view $v'$, write $s'=\mathsf{put}(v',c)$ and $\mathsf{get}(s')=(v'',c')$. Then
+
 $$
-\textbf{PutGet:} \quad \mathsf{get}(\mathsf{put}(s, v, c)) = v
+\textbf{PutGet:} \quad v''=v'.
 $$
 
-For PutPut, complement state may change after the first update. The checker thus uses $c_0=\mathsf{complement}(s)$ and $c_1=\mathsf{complement}(\mathsf{put}(s,v_1,c_0))$:
+The current PutPut checker uses the original view for its first put. If $\mathsf{get}(s)=(v_0,c_0)$, $s_1=\mathsf{put}(v_0,c_0)$, and $\mathsf{get}(s_1)=(-,c_1)$, it checks a supplied second view $v_2$ by comparing
 
 $$
 \textbf{PutPut:} \quad
-\mathsf{put}(\mathsf{put}(s,v_1,c_0),v_2,c_1)
-=
-\mathsf{put}(s,v_2,c_0).
+\mathsf{put}(v_2,c_1)=\mathsf{put}(v_2,c_0).
 $$
 
 `panproto_lens::laws::check_get_put`, `check_put_get`, and `check_put_put` check supplied instances deterministically. `check_put_put` obtains the intermediate complement $c_1$ as shown above. The checkers compare complete instance structure through the crate's instance-equivalence predicate, but each invocation covers only its supplied case.
@@ -145,9 +147,11 @@ Here $S_0=S$, and $S_i$ is the target schema after step $s_i$ is applied to $S_{
 
 $$
 \begin{aligned}
-\mathsf{get}_{l_1; l_2}(s)              &= \mathsf{get}_{l_2}(\mathsf{get}_{l_1}(s)) \\
-\mathsf{complement}_{l_1; l_2}(s)       &= (\mathsf{complement}_{l_1}(s),\ \mathsf{complement}_{l_2}(\mathsf{get}_{l_1}(s))) \\
-\mathsf{put}_{l_1; l_2}(s, v, (c_1, c_2)) &= \mathsf{put}_{l_1}(s,\ \mathsf{put}_{l_2}(\mathsf{get}_{l_1}(s), v, c_2),\ c_1)
+\mathsf{get}_{l_1}(s) &= (v,c_1), \\
+\mathsf{get}_{l_2}(v) &= (w,c_2), \\
+\mathsf{get}_{l_1;l_2}(s) &= (w,(c_1,c_2)), \\
+\mathsf{put}_{l_1;l_2}(w,(c_1,c_2))
+  &= \mathsf{put}_{l_1}(\mathsf{put}_{l_2}(w,c_2),c_1).
 \end{aligned}
 $$
 

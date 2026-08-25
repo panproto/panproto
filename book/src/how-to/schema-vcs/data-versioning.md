@@ -56,7 +56,7 @@ prints the number of immediate JSON files, the `HEAD` schema ID, and the number 
 ## Common mistakes
 
 - Editing data inside the store directly. Like schemas, data objects are content-addressed.
-- Skipping data when committing schema changes. If you commit a v2 schema without ever staging v1 data, there is nothing for the lens to lift; this is fine, but the v2 commit will have no data even though v1 might.
+- Skipping data when committing schema changes. If the v1 commit has no staged data, the later commit-range operation has no stored v1 records to migrate. The v2 commit may thus have no data even when records exist in the working directory.
 - Assuming rebase or amend migrates working data. Those commands take no data-directory option. Run an explicit data migration after rewriting history.
 
 ## See also

@@ -100,7 +100,7 @@ $$
 
 The dispatcher handles the eight variants shown above. Theory, class, and inductive bodies produce theories; morphism and instance bodies produce morphisms checked by `check_morphism`. Composition bodies resolve their inputs and replay specified colimit steps. Protocol bodies compile their theories and edge rules. Bundles process definitions in dependency order.
 
-`compile` also sample-checks declared coercion laws using the default coercion registry. `compile_with_registry` substitutes caller-provided samples, while `compile_unchecked` skips this particular law check. A passing sample check is evidence for the sampled values, not a proof of the declared coercion class.
+`compile` also sample-checks declared coercion laws using the default coercion registry. `compile_with_registry` substitutes caller-provided samples, while `compile_unchecked` skips this particular law check. All three routes still typecheck theories and gate their directed rewrite systems. A passing coercion sample check is evidence for the sampled values, not a proof of the declared coercion class.
 
 ## Mathematical interpretation
 
@@ -112,7 +112,9 @@ The runtime `Theory` type is a named collection of sorts, operations, undirected
 
 Composition bodies use the colimit machinery described in [Pushouts and merge](./pushouts-and-merge.md). The `colimit` constructor checks cocone commutativity but does not run `check_morphism` on its inclusions, since a building-block instance theory may refer to sorts supplied only by the schema theory with which it is later combined. `ColimitResult::verify_universal` validates a constructed mediator for one caller-supplied alternative cocone. Built-in protocol registration assembles schema and instance theories from registered building blocks.
 
-Compilation checks sort and operation references, types both sides of equations, validates resolved morphisms, and tests declared coercion laws on registered samples unless `compile_unchecked` is used. Passing a finite coercion sample is evidence, not proof. Rewrite-system analysis can print warnings about confluence or termination, but those warnings do not reject an otherwise well-typed theory. No compilation path proves confluence or termination for every directed rewrite system.
+Compilation checks sort and operation references, types both sides of equations, validates resolved morphisms, and tests declared coercion laws on registered samples unless `compile_unchecked` is used. Passing a finite coercion sample is evidence, not proof. Theory compilation also calls `validate_rewrite_system`. An analysis failure returns `RewriteSystemCheck`. `UnsoundRewriteSystem` reports either divergent rewrite paths that do not rejoin (a non-joining critical pair) or failure of the lexicographic-path-order termination check. Built-in registration treats either result as an internal programming error. These finite checks are not a proof in a proof assistant.
+
+The textual term parser rejects terms nested beyond `MAX_TERM_NESTING_DEPTH`, currently 128. This is an input-safety bound on the recursive parser and downstream traversals, not a bound on normalization steps. The REPL applies a separate 1,000-step normalization budget.
 
 ## See also
 

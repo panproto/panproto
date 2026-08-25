@@ -1,6 +1,6 @@
 # Lenses and round-trip laws
 
-Suppose a source record contains `name` and `age`, while a view exposes only `name`. Reading the view discards `age`, but a later update to `name` should preserve it. A lens coordinates this forward observation and backward reconstruction [@foster2007combinators]. In panproto, the forward operation returns both the view and a **complement**, a record of information needed to reconstruct the source. This use of explicit complements follows the symmetric and edit-lens tradition [@hofmann2011symmetric; @hofmann2012edit].
+Suppose a source record contains `name` and `age`, while a view exposes only `name`. Reading the view discards `age`, but a later update to `name` should preserve it. A lens coordinates this forward observation and backward reconstruction [@foster2007combinators]. In panproto, the forward operation returns both the view and a **complement**, a record of information needed to reconstruct the source. This explicit complement is related to the constant-complement view-update account and later symmetric lenses [@bancilhonspyratos1981update; @hofmann2011symmetric].
 
 A concrete `Lens` stores a compiled migration together with its source and target schemas. Its operations are fallible because migration execution or reconstruction may reject a concrete input. For a fixed lens, their mathematical shape is
 
@@ -31,6 +31,10 @@ These conditions prevent composition from selecting arbitrarily between incompat
 [Migrations as morphisms](./migrations-as-morphisms.md) describes the compiled migration that supplies a concrete lens's transformation tables. A migration and its endpoint schemas can be assembled into a `Lens`, after which callers may run the law checks above. This construction does not imply that every migration is lawful.
 
 The [panproto-lens-dsl](https://github.com/panproto/panproto/tree/main/crates/panproto-lens-dsl) crate compiles declarative Nickel, JSON, or YAML descriptions into lens combinators. The [`panproto-lens::protolens`](https://docs.rs/panproto-lens/latest/panproto_lens/protolens/) module describes schema-parameterized transformations that can be instantiated when their structural preconditions hold. Edge kinds select optic forms such as lenses, prisms, affine traversals, and traversals; this dispatch follows the profunctor-optics account of @pickeringgibbonswu2017profunctor and its categorical formulation in @clarke2020profunctor. The representation of schema migrations as a graph of lenses is related to Cambria [@littvanhardenberghenry2020cambria].
+
+`EditLens::put_edit` translates a view edit back to the source and updates the stored complement at the same time. Edit lenses model changes through edit monoids and actions [@hofmann2012edit]. The subtree-complement rules here are panproto-specific: deleting a subtree clears its complement entries, while inserts, relabels, and field updates maintain the relevant saved state. The edit-law helpers compare this incremental result with whole-state `get` and `put` for one supplied edit.
+
+`SymmetricLens::from_span` requires its two asymmetric legs to share a middle schema. The current equality check compares the protocol, vertices, edges, hyperedges, constraints, required edges, variants, orderings, recursion points, and nominal flags. It deliberately omits byte-layout constraints and usage modes, and it also does not compare NSIDs, entry lists, schema-span annotations, coercions, mergers, defaults, policies, or derived adjacency indices. Acceptance by this constructor is thus equality under that implemented projection, not complete `Schema` equality.
 
 ## Layout enrichment
 

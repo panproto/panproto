@@ -2,7 +2,7 @@
 
 ## Prerequisites
 
-The `schema` binary installed ([Install the CLI](../install/cli.md)). A schema file in a supported protocol, or a protocol name to scaffold an empty one.
+The `schema` binary installed ([Install the CLI](../install/cli.md)). A file in panproto's internal schema JSON format. The current CLI protocol resolver accepts `atproto`.
 
 ## The task
 

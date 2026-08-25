@@ -2,7 +2,7 @@
 
 A tree-sitter grammar specifies how source text is parsed, but it does not by itself define a printer. Whitespace is normally an extra, external scanners may recognize tokens whose spelling is absent from `grammar.json`, and several alternatives can produce the same named children. panproto's `emit_pretty` handles this incomplete inverse by combining grammar structure with evidence stored during parsing.
 
-There are two emission cases. A parsed schema may carry enough byte positions and interstitial text to replay source fragments. An abstract or hand-built schema has no such record, so the emitter walks the grammar and chooses canonical tokens and layout. The distinction explains both the implementation and its limits.
+There are two emission cases. A parsed schema may carry enough byte positions and interstitial text to replay source fragments. An abstract or hand-built schema has no such record, so the emitter walks the grammar and chooses canonical tokens and layout. These inputs determine whether `emit_pretty` attempts source replay or follows the canonical production walk.
 
 The structured-data codecs described in [Round-trip with format preservation](../how-to/format-preserving.md) use a separate path. This chapter concerns parsers registered through [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html) with a vendored tree-sitter `grammar.json`.
 
@@ -28,7 +28,7 @@ These rules provide defaults rather than a language formatter. A [`FormatPolicy`
 
 The parse walker records `start-byte` and `end-byte` constraints, anchored `interstitial-N` fragments, choice traces, and leaf `literal-value` constraints. A leading byte run outside the document root, such as a byte-order mark, is stored as `doc-prefix`. [Layout enrichment](./layout-enrichment.md) gives the complete division between layout and content constraints.
 
-`emit_pretty` attempts verbatim subtree replay when the recorded fragments tile a vertex's entire byte span. It gathers literal and interstitial fragments from the reachable subtree, orders them by their byte positions, rejects holes or inconsistent spans, and emits a `Verbatim` token only when the cursor reaches the recorded end byte exactly. If the check fails, the emitter returns to the production walk for that subtree.
+`emit_pretty` attempts verbatim subtree replay when the recorded fragments tile a vertex's entire original byte span. It gathers literal and interstitial fragments from the reachable subtree, orders them by their recorded positions, rejects holes or inconsistent spans, and emits a `Verbatim` token only when the span cursor reaches the recorded end byte exactly. Fragment text may have changed length after parsing; coverage is determined from the original positions, while the edited text is what replay emits. If the check fails, the emitter returns to the production walk for that subtree.
 
 External scanner text or a newly inserted child may leave a gap in the recorded span. Treating an incomplete fragment set as source would silently omit bytes; declining replay keeps the output on the grammar-derived path.
 
@@ -36,7 +36,7 @@ External scanner text or a newly inserted child may leave a gap in the recorded 
 
 ## Choosing a grammar alternative
 
-A `CHOICE` can be easy to resolve. A field name may distinguish the alternatives, a literal child may match one string alternative, or only one branch may admit the first unconsumed edge. An internal acceptance predicate states this test inductively over production trees. It accounts for fields, symbols, aliases, nullable sequence prefixes, nested choices, and transparent wrappers.
+The selector resolves a `CHOICE` from local evidence when a field name distinguishes the alternatives, a literal child matches one string alternative, or only one branch admits the first unconsumed edge. An internal acceptance predicate states this test inductively over production trees. It accounts for fields, symbols, aliases, nullable sequence prefixes, nested choices, and transparent wrappers.
 
 Ambiguous choices require more evidence. Parsed schemas can carry anonymous token traces in `ptrace-*`, field-bound literal values in `field:*`, the pre-alias grammar symbol in `pre-alias-symbol`, positional interstitials, and `chose-alt-*` witnesses. The selector uses these constraints to reject alternatives that contradict a token set, an alias source, or the named children produced by the original parse. It also prevents one recorded separator from being consumed repeatedly at later choice sites.
 
@@ -71,6 +71,8 @@ The allowlist is kept in sorted order because the status lookup uses binary sear
 Canonical emission has four material limits. First, a synthesized schema may omit the literal or field evidence needed to distinguish choice branches with the same children. The emitter then makes a deterministic default choice. Second, source-dependent external tokens such as heredoc bodies and raw-string content need captured `literal-value` constraints; without them, placeholder defaults may emit no text.
 
 Third, the emitter does not add parentheses from an expression precedence analysis. A parsed schema can retain explicit parentheses through its syntax and layout evidence, but a hand-built expression can be ambiguous or reparse with a different tree. Finally, `Generic` status records that a grammar is available, not that arbitrary emitted output has passed a round-trip corpus oracle.
+
+The tree-sitter walk that produces the schema has a separate nesting bound. `WalkerConfig::max_depth` defaults to 128 and returns `ParseError::NestingTooDeep` beyond that depth. Wide sibling lists do not consume this depth; a regression test covers a 20,000-element array and checks linear walking and byte-exact replay.
 
 Exact source preservation and canonical generation thus have different inputs. Retain the decorated schema for replay. Use [Decorate an abstract schema](../how-to/decorate-schemas.md) when an abstract schema should receive one canonical layout, and consult the verification status before treating a protocol's emitter as a checked backend.
 

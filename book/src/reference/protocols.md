@@ -4,7 +4,7 @@ A [protocol](../glossary.md#protocol) names a schema language together with its 
 
 ## Semantic protocols
 
-The generic dispatch functions accept 54 semantic protocols. Names in this table are the canonical hyphenated strings accepted by [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html); underscore spellings are normalized before dispatch.
+The generic dispatch functions accept 54 semantic protocols. Names in this table are the canonical hyphenated strings accepted by [`parse_schema_document`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_document.html) or [`parse_schema_source`](https://docs.rs/panproto-protocols/latest/panproto_protocols/fn.parse_schema_source.html). Underscore spellings are normalized before dispatch.
 
 | Category module | Protocol names |
 |---|---|
@@ -31,11 +31,13 @@ The `raw_file` module is the text-or-binary fallback used during project assembl
 
 The exported `document_parser_protocols`, `source_parser_protocols`, `bundle_parser_protocols`, and `bundle_project_protocols` arrays are the lookup sources for these sets.
 
-Protocol availability also depends on the surface. The current `schema` CLI resolves protocol theories only for `atproto`. The C and WebAssembly theory-registry helpers recognize `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`, while their protocol lookup tables expose the 54 names above. Callers should distinguish parser lookup from theory-registry support.
+Protocol availability also depends on the surface. The current `schema` CLI resolves protocol theories only for `atproto`. The C and WebAssembly theory-registry helpers recognize `atproto`, `json-schema`, `graphql`, `sql`, and `protobuf`, while their protocol lookup tables expose the 54 names above.
 
 ## Registration behavior
 
-Each semantic protocol module exposes `protocol()` and `register_theories()`. A registrar builds named schema and instance theories from reusable components through `pushout_by_name`. A failed named pushout panics when the registrar is called. Rewrite-system validation in the shared registration helpers is advisory and prints to stderr rather than blocking registration; [What panproto verifies](../explanation/what-is-verified.md#schemas-theories-and-migrations) gives the precise boundary.
+Each semantic protocol module exposes `protocol()` and `register_theories()`. Most registrars call shared theory-group constructors. Those constructors panic if a named pushout fails, rewrite analysis cannot complete, two rewrite paths fail to rejoin (a non-joining critical pair), or the lexicographic-path-order termination check fails. Registration thus treats these outcomes as internal theory-definition defects, not recoverable input errors.
+
+The ATProto registrar is different. It inserts its five component theories first, then inserts each composed schema or instance theory only when the corresponding `pushout_by_name` call succeeds. Its `register_theories()` function has no `Result`, so a failed composition is omitted rather than returned to the caller. [What panproto verifies](../explanation/what-is-verified.md#schemas-theories-and-migrations) gives the boundary between these construction-time gates and checks on user schemas.
 
 The source tree is the catalog authority:
 
@@ -47,7 +49,7 @@ The source tree is the catalog authority:
 
 ## Source-code grammars
 
-`panproto-grammars` defines 261 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset; callers do not receive all grammars unless their selected feature set includes them.
+`panproto-grammars` defines 261 individual `lang-*` features under `group-all`. A selected feature contributes a tree-sitter `Language` and its vendored AST metadata to [`ParserRegistry`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html). The default `group-core` is a subset. Callers do not receive all grammars unless their selected feature set includes them.
 
 [`emit_verification_status`](https://docs.rs/panproto-parse/latest/panproto_parse/struct.ParserRegistry.html#method.emit_verification_status) reports test coverage for the registered parser, not a proof about all inputs:
 
@@ -61,7 +63,7 @@ The verified set currently contains 255 names. [Source-code emission](../explana
 
 ## Defining a protocol
 
-[Build a custom protocol](../how-to/build-protocol.md) covers theory declaration, registration, parsing, and emission. Adding a Rust module to `panproto-protocols` does not automatically extend the CLI, C, or WebAssembly lookup matches; each exposed surface needs its own dispatch arm.
+[Build a custom protocol](../how-to/build-protocol.md) covers theory declaration, registration, parsing, and emission. Adding a Rust module to `panproto-protocols` does not automatically extend the CLI, C, or WebAssembly lookup matches. Each exposed surface needs its own dispatch arm.
 
 ## See also
 

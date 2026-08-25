@@ -4,67 +4,56 @@
 [![docs.rs](https://docs.rs/panproto-parse/badge.svg)](https://docs.rs/panproto-parse)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Parses source code in 259 programming languages into panproto schema graphs using tree-sitter grammars.
+Full-AST source parsing and schema emission over bundled tree-sitter grammars.
 
-## What it does
+## Grammar selection
 
-Tree-sitter parses source code into an abstract syntax tree (AST): a tree of named node types (`function_definition`, `class_declaration`, `import_statement`) connected by named fields (`name`, `body`, `parameters`). Panproto converts this AST structure into a schema graph where each node type becomes a vertex kind and each field name becomes an edge kind. The schema graph represents the full structure of the source file as panproto data.
+`panproto-grammars` vendors 261 grammar feature entries. `panproto-parse` does not
+enable all of them by default. Its default `group-core` feature enables Python,
+JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust. Enable `group-all`,
+another group, or individual `lang-*` features to select a different set. A
+`ParserRegistry` contains only parsers compiled into that build.
 
-The theory for each language (the formal description of what the schema graph for that language looks like) is extracted automatically from the grammar's `node-types.json` file. Because the theory is always derived from the grammar itself, it stays in sync automatically as grammars are updated. One `AstWalker` implementation handles all 261 languages; there is no per-language parsing code.
+[Tree-sitter](https://www.thestrangeloop.com/2018/tree-sitter---a-new-parsing-system-for-programming-tools.html)
+produces concrete syntax trees. Panproto's generic walker turns named nodes and fields
+into a schema and records byte positions and interstitial text as constraints.
+`AstParser::emit` replays that recorded layout. Exact replay thus depends on
+keeping the parse-produced schema and its layout constraints intact.
 
-Alongside each schema vertex, the walker records interstitial text: the keywords, punctuation, and whitespace that appear between named AST children. The emitter collects these fragments by byte position and concatenates them to reproduce the original source exactly. `emit(parse(source)) == source` for any file the grammar can parse.
+`emit_pretty` instead derives a canonical rendering from vendored `grammar.json` data
+and the generic cassette layer. `emit_verification_status` distinguishes protocols
+with dedicated corpus or backend tests (`Verified`), registered protocols using only
+the generic path (`Generic`), and protocols that are unavailable or lack the needed
+grammar data (`Unsupported`). The current verified allowlist has 255 names. This is a
+test-coverage classification, not a proof for arbitrary schemas.
 
-For schemas that were built by hand (without an originating CST), the `AstParser::emit_pretty` method renders source bytes by walking the grammar's production rules from `grammar.json`. Per-language implementations currently ship for JSON, TOML, Rust, Python, and Go; YAML is pending. Languages without a custom implementation return `ParseError::EmitFailed` from the default trait method.
-
-The `parse_emit_lens` module exposes the parse/emit pipeline as an asymmetric lens with checkable laws. `ParseEmitLens` packages a single language's parse and emit into a `Lens<bytes, schema>`; `check_emit_parse` and `check_parse_emit` verify the EmitParse retraction (`parse(emit(s)) ≅ s` modulo byte positions) and ParseEmit stability (`emit(parse(b)) == b` for parseable bytes) on concrete inputs. Structural equivalence is witnessed by `kind_multiset` (vertex-kind multiset) and `edge_multiset` (over `(src_kind, edge_kind, tgt_kind)` triples); `strip_complement` removes byte-position constraints while preserving the discriminators that drove non-deterministic choices. `first_divergence` reports the first key where two schemas differ for diagnostic output.
-
-## Quick example
+## Example
 
 ```rust,ignore
-use panproto_parse::registry;
+use panproto_parse::ParserRegistry;
+use std::path::Path;
 
-// All 261 languages are registered automatically with the default feature set.
-let reg = registry::global();
-
-// Parse a Rust source file into a schema graph.
-let schema = reg.parse_file("src/main.rs")?;
-
-// Emit the schema back to source code.
-let source = reg.emit_file("src/main.rs", &schema)?;
-assert_eq!(source, std::fs::read("src/main.rs")?);
-
-// Extract the theory for the Rust language.
-let parser = reg.get("rust").unwrap();
-let theory_meta = parser.theory_meta();
+let registry = ParserRegistry::new();
+let bytes = std::fs::read("src/main.rs")?;
+let schema = registry.parse_file(Path::new("src/main.rs"), &bytes)?;
+let replayed = registry.emit_with_protocol("rust", &schema)?;
 ```
 
-## API overview
+## Public API
 
-| Export | What it does |
-| ------ | ------------ |
-| `ParserRegistry` | Holds all language parsers; dispatches by protocol name or file extension |
-| `registry::global()` | Returns the global registry populated from `panproto-grammars` |
-| `AstParser` | Trait for a single-language parser and emitter (implement to add a language); `emit_pretty` renders by-construction schemas from `grammar.json` production rules |
-| `ParseEmitLens` | Parse/emit packaged as an asymmetric lens for a single language |
-| `check_emit_parse`, `check_parse_emit` | Verify the lens's two laws on concrete inputs |
-| `kind_multiset`, `edge_multiset` | Structural-equivalence witnesses used by `check_emit_parse` |
-| `strip_complement` | Remove byte-position constraints while preserving choice discriminators |
-| `AstWalker` | Generic tree-sitter walker that works for all languages |
-| `WalkerConfig` | Per-language customization: scope hints, formatting constraints |
-| `extract_theory_from_node_types` | Derive a panproto theory from a grammar's `node-types.json` |
-| `ExtractedTheoryMeta` | The derived theory plus sort counts and field statistics |
-| `IdGenerator` | Scope-aware vertex ID generation for full-AST schemas |
-| `ParseError` | Error type for parse and emit failures |
+| Item | Purpose |
+|------|---------|
+| `ParserRegistry` | Register, detect, parse, emit, and query enabled languages |
+| `AstParser` | Interface implemented by a language parser |
+| `AstWalker`, `WalkerConfig` | Generic CST-to-schema traversal |
+| `extract_theory_from_node_types` | Derive finite theory metadata from `node-types.json` |
+| `ParseEmitLens` | Package parse and canonical emit for one protocol |
+| `check_emit_parse`, `check_parse_emit` | Run structural law checks on concrete inputs |
+| `LayoutPolicy`, `decorate_with_parser` | Configure and synthesize layout constraints |
+| `EmitVerificationStatus` | `Verified`, `Generic`, or `Unsupported` |
 
-## Theory extraction mapping
-
-| `node-types.json` concept | panproto GAT concept |
-| ------------------------- | -------------------- |
-| Named node type | Sort (vertex kind) |
-| Required field | Mandatory operation (edge kind) |
-| Optional field | Partial operation |
-| Multiple field | Ordered operation |
-| Supertype | Abstract sort with subtype inclusions |
+The parse/emit law checkers compare documented structural witnesses after removing
+layout-only constraints. They do not return a generic `Lens<bytes, Schema>` value.
 
 ## License
 

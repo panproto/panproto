@@ -4,67 +4,50 @@
 [![docs.rs](https://docs.rs/panproto-lens-dsl/badge.svg)](https://docs.rs/panproto-lens-dsl)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Write lens specifications as config files (Nickel, JSON, or YAML) instead of Rust code.
+Loads declarative lens specifications from Nickel, JSON, or YAML.
 
-## What it does
+## Compilation
 
-Instead of constructing a `ProtolensChain` in Rust by calling combinators by hand, you write a declarative spec file describing what the lens does: rename this field, remove that one, add a computed field from this expression. The crate loads the file, validates it, and compiles it to the same `ProtolensChain` and `FieldTransform` values that Rust code would produce.
+`load` selects the evaluator from the file extension and returns a `LensDocument`.
+`compile` handles schema-parametric `steps`, `rules`, `compose`, and `symmetric`
+bodies. It needs a body vertex and a callback for named lens references. The result is
+a `CompiledLens` containing a `ProtolensChain`, value-level `FieldTransform`s,
+metadata, and optional symmetric legs.
 
-The primary format is [Nickel](https://nickel-lang.org), a typed configuration language. Nickel validates your spec against a contract before compilation, gives precise error messages when a field is missing or has the wrong type, and lets you compose multiple spec files together using record merge. JSON and YAML are also accepted for simpler cases.
+`auto` and `from_diff` bodies require `compile_with_schemas`, which takes source and
+target schemas plus a `Protocol`. After compilation it instantiates the chain at the
+source schema and compares the produced target NSID with the document's declared
+target. `load_and_compile` is schema-independent and thus rejects these two body
+forms.
 
-Specs support 19 step types covering field-level changes (`rename_field`, `remove_field`, `add_field`), value-level transforms (`apply_expr`, `compute_field`), structural changes (`hoist_field`, `nest_field`, `scoped`), and lower-level theory operations (`coerce_sort`, `merge_sorts`, `add_sort`, `drop_sort`, and others). The `auto` body variant delegates to `auto_generate` so you can auto-derive a lens from two schemas without listing any steps.
+## Step language
 
-## Quick example
+The `Step` enum currently has 19 forms. They include field addition, removal, and
+renaming. Other forms cover expression-backed value transforms, hoisting, nesting,
+scoped transforms, pullback, sort coercion and merge, and elementary changes to
+sorts, operations, or equations. The enum in
+[the API documentation](https://docs.rs/panproto-lens-dsl) is the syntax reference.
+
+## Example
 
 ```rust,ignore
-use panproto_lens_dsl::{load_and_compile};
+use panproto_lens_dsl::load_and_compile;
+use std::path::Path;
 
-let compiled = load_and_compile(
-    std::path::Path::new("migrations/v1_to_v2.ncl"),
-    "record:body",
-)?;
-// compiled.chain is a ProtolensChain ready for instantiation.
-// compiled.field_transforms contains value-level transforms.
-let lens = compiled.chain.instantiate(&v1_schema, &v2_schema)?;
+let compiled = load_and_compile(Path::new("migrations/v1_to_v2.ncl"), "record:body")?;
+let lens = compiled.instantiate(&source_schema, &protocol)?;
 ```
 
-The Nickel source for the spec above might look like:
+## Body forms
 
-```nickel
-let L = import "panproto/lens.ncl" in
-{
-  id = "com.example.user.v1-to-v2",
-  source = "com.example.user.v1",
-  target = "com.example.user.v2",
-  steps = [
-    L.rename "createdAt" "created_at",
-    L.remove "internalId",
-    L.add "displayName" "string" "",
-  ],
-} | L.Lens
-```
-
-## API overview
-
-| Export | What it does |
-|--------|-------------|
-| `load` | Load a `.ncl`, `.json`, `.yaml`, or `.yml` file into a `LensDocument` |
-| `load_dir` | Load all spec files from a directory, returning successes and per-file errors separately |
-| `compile` | Compile a `LensDocument` to a `CompiledLens` (chain + transforms) |
-| `load_and_compile` | Load and compile in one call using the built-in resolver |
-| `LensDocument` | Deserialized spec with fields `id`, `source`, `target`, and one body variant |
-| `CompiledLens` | Output: `ProtolensChain`, `FieldTransform`s, and optional `AutoSpec` |
-| `LensDslError` | Diagnostics for eval failures, expression parse errors, unresolved references |
-| `LoadDirResult` | Holds both successfully loaded documents and per-file errors |
-
-## Body variants
-
-| Variant | When to use |
-|---------|-------------|
-| `steps` | List 19 available step types in order |
-| `rules` | Pattern-match on field names or type IDs with replacement rules |
-| `compose` | Combine named lens references vertically (pipeline) or horizontally (parallel) |
-| `auto` | Auto-derive the lens from the two schemas; optionally pass quality hints |
+| Field | Compilation path |
+|-------|------------------|
+| `steps` | Compile an ordered list of `Step` values |
+| `rules` | Compile pattern and replacement rules |
+| `compose` | Resolve and combine named or inline lenses |
+| `auto` | Run automatic generation with concrete schemas |
+| `from_diff` | Derive steps from a concrete structural diff |
+| `symmetric` | Compile left and right protolens chains |
 
 ## License
 

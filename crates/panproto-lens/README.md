@@ -4,73 +4,70 @@
 [![docs.rs](https://docs.rs/panproto-lens/badge.svg)](https://docs.rs/panproto-lens)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Bidirectional converters (lenses) for schema data, with reusable migration templates (protolenses).
+Schema-indexed lenses and reusable protolens transformations.
 
-## What it does
+## Concrete lenses
 
-A lens is a pair of functions: `get` converts data forward (old schema to new, dropping fields the new schema doesn't need), and `put` converts it back (new to old, recovering the dropped fields from a stored complement). The complement is what `get` set aside so that `put` can reconstruct the original without guessing. Two laws verify correctness: `GetPut` (put after get recovers the original) and `PutGet` (get after put gives back what you put in).
+`Lens` contains a source schema, a target schema, and a compiled migration. `get`
+maps a source `WInstance` to a target view and returns a `Complement`. `put` uses a
+target view and complement to reconstruct a source instance.
 
-A protolens generalizes this: instead of a lens fixed to two specific schemas, a protolens is a template that works for any schema satisfying a condition. When you call `instantiate` on a protolens with a concrete schema, you get back a `Lens` for that schema. This means a single protolens covers whole families of schema versions rather than one pair. `auto_generate` derives a protolens chain automatically from any two schemas by analyzing the structural difference.
+`check_laws` runs two checks on a concrete input. GetPut compares the source with
+`put(get(source))`. PutGet checks both the original view and a generated leaf-value
+mutation. Derived view fields are compared modulo recomputation. A successful call is
+evidence for the tested values, not a proof over every possible instance.
 
-Each lens (and each step in a protolens chain) is classified by its optic kind: `Iso` when both directions are lossless, `Lens` when the forward direction drops information, `Prism` when the forward direction can fail (optional fields), and `Traversal` when it applies to every element of a collection. This classification lets you reason about which migrations can be reversed and which cannot.
+This API follows the well-behaved asymmetric lens account of
+[Foster et al. (2007)](https://doi.org/10.1145/1232420.1232424). Its use of an
+explicit complement is also related to the constant-complement formulation of the
+view-update problem in [Bancilhon and Spyratos (1981)](https://doi.org/10.1145/319628.319634).
 
-## Quick example
+## Protolenses and generation
+
+A `Protolens` applies one `TheoryEndofunctor` to any schema satisfying its
+precondition. `ProtolensChain::instantiate(schema, protocol)` applies the steps to a
+single starting schema and returns the composed concrete lens. It does not accept a
+separately supplied target schema.
+
+`auto_generate(src, tgt, protocol, config)` collects alignment evidence, searches for
+a schema correspondence, factorizes it into elementary transformations, builds a
+chain, and instantiates that chain at `src`. Search may return a partial span at tiers
+that permit one. Heuristic evidence affects candidate selection, while the emitted
+correspondence still passes the search's structural checks. The current implementation
+does not call a language model.
+
+## Example
 
 ```rust,ignore
-use panproto_lens::{auto_generate, get, put, check_laws};
+use panproto_lens::{AutoLensConfig, auto_generate, check_laws, get, put};
 
-// Derive a lens from two schema versions automatically.
-let result = auto_generate(&v1_schema, &v2_schema)?;
-
-// Forward: project a v1 instance to a v2 view, keeping the complement.
-let (view, complement) = get(&result.lens, &instance)?;
-
-// Backward: restore the v1 instance from the v2 view and complement.
-let restored = put(&result.lens, &view, &complement)?;
-
-// Verify both round-trip laws.
-check_laws(&result.lens, &instance)?;
-
-// The protolens chain works across any compatible schema pair.
-let lens_v3 = result.chain.instantiate(&v3_src, &v3_tgt)?;
+let generated = auto_generate(&old_schema, &new_schema, &protocol, &AutoLensConfig::default())?;
+let (view, complement) = get(&generated.lens, &source_instance)?;
+let restored = put(&generated.lens, &view, &complement)?;
+check_laws(&generated.lens, &source_instance)?;
 ```
 
-## API overview
+## Main API groups
 
-| Export | What it does |
-|--------|-------------|
-| `Lens` | An asymmetric lens: source schema, target schema, compiled migration |
-| `get` | Forward direction: project an instance, returning `(view, complement)` |
-| `put` | Backward direction: restore source from a view and its complement |
-| `Complement` | The data `get` dropped, needed by `put` |
-| `compose` | Chain two lenses sequentially |
-| `Protolens` | A reusable lens template parameterized by schema |
-| `ProtolensChain` | A sequence of protolenses that composes as a single unit |
-| `auto_generate` | Derive a `ProtolensChain` and `Lens` from two schemas |
-| `auto_generate_candidates` | Return a ranked list of candidate protolens chains with per-step confidence and provenance |
-| `Stringency` | Alignment tier: `Strict`, `Balanced`, `Lenient`, `Exploratory`; `uses_*` methods expose per-strategy participation |
-| `AutoLensConfig` / `HintSpec` | Configuration for auto-lens generation, carrying a `Stringency` tier and optional hints |
-| `run_strategies_for_tests` | Test-only entry point that runs the configured alignment strategies without going through the full candidate pipeline |
-| `combinators::rename_field` | Rename a field's property key (Iso) |
-| `combinators::remove_field` | Drop a field, capturing it in the complement (Lens) |
-| `combinators::add_field` | Add a field with a default value (Lens) |
-| `combinators::hoist_field` | Collapse one level of nesting (Lens) |
-| `combinators::nest_field` | Insert an intermediate vertex between parent and child (Lens) |
-| `combinators::map_items` | Apply a pipeline to each element of an array (Traversal) |
-| `SymmetricLens` | A bidirectional lens pairing two protolens chains with shared complement |
-| `EditLens` | Incremental lens: translate individual edits rather than full instances |
-| `OpticKind` | Classification: `Iso`, `Lens`, `Prism`, `Affine`, `Traversal` |
-| `classify_transform` | Classify a theory transform into its optic kind |
-| `simplify_steps` | Normalize a step sequence (cancel inverses, fuse renames) |
-| `check_laws` / `check_get_put` / `check_put_get` | Verify round-trip laws on a test instance |
-| `LensGraph` | Weighted graph of lenses with shortest-path queries |
-| `diff_to_protolens` | Derive a protolens chain from a structural schema diff |
-| `coercion_laws::CoercionSampleRegistry` | Per-`ValueKind` sample inputs for coercion law checks; `with_defaults()` covers every primitive kind |
-| `coercion_laws::check_theory` | Run sample-based round-trip checks on every directed equation in a theory, returning a `TheoryCoercionReport` |
-| `coercion_laws::CoercionLawValidation` | Extension trait adding `validate_coercion_law` to `DirectedEquation`; `debug_assert!`s on failure in debug builds |
-| `auto_lens::filter_coerce_proposals_by_law_check` | Partition coerce proposals into kept/dropped by running their witnesses against a sample registry |
+| Group | Items |
+|-------|-------|
+| Asymmetric lenses | `Lens`, `get`, `put`, `Complement`, `compose` |
+| Law checks | `check_laws`, `check_get_put`, `check_put_get`, `instances_equivalent` |
+| Templates | `Protolens`, `ProtolensChain`, `combinators` |
+| Automatic generation | `auto_generate`, `auto_generate_with_hints`, candidate variants, `AutoLensConfig` |
+| Symmetric and edit forms | `SymmetricLens`, `EditLens`, `EditPipeline` |
+| Classification | `OpticKind`, `classify_transform`, `refine_scoped_optic` |
+| Coercion checks | `coercion_laws` sample registries and reports |
 
-For declarative lens specifications in Nickel, JSON, or YAML, see [`panproto-lens-dsl`](../panproto-lens-dsl).
+`OpticKind` is a classification assigned from a transformation's structure. It is not
+a universal proof of the optic laws.
+
+The symmetric and edit forms use terminology from [Hofmann, Pierce, and Wagner's
+symmetric lenses](https://doi.org/10.1145/1926385.1926428) and [edit
+lenses](https://doi.org/10.1145/2103656.2103715). The optic classification uses the
+vocabulary organized by [profunctor
+optics](https://doi.org/10.22152/programming-journal.org/2017/1/7). These sources
+motivate the interfaces; panproto's concrete checks determine which laws are tested.
 
 ## License
 

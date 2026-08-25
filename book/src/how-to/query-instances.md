@@ -1,55 +1,67 @@
 # Query instances
 
-An instance query can filter records, select fields, or follow schema edges. Predicates and projections use the [expression language](../reference/expression-language.md).
+The query engine selects nodes by schema anchor, follows edge kinds, filters with an expression, and returns selected fields. Rust and TypeScript expose the same operation.
 
 ## Prerequisites
 
-A schema and an instance loaded against it. The expression-language reference for predicates.
+A `Schema` and a `WInstance` loaded against it. Predicates use the [expression language](../reference/expression-language.md).
 
-## The task
+## Filter and project
 
-### Filter and project
+`panproto_inst::InstanceQuery` uses the field names `anchor`, `predicate`, `group_by`, `project`, `limit`, and `path`. `execute_query` takes the query first, the instance second, and the schema third.
 
-`executeQuery` is exported from `@panproto/core`. Its signature is `executeQuery(query, instance, wasm)` (query first, instance second, WASM module third). The query keys are `anchor`, `predicate` (an `Expr` object, not a string), `projection` (string array), `groupBy`, `limit`, and `path`.
+```rust,no_run
+use panproto_core::gat::Name;
+use panproto_core::inst::{InstanceQuery, QueryMatch, WInstance, execute_query};
+use panproto_core::schema::Schema;
 
-```ts
-import { executeQuery, parseExpr } from '@panproto/core';
+fn titles(schema: &Schema, instance: &WInstance) -> Vec<QueryMatch> {
+    let query = InstanceQuery {
+        anchor: Name::from("post"),
+        project: Some(vec!["id".into(), "title".into()]),
+        limit: Some(50),
+        ..InstanceQuery::default()
+    };
 
-const recent = executeQuery(
-  {
-    anchor: 'post',
-    predicate: parseExpr('post.created_at > "2024-01-01"', p._wasm),
-    projection: ['id', 'title'],
-  },
-  instance,
-  p._wasm,
-);
+    execute_query(&query, instance, schema)
+}
 ```
 
-The predicate is evaluated against each matched node; `projection` selects the fields included in each `QueryMatch`.
+The anchor selects matching instance nodes. `project` limits each result's `fields` map. It does not change the matched node's `value`, identifier, or anchor.
 
-### Following edges
+## Follow edges
 
-Use the `path` field to traverse from the anchor before predicate matching:
+`path` contains edge kinds, not target vertex names or property labels. The executor first selects nodes matching `anchor`, then follows each edge kind in order:
 
-```ts
-const userPosts = executeQuery(
-  { anchor: 'user', path: ['authored'], projection: ['title'] },
-  instance,
-  p._wasm,
-);
+```rust,no_run
+# use panproto_core::gat::Name;
+# use panproto_core::inst::{InstanceQuery, WInstance, execute_query};
+# use panproto_core::schema::Schema;
+# fn run(schema: &Schema, instance: &WInstance) {
+let query = InstanceQuery {
+    anchor: Name::from("user"),
+    path: vec![Name::from("authored")],
+    project: Some(vec!["title".into()]),
+    ..InstanceQuery::default()
+};
+let posts = execute_query(&query, instance, schema);
+# let _ = posts;
+# }
 ```
 
-To filter on edge presence, build a predicate with the instance-aware builtins (`Edge`, `Children`, `HasEdge`, `EdgeCount`) using `ExprBuilder` or `parseExpr`.
+Predicates are `panproto_expr::Expr` values. The evaluator binds a node's extra fields, scalar child values reached by labeled edges, and the metadata variables `_anchor`, `_id`, `_value`, and `_children_count`. Instance-aware builtins such as `Edge`, `Children`, `HasEdge`, and `EdgeCount` receive the current instance and node.
 
-## Verification
+## TypeScript boundary
 
-`executeQuery` serializes the query and encoded instance directly to the WASM query engine. It does not accept a schema argument and does not perform a separate schema-level predicate type-check. Exercise each predicate against representative instances and treat a thrown `WasmError` as a failed query.
+`@panproto/core` exports `executeQuery(query, instance, wasm)`. The wrapper converts the public `groupBy`, `projection`, and `nodeId` names to and from Rust's `group_by`, `project`, and `node_id` wire fields. It also supplies the schema handle retained by the `Instance`, so callers do not encode the schema separately.
 
-## Common mistakes
+The WASM module keeps `execute_query(queryBytes, instanceBytes, schemaBytes)` for direct byte-oriented callers. SDK code uses `execute_query_with_schema_handle` to avoid serializing a schema that is already in the WASM resource table.
 
-- Using `Edge`, `Children`, etc. in the standard evaluator. They return `Null` outside an instance environment. The query API sets the environment correctly; reaching for the bare evaluator does not.
-- Hitting the step budget on large records. Heavy string operations on long fields will exceed the budget; either narrow the predicate or raise the budget at the call site.
+## Verification and limits
+
+`execute_query` returns a vector and does not return predicate errors. A predicate evaluation that fails or does not produce `true` excludes that node. The executor accepts a schema argument but does not use it to reject an anchor absent from the schema. The byte-oriented WASM entry point rejects missing or malformed schema bytes, while the handle entry point rejects an invalid or non-schema handle. Neither entry point type-checks the query against the schema after resolving it.
+
+Expression evaluation uses `EvalConfig::default()`. `InstanceQuery` exposes no budget field, and the query functions expose no configuration argument, so a caller cannot raise that budget at the query call site.
 
 ## See also
 

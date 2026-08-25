@@ -3,29 +3,56 @@
 [![crates.io](https://img.shields.io/crates/v/panproto-wasm.svg)](https://crates.io/crates/panproto-wasm)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-WebAssembly build of the panproto engine, used internally by the TypeScript SDK.
+`panproto-wasm` is the wasm-bindgen boundary used by the
+[`@panproto/core`](../../bindings/typescript) package. JavaScript and
+TypeScript applications should normally use that package.
 
-## What it does
+## Boundary model
 
-This crate compiles the full panproto Rust engine to a `.wasm` binary that runs in browsers and Node.js. It is not intended for direct use; the TypeScript SDK (`@panproto/core`) wraps it with a TypeScript API. If you are building a TypeScript or JavaScript application, use the SDK instead.
+Protocols, schemas, compiled migrations, I/O registries, GAT theories,
+in-memory repositories, protolens chains, compiled lens documents, symmetric
+lenses, and data sets live in a thread-local Rust table. JavaScript receives a
+`u32` handle for each resource. `free_handle()` releases a slot, and later
+allocations may reuse that handle value.
 
-The boundary design uses opaque integer handles: every schema, migration, lens, instance, theory, and VCS repository you create is stored in a thread-local slab allocator and you receive a `u32` handle back. Data crosses the WASM boundary as MessagePack byte slices rather than JavaScript objects, which avoids the per-field serialization cost of `serde-wasm-bindgen` for structured data. Handles are freed explicitly with `free_handle()` when you are done.
+Instances do not occupy handle slots. They cross the boundary as MessagePack
+bytes, as do most structured requests and responses. The generated
+`panproto_wasm.d.ts` file is the authoritative list of wasm-bindgen exports and
+their JavaScript signatures.
 
-There are 77 entry points covering the full panproto lifecycle: schema building, migration compilation and execution, breaking change detection, instance I/O across 77 format codecs, lens generation and law checking, protolens combinators, GAT theory operations, VCS commands (init, add, commit, branch, merge, log, blame), dataset versioning, expression parsing and evaluation, fiber decomposition, and preferred conversion path queries.
+The default I/O registry contains 50 codecs. Building with
+`format-preserving` adds the YAML, TOML, and CSV tree-sitter codecs. No feature
+is enabled by default.
 
-## Quick example
+The VCS exports use an in-memory store. They do not open or modify a Git
+repository on disk.
 
-This crate is consumed by the TypeScript SDK. Use that instead:
+## Build
+
+The TypeScript package builds the module with:
 
 ```sh
-npm install @panproto/core
+wasm-pack build crates/panproto-wasm --target web --release \
+  --out-dir pkg --out-name panproto_wasm
 ```
 
-If you need to load the WASM module directly (for example, in a custom runtime):
+Direct consumers must manage resource handles and use the MessagePack wire
+shapes expected by the Rust functions. The package's TypeScript wrappers show
+those encodings.
 
-```sh
-wasm-pack build --target bundler crates/panproto-wasm
-```
+## Query ABI
+
+The published `execute_query(query_bytes, instance_bytes, schema_bytes)` export
+accepts three MessagePack byte arrays, including a complete encoded schema.
+The companion
+`execute_query_with_schema_handle(query_bytes, instance_bytes, schema_handle)`
+accepts a `u32` schema handle and avoids serializing a schema already resident
+in the resource table. The TypeScript SDK uses the handle-based companion.
+
+Direct callers of either export must use the Rust query field names and its
+externally tagged expression representation. The TypeScript SDK's
+`executeQuery` wrapper performs those conversions and maps result fields back
+to its public camel-case API.
 
 ## License
 

@@ -4,20 +4,22 @@
 [![docs.rs](https://docs.rs/panproto-grammars/badge.svg)](https://docs.rs/panproto-grammars)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Pre-compiled tree-sitter grammars for 259 programming languages, used by `panproto-parse`.
+Build-time tree-sitter grammar registry used by `panproto-parse`.
 
 ## What it does
 
-This crate bundles tree-sitter grammar sources for up to 261 languages and compiles them from C at build time. Each `Grammar` value provides the tree-sitter `Language` object needed for parsing, the raw `node-types.json` bytes needed for theory extraction, the optional `grammar.json` production-rule table (used by `panproto-parse`'s `emit_pretty` to render by-construction schemas), and the file extensions the grammar handles.
+`grammars.toml` defines 261 grammar entries. Each `lang-{name}` feature selects one entry, and the `group-*` features select fixed sets. The default feature is `group-core`, which selects 11 languages: Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
 
-The crate is published to crates.io with zero vendored grammars: the C sources weigh roughly 500MB, well above the 10MB package limit. The published version exposes the API surface so downstream crates compile, and consumers register individual grammar crates against `panproto_parse::ParserRegistry`. Inside the workspace, `build.rs` compiles all vendored grammars, so the in-tree build of `panproto-parse` (with the default `grammars` feature) gets the full set.
+In a workspace build, `build.rs` compiles the enabled vendored C or C++ sources. A missing source directory, missing `parser.c`, or compilation failure causes that grammar to be omitted. Thus `grammars()` reports the grammars that compiled, not every feature that Cargo enabled.
 
-Each language is gated behind a `lang-{name}` feature flag. Group features enable sets of languages at once. The default group (`group-core`) includes Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
+The crates.io package cannot include the workspace-level `grammars.toml` and `grammars/` tree. Its build script consequently generates an empty registry. A Rust application using the published crate must register parsers from individual tree-sitter grammar crates with `panproto_parse::ParserRegistry`. The companion crates described below are internal, unpublished crates used to build Python wheels from a repository checkout.
 
-## Quick example
+## Example
+
+This example assumes a repository build in which the default group compiled successfully.
 
 ```rust,ignore
-// Iterate all enabled grammars and print their names.
+// Iterate all successfully compiled grammars and print their names.
 for grammar in panproto_grammars::grammars() {
     println!("{}: {:?}", grammar.name, grammar.extensions);
 }
@@ -35,11 +37,11 @@ assert!(panproto_grammars::has_grammar("python"));
 
 | Export | What it does |
 |--------|-------------|
-| `grammars()` | Returns all `Grammar` values enabled by feature flags, sorted by name |
+| `grammars()` | Returns the successfully compiled `Grammar` values, sorted by name |
 | `has_grammar(name)` | Returns `true` if the named grammar is compiled in |
 | `extension_to_language(ext)` | Maps a file extension to its grammar name, or `None` if not recognized |
-| `grammar_count()` | Returns the number of enabled grammars |
-| `Grammar` | Struct holding `name`, `extensions`, `language` (`tree_sitter::Language`), `node_types` bytes, and optional `grammar_json` production-rule bytes |
+| `grammar_count()` | Returns the number of successfully compiled grammars |
+| `Grammar` | Holds `name`, `extensions`, `language`, `node_types`, and optional `tags_query` and `grammar_json` data |
 
 ## Feature flags
 
@@ -55,12 +57,12 @@ assert!(panproto_grammars::has_grammar("python"));
 | `group-devops` | Dockerfile, Terraform, HCL, Nix, Bash, YAML, TOML, Make, CMake |
 | `group-mobile` | Swift, Kotlin, Dart, Java, Objective-C |
 | `group-music` | SuperCollider, LilyPond, ABC, Csound, ChucK, Glicol, Tidal mini-notation, Strudel mini-notation |
-| `group-all` | All 261 languages |
+| `group-all` | All 261 manifest entries |
 | `lang-{name}` | Any individual language by name |
 
 ## Companion grammar packs
 
-When the panproto Python wheel is installed from PyPI, only the `group-core` 11 languages are baked into the core `_native` extension. The remaining grammars are distributed as separately-installable companion packs, one wheel per group:
+The core Python extension is built with the default `group-core` feature. Companion wheels add one feature group each. Installing a companion registers a `panproto.grammars` entry point. The public `panproto.AstParserRegistry()` factory reads those entry points whenever it constructs a registry.
 
 | Wheel | Grammar group |
 |-------|--------------|
@@ -75,7 +77,7 @@ When the panproto Python wheel is installed from PyPI, only the `group-core` 11 
 | `panproto-grammars-music` | `group-music` |
 | `panproto-grammars-all` | `group-all` |
 
-Each is a separate pyo3 cdylib depending on `panproto-grammars` with the named feature flag. The Rust source for the companion crates lives at `crates/panproto-grammars-<group>/`; the Python wheel scaffolding at `bindings/python-grammars-<group>/`. Source builds against `panproto-grammars` directly do not need the companions; they pick a feature flag and link the grammar bytes in directly.
+Each wheel contains a separate pyo3 cdylib built from `crates/panproto-grammars-<group>/`. Its package metadata and entry point live under `bindings/python-grammars-<group>/`. Duplicate grammar names are ignored when a companion overlaps the core group or another installed pack. A companion that fails to load or supplies invalid metadata produces a runtime warning, and its affected grammars remain unavailable.
 
 ## License
 

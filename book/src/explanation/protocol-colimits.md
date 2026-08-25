@@ -10,7 +10,7 @@ The constrained-multigraph group illustrates the process. Its first pushout comb
 
 The helper `pushout_by_name` constructs identity-by-name inclusions for the shared sorts and operations. It first requires every requested name to exist on both sides, then invokes the GAT colimit construction. Construction checks that the resulting cocone commutes. The returned `ColimitResult` also exposes `verify_universal` for checking factorization against a supplied alternative cocone; that stronger check is not implicit in every call to `pushout_by_name`.
 
-The shared registration helpers treat a failed built-in composition as a programming error and panic with a message naming the failed step. This behavior should not be generalized to every protocol-specific registration path, some of which handle composition errors locally.
+The shared registration helpers treat a failed built-in composition as a programming error and panic with a message naming the failed step. Other protocol-specific registration paths handle composition errors locally.
 
 ## Universal characterization
 
@@ -27,10 +27,10 @@ The shared library is defined in [`crates/panproto-protocols/src/theories.rs`](h
 | `ThGraph` | Vertices and directed edges with source and target. |
 | `ThConstraint` | Vertex-indexed constraints and their targets. |
 | `ThMulti` | Edge labels for parallel edges. |
-| `ThWType` | Instance nodes, arcs, and values linked to schema structure. |
+| `ThWType` | Instance nodes, arcs, and values linked to schema structure, with two equations relating arc endpoints to schema-edge endpoints. |
 | `ThMeta` | Discriminators, extra fields, and values attached to nodes. |
 
-These five foundations declare no equations of their own. The library also defines composed or higher-level theories including `ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, and `ThGraphInstance`. A protocol registration selects the theory group appropriate to its structures and separately supplies parsing, emission, and protocol-specific rules. [Build a custom protocol](../how-to/build-protocol.md) describes that registration process.
+`ThGraph`, `ThConstraint`, `ThMulti`, and `ThMeta` declare no equations. `ThWType` declares `arc_src_anchor` and `arc_tgt_anchor`. The library also defines composed or higher-level theories including `ThSimpleGraph`, `ThHypergraph`, `ThInterface`, `ThFunctor`, `ThFlat`, and `ThGraphInstance`. A protocol registration selects the theory group appropriate to its structures and separately supplies parsing, emission, and protocol-specific rules. [Build a custom protocol](../how-to/build-protocol.md) describes that registration process.
 
 ## Related work
 

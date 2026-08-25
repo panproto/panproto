@@ -1,44 +1,31 @@
 # strudel_mini
 
-A tree-sitter grammar for [Strudel]'s mini-notation: the JavaScript-host port of TidalCycles mini-notation.
+Tree-sitter grammar for the contents of a [Strudel mini-notation](https://strudel.cc/learn/mini-notation/) string. It does not parse the surrounding JavaScript or the string delimiters.
 
-This is one of the few grammars in `panproto-grammars` authored in-repo against a documented language specification rather than vendored from an upstream `tree-sitter-strudel-mini` package; no such package exists. The companion grammar in `grammars/tidal_mini/` is its sibling for the Haskell-host original.
+## Implemented syntax
 
-## Source spec
+| Syntax | Tree-sitter rule |
+|---|---|
+| Whitespace-separated events and unsigned decimal numbers | `_pattern` |
+| `name:N` sample selection | `event` |
+| Rests written as `~` or `-` | `rest` |
+| Subdivision with `[ ]` | `group` |
+| Alternation with `< >` | `alternation` |
+| Parallel or random branches separated by `,` or `\|` | `_pattern_list` |
+| `*N`, `/N`, `@N`, `!N`, and `?N` suffixes | the corresponding suffix rule |
+| `(beats,steps)` and `(beats,steps,offset)` | `euclid_suffix` |
 
-Authored from the official Strudel mini-notation reference at <https://strudel.cc/learn/mini-notation/>. Strudel's mini-notation is a port of Tidal's; the documented differences from Tidal — verified against the page — are encoded in the grammar:
+The grammar permits `,` and `|` at the top level as well as inside brackets. It permits either separator in the same list. The parser records syntax only and does not assign distinct semantics to the two separators.
 
-- `-` is accepted as an alternative spelling of the rest token, in addition to `~`.
-- The Tidal-specific `_` elongation marker is *not* in the Strudel docs (only the `@` suffix is).
-- The Tidal-specific `{}` polymetric brackets are *not* in the Strudel docs.
-- The Tidal-specific `%N` numeric ratio suffix is *not* in the Strudel docs.
-- The Tidal-specific top-level `.` grouping shorthand is *not* in the Strudel docs.
-- Strudel allows `|` and `,` at the top level of the pattern (per the example `"[g3,b3,e4] | [a3,c3,e4]"`); Tidal restricts those to inside containers.
+## Limits
 
-Every construct in this grammar is grounded in a documented example from the Strudel page; per-rule comments cite the section it came from.
+This is a subset of the current Strudel notation. Identifiers match `[A-Za-z][A-Za-z0-9_]*`, and numbers are unsigned integers or decimals. The grammar does not accept pitch spellings containing `#`. It also omits `_` elongation, even though the current Strudel reference includes `_` in its review example. Tidal-specific `{ }`, `%N`, and top-level `.` forms are not implemented.
 
-## Coverage
+These limits describe the checked-in `grammar.js`. The README does not claim conformance with every construct accepted by Strudel.
 
-| Construct | Spec example | Grammar rule |
-|---|---|---|
-| Whitespace-separated events | `note("c e g b")` | `_pattern` |
-| Step repetition (group) | `note("[e5 b4 d5 c5]*2")` | `repeat_suffix` on `group` |
-| Step division (group) | `note("[e5 b4 d5 c5]/2")` | `divide_suffix` on `group` |
-| Time subdivision `[ ]` | `note("e5 [b4 c5] d5")` | `group` |
-| Alternation `< >` | `note("<e5 b4 d5 c5>")` | `alternation` |
-| Polyphony `,` | `note("[g3,b3,e4]")` | `,` separator in `_pattern_list` |
-| Elongation `@` | `note("<[g3,b3,e4]@2 [a3,c3,e4]>")` | `elongate_suffix` |
-| Replication `!` | `note("<[g3,b3,e4]!2 [a3,c3,e4]>")` | `replicate_suffix` |
-| Probability `?` | `note("[g3,b3,e4]*8?")`, `?0.1` | `probability_suffix` |
-| Random selection `\|` | `note("[g3,b3,e4] \| [a3,c3,e4]")` | top-level `_pattern_list` |
-| Euclidean | `s("bd(3,8,0)")` | `euclid_suffix` |
-| Rest `~` or `-` | `note("[b4 [~ c5] d5 e5]")` | `rest` (choice of `~` and `-`) |
+## Files and tests
 
-14 corpus tests under `test/corpus/spec_examples.txt`. All 14 pass.
-
-## Usage
-
-`grammars/strudel_mini/` contains both the source `grammar.js` and the generated `src/parser.c` / `src/grammar.json` / `src/node-types.json`, so panproto's `panproto-grammars` build picks the grammar up directly via the `lang-strudel_mini` feature. Local iteration:
+`grammar.js` is the source. `src/parser.c`, `src/grammar.json`, and `src/node-types.json` are generated tree-sitter artifacts consumed by `panproto-grammars`. The corpus at `test/corpus/spec_examples.txt` contains 14 cases. The duplicate path `test/test/corpus/spec_examples.txt` currently contains the same file.
 
 ```bash
 cd grammars/strudel_mini
@@ -46,6 +33,8 @@ tree-sitter generate
 tree-sitter test
 ```
 
-The grammar reaches Python through the `panproto-grammars-music` companion pack: `pip install panproto-grammars-music` adds `strudel_mini` to `panproto.AstParserRegistry()`.
+The `lang-strudel_mini` feature enables this grammar. The Python `panproto-grammars-music` wheel enables the same feature through `group-music`.
 
-[Strudel]: https://strudel.cc/
+## License
+
+[MIT](LICENSE)

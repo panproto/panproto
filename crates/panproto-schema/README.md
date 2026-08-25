@@ -4,50 +4,66 @@
 [![docs.rs](https://docs.rs/panproto-schema/badge.svg)](https://docs.rs/panproto-schema)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Represents a schema as a directed graph of types and relationships.
+Protocol-indexed schema graphs.
 
-## What it does
+## Data model
 
-Most schema formats store structure as nested text (JSON Schema objects, SQL `CREATE TABLE` statements, Protobuf `.proto` files). That works fine for humans reading a single file, but it makes programmatic comparison, migration generation, and cross-format translation much harder: you have to re-parse the format-specific syntax every time.
+`Schema` stores vertices, binary edges, hyper-edges, constraints, required-edge
+declarations, namespace identifiers, entries, variants, orderings, recursion points,
+usage modes, nominal-identity metadata, spans, and expression-backed enrichments. It
+also stores adjacency indices for outgoing, incoming, and between-vertex lookup.
 
-This crate gives every schema a single unified representation: a graph where vertices are types (object, string, array, union, etc.) and edges are relationships between them (fields, array items, union variants, foreign keys). Validation rules like `maxLength` or `required` attach to vertices and edges as constraints. That graph is the same regardless of whether the schema came from JSON Schema, OpenAPI, Protobuf, or SQL; the protocol that produced it is carried separately so format-specific rules are never lost.
+`Protocol` names the schema and instance theories and specifies edge rules, object
+kinds, constraint sorts, composition metadata, and feature flags. It is configuration,
+not a global built-in lookup. Built-in protocol constructors live in
+`panproto-protocols`.
 
-The `SchemaBuilder` API constructs schemas vertex by vertex and edge by edge, validating each addition against the protocol's rules as you go. Once built, precomputed adjacency indices make traversal fast without a separate query step.
+`SchemaBuilder::vertex` checks duplicate IDs and known vertex kinds. `edge` checks
+endpoints and configured edge rules. Constraints added through the builder are checked
+only when the caller runs `validate`. `build` rejects an empty schema and unknown entry
+vertices, then constructs the indices.
 
-## Quick example
+## Example
 
 ```rust,ignore
-use panproto_schema::{SchemaBuilder, Protocol};
+use panproto_schema::{Protocol, SchemaBuilder};
 
-let protocol = Protocol::builtin("json-schema");
+let protocol = Protocol::default();
 let schema = SchemaBuilder::new(&protocol)
     .vertex("user", "object", None)?
-    .vertex("user.name", "string", None)?
-    .vertex("user.age", "integer", None)?
-    .edge("user", "user.name", "prop", Some("name"))?
-    .edge("user", "user.age", "prop", Some("age"))?
+    .vertex("name", "string", None)?
+    .edge("user", "name", "prop", Some("name"))?
+    .entry("user")
     .build()?;
 ```
 
-## API overview
+The default protocol is open because it has no vertex kinds or edge rules. Applications
+that need format-specific validation should use a protocol constructor from
+`panproto-protocols`.
 
-| Item | What it does |
-|------|-------------|
-| `Schema` | The core schema graph: vertices, edges, hyper-edges, constraints, variants, and enrichment fields |
-| `Vertex` | A node in the schema graph with an id, kind, and optional namespace identifier |
-| `Edge` | A directed relationship between two vertices with a kind and optional name |
-| `HyperEdge` | Multi-target edge for union and intersection types |
-| `Constraint` | A validation rule attached to a vertex or edge (cardinality, uniqueness, format, etc.) |
-| `Variant` / `Ordering` / `RecursionPoint` / `Span` | Extended schema elements from building-block theories |
-| `UsageMode` | How a vertex is used in context (required, optional, repeated, etc.) |
-| `SchemaBuilder` | Fluent builder with per-element validation; enrichment methods for coercions, mergers, defaults, and policies |
-| `Protocol` / `EdgeRule` | Protocol configuration that controls which vertex kinds and edge kinds are valid |
-| `SchemaMorphism` | An explicit vertex-and-edge map from one schema to another |
-| `normalize` | Collapse reference chains for schemas that use `Ref` vertices |
-| `validate` | Check a fully built schema against its protocol's rules |
-| `schema_pushout` | Compute the union of two schemas over a shared overlap |
-| `Name` | Interned identifier (`Arc<str>`) used for all schema element names |
-| `SchemaError` / `ValidationError` | Error types |
+## Pushout construction
+
+`schema_pushout(left, right, overlap)` closes the declared vertex and edge pairs into
+an equivalence relation, builds the quotient schema, and returns morphisms from both
+inputs. It validates references in `SchemaOverlap`. The return value contains the
+implemented quotient and morphisms, not a proof of the universal property.
+
+## Public API
+
+| Item | Purpose |
+|------|---------|
+| `Schema`, `Vertex`, `Edge`, `HyperEdge`, `Constraint` | Core graph data |
+| `Variant`, `Ordering`, `RecursionPoint`, `UsageMode`, `Span` | Optional structural fields |
+| `SchemaBuilder` | Incremental construction and index building |
+| `Protocol`, `EdgeRule` | Protocol configuration |
+| `validate` | Check a completed schema against a protocol |
+| `normalize` | Collapse supported reference chains |
+| `induce`, `induce_on_vertices` | Build an induced subschema |
+| `SchemaMorphism` | Explicit vertex and edge mapping |
+| `SchemaOverlap`, `schema_pushout` | Quotient merge over declared overlap |
+
+`Span` here is a record stored in a schema. It is distinct from the schema-span search
+result in `panproto-mig`.
 
 ## License
 

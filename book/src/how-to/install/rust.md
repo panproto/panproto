@@ -9,7 +9,7 @@ A Rust toolchain at edition 2024 (toolchain 1.85+).
 ```toml
 # Cargo.toml
 [dependencies]
-panproto-core = "0.71"
+panproto-core = "0.72"
 ```
 
 The facade has no default features. Enable `full-parse`, `project`, `git`, or `tree-sitter` only when the application uses that surface; `project` also enables `full-parse`, and `git` enables both.

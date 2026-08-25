@@ -4,7 +4,7 @@ Full-AST parsing converts source code into a panproto `Schema` derived from its 
 
 ## Prerequisites
 
-The `schema` CLI or the Rust SDK with `full-parse`. The default `panproto-parse` build enables the eleven-language core grammar group; feature groups and companion Python packages can add more, up to the full grammar catalog.
+The `schema` CLI or the Rust SDK with `full-parse`. The default `panproto-parse` build enables the eleven-language core grammar group. Feature groups and companion Python packages can add more, up to the full grammar catalog.
 
 ## Inspect a file from the CLI
 
@@ -70,11 +70,11 @@ print(len(schema.vertices), len(schema.edges))
 print(registry.protocol_names())
 ```
 
-The core Python wheel discovers installed `panproto-grammars-*` companion packages when `panproto.AstParserRegistry()` is constructed. Install the group that contains the required language before creating the registry; for instance, `panproto-grammars-functional` adds Haskell, OCaml, and related grammars.
+The core Python wheel discovers installed `panproto-grammars-*` companion packages when `panproto.AstParserRegistry()` is constructed. Install the group that contains the required language before creating the registry. For instance, `panproto-grammars-functional` adds Haskell, OCaml, and related grammars.
 
 ## Read anonymous-token fields
 
-Named tree-sitter children appear as schema edges. When a grammar attaches a field name to an unnamed token alternative, the walker stores the token text as a `field:<name>` constraint on the parent. Use `Schema.field_text` to read it:
+Named tree-sitter children appear as schema edges. When a grammar attaches a field name to an unnamed token alternative, the walker stores the token text as a `field:<name>` constraint on the parent. The following QVR example requires `panproto-grammars-all`, which registers the `qvr` grammar. Use `Schema.field_text` to read the constraint:
 
 ```python
 schema = registry.parse_with_protocol(

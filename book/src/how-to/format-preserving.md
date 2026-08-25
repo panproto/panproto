@@ -20,7 +20,7 @@ use panproto_core::io::unified_codec::UnifiedCodec;
 # fn main() -> Result<(), Box<dyn std::error::Error>> {
 # let proto = panproto_core::protocols::atproto::protocol();
 # let schema: Schema = SchemaBuilder::new(&proto).vertex("root", "object", None)?.entry("root").build()?;
-# let bytes: &[u8] = b"";
+# let bytes: &[u8] = b"{}\n";
 let codec = UnifiedCodec::yaml("atproto")?;
 let (instance, complement) = codec.parse_wtype_preserving(&schema, bytes)?;
 let out = codec.emit_wtype_preserving(&schema, &instance, &complement)?;
@@ -30,7 +30,7 @@ assert_eq!(out, bytes);
 
 The complement carries the CST data that the schema does not see. `emit_wtype_preserving` reconstructs the byte-for-byte original from `(instance, complement)`. Constructors exist for JSON, XML, YAML, TOML, and CSV. `UnifiedCodec::tsv` additionally requires the table-vertex name.
 
-Without the `tree-sitter` feature these constructors are compiled out. For code that must run in either build, `ProtocolRegistry` exposes `parse_wtype_preserving_or_canonical` and `emit_wtype_preserving_or_canonical`. They delegate to preserving codecs when the feature is present and otherwise return canonical output; the fallback parse prints a notice, while fallback emit prints one only when a complement was supplied.
+Without the `tree-sitter` feature these constructors are compiled out. For code that must run in either build, `ProtocolRegistry` exposes `parse_wtype_preserving_or_canonical` and `emit_wtype_preserving_or_canonical`. With `tree-sitter`, these methods delegate to the preserving codecs. Without it, they return canonical output. Fallback parsing always prints a notice; fallback emission prints one only when a complement was supplied.
 
 ## Verification
 
@@ -38,7 +38,7 @@ The byte equality is the verification. Property tests in CI check `emit(parse(b)
 
 ## Common mistakes
 
-- Modifying the instance without modifying the complement. If you edit a value in the instance, the complement still records the *old* whitespace around the *old* value; the round-trip will preserve the old layout around the new value.
+- Discarding the complement after modifying the instance. The complement contains layout rather than the authoritative field value. Reusing it preserves the original whitespace and ordering around values supplied by the modified instance.
 - Mixing `format-preserving` codec output with non-preserving codec input. The two pipelines are separate; choose one consistently.
 
 ## See also

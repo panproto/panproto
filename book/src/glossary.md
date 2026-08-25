@@ -8,7 +8,7 @@ A protocol identifies a schema language, names its schema and instance theories,
 
 ## Schema
 
-A schema is a model of a protocol's schema theory. [`panproto_schema::Schema`](https://docs.rs/panproto-schema/latest/panproto_schema/struct.Schema.html) stores vertices, edges, hyperedges, constraints, entry points, variants, orderings, recursion points, spans, usage modes, nominal information, and enrichment data.
+A schema is panproto's concrete representation of one protocol's schema document. Its intended mathematical reading is a model of the protocol's schema theory, but the Rust type is not `panproto_gat::Model`. [`panproto_schema::Schema`](https://docs.rs/panproto-schema/latest/panproto_schema/struct.Schema.html) stores graph elements and constraints, protocol and entry metadata, transformation policies, and derived adjacency indices.
 
 ## Instance
 
@@ -20,19 +20,19 @@ A structural diff records additions, removals, and modifications between two sch
 
 ## Migration
 
-A [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/migration/struct.Migration.html) maps source vertices, edges, hyperedges, and labels to a target schema and may include edge resolvers. Compilation checks the migration against its source and target schemas before instance lifting.
+A [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/migration/struct.Migration.html) maps source vertices, edges, hyperedges, and labels to a target schema. It may also carry binary, hyperedge, and expression resolvers, together with value coercions and optional domain and codomain identifiers. [`panproto_mig::compile`](https://docs.rs/panproto-mig/latest/panproto_mig/fn.compile.html) checks the mapped fragment and builds a `CompiledMigration`. The separate existence checker covers obligations that compilation does not.
 
 ## Morphism
 
-A morphism is a structure-preserving map between objects of the same kind. Theory morphisms map sorts and operations while preserving equations. Schema morphisms map schema vertices and edges while preserving incidence and any requested shape conditions.
+A morphism is a structure-preserving map between objects of the same kind. `TheoryMorphism` maps sorts and operations and is checked for signature and equation preservation. `SchemaMorphism` and the structural part of `Migration` map vertices and single edges while preserving incidence. Search options such as monic, epic, and isomorphic impose additional shape conditions; they are not part of every schema morphism.
 
 ## Span
 
-A span between schemas $S$ and $T$ consists of an apex $A$ and morphisms $A \to S$ and $A \to T$. panproto uses a span to represent a partial correspondence when a total schema morphism may not exist.
+A span between schemas $S$ and $T$ consists of an apex $A$ and morphisms $A \to S$ and $A \to T$. In a returned `SchemaSpan`, $A$ is the sub-schema of $S$ induced by the matched source vertices, the left leg is its inclusion into $S$, and the right leg records the selected images in $T$.
 
 ## Lens
 
-A [`Lens`](https://docs.rs/panproto-lens/latest/panproto_lens/struct.Lens.html) is a bidirectional transformation with a forward `get` operation, a backward `put` operation, and associated round-trip laws. A compiled migration supplies panproto's asymmetric lens operations.
+A [`Lens`](https://docs.rs/panproto-lens/latest/panproto_lens/struct.Lens.html) stores source and target schemas with a compiled migration. `get` maps a source `WInstance` to a target view and a `Complement`; `put` maps that view and complement back to a source `WInstance`. Law checkers test supplied instances, and constructing a lens does not certify the laws for all inputs.
 
 ## Complement
 
@@ -52,7 +52,23 @@ A generalized algebraic theory (GAT) is a named collection of dependent sorts, o
 
 ## Colimit
 
-A colimit combines objects by identifying an explicitly shared part. panproto's binary theory construction is a pushout: it combines two theories over a shared theory and returns the combined theory together with the two inclusion morphisms.
+A colimit combines objects by identifying an explicitly shared part. `panproto_gat::colimit` implements a binary amalgamated union over two explicit theory morphisms and returns the combined theory with two inclusions. It also identifies compatible same-name declarations outside the shared image and rejects non-injective shared legs instead of constructing their quotient. Construction checks that the two inclusion paths agree on the shared part. For one caller-supplied alternative target, `verify_universal` constructs the induced map and checks both factorization paths.
+
+## Restrict / restriction
+
+The migration functions `wtype_restrict`, `functor_restrict`, `graph_restrict`, `lift_wtype`, and `lift_functor` carry surviving source data forward to a target. In this API, *restrict* means filtered forward transport. It is not the categorical restriction $\Delta_f$.
+
+## $\Delta_f$, $\Sigma_f$, and $\Pi_f$
+
+For a schema map $f:S\to T$, categorical $\Delta_f$ reindexes a $T$-instance to an $S$-instance. `panproto_inst::adjunction::f_delta` and `w_delta` implement this target-to-source direction on their documented domains. $\Sigma_f$ is the source-to-target left adjoint implemented by `f_sigma` and `w_sigma`. The migration crate also exposes `sigma` and `pi` lifting functions, but the W-type `pi` path is currently an injective relabeling rather than a general product construction; `lift_functor_pi` is the path that forms Cartesian products over fibers.
+
+## Pushout / pullback
+
+A pushout is a colimit of two maps with a common domain. The GAT amalgamation helper, the explicit schema-overlap constructor, and VCS merge have different checks and identification conventions, so the term does not name one shared implementation. A pullback is the dual limit of two maps with a common codomain. `panproto-vcs` computes a theory-level pullback as merge diagnostic metadata; it does not use that result to resolve merge fields.
+
+## Protolens
+
+A `Protolens` stores source and target `TheoryEndofunctor` descriptions, each mapping theory presentations to theory presentations, plus the data needed to instantiate component lenses. Its intended natural-transformation reading requires those components to commute with schema morphisms. The Rust value does not certify that condition or the lens laws.
 
 ## Parser
 
@@ -116,7 +132,7 @@ The `pre-alias-symbol` constraint records a tree-sitter node's grammar name when
 
 ## Emit verification status
 
-[`EmitVerificationStatus`](https://docs.rs/panproto-parse/latest/panproto_parse/enum.EmitVerificationStatus.html) classifies a registered parser as `Verified`, `Generic`, or `Unsupported` for source emission. `Verified` means the repository has the required corpus or backend tests; `Generic` means the grammar-driven path exists without that verification tier; `Unsupported` means emission is unavailable.
+[`EmitVerificationStatus`](https://docs.rs/panproto-parse/latest/panproto_parse/enum.EmitVerificationStatus.html) classifies a registered parser as `Verified`, `Generic`, or `Unsupported` for source emission. `Verified` means the repository has the required corpus or backend tests. `Generic` means the grammar-driven path exists without that verification tier. `Unsupported` means emission is unavailable.
 
 ## Fixed-point law (emit)
 

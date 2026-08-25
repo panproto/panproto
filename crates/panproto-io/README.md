@@ -4,62 +4,56 @@
 [![docs.rs](https://docs.rs/panproto-io/badge.svg)](https://docs.rs/panproto-io)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
-Reads and writes data in each protocol's native format: 50 protocols, multiple codecs, with optional format-preserving round-trips via tree-sitter.
+Protocol-dispatched parsing and emission of instance data.
 
-## What it does
+## Registry
 
-Panproto's migration pipeline works on abstract instances: structured data detached from any particular file format. This crate is the bridge between raw bytes and those abstract instances. It parses JSON into an OpenAPI instance, CoNLL-U text into a dependency annotation instance, or an Avro binary into an Avro instance. After migration, it emits the result back to bytes in the target format.
+`ProtocolRegistry` stores parsers and emitters under protocol names. The `parse_wtype`
+and `emit_wtype` methods operate on `WInstance`; corresponding functor methods operate
+on `FInstance`. `NativeRepr` records which representation a protocol accepts.
 
-The `ProtocolRegistry` holds one parser and one emitter for each registered protocol. Calling `parse_wtype("openapi", &schema, &bytes)` dispatches to the right codec automatically. The `default_registry()` function returns a registry with all 50 protocols registered. Most codecs use SIMD-accelerated JSON parsing (via `simd-json`) or zero-copy XML parsing (via `quick-xml`) to keep parsing off the critical path.
+`default_registry()` registers 50 semantic-protocol codecs in a build without the
+`tree-sitter` feature. With that feature it also attempts to register the generic
+`yaml`, `toml`, and `csv` codecs. A missing grammar causes an optional codec to be
+skipped. A tree-sitter initialization error is reported to stderr and skipped.
+`try_register` returns the construction error to the caller instead.
 
-With the `tree-sitter` feature enabled, the `UnifiedCodec` provides format-preserving round-trips for JSON, XML, YAML, TOML, CSV, and TSV: `emit(parse(bytes)) == bytes` exactly, including whitespace, comments, and original key ordering. This works by storing a CST complement alongside the abstract instance and using it during emission.
+## Format preservation
 
-`UnifiedCodec::new` and the per-format constructors (`json`, `xml`, `yaml`, `toml`, `csv`, `tsv`) return `Result<Self, UnifiedCodecError>`: construction can fail with `MissingGrammar` (the requested grammar was not compiled into `panproto-grammars`) or `ParserInit` (tree-sitter rejected the grammar's language version). Wire codecs into a registry with `ProtocolRegistry::register_optional`, which silently skips `MissingGrammar` (the expected case when a `lang-*` feature is disabled) and logs `ParserInit` to stderr before skipping (a build-system regression that should never be silenced). Use `try_register` instead when the caller wants to handle the error explicitly.
+Under `tree-sitter`, `panproto_io::unified_codec::UnifiedCodec` records concrete-syntax
+layout alongside the abstract instance. The JSON, XML, YAML, TOML, CSV, and TSV
+constructors are fallible because a grammar may be absent or rejected by tree-sitter.
 
-## Quick example
+Exact replay depends on retaining the compatible CST complement through parsing,
+migration, and emission. The crate's round-trip tests exercise that condition on
+fixtures. It is not a guarantee for an instance constructed without the complement,
+for arbitrary structural edits, or for binary encodings.
+
+## Example
 
 ```rust,ignore
 use panproto_io::default_registry;
 
 let registry = default_registry();
-
-// Parse an OpenAPI document into an abstract instance.
-let instance = registry.parse_wtype("openapi", &schema, &openapi_bytes)?;
-
-// Emit it back to bytes.
+let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
 let output = registry.emit_wtype("openapi", &schema, &instance)?;
 ```
 
-## API overview
+## Public API
 
-| Export | What it does |
-|--------|-------------|
-| `default_registry()` | Build a `ProtocolRegistry` with all 50 protocols registered |
-| `ProtocolRegistry` | Dispatches parse and emit by protocol name |
-| `InstanceParser` | Trait for parsing raw bytes into a `WInstance` or `FInstance` |
-| `InstanceEmitter` | Trait for emitting an instance back to raw bytes |
-| `NativeRepr` | Which instance model a protocol uses (`WType`, `Functor`, `Either`) |
-| `ParseInstanceError` | Error type for parse failures |
-| `EmitInstanceError` | Error type for emit failures |
-| `UnifiedCodec` | Format-preserving codec for JSON, XML, YAML, TOML, CSV, TSV (requires `tree-sitter` feature); constructors return `Result<Self, UnifiedCodecError>` |
-| `UnifiedCodecError` | Error type for codec construction: `MissingGrammar`, `ParserInit` |
-| `ProtocolRegistry::register_optional` | Register a fallible codec; silently skip `MissingGrammar`, log `ParserInit` to stderr |
-| `ProtocolRegistry::try_register` | Register a fallible codec and propagate the error to the caller |
-| `cst_extract` | CST-to-instance extraction lens for format-preserving round-trips |
+| Item | Purpose |
+|------|---------|
+| `default_registry`, `ProtocolRegistry` | Register and dispatch codecs |
+| `InstanceParser`, `InstanceEmitter` | Parser and emitter traits |
+| `NativeRepr` | `WType`, `Functor`, or `Either` |
+| `ParseInstanceError`, `EmitInstanceError` | Runtime codec errors |
+| `unified_codec::UnifiedCodec` | Optional CST-aware codec |
+| `unified_codec::UnifiedCodecError` | Missing-grammar and parser-initialization errors |
+| `cst_extract` | CST-to-instance extraction functions |
 
-## Protocol coverage
-
-| Category | Protocols | Formats |
-|----------|-----------|---------|
-| Annotation | brat, decomp, ucca, fovea, bead, web_annotation, naf, uima, folia, tei, timeml, elan, iso_space, paula, laf_graf, conllu, amr, concrete, nif | JSON, XML, tabular |
-| Web / Document | atproto, docx, odf | JSON, XML |
-| Serialization | avro, flatbuffers, asn1, bond, msgpack_schema | JSON (canonical) |
-| Database | mongodb, dynamodb, cassandra, neo4j, redis | JSON |
-| Config | cloudformation, ansible, k8s_crd | JSON |
-| Data science | dataframe, parquet, arrow | JSON |
-| Domain | geojson, fhir, rss_atom, vcard_ical, swift_mt, edi_x12 | JSON, XML, delimited |
-| API | openapi, asyncapi, jsonapi, raml | JSON |
-| Data schema | cddl, bson | JSON |
+The set of protocol names and their native representations is defined by the
+registration functions under `src/annotation`, `src/api`, and the other category
+modules.
 
 ## License
 
