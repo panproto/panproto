@@ -2645,12 +2645,17 @@ fn write_honest_identity_theory(dir: &Path, name: &str) {
         "sorts": [
             { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
         ],
-        "ops": [],
+        // `id(x) -> x` rather than `x -> x`: a rule whose two sides are the
+        // same term never makes progress, so it is not LPO-terminating and
+        // the rewrite-system gate refuses it.
+        "ops": [
+            { "name": "id", "input": "Str", "output": "Str" }
+        ],
         "equations": [],
         "directed_equations": [
             {
                 "name": "identity_iso",
-                "lhs": "x",
+                "lhs": "id(x)",
                 "rhs": "x",
                 "impl_expr": "x",
                 "inverse": "x",
@@ -2829,12 +2834,18 @@ fn write_theory_binding_alternate_var(dir: &Path, name: &str) {
         "sorts": [
             { "name": "Str", "kind": { "type": "val", "value_kind": "string" } }
         ],
-        "ops": [],
+        // `id(v) -> v` rather than `v -> v`: a rule whose two sides are the
+        // same term never makes progress, so it is not LPO-terminating and
+        // the rewrite-system gate refuses it. The bound variable stays `v`,
+        // which is what these tests are about.
+        "ops": [
+            { "name": "id", "input": "Str", "output": "Str" }
+        ],
         "equations": [],
         "directed_equations": [
             {
                 "name": "alt_var_iso",
-                "lhs": "v",
+                "lhs": "id(v)",
                 "rhs": "v",
                 "impl_expr": "v",
                 "inverse": "v",
