@@ -1943,6 +1943,7 @@ mod tests {
         let help = generate
             .render_long_help()
             .to_string()
+            .replace('`', "")
             .split_whitespace()
             .collect::<Vec<_>>()
             .join(" ");
