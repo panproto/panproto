@@ -271,7 +271,7 @@ checksum = "d211803b9b6b570f68772237e415a029d5a50c65d382910b879fb19d3271f94d"
 
 [[package]]
 name = "panproto-expr"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "rustc-hash",
  "serde",
@@ -294,7 +294,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-gat"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "miette",
  "panproto-expr",
@@ -305,7 +305,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-inst"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "bumpalo",
  "panproto-expr",
@@ -320,7 +320,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-mig"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "blake3",
  "panproto-expr",
@@ -335,7 +335,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-protocols"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "blake3",
  "panproto-gat",
@@ -350,7 +350,7 @@ dependencies = [
 
 [[package]]
 name = "panproto-schema"
-version = "0.71.0"
+version = "0.72.0"
 dependencies = [
  "blake3",
  "panproto-expr",
