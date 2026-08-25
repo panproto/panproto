@@ -148,8 +148,8 @@ pub enum TheoryTransform {
         vertex_id: Arc<str>,
         /// The schema vertex kind.
         vertex_kind: Arc<str>,
-        /// Optional namespace identifier.
-        nsid: Option<Arc<str>>,
+        /// Optional vertex namespace.
+        namespace: Option<Arc<str>>,
         /// Whether the vertex is a declared schema entry.
         is_entry: bool,
     },

@@ -24,9 +24,9 @@ use serde::{Deserialize, Serialize};
 use crate::Lens;
 use crate::error::LensError;
 use crate::protolens::{
-    Protolens, ProtolensChain, apply_add_edge_to_schema, apply_add_schema_vertex,
+    Protolens, ProtolensChain, apply_add_edge_to_schema, apply_add_schema_vertex_record,
     apply_change_schema_vertex_kind, apply_drop_edge_from_schema, apply_drop_schema_vertex,
-    elementary, rebuild_indices,
+    elementary, rebuild_indices, same_vertex_namespace_metadata,
 };
 
 /// A kind change for a single vertex.
@@ -174,9 +174,7 @@ fn diff_to_protolens_with_defaults(
             .or_else(|| defaults.get(&vertex.kind))
             .cloned();
         steps.push(elementary::add_schema_vertex(
-            vertex.id.clone(),
-            vertex.kind.clone(),
-            vertex.nsid.as_ref(),
+            vertex,
             new_schema.entries.contains(&vertex.id),
             default,
         ));
@@ -229,15 +227,9 @@ fn validate_exact_target(
     }
     for vertex_id in &diff.added_vertices {
         let vertex = &new_schema.vertices[vertex_id.as_str()];
-        let nsid = vertex
-            .nsid
-            .as_ref()
-            .map(|nsid| Arc::<str>::from(nsid.as_str()));
-        predicted = apply_add_schema_vertex(
+        predicted = apply_add_schema_vertex_record(
             &predicted,
-            &Arc::<str>::from(vertex.id.as_str()),
-            &Arc::<str>::from(vertex.kind.as_str()),
-            nsid.as_ref(),
+            vertex,
             new_schema.entries.contains(&vertex.id),
         );
     }
@@ -269,7 +261,12 @@ fn validate_exact_target(
     require_equal!(hyper_edges);
     require_equal!(constraints);
     require_equal!(required);
-    require_equal!(nsids);
+    if !same_vertex_namespace_metadata(&predicted, new_schema) {
+        return Err(LensError::ProtolensError(
+            "diff cannot reproduce target schema vertex namespaces exactly; DiffSpec does not describe that metadata change"
+                .to_owned(),
+        ));
+    }
     require_equal!(entries);
     require_equal!(variants);
     require_equal!(orderings);

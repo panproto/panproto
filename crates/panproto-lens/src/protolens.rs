@@ -1176,6 +1176,7 @@ pub mod elementary {
         TheoryMorphism, TheoryTransform,
     };
     use panproto_inst::value::Value;
+    use panproto_schema::Vertex;
     use std::sync::Arc;
 
     use super::{ComplementConstructor, Protolens, name_arc_clone};
@@ -1260,17 +1261,15 @@ pub mod elementary {
     /// theory sort name.
     #[must_use]
     pub(crate) fn add_schema_vertex(
-        vertex_id: impl Into<Name>,
-        vertex_kind: impl Into<Name>,
-        nsid: Option<&Name>,
+        vertex: &Vertex,
         is_entry: bool,
         default: Option<Value>,
     ) -> Protolens {
-        let vertex_id = vertex_id.into();
-        let vertex_kind = vertex_kind.into();
+        let vertex_id = vertex.id.clone();
+        let vertex_kind = vertex.kind.clone();
         let id_arc = name_arc_clone(&vertex_id);
         let kind_arc = name_arc_clone(&vertex_kind);
-        let nsid_arc = nsid.map(name_arc_clone);
+        let namespace = vertex.nsid.as_ref().map(name_arc_clone);
         Protolens {
             name: Name::from(format!("add_schema_vertex_{vertex_id}")),
             source: TheoryEndofunctor {
@@ -1284,7 +1283,7 @@ pub mod elementary {
                 transform: TheoryTransform::AddSchemaVertex {
                     vertex_id: id_arc,
                     vertex_kind: kind_arc,
-                    nsid: nsid_arc,
+                    namespace,
                     is_entry,
                 },
             },
@@ -2646,13 +2645,13 @@ fn apply_theory_transform_to_schema(
         TheoryTransform::AddSchemaVertex {
             vertex_id,
             vertex_kind,
-            nsid,
+            namespace,
             is_entry,
         } => Ok(apply_add_schema_vertex(
             schema,
             vertex_id,
             vertex_kind,
-            nsid.as_ref(),
+            namespace.as_ref(),
             *is_entry,
         )),
         TheoryTransform::DropSchemaVertex { vertex_id } => {
@@ -2850,27 +2849,50 @@ pub(crate) fn apply_add_schema_vertex(
     schema: &Schema,
     vertex_id: &Arc<str>,
     vertex_kind: &Arc<str>,
-    nsid: Option<&Arc<str>>,
+    namespace: Option<&Arc<str>>,
     is_entry: bool,
 ) -> Schema {
     let mut new_schema = schema.clone();
     let id = Name::from(&**vertex_id);
-    let nsid = nsid.map(|value| Name::from(&**value));
+    let namespace = namespace.map(|value| Name::from(&**value));
     new_schema.vertices.insert(
         id.clone(),
         Vertex {
             id: id.clone(),
             kind: Name::from(&**vertex_kind),
-            nsid: nsid.clone(),
+            nsid: namespace.clone(),
         },
     );
-    if let Some(nsid) = nsid {
-        new_schema.nsids.insert(id.clone(), nsid);
+    if let Some(namespace) = namespace {
+        new_schema.nsids.insert(id.clone(), namespace);
     }
     if is_entry && !new_schema.entries.contains(&id) {
         new_schema.entries.push(id);
     }
     new_schema
+}
+
+/// Add one exact vertex from an existing schema record.
+pub(crate) fn apply_add_schema_vertex_record(
+    schema: &Schema,
+    vertex: &Vertex,
+    is_entry: bool,
+) -> Schema {
+    let vertex_id = name_arc_clone(&vertex.id);
+    let vertex_kind = name_arc_clone(&vertex.kind);
+    let namespace = vertex.nsid.as_ref().map(name_arc_clone);
+    apply_add_schema_vertex(
+        schema,
+        &vertex_id,
+        &vertex_kind,
+        namespace.as_ref(),
+        is_entry,
+    )
+}
+
+/// Whether two schemas carry the same per-vertex namespace metadata.
+pub(crate) fn same_vertex_namespace_metadata(left: &Schema, right: &Schema) -> bool {
+    left.nsids == right.nsids
 }
 
 /// Change the kind of one exact schema vertex.
