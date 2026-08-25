@@ -290,64 +290,20 @@ extension [Complement] {
     }
 }
 
-// MARK: - Complements in the shape the data entry points read
-
-/// The set of complement fields the engine keys by a node pair.
-private let pairKeyedComplementFields: Set<String> = ["contraction_choices", "arc_edges"]
-
 /// Encode complements the way the entry points in this file read them.
 ///
-/// ``PanprotoStructural/Complement`` writes
-/// ``PanprotoStructural/Complement/contractionChoices`` and
-/// ``PanprotoStructural/Complement/arcEdges`` as arrays of
-/// `[[parent, child], edge]`, which is how every entry point that hands a
-/// complement to a host writes them. The data entry points read a
-/// complement with no such rewriting, and a node pair is a tuple there,
-/// so both fields have to arrive as CBOR maps keyed by the pair. This
-/// walks the encoded item and turns those two arrays back into maps,
-/// leaving every other field alone and leaving a field that is already a
-/// map alone.
+/// The engine uses pair arrays for the complement maps whose keys are node
+/// pairs. ``PanprotoStructural/Complement`` writes that canonical shape
+/// directly, so no boundary-specific rewriting is needed here.
 ///
 /// - Parameters:
 ///   - complements: the complements to send.
 ///   - operation: the Swift method the caller wrote.
-/// - Returns: the CBOR bytes, with the two pair-keyed fields written as
-///   maps.
-/// - Throws: ``PanprotoError/lens(_:)`` when the sequence will not
-///   encode, or when what it encoded to is not one well-formed item.
+/// - Returns: the complements' CBOR bytes.
+/// - Throws: ``PanprotoError/lens(_:)`` when the sequence will not encode.
 private func encodedComplements(
     _ complements: [Complement],
     _ operation: String
 ) throws(PanprotoError) -> Data {
-    let encoded = try Payload.encode(complements, .lens, operation)
-    do {
-        guard case .array(let items) = try CBORValue(decoding: encoded) else {
-            return encoded
-        }
-        return CBORValue.array(items.map(pairKeyedComplement)).encodedBytes()
-    } catch {
-        throw Payload.failure(
-            .lens,
-            operation,
-            "a [Complement] payload would not re-key: \(error)"
-        )
-    }
-}
-
-/// One complement with its pair-keyed fields written as maps.
-private func pairKeyedComplement(_ complement: CBORValue) -> CBORValue {
-    guard case .map(let entries) = complement else { return complement }
-    return .map(
-        entries.map { entry in
-            guard case .textString(let name) = entry.key,
-                pairKeyedComplementFields.contains(name),
-                case .array(let pairs) = entry.value
-            else { return entry }
-            let remapped = pairs.compactMap { pair -> CBORValue.Entry? in
-                guard case .array(let sides) = pair, sides.count == 2 else { return nil }
-                return CBORValue.Entry(key: sides[0], value: sides[1])
-            }
-            return CBORValue.Entry(key: entry.key, value: .map(remapped))
-        }
-    )
+    try Payload.encode(complements, .lens, operation)
 }

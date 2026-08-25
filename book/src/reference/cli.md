@@ -1432,13 +1432,13 @@ Options:
           
           Accepted case-insensitively for parity with the Python and WASM bindings, both of which trim and lowercase their input.
           
-          strict: Exact, ExactSuffix, and EdgeLabel; total morphism only. balanced: adds Alias, TokenSimilarity, and DescriptionSimilarity; total morphism only (default). lenient: adds WrapUnwrap, TypeSignature, WlRefinement, and Neighborhood; spans allowed. exploratory: adds Structural and Coerce proposals; spans allowed.
+          strict: `Exact`, `ExactSuffix`, and `EdgeLabel`; total morphism only. balanced: adds `Alias`, `TokenSimilarity`, and `DescriptionSimilarity`; total morphism only (default). lenient: adds `WrapUnwrap`, `TypeSignature`, `WlRefinement`, and `Neighborhood`; spans allowed. exploratory: adds `Structural` and `Coerce` proposals; spans allowed.
 
           Possible values:
-          - strict:      Exact, ExactSuffix, and EdgeLabel; total morphism only
-          - balanced:    Adds Alias, TokenSimilarity, and DescriptionSimilarity (default)
-          - lenient:     Adds WrapUnwrap, TypeSignature, WlRefinement, and Neighborhood; spans allowed
-          - exploratory: Adds Structural and Coerce proposals; spans allowed
+          - strict:      `Exact`, `ExactSuffix`, and `EdgeLabel`; total morphism only
+          - balanced:    Adds `Alias`, `TokenSimilarity`, and `DescriptionSimilarity` (default)
+          - lenient:     Adds `WrapUnwrap`, `TypeSignature`, `WlRefinement`, and `Neighborhood`; spans allowed
+          - exploratory: Adds `Structural` and `Coerce` proposals; spans allowed
 
       --top-n <N>
           Emit up to N ranked candidate lenses instead of the single best one. Output format switches to a JSON array when combined with `--json` or `--chain`

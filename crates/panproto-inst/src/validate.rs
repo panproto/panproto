@@ -77,12 +77,13 @@ fn check_anchors(schema: &Schema, instance: &WInstance, errors: &mut Vec<Validat
 
 /// The family of vertices an arc endpoint may legitimately be anchored at.
 ///
-/// A union vertex stands for each of its coproduct variants, and a recursion
-/// point stands for the vertex it unfolds to, so an arc declared between
-/// union or recursion-point vertices connects nodes anchored at members of
-/// those families. `AnchorFamilies` closes the variant and recursion-point
-/// relations in both directions and answers whether an anchor lies in the
-/// same family as an arc endpoint.
+/// A union vertex stands for each of its coproduct variants, a recursion point
+/// stands for the vertex it unfolds to, and a reference vertex stands for the
+/// target of its outgoing reference edge. An arc declared between any of
+/// these placeholder vertices may therefore connect nodes anchored at members
+/// of the corresponding family. `AnchorFamilies` closes all three relations
+/// in both directions and answers whether an anchor lies in the same family as
+/// an arc endpoint.
 struct AnchorFamilies<'a> {
     related: HashMap<&'a Name, Vec<&'a Name>>,
 }
@@ -105,11 +106,20 @@ impl<'a> AnchorFamilies<'a> {
         for (point, unfolding) in &schema.recursion_points {
             link(point, &unfolding.target_vertex);
         }
+        for (id, vertex) in &schema.vertices {
+            if vertex.kind == "ref"
+                && let Some(edges) = schema.outgoing.get(id)
+            {
+                for edge in edges.iter().filter(|edge| edge.kind == "ref") {
+                    link(id, &edge.tgt);
+                }
+            }
+        }
         Self { related }
     }
 
-    /// Whether `anchor` sits in the same variant/recursion family as
-    /// `endpoint`.
+    /// Whether `anchor` sits in the same variant, recursion, or reference
+    /// family as `endpoint`.
     fn accepts(&self, endpoint: &Name, anchor: &Name) -> bool {
         if endpoint == anchor {
             return true;
@@ -532,6 +542,41 @@ mod tests {
             errors.is_empty(),
             "a variant of the declared endpoint is a valid anchor, got: {errors:?}",
         );
+    }
+
+    /// A reference vertex stands for the target of its outgoing reference
+    /// edge, so an arc into the reference may connect a node anchored at the
+    /// resolved target.
+    #[test]
+    fn reference_targets_satisfy_a_reference_endpoint() {
+        let mut schema = test_schema();
+        if let Some(vertex) = schema.vertices.get_mut("str1") {
+            vertex.kind = "ref".into();
+        }
+        schema.vertices.insert(
+            "actual".into(),
+            panproto_schema::Vertex {
+                id: "actual".into(),
+                kind: "string".into(),
+                nsid: None,
+            },
+        );
+        let reference = Edge {
+            src: "str1".into(),
+            tgt: "actual".into(),
+            kind: "ref".into(),
+            name: None,
+        };
+        schema.edges.insert(reference.clone(), "ref".into());
+        schema.outgoing.insert("str1".into(), smallvec![reference]);
+
+        let mut instance = valid_3_node_instance();
+        if let Some(node) = instance.nodes.get_mut(&1) {
+            node.anchor = "actual".into();
+        }
+
+        let errors = validate_wtype(&schema, &instance);
+        assert!(errors.is_empty(), "expected no errors, got: {errors:?}");
     }
 
     /// A recursion point stands for the vertex it unfolds to, so an arc into

@@ -1036,7 +1036,7 @@ pp_lens_check_put_get (
  *  `source` is UTF-8 DSL source; `format` is the UTF-8 format name
  *  (`json` or `yaml`); `body_vertex` is the UTF-8 parent vertex id for
  *  field-level steps. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  chain-compatible compiled-document handle. Calls
  *  `panproto_core::lens_dsl::{eval, compile}`.
  *
  *  Nickel (`ncl`) is intentionally unsupported here, matching the WASM
@@ -1059,7 +1059,7 @@ pp_lens_compile_document (
  *  `map<string, string>` from each referenced lens `id` to its document
  *  source (in the same `format`); a `compose` body's `ref` entries are
  *  resolved against this map. On success, `out_handle` receives a fresh
- *  [`Resource::ProtolensChain`](crate::handle::Resource) handle. Calls
+ *  chain-compatible compiled-document handle. Calls
  *  `panproto_core::lens_dsl::compile_with_refs`.
  *
  *  Nickel (`ncl`) is intentionally unsupported, matching
@@ -1402,11 +1402,13 @@ pp_protolens_fuse (
 /** \brief
  *  Instantiate a protolens chain at a specific schema.
  *
- *  `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource)
- *  handle; `schema` is a [`Resource::Schema`](crate::handle::Resource)
- *  handle. On success, `out_handle` receives a fresh
+ *  `chain` is a [`Resource::ProtolensChain`](crate::handle::Resource) or
+ *  compiled lens-document handle; `schema` is a
+ *  [`Resource::Schema`](crate::handle::Resource) handle. On success,
+ *  `out_handle` receives a fresh
  *  [`Resource::MigrationWithSchemas`](crate::handle::Resource) handle.
- *  Calls `ProtolensChain::instantiate`.
+ *  Plain chains call `ProtolensChain::instantiate`; compiled documents use
+ *  their ordered-stage instantiation.
  */
 int32_t
 pp_protolens_instantiate (
