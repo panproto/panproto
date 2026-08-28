@@ -145,12 +145,20 @@ jobs:
           PY
           git diff --stat bindings/swift/Package.swift
       - name: Verify a clean consumer build resolves against the pin
-        # No staged library, no environment overrides: exactly what a
-        # downstream package sees when it adds this one as a dependency.
+        # No staged library and no environment overrides, and crucially a
+        # location with no panproto workspace above it. The manifest picks
+        # the binary target only when it cannot see `crates/panproto-c` two
+        # directories up, because a source checkout must build its own C ABI
+        # rather than fall back to a released artifact whose header predates
+        # it. Building in place leaves that crate a grandparent away, which
+        # selects the system library and links nothing, so the pin has to be
+        # exercised from a copy that sits where a dependent package would.
         run: |
           set -euo pipefail
-          rm -rf bindings/swift/.panproto-c
-          cd bindings/swift && swift build
+          consumer="$(mktemp -d)/swift"
+          cp -R bindings/swift "$consumer"
+          rm -rf "$consumer/.panproto-c" "$consumer/.build"
+          cd "$consumer" && swift build
       - name: Lint the rewritten manifest
         # This job commits to main, so whatever it writes has to satisfy
         # the same gate a pull request does. Neither pinned value fits the
