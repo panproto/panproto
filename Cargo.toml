@@ -87,11 +87,11 @@ proptest = "1.11.0"
 insta = { version = "1.43", features = ["json", "yaml"] }
 
 # SIMD-accelerated parsing
-simd-json = "0.14"
+simd-json = "0.15"
 memchr = "2.7"
 
 # Project manifest
-toml = "0.8"
+toml = "1.1"
 globset = "0.4"
 
 # Hashing
