@@ -295,7 +295,7 @@ jobs:
         with:
           ghc-version: "9.12.2"
           cabal-version: "3.16.0.0"
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ${{ steps.setup-haskell.outputs.cabal-store }}
           key: haskell-cabal-${{ hashFiles('bindings/haskell/panproto.cabal') }}

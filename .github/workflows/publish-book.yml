@@ -30,7 +30,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
 
       - name: Cache mdbook binaries
-        uses: actions/cache@v5
+        uses: actions/cache@v6
         with:
           path: ~/.cargo/bin
           key: mdbook-${{ env.MDBOOK_VERSION }}-mermaid-${{ env.MDBOOK_MERMAID_VERSION }}-katex-${{ env.MDBOOK_KATEX_VERSION }}-bib-${{ env.MDBOOK_BIB_VERSION }}
