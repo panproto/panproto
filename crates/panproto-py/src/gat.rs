@@ -567,6 +567,44 @@ pub fn check_model(model: &PyModel, theory: &PyTheory) -> PyResult<Vec<String>> 
     Ok(violations.into_iter().map(|v| format!("{v:?}")).collect())
 }
 
+/// Typecheck a theory, raising :exc:`GatError` on the first problem.
+///
+/// Complements :func:`create_theory`, which only deserialises the spec
+/// and so accepts a theory whose declarations do not hang together. The
+/// checks are:
+///
+/// - every closed sort's constructor list names ops that exist, whose
+///   output head is that sort, and no op outside the list produces it;
+/// - every operation's implicit parameters are inferrable, i.e. each
+///   name occurs in an explicit input sort or the output sort;
+/// - every equation typechecks, with both sides at the same sort.
+///
+/// Parameters
+/// ----------
+/// theory : Theory
+///     The theory to check.
+///
+/// Raises
+/// ------
+/// GatError
+///     On the first problem found. The message names the offending
+///     sort, operation or equation.
+///
+/// Examples
+/// --------
+/// A sort closed against a constructor the theory never declares
+/// deserialises fine and fails here:
+///
+/// >>> theory = create_theory(spec_closing_nat_over_zero_and_succ_with_no_ops)
+/// >>> typecheck_theory(theory)
+/// Traceback (most recent call last):
+/// GatError: theory typecheck failed: ...
+#[pyfunction]
+pub fn typecheck_theory(theory: &PyTheory) -> PyResult<()> {
+    gat::typecheck_theory(&theory.inner)
+        .map_err(|e| crate::error::GatError::new_err(format!("theory typecheck failed: {e}")))
+}
+
 /// Register GAT types and functions on the parent module.
 pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_class::<PyTheory>()?;
@@ -578,5 +616,6 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(migrate_model, parent)?)?;
     parent.add_function(wrap_pyfunction!(free_model, parent)?)?;
     parent.add_function(wrap_pyfunction!(check_model, parent)?)?;
+    parent.add_function(wrap_pyfunction!(typecheck_theory, parent)?)?;
     Ok(())
 }

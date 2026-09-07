@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Features
+
+- **A theory can be typechecked from Python** (`panproto-py`): `create_theory` deserialises a spec and returns, so a theory whose declarations do not hang together is accepted in full. A sort closed against constructors that no operation defines built without complaint, as did one whose closure omits an operation that produces it, and the same for a listed constructor whose output head is a different sort. `typecheck_theory` has enforced exactly those three conditions in `panproto-gat` since closures were introduced, along with implicit-parameter inferrability and equation typechecking, but nothing reached it from Python, so every Python consumer that emits closed sorts was writing them unchecked. It is now exposed as `panproto.typecheck_theory(theory)`, raising `GatError` naming the offending sort, operation or equation. `create_theory` is unchanged and still does not typecheck, so nothing that builds today starts failing; callers that want the check ask for it.
+
 ## [0.72.0] - 2026-08-25
 
 ### Security

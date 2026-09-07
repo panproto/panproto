@@ -1116,6 +1116,34 @@ class TestExpressions:
 # GAT
 # ---------------------------------------------------------------------------
 
+# ``Nat`` closed against its two constructors: the smallest theory whose
+# closure can be made incoherent one field at a time.
+_NAT_OPS: list[dict[str, object]] = [
+    {"name": "zero", "inputs": [], "output": "Nat"},
+    {"name": "succ", "inputs": [["n", "Nat", "No"]], "output": "Nat"},
+]
+
+
+def _nat_spec(*, ops: list[dict[str, object]]) -> dict[str, object]:
+    """Build a theory spec closing ``Nat`` over ``[zero, succ]``."""
+    return {
+        "name": "NatTheory",
+        "extends": [],
+        "sorts": [
+            {
+                "name": "Nat",
+                "params": [],
+                "kind": "Structural",
+                "closure": {"Closed": ["zero", "succ"]},
+            }
+        ],
+        "ops": list(ops),
+        "eqs": [],
+        "directed_eqs": [],
+        "policies": [],
+    }
+
+
 
 class TestGat:
     """Tests for GAT theory operations."""
@@ -1136,6 +1164,38 @@ class TestGat:
         assert t.sort_count == 1
         assert t.op_count == 0
         assert t.eq_count == 0
+
+    def test_typecheck_theory_accepts_a_coherent_theory(self) -> None:
+        """A closed sort whose constructors are all declared passes."""
+        t = panproto.create_theory(_nat_spec(ops=_NAT_OPS))
+        assert panproto.typecheck_theory(t) is None
+
+    def test_typecheck_theory_rejects_a_missing_constructor(self) -> None:
+        """``create_theory`` alone accepts this; the check is what catches it."""
+        t = panproto.create_theory(_nat_spec(ops=[]))
+        with pytest.raises(panproto.GatError, match="zero"):
+            panproto.typecheck_theory(t)
+
+    def test_typecheck_theory_rejects_a_constructor_outside_the_closure(
+        self,
+    ) -> None:
+        """An op producing a closed sort must be listed in its closure."""
+        sneaky = [*_NAT_OPS, {"name": "sneaky", "inputs": [], "output": "Nat"}]
+        t = panproto.create_theory(_nat_spec(ops=sneaky))
+        with pytest.raises(panproto.GatError, match="sneaky"):
+            panproto.typecheck_theory(t)
+
+    def test_typecheck_theory_rejects_a_constructor_of_another_sort(self) -> None:
+        """A listed constructor whose output head is a different sort."""
+        spec = _nat_spec(ops=_NAT_OPS)
+        spec["sorts"].append({"name": "Other", "params": [], "kind": "Structural"})
+        spec["ops"] = [
+            {"name": "zero", "inputs": [], "output": "Other"},
+            {"name": "succ", "inputs": [["n", "Nat", "No"]], "output": "Nat"},
+        ]
+        t = panproto.create_theory(spec)
+        with pytest.raises(panproto.GatError, match="zero"):
+            panproto.typecheck_theory(t)
 
     def test_theory_sorts_property(self) -> None:
         t = panproto.create_theory(
