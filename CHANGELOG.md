@@ -2,6 +2,14 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **The tag-push workflows wait long enough for cargo-dist to create the Release** (`.github/workflows/build-panproto-c-bindist.yml`, `.github/workflows/publish-swift.yml`): cargo-dist creates the GitHub Release only in its final job, so both of these race it by construction, and both bounds were set below what the race actually requires. On v0.72.1 the Release appeared 94 minutes after the tag; the bindist attach step gave up 35 seconds earlier at its 30-minute bound, and the Swift pin step had already given up 4 minutes before that at its 60-minute bound. The attach step failing meant no XCFramework was ever attached, so the Swift job would have failed on that too. Both bounds are now two hours, roughly four times the observed requirement. The wait each step needs is cargo-dist's whole run minus that workflow's own build matrix, and both halves grow as the matrix does, so the margin has to absorb the difference rather than track it. Neither step's timeout was recoverable by retagging: the fix is to re-run the job once the Release exists, which the error messages now say, and which works because the upload is idempotent under `gh release upload --clobber`.
+
+- **The Hackage publish workflow is removed** (`.github/workflows/publish-hackage.yml`): the Haskell binding is not published to Hackage. The workflow was `workflow_dispatch`-only and never fired on a tag, so it published nothing, but its runs sat permanently red in the Actions list from manual attempts that 403'd because the account was never added to the package's Uploaders group. A red workflow that cannot succeed and is not part of a release trains the eye to ignore failures. The bindist archives it referred to are unaffected: they exist because Hackage cannot redistribute precompiled libraries, which is still why `bindings/haskell/bootstrap/fetch-bindist.sh` fetches from the GitHub Release.
+
 ## [0.72.1] - 2026-09-08
 
 ### Features
