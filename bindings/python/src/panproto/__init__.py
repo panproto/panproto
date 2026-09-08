@@ -110,6 +110,7 @@ from panproto._native import (
     remove_field,
     rename_field,
     theory_of,
+    typecheck_theory,
 )
 
 _GRAMMAR_ENTRY_POINT_GROUP = "panproto.grammars"
@@ -289,4 +290,5 @@ __all__ = [
     "remove_field",
     "rename_field",
     "theory_of",
+    "typecheck_theory",
 ]
