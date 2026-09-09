@@ -294,13 +294,20 @@ pub fn assemble_from_file_objects(
         for edge in schema.edges.keys() {
             let prefixed_src = format!("{prefix}::{}", edge.src);
             let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
-            let edge_name = edge.name.as_ref().map(|n| format!("{prefix}::{n}"));
+            // A vertex id is an identity and must not collide
+            // across files, so it carries the path prefix. An edge
+            // *name* is the property name in the data ("item",
+            // "text"), scoped by a source vertex that the prefix has
+            // already disambiguated. Prefixing it too made every
+            // property in an assembled project name something no
+            // record has a key for, so no data could be lifted
+            // through a project schema at all.
             builder = builder
                 .edge(
                     &prefixed_src,
                     &prefixed_tgt,
                     edge.kind.as_ref(),
-                    edge_name.as_deref(),
+                    edge.name.as_deref(),
                 )
                 .map_err(|e| {
                     VcsError::Other(format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"))
@@ -363,12 +370,19 @@ fn merge_enrichment_fields(
 
     let name = |prefix: &str, n: &Name| -> Name { Name::from(format!("{prefix}::{n}").as_str()) };
 
+    // `src` and `tgt` are vertex ids, which must not collide across
+    // files, so both take the path prefix. `name` is the property name
+    // in the data ("item", "text"), scoped by a source vertex the prefix
+    // has already disambiguated; it is left alone. Prefixing it made an
+    // assembled project's required edges name a property no record has
+    // a key for, so every record read against one was reported as
+    // missing every required field.
     let prefixed_edge = |prefix: &str, e: &Edge| -> Edge {
         Edge {
             src: name(prefix, &e.src),
             tgt: name(prefix, &e.tgt),
             kind: e.kind.clone(),
-            name: e.name.as_ref().map(|n| name(prefix, n)),
+            name: e.name.clone(),
         }
     };
 
@@ -1133,6 +1147,98 @@ mod tests {
         assert!(flat.required.contains_key(&Name::from("x.rs::a")));
         assert!(!flat.orderings.is_empty());
         assert!(!flat.usage_modes.is_empty());
+    }
+
+    /// A vertex id is prefixed; a property name is not.
+    ///
+    /// An edge's `name` is the key the property has in the data. It is
+    /// scoped by its source vertex, which the prefix has already made
+    /// unique, so prefixing it as well made every property in an
+    /// assembled project name something no record has a key for. The
+    /// effect was that no data could be lifted through a project schema
+    /// at all: every record read against one came back missing every
+    /// required field.
+    #[test]
+    fn assembly_prefixes_vertex_ids_and_leaves_property_names_alone()
+    -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_gat::Name;
+
+        let mut schema = base_schema("a");
+        schema = {
+            let mut s = schema;
+            s.vertices.insert(
+                Name::from("b"),
+                panproto_schema::Vertex {
+                    id: Name::from("b"),
+                    kind: Name::from("string"),
+                    nsid: None,
+                },
+            );
+            let prop = panproto_schema::Edge {
+                src: Name::from("a"),
+                tgt: Name::from("b"),
+                kind: Name::from("prop"),
+                name: Some(Name::from("item")),
+            };
+            s.edges.insert(prop.clone(), Name::from("prop"));
+            s.required.insert(Name::from("a"), vec![prop]);
+            s
+        };
+
+        // Two files, so assembly takes the coproduct path that
+        // prefixes. A single-file tree is stored as a lone leaf and
+        // prefixes nothing.
+        let mut store = MemStore::new();
+        let root = build_schema_tree(
+            &mut store,
+            vec![
+                (
+                    PathBuf::from("lex.json"),
+                    FileSchemaObject {
+                        path: "lex.json".to_owned(),
+                        protocol: "project".to_owned(),
+                        schema,
+                        cross_file_edges: Vec::new(),
+                    },
+                ),
+                (
+                    PathBuf::from("other.json"),
+                    FileSchemaObject {
+                        path: "other.json".to_owned(),
+                        protocol: "project".to_owned(),
+                        schema: base_schema("z"),
+                        cross_file_edges: Vec::new(),
+                    },
+                ),
+            ],
+        )
+        .unwrap();
+        let flat = assemble_schema(&store, &root, &project_coproduct_protocol()).unwrap();
+
+        let prop = flat
+            .edges
+            .keys()
+            .find(|e| e.kind.as_ref() == "prop")
+            .ok_or("the prop edge survives assembly")?;
+        assert_eq!(prop.src.as_ref(), "lex.json::a", "a vertex id is prefixed");
+        assert_eq!(prop.tgt.as_ref(), "lex.json::b", "a vertex id is prefixed");
+        assert_eq!(
+            prop.name.as_ref().map(Name::as_ref),
+            Some("item"),
+            "a property name is the key in the data and is not prefixed",
+        );
+
+        let required = flat
+            .required
+            .get(&Name::from("lex.json::a"))
+            .ok_or("the required edge survives assembly")?;
+        assert_eq!(
+            required[0].name.as_ref().map(Name::as_ref),
+            Some("item"),
+            "a required edge names the same property the data does",
+        );
+
+        Ok(())
     }
 
     #[test]

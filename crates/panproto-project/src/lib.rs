@@ -479,16 +479,20 @@ impl ProjectBuilder {
             for edge in schema.edges.keys() {
                 let prefixed_src = format!("{prefix}::{}", edge.src);
                 let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
-                let edge_name = edge.name.as_ref().map(|n| {
-                    let prefixed = format!("{prefix}::{n}");
-                    prefixed
-                });
+                // A vertex id is an identity and must not collide
+                // across files, so it carries the path prefix. An edge
+                // *name* is the property name in the data ("item",
+                // "text"), scoped by a source vertex that the prefix has
+                // already disambiguated. Prefixing it too made every
+                // property in an assembled project name something no
+                // record has a key for, so no data could be lifted
+                // through a project schema at all.
                 builder = builder
                     .edge(
                         &prefixed_src,
                         &prefixed_tgt,
                         edge.kind.as_ref(),
-                        edge_name.as_deref(),
+                        edge.name.as_deref(),
                     )
                     .map_err(|e| ProjectError::CoproductFailed {
                         reason: format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"),
@@ -605,13 +609,20 @@ where
         for edge in schema.edges.keys() {
             let prefixed_src = format!("{prefix}::{}", edge.src);
             let prefixed_tgt = format!("{prefix}::{}", edge.tgt);
-            let edge_name = edge.name.as_ref().map(|n| format!("{prefix}::{n}"));
+            // A vertex id is an identity and must not collide
+            // across files, so it carries the path prefix. An edge
+            // *name* is the property name in the data ("item",
+            // "text"), scoped by a source vertex that the prefix has
+            // already disambiguated. Prefixing it too made every
+            // property in an assembled project name something no
+            // record has a key for, so no data could be lifted
+            // through a project schema at all.
             builder = builder
                 .edge(
                     &prefixed_src,
                     &prefixed_tgt,
                     edge.kind.as_ref(),
-                    edge_name.as_deref(),
+                    edge.name.as_deref(),
                 )
                 .map_err(|e| ProjectError::CoproductFailed {
                     reason: format!("edge {prefixed_src} -> {prefixed_tgt}: {e}"),

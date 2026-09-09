@@ -280,8 +280,30 @@ pub struct CommitObject {
     pub theory_ids: BTreeMap<String, ObjectId>,
 
     /// Object IDs of CST complements for format-preserving round-trips.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    ///
+    /// Always written, even when empty. An object is stored as
+    /// `MessagePack`, which writes a struct as an array of its fields in
+    /// declaration order, so omitting a field does not mark it absent:
+    /// it shifts every later field one slot left and the decoder reads
+    /// each of them as the wrong thing. That was harmless while this
+    /// was the last field and is not now that `unverified` follows it.
+    #[serde(default)]
     pub cst_complement_ids: Vec<ObjectId>,
+
+    /// What this commit contains that was never verified, when it was
+    /// made with verification bypassed. Empty for an ordinary commit.
+    ///
+    /// A commit is the durable record, so the distinction between
+    /// material that passed its checks and material that was waved
+    /// through has to survive in it. Without this an explicit
+    /// `--skip-verify` commit is indistinguishable afterwards from one
+    /// whose contents were checked and passed.
+    ///
+    /// Read back as empty for any commit written before this field
+    /// existed, which is correct in the only sense available: such a
+    /// commit recorded no bypass because it had no way to.
+    #[serde(default)]
+    pub unverified: Vec<String>,
 }
 
 impl CommitObject {
@@ -311,6 +333,7 @@ impl CommitObject {
             edit_log_ids: Vec::new(),
             theory_ids: BTreeMap::new(),
             cst_complement_ids: Vec::new(),
+            unverified: Vec::new(),
         }
     }
 }
@@ -331,6 +354,7 @@ pub struct CommitObjectBuilder {
     edit_log_ids: Vec<ObjectId>,
     theory_ids: BTreeMap<String, ObjectId>,
     cst_complement_ids: Vec<ObjectId>,
+    unverified: Vec<String>,
 }
 
 impl CommitObjectBuilder {
@@ -415,6 +439,7 @@ impl CommitObjectBuilder {
             edit_log_ids: self.edit_log_ids,
             theory_ids: self.theory_ids,
             cst_complement_ids: self.cst_complement_ids,
+            unverified: self.unverified,
         }
     }
 
@@ -422,6 +447,13 @@ impl CommitObjectBuilder {
     #[must_use]
     pub fn cst_complement_ids(mut self, ids: Vec<ObjectId>) -> Self {
         self.cst_complement_ids = ids;
+        self
+    }
+
+    /// Record what this commit contains that was never verified.
+    #[must_use]
+    pub fn unverified(mut self, what: Vec<String>) -> Self {
+        self.unverified = what;
         self
     }
 }

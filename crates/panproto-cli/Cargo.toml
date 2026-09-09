@@ -41,6 +41,7 @@ predicates = "3"
 tempfile = "3"
 serde_json = { workspace = true }
 panproto-core = { workspace = true }
+rmp-serde = { workspace = true }
 
 [lints]
 workspace = true
