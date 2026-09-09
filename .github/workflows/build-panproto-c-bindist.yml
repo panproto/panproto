@@ -300,17 +300,38 @@ jobs:
         # claimed creation, and the other 409d. Wait for cargo-dist's
         # creation to land, then upload our binaries into it via
         # `gh release upload --clobber` (idempotent on retry).
-        # Wait up to ~30 minutes (cargo-dist's macOS matrix is slow).
+        #
+        # The window is two hours because this job races cargo-dist by
+        # construction, and the old 30-minute one was not a margin, it
+        # was a near-miss. cargo-dist creates the Release only in its
+        # final `announce` job, so the wait this job needs is
+        # (cargo-dist's whole run) minus (this workflow's own build
+        # matrix). On v0.72.1 that was 67 minutes minus 35, so it needed
+        # 32 and had 30: it timed out 35 seconds before the Release
+        # appeared, and `publish-swift.yml` then failed downstream
+        # waiting for the XCFramework this step never attached. Both
+        # halves grow with the build matrix, so the difference is not
+        # stable and a tight bound re-runs this coin flip every release.
+        # Two hours is roughly four times the observed requirement.
+        #
+        # A `gh release view` hit is enough to upload into: it matches a
+        # draft too, and uploading to a draft is fine, so finding it
+        # early is strictly better than waiting for publication.
         run: |
           set -euo pipefail
-          for i in $(seq 1 180); do
+          attempts=720
+          for i in $(seq 1 "$attempts"); do
             if gh release view "$TAG" >/dev/null 2>&1; then
               echo "Release $TAG exists; uploading bindist/*"
               gh release upload "$TAG" bindist/* --clobber
               exit 0
             fi
-            echo "Release $TAG not yet created; sleeping 10s (attempt $i/180)"
+            if [ $((i % 30)) -eq 0 ] || [ "$i" -le 3 ]; then
+              echo "Release $TAG not yet created; sleeping 10s (attempt $i/$attempts)"
+            fi
             sleep 10
           done
-          echo "::error::Release $TAG did not appear within 30 minutes; cargo-dist must have failed."
+          echo "::error::Release $TAG did not appear within 2 hours. Check whether release.yml"
+          echo "::error::failed or is still running. This step is idempotent (gh release upload"
+          echo "::error::--clobber), so re-run this job once the Release exists rather than retagging."
           exit 1

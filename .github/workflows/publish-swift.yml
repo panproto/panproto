@@ -53,18 +53,33 @@ jobs:
           TAG: ${{ steps.tag.outputs.value }}
         # `build-panproto-c-bindist.yml` builds and uploads it on the
         # same tag push, and its macOS and iOS matrix takes a while.
+        #
+        # This wait sits at the end of the longest chain on a tag push:
+        # cargo-dist must create the Release, then the bindist workflow
+        # uploads the XCFramework into it, and only then can this step
+        # succeed. So it has to outlast both. On v0.72.1 the Release
+        # appeared 94 minutes after the tag and this step had given up
+        # four minutes earlier, at its 60-minute bound, which means
+        # widening only the bindist workflow's own wait would have left
+        # this one failing on the next release for the same reason.
+        # Two hours matches the bound over there.
         run: |
           set -euo pipefail
-          for i in $(seq 1 180); do
+          attempts=360
+          for i in $(seq 1 "$attempts"); do
             if gh release view "$TAG" --json assets \
                  --jq '.assets[].name' | grep -qx 'panproto_c.xcframework.zip'; then
               echo "artifact present"
               exit 0
             fi
-            echo "waiting for panproto_c.xcframework.zip (attempt $i/180)"
+            if [ $((i % 15)) -eq 0 ] || [ "$i" -le 3 ]; then
+              echo "waiting for panproto_c.xcframework.zip (attempt $i/$attempts)"
+            fi
             sleep 20
           done
-          echo "::error::the XCFramework never appeared on release $TAG"
+          echo "::error::the XCFramework never appeared on release $TAG within 2 hours."
+          echo "::error::Check build-panproto-c-bindist.yml for this tag: if its attach step"
+          echo "::error::failed, re-run it and then re-run this workflow."
           exit 1
       - name: Refuse to move the pin backwards
         # This job checks out `main`, not the tag, so a workflow_dispatch
