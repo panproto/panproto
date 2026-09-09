@@ -41,7 +41,7 @@ fn parse_lexicon(bencher: divan::Bencher, (_name, src): (&str, &str)) {
 fn register_atproto_theories(bencher: divan::Bencher) {
     bencher.bench(|| {
         let mut registry = std::collections::HashMap::new();
-        atproto::register_theories(&mut registry);
+        atproto::register_theories(&mut registry).expect("atproto theories compose");
         registry.len()
     });
 }

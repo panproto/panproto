@@ -187,6 +187,21 @@ enum Command {
         /// Maximum assignments to check per equation (default: 10000).
         #[arg(long, default_value = "10000")]
         max_assignments: usize,
+
+        /// Output format: `text` (default) or `json`.
+        #[arg(long, default_value = "text")]
+        format: String,
+
+        /// Exit zero when a theory could not be checked at all.
+        ///
+        /// A theory that does not typecheck, or one whose assignment
+        /// enumeration exhausted `--max-assignments`, establishes
+        /// nothing about the schema. By default that is an error, since
+        /// treating it as a pass reports a schema verified that was
+        /// never examined. This accepts it for exploratory use; the
+        /// output still says the run was incomplete.
+        #[arg(long)]
+        allow_incomplete: bool,
     },
 
     // -- VCS commands --
@@ -1410,7 +1425,16 @@ fn dispatch_schema_commands(command: Command, verbose: bool) -> Result<()> {
             protocol,
             schema,
             max_assignments,
-        } => cmd::schema::cmd_verify(&protocol, &schema, max_assignments, verbose),
+            format,
+            allow_incomplete,
+        } => cmd::schema::cmd_verify(
+            &protocol,
+            &schema,
+            max_assignments,
+            &format,
+            allow_incomplete,
+            verbose,
+        ),
         Command::Lift {
             migration,
             src_schema,

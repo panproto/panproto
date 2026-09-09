@@ -8,6 +8,22 @@ pub enum ProtocolError {
     #[error("theory colimit failed: {0}")]
     ColimitFailed(#[from] panproto_gat::GatError),
 
+    /// Composing a protocol's theories failed, so the registry entry it
+    /// would have produced could not be built.
+    ///
+    /// Distinct from [`ProtocolError::ColimitFailed`] in naming the
+    /// composition stage: a protocol's theory set is built by several
+    /// pushouts in sequence, and which one failed is what identifies
+    /// the theory that is missing.
+    #[error("theory registration failed while composing {stage}: {source}")]
+    TheoryRegistration {
+        /// The composition stage that failed.
+        stage: String,
+        /// The failure that stage reported.
+        #[source]
+        source: panproto_gat::GatError,
+    },
+
     /// A schema building step failed.
     #[error("schema build failed: {0}")]
     SchemaBuild(#[from] panproto_schema::SchemaError),

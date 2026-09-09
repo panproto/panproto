@@ -2287,7 +2287,7 @@ mod tests {
 
         let proto = atproto::protocol();
         let mut registry: HashMap<String, Theory> = HashMap::new();
-        atproto::register_theories(&mut registry);
+        atproto::register_theories(&mut registry)?;
         let theory = registry
             .get(&proto.schema_theory)
             .ok_or("ThATProtoSchema must be registered")?;

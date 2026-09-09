@@ -9,6 +9,14 @@
 //! curve instead: quadrupling the input must not quadruple the cost four times
 //! over. The bound below is loose enough that machine noise cannot trip it and
 //! tight enough that a per-token rescan cannot pass.
+//!
+//! Two things keep the measurement honest under a loaded machine, which is the
+//! condition it actually runs in: a whole test suite in parallel. The inputs
+//! are large enough that both timings sit well above the scheduler's noise
+//! floor, and each is the *minimum* of several runs rather than the median.
+//! Contention can only ever make a sample slower, never faster, so the minimum
+//! is the closest estimate of the uncontended cost, while a median moves with
+//! whatever else the machine was doing.
 
 #![allow(
     clippy::expect_used,
@@ -36,25 +44,32 @@ fn source(lines: usize) -> String {
     out
 }
 
-/// Median of five timings, so one scheduling hiccup does not decide the test.
+/// The fastest of nine timings.
+///
+/// Every source of noise here is one-sided: another process taking the core,
+/// a page fault, the allocator going to the OS. Each makes a run slower and
+/// none makes one faster, so the minimum is the best available estimate of
+/// what the work costs, and it is the statistic that stays put when the rest
+/// of the suite runs alongside it.
 fn time_tokenizing(lines: usize) -> Duration {
     let input = source(lines);
-    let mut samples: Vec<Duration> = (0..5)
+    (0..9)
         .map(|_| {
             let start = Instant::now();
             let tokens = tokenize(&input).expect("the fixture tokenizes");
             assert!(tokens.len() > lines, "every line contributes tokens");
             start.elapsed()
         })
-        .collect();
-    samples.sort_unstable();
-    samples[2]
+        .min()
+        .expect("nine samples")
 }
 
 #[test]
 fn four_times_the_input_does_not_cost_sixteen_times_the_time() {
-    let small = time_tokenizing(500);
-    let large = time_tokenizing(2_000);
+    // Large enough that the smaller timing is milliseconds rather than the
+    // hundreds of microseconds where a single scheduling slice dominates it.
+    let small = time_tokenizing(2_000);
+    let large = time_tokenizing(8_000);
 
     // Linear scanning puts this at about 4. Quadratic scanning puts it at
     // about 16. Eight leaves room for cache effects and allocator noise while
@@ -62,7 +77,7 @@ fn four_times_the_input_does_not_cost_sixteen_times_the_time() {
     let ratio = large.as_secs_f64() / small.as_secs_f64().max(f64::EPSILON);
     assert!(
         ratio < 8.0,
-        "500 lines took {small:?}, 2000 lines took {large:?} — a ratio of \
+        "2000 lines took {small:?}, 8000 lines took {large:?} — a ratio of \
          {ratio:.1}, which is the quadratic curve, not the linear one"
     );
 }

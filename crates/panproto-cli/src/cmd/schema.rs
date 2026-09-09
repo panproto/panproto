@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::Path;
 
 use miette::{Context, IntoDiagnostic, Result};
@@ -869,12 +869,94 @@ pub fn cmd_typecheck(
     Ok(())
 }
 
+/// One theory's contribution to a `schema verify` run.
+#[derive(serde::Serialize)]
+struct TheoryVerification {
+    /// The theory's registry name.
+    theory: String,
+    /// `passed`, `failed` or `incomplete`.
+    status: String,
+    /// Equations checked and refuted.
+    violations: Vec<VerificationViolation>,
+    /// Why the check did not complete, when it did not.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    incomplete_reason: Option<String>,
+}
+
+/// A refuted equation, rendered for machine-readable output.
+#[derive(serde::Serialize)]
+struct VerificationViolation {
+    equation: String,
+    assignment: BTreeMap<String, String>,
+    lhs: String,
+    rhs: String,
+}
+
+/// The whole run's outcome.
+#[derive(serde::Serialize)]
+struct VerificationRun {
+    /// `passed`, `failed` or `incomplete`: the weakest outcome any
+    /// theory reported.
+    status: String,
+    theories: Vec<TheoryVerification>,
+}
+
+impl VerificationRun {
+    /// Aggregate per-theory outcomes into the run's outcome.
+    ///
+    /// A run is only as strong as its weakest theory. One refutation
+    /// fails the run. One theory that was never checked leaves the run
+    /// unable to claim the schema verified, however many others passed,
+    /// which is the whole point of keeping `incomplete` apart from
+    /// `passed`.
+    fn new(mut theories: Vec<TheoryVerification>) -> Self {
+        // The registry is a `HashMap`, so it enumerates in hash-seed
+        // order. Machine-readable output that reorders between runs is
+        // a diff for every consumer, so name order decides.
+        theories.sort_by(|a, b| a.theory.cmp(&b.theory));
+        let status = if theories.iter().any(|t| t.status == "failed") {
+            "failed"
+        } else if theories.iter().any(|t| t.status == "incomplete") {
+            "incomplete"
+        } else {
+            "passed"
+        };
+        Self {
+            status: status.to_owned(),
+            theories,
+        }
+    }
+
+    /// The theories that were never checked.
+    fn unchecked(&self) -> Vec<&str> {
+        self.theories
+            .iter()
+            .filter(|t| t.status == "incomplete")
+            .map(|t| t.theory.as_str())
+            .collect()
+    }
+}
+
+/// Verify a schema against every theory its protocol registers.
+///
+/// The three outcomes are kept apart. `passed` means every requested
+/// theory was checked exhaustively and holds; `failed` means an
+/// equation was refuted; `incomplete` means at least one theory was
+/// never checked, because it does not typecheck or because its
+/// assignment enumeration ran out of budget. Only `passed` exits zero,
+/// unless `allow_incomplete` is set, which downgrades `incomplete`
+/// (never `failed`) to a success exit while still saying so.
 pub fn cmd_verify(
     protocol_name: &str,
     schema_path: &Path,
     max_assignments: usize,
+    format: &str,
+    allow_incomplete: bool,
     verbose: bool,
 ) -> Result<()> {
+    if format != "text" && format != "json" {
+        miette::bail!("unknown --format {format:?}; expected 'text' or 'json'");
+    }
     let schema: Schema = load_json(schema_path)?;
     let theory_registry = build_theory_registry(protocol_name)?;
 
@@ -888,52 +970,102 @@ pub fn cmd_verify(
     }
 
     let options = panproto_core::gat::CheckModelOptions { max_assignments };
-    let mut total_violations = 0;
+    let mut results: Vec<TheoryVerification> = Vec::with_capacity(theory_registry.len());
 
     for (name, theory) in &theory_registry {
-        if let Err(e) = panproto_core::gat::typecheck_theory(theory) {
-            println!("error: theory '{name}' has type errors, skipping equation check\n  --> {e}");
-            continue;
-        }
-
         let model = build_schema_model(&schema, name, theory);
+        let report = panproto_core::gat::verify_model(&model, theory, &options);
+        results.push(TheoryVerification {
+            theory: name.clone(),
+            status: report.status().to_string(),
+            violations: report
+                .violations
+                .iter()
+                .map(|v| VerificationViolation {
+                    equation: v.equation.to_string(),
+                    assignment: v
+                        .assignment
+                        .iter()
+                        .map(|(var, val)| (var.to_string(), format!("{val:?}")))
+                        .collect(),
+                    lhs: format!("{:?}", v.lhs_value),
+                    rhs: format!("{:?}", v.rhs_value),
+                })
+                .collect(),
+            incomplete_reason: report.incomplete.as_ref().map(ToString::to_string),
+        });
+    }
 
-        match panproto_core::gat::check_model_with_options(&model, theory, &options) {
-            Ok(violations) => {
-                if violations.is_empty() {
-                    println!("Theory '{name}': all equations satisfied.");
-                } else {
-                    total_violations += violations.len();
+    let run = VerificationRun::new(results);
+
+    if format == "json" {
+        println!("{}", serde_json::to_string_pretty(&run).into_diagnostic()?);
+    } else {
+        print_verification_text(&run);
+    }
+
+    match run.status.as_str() {
+        "failed" => {
+            let n: usize = run.theories.iter().map(|t| t.violations.len()).sum();
+            miette::bail!("verification failed with {n} equation violation(s)");
+        }
+        "incomplete" if !allow_incomplete => {
+            miette::bail!(
+                "verification incomplete: {} was not checked, so this schema is \
+                 neither verified nor refuted; pass --allow-incomplete to accept that",
+                run.unchecked().join(", ")
+            );
+        }
+        _ => Ok(()),
+    }
+}
+
+/// Render a verification run for a terminal.
+fn print_verification_text(run: &VerificationRun) {
+    for t in &run.theories {
+        match t.status.as_str() {
+            "passed" => println!("Theory '{}': all equations satisfied.", t.theory),
+            "incomplete" => println!(
+                "Theory '{}': NOT CHECKED: {}",
+                t.theory,
+                t.incomplete_reason.as_deref().unwrap_or("unknown reason"),
+            ),
+            _ => {
+                println!(
+                    "Theory '{}': {} equation violation(s):",
+                    t.theory,
+                    t.violations.len()
+                );
+                for v in &t.violations {
+                    let assignment: Vec<String> = v
+                        .assignment
+                        .iter()
+                        .map(|(var, val)| format!("{var}={val}"))
+                        .collect();
                     println!(
-                        "Theory '{name}': {} equation violation(s):",
-                        violations.len()
+                        "  equation '{}' violated when {}: LHS={}, RHS={}",
+                        v.equation,
+                        assignment.join(", "),
+                        v.lhs,
+                        v.rhs
                     );
-                    for v in &violations {
-                        let assignment_str: String = v
-                            .assignment
-                            .iter()
-                            .map(|(var, val)| format!("{var}={val:?}"))
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        println!(
-                            "  equation '{}' violated when {}: LHS={:?}, RHS={:?}",
-                            v.equation, assignment_str, v.lhs_value, v.rhs_value
-                        );
-                    }
                 }
             }
-            Err(e) => {
-                println!("Theory '{name}': equation check incomplete: {e}");
-            }
         }
     }
 
-    if total_violations > 0 {
-        miette::bail!("verification failed with {total_violations} equation violation(s)");
+    match run.status.as_str() {
+        "passed" => println!("Verification passed."),
+        "failed" => println!("Verification FAILED."),
+        _ => println!(
+            "Verification INCOMPLETE: {} of {} theories were not checked.",
+            run.theories
+                .iter()
+                .filter(|t| t.status == "incomplete")
+                .count(),
+            run.theories.len(),
+        ),
     }
-
-    println!("Verification passed.");
-    Ok(())
 }
 
 /// Options controlling diff output format.
@@ -1528,7 +1660,12 @@ pub fn cmd_show(target: &str, fmt: Option<&str>, stat: bool) -> Result<()> {
 
 #[cfg(test)]
 mod tests {
-    use super::{FUNCTOR_RESTRICT_ERROR, WTYPE_RESTRICT_ERROR, report_theory_typecheck};
+    use std::collections::BTreeMap;
+
+    use super::{
+        FUNCTOR_RESTRICT_ERROR, TheoryVerification, VerificationRun, VerificationViolation,
+        WTYPE_RESTRICT_ERROR, report_theory_typecheck,
+    };
 
     #[test]
     fn restrict_lift_errors_name_filtered_forward_transport() {
@@ -1569,5 +1706,65 @@ mod tests {
             rendered.contains("operation 'bar' arity mismatch"),
             "diagnostic must name the second error, got: {rendered}"
         );
+    }
+
+    // --- verification status aggregation ---
+
+    fn theory_result(name: &str, status: &str, violations: usize) -> TheoryVerification {
+        TheoryVerification {
+            theory: name.to_owned(),
+            status: status.to_owned(),
+            violations: (0..violations)
+                .map(|i| VerificationViolation {
+                    equation: format!("eq{i}"),
+                    assignment: BTreeMap::new(),
+                    lhs: "0".into(),
+                    rhs: "1".into(),
+                })
+                .collect(),
+            incomplete_reason: (status == "incomplete").then(|| "budget exhausted".to_owned()),
+        }
+    }
+
+    #[test]
+    fn every_theory_passing_passes_the_run() {
+        let run = VerificationRun::new(vec![
+            theory_result("ThGraph", "passed", 0),
+            theory_result("ThMulti", "passed", 0),
+        ]);
+        assert_eq!(run.status, "passed");
+        assert!(run.unchecked().is_empty());
+    }
+
+    #[test]
+    fn one_unchecked_theory_makes_the_run_incomplete() {
+        // This is the shape the command used to report as a pass: every
+        // theory it managed to check was satisfied, and the one it
+        // skipped contributed no violations to count.
+        let run = VerificationRun::new(vec![
+            theory_result("ThGraph", "passed", 0),
+            theory_result("ThMeta", "incomplete", 0),
+            theory_result("ThMulti", "passed", 0),
+        ]);
+        assert_eq!(run.status, "incomplete");
+        assert_eq!(run.unchecked(), vec!["ThMeta"]);
+    }
+
+    #[test]
+    fn a_refutation_outranks_an_incomplete_theory() {
+        // A schema with a known violation is refuted whether or not
+        // some other theory finished, so `failed` wins over
+        // `incomplete`.
+        let run = VerificationRun::new(vec![
+            theory_result("ThGraph", "incomplete", 0),
+            theory_result("ThMulti", "failed", 2),
+        ]);
+        assert_eq!(run.status, "failed");
+    }
+
+    #[test]
+    fn an_empty_run_has_nothing_to_report_and_passes() {
+        let run = VerificationRun::new(Vec::new());
+        assert_eq!(run.status, "passed");
     }
 }

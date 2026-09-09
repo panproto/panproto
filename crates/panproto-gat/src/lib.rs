@@ -46,7 +46,8 @@ mod typecheck;
 pub mod witness;
 
 pub use check_model::{
-    CheckModelOptions, EquationViolation, check_model, check_model_with_options,
+    CheckModelOptions, EquationViolation, Incompleteness, VerificationReport, VerificationStatus,
+    check_model, check_model_with_options, verify_model,
 };
 pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
 pub use composition::{CompositionSpec, CompositionStep, recompose};
