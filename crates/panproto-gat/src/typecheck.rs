@@ -9,7 +9,7 @@
 
 use std::sync::Arc;
 
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::eq::{CaseBranch, Equation, Term};
 use crate::error::GatError;
@@ -187,35 +187,9 @@ fn typecheck_case(
         SortClosure::Closed(cs) => cs.clone(),
     };
 
-    // Exhaustiveness: every constructor appears exactly once, and no
-    // branch names an unknown constructor. Build both checks in one
-    // pass.
-    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
-    for b in branches {
-        if !constructors.contains(&b.constructor) {
-            return Err(GatError::UnknownCaseConstructor {
-                sort: sort_name.to_string(),
-                constructor: b.constructor.to_string(),
-            });
-        }
-        if !seen.insert(Arc::clone(&b.constructor)) {
-            return Err(GatError::RedundantCaseBranch {
-                sort: sort_name.to_string(),
-                constructor: b.constructor.to_string(),
-            });
-        }
-    }
-    if seen.len() < constructors.len() {
-        let missing: Vec<String> = constructors
-            .iter()
-            .filter(|c| !seen.contains(*c))
-            .map(ToString::to_string)
-            .collect();
-        return Err(GatError::NonExhaustiveCase {
-            sort: sort_name.to_string(),
-            missing,
-        });
-    }
+    // Exhaustiveness over the constructors the scrutinee's index
+    // admits, rather than over every constructor the sort declares.
+    check_case_exhaustiveness(&scrutinee_sort, &constructors, branches, theory)?;
 
     // Typecheck each branch body; all must produce alpha-equivalent
     // output sorts. The first branch's output sort is the case
@@ -274,9 +248,12 @@ fn typecheck_case(
         }
     }
 
-    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
+    // Exhaustiveness passed with no branch, so the index admits no
+    // constructor: the match is vacuous and there is no branch body to
+    // read the result sort from.
+    branch_sort.ok_or_else(|| GatError::CaseOnUninhabitedIndex {
         sort: sort_name.to_string(),
-        missing: constructors.iter().map(ToString::to_string).collect(),
+        scrutinee_sort: scrutinee_sort.to_string(),
     })
 }
 
@@ -771,7 +748,7 @@ fn typecheck_case_with_holes(
     reports: &mut Vec<HoleReport>,
 ) -> Result<SortExpr, GatError> {
     let scrutinee_sort = typecheck_with_expected(scrutinee, None, ctx, theory, reports)?;
-    check_case_exhaustiveness_soft(&scrutinee_sort, branches, theory)?;
+    let admitted = check_case_exhaustiveness_soft(&scrutinee_sort, branches, theory)?;
     let mut branch_sort: Option<SortExpr> = None;
     for b in branches {
         let constructor_op = theory
@@ -829,50 +806,147 @@ fn typecheck_case_with_holes(
             }
         }
     }
-    branch_sort.ok_or_else(|| GatError::NonExhaustiveCase {
-        sort: scrutinee_sort.head().to_string(),
-        missing: Vec::new(),
+    branch_sort.ok_or_else(|| {
+        // A checked closed sort reaching here admits no constructor,
+        // so the match is vacuous rather than short of a branch.
+        if admitted.is_some_and(|a| a.is_empty()) {
+            GatError::CaseOnUninhabitedIndex {
+                sort: scrutinee_sort.head().to_string(),
+                scrutinee_sort: scrutinee_sort.to_string(),
+            }
+        } else {
+            GatError::NonExhaustiveCase {
+                sort: scrutinee_sort.head().to_string(),
+                missing: Vec::new(),
+            }
+        }
     })
 }
 
-fn check_case_exhaustiveness_soft(
+/// Whether the scrutinee's sort admits `constructor`, i.e. whether
+/// some inhabitant of that sort could have been built by it.
+///
+/// A constructor's output sort carries the index its results have. For
+/// a sort with no parameters that index is empty and every constructor
+/// of the sort qualifies, so this reduces to a head comparison. For an
+/// indexed family it is the refinement dependent pattern matching turns
+/// on: `nil : Vec(zero)` cannot have built a `Vec(succ n)`, so a case
+/// on one needs no `nil` branch and admits none.
+///
+/// The test is exactly the unification the branch path runs to
+/// instantiate a constructor's parameters, so a constructor reported
+/// admissible here is one that path can typecheck. That is what keeps
+/// the two checks from disagreeing about whether a branch exists.
+fn constructor_admitted(constructor: &Operation, scrutinee_sort: &SortExpr) -> bool {
+    if constructor.output.head() != scrutinee_sort.head()
+        || constructor.output.args().len() != scrutinee_sort.args().len()
+    {
+        return false;
+    }
+    let eqs: Vec<(Term, Term)> = constructor
+        .output
+        .args()
+        .iter()
+        .cloned()
+        .zip(scrutinee_sort.args().iter().cloned())
+        .collect();
+    unify_all(eqs).is_ok()
+}
+
+/// The subset of a closed sort's constructors that `scrutinee_sort`
+/// admits, in the order the sort declares them.
+fn admitted_constructors(
+    ctors: &[Arc<str>],
     scrutinee_sort: &SortExpr,
+    theory: &Theory,
+) -> Result<Vec<Arc<str>>, GatError> {
+    let mut admitted = Vec::with_capacity(ctors.len());
+    for c in ctors {
+        let op = theory
+            .find_op(c)
+            .ok_or_else(|| GatError::OpNotFound(c.to_string()))?;
+        if constructor_admitted(op, scrutinee_sort) {
+            admitted.push(Arc::clone(c));
+        }
+    }
+    Ok(admitted)
+}
+
+/// Check that a case's branches cover exactly the constructors the
+/// scrutinee's sort admits: each exactly once, none unreachable, and
+/// none missing.
+///
+/// The three failures are distinguished because they call for different
+/// edits. An unknown constructor does not belong to the sort at all; an
+/// unreachable one belongs to it but not at this index, and the branch
+/// should be deleted; a missing one needs a branch written.
+fn check_case_exhaustiveness(
+    scrutinee_sort: &SortExpr,
+    ctors: &[Arc<str>],
     branches: &[CaseBranch],
     theory: &Theory,
-) -> Result<(), GatError> {
-    let Some(sort_decl) = theory.find_sort(scrutinee_sort.head()) else {
-        return Ok(());
-    };
-    let SortClosure::Closed(ctors) = &sort_decl.closure else {
-        return Ok(());
-    };
-    let mut seen: rustc_hash::FxHashSet<Arc<str>> = rustc_hash::FxHashSet::default();
+) -> Result<Vec<Arc<str>>, GatError> {
+    let sort_name = scrutinee_sort.head();
+    let admitted = admitted_constructors(ctors, scrutinee_sort, theory)?;
+    let mut seen: FxHashSet<Arc<str>> = FxHashSet::default();
     for b in branches {
         if !ctors.contains(&b.constructor) {
             return Err(GatError::UnknownCaseConstructor {
-                sort: scrutinee_sort.head().to_string(),
+                sort: sort_name.to_string(),
                 constructor: b.constructor.to_string(),
+            });
+        }
+        if !admitted.contains(&b.constructor) {
+            let op = theory
+                .find_op(&b.constructor)
+                .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
+            return Err(GatError::UnreachableCaseBranch {
+                sort: sort_name.to_string(),
+                constructor: b.constructor.to_string(),
+                constructor_sort: op.output.to_string(),
+                scrutinee_sort: scrutinee_sort.to_string(),
             });
         }
         if !seen.insert(Arc::clone(&b.constructor)) {
             return Err(GatError::RedundantCaseBranch {
-                sort: scrutinee_sort.head().to_string(),
+                sort: sort_name.to_string(),
                 constructor: b.constructor.to_string(),
             });
         }
     }
-    if seen.len() < ctors.len() {
-        let missing: Vec<String> = ctors
+    if seen.len() < admitted.len() {
+        let missing: Vec<String> = admitted
             .iter()
             .filter(|c| !seen.contains(*c))
             .map(ToString::to_string)
             .collect();
         return Err(GatError::NonExhaustiveCase {
-            sort: scrutinee_sort.head().to_string(),
+            sort: sort_name.to_string(),
             missing,
         });
     }
-    Ok(())
+    Ok(admitted)
+}
+
+/// The hole-tolerant path's exhaustiveness check.
+///
+/// Returns the admitted constructors when the scrutinee's sort is
+/// declared and closed, and `None` when it is neither, in which case
+/// nothing was checked. A term under inference may name a sort the
+/// theory has not declared yet, so this stays lenient where the strict
+/// path errors.
+fn check_case_exhaustiveness_soft(
+    scrutinee_sort: &SortExpr,
+    branches: &[CaseBranch],
+    theory: &Theory,
+) -> Result<Option<Vec<Arc<str>>>, GatError> {
+    let Some(sort_decl) = theory.find_sort(scrutinee_sort.head()) else {
+        return Ok(None);
+    };
+    let SortClosure::Closed(ctors) = &sort_decl.closure else {
+        return Ok(None);
+    };
+    check_case_exhaustiveness(scrutinee_sort, ctors, branches, theory).map(Some)
 }
 
 /// Typecheck an equation: infer variable sorts, typecheck both sides,

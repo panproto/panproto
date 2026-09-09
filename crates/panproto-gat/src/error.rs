@@ -398,6 +398,45 @@ pub enum GatError {
         sort: String,
     },
 
+    /// A case branch names a constructor whose output index cannot be
+    /// the scrutinee's, so no inhabitant of the scrutinee's sort was
+    /// built by it.
+    ///
+    /// Raised only for an indexed sort. A non-dependent sort carries no
+    /// index, so every constructor of it is reachable.
+    #[error(
+        "case on sort {sort} has an unreachable branch for constructor {constructor}: \
+         its output sort {constructor_sort} cannot be the scrutinee's sort {scrutinee_sort}"
+    )]
+    UnreachableCaseBranch {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The constructor the branch names.
+        constructor: String,
+        /// The constructor's declared output sort.
+        constructor_sort: String,
+        /// The scrutinee's actual sort.
+        scrutinee_sort: String,
+    },
+
+    /// A case expression's scrutinee sort admits no constructor, so the
+    /// expression has no branch to take its sort from.
+    ///
+    /// An indexed family can have an index no constructor produces. A
+    /// match on such a scrutinee is vacuously exhaustive with no
+    /// branches, but the sort of the result is then unconstrained, so
+    /// it cannot be inferred here.
+    #[error(
+        "case scrutinee sort {scrutinee_sort} admits no constructor of {sort}, \
+         so the case expression has no sort to take"
+    )]
+    CaseOnUninhabitedIndex {
+        /// The scrutinee's sort name.
+        sort: String,
+        /// The scrutinee's actual sort, index included.
+        scrutinee_sort: String,
+    },
+
     /// A closed sort's constructor list references an op that either
     /// does not exist, does not produce this sort, or conflicts with
     /// another op producing the sort.
