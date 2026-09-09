@@ -233,8 +233,13 @@ enum Command {
         #[arg(long)]
         data: Option<PathBuf>,
 
-        /// Skip GAT migration validation while staging (leaves the stage
-        /// pending; the migration is still recorded).
+        /// Skip GAT migration validation, and the check of staged data
+        /// against its schema, while staging.
+        ///
+        /// Leaves the stage pending, which a default `commit` refuses;
+        /// the migration is still recorded, and data files are still
+        /// parsed, since a data set cannot be recorded under a schema
+        /// its bytes cannot be read against.
         #[arg(long)]
         skip_verify: bool,
     },

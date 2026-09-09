@@ -318,7 +318,7 @@ fn cli_add_atproto_directory_stages_per_file_tree_and_reuses_unchanged_leaf() {
     );
 
     schema_cmd()
-        .args(["commit", "-m", "first"])
+        .args(["commit", "-m", "first", "--skip-verify"])
         .current_dir(tmp.path())
         .assert()
         .success();
@@ -379,11 +379,19 @@ fn cli_add_data_stages_one_index_entry_per_file() {
     let paths: Vec<&str> = staged.iter().map(|(path, _)| path.as_str()).collect();
     assert_eq!(paths, vec!["records/one.json", "records/two.json"]);
 
-    // Each entry points at a stored data set holding that file's bytes.
+    // Each entry points at a stored data set holding that file's
+    // records, lifted through the schema they are recorded under. The
+    // stored form is the one every reader of a data set decodes, not
+    // the file's own bytes.
     let repo = Repository::open(tmp.path()).unwrap();
-    for ((_, data_id), expected) in staged.iter().zip([first.as_slice(), second.as_slice()]) {
+    for ((_, data_id), expected_records) in staged.iter().zip([2_usize, 1]) {
         match repo.store().get(data_id).unwrap() {
-            Object::DataSet(set) => assert_eq!(set.data, expected),
+            Object::DataSet(set) => {
+                assert_eq!(set.record_count, expected_records as u64);
+                let instances: Vec<panproto_core::inst::WInstance> =
+                    rmp_serde::from_slice(&set.data).unwrap();
+                assert_eq!(instances.len(), expected_records);
+            }
             other => panic!("expected a data set, found {}", other.type_name()),
         }
     }

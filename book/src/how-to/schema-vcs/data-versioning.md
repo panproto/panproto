@@ -22,7 +22,7 @@ schema commit -m "v2 schema"
 schema data sync records/
 ```
 
-`schema add --data <DATA>` stages each immediate JSON file in the directory. Staging is all or nothing for the data files. `schema data sync` compares a target commit with its first parent, generates a lens, and rewrites records it can migrate; failed records are reported as skipped.
+`schema add --data <DATA>` stages each immediate JSON file in the directory. Each file's records are parsed and checked against the schema being staged, so a file that is not JSON, or one whose records do not fit the schema, fails at `add` rather than at whatever later operation first tries to read it. Staging is all or nothing for the data files, so a failure leaves none of them staged. `--skip-verify` stages without the check and leaves the result pending, which a default `commit` then refuses; it does not skip reading the file, since a data set records which schema its data belongs to and bytes that cannot be read as records of that schema cannot be recorded under it. `schema data sync` compares a target commit with its first parent, generates a lens, and rewrites records it can migrate; failed records are reported as skipped.
 
 Preview the default `parent..HEAD` range and run coverage without writing:
 

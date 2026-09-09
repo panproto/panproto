@@ -354,16 +354,38 @@ impl PyRepository {
 
     /// Stage a data file for the next commit.
     ///
-    /// Reads ``path``, associates it with the staged or HEAD schema,
-    /// counts records, stores the data set, and records it in the index.
-    /// The set is keyed by ``key``, or by ``path`` when ``key`` is
-    /// ``None``, so the committed data read back with :meth:`data_at` can
-    /// be mapped to its origin. Returns the updated index.
-    #[pyo3(signature = (path, key=None))]
-    fn add_data(&mut self, py: Python<'_>, path: &str, key: Option<&str>) -> PyResult<Py<PyAny>> {
+    /// Reads ``path``, parses each record against the staged or HEAD
+    /// schema, checks it against that schema, and records the lifted
+    /// instances in the index. The set is keyed by ``key``, or by
+    /// ``path`` when ``key`` is ``None``, so the committed data read
+    /// back with :meth:`data_at` can be mapped to its origin. Returns
+    /// the updated index.
+    ///
+    /// Raises ``VcsError`` if the file is not JSON, if a record cannot
+    /// be read against the schema, or if a record does not validate
+    /// against it. A data set records which schema its data belongs to,
+    /// so staging it unchecked would make that an assertion nothing had
+    /// established.
+    ///
+    /// ``skip_verify=True`` still parses and lifts, since the stored
+    /// encoding depends on it, but leaves the check undone. The stage is
+    /// then pending and :meth:`commit` refuses it without its own
+    /// ``skip_verify``.
+    #[pyo3(signature = (path, key=None, *, skip_verify=false))]
+    fn add_data(
+        &mut self,
+        py: Python<'_>,
+        path: &str,
+        key: Option<&str>,
+        skip_verify: bool,
+    ) -> PyResult<Py<PyAny>> {
         let index = self
             .inner
-            .add_data(std::path::Path::new(path), key)
+            .add_data_with_options(
+                std::path::Path::new(path),
+                key,
+                &panproto_core::vcs::AddDataOptions { skip_verify },
+            )
             .map_err(vcs_err)?;
         convert::to_python(py, &index_to_value(&index))
     }

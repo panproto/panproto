@@ -66,7 +66,9 @@ pub struct AddFlags {
     pub dry_run: bool,
     /// Stage even if validation fails.
     pub force: bool,
-    /// Skip GAT migration validation while staging (leaves the stage pending).
+    /// Skip GAT migration validation while staging, and the check of
+    /// staged data against its schema. Both leave the stage pending,
+    /// which a default commit refuses.
     pub skip_verify: bool,
 }
 
@@ -196,18 +198,27 @@ pub fn cmd_add(
     }
 
     if let Some(dp) = data_path {
-        let count = stage_data_files(&mut repo, dp, verbose)?;
+        let count = stage_data_files(&mut repo, dp, flags.skip_verify, verbose)?;
         println!("Staged {count} data file(s) from {}", dp.display());
+        if flags.skip_verify {
+            println!("  (not checked against the schema; commit --skip-verify to record them)");
+        }
     }
     Ok(())
 }
 
 /// Stage every JSON file in `data_path` for the next commit.
 ///
-/// Each file is handed to [`vcs::Repository::add_data`] with no explicit
-/// key, so the staged set is keyed by its source path. That is the key
-/// the migration path in `panproto-vcs` writes as well, so a set read
-/// back out of a commit maps to the file it came from.
+/// Each file is handed to [`vcs::Repository::add_data_with_options`]
+/// with no explicit key, so the staged set is keyed by its source path.
+/// That is the key the migration path in `panproto-vcs` writes as well,
+/// so a set read back out of a commit maps to the file it came from.
+///
+/// A file that is not JSON, or whose records do not validate against the
+/// schema being staged, fails here rather than at whatever later
+/// operation first tries to read it. `skip_verify` still parses and
+/// lifts, since the stored encoding depends on it, but leaves the check
+/// undone and the stage pending.
 ///
 /// Staging is all or nothing across the directory: the index is
 /// snapshotted before the first file and restored if any file fails, so
@@ -218,7 +229,13 @@ pub fn cmd_add(
 /// collects them.
 ///
 /// Returns the number of files staged.
-fn stage_data_files(repo: &mut vcs::Repository, data_path: &Path, verbose: bool) -> Result<usize> {
+fn stage_data_files(
+    repo: &mut vcs::Repository,
+    data_path: &Path,
+    skip_verify: bool,
+    verbose: bool,
+) -> Result<usize> {
+    let options = vcs::AddDataOptions { skip_verify };
     let entries = read_json_dir(data_path)?;
     let restore_point = repo
         .read_index()
@@ -227,7 +244,7 @@ fn stage_data_files(repo: &mut vcs::Repository, data_path: &Path, verbose: bool)
 
     for entry in &entries {
         let path = entry.path();
-        match repo.add_data(&path, None) {
+        match repo.add_data_with_options(&path, None, &options) {
             Ok(_) => {
                 if verbose {
                     eprintln!("Staged data file {}", path.display());

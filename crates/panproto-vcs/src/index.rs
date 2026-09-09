@@ -33,6 +33,21 @@ pub struct StagedData {
     pub data_id: ObjectId,
     /// Object ID of the schema this data conforms to.
     pub schema_id: ObjectId,
+    /// Whether this data was checked against `schema_id`.
+    ///
+    /// [`ValidationStatus::Valid`] for an ordinary stage, and
+    /// [`ValidationStatus::Pending`] when staging skipped the check. A
+    /// default commit refuses the latter: a data set's `schema_id` says
+    /// which schema the data belongs to, and an unchecked stage has not
+    /// established that.
+    #[serde(default = "default_data_validation")]
+    pub validation: ValidationStatus,
+}
+
+/// Data staged before this field existed was never checked, so it reads
+/// back as pending rather than as having passed.
+const fn default_data_validation() -> ValidationStatus {
+    ValidationStatus::Pending
 }
 
 /// A schema that has been staged for commit.
