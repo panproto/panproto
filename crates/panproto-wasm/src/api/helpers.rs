@@ -441,7 +441,9 @@ pub(super) fn build_theory_registry(
 ) -> Result<HashMap<String, Theory>, String> {
     let mut registry = HashMap::new();
     match protocol_name {
-        "atproto" => protocols::atproto::register_theories(&mut registry),
+        "atproto" => protocols::atproto::register_theories(&mut registry).map_err(|e| {
+            format!("theory registry for {protocol_name:?} could not be built: {e}")
+        })?,
         "json-schema" => protocols::data_schema::json_schema::register_theories(&mut registry),
         "graphql" => protocols::api::graphql::register_theories(&mut registry),
         "sql" => protocols::database::sql::register_theories(&mut registry),

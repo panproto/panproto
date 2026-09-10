@@ -3574,3 +3574,94 @@ fn cli_atproto_project_versions_compare_through_compat() {
         .assert()
         .code(2);
 }
+
+// ---------------------------------------------------------------------------
+// `schema verify` reports what it established
+// ---------------------------------------------------------------------------
+
+/// A minimal ATProto-shaped schema: two vertices and one property edge.
+fn write_atproto_schema(dir: &Path, name: &str) -> std::path::PathBuf {
+    let schema = serde_json::json!({
+        "protocol": "atproto",
+        "vertices": {
+            "Post": {"id": "Post", "kind": "object", "nsid": null},
+            "Text": {"id": "Text", "kind": "string", "nsid": null}
+        },
+        "edges": [[{"src": "Post", "tgt": "Text", "kind": "prop", "name": "text"}, "prop"]],
+        "hyper_edges": {}, "constraints": {}, "required": {}, "nsids": {},
+        "variants": {}, "orderings": [], "recursion_points": {}, "spans": {},
+        "usage_modes": [], "nominal": {}, "outgoing": {}, "incoming": {}, "between": []
+    });
+    let path = dir.join(name);
+    std::fs::write(&path, serde_json::to_string_pretty(&schema).unwrap()).unwrap();
+    path
+}
+
+#[test]
+fn verify_reports_a_completed_check_as_passed() {
+    let dir = tempfile::tempdir().unwrap();
+    let schema = write_atproto_schema(dir.path(), "s.json");
+
+    schema_cmd()
+        .args(["verify", "--protocol", "atproto"])
+        .arg(&schema)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Verification passed."));
+}
+
+/// The machine-readable form carries the same three-valued status, so a
+/// consumer does not have to infer the outcome from an exit code plus
+/// an empty violation list.
+#[test]
+fn verify_json_output_names_the_status_of_every_theory() {
+    let dir = tempfile::tempdir().unwrap();
+    let schema = write_atproto_schema(dir.path(), "s.json");
+
+    let out = schema_cmd()
+        .args(["verify", "--protocol", "atproto", "--format", "json"])
+        .arg(&schema)
+        .assert()
+        .success()
+        .get_output()
+        .stdout
+        .clone();
+    let run: serde_json::Value = serde_json::from_slice(&out).unwrap();
+
+    assert_eq!(run["status"], "passed");
+    let theories = run["theories"].as_array().unwrap();
+    assert!(!theories.is_empty(), "expected per-theory results");
+    for t in theories {
+        assert_eq!(
+            t["status"], "passed",
+            "every theory of a passing run reports passed: {t}",
+        );
+        assert!(
+            t.get("incomplete_reason").is_none(),
+            "a checked theory carries no incompleteness reason: {t}",
+        );
+    }
+
+    // Theory order comes from a HashMap, so the output sorts by name;
+    // an unstable order would be a spurious diff for every consumer.
+    let names: Vec<&str> = theories
+        .iter()
+        .map(|t| t["theory"].as_str().unwrap())
+        .collect();
+    let mut sorted = names.clone();
+    sorted.sort_unstable();
+    assert_eq!(names, sorted, "theories must be reported in name order");
+}
+
+#[test]
+fn verify_rejects_an_unknown_format() {
+    let dir = tempfile::tempdir().unwrap();
+    let schema = write_atproto_schema(dir.path(), "s.json");
+
+    schema_cmd()
+        .args(["verify", "--protocol", "atproto", "--format", "yaml"])
+        .arg(&schema)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unknown --format"));
+}

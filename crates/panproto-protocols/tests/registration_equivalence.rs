@@ -140,9 +140,9 @@ fn group_f_constrained_graph_instance() {
 }
 
 #[test]
-fn atproto_register_theories_schema_and_instance() {
+fn atproto_register_theories_schema_and_instance() -> Result<(), Box<dyn std::error::Error>> {
     let mut registry: HashMap<String, Theory> = HashMap::new();
-    panproto_protocols::atproto::register_theories(&mut registry);
+    panproto_protocols::atproto::register_theories(&mut registry)?;
 
     // Schema: colimit(colimit(ThGraph, ThConstraint), ThMulti).
     let schema = registry
@@ -161,4 +161,6 @@ fn atproto_register_theories_schema_and_instance() {
         .get("ThATProtoInstance")
         .expect("ThATProtoInstance registered");
     assert_eq!(structural_sets(inst), structural_sets(&expected_inst));
+
+    Ok(())
 }

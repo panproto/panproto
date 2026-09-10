@@ -261,17 +261,33 @@ Verify that a schema satisfies its protocol theory's equations
 Usage: schema verify [OPTIONS] --protocol <PROTOCOL> <SCHEMA>
 
 Arguments:
-  <SCHEMA>  Path to the schema JSON file
+  <SCHEMA>
+          Path to the schema JSON file
 
 Options:
       --protocol <PROTOCOL>
           The protocol name (e.g., "atproto")
+
   -v, --verbose
           Enable verbose output
+
       --max-assignments <MAX_ASSIGNMENTS>
-          Maximum assignments to check per equation (default: 10000) [default: 10000]
+          Maximum assignments to check per equation (default: 10000)
+          
+          [default: 10000]
+
+      --format <FORMAT>
+          Output format: `text` (default) or `json`
+          
+          [default: text]
+
+      --allow-incomplete
+          Exit zero when a theory could not be checked at all.
+          
+          A theory that does not typecheck, or one whose assignment enumeration exhausted `--max-assignments`, establishes nothing about the schema. By default that is an error, since treating it as a pass reports a schema verified that was never examined. This accepts it for exploratory use; the output still says the run was incomplete.
+
   -h, --help
-          Print help
+          Print help (see a summary with '-h')
 ```
 
 ### `schema init`

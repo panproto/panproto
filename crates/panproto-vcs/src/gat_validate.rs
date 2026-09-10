@@ -10,8 +10,7 @@
 //! advisory note records that none were checked).
 
 use panproto_gat::{
-    CheckModelOptions, EquationViolation, Model, ModelValue, Theory, check_model_with_options,
-    typecheck_theory,
+    CheckModelOptions, EquationViolation, Model, ModelValue, Theory, typecheck_theory, verify_model,
 };
 use panproto_mig::Migration;
 use panproto_schema::Schema;
@@ -229,11 +228,15 @@ pub fn validate_theory_equations(theory: &Theory) -> GatDiagnostics {
 
 /// Validate a schema's model against a theory's equations.
 ///
-/// Builds a model from the schema and checks all theory equations.
-/// Returns diagnostics with any violations found.
+/// Builds a model from the schema and checks every theory equation,
+/// under a bounded assignment enumeration so a large schema cannot
+/// explode combinatorially.
 ///
-/// This uses a bounded check to avoid combinatorial explosion on
-/// large schemas.
+/// A check that did not complete is recorded as an error rather than a
+/// note. The bound exists to keep the check affordable, not to make
+/// exceeding it acceptable: a theory that was never checked establishes
+/// nothing about the schema, and recording it as clean would let a
+/// commit past on the strength of a check that did not run.
 #[must_use]
 pub fn validate_schema_equations(
     _schema: &Schema,
@@ -246,17 +249,13 @@ pub fn validate_schema_equations(
         max_assignments: 10_000,
     };
 
-    match check_model_with_options(model, theory, &options) {
-        Ok(violations) => {
-            for v in violations {
-                diag.equation_errors.push(format_violation(&v));
-            }
-        }
-        Err(e) => {
-            // Limit exceeded or missing carrier: report as warning, not hard error.
-            diag.equation_errors
-                .push(format!("equation check incomplete: {e}"));
-        }
+    let report = verify_model(model, theory, &options);
+    for v in &report.violations {
+        diag.equation_errors.push(format_violation(v));
+    }
+    if let Some(reason) = &report.incomplete {
+        diag.equation_errors
+            .push(format!("equations were not checked: {reason}"));
     }
 
     diag

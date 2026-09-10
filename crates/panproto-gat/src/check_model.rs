@@ -27,6 +27,152 @@ pub struct EquationViolation {
     pub rhs_value: ModelValue,
 }
 
+/// The outcome of verifying a model against a theory.
+///
+/// The three cases are kept apart because collapsing them is a
+/// fail-open: an incomplete check establishes nothing, and reading it
+/// as an absence of violations reports the model verified when it was
+/// never examined.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum VerificationStatus {
+    /// Every equation was checked exhaustively and holds.
+    Passed,
+    /// At least one equation was checked and refuted.
+    Failed,
+    /// The check did not run to completion, so neither satisfaction nor
+    /// violation was established.
+    Incomplete,
+}
+
+impl VerificationStatus {
+    /// Whether this outcome establishes that the model satisfies its
+    /// theory.
+    ///
+    /// True only for [`Passed`](Self::Passed). Both other cases leave
+    /// the question open, and a caller deciding whether to accept a
+    /// schema wants exactly this distinction.
+    #[must_use]
+    pub const fn is_verified(self) -> bool {
+        matches!(self, Self::Passed)
+    }
+}
+
+impl std::fmt::Display for VerificationStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            Self::Passed => "passed",
+            Self::Failed => "failed",
+            Self::Incomplete => "incomplete",
+        })
+    }
+}
+
+/// Why a verification did not run to completion.
+#[derive(Debug)]
+pub enum Incompleteness {
+    /// The theory itself does not typecheck, so none of its equations
+    /// were checked against the model.
+    TheoryTypeError(GatError),
+    /// Checking an equation did not finish. The common case is
+    /// [`GatError::ModelCheckLimitExceeded`]: the assignment
+    /// enumeration hit `max_assignments` before it was exhaustive.
+    CheckError(GatError),
+}
+
+impl Incompleteness {
+    /// The underlying failure.
+    #[must_use]
+    pub const fn source(&self) -> &GatError {
+        match self {
+            Self::TheoryTypeError(e) | Self::CheckError(e) => e,
+        }
+    }
+}
+
+impl std::fmt::Display for Incompleteness {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::TheoryTypeError(e) => {
+                write!(
+                    f,
+                    "theory does not typecheck, so no equation was checked: {e}"
+                )
+            }
+            Self::CheckError(e) => write!(f, "equation check did not complete: {e}"),
+        }
+    }
+}
+
+/// What verifying one model against one theory established.
+///
+/// Returned by [`verify_model`], which reports failure in this value
+/// rather than as an `Err`. That is the point: an `Err` is easy to
+/// print and step past, and a caller that does so goes on to treat the
+/// unchecked theory as one that passed.
+#[derive(Debug)]
+pub struct VerificationReport {
+    /// The equations that were checked and refuted.
+    pub violations: Vec<EquationViolation>,
+    /// Why the check did not complete, or `None` when it did.
+    pub incomplete: Option<Incompleteness>,
+}
+
+impl VerificationReport {
+    /// The outcome this report establishes.
+    ///
+    /// An incomplete check reports [`VerificationStatus::Incomplete`]
+    /// even when it recorded violations first, because the violations
+    /// it did not reach are unknown. A violation found before the check
+    /// stopped is still a genuine violation and is still reported, but
+    /// the run as a whole did not establish the model's status.
+    #[must_use]
+    pub fn status(&self) -> VerificationStatus {
+        if self.incomplete.is_some() {
+            VerificationStatus::Incomplete
+        } else if self.violations.is_empty() {
+            VerificationStatus::Passed
+        } else {
+            VerificationStatus::Failed
+        }
+    }
+}
+
+/// Verify a model against a theory, reporting whether the check
+/// completed as well as what it found.
+///
+/// Typechecks `theory` first, since an ill-typed theory's equations
+/// cannot be checked against anything, then checks every equation.
+/// Neither failure is an `Err`: both are recorded in the returned
+/// [`VerificationReport`], so a caller reads a status rather than
+/// inferring one from an empty violation list.
+///
+/// Prefer this over [`check_model_with_options`] at any boundary where
+/// the answer decides whether to accept a schema.
+#[must_use]
+pub fn verify_model(
+    model: &Model,
+    theory: &Theory,
+    options: &CheckModelOptions,
+) -> VerificationReport {
+    if let Err(e) = crate::typecheck::typecheck_theory(theory) {
+        return VerificationReport {
+            violations: Vec::new(),
+            incomplete: Some(Incompleteness::TheoryTypeError(e)),
+        };
+    }
+    match check_model_with_options(model, theory, options) {
+        Ok(violations) => VerificationReport {
+            violations,
+            incomplete: None,
+        },
+        Err(e) => VerificationReport {
+            violations: Vec::new(),
+            incomplete: Some(Incompleteness::CheckError(e)),
+        },
+    }
+}
+
 /// Options for model checking.
 #[derive(Debug, Clone)]
 pub struct CheckModelOptions {

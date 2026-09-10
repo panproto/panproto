@@ -32,7 +32,11 @@ pub fn resolve_protocol(name: &str) -> Result<Protocol> {
 pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theory>> {
     let mut registry = HashMap::new();
     match protocol_name {
-        "atproto" => protocols::atproto::register_theories(&mut registry),
+        "atproto" => protocols::atproto::register_theories(&mut registry)
+            .into_diagnostic()
+            .wrap_err_with(|| {
+                format!("theory registry for {protocol_name:?} could not be built")
+            })?,
         _ => miette::bail!(
             "unknown protocol for theory registry: {protocol_name:?}. Supported: atproto"
         ),
@@ -48,13 +52,29 @@ pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theo
 /// theory's equations; a schema whose protocol is unregistered falls back to
 /// structural validation and records an advisory note that no equations were
 /// checked.
-fn register_protocol_theories(repo: &mut vcs::Repository) {
+///
+/// # Errors
+///
+/// Returns an error if the protocol's theories cannot be built, or if
+/// the protocol names a schema theory its own registration does not
+/// produce. Both leave the repository validating structure only, which
+/// is indistinguishable at the call site from a schema that passed its
+/// equations, so neither is reported as success.
+fn register_protocol_theories(repo: &mut vcs::Repository) -> Result<()> {
     let proto = protocols::atproto::protocol();
     let mut registry: HashMap<String, Theory> = HashMap::new();
-    protocols::atproto::register_theories(&mut registry);
-    if let Some(theory) = registry.get(&proto.schema_theory) {
-        repo.set_protocol_theory(proto.name.clone(), theory.clone());
-    }
+    protocols::atproto::register_theories(&mut registry)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("protocol {:?} theory registration failed", proto.name))?;
+    let theory = registry.get(&proto.schema_theory).ok_or_else(|| {
+        miette::miette!(
+            "protocol {:?} names schema theory {:?}, which its registration did not produce",
+            proto.name,
+            proto.schema_theory,
+        )
+    })?;
+    repo.set_protocol_theory(proto.name.clone(), theory.clone());
+    Ok(())
 }
 
 /// Open a VCS repository from the current directory (or parent search).
@@ -68,7 +88,7 @@ pub fn open_repo() -> Result<vcs::Repository> {
     let mut repo = vcs::Repository::open(&cwd)
         .into_diagnostic()
         .wrap_err("not a panproto repository (or any parent up to mount point)")?;
-    register_protocol_theories(&mut repo);
+    register_protocol_theories(&mut repo)?;
     Ok(repo)
 }
 

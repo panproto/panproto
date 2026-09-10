@@ -201,7 +201,7 @@ fn theory_of_schema_theories_is_a_gat() -> Result<(), Box<dyn std::error::Error>
     // The schema theory for ATProto is built via colimit, which is a GAT
     // operation. Verify it produces a well-formed theory.
     let mut registry = HashMap::new();
-    panproto_protocols::atproto::register_theories(&mut registry);
+    panproto_protocols::atproto::register_theories(&mut registry)?;
 
     let schema_theory = registry
         .get("ThATProtoSchema")

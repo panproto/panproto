@@ -8,6 +8,29 @@ pub enum ProtocolError {
     #[error("theory colimit failed: {0}")]
     ColimitFailed(#[from] panproto_gat::GatError),
 
+    /// Composing a protocol's theories failed, so the registry entry it
+    /// would have produced could not be built.
+    ///
+    /// Distinct from [`ProtocolError::ColimitFailed`] in naming the
+    /// composition stage: a protocol's theory set is built by several
+    /// pushouts in sequence, and which one failed is what identifies
+    /// the theory that is missing.
+    #[error("theory registration failed while composing {stage}: {source}")]
+    TheoryRegistration {
+        /// The composition stage that failed.
+        stage: String,
+        /// The failure that stage reported.
+        ///
+        /// Boxed so this variant does not enlarge `ProtocolError`.
+        /// `ColimitFailed` already holds a `GatError` inline, so
+        /// carrying one plus a `String` here would make this the
+        /// largest variant and push every `Result` wrapping a
+        /// `ProtocolError` over clippy's `result_large_err` threshold,
+        /// several crates downstream.
+        #[source]
+        source: Box<panproto_gat::GatError>,
+    },
+
     /// A schema building step failed.
     #[error("schema build failed: {0}")]
     SchemaBuild(#[from] panproto_schema::SchemaError),

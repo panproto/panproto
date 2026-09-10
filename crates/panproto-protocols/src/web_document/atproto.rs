@@ -75,47 +75,76 @@ pub fn protocol() -> Protocol {
 /// Register the component GATs for `ATProto` with a theory registry.
 ///
 /// Registers `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`,
-/// and the composed schema/instance theories.
-pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<String, Theory, S>) {
+/// and the composed `ThATProtoSchema` and `ThATProtoInstance`.
+///
+/// Registration is atomic. The two composed theories are built by
+/// pushout before anything is written, so a failure leaves `registry`
+/// untouched rather than populated with the components and missing a
+/// composite. A caller that ignored the error would otherwise hold a
+/// registry that looks initialized and silently validates nothing.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::TheoryRegistration`] naming the composition
+/// stage that failed and the error it failed with.
+pub fn register_theories<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+) -> Result<(), ProtocolError> {
     let th_graph = theories::th_graph();
     let th_constraint = theories::th_constraint();
     let th_multi = theories::th_multi();
     let th_wtype = theories::th_wtype();
     let th_meta = theories::th_meta();
 
-    registry.insert("ThGraph".into(), th_graph.clone());
-    registry.insert("ThConstraint".into(), th_constraint.clone());
-    registry.insert("ThMulti".into(), th_multi.clone());
-    registry.insert("ThWType".into(), th_wtype.clone());
-    registry.insert("ThMeta".into(), th_meta.clone());
+    // Compose both derived theories before writing anything. A pushout
+    // that fails then leaves `registry` exactly as it was, rather than
+    // holding the five component theories with one or both composites
+    // silently absent.
 
-    // Compose schema theory via colimit.
-    // Step 1: colimit(ThGraph, ThConstraint) over shared Vertex.
+    // Schema theory, step 1: colimit(ThGraph, ThConstraint) over shared Vertex.
     let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
+    let gc = pushout_by_name(&th_graph, &th_constraint, &shared_vertex)
+        .map(|r| r.theory)
+        .map_err(|source| ProtocolError::TheoryRegistration {
+            stage: "ThGraph and ThConstraint over ThVertex".into(),
+            source: Box::new(source),
+        })?;
 
-    if let Ok(gc) = pushout_by_name(&th_graph, &th_constraint, &shared_vertex).map(|r| r.theory) {
-        // Step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
-        let shared_ve = Theory::new(
-            "ThVertexEdge",
-            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-            vec![],
-            vec![],
-        );
-        if let Ok(mut schema_theory) = pushout_by_name(&gc, &th_multi, &shared_ve).map(|r| r.theory)
-        {
-            schema_theory.name = "ThATProtoSchema".into();
-            registry.insert("ThATProtoSchema".into(), schema_theory);
-        }
-    }
+    // Schema theory, step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
+    let shared_ve = Theory::new(
+        "ThVertexEdge",
+        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        vec![],
+        vec![],
+    );
+    let mut schema_theory = pushout_by_name(&gc, &th_multi, &shared_ve)
+        .map(|r| r.theory)
+        .map_err(|source| ProtocolError::TheoryRegistration {
+            stage: "ThGraph+ThConstraint and ThMulti over ThVertexEdge".into(),
+            source: Box::new(source),
+        })?;
+    schema_theory.name = "ThATProtoSchema".into();
 
-    // Compose instance theory: colimit(ThWType, ThMeta) over shared Node.
+    // Instance theory: colimit(ThWType, ThMeta) over shared Node.
     let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    if let Ok(mut inst_theory) =
-        pushout_by_name(&th_wtype, &th_meta, &shared_node).map(|r| r.theory)
-    {
-        inst_theory.name = "ThATProtoInstance".into();
-        registry.insert("ThATProtoInstance".into(), inst_theory);
-    }
+    let mut inst_theory = pushout_by_name(&th_wtype, &th_meta, &shared_node)
+        .map(|r| r.theory)
+        .map_err(|source| ProtocolError::TheoryRegistration {
+            stage: "ThWType and ThMeta over ThNode".into(),
+            source: Box::new(source),
+        })?;
+    inst_theory.name = "ThATProtoInstance".into();
+
+    // Everything constructed; commit the whole set.
+    registry.insert("ThGraph".into(), th_graph);
+    registry.insert("ThConstraint".into(), th_constraint);
+    registry.insert("ThMulti".into(), th_multi);
+    registry.insert("ThWType".into(), th_wtype);
+    registry.insert("ThMeta".into(), th_meta);
+    registry.insert("ThATProtoSchema".into(), schema_theory);
+    registry.insert("ThATProtoInstance".into(), inst_theory);
+
+    Ok(())
 }
 
 /// Parse an `ATProto` lexicon JSON document into a [`Schema`].
@@ -1285,9 +1314,9 @@ mod tests {
     }
 
     #[test]
-    fn register_theories_adds_correct_theories() {
+    fn register_theories_adds_correct_theories() -> Result<(), ProtocolError> {
         let mut registry = HashMap::new();
-        register_theories(&mut registry);
+        register_theories(&mut registry)?;
 
         assert!(registry.contains_key("ThGraph"), "ThGraph missing");
         assert!(
@@ -1311,6 +1340,8 @@ mod tests {
         assert!(schema_t.find_sort("Vertex").is_some());
         assert!(schema_t.find_sort("Edge").is_some());
         assert!(schema_t.find_sort("Constraint").is_some());
+
+        Ok(())
     }
 
     #[test]
