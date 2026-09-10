@@ -2,7 +2,7 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [Unreleased]
+## [0.74.0] - 2026-09-10
 
 ### Security
 
