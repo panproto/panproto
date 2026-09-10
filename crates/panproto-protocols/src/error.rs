@@ -8,6 +8,14 @@ pub enum ProtocolError {
     #[error("theory colimit failed: {0}")]
     ColimitFailed(#[from] panproto_gat::GatError),
 
+    /// A bounded resource ran out while reading or building a schema.
+    ///
+    /// Names which allowance was exhausted and what it was set to, so
+    /// raising it is a matter of reading the error rather than guessing
+    /// which of several unrelated bounds was reached.
+    #[error(transparent)]
+    LimitExceeded(#[from] panproto_expr::limits::LimitExceeded),
+
     /// Composing a protocol's theories failed, so the registry entry it
     /// would have produced could not be built.
     ///

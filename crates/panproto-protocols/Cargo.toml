@@ -9,6 +9,8 @@ repository.workspace = true
 
 [dependencies]
 panproto-gat = { workspace = true }
+# The shared resource-limits policy every public parse charges against.
+panproto-expr = { workspace = true }
 panproto-schema = { workspace = true }
 panproto-inst = { workspace = true }
 serde = { workspace = true }
@@ -19,10 +21,6 @@ blake3 = { workspace = true }
 smallvec = { workspace = true }
 
 [dev-dependencies]
-# Needed only to build a `CoercionSpec` in tests: the spec's expressions
-# are `panproto_expr::Expr`, which this crate otherwise only ever passes
-# through.
-panproto-expr = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }
 
