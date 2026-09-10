@@ -21,6 +21,7 @@
   - [Python](./how-to/install/python.md)
   - [Haskell](./how-to/install/haskell.md)
   - [Swift](./how-to/install/swift.md)
+  - [Verify a release artifact](./how-to/install/verify-artifacts.md)
 - [Define a schema](./how-to/define-schema/index.md)
   - [From the CLI](./how-to/define-schema/cli.md)
   - [From TypeScript](./how-to/define-schema/typescript.md)

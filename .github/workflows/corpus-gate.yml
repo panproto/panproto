@@ -34,12 +34,12 @@ jobs:
           sudo rm -rf /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL
           df -h /
-      - uses: actions/checkout@v6
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
         with:
           key: corpus-gate
-      - uses: taiki-e/install-action@nextest
+      - uses: taiki-e/install-action@b5c73bb82f2ad2b0f63804f6a057b567a4f54a2d # nextest
       - name: Run the full-corpus emit gates
         run: |
           cargo nextest run -p panproto-parse --all-features \
