@@ -344,15 +344,24 @@ jobs:
         # make the SBOM describe the versions actually built.
         run: |
           set -euxo pipefail
-          cargo cyclonedx --format json --spec-version 1.5 -p panproto-c
+          # `--manifest-path`, not `-p`: cargo-cyclonedx takes no
+          # package selector, and passing one exits 2 before it does any
+          # work. Verified against cargo-cyclonedx 0.5.9.
+          cargo cyclonedx --format json --spec-version 1.5 \
+            --manifest-path crates/panproto-c/Cargo.toml
           mkdir -p sbom
-          # cargo-cyclonedx writes beside the crate it describes, and
-          # has moved that path between releases. Find it rather than
-          # assume it, and fail loudly if it produced nothing.
+          # It writes beside the crate it describes, and has moved that
+          # path between releases. Find it rather than assume it, and
+          # fail loudly if it produced nothing.
           found=$(find . -name '*.cdx.json' -not -path './sbom/*' | head -1)
           test -n "$found" || { echo "::error::cargo-cyclonedx produced no SBOM"; exit 1; }
           cp "$found" sbom/panproto-c.cdx.json
-          test -s sbom/panproto-c.cdx.json
+          # A file that exists but describes nothing is worse than none:
+          # it would be attested and published as an inventory.
+          components=$(jq '.components | length' sbom/panproto-c.cdx.json)
+          test "$components" -gt 0 \
+            || { echo "::error::the SBOM lists no components"; exit 1; }
+          echo "SBOM lists $components components"
       - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: panproto-c-sbom
@@ -360,7 +369,12 @@ jobs:
 
   release:
     name: Attach to GitHub Release
-    needs: [build, build-ios, build-full, xcframework, sbom]
+    # `sbom` is deliberately absent from `needs`. It was there, and a
+    # bad flag in it meant the v0.73.0 tag attached no archives and no
+    # XCFramework at all, which then stalled `publish-swift.yml` waiting
+    # for one. An inventory that fails to generate is worth reporting;
+    # it is not worth withholding the binaries people install.
+    needs: [build, build-ios, build-full, xcframework]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
@@ -397,6 +411,9 @@ jobs:
             bindist/*.tar.gz
             bindist/*.zip
       - name: Attest the SBOM
+        # Skipped when the SBOM job failed, so a missing inventory does
+        # not take the archives down with it.
+        if: hashFiles('bindist/panproto-c.cdx.json') != ''
         uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
         with:
           subject-path: bindist/panproto-c.cdx.json
