@@ -83,13 +83,13 @@ jobs:
           # Removes Android SDK, .NET, Haskell, large preinstalled
           # tools before any cargo step runs.
           #
-          # The MSRV leg ran out of space anyway on v0.61.0, failing at
-          # `panproto-grammars` with `No space left on device`, and was
-          # cancelled mid-nextest on v0.60.0. The stable leg passed on
-          # identical code both times, so the margin was thin rather
-          # than the budget wrong: trimming more here, and shrinking
-          # what cargo writes (see CARGO_PROFILE_DEV_DEBUG below),
-          # attack the two halves of that.
+          # The MSRV leg is the tight one, and the margin is thin
+          # rather than the budget wrong, so both halves are attacked:
+          # trimming more here, and shrinking what cargo writes (see
+          # CARGO_PROFILE_DEV_DEBUG below). The job reports its
+          # remaining headroom afterwards, because a run that passes
+          # with nothing left is one that fails on the next grammar
+          # added and nothing else would say so.
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc

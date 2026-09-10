@@ -85,13 +85,12 @@ jobs:
           args: --release --out dist
           manylinux: manylinux_2_28
           before-script-linux: |
-            # A single archive.ubuntu.com blip used to hard-fail the
-            # whole job: on v0.61.0 one aarch64 leg of ~50 could not
-            # fetch perl-base, and because the publish gate needs every
-            # leg green, none of the ten companion wheels published
-            # until someone re-ran it by hand. Package mirrors are the
-            # least reliable thing in this job, so a fetch retries
-            # before it is allowed to fail.
+            # Package mirrors are the least reliable step in this
+            # job, and the publish gate needs every one of some fifty
+            # legs green, so one mirror failure in one leg withholds
+            # every wheel until someone re-runs it by hand. A fetch
+            # therefore retries with a backoff before it is allowed to
+            # fail.
             set -eu
             retry() {
               for attempt in 1 2 3 4 5; do

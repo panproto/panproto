@@ -52,13 +52,12 @@ jobs:
           args: --release --out dist
           manylinux: manylinux_2_28
           before-script-linux: |
-            # A single archive.ubuntu.com blip used to hard-fail the
-            # whole job: on v0.61.0 one aarch64 leg of ~50 could not
-            # fetch perl-base, and because the publish gate needs every
-            # leg green, none of the ten companion wheels published
-            # until someone re-ran it by hand. Package mirrors are the
-            # least reliable thing in this job, so a fetch retries
-            # before it is allowed to fail.
+            # Package mirrors are the least reliable step in this
+            # job, and the publish gate needs every one of some fifty
+            # legs green, so one mirror failure in one leg withholds
+            # every wheel until someone re-runs it by hand. A fetch
+            # therefore retries with a backoff before it is allowed to
+            # fail.
             set -eu
             retry() {
               for attempt in 1 2 3 4 5; do
@@ -76,11 +75,11 @@ jobs:
               retry apt-get install -y perl
             fi
       - name: Install the built wheel and run a real operation
-        # A wheel is uploaded to PyPI without anything having installed
-        # it. Source-tree tests cannot see what a wheel omits, and this
-        # binding has shipped that exact defect before: the 0.42.0 wheel
-        # contained only `_native.abi3.so`, with no `__init__.py` and no
-        # `py.typed`, and every check passed.
+        # A wheel would otherwise reach PyPI without anything having
+        # installed it, and source-tree tests cannot see what a wheel
+        # omits: a compiled extension shipped with no `__init__.py` and
+        # no `py.typed` beside it passes every check that reads the
+        # source tree, then fails on a user's first import.
         #
         # Only a wheel whose target the runner can execute is testable
         # here; the cross-compiled aarch64 Linux leg is built under
