@@ -85,10 +85,28 @@ jobs:
           args: --release --out dist
           manylinux: manylinux_2_28
           before-script-linux: |
+            # A single archive.ubuntu.com blip used to hard-fail the
+            # whole job: on v0.61.0 one aarch64 leg of ~50 could not
+            # fetch perl-base, and because the publish gate needs every
+            # leg green, none of the ten companion wheels published
+            # until someone re-ran it by hand. Package mirrors are the
+            # least reliable thing in this job, so a fetch retries
+            # before it is allowed to fail.
+            set -eu
+            retry() {
+              for attempt in 1 2 3 4 5; do
+                if "$@"; then return 0; fi
+                echo "attempt $attempt of 5 failed: $*; retrying in $((attempt * 10))s" >&2
+                sleep $((attempt * 10))
+              done
+              echo "still failing after 5 attempts: $*" >&2
+              return 1
+            }
             if command -v yum &>/dev/null; then
-              yum install -y perl-IPC-Cmd
+              retry yum install -y perl-IPC-Cmd
             elif command -v apt-get &>/dev/null; then
-              apt-get update && apt-get install -y perl
+              retry apt-get update
+              retry apt-get install -y perl
             fi
       - name: Upload wheel artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6

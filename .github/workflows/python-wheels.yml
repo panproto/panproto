@@ -52,11 +52,72 @@ jobs:
           args: --release --out dist
           manylinux: manylinux_2_28
           before-script-linux: |
+            # A single archive.ubuntu.com blip used to hard-fail the
+            # whole job: on v0.61.0 one aarch64 leg of ~50 could not
+            # fetch perl-base, and because the publish gate needs every
+            # leg green, none of the ten companion wheels published
+            # until someone re-ran it by hand. Package mirrors are the
+            # least reliable thing in this job, so a fetch retries
+            # before it is allowed to fail.
+            set -eu
+            retry() {
+              for attempt in 1 2 3 4 5; do
+                if "$@"; then return 0; fi
+                echo "attempt $attempt of 5 failed: $*; retrying in $((attempt * 10))s" >&2
+                sleep $((attempt * 10))
+              done
+              echo "still failing after 5 attempts: $*" >&2
+              return 1
+            }
             if command -v yum &>/dev/null; then
-              yum install -y perl-IPC-Cmd
+              retry yum install -y perl-IPC-Cmd
             elif command -v apt-get &>/dev/null; then
-              apt-get update && apt-get install -y perl
+              retry apt-get update
+              retry apt-get install -y perl
             fi
+      - name: Install the built wheel and run a real operation
+        # A wheel is uploaded to PyPI without anything having installed
+        # it. Source-tree tests cannot see what a wheel omits, and this
+        # binding has shipped that exact defect before: the 0.42.0 wheel
+        # contained only `_native.abi3.so`, with no `__init__.py` and no
+        # `py.typed`, and every check passed.
+        #
+        # Only a wheel whose target the runner can execute is testable
+        # here; the cross-compiled aarch64 Linux leg is built under
+        # emulation-free zigbuild and is skipped rather than pretended
+        # about.
+        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        shell: bash
+        working-directory: bindings/python
+        run: |
+          set -euo pipefail
+          python -m venv "$RUNNER_TEMP/wheel-check"
+          # shellcheck disable=SC1091
+          if [ -f "$RUNNER_TEMP/wheel-check/bin/activate" ]; then
+            . "$RUNNER_TEMP/wheel-check/bin/activate"
+          else
+            . "$RUNNER_TEMP/wheel-check/Scripts/activate"
+          fi
+          # Install from the wheel alone. `--no-index` is what makes
+          # this a test of the artifact rather than of PyPI.
+          pip install --no-index --find-links dist panproto
+          # Run from a directory with no source tree in sight, so an
+          # import that only resolves next to the repo fails here.
+          cd "$RUNNER_TEMP"
+          python -c "
+          import panproto
+          print('panproto', panproto.__version__)
+          protocols = panproto.list_builtin_protocols()
+          assert protocols, 'the wheel exposes no protocols'
+          schema = panproto.parse_schema_bundle('atproto', [{
+              'lexicon': 1,
+              'id': 'com.example.smoke',
+              'defs': {'main': {'type': 'object', 'properties': {'v': {'type': 'string'}}}},
+          }])
+          assert schema.vertex_count > 0, 'the wheel parsed nothing'
+          print(f'wheel OK: {len(protocols)} protocols, {schema.vertex_count} vertices')
+          "
+
       - name: Upload wheel artifact
         uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:

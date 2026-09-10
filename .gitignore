@@ -77,3 +77,6 @@ book/book/
 
 # Isolated CARGO_TARGET_DIR dirs used by parallel agents
 /target-*/
+
+# cargo-cyclonedx writes one SBOM beside each workspace member
+*.cdx.json

@@ -81,11 +81,25 @@ jobs:
           # grammars; without trimming, the GitHub-hosted Ubuntu
           # runner's 14 GB disk fills before tests complete.
           # Removes Android SDK, .NET, Haskell, large preinstalled
-          # tools (~30 GB freed) before any cargo step runs.
+          # tools before any cargo step runs.
+          #
+          # The MSRV leg ran out of space anyway on v0.61.0, failing at
+          # `panproto-grammars` with `No space left on device`, and was
+          # cancelled mid-nextest on v0.60.0. The stable leg passed on
+          # identical code both times, so the margin was thin rather
+          # than the budget wrong: trimming more here, and shrinking
+          # what cargo writes (see CARGO_PROFILE_DEV_DEBUG below),
+          # attack the two halves of that.
           sudo rm -rf /usr/share/dotnet
           sudo rm -rf /usr/local/lib/android
           sudo rm -rf /opt/ghc
+          sudo rm -rf /usr/local/.ghcup
           sudo rm -rf /opt/hostedtoolcache/CodeQL
+          sudo rm -rf /usr/local/share/boost
+          sudo rm -rf /usr/local/share/powershell
+          sudo rm -rf /usr/share/swift
+          sudo rm -rf /usr/local/lib/node_modules
+          sudo docker image prune --all --force || true
           df -h /
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
       - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
@@ -101,8 +115,24 @@ jobs:
       # The `ci` nextest profile skips the two multi-minute full-corpus emit
       # gates; they run in the scheduled `corpus-gate` workflow (and locally by
       # default). See `.config/nextest.toml`.
+      #
+      # Full DWARF is the bulk of what a debug build writes, and 250
+      # vendored grammars make that enormous. `line-tables-only` keeps
+      # what a failing test actually needs, the file and line in a
+      # backtrace, and drops the rest; it is what lets this job finish
+      # on a 14 GB runner with room to spare rather than by a margin
+      # that has twice been too thin.
       - run: cargo nextest run --workspace --profile ci
+        env:
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
       - run: cargo test --doc --workspace
+        env:
+          CARGO_PROFILE_DEV_DEBUG: line-tables-only
+      - name: Report disk headroom
+        # A run that passes with almost nothing left is a run that will
+        # fail on the next grammar added, and nothing else would say so.
+        if: always()
+        run: df -h /
 
   feature-check:
     name: Feature Combinations

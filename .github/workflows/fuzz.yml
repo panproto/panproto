@@ -1,0 +1,238 @@
+name: Fuzz and sanitizers
+
+# CI compiled the fuzz targets and never ran them. That catches drift
+# between a target and the crate it drives, which is worth having, but
+# it establishes nothing about the code the targets exist to exercise:
+# a target that has not executed an input has not fuzzed anything.
+#
+# So: a bounded campaign per target nightly, a short smoke on pull
+# requests for the two highest-risk ones, and sanitizer coverage for the
+# native grammar boundary, which is where this workspace's unsafe code
+# lives. Every campaign is time-boxed, because an unbounded fuzz job is
+# one nobody waits for and therefore one nobody reads.
+on:
+  schedule:
+    # An hour after the corpus gate, so the two do not contend for
+    # runners and a bad night is legible as one thing after another.
+    - cron: "0 7 * * *"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      seconds:
+        description: Seconds to run each target
+        default: "300"
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  smoke:
+    # On a pull request, a minute per target on the two that read
+    # untrusted bytes. Long enough to catch a crash reachable from the
+    # committed corpus, short enough that nobody learns to ignore it.
+    name: Fuzz smoke (${{ matrix.target }})
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [parse_and_search, consistency]
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          # The fuzz directory is its own workspace with its own lock,
+          # so it caches separately from the main build.
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Run ${{ matrix.target }}
+        run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=60 -timeout=10
+      - name: Upload any crash
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: fuzz-smoke-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/
+          if-no-files-found: ignore
+
+  campaign:
+    # Every checked-in target, nightly, with a real budget.
+    name: Fuzz campaign (${{ matrix.target }})
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - build_cfn
+          - consistency
+          - cost_algebra
+          - induce
+          - model
+          - parse_and_search
+          - span_search
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+      - name: Run ${{ matrix.target }}
+        # The corpus is checked in and is the campaign's starting
+        # point, but it is deliberately not the only one: `-max_len`
+        # lets libFuzzer build inputs larger than anything committed.
+        run: |
+          cargo fuzz run ${{ matrix.target }} -- \
+            -max_total_time=${{ github.event.inputs.seconds || 900 }} \
+            -timeout=25 \
+            -max_len=65536 \
+            -print_final_stats=1
+      - name: Minimize a crash, if there is one
+        if: failure()
+        # A raw crash input is often mostly padding. Minimizing it is
+        # what makes it a regression test rather than an attachment.
+        run: |
+          set -x
+          for artifact in fuzz/artifacts/${{ matrix.target }}/*; do
+            [ -f "$artifact" ] || continue
+            cargo fuzz tmin ${{ matrix.target }} "$artifact" -- -timeout=25 || true
+          done
+      - name: Upload crashes and minimized reproductions
+        if: failure()
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: fuzz-campaign-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 30
+
+  sanitizers:
+    # The native grammar boundary is where this workspace's unsafe code
+    # is: a function pointer reconstructed from a build-generated table,
+    # and slices built from caller-supplied pointers. A use-after-free
+    # or an out-of-bounds read there is silent under an ordinary test
+    # run and loud under a sanitizer.
+    name: ${{ matrix.sanitizer }} over the grammar boundary
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        sanitizer: [address, undefined]
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: nightly
+          components: rust-src
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: sanitizer-${{ matrix.sanitizer }}
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
+          sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+      - name: Test the parse and grammar crates under ${{ matrix.sanitizer }}
+        # `-Z build-std` rebuilds the standard library with the same
+        # sanitizer, without which the runtime reports the standard
+        # library's own allocations as leaks and the run is unreadable.
+        env:
+          RUSTFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+          RUSTDOCFLAGS: -Zsanitizer=${{ matrix.sanitizer }}
+          # A leak report on a process that registers 'static grammar
+          # metadata on purpose is noise, not a finding.
+          ASAN_OPTIONS: detect_leaks=0
+        run: |
+          cargo test -Z build-std --target x86_64-unknown-linux-gnu \
+            -p panproto-grammars -p panproto-parse
+
+  miri:
+    # Miri cannot run anything that touches the tree-sitter C library,
+    # so it covers the pure-Rust invariant-heavy crates instead: the
+    # term and schema representations whose encodings the version
+    # control layer depends on being exact.
+    name: Miri over the pure-Rust core
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: nightly
+          components: miri
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          key: miri
+      - name: Run Miri
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
+        run: |
+          cargo miri setup
+          cargo miri test -p panproto-expr -p panproto-gat -p panproto-schema
+
+  compile:
+    # The check CI already had. Kept as the fast failure mode: a target
+    # that stopped compiling should say so in a minute, not after a
+    # fifteen-minute campaign times out.
+    name: Fuzz targets compile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+        with:
+          workspaces: fuzz
+      - run: cargo check --manifest-path fuzz/Cargo.toml
