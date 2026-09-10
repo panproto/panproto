@@ -9,7 +9,7 @@
 //!
 //! Edge kinds: prop, items, variant, ref.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
@@ -77,36 +77,137 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(registry: &mut HashMap<Str
 /// Walks paths, operations, parameters, request bodies, responses,
 /// and schemas to produce a flat vertex/edge graph.
 ///
+/// Equivalent to [`parse_openapi_bundle`] over a single document, so
+/// the two cannot drift apart.
+///
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if parsing or schema construction fails.
 pub fn parse_openapi(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    parse_openapi_bundle(std::slice::from_ref(json))
+}
+
+/// The vertex-id prefix for a document, and the identity other
+/// documents address it by.
+///
+/// `OpenAPI` 3.1 aligns with JSON Schema 2020-12, so a document may
+/// carry `$id`; that is what a cross-document `$ref` names. A document
+/// without one is unaddressable from outside, and is prefixed by its
+/// position so its ids do not collide with a sibling's. A lone document
+/// keeps the unprefixed ids a single-document parse has always
+/// produced.
+fn document_identity(
+    json: &serde_json::Value,
+    index: usize,
+    count: usize,
+) -> (Option<String>, Option<&str>) {
+    let declared = json.get("$id").and_then(serde_json::Value::as_str);
+    let prefix = match declared {
+        _ if count == 1 => None,
+        Some(id) => Some(id.to_owned()),
+        None => Some(format!("doc{index}")),
+    };
+    (prefix, declared)
+}
+
+/// Qualify a document-local id with the document's prefix, if it has
+/// one.
+fn qualify(prefix: Option<&str>, local: &str) -> String {
+    prefix.map_or_else(|| local.to_owned(), |p| format!("{p}::{local}"))
+}
+
+/// Parse a bundle of `OpenAPI` documents into one [`Schema`], resolving
+/// `$ref`s across the whole bundle.
+///
+/// Splitting a specification across files is the standard way a large
+/// API is organized, and a `$ref` into a sibling document is routine.
+/// Every document's `components/schemas` are mapped to their vertex ids
+/// before any document's paths are walked, so such a ref lands on the
+/// referenced schema's real, typed vertex rather than on the opaque
+/// placeholder the parser leaves for an unresolvable one.
+///
+/// A cross-document `$ref` is spelled against the target document's
+/// `$id` (`https://example.com/common.json#/components/schemas/Address`).
+/// A relative-path `$ref` (`./common.yaml#/components/schemas/Address`)
+/// is not resolved: a bundle is an unordered array of documents with no
+/// filenames, so there is nothing for a path to be relative to. Give
+/// the documents `$id`s to have their cross-references resolve.
+///
+/// Passing a single document is equivalent to [`parse_openapi`], down
+/// to the unprefixed vertex ids.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Parse`] if two documents declare the same
+/// `$id`, or a construction error from the schema builder.
+pub fn parse_openapi_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut counter: usize = 0;
 
-    // Pre-walk components/schemas so $ref resolution can find them.
+    // Pass 1, over the whole bundle: map every reference spelling to the
+    // vertex id it names, before walking anything. A component's vertex
+    // id follows from its document and its name, so this needs no walk,
+    // and doing it first is what lets a ref reach a sibling document.
     let mut defs_map: HashMap<String, String> = HashMap::new();
-    if let Some(schemas) = json
-        .pointer("/components/schemas")
-        .and_then(serde_json::Value::as_object)
-    {
-        for (name, schema_val) in schemas {
-            let schema_id = format!("components/schemas/{name}");
-            builder = walk_schema(builder, schema_val, &schema_id, &mut counter)?;
-            let ref_path = format!("#/components/schemas/{name}");
-            defs_map.insert(ref_path, schema_id);
+    let mut identities: Vec<(Option<String>, Option<&str>)> = Vec::with_capacity(docs.len());
+    let mut seen_ids: HashSet<&str> = HashSet::with_capacity(docs.len());
+
+    for (i, json) in docs.iter().enumerate() {
+        let (prefix, declared) = document_identity(json, i, docs.len());
+        if let Some(id) = declared {
+            if !seen_ids.insert(id) {
+                return Err(ProtocolError::Parse(format!(
+                    "duplicate $id in bundle: {id}"
+                )));
+            }
         }
+        if let Some(schemas) = json
+            .pointer("/components/schemas")
+            .and_then(serde_json::Value::as_object)
+        {
+            for name in schemas.keys() {
+                let schema_id = qualify(prefix.as_deref(), &format!("components/schemas/{name}"));
+                if let Some(id) = declared {
+                    defs_map.insert(format!("{id}#/components/schemas/{name}"), schema_id);
+                }
+            }
+        }
+        identities.push((prefix, declared));
     }
 
-    // Walk paths. Each path item is an entry basepoint: it is a root
-    // sort for instances of this API.
-    if let Some(paths) = json.get("paths").and_then(serde_json::Value::as_object) {
-        for (path_str, path_item) in paths {
-            let path_id = format!("path:{path_str}");
-            builder = builder.vertex(&path_id, "path", None)?;
-            builder = builder.entry(&path_id);
-            builder = parse_path_item(builder, path_item, &path_id, &mut counter, &defs_map)?;
+    // Pass 2: walk each document. Its own `#/...` refs resolve to its
+    // own components; every in-bundle cross-document target is already
+    // in `defs_map`.
+    for (json, (prefix, _)) in docs.iter().zip(&identities) {
+        let prefix = prefix.as_deref();
+        let mut local = defs_map.clone();
+
+        if let Some(schemas) = json
+            .pointer("/components/schemas")
+            .and_then(serde_json::Value::as_object)
+        {
+            for name in schemas.keys() {
+                local.insert(
+                    format!("#/components/schemas/{name}"),
+                    qualify(prefix, &format!("components/schemas/{name}")),
+                );
+            }
+            for (name, schema_val) in schemas {
+                let schema_id = qualify(prefix, &format!("components/schemas/{name}"));
+                builder = walk_schema(builder, schema_val, &schema_id, &mut counter)?;
+            }
+        }
+
+        // Walk paths. Each path item is an entry basepoint: it is a root
+        // sort for instances of this API.
+        if let Some(paths) = json.get("paths").and_then(serde_json::Value::as_object) {
+            for (path_str, path_item) in paths {
+                let path_id = qualify(prefix, &format!("path:{path_str}"));
+                builder = builder.vertex(&path_id, "path", None)?;
+                builder = builder.entry(&path_id);
+                builder = parse_path_item(builder, path_item, &path_id, &mut counter, &local)?;
+            }
         }
     }
 

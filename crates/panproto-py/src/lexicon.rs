@@ -254,6 +254,28 @@ pub fn parse_schema_bundle(protocol: &str, docs: &Bound<'_, PyAny>) -> PyResult<
     })
 }
 
+/// The protocols :func:`parse_schema_bundle` accepts.
+///
+/// A bundle parser is what resolves a reference from one document into
+/// a sibling, so this is a smaller set than the built-in protocol list:
+/// a protocol absent from it parses one document at a time, and a
+/// cross-document reference in such a protocol stays an opaque
+/// placeholder. Ask rather than hard-coding the list, which has grown
+/// and will grow again.
+///
+/// Returns
+/// -------
+/// list of str
+///     Canonical protocol names, in the order the registry lists them.
+#[pyfunction]
+#[must_use]
+pub fn list_bundle_parser_protocols() -> Vec<String> {
+    panproto_core::protocols::bundle_parser_protocols()
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect()
+}
+
 /// Per-file lexicon schemas plus cross-file ref edges: the per-file
 /// provenance form of a lexicon set, retained for the version-control
 /// layer (where :func:`parse_schema_bundle` fuses the same documents
@@ -407,6 +429,7 @@ pub fn register(parent: &Bound<'_, PyModule>) -> PyResult<()> {
     parent.add_function(wrap_pyfunction!(parse_schema_source, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_bundle, parent)?)?;
     parent.add_function(wrap_pyfunction!(parse_schema_bundle_project, parent)?)?;
+    parent.add_function(wrap_pyfunction!(list_bundle_parser_protocols, parent)?)?;
     parent.add_function(wrap_pyfunction!(theory_of, parent)?)?;
     parent.add_class::<PyLexiconProject>()?;
     Ok(())

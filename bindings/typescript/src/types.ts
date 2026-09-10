@@ -631,6 +631,7 @@ export interface WasmExports {
   compose_lenses(l1: number, l2: number): number;
   // Phase 4: Protocol registry
   list_builtin_protocols(): Uint8Array;
+  list_bundle_parser_protocols(): Uint8Array;
   get_builtin_protocol(name: Uint8Array): Uint8Array;
   // Phase 5: GAT operations
   create_theory(spec: Uint8Array): number;

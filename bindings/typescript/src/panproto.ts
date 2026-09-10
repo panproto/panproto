@@ -565,6 +565,24 @@ export class Panproto implements Disposable {
   }
 
   /**
+   * List the protocols {@link parseSchemaBundle} accepts.
+   *
+   * A bundle parser is what resolves a reference from one document into
+   * a sibling, so this is a smaller set than {@link listProtocols}: a
+   * protocol absent from it parses one document at a time, and a
+   * cross-document reference in such a protocol stays an opaque
+   * placeholder. Ask rather than hard-coding the list, which has grown
+   * and will grow again.
+   *
+   * @returns Array of protocol name strings
+   */
+  listBundleParserProtocols(): string[] {
+    return unpackFromWasm<string[]>(
+      this.#wasm.exports.list_bundle_parser_protocols(),
+    );
+  }
+
+  /**
    * Initialize an in-memory VCS repository.
    *
    * @param protocolName - The protocol name for this repository
