@@ -55,31 +55,50 @@ jobs:
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc
           sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/local/share/boost
           df -h /
-      - name: Package and build every publishable crate
+      - name: Package every publishable crate
         env:
           CARGO_PROFILE_DEV_DEBUG: line-tables-only
         run: |
           set -euo pipefail
-          # `cargo package` verifies by default: it unpacks the tarball
-          # and builds it, which is the check being restored. Path
-          # dependencies are not yet on the registry at this version, so
-          # the workspace's own crates resolve locally.
-          cargo package --workspace --allow-dirty --no-verify
+          # Not `--workspace`: it tries to package `publish = false`
+          # members too, and `tests/integration` declares a bare `path`
+          # dependency, so the run dies with "all dependencies must have
+          # a version requirement specified when packaging" before doing
+          # any work. Package exactly the set that publishes, derived
+          # from cargo's own metadata so it cannot drift from the list
+          # below.
+          mapfile -t PUBLISHABLE < <(
+            cargo metadata --no-deps --format-version 1 \
+              | jq -r '.packages[] | select(.publish != []) | .name'
+          )
+          echo "packaging ${#PUBLISHABLE[@]} publishable crates"
+          args=()
+          for crate in "${PUBLISHABLE[@]}"; do args+=(-p "$crate"); done
+          cargo package "${args[@]}" --no-verify
           echo "::group::packaged tarballs"
           ls -la target/package/*.crate
           echo "::endgroup::"
 
-          # Every packaged crate must carry its licence and README:
-          # crates.io renders the second and the first is what makes the
-          # package redistributable at all.
+          # Every packaged crate must declare a licence and ship the
+          # README it names. crates.io requires the first and renders the
+          # second, and both live in the *packaged* Cargo.toml, which is
+          # not the one in the working tree: cargo rewrites path
+          # dependencies on the way in, so this is checking the artifact
+          # rather than the source.
           for crate in target/package/*.crate; do
-            echo "::group::contents of $(basename "$crate")"
-            listing=$(tar tzf "$crate")
-            echo "$listing" | head -40
-            echo "$listing" | grep -qiE '/(LICENSE|LICENSE-[A-Z]+|COPYING)' \
-              || { echo "::error::$(basename "$crate") ships no licence"; exit 1; }
-            echo "::endgroup::"
+            base=$(basename "$crate" .crate)
+            manifest=$(tar xzOf "$crate" "$base/Cargo.toml")
+            grep -qE '^license' <<<"$manifest" \
+              || { echo "::error::$base declares no license"; exit 1; }
+            # `readme = false` is a deliberate opt-out and is not a
+            # filename; only a quoted value names a file to check for.
+            readme=$(sed -n 's/^readme *= *"\([^"]*\)".*/\1/p' <<<"$manifest" || true)
+            if [ -n "$readme" ]; then
+              tar tzf "$crate" | grep -qxF "$base/$readme" \
+                || { echo "::error::$base names readme $readme but does not ship it"; exit 1; }
+            fi
           done
+          echo "all ${#PUBLISHABLE[@]} packaged crates declare a licence and ship their README"
 
   publish:
     name: Publish workspace crates
