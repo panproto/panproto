@@ -30,7 +30,7 @@ required-features = ["lang-protobuf"]
 
 [build-dependencies]
 cc = "1"
-toml = "0.8"
+toml = "1.1"
 serde = { version = "1", features = ["derive"] }
 
 [lints.rust]

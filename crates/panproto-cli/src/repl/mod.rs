@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 use rustyline::completion::{Completer, Pair};
 use rustyline::error::ReadlineError;
-use rustyline::highlight::Highlighter;
+use rustyline::highlight::{CmdKind, Highlighter};
 use rustyline::hint::Hinter;
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
@@ -83,7 +83,7 @@ impl Highlighter for ReplHelper {
         Cow::Owned(highlight::colour_prompt(prompt))
     }
 
-    fn highlight_char(&self, _line: &str, _pos: usize, _forced: bool) -> bool {
+    fn highlight_char(&self, _line: &str, _pos: usize, _kind: CmdKind) -> bool {
         // Re-render on every keystroke so colour follows the cursor as
         // the user types. Cheap because `highlight_line` short-circuits
         // when no token would change colour.
@@ -310,7 +310,7 @@ mod tests {
         let h = helper(&[]);
         // We always force a re-render; the optimisation lives inside
         // `highlight_line`, which short-circuits boring lines.
-        assert!(h.highlight_char("foo", 1, false));
+        assert!(h.highlight_char("foo", 1, CmdKind::Other));
     }
 
     #[test]
