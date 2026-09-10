@@ -21,26 +21,44 @@ pub fn load_json<T: serde::de::DeserializeOwned>(path: &Path) -> Result<T> {
 }
 
 /// Resolve a protocol by name from built-in definitions.
+///
+/// Every protocol in the descriptor registry resolves, by canonical
+/// name or alias. This used to accept `atproto` alone, while the C and
+/// WASM surfaces accepted five and the parser dispatch accepted
+/// fifty-four, so a schema the CLI could parse was one it then could
+/// not validate.
+///
+/// # Errors
+///
+/// Returns an error naming the supported protocols if `name` resolves
+/// to none of them.
 pub fn resolve_protocol(name: &str) -> Result<Protocol> {
-    match name {
-        "atproto" => Ok(protocols::atproto::protocol()),
-        _ => miette::bail!("unknown protocol: {name:?}. Supported: atproto"),
-    }
+    let descriptor = protocols::registry::descriptor(name).ok_or_else(|| {
+        miette::miette!(
+            "unknown protocol: {name:?}. Supported: {}",
+            protocols::registry::protocol_names().join(", ")
+        )
+    })?;
+    Ok((descriptor.protocol)())
 }
 
 /// Build a theory registry for a protocol by name.
+///
+/// # Errors
+///
+/// Returns an error if `name` resolves to no protocol, or if that
+/// protocol's theories cannot be composed.
 pub fn build_theory_registry(protocol_name: &str) -> Result<HashMap<String, Theory>> {
+    let descriptor = protocols::registry::descriptor(protocol_name).ok_or_else(|| {
+        miette::miette!(
+            "unknown protocol for theory registry: {protocol_name:?}. Supported: {}",
+            protocols::registry::protocol_names().join(", ")
+        )
+    })?;
     let mut registry = HashMap::new();
-    match protocol_name {
-        "atproto" => protocols::atproto::register_theories(&mut registry)
-            .into_diagnostic()
-            .wrap_err_with(|| {
-                format!("theory registry for {protocol_name:?} could not be built")
-            })?,
-        _ => miette::bail!(
-            "unknown protocol for theory registry: {protocol_name:?}. Supported: atproto"
-        ),
-    }
+    (descriptor.register_theories)(&mut registry)
+        .into_diagnostic()
+        .wrap_err_with(|| format!("theory registry for {protocol_name:?} could not be built"))?;
     Ok(registry)
 }
 

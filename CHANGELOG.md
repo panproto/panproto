@@ -2,7 +2,7 @@
 
 All notable changes to panproto will be documented in this file.
 
-## [Unreleased]
+## [0.74.0] - 2026-09-10
 
 ### Security
 
@@ -20,9 +20,12 @@ All notable changes to panproto will be documented in this file.
 
 - **A release artifact is installed and exercised before it is published** (`.github/workflows/publish-npm.yml`, `python-wheels.yml`, `publish-crates.yml`, `build-panproto-c-bindist.yml`): CI tested the source workspace thoroughly and never tested what users install. The npm package is now packed, installed from the tarball into a directory with no path back to the repository, and made to parse a bundle through the real WASM, so a missing `.wasm` or an entry point that resolves only next to the repo fails before publication rather than on a user's first import. Each native Python wheel is installed with `--no-index` on its build host and made to run a real operation from outside the source tree; this binding has shipped that exact defect before, when the 0.42.0 wheel contained only the compiled extension with no `__init__.py` and every check passed. Crates are packaged and the packaged form built before anything publishes, restoring the verification `--no-verify` skips, and every packaged crate is checked to carry a licence. The C archives are unpacked, checked for a header and a library, and on natively runnable targets compiled and linked against by a small C program.
 
+- **One canonical record of what each protocol supports, and everything derives from it** (`panproto-protocols`, `panproto-cli`, `panproto-c`, `panproto-wasm`): protocol capabilities were described independently in the parser dispatches, in the CLI's protocol and theory resolution, in a hand-written list and theory match in the C API, in parallel hand-written lists in the WASM API, and in the book's tables. Those registries had already diverged, and measurably: the C list advertised nine protocols under underscore spellings that are not their canonical names, omitted the `uima-cas` alias entirely, and the document dispatch accepted `uima` while no published list mentioned it. The CLI resolved `atproto` and nothing else, so a schema in any of the other fifty-three protocols could be parsed and then not validated, because `resolve_protocol` and `build_theory_registry` both refused the name the parser had just accepted. A `ProtocolDescriptor` now records each protocol's canonical name, its aliases, how its documents are read, whether cross-document and per-file bundling reach it, its schema-level `Protocol`, and its theory registrar. The two parser dispatches, all four capability listings, the CLI's protocol and theory resolution, and the C and WASM protocol lists and theory registries all derive from it, so a protocol added once is reachable and advertised everywhere, and asking for a source protocol through the document entry point now says which entry point to use rather than reporting it unregistered. The four listing functions change shape as a consequence: they return `Vec<&'static str>` computed from the registry rather than a `const fn`'s `&'static [&'static str]`, since a listing derived from a table cannot also be a compile-time constant. That is the breaking change this release's minor bump permits.
+
 ### Documentation
 
 - **`panproto-dsl-eval` has a README** (`crates/panproto-dsl-eval/README.md`): it was the one publishable crate of twenty-five with neither a README file nor a `readme` key, so it rendered on crates.io as a bare title and a one-line description. The new README follows the layout the other crates use, and covers the part that is not evident from the API: a caller embeds its Nickel contract library with `include_str!` and passes it as a `BundledContract`, which is staged at `<tmpdir>/panproto/<file_name>` with that directory placed first on the import path, so a document resolves it by writing `import "panproto/<file_name>"`.
+
 
 
 ## [0.73.0] - 2026-09-10
