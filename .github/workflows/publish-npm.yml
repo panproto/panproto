@@ -107,6 +107,48 @@ jobs:
             | tar -xz -C "$RUNNER_TEMP/npm-bin" --strip-components=1
           node "$RUNNER_TEMP/npm-bin/bin/npm-cli.js" --version
 
+      - name: Pack, then install the tarball into a clean fixture
+        # The steps above build and test the *source tree*. What users
+        # install is the tarball, and the two differ by whatever `files`
+        # omits: a missing `.wasm`, a stale `dist/`, or an entry point
+        # that resolves in the repo and nowhere else would all pass
+        # every check above and fail on first import. So the artifact is
+        # exercised, in a directory with no relative path back here.
+        working-directory: bindings/typescript
+        run: |
+          set -euo pipefail
+          NPM="node $RUNNER_TEMP/npm-bin/bin/npm-cli.js"
+          tarball="$RUNNER_TEMP/$($NPM pack --silent)"
+          echo "packed $tarball ($(du -h "$tarball" | cut -f1))"
+
+          fixture="$RUNNER_TEMP/npm-fixture"
+          mkdir -p "$fixture"
+          cd "$fixture"
+          $NPM init -y >/dev/null
+          $NPM install "$tarball"
+
+          # A real operation against the real WASM, not just an import:
+          # a package whose WASM is missing imports fine and fails here.
+          cat > smoke.mjs <<'JS'
+          import { Panproto } from '@panproto/core';
+          const pp = await Panproto.init();
+          const protocols = pp.listProtocols();
+          if (!Array.isArray(protocols) || protocols.length === 0) {
+            throw new Error(`expected protocols, got ${JSON.stringify(protocols)}`);
+          }
+          const schema = pp.parseSchemaBundle('atproto', [{
+            lexicon: 1,
+            id: 'com.example.smoke',
+            defs: { main: { type: 'object', properties: { v: { type: 'string' } } } },
+          }]);
+          if (!schema.vertices['com.example.smoke']) {
+            throw new Error('the packed WASM parsed nothing');
+          }
+          schema[Symbol.dispose]();
+          console.log(`packed tarball OK: ${protocols.length} protocols`);
+          JS
+          node smoke.mjs
+
       - name: Publish
         working-directory: bindings/typescript
         run: |
