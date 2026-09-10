@@ -20,8 +20,15 @@ pub enum ProtocolError {
         /// The composition stage that failed.
         stage: String,
         /// The failure that stage reported.
+        ///
+        /// Boxed so this variant does not enlarge `ProtocolError`.
+        /// `ColimitFailed` already holds a `GatError` inline, so
+        /// carrying one plus a `String` here would make this the
+        /// largest variant and push every `Result` wrapping a
+        /// `ProtocolError` over clippy's `result_large_err` threshold,
+        /// several crates downstream.
         #[source]
-        source: panproto_gat::GatError,
+        source: Box<panproto_gat::GatError>,
     },
 
     /// A schema building step failed.

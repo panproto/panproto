@@ -107,7 +107,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
         .map(|r| r.theory)
         .map_err(|source| ProtocolError::TheoryRegistration {
             stage: "ThGraph and ThConstraint over ThVertex".into(),
-            source,
+            source: Box::new(source),
         })?;
 
     // Schema theory, step 2: colimit(gc, ThMulti) over shared {Vertex, Edge}.
@@ -121,7 +121,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
         .map(|r| r.theory)
         .map_err(|source| ProtocolError::TheoryRegistration {
             stage: "ThGraph+ThConstraint and ThMulti over ThVertexEdge".into(),
-            source,
+            source: Box::new(source),
         })?;
     schema_theory.name = "ThATProtoSchema".into();
 
@@ -131,7 +131,7 @@ pub fn register_theories<S: ::std::hash::BuildHasher>(
         .map(|r| r.theory)
         .map_err(|source| ProtocolError::TheoryRegistration {
             stage: "ThWType and ThMeta over ThNode".into(),
-            source,
+            source: Box::new(source),
         })?;
     inst_theory.name = "ThATProtoInstance".into();
 
