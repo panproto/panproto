@@ -1831,7 +1831,10 @@ class TestLexiconParsing:
         )
         first_index = repo.add_project(first, skip_verify=True)
         first_root = obj(first_index["staged"])["schema_id"]
-        repo.commit("first", "alice <a@example.com>")
+        # A stage left pending by skip_verify needs the matching
+        # commit-time override; this test is about per-file tree reuse,
+        # not about verification.
+        repo.commit("first", "alice <a@example.com>", skip_verify=True)
 
         second = panproto.parse_schema_bundle_project(
             "atproto",
@@ -1925,8 +1928,14 @@ class TestRepositoryDataAccess:
         idx = repo.add(self._schema(("a", "integer"), ("b", "string")), skip_verify=True)
         assert obj(idx["staged"])["validation"] == "pending"
         assert obj(idx["staged"])["migration_id"] is not None
-        # A default commit accepts the pending stage (non-blocking).
-        repo.commit("v2", "alice <a@example.com>")
+
+        # A default commit refuses the pending stage. "Not checked" and
+        # "checked and passed" are different states and only the second
+        # is a pass, so skipping the check at stage time is not on its
+        # own enough to commit.
+        with pytest.raises(panproto.VcsError, match="has not been validated"):
+            repo.commit("v2", "alice <a@example.com>")
+        repo.commit("v2", "alice <a@example.com>", skip_verify=True)
 
         # The default add still runs validation (not pending).
         idx = repo.add(self._schema(("a", "integer"), ("b", "string"), ("c", "string")))
@@ -1949,8 +1958,13 @@ class TestRepositoryDataAccess:
         assert len(datasets) == 1
         ds = datasets[0]
         assert ds["record_count"] == 3
+        # A data set stores the records lifted through its schema, in
+        # the MessagePack encoding every reader of one decodes, not the
+        # source file's own bytes. Staging raw bytes meant a set added
+        # this way could not be read by the migration path at all.
         assert isinstance(ds["data"], bytes)
-        assert b'"a": 1' in ds["data"]
+        assert ds["data"], "the lifted records are stored"
+        assert b'"a": 1' not in ds["data"], "not the source file's bytes"
         assert isinstance(ds["schema_id"], str)
         assert len(ds["schema_id"]) == 64
 

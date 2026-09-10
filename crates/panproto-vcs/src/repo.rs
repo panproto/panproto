@@ -63,6 +63,23 @@ pub struct AddOptions {
     pub skip_verify: bool,
 }
 
+/// Options for staging a data file.
+#[derive(Clone, Debug, Default)]
+pub struct AddDataOptions {
+    /// Parse and lift the records as usual, since the stored encoding
+    /// depends on doing so, but do not check the result against the
+    /// schema.
+    ///
+    /// The stage is left [`ValidationStatus::Pending`], which a default
+    /// [`commit`](Repository::commit) refuses. This is the escape hatch
+    /// for staging data whose conformance is established elsewhere, and
+    /// it is deliberately narrower than skipping the parse: a data set
+    /// records the schema its data belongs to, and bytes that cannot be
+    /// read as records of that schema cannot be recorded under it at
+    /// all.
+    pub skip_verify: bool,
+}
+
 /// A panproto repository backed by a filesystem store.
 #[allow(dead_code)]
 pub struct Repository {
@@ -386,12 +403,41 @@ impl Repository {
         // type, which has no migration). This keeps `commit` in agreement
         // with `Index::has_staged`: a data-only stage now commits instead
         // of failing with `NothingStaged`.
+        // What a default commit requires is a completed, passing
+        // verification, not merely the absence of a failed one. An
+        // object staged with `add --skip-verify` is left pending, and
+        // reading pending as acceptable is what let unverified material
+        // into an ordinary commit: "not checked" and "checked and
+        // passed" are different states and only the second is a pass.
+        let mut unverified: Vec<String> = Vec::new();
+        for staged_data in &index.staged_data {
+            if matches!(staged_data.validation, ValidationStatus::Pending) {
+                if !options.skip_verify {
+                    return Err(VcsError::ValidationPending {
+                        what: format!("data {}", staged_data.source_path.display()),
+                        detail: "staged with verification skipped".to_owned(),
+                    });
+                }
+                unverified.push(format!("data {}", staged_data.source_path.display()));
+            }
+        }
+
         let (schema_id, migration_id) = if let Some(ref staged) = index.staged {
             // Check staged validation unless skip_verify is set.
-            if !options.skip_verify {
+            if options.skip_verify {
+                if matches!(staged.validation, ValidationStatus::Pending) {
+                    unverified.push("schema".to_owned());
+                }
+            } else {
                 if let ValidationStatus::Invalid(reasons) = &staged.validation {
                     return Err(VcsError::ValidationFailed {
                         reasons: reasons.clone(),
+                    });
+                }
+                if matches!(staged.validation, ValidationStatus::Pending) {
+                    return Err(VcsError::ValidationPending {
+                        what: "schema".to_owned(),
+                        detail: "staged with verification skipped".to_owned(),
                     });
                 }
                 // Covers type errors and equation violations.
@@ -432,6 +478,9 @@ impl Repository {
         }
         if !data_ids.is_empty() {
             builder = builder.data_ids(data_ids);
+        }
+        if !unverified.is_empty() {
+            builder = builder.unverified(unverified);
         }
         let commit = builder.build();
         let commit_id = self.store.put(&Object::Commit(commit))?;
@@ -794,17 +843,59 @@ impl Repository {
 
     /// Stage a data file for the next commit.
     ///
-    /// Reads the file, determines the schema (from staged schema or HEAD),
-    /// counts records if the data is a JSON array, stores a `DataSetObject`,
-    /// and updates the index. The data set is keyed by `key`, or by the
-    /// source path when `key` is `None`, so a committed set read back via
-    /// [`data_at`](Self::data_at) can be mapped to its origin.
+    /// See [`add_data_with_options`](Self::add_data_with_options); this
+    /// is that call with validation on.
     ///
     /// # Errors
     ///
-    /// Returns an error if the file cannot be read, or if no schema is
-    /// available (nothing staged and no HEAD commit).
+    /// Returns an error if the file cannot be read or parsed, if it does
+    /// not validate against the schema it would be recorded under, or if
+    /// no schema is available (nothing staged and no HEAD commit).
     pub fn add_data(&mut self, path: &Path, key: Option<&str>) -> Result<Index, VcsError> {
+        self.add_data_with_options(path, key, &AddDataOptions::default())
+    }
+
+    /// Stage a data file for the next commit, parsing and validating it
+    /// against the schema it will be recorded under.
+    ///
+    /// The schema is the staged one when a schema is staged, and HEAD's
+    /// otherwise. Each record in the file is lifted into a W-type
+    /// instance rooted at that schema's primary entry vertex, checked
+    /// against the schema's W-type shape and its attribute constraints,
+    /// and stored in the encoding every reader of a data set already
+    /// expects: `MessagePack` of `Vec<WInstance>`. `record_count` is the
+    /// number of instances actually lifted.
+    ///
+    /// This is what makes the `schema_id` a data set carries true. The
+    /// field says which schema the data belongs to, and staging the raw
+    /// bytes unexamined would make that an assertion nothing had
+    /// checked: a file that is not JSON, or a record of an unrelated
+    /// shape, would be accepted here, survive the commit, and first fail
+    /// at whatever later operation tried to lift or convert it, by
+    /// which point the commit that introduced it is history.
+    ///
+    /// The data set is keyed by `key`, or by the source path when `key`
+    /// is `None`, so a committed set read back via
+    /// [`data_at`](Self::data_at) can be mapped to its origin.
+    ///
+    /// [`AddDataOptions::skip_verify`] parses and lifts as usual, since
+    /// the stored encoding depends on it, but does not check the result
+    /// against the schema. The stage is then recorded as unvalidated and
+    /// a default [`commit`](Self::commit) refuses it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`VcsError::DataParseFailed`] if the file is not JSON or
+    /// a record cannot be lifted against the schema,
+    /// [`VcsError::DataValidationFailed`] if a lifted record does not
+    /// satisfy the schema, or [`VcsError::NothingStaged`] if no schema
+    /// is available.
+    pub fn add_data_with_options(
+        &mut self,
+        path: &Path,
+        key: Option<&str>,
+        options: &AddDataOptions,
+    ) -> Result<Index, VcsError> {
         let data_bytes = std::fs::read(path)?;
 
         // Determine schema: use staged schema if present, otherwise HEAD.
@@ -816,15 +907,18 @@ impl Repository {
             let commit = self.load_commit(head_id)?;
             commit.schema_id
         };
+        let schema = self.load_schema(schema_id)?;
 
-        let record_count = count_records(&data_bytes);
+        let instances = lift_records(&data_bytes, path, &schema, options.skip_verify)?;
+        let record_count = instances.len() as u64;
+        let data = rmp_serde::to_vec(&instances)?;
 
         // Fall back to the source path so every staged set carries a key.
         let key = key.map_or_else(|| path.to_string_lossy().into_owned(), str::to_owned);
 
         let dataset = DataSetObject {
             schema_id,
-            data: data_bytes,
+            data,
             record_count,
             key: Some(key),
         };
@@ -835,6 +929,11 @@ impl Repository {
             source_path: path.to_owned(),
             data_id,
             schema_id,
+            validation: if options.skip_verify {
+                ValidationStatus::Pending
+            } else {
+                ValidationStatus::Valid
+            },
         });
         self.write_index(&updated_index)?;
 
@@ -1098,11 +1197,116 @@ impl Repository {
 ///
 /// Tries to parse as a JSON array and returns the number of elements.
 /// Falls back to 1 for non-array JSON or non-JSON data.
-fn count_records(data: &[u8]) -> u64 {
-    serde_json::from_slice::<serde_json::Value>(data).map_or(1, |value| match &value {
-        serde_json::Value::Array(arr) => arr.len() as u64,
-        _ => 1,
-    })
+/// The vertices a record of `schema` may be rooted at.
+///
+/// A schema is pointed by a *family* of basepoints, not by one: its
+/// declared entries are the sorts at which an instance may be rooted,
+/// and which of them a given record belongs to is a property of the
+/// record. So a record is read at whichever entry accepts it rather
+/// than at a single vertex chosen in advance.
+///
+/// Falls back to [`panproto_schema::primary_entry`] for a schema that
+/// declares no entries, which is that function's own documented
+/// fallback for schemas predating declared entries.
+fn candidate_roots(schema: &Schema) -> Vec<&panproto_gat::Name> {
+    let declared = schema.entry_vertices();
+    if declared.is_empty() {
+        panproto_schema::primary_entry(schema).into_iter().collect()
+    } else {
+        declared.iter().collect()
+    }
+}
+
+/// Read a data file's records as W-type instances of `schema`.
+///
+/// A top-level JSON array is a set of records; anything else is one
+/// record. Each is lifted at one of the schema's entry vertices and,
+/// unless `skip_verify`, checked against the schema's W-type shape and
+/// its attribute constraints. A record is accepted at the first entry
+/// that both reads it and validates it; a record no entry accepts is
+/// reported with what went wrong at each, since which entry was meant
+/// is exactly what is in question.
+///
+/// This replaces the byte-counting the staging path used to do. That
+/// counted a file which is not JSON at all as holding one record, which
+/// is wrong under any policy, and it is wrong for the same reason the
+/// missing validation was: nothing had read the bytes.
+fn lift_records(
+    data: &[u8],
+    path: &Path,
+    schema: &Schema,
+    skip_verify: bool,
+) -> Result<Vec<panproto_inst::WInstance>, VcsError> {
+    let display = path.display().to_string();
+    let value: serde_json::Value =
+        serde_json::from_slice(data).map_err(|e| VcsError::DataParseFailed {
+            path: display.clone(),
+            reason: format!("not JSON: {e}"),
+        })?;
+
+    let records: Vec<&serde_json::Value> = match &value {
+        serde_json::Value::Array(items) => items.iter().collect(),
+        single => vec![single],
+    };
+
+    let roots = candidate_roots(schema);
+    if roots.is_empty() {
+        return Err(VcsError::DataParseFailed {
+            path: display,
+            reason: "the schema has no vertex to root a record at".to_owned(),
+        });
+    }
+
+    let mut instances = Vec::with_capacity(records.len());
+    for (i, record) in records.iter().enumerate() {
+        let mut accepted = None;
+        let mut rejections: Vec<String> = Vec::with_capacity(roots.len());
+
+        for root in &roots {
+            match panproto_inst::parse_json(schema, root.as_str(), record) {
+                Err(e) => rejections.push(format!("at {root}: {e}")),
+                Ok(instance) => {
+                    let reasons = if skip_verify {
+                        Vec::new()
+                    } else {
+                        record_violations(schema, &instance)
+                    };
+                    if reasons.is_empty() {
+                        accepted = Some(instance);
+                        break;
+                    }
+                    rejections.push(format!("at {root}: {}", reasons.join("; ")));
+                }
+            }
+        }
+
+        let Some(instance) = accepted else {
+            return Err(VcsError::DataValidationFailed {
+                path: display,
+                reasons: rejections
+                    .into_iter()
+                    .map(|r| format!("record {i} {r}"))
+                    .collect(),
+            });
+        };
+        instances.push(instance);
+    }
+
+    Ok(instances)
+}
+
+/// Everything wrong with `instance` as a record of `schema`.
+fn record_violations(schema: &Schema, instance: &panproto_inst::WInstance) -> Vec<String> {
+    let mut reasons: Vec<String> = panproto_inst::validate_wtype(schema, instance)
+        .iter()
+        .map(ToString::to_string)
+        .collect();
+    reasons.extend(
+        panproto_inst::validate_attributes(schema, instance)
+            .iter()
+            .map(|v| format!("{v:?}")),
+    );
+    reasons
 }
 
 #[cfg(test)]
@@ -1273,9 +1477,29 @@ mod tests {
             "the derived migration is still recorded"
         );
 
-        // A default commit accepts a Pending stage (it is non-blocking).
-        repo.commit("second", "alice")?;
+        // A default commit refuses a Pending stage. "Not checked" and
+        // "checked and passed" are different states, and only the second
+        // is a pass; accepting the first here made `add --skip-verify`
+        // enough to get unverified material into an ordinary commit
+        // without `commit --skip-verify` ever being typed.
+        let refused = repo.commit("second", "alice");
+        assert!(
+            matches!(refused, Err(VcsError::ValidationPending { .. })),
+            "a default commit must refuse a pending stage, got {refused:?}",
+        );
+
+        // The explicit bypass records what it waved through, so the
+        // resulting commit is afterwards distinguishable from one whose
+        // contents were checked.
+        let commit_id =
+            repo.commit_with_options("second", "alice", &CommitOptions { skip_verify: true })?;
         assert_eq!(repo.log(None)?.len(), 2);
+        let commit = repo.load_commit(commit_id)?;
+        assert_eq!(
+            commit.unverified,
+            vec!["schema".to_string()],
+            "an explicitly bypassed commit records what was not verified",
+        );
 
         // The default add path still runs validation (not Pending).
         let s3 = make_schema(&[("a", "object"), ("b", "string"), ("c", "string")]);
@@ -1511,7 +1735,14 @@ mod tests {
             let datasets = repo.data_at(reference)?;
             assert_eq!(datasets.len(), 1, "ref {reference}");
             assert_eq!(datasets[0].record_count, 3, "ref {reference}");
-            assert_eq!(datasets[0].data, payload, "ref {reference}");
+            // A data set stores the lifted records, not the file's
+            // bytes, which is the encoding every reader of one already
+            // decodes: `data_mig`, `square` and the migration path all
+            // do exactly this. Staging raw bytes meant a set added this
+            // way could not be read by any of them.
+            let instances: Vec<panproto_inst::WInstance> =
+                rmp_serde::from_slice(&datasets[0].data)?;
+            assert_eq!(instances.len(), 3, "ref {reference}");
             assert_eq!(
                 datasets[0].key.as_deref(),
                 Some("records-key"),
@@ -1644,18 +1875,46 @@ mod tests {
     }
 
     #[test]
-    fn count_records_json_array() {
-        assert_eq!(count_records(b"[1, 2, 3]"), 3);
+    fn a_json_array_is_one_record_per_element() -> Result<(), VcsError> {
+        let schema = make_schema(&[("a", "object")]);
+        let records = lift_records(b"[{}, {}, {}]", Path::new("d.json"), &schema, false)?;
+        assert_eq!(records.len(), 3);
+        Ok(())
     }
 
     #[test]
-    fn count_records_json_object() {
-        assert_eq!(count_records(b"{\"a\": 1}"), 1);
+    fn a_lone_json_value_is_one_record() -> Result<(), VcsError> {
+        let schema = make_schema(&[("a", "object")]);
+        let records = lift_records(b"{}", Path::new("d.json"), &schema, false)?;
+        assert_eq!(records.len(), 1);
+        Ok(())
     }
 
+    /// The clearest symptom of staging bytes nobody read: a file that is
+    /// not JSON at all was recorded as holding one record. It is now
+    /// refused, and the error names the file.
     #[test]
-    fn count_records_non_json() {
-        assert_eq!(count_records(b"not json"), 1);
+    fn a_file_that_is_not_json_is_refused() {
+        let schema = make_schema(&[("a", "object")]);
+        let result = lift_records(b"NOT JSON AT ALL", Path::new("junk.json"), &schema, false);
+        let Err(VcsError::DataParseFailed { ref path, .. }) = result else {
+            panic!("expected a parse failure, got {result:?}");
+        };
+        assert_eq!(path, "junk.json");
+    }
+
+    /// `skip_verify` narrows to the check, not to reading the bytes: a
+    /// data set records which schema its data belongs to, so bytes that
+    /// cannot be read as records of that schema cannot be recorded
+    /// under it at all.
+    #[test]
+    fn skip_verify_does_not_accept_bytes_that_are_not_json() {
+        let schema = make_schema(&[("a", "object")]);
+        let result = lift_records(b"NOT JSON AT ALL", Path::new("junk.json"), &schema, true);
+        assert!(
+            matches!(result, Err(VcsError::DataParseFailed { .. })),
+            "expected a parse failure even with the check skipped, got {result:?}",
+        );
     }
 
     /// Store a one-record data set (a single node anchored at `a`) valid

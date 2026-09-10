@@ -165,6 +165,48 @@ pub enum VcsError {
         reason: String,
     },
 
+    /// Staged data could not be read as records of the schema it is
+    /// being recorded under.
+    ///
+    /// A data set carries a `schema_id`, so reading it back says which
+    /// schema the data belongs to. Staging it without parsing would
+    /// make that an assertion nothing had checked.
+    #[error("{path}: cannot be staged against this schema: {reason}")]
+    DataParseFailed {
+        /// The file being staged.
+        path: String,
+        /// What went wrong, naming the record where it did.
+        reason: String,
+    },
+
+    /// Staged data parsed but does not satisfy the schema it is being
+    /// recorded under.
+    #[error("{path}: does not validate against this schema: {reasons:?}")]
+    DataValidationFailed {
+        /// The file being staged.
+        path: String,
+        /// The violations found.
+        reasons: Vec<String>,
+    },
+
+    /// A commit was attempted over staging whose validation never
+    /// completed.
+    ///
+    /// Distinct from [`VcsError::ValidationFailed`], which means the
+    /// staged object was checked and found wanting. This means it was
+    /// not checked, which is the case a default commit must not treat
+    /// as equivalent to having passed.
+    #[error(
+        "staged {what} has not been validated ({detail}); \
+         commit --skip-verify to record it as unverified"
+    )]
+    ValidationPending {
+        /// What is unvalidated: a schema, or a data set's path.
+        what: String,
+        /// How it came to be unvalidated.
+        detail: String,
+    },
+
     /// An object had the wrong type (owned variant for runtime strings).
     #[error("type mismatch: expected {expected}, got {got}")]
     TypeMismatch {

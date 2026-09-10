@@ -314,15 +314,29 @@ Stage a schema for the next commit
 Usage: schema add [OPTIONS] <SCHEMA>
 
 Arguments:
-  <SCHEMA>  Path to the schema JSON file
+  <SCHEMA>
+          Path to the schema JSON file
 
 Options:
-  -n, --dry-run      Show what would be staged without actually staging
-  -v, --verbose      Enable verbose output
-  -f, --force        Force staging even if validation fails
-      --data <DATA>  Stage data files alongside the schema
-      --skip-verify  Skip GAT migration validation while staging (leaves the stage pending; the migration is still recorded)
-  -h, --help         Print help
+  -n, --dry-run
+          Show what would be staged without actually staging
+
+  -v, --verbose
+          Enable verbose output
+
+  -f, --force
+          Force staging even if validation fails
+
+      --data <DATA>
+          Stage data files alongside the schema
+
+      --skip-verify
+          Skip GAT migration validation, and the check of staged data against its schema, while staging.
+          
+          Leaves the stage pending, which a default `commit` refuses; the migration is still recorded, and data files are still parsed, since a data set cannot be recorded under a schema its bytes cannot be read against.
+
+  -h, --help
+          Print help (see a summary with '-h')
 ```
 
 ### `schema commit`
