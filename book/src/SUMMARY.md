@@ -64,6 +64,7 @@
 - [Swift SDK](./reference/sdk-swift.md)
 - [Protocol catalog](./reference/protocols.md)
 - [Expression language](./reference/expression-language.md)
+- [Resource limits](./reference/resource-limits.md)
 - [Lens combinators](./reference/lens-combinators.md)
 - [Configuration](./reference/configuration.md)
 - [Crate map](./reference/crate-map.md)

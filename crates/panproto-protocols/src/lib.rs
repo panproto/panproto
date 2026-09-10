@@ -55,6 +55,30 @@ pub mod raw_file;
 
 /// The canonical record of what each protocol supports.
 pub mod registry;
+
+/// A parsed document's size, for charging against an input allowance.
+///
+/// Serializing to measure would double the cost of every parse, so this
+/// walks the value instead. It is an estimate of the document's own
+/// weight, not of its serialized length; what it has to be is monotone
+/// in the document's size, which is what makes a bound meaningful.
+fn measure(value: &serde_json::Value) -> u64 {
+    match value {
+        serde_json::Value::Null => 4,
+        serde_json::Value::Bool(_) => 5,
+        serde_json::Value::Number(_) => 8,
+        serde_json::Value::String(s) => s.len() as u64 + 2,
+        serde_json::Value::Array(items) => {
+            2 + items.iter().map(measure).sum::<u64>() + items.len() as u64
+        }
+        serde_json::Value::Object(entries) => {
+            2 + entries
+                .iter()
+                .map(|(k, v)| k.len() as u64 + 4 + measure(v))
+                .sum::<u64>()
+        }
+    }
+}
 /// Serialization and IDL protocol definitions.
 pub mod serialization;
 /// Shared component theory definitions (building-block GATs).
@@ -62,6 +86,7 @@ pub mod theories;
 /// Web and document format protocol definitions.
 pub mod web_document;
 
+use panproto_expr::limits::{Budget, Resource};
 use panproto_schema::Schema;
 
 pub use error::ProtocolError;
@@ -93,6 +118,32 @@ pub fn parse_schema_bundle(
     protocol: &str,
     docs: &[serde_json::Value],
 ) -> Result<Schema, ProtocolError> {
+    parse_schema_bundle_within(protocol, docs, &Budget::with_defaults())
+}
+
+/// Parse a bundle within a caller-supplied budget.
+///
+/// The entry count and the documents' total size are charged before any
+/// parsing begins, so a bundle built to exhaust a machine is refused on
+/// its shape rather than part way through being read.
+///
+/// Pass a clone of an enclosing operation's budget to have the two draw
+/// from one allowance; see [`panproto_expr::limits`].
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::LimitExceeded`] naming the resource and its
+/// bound, or the underlying parser's error.
+pub fn parse_schema_bundle_within(
+    protocol: &str,
+    docs: &[serde_json::Value],
+    budget: &Budget,
+) -> Result<Schema, ProtocolError> {
+    budget.charge(Resource::BundleEntries, docs.len() as u64)?;
+    for doc in docs {
+        budget.charge(Resource::InputBytes, measure(doc))?;
+    }
+
     match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
         "openapi" => api::openapi::parse_openapi_bundle(docs),
@@ -187,6 +238,22 @@ pub fn parse_schema_document(
     protocol: &str,
     doc: &serde_json::Value,
 ) -> Result<Schema, ProtocolError> {
+    parse_schema_document_within(protocol, doc, &Budget::with_defaults())
+}
+
+/// Parse a schema document within a caller-supplied budget.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::LimitExceeded`] naming the resource and its
+/// bound, or the underlying parser's error.
+pub fn parse_schema_document_within(
+    protocol: &str,
+    doc: &serde_json::Value,
+    budget: &Budget,
+) -> Result<Schema, ProtocolError> {
+    budget.charge(Resource::InputBytes, measure(doc))?;
+
     match registry::descriptor(protocol) {
         Some(d) => match d.parser {
             registry::Parser::Document(parse) => parse(doc),
@@ -217,6 +284,22 @@ pub fn parse_schema_document(
 /// registered for `protocol`, or the protocol's own error if the source
 /// is malformed.
 pub fn parse_schema_source(protocol: &str, source: &str) -> Result<Schema, ProtocolError> {
+    parse_schema_source_within(protocol, source, &Budget::with_defaults())
+}
+
+/// Parse schema source text within a caller-supplied budget.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::LimitExceeded`] naming the resource and its
+/// bound, or the underlying parser's error.
+pub fn parse_schema_source_within(
+    protocol: &str,
+    source: &str,
+    budget: &Budget,
+) -> Result<Schema, ProtocolError> {
+    budget.charge(Resource::InputBytes, source.len() as u64)?;
+
     match registry::descriptor(protocol) {
         Some(d) => match d.parser {
             registry::Parser::Source(parse) => parse(source),
