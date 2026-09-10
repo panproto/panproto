@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Security
+
+- **A native grammar crosses into the process through one checked door** (`panproto-py`, `panproto-grammars-*`): a companion grammar pack is a separate cdylib, and everything it handed over arrived as an integer. An address is not proof of anything: a null pointer, a pointer into a library since unloaded, or a length outrunning its allocation are undefined behaviour rather than errors, and none can be checked from an integer. Two things narrow that. A `PyCapsule` is now preferred over a bare address: it carries a name this crate checks, and it keeps the module that provided it alive for as long as it lives, so a pointer obtained that way cannot outlive the library that owns it. Every companion emits one alongside the address it already sent, so nothing published breaks, and the address remains as the documented, explicitly unsafe path rather than the only one. Second, every payload is copied on the way in rather than aliased. The registry used to hold `&'static` slices pointing into a companion's static memory, produced by `Box::leak` and by widening raw pointers, which made its soundness depend on a library staying loaded for the process's life; fifty-three lines of leaking metadata cache are gone and the registry owns what it holds. Payloads are also validated before any pointer is reconstructed as a pointer, so a grammar that fails a check is refused before that happens. All remaining `unsafe` in `panproto-py` is confined to one `grammar_boundary` module with a `SAFETY` note on every block, behind a single documented `allow`, so the rest of the crate is back under the workspace's `unsafe_code = "deny"`.
+
 ## [0.73.0] - 2026-09-10
 
 ### Security

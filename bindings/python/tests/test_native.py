@@ -8,6 +8,7 @@ and the error hierarchy.
 from __future__ import annotations
 
 import json
+import warnings
 from typing import TYPE_CHECKING
 
 import pytest
@@ -2109,3 +2110,112 @@ class TestEmitPrettyGraft:
         # and the whole module is valid Python.
         assert ")def" not in out, out
         ast.parse(out)
+
+
+class TestGrammarRegistrationBoundary:
+    """A native grammar crosses into the process through one checked door.
+
+    Everything a companion grammar pack hands over arrives as an
+    address, and an address is not proof of anything: a null pointer, a
+    pointer into an unloaded library, or a length that outruns its
+    allocation are undefined behaviour rather than errors. A capsule
+    carries a name that can be checked and keeps its provider alive; a
+    bare integer carries neither guarantee, and remains only because
+    published companion packages send one.
+    """
+
+    @staticmethod
+    def _capsule(address: int, name: bytes) -> object:
+        import ctypes
+
+        new = ctypes.pythonapi.PyCapsule_New
+        new.restype = ctypes.py_object
+        new.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_void_p]
+        return new(ctypes.c_void_p(address), name, None)
+
+    # Kept alive for the duration of a test: the buffer is read through
+    # its address, so letting it be collected would be a use-after-free
+    # in the test rather than a finding about the code.
+    _node_types: object = None
+
+    def _entry(self, **overrides: object) -> dict[str, object]:
+        import ctypes
+
+        # Payloads are checked before the language pointer is touched,
+        # so a valid `node_types` is what lets a test reach the checks it
+        # is actually about.
+        self._node_types = ctypes.create_string_buffer(b"[]")
+        entry: dict[str, object] = {
+            "name": "probe",
+            "extensions": ["probe"],
+            "language_ptr": 0,
+            "node_types_ptr": ctypes.addressof(self._node_types),
+            "node_types_len": 2,
+        }
+        entry.update(overrides)
+        return entry
+
+    def _register(self, entry: dict[str, object]) -> list[str]:
+        """Construct a registry and return the warnings it emitted.
+
+        A single broken grammar must not take down the construction, so
+        a per-grammar failure is a warning; what is asserted is that the
+        failure happens at all and says why.
+        """
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            panproto._native.AstParserRegistry(extra_grammars=[entry])
+        return [str(w.message) for w in caught]
+
+    def test_a_capsule_with_the_wrong_name_is_refused(self) -> None:
+        # Only panproto's own companions set this name. A capsule from
+        # anywhere else holds a pointer to something else, and
+        # dereferencing it as a TSLanguage is undefined behaviour.
+        messages = self._register(
+            self._entry(language_capsule=self._capsule(0x1234, b"something.else"))
+        )
+        assert any("not a valid panproto.tree_sitter_language capsule" in m for m in messages), (
+            messages
+        )
+
+    def test_an_object_that_is_not_a_capsule_is_refused(self) -> None:
+        messages = self._register(self._entry(language_capsule=12345))
+        assert any("is not a PyCapsule" in m for m in messages), messages
+
+    def test_a_null_language_pointer_is_refused(self) -> None:
+        messages = self._register(self._entry(language_ptr=0))
+        assert any("language_ptr is null" in m for m in messages), messages
+
+    def test_a_null_payload_with_a_nonzero_length_is_refused(self) -> None:
+        # A read through null with a length is a segfault, not an error,
+        # so the pairing is checked rather than trusted.
+        messages = self._register(
+            self._entry(
+                language_capsule=self._capsule(0x1234, b"panproto.tree_sitter_language"),
+                tags_query_ptr=0,
+                tags_query_len=64,
+            )
+        )
+        assert any("tags_query has a null pointer with length 64" in m for m in messages), messages
+
+    def test_registering_the_same_grammar_twice_keeps_the_first(self) -> None:
+        # Two companions can advertise one grammar: the umbrella pack
+        # overlaps every per-group pack. The second registration must
+        # not replace or double-register the first.
+        before = set(panproto.available_grammars())
+        entry = self._entry(name="python", extensions=["py"])
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            panproto._native.AstParserRegistry(extra_grammars=[entry, entry])
+        assert set(panproto.available_grammars()) == before
+
+    def test_a_refused_grammar_leaves_the_registry_usable(self) -> None:
+        # Registration is the last step, so a payload that failed a
+        # check leaves the registry as it was rather than half-populated.
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            reg = panproto._native.AstParserRegistry(
+                extra_grammars=[self._entry(language_ptr=0)]
+            )
+        assert reg is not None
+        assert panproto.available_grammars(), "the built-in grammars survive"

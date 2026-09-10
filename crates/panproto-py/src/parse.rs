@@ -190,7 +190,6 @@ impl PyAstParserRegistry {
     /// reference-counted handle). Drop outstanding lens handles, or
     /// construct a fresh registry, before calling.
     #[pyo3(signature = (name, extensions, language_ptr, node_types, tags_query = None, grammar_json = None))]
-    #[allow(unsafe_code)]
     fn override_grammar(
         &mut self,
         name: String,
@@ -201,11 +200,6 @@ impl PyAstParserRegistry {
         grammar_json: Option<Vec<u8>>,
     ) -> PyResult<()> {
         use pyo3::exceptions::PyValueError;
-        if language_ptr == 0 {
-            return Err(PyValueError::new_err(format!(
-                "grammar {name:?}: language_ptr is null"
-            )));
-        }
         if node_types.is_empty() {
             return Err(PyValueError::new_err(format!(
                 "grammar {name:?}: node_types is empty"
@@ -219,12 +213,9 @@ impl PyAstParserRegistry {
             )
         })?;
 
-        // Same transmute the extra_grammars path uses; the user is
-        // responsible for the pointer's validity (it must be the
-        // `TSLanguage *` that a loaded grammar library's
-        // `tree_sitter_<name>()` function returned).
-        let language: tree_sitter::Language =
-            unsafe { std::mem::transmute::<usize, tree_sitter::Language>(language_ptr) };
+        // Through the audited boundary, which is the only place this
+        // crate reconstructs a language.
+        let language = crate::grammar_boundary::language_from_raw_address(&name, language_ptr)?;
 
         reg.override_grammar(
             name,
@@ -372,59 +363,6 @@ fn available_grammars() -> Vec<String> {
         .collect()
 }
 
-/// Process-wide cache of leaked metadata strings.
-///
-/// `panproto-parse::ParserRegistry::register_external_grammar` requires
-/// `&'static` references for the grammar's name, extension list, and
-/// byte payloads. The simplest way to obtain those at this FFI boundary
-/// is `Box::leak`. Without a cache, every call to
-/// `AstParserRegistry()` would leak fresh allocations for the same set
-/// of grammars; long-running processes that construct registries
-/// repeatedly would grow unboundedly.
-///
-/// The cache keys on grammar name and stores the allocated `&'static`
-/// references (`name` and the per-name `extensions` slice). On repeat
-/// registrations of the same grammar, the cached references are reused
-/// and the new allocation is dropped.
-fn leaked_metadata_cache()
--> &'static std::sync::Mutex<rustc_hash::FxHashMap<String, LeakedMetadata>> {
-    use std::sync::{Mutex, OnceLock};
-    static CACHE: OnceLock<Mutex<rustc_hash::FxHashMap<String, LeakedMetadata>>> = OnceLock::new();
-    CACHE.get_or_init(|| Mutex::new(rustc_hash::FxHashMap::default()))
-}
-
-#[derive(Clone, Copy)]
-struct LeakedMetadata {
-    name: &'static str,
-    extensions: &'static [&'static str],
-}
-
-/// Resolve `name`/`extensions` into the leaked-`&'static` form
-/// `register_external_grammar` requires, deduplicating against the
-/// process-wide cache so repeat registrations of the same grammar
-/// don't accumulate allocations.
-fn leaked_metadata_for(name: &str, extensions: Vec<String>) -> PyResult<LeakedMetadata> {
-    let mut cache = leaked_metadata_cache().lock().map_err(|e| {
-        crate::error::PanprotoError::new_err(format!("metadata cache poisoned: {e}"))
-    })?;
-    if let Some(cached) = cache.get(name) {
-        return Ok(*cached);
-    }
-    let leaked_name: &'static str = Box::leak(name.to_owned().into_boxed_str());
-    let leaked_exts: Vec<&'static str> = extensions
-        .into_iter()
-        .map(|e| &*Box::leak(e.into_boxed_str()))
-        .collect();
-    let leaked_extensions: &'static [&'static str] = Box::leak(leaked_exts.into_boxed_slice());
-    let entry = LeakedMetadata {
-        name: leaked_name,
-        extensions: leaked_extensions,
-    };
-    cache.insert(name.to_owned(), entry);
-    drop(cache);
-    Ok(entry)
-}
-
 /// Decode a single `extra_grammars` dict and register the corresponding
 /// grammar with `reg`.
 ///
@@ -434,7 +372,6 @@ fn leaked_metadata_for(name: &str, extensions: Vec<String>) -> PyResult<LeakedMe
 /// `&'static` at this boundary. Mistyped or short-lived pointers from a
 /// non-companion caller would corrupt this registry; this function is
 /// the trust boundary.
-#[allow(unsafe_code)]
 fn register_external_from_metadata(
     reg: &mut ParserRegistry,
     entry: &Bound<'_, pyo3::types::PyDict>,
@@ -490,71 +427,58 @@ fn register_external_from_metadata(
         return Ok(());
     }
 
-    let language_ptr = pop_usize("language_ptr")?;
+    // Payloads first, language last. Everything below can be checked
+    // without touching a raw pointer as a pointer, and a grammar that
+    // fails one of these checks is refused before anything reconstructs
+    // a `Language` from an address the caller supplied. Copying also
+    // means a payload that is about to be rejected is never aliased
+    // into `'static` storage.
     let node_types_ptr = pop_usize("node_types_ptr")?;
     let node_types_len = pop_usize("node_types_len")?;
-    let tags_query_ptr = pop_opt_usize("tags_query_ptr")?;
-    let tags_query_len = pop_opt_usize("tags_query_len")?.unwrap_or(0);
-    let grammar_json_ptr = pop_opt_usize("grammar_json_ptr")?;
-    let grammar_json_len = pop_opt_usize("grammar_json_len")?.unwrap_or(0);
-
-    // Reject obvious null-pointer payloads up front. A NULL
-    // `language_ptr` would transmute into a `Language` wrapping a NULL
-    // `*const TSLanguage`; tree-sitter would then null-deref inside C
-    // when the parser is queried. Same logic for the `node_types_*`
-    // pair: tree-sitter's theory extractor reads from this slice on
-    // construction and a NULL with non-zero length would segfault.
-    if language_ptr == 0 {
+    if node_types_len == 0 {
         return Err(PyValueError::new_err(format!(
-            "grammar {name:?}: language_ptr is null"
+            "grammar {name:?}: node_types is empty"
         )));
     }
-    if node_types_ptr == 0 || node_types_len == 0 {
-        return Err(PyValueError::new_err(format!(
-            "grammar {name:?}: node_types pointer/length is null/zero"
-        )));
-    }
+    let node_types =
+        crate::grammar_boundary::payload(&name, "node_types", node_types_ptr, node_types_len)?;
 
-    // The tags query is the one payload the companion hands over as
-    // text. Its bytes come from a third-party package, so they are
-    // checked rather than assumed: an unchecked conversion would hand
-    // tree-sitter's query compiler a `&str` whose contents are not
-    // UTF-8, which is undefined behaviour. The check runs before any
-    // `&'static` allocation is leaked and before the language pointer
-    // is used, so a rejected entry costs nothing and touches nothing.
-    let tags_query: Option<&'static str> = match tags_query_ptr {
-        Some(p) => {
-            let slice: &'static [u8] =
-                unsafe { std::slice::from_raw_parts(p as *const u8, tags_query_len) };
-            Some(std::str::from_utf8(slice).map_err(|e| {
-                PyValueError::new_err(format!(
-                    "grammar {name:?}: tags_query is not valid UTF-8 ({e})"
-                ))
-            })?)
+    // The tags query is the one payload that becomes a `str`, so it is
+    // checked for UTF-8 here. An unchecked conversion would hand
+    // tree-sitter's query compiler a `str` violating its invariant,
+    // which is a segmentation fault rather than an error.
+    let tags_query = crate::grammar_boundary::text_payload(
+        &name,
+        "tags_query",
+        pop_opt_usize("tags_query_ptr")?.unwrap_or(0),
+        pop_opt_usize("tags_query_len")?.unwrap_or(0),
+    )?;
+
+    let grammar_json_bytes = crate::grammar_boundary::payload(
+        &name,
+        "grammar_json",
+        pop_opt_usize("grammar_json_ptr")?.unwrap_or(0),
+        pop_opt_usize("grammar_json_len")?.unwrap_or(0),
+    )?;
+    let grammar_json = (!grammar_json_bytes.is_empty()).then_some(grammar_json_bytes);
+
+    // The language may arrive as a capsule, which carries a name this
+    // module checks and which keeps its provider alive, or as a bare
+    // address, which does neither and exists because ten published
+    // companion packages send one. The capsule wins when both appear.
+    let language = match entry.get_item("language_capsule")? {
+        Some(capsule) if !capsule.is_none() => {
+            crate::grammar_boundary::language_from_capsule(&name, &capsule)?
         }
-        None => None,
+        _ => crate::grammar_boundary::language_from_raw_address(&name, pop_usize("language_ptr")?)?,
     };
 
-    let LeakedMetadata {
-        name: leaked_name,
-        extensions: leaked_extensions,
-    } = leaked_metadata_for(&name, extensions)?;
-    let leaked_extensions: Vec<&'static str> = leaked_extensions.to_vec();
-    let language: tree_sitter::Language = unsafe {
-        // Cast through usize → *const c_void → tree_sitter::Language.
-        // The conversion mirrors how wasm-bindgen and other FFI shims
-        // cross cdylib boundaries: tree_sitter::Language is a
-        // transparent wrapper around a raw pointer.
-        std::mem::transmute::<usize, tree_sitter::Language>(language_ptr)
-    };
-    let node_types: &'static [u8] =
-        unsafe { std::slice::from_raw_parts(node_types_ptr as *const u8, node_types_len) };
-    let grammar_json: Option<&'static [u8]> = grammar_json_ptr
-        .map(|p| unsafe { std::slice::from_raw_parts(p as *const u8, grammar_json_len) });
-
-    reg.register_external_grammar(
-        leaked_name,
-        leaked_extensions,
+    // Registration is the last step, so a payload that failed any check
+    // above leaves the registry exactly as it was rather than
+    // half-populated.
+    reg.register_external_grammar_owned(
+        name,
+        extensions,
         language,
         node_types,
         tags_query,

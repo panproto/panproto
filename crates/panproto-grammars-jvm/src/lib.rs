@@ -10,7 +10,7 @@
 #![allow(unsafe_code, clippy::doc_markdown)]
 
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList};
+use pyo3::types::{PyCapsule, PyDict, PyList};
 
 // Compile-time guard: the cross-cdylib transport casts the
 // tree-sitter `Language` value to a `usize` and back. That
@@ -36,7 +36,28 @@ fn grammars_metadata(py: Python<'_>) -> PyResult<Bound<'_, PyList>> {
 
         let language_ptr: usize =
             unsafe { std::mem::transmute::<tree_sitter::Language, usize>(grammar.language) };
+        // Both forms. The capsule is what panproto prefers: it carries a
+        // name panproto checks, and it keeps this module alive while it
+        // lives, so the pointer cannot outlive the library that owns
+        // it. The bare address stays because a panproto older than this
+        // one reads only that, and a companion has to work with both.
         entry.set_item("language_ptr", language_ptr)?;
+        // SAFETY: `language_ptr` is the `TSLanguage *` that this
+        // crate's own compiled-in `tree_sitter_<name>()` returned, and
+        // it points into this cdylib's static memory, so it is valid
+        // for as long as this module is loaded. The capsule keeps a
+        // reference to that module, which is what makes it a stronger
+        // claim than the bare address beside it. No destructor: the
+        // pointee is static and must not be freed.
+        let Some(nonnull) = std::ptr::NonNull::new(language_ptr as *mut std::ffi::c_void) else {
+            // A null here would mean this crate's own grammar table is
+            // broken; skip the grammar rather than advertise a capsule
+            // wrapping nothing.
+            continue;
+        };
+        let capsule =
+            unsafe { PyCapsule::new_with_pointer(py, nonnull, c"panproto.tree_sitter_language")? };
+        entry.set_item("language_capsule", capsule)?;
 
         let node_types = grammar.node_types;
         entry.set_item("node_types_ptr", node_types.as_ptr() as usize)?;
