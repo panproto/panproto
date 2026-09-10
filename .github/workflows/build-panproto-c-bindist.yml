@@ -389,13 +389,15 @@ jobs:
             --manifest-path crates/panproto-c/Cargo.toml
           mkdir -p sbom
 
-          # Name the file. An earlier version of this step used
-          # `find -name '*.cdx.json' | head -1`, which is
-          # nondeterministic across a workspace of 38 of them: it picked
-          # `xtask/xtask.cdx.json`, 20 components, and would have
-          # attested and published xtask's dependency graph labelled as
-          # panproto-c's. Wrong-but-plausible is the failure this step
-          # exists to prevent, so the path is exact.
+          # Name the file rather than searching for one. `cargo
+          # cyclonedx` writes one inventory per workspace member, beside
+          # that member, so a search across this workspace chooses among
+          # 38 candidates and a wrong choice attests and publishes some
+          # other crate's dependency graph labelled as panproto-c's. A
+          # component count cannot catch that, since the wrong file is a
+          # real inventory of the wrong thing; the subject check below
+          # can. Right-looking and wrong is the failure this step exists
+          # to prevent, so the path is exact.
           expected=crates/panproto-c/panproto-c.cdx.json
           test -f "$expected" \
             || { echo "::error::cargo-cyclonedx wrote no $expected"; exit 1; }
@@ -420,11 +422,13 @@ jobs:
 
   release:
     name: Attach to GitHub Release
-    # `sbom` is deliberately absent from `needs`. It was there, and a
-    # bad flag in it meant the v0.73.0 tag attached no archives and no
-    # XCFramework at all, which then stalled `publish-swift.yml` waiting
-    # for one. An inventory that fails to generate is worth reporting;
-    # it is not worth withholding the binaries people install.
+    # `sbom` is deliberately absent from `needs`: a metadata job must
+    # never gate an artifact job. An inventory that fails to generate is
+    # worth reporting; it is not worth withholding the binaries people
+    # install, and withholding them also stalls `publish-swift.yml`,
+    # which waits on the XCFramework this job attaches. The attestation
+    # that consumes the inventory is guarded on the file existing
+    # instead.
     needs: [build, build-ios, build-full, xcframework]
     if: startsWith(github.ref, 'refs/tags/v') || inputs.tag != ''
     runs-on: ubuntu-latest
