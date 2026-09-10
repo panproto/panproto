@@ -23,6 +23,13 @@ mod error;
 mod expr;
 mod gat;
 mod git;
+// The one module in this crate permitted to write `unsafe`. Every
+// native grammar crosses into the process through it, so confining the
+// permission here is what lets the rest of the crate stay under the
+// workspace's `unsafe_code = "deny"` rather than carrying an `allow`
+// at each site that happens to need one.
+#[allow(unsafe_code, reason = "the audited native grammar boundary")]
+mod grammar_boundary;
 mod hom;
 mod inst;
 mod io;
