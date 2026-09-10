@@ -102,21 +102,40 @@ jobs:
         # tell people to pass to the linker would all ship silently.
         # Only a natively runnable target can be link-tested; the
         # cross-compiled legs are unpacked and checked for shape.
+        # tar.gz targets only. The Windows leg produces a zip, and
+        # `unzip` is not guaranteed on that runner; its archive is
+        # checked by the pwsh step below, which uses the same
+        # `Expand-Archive` that created it.
+        if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
           set -euxo pipefail
           check="$RUNNER_TEMP/archive-check"
           rm -rf "$check" && mkdir -p "$check"
-          case "${{ matrix.archive }}" in
-            tar.gz) tar -xzf "panproto-c-${{ matrix.target }}.tar.gz" -C "$check" ;;
-            zip)    unzip -q "panproto-c-${{ matrix.target }}.zip" -d "$check" ;;
-          esac
+          tar -xzf "panproto-c-${{ matrix.target }}.tar.gz" -C "$check"
           stage="$check/panproto-c-${{ matrix.target }}"
           test -f "$stage/include/panproto.h" || {
             echo "::error::the archive ships no header"; exit 1; }
           ls "$stage/lib" | grep -q . || {
             echo "::error::the archive ships no library"; exit 1; }
           echo "archive contents:"; find "$stage" -type f | head -20
+
+      - name: Expand the archive and check its shape (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $check = Join-Path $env:RUNNER_TEMP 'archive-check'
+          if (Test-Path $check) { Remove-Item -Recurse -Force $check }
+          New-Item -ItemType Directory -Path $check | Out-Null
+          Expand-Archive -Path "panproto-c-${{ matrix.target }}.zip" -DestinationPath $check
+          $stage = Join-Path $check "panproto-c-${{ matrix.target }}"
+          if (-not (Test-Path (Join-Path $stage 'include/panproto.h'))) {
+              Write-Error "::error::the archive ships no header"; exit 1
+          }
+          if (-not (Get-ChildItem (Join-Path $stage 'lib'))) {
+              Write-Error "::error::the archive ships no library"; exit 1
+          }
+          Get-ChildItem -Recurse $stage | Select-Object -First 20 FullName
 
       - name: Compile and run a C program against the unpacked archive
         # Native targets only: a cross-compiled library cannot be
