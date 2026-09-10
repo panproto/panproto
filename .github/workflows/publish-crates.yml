@@ -94,7 +94,14 @@ jobs:
             # filename; only a quoted value names a file to check for.
             readme=$(sed -n 's/^readme *= *"\([^"]*\)".*/\1/p' <<<"$manifest" || true)
             if [ -n "$readme" ]; then
-              tar tzf "$crate" | grep -qxF "$base/$readme" \
+              # Read the listing into a variable first. Piping into
+              # `grep -q` closes the pipe the moment the name matches,
+              # so `tar` dies on a write error and `pipefail` reports
+              # the pipeline as failed precisely when the file *is*
+              # present. Only large listings lose the race, which is
+              # why this passed everywhere but the biggest crate.
+              listing=$(tar tzf "$crate")
+              grep -qxF "$base/$readme" <<<"$listing" \
                 || { echo "::error::$base names readme $readme but does not ship it"; exit 1; }
             fi
           done
@@ -127,10 +134,11 @@ jobs:
         # failed publish at the existing version.
         run: |
           set -euo pipefail
+          # `sed -n ... p` rather than `grep | head -1`: `head` closes
+          # the pipe early, which under `pipefail` turns the upstream
+          # `grep`'s write error into a failed assignment.
           ws_version=$(grep -A 1 '^\[workspace.package\]' Cargo.toml \
-            | grep '^version' \
-            | head -1 \
-            | cut -d'"' -f2)
+            | sed -n 's/^version *= *"\([^"]*\)".*/\1/p')
           if [ "${GITHUB_EVENT_NAME}" = "push" ]; then
             tag="${GITHUB_REF_NAME#v}"
             if [ "$tag" != "$ws_version" ]; then
@@ -176,9 +184,9 @@ jobs:
               # when the exact version is already on the registry. Match
               # that message directly rather than running a separate
               # `cargo search` (whose output format is unreliable in CI).
-              if echo "$out" | grep -q "already exists on crates.io index"; then
+              if grep -q "already exists on crates.io index" <<<"$out"; then
                 echo "$crate $VERSION already published; continuing"
-              elif echo "$out" | grep -q "do not support creating new crates"; then
+              elif grep -q "do not support creating new crates" <<<"$out"; then
                 # A crate that has never been published cannot be created by a
                 # Trusted Publishing (OIDC) token; crates.io requires an owner
                 # to `cargo publish` it once with an API token, then enable
