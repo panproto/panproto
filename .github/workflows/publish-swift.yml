@@ -67,8 +67,12 @@ jobs:
           set -euo pipefail
           attempts=360
           for i in $(seq 1 "$attempts"); do
-            if gh release view "$TAG" --json assets \
-                 --jq '.assets[].name' | grep -qx 'panproto_c.xcframework.zip'; then
+            # Capture, then match. Piping `gh` into `grep -q` makes the
+            # condition false when `gh` is killed by the closed pipe,
+            # which would wait out the full two hours for an asset that
+            # is already there.
+            assets=$(gh release view "$TAG" --json assets --jq '.assets[].name' 2>/dev/null || true)
+            if grep -qx 'panproto_c.xcframework.zip' <<<"$assets"; then
               echo "artifact present"
               exit 0
             fi

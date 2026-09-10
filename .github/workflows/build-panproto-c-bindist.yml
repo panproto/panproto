@@ -126,9 +126,13 @@ jobs:
           stage="$check/panproto-c-${{ matrix.target }}"
           test -f "$stage/include/panproto.h" || {
             echo "::error::the archive ships no header"; exit 1; }
-          ls "$stage/lib" | grep -q . || {
+          libs=$(ls -A "$stage/lib" 2>/dev/null || true)
+          [ -n "$libs" ] || {
             echo "::error::the archive ships no library"; exit 1; }
-          echo "archive contents:"; find "$stage" -type f | head -20
+          # `sed -n 1,20p` rather than `head -20`: `head` closes the pipe
+          # once it has its lines, and under `pipefail` `find`'s write
+          # error would fail the step on the diagnostic alone.
+          echo "archive contents:"; find "$stage" -type f | sed -n '1,20p'
 
       - name: Expand the archive and check its shape (Windows)
         if: matrix.archive == 'zip'
@@ -168,7 +172,10 @@ jobs:
               return 0;
           }
           C
-          lib=$(ls "$stage"/lib/libpanproto_c.* | head -1)
+          # Glob into an array rather than `ls | head -1`, which fails
+          # the assignment under `pipefail` when `ls` is still writing.
+          libs=("$stage"/lib/libpanproto_c.*)
+          lib="${libs[0]}"
           cc "$RUNNER_TEMP/smoke.c" -I "$stage/include" "$lib" \
              -o "$RUNNER_TEMP/smoke" -lm -lpthread -ldl
           "$RUNNER_TEMP/smoke"

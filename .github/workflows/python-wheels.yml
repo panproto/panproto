@@ -17,16 +17,26 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `native` says whether this runner can execute the wheel it
+          # builds, which decides whether the install check below runs.
+          # It is declared here rather than derived from the target name
+          # in an `if:`, so that adding a target has to answer it.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
+            native: true
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
+            native: false
           - os: macos-latest
             target: aarch64-apple-darwin
+            native: true
           - os: macos-latest
+            # The macOS runners are arm64, so this leg cross-compiles.
             target: x86_64-apple-darwin
+            native: false
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+            native: true
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -82,10 +92,11 @@ jobs:
         # source tree, then fails on a user's first import.
         #
         # Only a wheel whose target the runner can execute is testable
-        # here; the cross-compiled aarch64 Linux leg is built under
-        # emulation-free zigbuild and is skipped rather than pretended
-        # about.
-        if: matrix.target != 'aarch64-unknown-linux-gnu'
+        # here. The cross-compiled legs are skipped rather than
+        # pretended about: pip refuses a wheel whose platform tag does
+        # not match the host, so an x86_64 wheel on the arm64 macOS
+        # runner resolves to nothing at all.
+        if: matrix.native
         shell: bash
         working-directory: bindings/python
         run: |
