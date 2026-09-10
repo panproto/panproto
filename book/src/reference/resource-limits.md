@@ -30,14 +30,22 @@ Several subsystems already had sound local bounds: parser walk depth, CST extrac
 
 A Rust caller that needs different bounds uses the `_within` variants:
 
-```rust,ignore
-use panproto_expr::limits::{Budget, ResourceLimits};
+```rust
+use panproto_core::expr::limits::{Budget, ResourceLimits};
+use panproto_core::protocols::parse_schema_bundle_within;
 
 let mut limits = ResourceLimits::defaults();
 limits.bundle_entries = 32_768;
 let budget = Budget::new(limits);
 
-let schema = panproto_protocols::parse_schema_bundle_within("atproto", &docs, &budget)?;
+let docs = vec![serde_json::json!({
+    "lexicon": 1,
+    "id": "com.example.record",
+    "defs": { "main": { "type": "object", "properties": { "v": { "type": "string" } } } },
+})];
+let schema = parse_schema_bundle_within("atproto", &docs, &budget)?;
+assert!(schema.vertex_count() > 0);
+# Ok::<(), Box<dyn std::error::Error>>(())
 ```
 
 Passing the same budget to several calls has them share one allowance, which is how a caller bounds a whole pipeline rather than each stage of it.

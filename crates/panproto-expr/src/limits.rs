@@ -249,7 +249,7 @@ impl Budget {
         self.check_depth(level)
     }
 
-    fn check_depth(&self, level: u64) -> Result<(), LimitExceeded> {
+    const fn check_depth(&self, level: u64) -> Result<(), LimitExceeded> {
         let limit = self.limits.depth;
         if limit != 0 && level > limit {
             return Err(LimitExceeded {
