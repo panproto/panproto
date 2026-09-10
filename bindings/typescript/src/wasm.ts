@@ -115,6 +115,7 @@ export interface WasmGlueModule {
   compose_lenses: WasmExports['compose_lenses'];
   // Phase 4: Protocol registry
   list_builtin_protocols: WasmExports['list_builtin_protocols'];
+  list_bundle_parser_protocols: WasmExports['list_bundle_parser_protocols'];
   get_builtin_protocol: WasmExports['get_builtin_protocol'];
   // Phase 5: GAT operations
   create_theory: WasmExports['create_theory'];
@@ -262,6 +263,7 @@ export async function loadWasm(input?: string | URL | WasmGlueModule): Promise<W
       compose_lenses: glue.compose_lenses,
       // Phase 4
       list_builtin_protocols: glue.list_builtin_protocols,
+      list_bundle_parser_protocols: glue.list_bundle_parser_protocols,
       get_builtin_protocol: glue.get_builtin_protocol,
       // Phase 5
       create_theory: glue.create_theory,

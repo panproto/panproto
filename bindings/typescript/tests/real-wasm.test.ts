@@ -818,6 +818,59 @@ describe('parseSchemaBundle', () => {
       /no bundle parser registered|nonexistent/i,
     );
   });
+
+  // The dispatch reaches protocols beyond ATProto, and it does so
+  // through the same export, so a regression at the boundary shows up
+  // here rather than only in the Rust tests.
+
+  it('resolves an Avro fullname into a sibling document', () => {
+    const address = {
+      type: 'record',
+      name: 'Address',
+      namespace: 'com.example',
+      fields: [{ name: 'street', type: 'string' }],
+    };
+    const user = {
+      type: 'record',
+      name: 'User',
+      namespace: 'com.example',
+      fields: [{ name: 'home', type: 'com.example.Address' }],
+    };
+
+    // Alone, the referring document cannot type the fullname.
+    const lone = pp.parseSchemaBundle('avro', [user]);
+    expect(lone.vertices['Address']).toBeUndefined();
+    lone[Symbol.dispose]();
+
+    // Bundled, the referenced record's own fields are reachable.
+    const schema = pp.parseSchemaBundle('avro', [address, user]);
+    expect(schema.vertices['Address']).toBeDefined();
+    expect(schema.vertices['Address.street']).toBeDefined();
+    schema[Symbol.dispose]();
+  });
+
+  it('resolves a JSON Schema $ref against a sibling document $id', () => {
+    const common = {
+      $id: 'https://example.com/common.json',
+      $defs: {
+        Address: { type: 'object', properties: { street: { type: 'string' } } },
+      },
+    };
+    const user = {
+      $id: 'https://example.com/user.json',
+      type: 'object',
+      properties: {
+        home: { $ref: 'https://example.com/common.json#/$defs/Address' },
+      },
+    };
+
+    const schema = pp.parseSchemaBundle('json-schema', [common, user]);
+    // The referenced definition carries its own fields, which the
+    // placeholder never did.
+    const address = 'https://example.com/common.json:$defs/Address';
+    expect(schema.vertices[address]).toBeDefined();
+    schema[Symbol.dispose]();
+  });
 });
 
 // ---------------------------------------------------------------------------

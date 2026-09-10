@@ -7,7 +7,7 @@
 //! The parser handles `$ref`, `allOf`, `oneOf`, `anyOf`, and standard
 //! type/constraint keywords.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::hash::BuildHasher;
 
 use panproto_gat::Theory;
@@ -85,28 +85,135 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// Returns [`ProtocolError`] if the JSON is not a valid schema or
 /// if construction fails.
 pub fn parse_json_schema(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    parse_json_schema_bundle(std::slice::from_ref(json))
+}
+
+/// The vertex-id prefix for a document, and the `$id` other documents
+/// address it by.
+///
+/// A document's identity is its `$id`, which is what a cross-document
+/// `$ref` names. A document without one is addressed as `root` when it
+/// is alone and `doc{i}` otherwise, so ids stay unique and a
+/// single-document parse keeps the `root:` prefix it has always had.
+fn document_identity(
+    json: &serde_json::Value,
+    index: usize,
+    count: usize,
+) -> (String, Option<&str>) {
+    let declared = json.get("$id").and_then(serde_json::Value::as_str);
+    let prefix = match declared {
+        Some(id) => id.to_owned(),
+        None if count == 1 => "root".to_owned(),
+        None => format!("doc{index}"),
+    };
+    (prefix, declared)
+}
+
+/// Parse a bundle of JSON Schema documents into one [`Schema`],
+/// resolving `$ref`s across the whole bundle.
+///
+/// A `$ref` may name a definition in a sibling document, spelled
+/// against that document's `$id` (`https://example.com/common.json#/$defs/Address`).
+/// The full reference map is built for every document before any
+/// document's body is walked, so such a ref lands on the referenced
+/// definition's real, typed vertex rather than on the opaque
+/// placeholder the parser creates for an unresolvable ref. A ref to a
+/// document outside the bundle still becomes a placeholder, which is
+/// what marks it as genuinely external.
+///
+/// Building the whole map first also resolves a `$ref` to a definition
+/// declared later in the same document, which the incremental map could
+/// not.
+///
+/// A relative-path `$ref` (`./common.json#/$defs/Address`) is not
+/// resolved: a bundle is an unordered array of documents with no
+/// filenames, so there is nothing for a path to be relative to. Give
+/// the documents `$id`s to have their cross-references resolve.
+///
+/// Passing a single document is equivalent to [`parse_json_schema`].
+///
+/// # Errors
+///
+/// Returns [`ProtocolError::Parse`] if two documents declare the same
+/// `$id`, or a construction error from the schema builder.
+pub fn parse_json_schema_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
     let proto = protocol();
     let mut builder = SchemaBuilder::new(&proto);
     let mut counter: usize = 0;
-    let mut defs_map: HashMap<String, String> = HashMap::new();
 
-    // Pre-walk `$defs` and `definitions` so that `$ref` resolution can find them.
-    // Each named definition is an entry (basepoint) so a lens or migration can
-    // root at it, mirroring how `bson`/`cddl` declare their top-level rules.
-    for defs_key in &["$defs", "definitions"] {
-        if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
-            for (def_name, def_schema) in defs {
-                let def_id = format!("root:{defs_key}/{def_name}");
-                builder = walk_schema(builder, def_schema, &def_id, &mut counter, &defs_map)?;
-                builder = builder.entry(&def_id);
-                let ref_path = format!("#/{defs_key}/{def_name}");
-                defs_map.insert(ref_path, def_id);
+    // Pass 1, over the whole bundle: map every reference spelling to the
+    // vertex id it names, before walking any body. A definition's vertex
+    // id follows from its document and its name, so this needs no walk,
+    // and doing it first is what lets a ref reach a sibling document (or
+    // a later definition in its own).
+    let mut defs_map: HashMap<String, String> = HashMap::new();
+    let mut identities: Vec<(String, Option<&str>)> = Vec::with_capacity(docs.len());
+    let mut seen_ids: HashSet<&str> = HashSet::with_capacity(docs.len());
+
+    for (i, json) in docs.iter().enumerate() {
+        let (prefix, declared) = document_identity(json, i, docs.len());
+        if let Some(id) = declared {
+            if !seen_ids.insert(id) {
+                return Err(ProtocolError::Parse(format!(
+                    "duplicate $id in bundle: {id}"
+                )));
             }
         }
+
+        for defs_key in &["$defs", "definitions"] {
+            if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
+                for def_name in defs.keys() {
+                    let def_id = format!("{prefix}:{defs_key}/{def_name}");
+                    // Within the document: `#/$defs/Name`. Only the
+                    // sole document of a single-document parse claims
+                    // the bare spelling, since in a bundle it would be
+                    // ambiguous between documents.
+                    if docs.len() == 1 {
+                        defs_map.insert(format!("#/{defs_key}/{def_name}"), def_id.clone());
+                    }
+                    // From anywhere: `<$id>#/$defs/Name`.
+                    if let Some(id) = declared {
+                        defs_map.insert(format!("{id}#/{defs_key}/{def_name}"), def_id.clone());
+                    }
+                }
+            }
+        }
+        identities.push((prefix, declared));
     }
 
-    builder = walk_schema(builder, json, "root", &mut counter, &defs_map)?;
-    builder = builder.entry("root");
+    // Pass 2: walk each document. Every in-bundle ref target is already
+    // in `defs_map`, so the placeholder path is never taken for one.
+    for (json, (prefix, _)) in docs.iter().zip(&identities) {
+        let mut local = defs_map.clone();
+        for defs_key in &["$defs", "definitions"] {
+            if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
+                for def_name in defs.keys() {
+                    // A document's own `#/...` refs resolve to its own
+                    // definitions, whichever document is being walked.
+                    local.insert(
+                        format!("#/{defs_key}/{def_name}"),
+                        format!("{prefix}:{defs_key}/{def_name}"),
+                    );
+                }
+            }
+        }
+
+        for defs_key in &["$defs", "definitions"] {
+            if let Some(defs) = json.get(*defs_key).and_then(serde_json::Value::as_object) {
+                for (def_name, def_schema) in defs {
+                    let def_id = format!("{prefix}:{defs_key}/{def_name}");
+                    builder = walk_schema(builder, def_schema, &def_id, &mut counter, &local)?;
+                    // Each named definition is an entry (basepoint) so a
+                    // lens or migration can root at it, mirroring how
+                    // `bson`/`cddl` declare their top-level rules.
+                    builder = builder.entry(&def_id);
+                }
+            }
+        }
+
+        builder = walk_schema(builder, json, prefix, &mut counter, &local)?;
+        builder = builder.entry(prefix);
+    }
 
     let schema = builder.build()?;
     Ok(schema)

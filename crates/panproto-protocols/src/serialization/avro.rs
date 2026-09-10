@@ -71,21 +71,74 @@ struct FieldInfo {
 
 /// Parse an Avro schema (`.avsc` JSON) into a [`Schema`].
 ///
+/// Equivalent to [`parse_avsc_bundle`] over a single document, so the
+/// two cannot drift apart.
+///
 /// # Errors
 ///
 /// Returns [`ProtocolError`] if the JSON cannot be parsed as valid Avro.
 pub fn parse_avsc(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
+    parse_avsc_bundle(std::slice::from_ref(json))
+}
+
+/// Parse a bundle of Avro schema documents into one [`Schema`],
+/// resolving named-type references across the whole bundle.
+///
+/// A named type defined in one `.avsc` may be referenced by its
+/// fullname (`namespace` plus `name`) from another, and multi-file Avro
+/// schema sets are ordinary. Every document's types are registered
+/// before any reference is resolved, so a fullname naming a type in a
+/// *sibling* document binds to that type's real, typed vertex. A
+/// fullname in no document of the bundle stays unresolved, which is
+/// what marks it as genuinely external.
+///
+/// Entry selection is over the bundle rather than per document: a
+/// record is an entry when no field anywhere in the bundle references
+/// it. Pulling a sibling's definitions in therefore does not promote
+/// them to entry sorts, since the field that references them is now in
+/// scope.
+///
+/// # Errors
+///
+/// Returns [`ProtocolError`] if any document cannot be parsed as valid
+/// Avro, or if schema construction fails.
+pub fn parse_avsc_bundle(docs: &[serde_json::Value]) -> Result<Schema, ProtocolError> {
     let proto_def = protocol();
     let mut builder = SchemaBuilder::new(&proto_def);
     let mut vertex_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut fullnames: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut field_infos: Vec<FieldInfo> = Vec::new();
 
-    parse_type(&mut builder, json, "", &mut vertex_ids, &mut field_infos)?;
+    // Pass 1, over the whole bundle: register every document's named
+    // types before any reference is looked up. This is the whole trick:
+    // by the time pass 2 resolves a fullname, an in-bundle target
+    // already exists as a real vertex.
+    for json in docs {
+        parse_type(
+            &mut builder,
+            json,
+            "",
+            &mut vertex_ids,
+            &mut fullnames,
+            &mut field_infos,
+        )?;
+    }
 
     // Pass 2: Resolve type-of edges for fields referencing named types.
+    // A reference is either a bare name, resolved against the vertices
+    // directly, or a fullname, resolved through the namespace map. A
+    // reference matching neither names a type in no document of the
+    // bundle, and is left unbound, which is what marks it external.
+    let resolve = |name: &String| -> Option<String> {
+        if vertex_ids.contains(name) {
+            Some(name.clone())
+        } else {
+            fullnames.get(name).cloned()
+        }
+    };
     for info in &field_infos {
-        if vertex_ids.contains(&info.type_name) {
-            builder = builder.edge(&info.field_id, &info.type_name, "type-of", None)?;
+        if let Some(target) = resolve(&info.type_name) {
+            builder = builder.edge(&info.field_id, &target, "type-of", None)?;
         }
     }
 
@@ -93,12 +146,20 @@ pub fn parse_avsc(json: &serde_json::Value) -> Result<Schema, ProtocolError> {
     // it is not the target of any `type-of` edge: top-level records
     // that no field references. In practice, `.avsc` files typically
     // have one top-level record per file, which this selects.
-    let referenced: std::collections::HashSet<&String> =
-        field_infos.iter().map(|info| &info.type_name).collect();
-    for id in &vertex_ids {
-        if !referenced.contains(id) {
-            builder = builder.entry(id);
-        }
+    let referenced: std::collections::HashSet<String> = field_infos
+        .iter()
+        .filter_map(|info| resolve(&info.type_name))
+        .collect();
+    let mut entries: Vec<&String> = vertex_ids
+        .iter()
+        .filter(|id| !referenced.contains(*id))
+        .collect();
+    // `vertex_ids` is a `HashSet`, so its enumeration order is decided
+    // by the process's hash seed. Entry order is part of the schema, so
+    // it is sorted rather than left to that.
+    entries.sort();
+    for id in entries {
+        builder = builder.entry(id);
     }
 
     let schema = builder.build()?;
@@ -111,16 +172,17 @@ fn parse_type(
     value: &serde_json::Value,
     prefix: &str,
     vertex_ids: &mut std::collections::HashSet<String>,
+    fullnames: &mut std::collections::HashMap<String, String>,
     field_infos: &mut Vec<FieldInfo>,
 ) -> Result<(), ProtocolError> {
     match value {
         serde_json::Value::Object(obj) => {
-            parse_type_object(builder, obj, prefix, vertex_ids, field_infos)?;
+            parse_type_object(builder, obj, prefix, vertex_ids, fullnames, field_infos)?;
         }
         serde_json::Value::Array(items) => {
             // Union type: parse each member.
             for item in items {
-                parse_type(builder, item, prefix, vertex_ids, field_infos)?;
+                parse_type(builder, item, prefix, vertex_ids, fullnames, field_infos)?;
             }
         }
         // Primitive type references (strings) and other values are handled by the caller.
@@ -136,6 +198,7 @@ fn parse_type_object(
     obj: &serde_json::Map<String, serde_json::Value>,
     prefix: &str,
     vertex_ids: &mut std::collections::HashSet<String>,
+    fullnames: &mut std::collections::HashMap<String, String>,
     field_infos: &mut Vec<FieldInfo>,
 ) -> Result<(), ProtocolError> {
     let type_val = obj
@@ -143,17 +206,17 @@ fn parse_type_object(
         .ok_or_else(|| ProtocolError::MissingField("type".into()))?;
 
     match type_val.as_str() {
-        Some("record") => parse_record(builder, obj, prefix, vertex_ids, field_infos),
-        Some("enum") => parse_avro_enum(builder, obj, prefix, vertex_ids),
+        Some("record") => parse_record(builder, obj, prefix, vertex_ids, fullnames, field_infos),
+        Some("enum") => parse_avro_enum(builder, obj, prefix, vertex_ids, fullnames),
         Some("array") => {
             if let Some(items) = obj.get("items") {
-                parse_type(builder, items, prefix, vertex_ids, field_infos)?;
+                parse_type(builder, items, prefix, vertex_ids, fullnames, field_infos)?;
             }
             Ok(())
         }
         Some("map") => {
             if let Some(values) = obj.get("values") {
-                parse_type(builder, values, prefix, vertex_ids, field_infos)?;
+                parse_type(builder, values, prefix, vertex_ids, fullnames, field_infos)?;
             }
             Ok(())
         }
@@ -167,6 +230,7 @@ fn parse_record(
     obj: &serde_json::Map<String, serde_json::Value>,
     prefix: &str,
     vertex_ids: &mut std::collections::HashSet<String>,
+    fullnames: &mut std::collections::HashMap<String, String>,
     field_infos: &mut Vec<FieldInfo>,
 ) -> Result<(), ProtocolError> {
     let name = obj
@@ -189,6 +253,11 @@ fn parse_record(
     }
     if let Some(ns) = obj.get("namespace").and_then(|v| v.as_str()) {
         b = b.constraint(&record_id, "namespace", ns);
+        // A named type is referenced from another document by its
+        // fullname, `namespace` plus `name`, while its vertex is keyed
+        // by the name alone. Record the correspondence so a reference
+        // spelled the one way finds the vertex named the other.
+        fullnames.insert(format!("{ns}.{name}"), record_id.clone());
     }
 
     if let Some(serde_json::Value::Array(fields)) = obj.get("fields") {
@@ -225,7 +294,14 @@ fn parse_record(
                     });
                 }
                 *builder = b;
-                parse_type(builder, field_type, &record_id, vertex_ids, field_infos)?;
+                parse_type(
+                    builder,
+                    field_type,
+                    &record_id,
+                    vertex_ids,
+                    fullnames,
+                    field_infos,
+                )?;
                 b = std::mem::replace(builder, SchemaBuilder::new(&protocol()));
             }
         }
@@ -241,6 +317,7 @@ fn parse_avro_enum(
     obj: &serde_json::Map<String, serde_json::Value>,
     prefix: &str,
     vertex_ids: &mut std::collections::HashSet<String>,
+    fullnames: &mut std::collections::HashMap<String, String>,
 ) -> Result<(), ProtocolError> {
     let name = obj
         .get("name")
@@ -259,6 +336,12 @@ fn parse_avro_enum(
 
     if let Some(doc) = obj.get("doc").and_then(|v| v.as_str()) {
         b = b.constraint(&enum_id, "doc", doc);
+    }
+    if let Some(ns) = obj.get("namespace").and_then(|v| v.as_str()) {
+        b = b.constraint(&enum_id, "namespace", ns);
+        // An enum is a named type too, so a field in another document
+        // may reference it by fullname.
+        fullnames.insert(format!("{ns}.{name}"), enum_id.clone());
     }
 
     if let Some(serde_json::Value::Array(symbols)) = obj.get("symbols") {

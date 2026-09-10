@@ -90,10 +90,14 @@ pub fn parse_schema_bundle(
     protocol: &str,
     docs: &[serde_json::Value],
 ) -> Result<Schema, ProtocolError> {
-    match protocol {
+    match protocol.replace('_', "-").as_str() {
         "atproto" => atproto::parse_lexicon_bundle(docs),
+        "openapi" => api::openapi::parse_openapi_bundle(docs),
+        "json-schema" => data_schema::json_schema::parse_json_schema_bundle(docs),
+        "avro" => serialization::avro::parse_avsc_bundle(docs),
         other => Err(ProtocolError::Parse(format!(
-            "no bundle parser registered for protocol {other:?}; supported: [\"atproto\"]"
+            "no bundle parser registered for protocol {other:?}; supported: {:?}",
+            bundle_parser_protocols()
         ))),
     }
 }
@@ -104,7 +108,7 @@ pub fn parse_schema_bundle(
 /// protocol name outside this crate.
 #[must_use]
 pub const fn bundle_parser_protocols() -> &'static [&'static str] {
-    &["atproto"]
+    &["atproto", "avro", "json-schema", "openapi"]
 }
 
 /// Parse a set of schema documents into per-file schemas, keyed by path.
