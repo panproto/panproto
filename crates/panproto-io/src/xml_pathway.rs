@@ -57,17 +57,30 @@ pub fn parse_xml_bytes(
     protocol: &str,
 ) -> Result<WInstance, ParseInstanceError> {
     let mut reader = Reader::from_reader(input);
-    reader.config_mut().trim_text(true);
+    // Deliberately *not* `trim_text(true)`. That trims each text event,
+    // and since 0.41 splits one element's content into several events at
+    // every reference, trimming per event eats the spaces around them:
+    // `a &amp; b` would come back as `a&b`. Trimming is applied once to
+    // the assembled content in `flush_text` instead, which is what
+    // trimming a single event used to mean.
+    reader.config_mut().trim_text(false);
 
     let mut state = XmlParseState::new();
     let mut element_stack: Vec<(u32, String)> = Vec::new(); // (node_id, vertex_id)
     let mut buf = Vec::new();
     let mut root_id: Option<u32> = None;
     let mut root_vertex = String::new();
+    // One element's character data can arrive as several events: a run of
+    // text, an entity or character reference, a CDATA section, then more
+    // text. They are accumulated here and written to the node when the
+    // element closes, so `a &amp; b` is one value rather than whichever
+    // fragment happened to arrive last.
+    let mut text_buf = String::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Start(ref e)) => {
+                flush_text(&mut text_buf, &element_stack, &mut state);
                 let (node_id, vertex_id) = ingest_xml_element(
                     e,
                     schema,
@@ -81,6 +94,7 @@ pub fn parse_xml_bytes(
             Ok(Event::Empty(ref e)) => {
                 // Self-closing element: emit the node (same as Start) but
                 // don't push onto the element stack since it has no children.
+                flush_text(&mut text_buf, &element_stack, &mut state);
                 ingest_xml_element(
                     e,
                     schema,
@@ -91,23 +105,59 @@ pub fn parse_xml_bytes(
                 );
             }
             Ok(Event::Text(ref e)) => {
-                let text = e.unescape().map_err(|err| ParseInstanceError::Parse {
+                let text = e.decode().map_err(|err| ParseInstanceError::Parse {
                     protocol: protocol.to_string(),
-                    message: format!("XML text unescape error: {err}"),
+                    message: format!("XML text decode error: {err}"),
                 })?;
-                if !text.trim().is_empty() {
-                    if let Some(current) = element_stack.last() {
-                        if let Some(node) = state.nodes.get_mut(&current.0) {
-                            node.value = Some(FieldPresence::Present(Value::Str(text.to_string())));
-                        }
+                text_buf.push_str(&text);
+            }
+            Ok(Event::GeneralRef(ref e)) => {
+                // A reference is its own event: the reader no longer
+                // resolves it into the surrounding text. A character
+                // reference resolves numerically; a named one resolves
+                // only if it is XML's own, since resolving a
+                // document-defined entity is what the billion-laughs
+                // class of attack turns on. An unresolvable name is
+                // written back literally rather than dropped, so no
+                // character disappears from a value.
+                let resolved = e
+                    .resolve_char_ref()
+                    .map_err(|err| ParseInstanceError::Parse {
+                        protocol: protocol.to_string(),
+                        message: format!("XML character reference error: {err}"),
+                    })?;
+                if let Some(ch) = resolved {
+                    text_buf.push(ch);
+                } else {
+                    let name = e.decode().map_err(|err| ParseInstanceError::Parse {
+                        protocol: protocol.to_string(),
+                        message: format!("XML entity reference decode error: {err}"),
+                    })?;
+                    if let Some(value) = quick_xml::escape::resolve_predefined_entity(&name) {
+                        text_buf.push_str(value);
+                    } else {
+                        text_buf.push('&');
+                        text_buf.push_str(&name);
+                        text_buf.push(';');
                     }
                 }
             }
+            Ok(Event::CData(ref e)) => {
+                // CDATA is character data too, and was previously
+                // dropped by the catch-all arm, so `<![CDATA[x]]>` read
+                // back as an element with no value at all.
+                let text = e.decode().map_err(|err| ParseInstanceError::Parse {
+                    protocol: protocol.to_string(),
+                    message: format!("XML CDATA decode error: {err}"),
+                })?;
+                text_buf.push_str(&text);
+            }
             Ok(Event::End(_)) => {
+                flush_text(&mut text_buf, &element_stack, &mut state);
                 element_stack.pop();
             }
             Ok(Event::Eof) => break,
-            Ok(_) => {} // Skip comments, PIs, CDATA, etc.
+            Ok(_) => {} // Skip comments, PIs, the declaration, the DTD.
             Err(e) => {
                 return Err(ParseInstanceError::Parse {
                     protocol: protocol.to_string(),
@@ -133,6 +183,26 @@ pub fn parse_xml_bytes(
         root_id,
         panproto_gat::Name::from(root_vertex),
     ))
+}
+
+/// Write accumulated character data to the innermost open element, and
+/// clear the buffer.
+///
+/// Whitespace-only content is discarded, matching the reader's
+/// `trim_text(true)`: it is layout between elements, not a value. The
+/// buffer is cleared either way, so text belonging to one element cannot
+/// leak into the next.
+fn flush_text(text_buf: &mut String, element_stack: &[(u32, String)], state: &mut XmlParseState) {
+    if !text_buf.trim().is_empty() {
+        if let Some(current) = element_stack.last() {
+            if let Some(node) = state.nodes.get_mut(&current.0) {
+                node.value = Some(FieldPresence::Present(Value::Str(
+                    text_buf.trim().to_owned(),
+                )));
+            }
+        }
+    }
+    text_buf.clear();
 }
 
 /// Emit a `WInstance` to XML bytes.

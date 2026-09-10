@@ -38,7 +38,7 @@ simd-json = "0.14"
 memchr = "2.7"
 
 # XML parsing (zero-copy pull parser)
-quick-xml = "0.37"
+quick-xml = "0.41"
 
 # HTML parsing (SIMD-accelerated)
 tl = "0.7"
