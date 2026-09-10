@@ -245,7 +245,7 @@ impl Budget {
     ///
     /// Returns [`LimitExceeded`] for [`Resource::Depth`] when `level`
     /// is past the bound.
-    pub fn enter(&self, level: u64) -> Result<(), LimitExceeded> {
+    pub const fn enter(&self, level: u64) -> Result<(), LimitExceeded> {
         self.check_depth(level)
     }
 

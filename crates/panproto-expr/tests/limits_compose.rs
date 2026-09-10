@@ -10,7 +10,7 @@
 
 use panproto_expr::limits::{Budget, Resource, ResourceLimits};
 
-fn limits_with(resource: Resource, bound: u64) -> ResourceLimits {
+const fn limits_with(resource: Resource, bound: u64) -> ResourceLimits {
     let mut l = ResourceLimits::unbounded();
     match resource {
         Resource::InputBytes => l.input_bytes = bound,
@@ -45,7 +45,9 @@ fn a_charge_within_the_bound_succeeds() {
 fn a_charge_past_the_bound_names_the_resource_and_the_bound() {
     for &r in CUMULATIVE {
         let budget = Budget::new(limits_with(r, 10));
-        let err = budget.charge(r, 11).expect_err("{r} past the bound");
+        let Err(err) = budget.charge(r, 11) else {
+            panic!("{r} is past its bound of 10 and must be refused");
+        };
         assert_eq!(err.resource, r);
         assert_eq!(err.limit, 10);
         assert!(
