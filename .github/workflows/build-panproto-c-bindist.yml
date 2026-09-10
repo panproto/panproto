@@ -44,12 +44,12 @@ jobs:
             zigbuild: false
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
 
       - name: Install Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
+        uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: ${{ matrix.target }}
 
@@ -96,7 +96,7 @@ jobs:
         run: Compress-Archive -Path panproto-c-${{ matrix.target }} -DestinationPath panproto-c-${{ matrix.target }}.zip
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: panproto-c-${{ matrix.target }}
           path: panproto-c-${{ matrix.target }}.${{ matrix.archive }}
@@ -117,10 +117,10 @@ jobs:
           - x86_64-apple-ios
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: ${{ matrix.target }}
       - name: Build
@@ -133,7 +133,7 @@ jobs:
           cp crates/panproto-c/include/panproto.h "$stage/include/"
           cp "target/${{ matrix.target }}/release/libpanproto_c.a" "$stage/lib/"
           tar -czf "$stage.tar.gz" "$stage"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: panproto-c-${{ matrix.target }}
           path: panproto-c-${{ matrix.target }}.tar.gz
@@ -155,10 +155,10 @@ jobs:
             target: x86_64-unknown-linux-gnu
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
         with:
           targets: ${{ matrix.target }}
       - name: Free disk space (Linux)
@@ -180,7 +180,7 @@ jobs:
             [ -f "$f" ] && cp "$f" "$stage/lib/"
           done
           tar -czf "$stage.tar.gz" "$stage"
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: panproto-c-full-${{ matrix.target }}
           path: panproto-c-full-${{ matrix.target }}.tar.gz
@@ -190,10 +190,10 @@ jobs:
     needs: [build, build-ios, build-full]
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: panproto-c-*
           path: slices/
@@ -264,7 +264,7 @@ jobs:
           cd bindings/swift
           PANPROTO_SWIFT_XCFRAMEWORK="$GITHUB_WORKSPACE/slices/panproto_c.xcframework" \
             swift build
-      - uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
         with:
           name: panproto-c-xcframework
           path: |
@@ -273,21 +273,85 @@ jobs:
             slices/panproto_c-full.xcframework.zip
             slices/panproto_c-full.xcframework.zip.checksum
 
+  sbom:
+    name: Software bill of materials
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    # The dependency graph an archive was built from is a property of
+    # the source, not of any one target's binary, so this is generated
+    # once from the workspace rather than per matrix entry. It ships
+    # beside the archives so a downstream consumer can answer "what is
+    # in this" without building anything.
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2
+      - name: Install cargo-cyclonedx
+        run: cargo install cargo-cyclonedx --locked
+      - name: Generate CycloneDX SBOM for panproto-c
+        # `--locked` above and the checked-in `Cargo.lock` here are what
+        # make the SBOM describe the versions actually built.
+        run: |
+          set -euxo pipefail
+          cargo cyclonedx --format json --spec-version 1.5 -p panproto-c
+          mkdir -p sbom
+          # cargo-cyclonedx writes beside the crate it describes, and
+          # has moved that path between releases. Find it rather than
+          # assume it, and fail loudly if it produced nothing.
+          found=$(find . -name '*.cdx.json' -not -path './sbom/*' | head -1)
+          test -n "$found" || { echo "::error::cargo-cyclonedx produced no SBOM"; exit 1; }
+          cp "$found" sbom/panproto-c.cdx.json
+          test -s sbom/panproto-c.cdx.json
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: panproto-c-sbom
+          path: sbom/panproto-c.cdx.json
+
   release:
     name: Attach to GitHub Release
-    needs: [build, build-ios, build-full, xcframework]
+    needs: [build, build-ios, build-full, xcframework, sbom]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Attestation is keyless: the job's OIDC identity signs, and
+      # nothing long-lived is stored. This adds no publication secret.
+      id-token: write
+      attestations: write
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
           pattern: panproto-c-*
           path: bindist/
           merge-multiple: true
       - name: List bindist
         run: ls -la bindist/
+      - name: Checksums
+        # One `SHA256SUMS` over every archive, in a format `sha256sum
+        # -c` reads directly. The XCFramework already carries its own
+        # `.checksum` because SwiftPM verifies that one itself; this
+        # covers the tarballs and zips, which nothing verified.
+        run: |
+          set -euo pipefail
+          cd bindist
+          rm -f SHA256SUMS
+          sha256sum -- * | tee SHA256SUMS
+      - name: Attest build provenance
+        uses: actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a # v3
+        with:
+          # Ties every archive to this workflow and this source
+          # revision, so `gh attestation verify` can answer where an
+          # archive came from rather than only whether it is intact.
+          subject-path: |
+            bindist/*.tar.gz
+            bindist/*.zip
+      - name: Attest the SBOM
+        uses: actions/attest-sbom@4651f806c01d8637787e274ac3bdf724ef169f34 # v3
+        with:
+          subject-path: bindist/panproto-c.cdx.json
+          sbom-path: bindist/panproto-c.cdx.json
       - name: Wait for cargo-dist Release to exist, then upload
         env:
           GH_TOKEN: ${{ github.token }}

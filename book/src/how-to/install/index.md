@@ -13,6 +13,8 @@ panproto has six user-facing distributions. Install only the command-line or lan
 
 The CLI and SDK packages are independent; installing one does not install the others.
 
+Every release attaches checksums, a software bill of materials, and build attestations for its binary archives. [Verify a release artifact](./verify-artifacts.md) covers checking them.
+
 ## See also
 
 - [Reference: configuration](../../reference/configuration.md) for the `panproto.toml` manifest.
