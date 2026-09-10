@@ -24,17 +24,6 @@ ignore = [
     # for imbl to make, not something a downstream consumer can force, so
     # this is ignored until imbl or nickel moves off it.
     "RUSTSEC-2026-0247",
-    # quick-xml 0.37 denial-of-service advisories in namespace and duplicate-
-    # attribute handling. panproto-io parses XML through the non-namespace
-    # `quick_xml::Reader`, and RUSTSEC-2026-0195 explicitly states that a
-    # `Reader` without namespace resolution is unaffected; RUSTSEC-2026-0194's
-    # quadratic duplicate-attribute scan is bounded by schema-guided local
-    # documents, not adversarial streams. Both are cleared by upgrading to
-    # quick-xml 0.41, which is deferred to its own change because 0.41 splits
-    # entity references into separate parse events and needs a text-pathway
-    # migration.
-    "RUSTSEC-2026-0194",
-    "RUSTSEC-2026-0195",
 ]
 
 [licenses]

@@ -384,25 +384,46 @@ fn collect_attrs(e: &quick_xml::events::BytesStart<'_>) -> Vec<(String, String)>
         .collect()
 }
 
+/// Push accumulated character data onto the innermost open element, if
+/// it is more than layout whitespace, and clear the buffer.
+fn flush_canonical_text(
+    text: &mut String,
+    stack: &mut [(String, Vec<(String, String)>, Vec<XmlNode>)],
+) {
+    let s = text.trim().to_owned();
+    if !s.is_empty() {
+        stack.last_mut().unwrap().2.push(XmlNode::Text(s));
+    }
+    text.clear();
+}
+
 fn parse_xml_canonical(input: &[u8]) -> XmlNode {
     use quick_xml::Reader;
     use quick_xml::events::Event;
 
     let mut reader = Reader::from_reader(input);
-    reader.config_mut().trim_text(true);
+    // Not `trim_text(true)`: a reference is its own event, so trimming
+    // each event separately would eat the spaces around it and make
+    // `a &apos; b` compare equal to `a&apos;b`. Text is accumulated and
+    // trimmed once, when the element it belongs to closes.
+    reader.config_mut().trim_text(false);
     let mut stack: Vec<(String, Vec<(String, String)>, Vec<XmlNode>)> =
         vec![("__doc__".into(), Vec::new(), Vec::new())];
     let mut buf = Vec::new();
+    let mut text = String::new();
+
     loop {
         match reader.read_event_into(&mut buf) {
             Ok(Event::Eof) => break,
             Ok(Event::Start(e)) => {
+                flush_canonical_text(&mut text, &mut stack);
                 let tag = std::str::from_utf8(e.name().as_ref()).unwrap().to_owned();
                 let mut attrs = collect_attrs(&e);
                 attrs.sort();
                 stack.push((tag, attrs, Vec::new()));
             }
             Ok(Event::Empty(e)) => {
+                flush_canonical_text(&mut text, &mut stack);
                 let tag = std::str::from_utf8(e.name().as_ref()).unwrap().to_owned();
                 let mut attrs = collect_attrs(&e);
                 attrs.sort();
@@ -414,6 +435,7 @@ fn parse_xml_canonical(input: &[u8]) -> XmlNode {
                 stack.last_mut().unwrap().2.push(node);
             }
             Ok(Event::End(_)) => {
+                flush_canonical_text(&mut text, &mut stack);
                 let (tag, attrs, children) = stack.pop().unwrap();
                 let node = XmlNode::Element {
                     tag,
@@ -423,14 +445,22 @@ fn parse_xml_canonical(input: &[u8]) -> XmlNode {
                 stack.last_mut().unwrap().2.push(node);
             }
             Ok(Event::Text(t)) => {
-                // Use unescape so that `&apos;` and `'` compare equal
-                // (quick-xml's writer emits `&apos;` when serialising
-                // a literal apostrophe). Trimming kills whitespace
-                // between elements.
-                let decoded = t.unescape().expect("XML text decode");
-                let s = decoded.trim().to_owned();
-                if !s.is_empty() {
-                    stack.last_mut().unwrap().2.push(XmlNode::Text(s));
+                text.push_str(&t.decode().expect("XML text decode"));
+            }
+            Ok(Event::GeneralRef(r)) => {
+                // Resolving here is what makes `&apos;` and `'` compare
+                // equal, which is the point of this canonicalization:
+                // quick-xml's writer emits `&apos;` for a literal
+                // apostrophe, so the two spellings must not read as
+                // different documents.
+                if let Some(ch) = r.resolve_char_ref().expect("character reference") {
+                    text.push(ch);
+                } else {
+                    let name = r.decode().expect("entity name decode");
+                    text.push_str(
+                        quick_xml::escape::resolve_predefined_entity(&name)
+                            .expect("a predefined entity"),
+                    );
                 }
             }
             Ok(_) => {} // ignore CDATA, comments, declarations, etc.
@@ -438,6 +468,7 @@ fn parse_xml_canonical(input: &[u8]) -> XmlNode {
         }
         buf.clear();
     }
+    flush_canonical_text(&mut text, &mut stack);
     let (_, _, mut roots) = stack.pop().unwrap();
     if roots.len() == 1 {
         roots.pop().unwrap()
