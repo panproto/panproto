@@ -20,6 +20,11 @@ All notable changes to panproto will be documented in this file.
 
 - **A release artifact is installed and exercised before it is published** (`.github/workflows/publish-npm.yml`, `python-wheels.yml`, `publish-crates.yml`, `build-panproto-c-bindist.yml`): CI tested the source workspace thoroughly and never tested what users install. The npm package is now packed, installed from the tarball into a directory with no path back to the repository, and made to parse a bundle through the real WASM, so a missing `.wasm` or an entry point that resolves only next to the repo fails before publication rather than on a user's first import. Each native Python wheel is installed with `--no-index` on its build host and made to run a real operation from outside the source tree; this binding has shipped that exact defect before, when the 0.42.0 wheel contained only the compiled extension with no `__init__.py` and every check passed. Crates are packaged and the packaged form built before anything publishes, restoring the verification `--no-verify` skips, and every packaged crate is checked to carry a licence. The C archives are unpacked, checked for a header and a library, and on natively runnable targets compiled and linked against by a small C program.
 
+### Documentation
+
+- **`panproto-dsl-eval` has a README** (`crates/panproto-dsl-eval/README.md`): it was the one publishable crate of twenty-five with neither a README file nor a `readme` key, so it rendered on crates.io as a bare title and a one-line description. The new README follows the layout the other crates use, and covers the part that is not evident from the API: a caller embeds its Nickel contract library with `include_str!` and passes it as a `BundledContract`, which is staged at `<tmpdir>/panproto/<file_name>` with that directory placed first on the import path, so a document resolves it by writing `import "panproto/<file_name>"`.
+
+
 ## [0.73.0] - 2026-09-10
 
 ### Security
