@@ -41,6 +41,12 @@ jobs:
       fail-fast: false
       matrix:
         target: [parse_and_search, consistency]
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -83,6 +89,12 @@ jobs:
           - model
           - parse_and_search
           - span_search
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -139,6 +151,12 @@ jobs:
       fail-fast: false
       matrix:
         sanitizer: [address, undefined]
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -178,6 +196,12 @@ jobs:
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # `rust-toolchain.toml` pins stable at the repo root, and that file
+    # outranks the toolchain the action installs. `RUSTUP_TOOLCHAIN`
+    # outranks the file, so it is what actually selects nightly here;
+    # without it every `-Z` flag below is rejected by a stable rustc.
+    env:
+      RUSTUP_TOOLCHAIN: nightly
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
