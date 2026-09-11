@@ -419,6 +419,26 @@ pub enum GatError {
         scrutinee_sort: String,
     },
 
+    /// A case branch body's sort does not match the expected result
+    /// sort refined by that branch's own index substitution.
+    ///
+    /// Reported instead of comparing branches to each other, so the
+    /// message names the branch at fault and the sort the motive
+    /// requires there, rather than two branch sorts that were never
+    /// required to agree.
+    #[error(
+        "case branch `{constructor}` has sort {got}, expected {expected} \
+         under this branch's refinement"
+    )]
+    CaseBranchSortMismatch {
+        /// The branch's constructor.
+        constructor: String,
+        /// The result sort refined by this branch's substitution.
+        expected: String,
+        /// The sort the branch body actually has.
+        got: String,
+    },
+
     /// A case expression's scrutinee sort admits no constructor, so the
     /// expression has no branch to take its sort from.
     ///

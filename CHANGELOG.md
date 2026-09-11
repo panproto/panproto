@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **An eliminator's result sort may now mention the index it eliminates** (`panproto-gat`): dependent pattern matching decides which branches a `case` requires from the scrutinee's index, and that half worked, so `head : (n: Nat, Vec(succ n)) -> A` typechecked. The other half did not: every branch body still had to have one shared sort, so `eval : (t: Ty, Expr(t)) -> El(t)` was rejected for branches producing `El(int_code)` and `El(bool_code)`, neither of which is wrong. A `case` carries no motive, so with nothing expected the only sort available was the one read off the first branch, and the rest were compared to that. Sorts are now checked as well as inferred: an equation checks one side against the other's sort, which makes the declared output sort of the operation being defined available as the motive, and each branch body is checked against that motive refined by the same substitution the branch already applies to its binders. Branches are measured against the result sort rather than against each other. The refinement was already computed and already applied to the binders; it simply had nothing to apply to on the result side. Nothing that typechecked before stops doing so: with a result sort that does not mention the index the substitution does not touch the motive and every branch checks against the same sort, and where no expected sort is available the first branch still fixes it. A branch that misses the motive is now reported as `case branch \`BoolLit\` has sort El(int_code()), expected El(bool_code()) under this branch's refinement`, naming the branch at fault instead of two branch sorts that were never required to agree.
+
 ## [0.74.0] - 2026-09-10
 
 ### Security
