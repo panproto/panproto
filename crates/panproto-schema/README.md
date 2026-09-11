@@ -6,6 +6,32 @@
 
 Protocol-indexed schema graphs.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-schema
+```
+
+## Usage
+
+```rust
+use panproto_schema::{Protocol, SchemaBuilder};
+
+let protocol = Protocol::default();
+let schema = SchemaBuilder::new(&protocol)
+    .vertex("user", "object", None)?
+    .vertex("name", "string", None)?
+    .edge("user", "name", "prop", Some("name"))?
+    .entry("user")
+    .build()?;
+```
+
+The default protocol is open because it has no vertex kinds or edge rules. Applications
+that need format-specific validation should use a protocol constructor from
+`panproto-protocols`.
+
 ## Data model
 
 `Schema` stores vertices, binary edges, hyper-edges, constraints, required-edge
@@ -23,24 +49,6 @@ endpoints and configured edge rules. Constraints added through the builder are c
 only when the caller runs `validate`. `build` rejects an empty schema and unknown entry
 vertices, then constructs the indices.
 
-## Example
-
-```rust,ignore
-use panproto_schema::{Protocol, SchemaBuilder};
-
-let protocol = Protocol::default();
-let schema = SchemaBuilder::new(&protocol)
-    .vertex("user", "object", None)?
-    .vertex("name", "string", None)?
-    .edge("user", "name", "prop", Some("name"))?
-    .entry("user")
-    .build()?;
-```
-
-The default protocol is open because it has no vertex kinds or edge rules. Applications
-that need format-specific validation should use a protocol constructor from
-`panproto-protocols`.
-
 ## Pushout construction
 
 `schema_pushout(left, right, overlap)` closes the declared vertex and edge pairs into
@@ -48,7 +56,7 @@ an equivalence relation, builds the quotient schema, and returns morphisms from 
 inputs. It validates references in `SchemaOverlap`. The return value contains the
 implemented quotient and morphisms, not a proof of the universal property.
 
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

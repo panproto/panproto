@@ -6,29 +6,17 @@
 
 HTTP client for the `dev.panproto.node.*` XRPC endpoints.
 
-## Client construction
+## Installation
 
-`NodeClient::new(base_url, did, repo)` constructs a client without authentication.
-`with_token` adds a bearer token. `from_url` parses `panproto://did/repo` and the legacy
-`cospan://did/repo` form. The URL form uses `PANPROTO_NODE_URL`, then
-`COSPAN_NODE_URL`, and otherwise `https://node.panproto.dev` as the HTTP base.
+Add the crate to a Rust 1.85 or newer project:
 
-Read methods include object, ref, HEAD, repository-information, commit-list, and diff
-queries. `get_object` recomputes the returned object's content address and rejects an
-ID mismatch. Write methods require a token and include `put_object` and compare-and-set
-`set_ref`.
+```sh
+cargo add panproto-xrpc
+```
 
-## Transfer
+## Usage
 
-`push` lists local refs and objects, calls `negotiate`, uploads the object IDs reported
-as needed, and updates remote refs. `pull` negotiates from local object IDs, fetches
-needed objects, verifies each object's address through `get_object`, and updates local
-refs. The number transferred depends on the negotiation result; the API does not
-assume a fixed number of objects for an incremental operation.
-
-## Example
-
-```rust,ignore
+```rust
 use panproto_vcs::FsStore;
 use panproto_xrpc::NodeClient;
 
@@ -51,7 +39,27 @@ for commit in listing.commits {
 }
 ```
 
-## Public API
+## Client construction
+
+`NodeClient::new(base_url, did, repo)` constructs a client without authentication.
+`with_token` adds a bearer token. `from_url` parses `panproto://did/repo` and the legacy
+`cospan://did/repo` form. The URL form uses `PANPROTO_NODE_URL`, then
+`COSPAN_NODE_URL`, and otherwise `https://node.panproto.dev` as the HTTP base.
+
+Read methods include object, ref, HEAD, repository-information, commit-list, and diff
+queries. `get_object` recomputes the returned object's content address and rejects an
+ID mismatch. Write methods require a token and include `put_object` and compare-and-set
+`set_ref`.
+
+## Transfer
+
+`push` lists local refs and objects, calls `negotiate`, uploads the object IDs reported
+as needed, and updates remote refs. `pull` negotiates from local object IDs, fetches
+needed objects, verifies each object's address through `get_object`, and updates local
+refs. The number transferred depends on the negotiation result; the API does not
+assume a fixed number of objects for an incremental operation.
+
+## API reference
 
 | Item | Purpose |
 |------|---------|

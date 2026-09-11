@@ -4,7 +4,17 @@
 
 Python companion extension for the `group-data` grammars: JSON, TOML, XML, YAML, SQL, CSV, GraphQL, and Protobuf.
 
-## Behavior
+## Installation
+
+Python users should install the matching companion package:
+
+```sh
+pip install panproto-grammars-data
+```
+
+This Rust crate is an internal extension target and is not published separately.
+
+## How it works
 
 This crate is an unpublished pyo3 cdylib. Its dependency on `panproto-grammars` disables default features and enables only `group-data`. The build includes only enabled grammars whose vendored sources are present and compile successfully.
 

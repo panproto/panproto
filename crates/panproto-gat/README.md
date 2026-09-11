@@ -6,6 +6,30 @@
 
 Finite presentations and operations for generalized algebraic theories (GATs).
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-gat
+```
+
+## Usage
+
+```rust
+use panproto_gat::{Operation, Sort, Theory};
+
+let graph = Theory::new(
+    "SimpleGraph",
+    vec![Sort::simple("V"), Sort::simple("E")],
+    vec![
+        Operation::unary("src", "e", "E", "V"),
+        Operation::unary("tgt", "e", "E", "V"),
+    ],
+    vec![],
+);
+```
+
 ## Representation
 
 `Theory` stores named sorts, operations, equations, directed equations, parent
@@ -36,23 +60,7 @@ Same-name compatible declarations outside the shared image are also identified.
 morphisms and returns projection morphisms. `PullbackResult` does not include a
 universal-property verifier.
 
-## Example
-
-```rust,ignore
-use panproto_gat::{Operation, Sort, Theory};
-
-let graph = Theory::new(
-    "SimpleGraph",
-    vec![Sort::simple("V"), Sort::simple("E")],
-    vec![
-        Operation::unary("src", "e", "E", "V"),
-        Operation::unary("tgt", "e", "E", "V"),
-    ],
-    vec![],
-);
-```
-
-## Main API groups
+## API reference
 
 | Group | Items |
 |-------|-------|

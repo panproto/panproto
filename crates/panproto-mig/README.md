@@ -6,6 +6,27 @@
 
 `panproto-mig` validates and compiles schema mappings, applies the compiled mappings to instances, composes and inverts mappings, and searches for correspondences between schemas.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-mig
+```
+
+## Usage
+
+Compile an identity mapping for a schema:
+
+```rust
+use panproto_mig::{Migration, compile};
+
+let vertices = schema.vertices.keys().cloned().collect::<Vec<_>>();
+let edges = schema.edges.keys().cloned().collect::<Vec<_>>();
+let migration = Migration::identity(&vertices, &edges);
+let compiled = compile(&schema, &schema, &migration)?;
+```
+
 ## Migration pipeline
 
 A [`Migration`](https://docs.rs/panproto-mig/latest/panproto_mig/struct.Migration.html) contains source-to-target maps for schema vertices, edges, hyperedges, and labels, together with value resolvers. `check_existence` checks basic map validity and conditionally runs protocol obligations selected by the exact names of well-known sorts in the registered schema and instance theories. `compile` checks that the mapped fragment is a schema morphism and builds the `CompiledMigration` tables used by the instance crate.
@@ -38,7 +59,7 @@ representation and partial mapping.
 
 The alignment module proposes candidate vertex pairs from names, descriptions, local graph structure, type signatures, and registered coercion witnesses. Auto-lens places its selected proposals in provisional pins before comparing the pinned and released searches. The standalone evidence table does not change the default objective while its shipped weight is zero.
 
-## Other public groups
+## API reference
 
 | Group | Main items |
 |---|---|

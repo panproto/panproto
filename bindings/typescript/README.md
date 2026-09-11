@@ -10,7 +10,7 @@ and browser environments that can load the bundled wasm-bindgen assets.
 The package is pre-1.0. A minor release may change the API, and the npm version
 follows the Rust workspace version.
 
-## Install
+## Installation
 
 ```sh
 npm install @panproto/core
@@ -20,7 +20,7 @@ The published package contains ESM and CommonJS entry points, TypeScript
 declarations, the wasm-bindgen JavaScript module, and the WebAssembly binary.
 It has no post-install script.
 
-## Build schemas and run a lens
+## Quick start
 
 ```typescript
 import { Panproto } from '@panproto/core';
@@ -56,33 +56,6 @@ const restoredSource = lens.putJson(view, complement, 'post:body');
 target-shaped view. `putJson(view, complement, rootVertex)` reconstructs a
 source record. The lower-level `get()` and `put()` methods accept MessagePack
 bytes in the internal instance wire shape, not ordinary JavaScript records.
-
-## Main API groups
-
-| API | Current behavior |
-|---|---|
-| `Panproto.protocol`, `Protocol`, `SchemaBuilder`, `BuiltSchema` | Read built-in protocol definitions and construct schemas. `Panproto.listProtocols()` returns the registry names from Rust. |
-| `Panproto.parseSchemaDocument`, `parseSchemaSource`, `parseSchemaBundle` | Parse supported schema documents, source languages, and ATProto bundles. |
-| `Panproto.diff`, `diffFull`, `FullDiffReport`, `CompatReport` | Compute structural changes and compatibility reports. |
-| `MigrationBuilder`, `CompiledMigration` | Define, compile, apply, compose, and invert source-to-target mappings. |
-| `Panproto.lens`, `LensHandle` | Generate and run complement-carrying asymmetric lenses. |
-| `Panproto.protolensChain`, `compileLensDocument`, `ProtolensChainHandle` | Generate, load, compose, and instantiate protolens chains. Compiled lens documents retain their value-level field transforms. |
-| `Panproto.span` | Return a shared-schema span as plain data with `quality_bounds` and `proven_optimal`. No overlap produces an empty apex. |
-| `IoRegistry`, `Instance` | Parse and emit instance data. The default WASM registry contains 50 codecs. |
-| `TheoryHandle`, `TheoryBuilder`, `createTheory`, `colimit`, `checkMorphism` | Construct and check generalized algebraic theories and their morphisms. |
-| `Repository` | Operate on an in-memory VCS store. It does not open a Git repository on disk. |
-| `DataSetHandle` | Store data with a schema, migrate it, and check staleness. |
-| `ExprBuilder`, `parseExpr`, `evalExpr` | Construct, parse, format, and evaluate expressions. |
-| `executeQuery` | Query an `Instance` by anchor, predicate, grouping, projection, path, and limit. |
-| `fiberAt`, `fiberDecomposition`, `polyHom`, `preferredPath`, `distance` | Inspect migration fibers, internal homs, and conversion paths. |
-
-The declarations generated in `dist/index.d.ts` and the source types under
-[`src`](src) are the authoritative signatures.
-
-Expression integers have Rust's signed 64-bit range. The `Literal` API uses a
-JavaScript `number` for values in the safe-integer range and a `bigint` for
-larger values. Pass large integer literals as `bigint`; passing an unsafe
-integer `number` is rejected rather than rounded.
 
 ## Migration direction
 
@@ -131,7 +104,34 @@ The resource table is thread-local inside the WASM module. Do not transfer raw
 handle numbers between Workers. Create and use a complete Panproto object
 graph within each Worker.
 
-## Build and test
+## API reference
+
+| API | Current behavior |
+|---|---|
+| `Panproto.protocol`, `Protocol`, `SchemaBuilder`, `BuiltSchema` | Read built-in protocol definitions and construct schemas. `Panproto.listProtocols()` returns the registry names from Rust. |
+| `Panproto.parseSchemaDocument`, `parseSchemaSource`, `parseSchemaBundle` | Parse supported schema documents, source languages, and ATProto bundles. |
+| `Panproto.diff`, `diffFull`, `FullDiffReport`, `CompatReport` | Compute structural changes and compatibility reports. |
+| `MigrationBuilder`, `CompiledMigration` | Define, compile, apply, compose, and invert source-to-target mappings. |
+| `Panproto.lens`, `LensHandle` | Generate and run complement-carrying asymmetric lenses. |
+| `Panproto.protolensChain`, `compileLensDocument`, `ProtolensChainHandle` | Generate, load, compose, and instantiate protolens chains. Compiled lens documents retain their value-level field transforms. |
+| `Panproto.span` | Return a shared-schema span as plain data with `quality_bounds` and `proven_optimal`. No overlap produces an empty apex. |
+| `IoRegistry`, `Instance` | Parse and emit instance data. The default WASM registry contains 50 codecs. |
+| `TheoryHandle`, `TheoryBuilder`, `createTheory`, `colimit`, `checkMorphism` | Construct and check generalized algebraic theories and their morphisms. |
+| `Repository` | Operate on an in-memory VCS store. It does not open a Git repository on disk. |
+| `DataSetHandle` | Store data with a schema, migrate it, and check staleness. |
+| `ExprBuilder`, `parseExpr`, `evalExpr` | Construct, parse, format, and evaluate expressions. |
+| `executeQuery` | Query an `Instance` by anchor, predicate, grouping, projection, path, and limit. |
+| `fiberAt`, `fiberDecomposition`, `polyHom`, `preferredPath`, `distance` | Inspect migration fibers, internal homs, and conversion paths. |
+
+The declarations generated in `dist/index.d.ts` and the source types under
+[`src`](src) are the authoritative signatures.
+
+Expression integers have Rust's signed 64-bit range. The `Literal` API uses a
+JavaScript `number` for values in the safe-integer range and a `bigint` for
+larger values. Pass large integer literals as `bigint`; passing an unsafe
+integer `number` is rejected rather than rounded.
+
+## Development
 
 From this directory:
 
@@ -145,7 +145,7 @@ pnpm test
 The build runs `wasm-pack`, bundles the TypeScript entry points with `tsup`, and
 copies the generated WASM assets into `dist`.
 
-## References
+## Further reading
 
 - John Cartmell, [Generalised algebraic theories and contextual
   categories](https://doi.org/10.1016/0168-0072(86)90053-9), *Annals of Pure

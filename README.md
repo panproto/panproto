@@ -19,7 +19,7 @@
 
 panproto is a Rust workspace for parsing and comparing schemas, constructing migrations and lenses, transforming instances, and storing schema history. It provides native schema parsers, a tree-sitter parsing path for source files, a command-line interface, and bindings for TypeScript, Python, Haskell, and Swift.
 
-## Implemented surfaces
+## Features
 
 The protocol crate currently dispatches 43 JSON-document schema parsers and 11 text-source parsers. These include ATProto, OpenAPI, JSON Schema, Avro, GraphQL, Protobuf, SQL DDL, FHIR, and a range of annotation, database, configuration, and serialization formats. ATProto additionally has bundle parsing that resolves references across a set of lexicon files.
 
@@ -58,7 +58,7 @@ SDK installation and runtime requirements are documented with each binding:
 | Haskell | source package | [`bindings/haskell`](bindings/haskell) |
 | Swift | Swift package | [`bindings/swift`](bindings/swift) |
 
-## Command-line interface
+## Quick start
 
 Run `schema --help` for the complete command list and `schema <command> --help` for arguments. The commands below are representative current entry points:
 
@@ -90,7 +90,7 @@ schema git --help
 
 `validate` and `compat` use the native protocol loaders selected by `--protocol`. `auto-migrate` consumes serialized panproto `Schema` values. The full-AST commands use tree-sitter rather than the native protocol loaders.
 
-## Workspace layout
+## Packages
 
 The central representation and algorithms live in these crates:
 
@@ -105,7 +105,7 @@ The central representation and algorithms live in these crates:
 
 Grammar-pack crates select subsets of `panproto-grammars` for native and Python distributions. Their individual READMEs list the exact Cargo features and Python packages.
 
-## Building and testing
+## Development
 
 The workspace requires Rust 1.85 or newer.
 
@@ -134,6 +134,13 @@ Binding-specific build steps and feature gates are documented in the correspondi
 - [The panproto book](https://panproto.dev/book/)
 - [Rust API documentation](https://docs.rs/panproto-core)
 - [Generated CLI reference](book/src/reference/cli.md)
+
+## Contributing
+
+Contributions are welcome. For a substantial change, open an issue first so the
+design and affected packages can be agreed on before implementation. Pull requests
+should include the relevant tests and documentation, and should pass the development
+commands above for the packages they change.
 
 ## License
 

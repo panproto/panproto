@@ -1,5 +1,8 @@
 # panproto for Swift
 
+[![Swift 6.1](https://img.shields.io/badge/Swift-6.1-F05138.svg)](https://www.swift.org/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
+
 This package binds the [`panproto-c`](../../crates/panproto-c) C ABI. It
 targets macOS 14 and iOS 17, uses Swift 6 language mode, and enables strict
 concurrency checks.
@@ -8,7 +11,45 @@ The raw Swift layer covers all 122 C entry points declared by the base and
 feature-gated headers. The default library supplies 105 of them. The other 17
 belong to the parse, project, and Git feature groups.
 
-## Build
+## Features
+
+| Product | Contents | Engine required |
+|---|---|---:|
+| `PanprotoStructural` | Schema, instance, migration, chain, expression, and CBOR value types | no |
+| `Panproto` | Protocols, schemas, instances, I/O, compatibility checks, migrations, lenses, expressions, theories, search, graph operations, and data sets | yes |
+| `PanprotoVcs` | Schema repository operations | yes |
+| `PanprotoParse` | Full-AST source parsing | yes, with `PANPROTO_PARSE` |
+| `PanprotoProject` | Multi-file project assembly | yes, with `PANPROTO_PROJECT` |
+| `PanprotoGit` | Git import | yes, with `PANPROTO_GIT` |
+
+`PanprotoStructural` does not import the FFI module. Its operations manipulate
+Swift values only.
+
+## Installation
+
+Add the package dependency to `Package.swift` and select the products your
+target uses:
+
+```swift
+dependencies: [
+    .package(
+        url: "https://github.com/panproto/panproto-swift.git",
+        from: "0.74.0"
+    ),
+],
+targets: [
+    .target(
+        name: "MyApp",
+        dependencies: [
+            .product(name: "Panproto", package: "panproto-swift"),
+        ]
+    ),
+]
+```
+
+The package supports macOS 14 or newer and iOS 17 or newer. In Xcode, add
+`https://github.com/panproto/panproto-swift.git` through **File > Add Package
+Dependencies**.
 
 For development in this repository:
 
@@ -40,19 +81,37 @@ workflow. During development, prefer `dev-link.sh` or an explicitly fetched
 artifact so the compiled library and vendored header come from the same
 revision.
 
-## Products
+## Quick start
 
-| Product | Contents | Engine required |
-|---|---|---:|
-| `PanprotoStructural` | Schema, instance, migration, chain, expression, and CBOR value types | no |
-| `Panproto` | Protocols, schemas, instances, I/O, compatibility checks, migrations, lenses, expressions, theories, search, graph operations, and data sets | yes |
-| `PanprotoVcs` | Schema repository operations | yes |
-| `PanprotoParse` | Full-AST source parsing | yes, with `PANPROTO_PARSE` |
-| `PanprotoProject` | Multi-file project assembly | yes, with `PANPROTO_PROJECT` |
-| `PanprotoGit` | Git import | yes, with `PANPROTO_GIT` |
+`SchemaBuilder`, `MigrationBuilder`, and `TheoryBuilder` collect structural
+steps in Swift before sending one payload to the engine. Result-builder
+overloads provide the same operation ordering.
 
-`PanprotoStructural` does not import the FFI module. Its operations manipulate
-Swift values only.
+```swift
+import Panproto
+
+let atproto = try await ProtocolHandle.builtin("atproto")
+let schema = try await atproto.buildSchema {
+    Vertex(id: "app.test.post", kind: "record", nsid: "app.test.post")
+    Vertex(id: "app.test.post:body", kind: "object")
+    Vertex(id: "app.test.post:body.text", kind: "string")
+    Edge(
+        src: "app.test.post",
+        tgt: "app.test.post:body",
+        kind: "record-schema"
+    )
+    Edge(
+        src: "app.test.post:body",
+        tgt: "app.test.post:body.text",
+        kind: "prop",
+        name: "text"
+    )
+    Entry("app.test.post")
+}
+```
+
+The closure itself does not call the engine. Schema validation occurs when
+the recorded steps are built against the protocol handle.
 
 ## Engine isolation
 
@@ -101,35 +160,6 @@ protocol operation. Handles release their resource on deinitialization by
 adding its index to the engine executor's release queue. Call `release()` when
 the resource should be returned earlier. Repeated release calls have no
 effect.
-
-## Builders
-
-`SchemaBuilder`, `MigrationBuilder`, and `TheoryBuilder` collect structural
-steps in Swift before sending one payload to the engine. Result-builder
-overloads provide the same operation ordering.
-
-```swift
-let schema = try await atproto.buildSchema {
-    Vertex(id: "app.test.post", kind: "record", nsid: "app.test.post")
-    Vertex(id: "app.test.post:body", kind: "object")
-    Vertex(id: "app.test.post:body.text", kind: "string")
-    Edge(
-        src: "app.test.post",
-        tgt: "app.test.post:body",
-        kind: "record-schema"
-    )
-    Edge(
-        src: "app.test.post:body",
-        tgt: "app.test.post:body.text",
-        kind: "prop",
-        name: "text"
-    )
-    Entry("app.test.post")
-}
-```
-
-The closure itself does not call the engine. Schema validation occurs when
-the recorded steps are built against the protocol handle.
 
 ## Migration direction and lenses
 
@@ -186,7 +216,7 @@ The gated products remain in the package graph when their traits are off, but
 their modules contain no gated API. This keeps the default build from
 referencing C symbols absent from the default library.
 
-## Validation gates
+## Development
 
 Run the raw ABI parity gate after a C header or Swift wrapper change:
 
@@ -226,7 +256,7 @@ Additional references:
 - [Define a schema from Swift](../../book/src/how-to/define-schema/swift.md)
 - [C ABI contract](../../crates/panproto-c/CONTRACT.md)
 
-## References
+## Further reading
 
 - John Cartmell, [Generalised algebraic theories and contextual
   categories](https://doi.org/10.1016/0168-0072(86)90053-9), *Annals of Pure

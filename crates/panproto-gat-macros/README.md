@@ -6,6 +6,29 @@
 
 Procedural macros that construct `panproto-gat` values.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-gat-macros
+```
+
+## Usage
+
+```rust
+use panproto_gat_macros::class;
+
+class! {
+    ThUnary<A> {
+        id(x: A) -> A;
+        axiom identity: id(x) = x;
+    }
+}
+
+let theory = theory_thunary();
+```
+
 ## Macros
 
 | Macro | Generated value |
@@ -25,21 +48,6 @@ expressivity: `panproto-theory-dsl` supports additional document forms.
 
 The underlying notion of a generalized algebraic theory follows
 [Cartmell (1986)](https://doi.org/10.1016/0168-0072(86)90053-9).
-
-## Example
-
-```rust,ignore
-use panproto_gat_macros::class;
-
-class! {
-    ThUnary<A> {
-        id(x: A) -> A;
-        axiom identity: id(x) = x;
-    }
-}
-
-let theory = theory_thunary();
-```
 
 ## License
 

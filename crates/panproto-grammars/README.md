@@ -6,19 +6,19 @@
 
 Build-time tree-sitter grammar registry used by `panproto-parse`.
 
-## What it does
+## Installation
 
-`grammars.toml` defines 261 grammar entries. Each `lang-{name}` feature selects one entry, and the `group-*` features select fixed sets. The default feature is `group-core`, which selects 11 languages: Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
+Add the crate to a Rust 1.85 or newer project:
 
-In a workspace build, `build.rs` compiles the enabled vendored C or C++ sources. A missing source directory, missing `parser.c`, or compilation failure causes that grammar to be omitted. Thus `grammars()` reports the grammars that compiled, not every feature that Cargo enabled.
+```sh
+cargo add panproto-grammars
+```
 
-The crates.io package cannot include the workspace-level `grammars.toml` and `grammars/` tree. Its build script consequently generates an empty registry. A Rust application using the published crate must register parsers from individual tree-sitter grammar crates with `panproto_parse::ParserRegistry`. The companion crates described below are internal, unpublished crates used to build Python wheels from a repository checkout.
-
-## Example
+## Usage
 
 This example assumes a repository build in which the default group compiled successfully.
 
-```rust,ignore
+```rust
 // Iterate all successfully compiled grammars and print their names.
 for grammar in panproto_grammars::grammars() {
     println!("{}: {:?}", grammar.name, grammar.extensions);
@@ -33,15 +33,13 @@ if let Some(lang) = panproto_grammars::extension_to_language("rs") {
 assert!(panproto_grammars::has_grammar("python"));
 ```
 
-## API overview
+## How it works
 
-| Export | What it does |
-|--------|-------------|
-| `grammars()` | Returns the successfully compiled `Grammar` values, sorted by name |
-| `has_grammar(name)` | Returns `true` if the named grammar is compiled in |
-| `extension_to_language(ext)` | Maps a file extension to its grammar name, or `None` if not recognized |
-| `grammar_count()` | Returns the number of successfully compiled grammars |
-| `Grammar` | Holds `name`, `extensions`, `language`, `node_types`, and optional `tags_query` and `grammar_json` data |
+`grammars.toml` defines 261 grammar entries. Each `lang-{name}` feature selects one entry, and the `group-*` features select fixed sets. The default feature is `group-core`, which selects 11 languages: Python, JavaScript, TypeScript, Java, C#, C++, PHP, Bash, C, Go, and Rust.
+
+In a workspace build, `build.rs` compiles the enabled vendored C or C++ sources. A missing source directory, missing `parser.c`, or compilation failure causes that grammar to be omitted. Thus `grammars()` reports the grammars that compiled, not every feature that Cargo enabled.
+
+The crates.io package cannot include the workspace-level `grammars.toml` and `grammars/` tree. Its build script consequently generates an empty registry. A Rust application using the published crate must register parsers from individual tree-sitter grammar crates with `panproto_parse::ParserRegistry`. The companion crates described below are internal, unpublished crates used to build Python wheels from a repository checkout.
 
 ## Feature flags
 
@@ -78,6 +76,16 @@ The core Python extension is built with the default `group-core` feature. Compan
 | `panproto-grammars-all` | `group-all` |
 
 Each wheel contains a separate pyo3 cdylib built from `crates/panproto-grammars-<group>/`. Its package metadata and entry point live under `bindings/python-grammars-<group>/`. Duplicate grammar names are ignored when a companion overlaps the core group or another installed pack. A companion that fails to load or supplies invalid metadata produces a runtime warning, and its affected grammars remain unavailable.
+
+## API reference
+
+| Export | What it does |
+|--------|-------------|
+| `grammars()` | Returns the successfully compiled `Grammar` values, sorted by name |
+| `has_grammar(name)` | Returns `true` if the named grammar is compiled in |
+| `extension_to_language(ext)` | Maps a file extension to its grammar name, or `None` if not recognized |
+| `grammar_count()` | Returns the number of successfully compiled grammars |
+| `Grammar` | Holds `name`, `extensions`, `language`, `node_types`, and optional `tags_query` and `grammar_json` data |
 
 ## License
 

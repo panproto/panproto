@@ -6,6 +6,27 @@
 
 Computes and classifies structural differences between panproto schemas.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-check
+```
+
+## Usage
+
+```rust
+use panproto_check::{Classification, classify, diff, report_text};
+
+let schema_diff = diff(&old_schema, &new_schema);
+let report = classify(&schema_diff, &protocol);
+
+if report.classification == Classification::Breaking {
+    eprintln!("{}", report_text(&report));
+}
+```
+
 ## Processing model
 
 `diff` compares every field of `Schema`, including vertices, edges, required edges,
@@ -24,20 +45,7 @@ new schemas. It also detects a downgrade in a stored coercion class. Scope repor
 groups already-classified changes by named schema elements. It does not change the
 compatibility rules.
 
-## Example
-
-```rust,ignore
-use panproto_check::{Classification, classify, diff, report_text};
-
-let schema_diff = diff(&old_schema, &new_schema);
-let report = classify(&schema_diff, &protocol);
-
-if report.classification == Classification::Breaking {
-    eprintln!("{}", report_text(&report));
-}
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

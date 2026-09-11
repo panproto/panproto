@@ -7,6 +7,25 @@
 Loads theory, morphism, composition, and protocol documents from Nickel, JSON, or
 YAML.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-theory-dsl
+```
+
+## Usage
+
+```rust
+use panproto_theory_dsl::{builtin_resolver, compile, load};
+use std::path::Path;
+
+let document = load(Path::new("theories/my_format.json"))?;
+let resolver = builtin_resolver();
+let compiled = compile(&document, &resolver)?;
+```
+
 ## Processing model
 
 `load` evaluates or deserializes one file into a `TheoryDocument`. Nickel evaluation
@@ -27,18 +46,7 @@ operations from `panproto-gat`, subject to that crate's amalgamation conventions
 The GAT vocabulary follows [Cartmell (1986)](https://doi.org/10.1016/0168-0072(86)90053-9).
 The theory-composition design follows [Burstall and Goguen (1977)](https://www.ijcai.org/Proceedings/77-2/Papers/095.pdf).
 
-## Example
-
-```rust,ignore
-use panproto_theory_dsl::{builtin_resolver, compile, load};
-use std::path::Path;
-
-let document = load(Path::new("theories/my_format.json"))?;
-let resolver = builtin_resolver();
-let compiled = compile(&document, &resolver)?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

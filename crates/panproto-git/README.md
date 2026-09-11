@@ -6,6 +6,30 @@
 
 Translation between a `git2::Repository` and a `panproto-vcs` object store.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-git
+```
+
+## Usage
+
+```rust
+use std::collections::HashMap;
+use panproto_git::{export_to_git, import_git_repo};
+use panproto_vcs::MemStore;
+
+let git_repo = git2::Repository::open(".")?;
+let mut store = MemStore::new();
+let imported = import_git_repo(&git_repo, &mut store, "HEAD")?;
+
+let out = git2::Repository::init("exported")?;
+let parents = HashMap::new();
+let exported = export_to_git(&store, &out, imported.head_id, &parents, None)?;
+```
+
 ## Import
 
 `import_git_repo` resolves a revspec, walks its ancestors with parents before
@@ -30,23 +54,7 @@ synthesizes the Git email as `<author>@panproto`, and it includes only parents f
 in the supplied `parent_map`. Thus export is not an unconditional byte-for-byte or
 metadata-preserving inverse of import.
 
-## Example
-
-```rust,ignore
-use std::collections::HashMap;
-use panproto_git::{export_to_git, import_git_repo};
-use panproto_vcs::MemStore;
-
-let git_repo = git2::Repository::open(".")?;
-let mut store = MemStore::new();
-let imported = import_git_repo(&git_repo, &mut store, "HEAD")?;
-
-let out = git2::Repository::init("exported")?;
-let parents = HashMap::new();
-let exported = export_to_git(&store, &out, imported.head_id, &parents, None)?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

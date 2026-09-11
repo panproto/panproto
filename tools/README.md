@@ -2,7 +2,7 @@
 
 These scripts read the 261 entries in the workspace-level `grammars.toml` and update files under `grammars/`. Run them from the repository root.
 
-## Requirements
+## Prerequisites
 
 - Python 3.11 or newer
 - Git
@@ -12,7 +12,7 @@ The scripts clone the current default branch of each upstream repository. `gramm
 
 ## `fetch-grammars.py`
 
-```bash
+```sh
 python3 tools/fetch-grammars.py
 python3 tools/fetch-grammars.py python rust
 python3 tools/fetch-grammars.py --dry-run
@@ -27,7 +27,7 @@ The license check is a text heuristic. When the script finds a recognized licens
 
 ## `fetch-grammar-json.py`
 
-```bash
+```sh
 python3 tools/fetch-grammar-json.py
 python3 tools/fetch-grammar-json.py rust go
 python3 tools/fetch-grammar-json.py --skip-existing
@@ -37,7 +37,7 @@ This script updates only `grammars/<name>/src/grammar.json`. It copies an upstre
 
 ## `fetch-query-files.py`
 
-```bash
+```sh
 python3 tools/fetch-query-files.py
 python3 tools/fetch-query-files.py python rust
 python3 tools/fetch-query-files.py --skip-existing
@@ -50,7 +50,7 @@ Unknown names exit with status 1. Clone failures and missing query directories a
 
 ## `fetch-corpus.py`
 
-```bash
+```sh
 python3 tools/fetch-corpus.py
 python3 tools/fetch-corpus.py python rust
 python3 tools/fetch-corpus.py --all
@@ -59,3 +59,7 @@ python3 tools/fetch-corpus.py --all
 With no arguments or with `--all`, this script processes every manifest entry. It copies `.txt` and `.scm` corpus files from an upstream `test/corpus/` or `corpus/` directory into `grammars/<name>/test/corpus/`. If the destination already contains a `.txt` file, the grammar is left unchanged.
 
 Unknown names, clone failures, missing corpora, and empty corpora are reported and skipped. The current script does not return a nonzero status for those conditions.
+
+## License
+
+[MIT](../LICENSE)

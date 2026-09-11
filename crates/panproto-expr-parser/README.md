@@ -6,6 +6,24 @@
 
 Lexer, parser, and pretty-printer for `panproto-expr`.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-expr-parser
+```
+
+## Usage
+
+```rust
+use panproto_expr_parser::{parse, pretty_print, tokenize};
+
+let tokens = tokenize(r#"\x -> x * 2 + 1"#)?;
+let expr = parse(&tokens)?;
+let rendered = pretty_print(&expr);
+```
+
 ## Syntax and implementation
 
 The surface language includes lambdas, application, `let`, conditionals,
@@ -18,17 +36,7 @@ the parser's precedence table. Property tests check pretty-print and reparse on
 generated well-formed expressions. This is a tested invariant over those generators,
 not a claim that arbitrary malformed source is preserved.
 
-## Example
-
-```rust,ignore
-use panproto_expr_parser::{parse, pretty_print, tokenize};
-
-let tokens = tokenize(r#"\x -> x * 2 + 1"#)?;
-let expr = parse(&tokens)?;
-let rendered = pretty_print(&expr);
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

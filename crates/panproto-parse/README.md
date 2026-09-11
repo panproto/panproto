@@ -6,6 +6,26 @@
 
 Full-AST source parsing and schema emission over bundled tree-sitter grammars.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-parse
+```
+
+## Usage
+
+```rust
+use panproto_parse::ParserRegistry;
+use std::path::Path;
+
+let registry = ParserRegistry::new();
+let bytes = std::fs::read("src/main.rs")?;
+let schema = registry.parse_file(Path::new("src/main.rs"), &bytes)?;
+let replayed = registry.emit_with_protocol("rust", &schema)?;
+```
+
 ## Grammar selection
 
 `panproto-grammars` vendors 261 grammar feature entries. `panproto-parse` does not
@@ -27,19 +47,7 @@ the generic path (`Generic`), and protocols that are unavailable or lack the nee
 grammar data (`Unsupported`). The current verified allowlist has 255 names. This is a
 test-coverage classification, not a proof for arbitrary schemas.
 
-## Example
-
-```rust,ignore
-use panproto_parse::ParserRegistry;
-use std::path::Path;
-
-let registry = ParserRegistry::new();
-let bytes = std::fs::read("src/main.rs")?;
-let schema = registry.parse_file(Path::new("src/main.rs"), &bytes)?;
-let replayed = registry.emit_with_protocol("rust", &schema)?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

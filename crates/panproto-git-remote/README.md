@@ -6,6 +6,25 @@
 Git remote helper for `panproto://` URLs. The crate installs the
 `git-remote-panproto` binary.
 
+## Installation
+
+Install the Git remote helper with Cargo:
+
+```sh
+cargo install panproto-git-remote
+command -v git-remote-panproto
+```
+
+## Usage
+
+```sh
+# Pre-import commits into the shared warm cache. HEAD is the default revspec.
+git-remote-panproto warm [<revspec>]
+
+# Install the post-commit hook that updates that warm cache.
+git-remote-panproto install-hooks
+```
+
 ## Operation
 
 Git invokes the binary as `git-remote-panproto <remote> <url>`. The helper implements
@@ -23,23 +42,6 @@ links. It does not retain Git author email because panproto commits have no emai
 field. Export synthesizes `<author>@panproto`.
 
 The legacy `cospan://` URL prefix remains accepted.
-
-## Standalone commands
-
-```sh
-# Pre-import commits into the shared warm cache. HEAD is the default revspec.
-git-remote-panproto warm [<revspec>]
-
-# Install the post-commit hook that updates that warm cache.
-git-remote-panproto install-hooks
-```
-
-Install the published binary with Cargo:
-
-```sh
-cargo install panproto-git-remote
-command -v git-remote-panproto
-```
 
 ## Authentication
 

@@ -6,6 +6,28 @@
 
 `panproto-inst` represents data under a schema and implements the instance-level part of migration.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-inst
+```
+
+## Usage
+
+Parse JSON into a tree-shaped instance, then convert it back to JSON under the
+same schema:
+
+```rust
+use panproto_inst::{parse_json, to_json};
+use serde_json::json;
+
+let input = json!({ "name": "Ada" });
+let instance = parse_json(&schema, "user", &input)?;
+let output = to_json(&schema, &instance);
+```
+
 ## Instance shapes
 
 `Instance` has three variants. `WInstance` stores a rooted tree with nodes, arcs, and hyperedge fans. `FInstance` stores tables and foreign-key row pairs. `GInstance` stores a general directed graph with no required root. The `AcsetOps` trait and the methods on `Instance` dispatch to the shape-specific implementations.
@@ -44,7 +66,7 @@ For `WInstance`, `w_sigma` delegates to `wtype_extend`. `w_delta` is defined onl
 
 `functor_pi` computes a right Kan extension by forming Cartesian products over fibers and may fail when the configured product-size limit is exceeded. `wtype_pi` supports only vertex-injective mappings and relabels the tree without constructing a product. Its `max_product_nodes` parameter is unused on that path.
 
-## Main public groups
+## API reference
 
 | Group | Main items |
 |---|---|

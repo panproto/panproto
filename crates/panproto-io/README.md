@@ -6,6 +6,24 @@
 
 Protocol-dispatched parsing and emission of instance data.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-io
+```
+
+## Usage
+
+```rust
+use panproto_io::default_registry;
+
+let registry = default_registry();
+let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
+let output = registry.emit_wtype("openapi", &schema, &instance)?;
+```
+
 ## Registry
 
 `ProtocolRegistry` stores parsers and emitters under protocol names. The `parse_wtype`
@@ -29,17 +47,7 @@ migration, and emission. The crate's round-trip tests exercise that condition on
 fixtures. It is not a guarantee for an instance constructed without the complement,
 for arbitrary structural edits, or for binary encodings.
 
-## Example
-
-```rust,ignore
-use panproto_io::default_registry;
-
-let registry = default_registry();
-let instance = registry.parse_wtype("openapi", &schema, &bytes)?;
-let output = registry.emit_wtype("openapi", &schema, &instance)?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

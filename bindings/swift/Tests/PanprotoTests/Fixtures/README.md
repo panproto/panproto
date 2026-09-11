@@ -5,9 +5,11 @@ answered with. `Scripts/GenerateFixtures` captures them by driving the
 `Raw` shim layer directly, so a fixture that stops matching is a change
 in the engine and not in a Swift wrapper.
 
+## Regenerating the fixtures
+
 Regenerate the whole directory with:
 
-```
+```sh
 cd bindings/swift
 swift run generate-fixtures Tests/PanprotoTests/Fixtures
 ```
@@ -15,6 +17,8 @@ swift run generate-fixtures Tests/PanprotoTests/Fixtures
 The generator clears every `.cbor` and `.json` file here before it
 writes, so a payload the engine no longer produces disappears with it.
 Payloads are CBOR (`ciborium`) except where the file name says `.json`.
+
+## Fixture catalog
 
 | Fixture | Entry point | Bytes | Captured from |
 | --- | --- | --- | --- |
@@ -102,3 +106,7 @@ The post and profile schemas align at exactly one stringency tier. `Raw.lensAuto
 `Raw.lensGetRecord(migration:record:)` cannot carry the post record through the post to profile chain. The chain generates and the instantiation succeeds; the get then answers code 7 and leaves the envelope "operation: operation error: get: restrict error: no edge found between app.bsky.feed.post:body and app.bsky.feed.post:body.langs:items in target schema". Every post record in `fixtures/atproto/records` carries `langs`, so no choice of record avoids that edge. `get-record.cbor` is therefore captured through the chain the post schema generates against itself, which is the widest get the engine completes on this input.
 
 `Raw.gatSerializeTheory(theory:)` cannot be reached from a built-in protocol. A protocol payload names its theories (`schema_theory`, `instance_theory`, and the `schema_composition` steps) as strings, and the C ABI exposes no lookup from such a name to a `Theory` handle: `pp_gat_create_theory` takes a full CBOR theory and `pp_gat_colimit` takes handles. The `theory-*` rows in the table above are therefore captured from theories handed to the engine, which is the route the ABI leaves open.
+
+## License
+
+[MIT](../../../../../LICENSE)

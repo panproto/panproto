@@ -6,6 +6,26 @@
 
 Expression AST and bounded evaluator used by migrations and schema enrichments.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-expr
+```
+
+## Usage
+
+```rust
+use panproto_expr::{Env, EvalConfig, Expr, Literal, eval};
+
+let expr = Expr::app(
+    Expr::lam("x", Expr::var("x")),
+    Expr::Lit(Literal::Int(3)),
+);
+let value = eval(&expr, &Env::new(), &EvalConfig::default())?;
+```
+
 ## Evaluation model
 
 The language provides lambdas, application, lexical `let` bindings, pattern
@@ -22,19 +42,7 @@ Evaluation is bounded by `EvalConfig`. Its defaults are 100,000 steps, depth 256
 and list length 10,000. Reaching a bound returns an error. These limits contain
 runaway evaluation; they do not prove termination below the configured bound.
 
-## Example
-
-```rust,ignore
-use panproto_expr::{Env, EvalConfig, Expr, Literal, eval};
-
-let expr = Expr::app(
-    Expr::lam("x", Expr::var("x")),
-    Expr::Lit(Literal::Int(3)),
-);
-let value = eval(&expr, &Env::new(), &EvalConfig::default())?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

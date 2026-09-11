@@ -5,25 +5,28 @@
 
 The `schema` command-line interface for panproto.
 
-## Scope
+## Installation
 
-The binary exposes schema validation, compatibility, migration, version-control,
-expression, theory, lens, source-parser, Git-bridge, data, and XRPC operations. Run
-`schema <command> --help` for the argument contract of a particular command. The help
-is generated from the same `clap` definitions used for dispatch.
+Install `schema` with a release installer or Cargo:
 
-Parser coverage depends on the grammar features compiled into `panproto-parse`. The
-CLI manifest does not request `group-all`, so a standalone build uses
-`panproto-parse`'s default 11-language `group-core` set. A workspace build can contain
-more parsers through Cargo feature unification. A registered grammar does not mean
-that canonical emission is verified for arbitrary schemas. Check the parser's
-verification status before relying on canonical emission.
+```sh
+# Homebrew
+brew install panproto/tap/schema
 
-The expression REPL evaluates the expression language. It does not automatically
-attach a live instance resolver, so graph-query built-ins require an execution path
-that supplies that context.
+# Linux or macOS
+curl --proto '=https' -LsSf \
+  https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.sh | sh
 
-## Examples
+# Windows PowerShell
+powershell -ExecutionPolicy ByPass -c \
+  "irm https://github.com/panproto/panproto/releases/latest/download/panproto-cli-installer.ps1 | iex"
+
+# Cargo
+cargo install panproto-cli
+schema --help
+```
+
+## Usage
 
 ```sh
 # Inspect a project. This prints a summary, not JSON.
@@ -49,7 +52,25 @@ schema lens generate \
 schema git import ./my-git-repo HEAD
 ```
 
-## Top-level commands
+## Scope
+
+The binary exposes schema validation, compatibility, migration, version-control,
+expression, theory, lens, source-parser, Git-bridge, data, and XRPC operations. Run
+`schema <command> --help` for the argument contract of a particular command. The help
+is generated from the same `clap` definitions used for dispatch.
+
+Parser coverage depends on the grammar features compiled into `panproto-parse`. The
+CLI manifest does not request `group-all`, so a standalone build uses
+`panproto-parse`'s default 11-language `group-core` set. A workspace build can contain
+more parsers through Cargo feature unification. A registered grammar does not mean
+that canonical emission is verified for arbitrary schemas. Check the parser's
+verification status before relying on canonical emission.
+
+The expression REPL evaluates the expression language. It does not automatically
+attach a live instance resolver, so graph-query built-ins require an execution path
+that supplies that context.
+
+## API reference
 
 | Area | Commands |
 |------|----------|
@@ -65,13 +86,6 @@ implementation, plain `restrict` calls the source-to-target W-type or functor pr
 path. It is not the contravariant `Delta_F` operation. `sigma` uses the separate
 source-to-target extension path. Functor `pi` forms products over vertex fibers,
 whereas W-type `pi` accepts only vertex-injective mappings and relabels the tree.
-
-## Installation
-
-```sh
-cargo install panproto-cli
-schema --help
-```
 
 ## License
 

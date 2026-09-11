@@ -6,6 +6,24 @@
 
 Protocol definitions and schema parsers for semantic data formats.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-protocols
+```
+
+## Usage
+
+```rust
+use panproto_protocols::atproto;
+
+let protocol = atproto::protocol();
+let document: serde_json::Value = serde_json::from_slice(&lexicon_bytes)?;
+let schema = atproto::parse_lexicon(&document)?;
+```
+
 ## Coverage
 
 The crate contains 54 format-specific schema parsers exposed through two generic
@@ -36,17 +54,7 @@ The generalized-algebraic-theory terminology follows
 to combine theory presentations follows the structured-specification line begun by
 [Burstall and Goguen (1977)](https://www.ijcai.org/Proceedings/77-2/Papers/095.pdf).
 
-## Example
-
-```rust,ignore
-use panproto_protocols::atproto;
-
-let protocol = atproto::protocol();
-let document: serde_json::Value = serde_json::from_slice(&lexicon_bytes)?;
-let schema = atproto::parse_lexicon(&document)?;
-```
-
-## Main entry points
+## API reference
 
 | Item | Purpose |
 |------|---------|

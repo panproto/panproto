@@ -6,6 +6,25 @@
 
 Schema-indexed lenses and reusable protolens transformations.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-lens
+```
+
+## Usage
+
+```rust
+use panproto_lens::{AutoLensConfig, auto_generate, check_laws, get, put};
+
+let generated = auto_generate(&old_schema, &new_schema, &protocol, &AutoLensConfig::default())?;
+let (view, complement) = get(&generated.lens, &source_instance)?;
+let restored = put(&generated.lens, &view, &complement)?;
+check_laws(&generated.lens, &source_instance)?;
+```
+
 ## Concrete lenses
 
 `Lens` contains a source schema, a target schema, and a compiled migration. `get`
@@ -36,18 +55,7 @@ that permit one. Heuristic evidence affects candidate selection, while the emitt
 correspondence still passes the search's structural checks. The current implementation
 does not call a language model.
 
-## Example
-
-```rust,ignore
-use panproto_lens::{AutoLensConfig, auto_generate, check_laws, get, put};
-
-let generated = auto_generate(&old_schema, &new_schema, &protocol, &AutoLensConfig::default())?;
-let (view, complement) = get(&generated.lens, &source_instance)?;
-let restored = put(&generated.lens, &view, &complement)?;
-check_laws(&generated.lens, &source_instance)?;
-```
-
-## Main API groups
+## API reference
 
 | Group | Items |
 |-------|-------|

@@ -6,18 +6,15 @@
 [`panproto` Python package](../../bindings/python). It uses PyO3 and links the
 Rust crates directly. It does not use the C ABI or the WebAssembly boundary.
 
-## Build
+## Installation
 
-The extension requires Python 3.13 or newer. From `bindings/python`:
+Python users should install the published package, which includes this native extension:
 
 ```sh
-maturin develop
+pip install panproto
 ```
 
-The Cargo crate enables the 11-language `group-core` parser set by default.
-Grammar group and per-language Cargo features forward to `panproto-grammars`
-and `panproto-parse`. The package README documents the separately installed
-grammar companions.
+The Rust crate is an internal build target and is not published separately.
 
 ## Binding model
 
@@ -57,7 +54,20 @@ reconstruct a source instance.
 The authoritative Python signatures are in
 [`../../bindings/python/src/panproto/_native.pyi`](../../bindings/python/src/panproto/_native.pyi).
 
-## Test
+## Development
+
+The extension requires Python 3.13 or newer. From `bindings/python`:
+
+```sh
+maturin develop
+```
+
+The Cargo crate enables the 11-language `group-core` parser set by default.
+Grammar group and per-language Cargo features forward to `panproto-grammars`
+and `panproto-parse`. The package README documents the separately installed
+grammar companions.
+
+## Testing
 
 Build the extension and run its Python tests from `bindings/python`:
 

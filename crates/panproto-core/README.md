@@ -6,6 +6,27 @@
 
 Re-export facade for panproto's Rust libraries.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-core
+```
+
+## Usage
+
+```rust
+use panproto_core::{check, protocols, schema};
+
+let protocol = protocols::atproto::protocol();
+let next = schema::SchemaBuilder::new(&protocol)
+    .vertex("post", "record", None)?
+    .build()?;
+
+let report = check::classify(&check::diff(&previous, &next), &protocol);
+```
+
 ## Always available
 
 The default feature set is empty, but thirteen library crates are ordinary,
@@ -38,19 +59,6 @@ always-on dependencies. They are re-exported under these module names:
 
 The facade does not re-export the CLI, language bindings, XRPC client, node server,
 or Git remote helper. Depend on those crates directly.
-
-## Example
-
-```rust,ignore
-use panproto_core::{check, protocols, schema};
-
-let protocol = protocols::atproto::protocol();
-let next = schema::SchemaBuilder::new(&protocol)
-    .vertex("post", "record", None)?
-    .build()?;
-
-let report = check::classify(&check::diff(&previous, &next), &protocol);
-```
 
 ## License
 

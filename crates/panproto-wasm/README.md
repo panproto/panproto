@@ -1,11 +1,29 @@
 # panproto-wasm
 
 [![crates.io](https://img.shields.io/crates/v/panproto-wasm.svg)](https://crates.io/crates/panproto-wasm)
+[![docs.rs](https://docs.rs/panproto-wasm/badge.svg)](https://docs.rs/panproto-wasm)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
 `panproto-wasm` is the wasm-bindgen boundary used by the
 [`@panproto/core`](../../bindings/typescript) package. JavaScript and
 TypeScript applications should normally use that package.
+
+## Installation
+
+JavaScript and TypeScript applications should install the supported wrapper:
+
+```sh
+npm install @panproto/core
+```
+
+Rust projects that work directly on the wasm-bindgen boundary can add this crate with `cargo add panproto-wasm`.
+
+## Usage
+
+The supported JavaScript interface is [`@panproto/core`](../../bindings/typescript).
+Direct consumers must encode structured values as MessagePack, retain the returned
+resource handles, and release those handles with `free_handle()`. The generated
+`panproto_wasm.d.ts` file is the authoritative function reference.
 
 ## Boundary model
 
@@ -27,19 +45,6 @@ is enabled by default.
 The VCS exports use an in-memory store. They do not open or modify a Git
 repository on disk.
 
-## Build
-
-The TypeScript package builds the module with:
-
-```sh
-wasm-pack build crates/panproto-wasm --target web --release \
-  --out-dir pkg --out-name panproto_wasm
-```
-
-Direct consumers must manage resource handles and use the MessagePack wire
-shapes expected by the Rust functions. The package's TypeScript wrappers show
-those encodings.
-
 ## Query ABI
 
 The published `execute_query(query_bytes, instance_bytes, schema_bytes)` export
@@ -53,6 +58,19 @@ Direct callers of either export must use the Rust query field names and its
 externally tagged expression representation. The TypeScript SDK's
 `executeQuery` wrapper performs those conversions and maps result fields back
 to its public camel-case API.
+
+## Development
+
+The TypeScript package builds the module with:
+
+```sh
+wasm-pack build crates/panproto-wasm --target web --release \
+  --out-dir pkg --out-name panproto_wasm
+```
+
+Direct consumers must manage resource handles and use the MessagePack wire
+shapes expected by the Rust functions. The package's TypeScript wrappers show
+those encodings.
 
 ## License
 

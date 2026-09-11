@@ -6,6 +6,25 @@
 
 Content-addressed storage and version control for panproto schemas.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-vcs
+```
+
+## Usage
+
+```rust
+use panproto_vcs::Repository;
+use std::path::Path;
+
+let mut repo = Repository::init(Path::new("workspace"))?;
+repo.add(&schema)?;
+let commit_id = repo.commit("initial schema", "alice")?;
+```
+
 ## Storage model
 
 `ObjectId` is a 32-byte BLAKE3 digest of an object's type-specific canonical
@@ -54,18 +73,7 @@ returns both IDs. `migrate_backward` consumes that complement. A schema commit b
 itself does not capture dropped field values, and the APIs do not promise losslessness
 outside successful lens execution with the matching complement.
 
-## Example
-
-```rust,ignore
-use panproto_vcs::Repository;
-use std::path::Path;
-
-let mut repo = Repository::init(Path::new("workspace"))?;
-repo.add(&schema)?;
-let commit_id = repo.commit("initial schema", "alice")?;
-```
-
-## Main API groups
+## API reference
 
 | Group | Items |
 |-------|-------|

@@ -6,6 +6,26 @@
 
 Shared Nickel, JSON, and YAML evaluation for panproto's declarative DSLs.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-dsl-eval
+```
+
+## Usage
+
+```rust
+use panproto_dsl_eval::{eval_nickel, BundledContract};
+
+let contract = BundledContract {
+    file_name: "lens.ncl",
+    source: include_str!("../contracts/lens.ncl"),
+};
+let document: LensDocument = eval_nickel(source, &[], &contract)?;
+```
+
 ## Source formats
 
 [`panproto-lens-dsl`](https://docs.rs/panproto-lens-dsl) and
@@ -38,19 +58,7 @@ Where the Nickel diagnostic carries a source location, it surfaces as
 byte span of the offending token so a caller can render the failure against the
 text it came from.
 
-## Example
-
-```rust,ignore
-use panproto_dsl_eval::{eval_nickel, BundledContract};
-
-let contract = BundledContract {
-    file_name: "lens.ncl",
-    source: include_str!("../contracts/lens.ncl"),
-};
-let document: LensDocument = eval_nickel(source, &[], &contract)?;
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

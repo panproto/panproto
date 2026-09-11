@@ -1,10 +1,27 @@
 # panproto-c
 
+[![crates.io](https://img.shields.io/crates/v/panproto-c.svg)](https://crates.io/crates/panproto-c)
+[![docs.rs](https://docs.rs/panproto-c/badge.svg)](https://docs.rs/panproto-c)
 [![MIT](https://img.shields.io/badge/license-MIT-blue.svg)](../../LICENSE)
 
 `panproto-c` exposes panproto through a C ABI generated with
 [`safer-ffi`](https://docs.rs/safer-ffi). The Haskell and Swift bindings use this
 ABI.
+
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-c
+```
+
+## Usage
+
+C consumers include [`include/panproto.h`](include/panproto.h) and link either
+the shared or static `panproto_c` library. Stateful values are represented by
+`uint32_t` handles. Release each handle with `pp_handle_free()` and each
+Rust-allocated response buffer with `pp_buf_free()`.
 
 ## Boundary types
 
@@ -44,7 +61,7 @@ The numeric values are part of the ABI and must not be reordered.
 | 6 | `Internal` | An internal panproto operation failed. |
 | 7 | `Operation` | A migration, lens, VCS, parse, or other domain operation failed. |
 
-## Build and features
+## Building from source
 
 From the workspace root:
 

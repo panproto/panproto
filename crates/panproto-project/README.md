@@ -6,6 +6,26 @@
 
 Builds a project schema from per-file parser results.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-project
+```
+
+## Usage
+
+```rust
+use panproto_project::ProjectBuilder;
+use std::path::Path;
+
+let mut builder = ProjectBuilder::new();
+builder.add_directory(Path::new("my-project"))?;
+let project = builder.build()?;
+println!("{}", project.file_map.len());
+```
+
 ## Processing model
 
 `ProjectBuilder` uses a `panproto-parse::ParserRegistry`, so language coverage is
@@ -30,19 +50,7 @@ The optional cache stores mtime, size, content hash, schema, and protocol. Match
 mtime and size take the fast path. A size change invalidates the entry. When only the
 mtime differs, the cache hashes the file and compares the stored content hash.
 
-## Example
-
-```rust,ignore
-use panproto_project::ProjectBuilder;
-use std::path::Path;
-
-let mut builder = ProjectBuilder::new();
-builder.add_directory(Path::new("my-project"))?;
-let project = builder.build()?;
-println!("{}", project.file_map.len());
-```
-
-## Public API
+## API reference
 
 | Item | Purpose |
 |------|---------|

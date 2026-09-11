@@ -4,7 +4,17 @@
 
 Python companion extension for the `group-web` grammars: HTML, CSS, JavaScript, TypeScript, TSX, JSON, Vue, Svelte, Astro, and GraphQL.
 
-## Behavior
+## Installation
+
+Python users should install the matching companion package:
+
+```sh
+pip install panproto-grammars-web
+```
+
+This Rust crate is an internal extension target and is not published separately.
+
+## How it works
 
 This crate is an unpublished pyo3 cdylib. Its dependency on `panproto-grammars` disables default features and enables only `group-web`. The build includes only enabled grammars whose vendored sources are present and compile successfully.
 

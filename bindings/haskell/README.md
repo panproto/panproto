@@ -11,46 +11,34 @@ algebra. The package currently targets GHC 9.12.2 and Cabal 3.8 or newer.
 The package is pre-1.0. A minor release may change the Haskell API, and the
 package version follows the Rust workspace version.
 
-## Backends and effects
+## Installation
 
-Backend tags select the implementation. `ProtocolRep Rust`, `SchemaRep Rust`,
-and the other Rust representations own opaque C ABI handles. Native protocol
-and schema representations contain their canonical Haskell values.
-`toCanonical()` and `fromCanonical()` move protocols between representations.
-`toSchema()` and `fromSchema()` do the same for structured schemas.
+Build and stage `libpanproto_c` from the same checkout:
 
-Capability methods return `IO`. `Panproto.Effect` defines `MonadPanproto` and
-instances for `IO`, `ReaderT`, strict and lazy `StateT`, and `ExceptT`. The
-optional `effectful` flag adds an `effectful` carrier.
+```sh
+cd bindings/haskell
+./bootstrap/dev-link.sh
+cabal build
+cabal test
+```
 
-The Rust backend implements the capabilities below. The three final rows
-require their matching Cabal flags.
+To use a release archive, pass the release tag explicitly. The fallback tag
+embedded in `fetch-bindist.sh` may lag behind the package version.
 
-| Capability | Module | Optional flag |
-|---|---|---|
-| `ProtocolBackend`, `SchemaBackend`, `SchemaValidate` | `Panproto.Class` | |
-| `SchemaEngine` | `Panproto.Enriched` | |
-| `InstanceBackend` | `Panproto.Instance` | |
-| `IoBackend` | `Panproto.Io` | |
-| `MigrationBackend` | `Panproto.Migration` | |
-| `CheckBackend` | `Panproto.Check` | |
-| `HomBackend` | `Panproto.Hom` | |
-| `LensBackend` | `Panproto.Lens` | |
-| `GatBackend` | `Panproto.Gat` | |
-| `ExprBackend` | `Panproto.Expr` | |
-| `VcsBackend` | `Panproto.Vcs` | |
-| `DataBackend` | `Panproto.Data` | |
-| `GraphBackend` | `Panproto.Graph` | |
-| `ParseBackend` | `Panproto.Parse` | `parse` |
-| `ProjectBackend` | `Panproto.Project` | `project` |
-| `GitBackend` | `Panproto.Git` | `git` |
+```sh
+cd bindings/haskell
+./bootstrap/fetch-bindist.sh v0.74.1
+cabal build
+cabal test
+```
 
-`Native` implements `ProtocolBackend` and `SchemaBackend`. It also provides
-the structured values and their pure composition operations. Validation,
-migration execution, lens execution, theory checking, I/O, and repository
-operations require `Rust`.
+For the Haskell-only subset:
 
-## Structured schemas
+```sh
+cabal build -f-rust -fnative-only
+```
+
+## Quick start
 
 `Panproto.Schema` represents vertices, edges, hyperedges, constraints,
 variants, recursion points, spans, and enrichment maps. The canonical wire
@@ -100,6 +88,45 @@ roundTrip = do
 For exception-safe application code, prefer `withRustProtocol`,
 `withRustSchema`, and the corresponding resource-specific bracket helpers.
 
+## Backends and effects
+
+Backend tags select the implementation. `ProtocolRep Rust`, `SchemaRep Rust`,
+and the other Rust representations own opaque C ABI handles. Native protocol
+and schema representations contain their canonical Haskell values.
+`toCanonical()` and `fromCanonical()` move protocols between representations.
+`toSchema()` and `fromSchema()` do the same for structured schemas.
+
+Capability methods return `IO`. `Panproto.Effect` defines `MonadPanproto` and
+instances for `IO`, `ReaderT`, strict and lazy `StateT`, and `ExceptT`. The
+optional `effectful` flag adds an `effectful` carrier.
+
+The Rust backend implements the capabilities below. The three final rows
+require their matching Cabal flags.
+
+| Capability | Module | Optional flag |
+|---|---|---|
+| `ProtocolBackend`, `SchemaBackend`, `SchemaValidate` | `Panproto.Class` | |
+| `SchemaEngine` | `Panproto.Enriched` | |
+| `InstanceBackend` | `Panproto.Instance` | |
+| `IoBackend` | `Panproto.Io` | |
+| `MigrationBackend` | `Panproto.Migration` | |
+| `CheckBackend` | `Panproto.Check` | |
+| `HomBackend` | `Panproto.Hom` | |
+| `LensBackend` | `Panproto.Lens` | |
+| `GatBackend` | `Panproto.Gat` | |
+| `ExprBackend` | `Panproto.Expr` | |
+| `VcsBackend` | `Panproto.Vcs` | |
+| `DataBackend` | `Panproto.Data` | |
+| `GraphBackend` | `Panproto.Graph` | |
+| `ParseBackend` | `Panproto.Parse` | `parse` |
+| `ProjectBackend` | `Panproto.Project` | `project` |
+| `GitBackend` | `Panproto.Git` | `git` |
+
+`Native` implements `ProtocolBackend` and `SchemaBackend`. It also provides
+the structured values and their pure composition operations. Validation,
+migration execution, lens execution, theory checking, I/O, and repository
+operations require `Rust`.
+
 ## Migration direction
 
 `compile migration source target` produces a compiled source-to-target
@@ -137,33 +164,6 @@ through an application lock.
 Returned C buffers are copied into Haskell-managed `ByteString` values and
 freed by bracketed helpers.
 
-## Install from this repository
-
-Build and stage `libpanproto_c` from the same checkout:
-
-```sh
-cd bindings/haskell
-./bootstrap/dev-link.sh
-cabal build
-cabal test
-```
-
-To use a release archive, pass the release tag explicitly. The fallback tag
-embedded in `fetch-bindist.sh` may lag behind the package version.
-
-```sh
-cd bindings/haskell
-./bootstrap/fetch-bindist.sh v0.72.0
-cabal build
-cabal test
-```
-
-For the Haskell-only subset:
-
-```sh
-cabal build -f-rust -fnative-only
-```
-
 ## Cabal flags
 
 | Flag | Default | Effect |
@@ -177,7 +177,7 @@ cabal build -f-rust -fnative-only
 | `lens-adaptors` | off | Adds `lens` adaptors for structural values. |
 | `effectful` | off | Adds the `effectful` carrier. |
 
-## Main modules
+## API reference
 
 | Module | Contents |
 |---|---|
@@ -193,7 +193,7 @@ cabal build -f-rust -fnative-only
 | `Panproto.Rust` | Rust instances and bracket helpers. |
 | `Panproto.Rust.FFI` | Raw foreign imports. Higher-level code should use the capability methods. |
 
-## References
+## Further reading
 
 - John Cartmell, [Generalised algebraic theories and contextual
   categories](https://doi.org/10.1016/0168-0072(86)90053-9), *Annals of Pure

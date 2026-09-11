@@ -11,7 +11,7 @@ required.
 The package is pre-1.0. A minor release may change the Python API, and the
 package version follows the Rust workspace version.
 
-## Install
+## Installation
 
 ```sh
 pip install panproto
@@ -21,7 +21,7 @@ Release workflows build wheels for Linux on x86-64 and AArch64, macOS on Apple
 Silicon and x86-64, and Windows on x86-64. A source build requires Rust and
 [`maturin`](https://www.maturin.rs/).
 
-## Build and compare schemas
+## Quick start
 
 `Protocol.schema()` returns a mutable `SchemaBuilder`. Builder methods update
 the builder and return `None`; call `build()` after all changes have been added.
@@ -100,23 +100,6 @@ and the lens-DSL compiler's value-level field transforms. Instantiating the
 chain installs those transforms in the compiled migration. `to_json()` and
 `from_json()` preserve them in the optional `field_transforms` member.
 
-## Other API groups
-
-| API | Current behavior |
-|---|---|
-| `parse_schema_document`, `parse_schema_source`, `parse_schema_bundle` | Parse schema documents or source-language definitions through the registered Rust parsers. |
-| `IoRegistry` | Parse and emit instances. Use `len(registry)` or `list_protocols()` to inspect the codecs in the installed build. |
-| `Theory`, `TheoryBuilder`, `create_theory`, `colimit_theories` | Construct and combine generalized algebraic theories. |
-| `Repository` | Open or create a filesystem-backed `.panproto` repository with commits, branches, tags, merge, rebase, stash, blame, bisect, data tracking, and garbage collection. |
-| `VcsRepository` | A separate in-memory wrapper with only `add()` and `list_refs()`. It is not a `Repository` subclass. |
-| `ProjectBuilder`, `build_project`, `parse_project` | Assemble multi-file projects. |
-| `AstParserRegistry`, `parse_source_file`, `ParseEmitLens` | Parse source files with the tree-sitter grammars present in the build or supplied by companion packages. |
-| `Expr`, `parse_expr`, `pretty_print_expr` | Parse, inspect, and evaluate the expression language through methods on `Expr`. |
-
-The type stub at
-[`src/panproto/_native.pyi`](src/panproto/_native.pyi) gives the complete public
-signatures.
-
 ## Tree-sitter grammar packages
 
 The default source build enables the 11 `group-core` grammars: Python,
@@ -142,7 +125,36 @@ through Rust reference counting, and Python releases those values when their
 wrappers are collected. There is no numeric handle API and no manual free
 function.
 
-## References
+## API reference
+
+| API | Current behavior |
+|---|---|
+| `parse_schema_document`, `parse_schema_source`, `parse_schema_bundle` | Parse schema documents or source-language definitions through the registered Rust parsers. |
+| `IoRegistry` | Parse and emit instances. Use `len(registry)` or `list_protocols()` to inspect the codecs in the installed build. |
+| `Theory`, `TheoryBuilder`, `create_theory`, `colimit_theories` | Construct and combine generalized algebraic theories. |
+| `Repository` | Open or create a filesystem-backed `.panproto` repository with commits, branches, tags, merge, rebase, stash, blame, bisect, data tracking, and garbage collection. |
+| `VcsRepository` | A separate in-memory wrapper with only `add()` and `list_refs()`. It is not a `Repository` subclass. |
+| `ProjectBuilder`, `build_project`, `parse_project` | Assemble multi-file projects. |
+| `AstParserRegistry`, `parse_source_file`, `ParseEmitLens` | Parse source files with the tree-sitter grammars present in the build or supplied by companion packages. |
+| `Expr`, `parse_expr`, `pretty_print_expr` | Parse, inspect, and evaluate the expression language through methods on `Expr`. |
+
+The type stub at
+[`src/panproto/_native.pyi`](src/panproto/_native.pyi) gives the complete public
+signatures.
+
+## Development
+
+Build the extension and run the Python test suite from this directory:
+
+```sh
+maturin develop
+python -m pytest
+```
+
+A development build requires Rust, Python 3.13 or newer, and
+[`maturin`](https://www.maturin.rs/).
+
+## Further reading
 
 - John Cartmell, [Generalised algebraic theories and contextual
   categories](https://doi.org/10.1016/0168-0072(86)90053-9), *Annals of Pure

@@ -6,6 +6,24 @@
 
 Loads declarative lens specifications from Nickel, JSON, or YAML.
 
+## Installation
+
+Add the crate to a Rust 1.85 or newer project:
+
+```sh
+cargo add panproto-lens-dsl
+```
+
+## Usage
+
+```rust
+use panproto_lens_dsl::load_and_compile;
+use std::path::Path;
+
+let compiled = load_and_compile(Path::new("migrations/v1_to_v2.ncl"), "record:body")?;
+let lens = compiled.instantiate(&source_schema, &protocol)?;
+```
+
 ## Compilation
 
 `load` selects the evaluator from the file extension and returns a `LensDocument`.
@@ -27,16 +45,6 @@ renaming. Other forms cover expression-backed value transforms, hoisting, nestin
 scoped transforms, pullback, sort coercion and merge, and elementary changes to
 sorts, operations, or equations. The enum in
 [the API documentation](https://docs.rs/panproto-lens-dsl) is the syntax reference.
-
-## Example
-
-```rust,ignore
-use panproto_lens_dsl::load_and_compile;
-use std::path::Path;
-
-let compiled = load_and_compile(Path::new("migrations/v1_to_v2.ncl"), "record:body")?;
-let lens = compiled.instantiate(&source_schema, &protocol)?;
-```
 
 ## Body forms
 
