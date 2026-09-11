@@ -109,6 +109,52 @@ pub fn typecheck_term(
     ctx: &VarContext,
     theory: &Theory,
 ) -> Result<SortExpr, GatError> {
+    check_term_opt(term, None, ctx, theory)
+}
+
+/// Typecheck `term` against a known expected sort.
+///
+/// Inference alone cannot type an eliminator whose result sort mentions
+/// the index it eliminates. A `Case` has no motive of its own, so with
+/// nothing expected the only sort available is the one read off the
+/// first branch, and every later branch is then required to agree with
+/// it. For `eval : (t: Ty, Expr(t)) -> El(t)` the branches produce
+/// `El(int_code)` and `El(bool_code)`, which do not agree and should
+/// not have to: each is correct under its own branch's refinement.
+///
+/// Given an expected sort, each branch body is instead checked against
+/// that sort refined by the same substitution the branch already
+/// applies to its binders, so the branches are compared to the motive
+/// rather than to each other. The expected sort is the declared output
+/// of whatever operation the equation defines, which is what makes the
+/// motive available without putting one in the `Term` AST.
+///
+/// Every other term shape is inferred exactly as [`typecheck_term`]
+/// does, and the returned sort is left for the caller to compare, so
+/// this never rejects anything [`typecheck_term`] accepts.
+///
+/// # Errors
+///
+/// As [`typecheck_term`], plus [`GatError::CaseBranchSortMismatch`]
+/// when a branch body does not have the expected sort under its own
+/// refinement.
+pub fn check_term(
+    term: &Term,
+    expected: &SortExpr,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
+    check_term_opt(term, Some(expected), ctx, theory)
+}
+
+/// Shared core of [`typecheck_term`] and [`check_term`]. `expected` is
+/// `None` in inference mode.
+fn check_term_opt(
+    term: &Term,
+    expected: Option<&SortExpr>,
+    ctx: &VarContext,
+    theory: &Theory,
+) -> Result<SortExpr, GatError> {
     match term {
         Term::Var(name) => ctx
             .get(name)
@@ -147,7 +193,7 @@ pub fn typecheck_term(
         Term::Case {
             scrutinee,
             branches,
-        } => typecheck_case(scrutinee, branches, ctx, theory),
+        } => typecheck_case(scrutinee, branches, expected, ctx, theory),
 
         Term::Let { name, bound, body } => {
             // Typecheck the bound term, extend the context with the
@@ -161,15 +207,26 @@ pub fn typecheck_term(
             let bound_sort = typecheck_term(bound, ctx, theory)?;
             let mut extended = ctx.clone();
             extended.insert(Arc::clone(name), bound_sort);
-            typecheck_term(body, &extended, theory)
+            // The body's sort is the `let`'s sort, so an expected sort
+            // passes straight through to it.
+            check_term_opt(body, expected, &extended, theory)
         }
     }
 }
 
-/// Typecheck a [`Term::Case`] expression.
+/// Typecheck a [`Term::Case`] expression, against `expected` when one
+/// is known.
+///
+/// With an expected sort, each branch body is checked against it
+/// refined by that branch's own substitution, which is what lets the
+/// result sort mention the index being eliminated. Without one, the
+/// first branch's sort fixes the case's sort and the rest must match
+/// it, which is the only thing that can be done when no motive is
+/// available.
 fn typecheck_case(
     scrutinee: &Term,
     branches: &[CaseBranch],
+    expected: Option<&SortExpr>,
     ctx: &VarContext,
     theory: &Theory,
 ) -> Result<SortExpr, GatError> {
@@ -191,9 +248,9 @@ fn typecheck_case(
     // admits, rather than over every constructor the sort declares.
     check_case_exhaustiveness(&scrutinee_sort, &constructors, branches, theory)?;
 
-    // Typecheck each branch body; all must produce alpha-equivalent
-    // output sorts. The first branch's output sort is the case
-    // expression's sort.
+    // Typecheck each branch body. Against a known motive each is
+    // checked under its own refinement; otherwise the first branch's
+    // output sort fixes the case's sort and the rest must match it.
     let mut branch_sort: Option<SortExpr> = None;
     for b in branches {
         let constructor_op = theory
@@ -232,6 +289,23 @@ fn typecheck_case(
         for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
             let binder_sort = declared_sort.subst(&subst);
             extended.insert(Arc::clone(binder), binder_sort);
+        }
+        if let Some(motive) = expected {
+            // The same `subst` that refined the binders refines the
+            // motive, so `El(t)` is `El(int_code)` in the `IntLit`
+            // branch. Branches are compared to this, never to one
+            // another.
+            let refined = motive.subst(&subst);
+            let body_sort = check_term(&b.body, &refined, &extended, theory)?;
+            if !body_sort.alpha_eq(&refined) {
+                return Err(GatError::CaseBranchSortMismatch {
+                    constructor: b.constructor.to_string(),
+                    expected: refined.to_string(),
+                    got: body_sort.to_string(),
+                });
+            }
+            branch_sort = Some(motive.clone());
+            continue;
         }
         let body_sort = typecheck_term(&b.body, &extended, theory)?;
         match &branch_sort {
@@ -730,7 +804,7 @@ fn typecheck_with_expected(
         Term::Case {
             scrutinee,
             branches,
-        } => typecheck_case_with_holes(scrutinee, branches, ctx, theory, reports),
+        } => typecheck_case_with_holes(scrutinee, branches, expected, ctx, theory, reports),
         Term::Let { name, bound, body } => {
             let bound_sort = typecheck_with_expected(bound, None, ctx, theory, reports)?;
             let mut extended = ctx.clone();
@@ -743,6 +817,7 @@ fn typecheck_with_expected(
 fn typecheck_case_with_holes(
     scrutinee: &Term,
     branches: &[CaseBranch],
+    expected: Option<&SortExpr>,
     ctx: &VarContext,
     theory: &Theory,
     reports: &mut Vec<HoleReport>,
@@ -788,6 +863,24 @@ fn typecheck_case_with_holes(
         for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
             let binder_sort = declared_sort.subst(&subst);
             extended.insert(Arc::clone(binder), binder_sort);
+        }
+        if let Some(motive) = expected {
+            // Mirror the strict path: compare each branch to the motive
+            // refined by that branch's substitution. A hole in a branch
+            // body then reports the sort the motive requires there
+            // rather than a metavariable.
+            let refined = motive.subst(&subst);
+            let body_sort =
+                typecheck_with_expected(&b.body, Some(&refined), &extended, theory, reports)?;
+            if !term_contains_hole(&b.body) && !body_sort.alpha_eq(&refined) {
+                return Err(GatError::CaseBranchSortMismatch {
+                    constructor: b.constructor.to_string(),
+                    expected: refined.to_string(),
+                    got: body_sort.to_string(),
+                });
+            }
+            branch_sort = Some(motive.clone());
+            continue;
         }
         let body_sort = typecheck_with_expected(&b.body, None, &extended, theory, reports)?;
         match &branch_sort {
@@ -966,8 +1059,21 @@ pub fn typecheck_equation(eq: &Equation, theory: &Theory) -> Result<(), GatError
         });
     }
     let ctx = infer_var_sorts(eq, theory)?;
-    let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
-    let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+    // Check one side against the other's sort rather than inferring
+    // both: the declared output sort of the operation being defined is
+    // the motive a `Case` needs, and it reaches the `Case` only if it
+    // is pushed in. Whichever side is not itself a `Case` is inferred
+    // first, so the direction does not matter to the writer.
+    let (lhs_sort, rhs_sort) =
+        if matches!(eq.lhs, Term::Case { .. }) && !matches!(eq.rhs, Term::Case { .. }) {
+            let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+            let lhs_sort = check_term(&eq.lhs, &rhs_sort, &ctx, theory)?;
+            (lhs_sort, rhs_sort)
+        } else {
+            let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
+            let rhs_sort = check_term(&eq.rhs, &lhs_sort, &ctx, theory)?;
+            (lhs_sort, rhs_sort)
+        };
     if !lhs_sort.alpha_eq(&rhs_sort) {
         return Err(GatError::EquationSortMismatch {
             equation: eq.name.to_string(),
@@ -1005,8 +1111,21 @@ pub fn typecheck_equation_modulo_rewrites(
         });
     }
     let ctx = infer_var_sorts(eq, theory)?;
-    let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
-    let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+    // Check one side against the other's sort rather than inferring
+    // both: the declared output sort of the operation being defined is
+    // the motive a `Case` needs, and it reaches the `Case` only if it
+    // is pushed in. Whichever side is not itself a `Case` is inferred
+    // first, so the direction does not matter to the writer.
+    let (lhs_sort, rhs_sort) =
+        if matches!(eq.lhs, Term::Case { .. }) && !matches!(eq.rhs, Term::Case { .. }) {
+            let rhs_sort = typecheck_term(&eq.rhs, &ctx, theory)?;
+            let lhs_sort = check_term(&eq.lhs, &rhs_sort, &ctx, theory)?;
+            (lhs_sort, rhs_sort)
+        } else {
+            let lhs_sort = typecheck_term(&eq.lhs, &ctx, theory)?;
+            let rhs_sort = check_term(&eq.rhs, &lhs_sort, &ctx, theory)?;
+            (lhs_sort, rhs_sort)
+        };
     let (equal, exhausted) = lhs_sort.alpha_eq_modulo_rewrites_status(&rhs_sort, rules, step_limit);
     if !equal {
         if exhausted {
