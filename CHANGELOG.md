@@ -4,6 +4,10 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+### Bug Fixes
+
+- **Committed VCS data can be recovered through its stored schema without weakening content-address validation** (`panproto-vcs`, `panproto-py`): `data_at` exposed the bytes held by a data-set object, but those bytes have had two representations. Historical repositories stored the source JSON, while current repositories store canonical MessagePack of schema-indexed instances. Thus a downstream reader could not recover source-equivalent JSON through a public API that worked across both histories. `decoded_data_at` now loads the schema named by each data set, accepts both representations, verifies the declared record count, rechecks every instance against the stored schema, and returns source-JSON-equivalent records without rewriting an object or moving `HEAD`. The Python log also reports the stored object ID rather than hashing a decoded historical commit whose newly defaulted fields may change its serialization, so callers can fold ancestry using the identities actually recorded in the repository.
+
 ## [0.74.2] - 2026-09-12
 
 ### Bug Fixes

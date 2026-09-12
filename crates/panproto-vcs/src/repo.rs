@@ -80,6 +80,19 @@ pub struct AddDataOptions {
     pub skip_verify: bool,
 }
 
+/// A committed data set decoded through the schema it names.
+#[derive(Clone, Debug)]
+pub struct DecodedDataSet {
+    /// Which schema the records conform to.
+    pub schema_id: ObjectId,
+    /// Source-JSON-equivalent records recovered from the committed data.
+    pub records: Vec<serde_json::Value>,
+    /// Number of records declared by the committed data set.
+    pub record_count: u64,
+    /// Caller key carried by the committed data set.
+    pub key: Option<String>,
+}
+
 /// A panproto repository backed by a filesystem store.
 #[allow(dead_code)]
 pub struct Repository {
@@ -779,10 +792,30 @@ impl Repository {
     ///
     /// Returns an error if HEAD cannot be resolved.
     pub fn log(&self, limit: Option<usize>) -> Result<Vec<CommitObject>, VcsError> {
+        Ok(self
+            .log_with_ids(limit)?
+            .into_iter()
+            .map(|(_, commit)| commit)
+            .collect())
+    }
+
+    /// Walk the commit log from HEAD with each commit's stored object ID.
+    ///
+    /// Historical commit payloads can omit fields that current readers fill
+    /// with defaults. Retaining the ID used to load each object preserves its
+    /// content address without reserializing that decoded value.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if HEAD cannot be resolved.
+    pub fn log_with_ids(
+        &self,
+        limit: Option<usize>,
+    ) -> Result<Vec<(ObjectId, CommitObject)>, VcsError> {
         let head_id = store::resolve_head(&self.store)?.ok_or_else(|| VcsError::RefNotFound {
             name: "HEAD".to_owned(),
         })?;
-        dag::log_walk(&self.store, head_id, limit)
+        dag::log_walk_with_ids(&self.store, head_id, limit)
     }
 
     /// Cherry-pick a commit onto the current branch.
@@ -1030,6 +1063,80 @@ impl Repository {
             }
         }
         Ok(datasets)
+    }
+
+    /// Read and decode the data sets committed at `reference`.
+    ///
+    /// Current data sets contain canonical `MessagePack` of
+    /// `Vec<WInstance>`. Data sets written before that representation was
+    /// introduced contain their original JSON bytes. This accessor accepts
+    /// both encodings without rewriting either object, loads the schema named
+    /// by each data set, validates every decoded record, verifies the recorded
+    /// count, and returns the records in source-JSON-equivalent form.
+    ///
+    /// # Errors
+    ///
+    /// Returns an error if the ref, data set, or schema cannot be read, if the
+    /// payload cannot be decoded, if its record count differs from the
+    /// committed count, or if a record does not conform to the committed
+    /// schema.
+    pub fn decoded_data_at(&self, reference: &str) -> Result<Vec<DecodedDataSet>, VcsError> {
+        self.data_at(reference)?
+            .into_iter()
+            .map(|dataset| self.decode_data_set(dataset))
+            .collect()
+    }
+
+    /// Decode one committed data set through the schema it names.
+    fn decode_data_set(&self, dataset: DataSetObject) -> Result<DecodedDataSet, VcsError> {
+        let schema = self.load_schema(dataset.schema_id)?;
+        let display = dataset
+            .key
+            .clone()
+            .unwrap_or_else(|| "<committed data>".to_owned());
+
+        // Historical repositories stored source JSON in this field. A
+        // syntactically valid JSON payload follows the original lifting path;
+        // every other payload must be canonical MessagePack.
+        let instances: Vec<panproto_inst::WInstance> =
+            if serde_json::from_slice::<serde_json::Value>(&dataset.data).is_ok() {
+                lift_records(&dataset.data, Path::new(&display), &schema, false)?
+            } else {
+                rmp_serde::from_slice(&dataset.data)?
+            };
+
+        let actual_count = instances.len() as u64;
+        if actual_count != dataset.record_count {
+            return Err(VcsError::DataValidationFailed {
+                path: display,
+                reasons: vec![format!(
+                    "committed record count is {}, but the payload contains {actual_count}",
+                    dataset.record_count
+                )],
+            });
+        }
+
+        let mut records = Vec::with_capacity(instances.len());
+        for (index, instance) in instances.iter().enumerate() {
+            let reasons = record_violations(&schema, instance);
+            if !reasons.is_empty() {
+                return Err(VcsError::DataValidationFailed {
+                    path: display,
+                    reasons: reasons
+                        .into_iter()
+                        .map(|reason| format!("record {index}: {reason}"))
+                        .collect(),
+                });
+            }
+            records.push(panproto_inst::to_json(&schema, instance));
+        }
+
+        Ok(DecodedDataSet {
+            schema_id: dataset.schema_id,
+            records,
+            record_count: dataset.record_count,
+            key: dataset.key,
+        })
     }
 
     /// Merge a branch into the current branch and migrate data files.
@@ -1755,6 +1862,108 @@ mod tests {
 
         // An unresolvable ref is an error, not a panic or empty result.
         assert!(repo.data_at("no-such-ref").is_err());
+        Ok(())
+    }
+
+    #[test]
+    fn decoded_data_at_reads_current_canonical_data() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let schema = make_schema(&[("a", "object"), ("b", "string")]);
+        repo.add(&schema)?;
+        repo.commit("schema", "alice")?;
+
+        let data_path = dir.path().join("data.json");
+        std::fs::write(&data_path, br#"[{"a": 1}, {"a": 2}]"#)?;
+        repo.add_data(&data_path, Some("records-key"))?;
+        let commit_id = repo.commit("data", "alice")?;
+        let objects_before = repo.store().list_objects()?;
+
+        let datasets = repo.decoded_data_at(&commit_id.to_string())?;
+
+        assert_eq!(datasets.len(), 1);
+        assert_eq!(datasets[0].key.as_deref(), Some("records-key"));
+        assert_eq!(datasets[0].record_count, 2);
+        assert_eq!(
+            datasets[0].records,
+            vec![serde_json::json!({"a": 1}), serde_json::json!({"a": 2})]
+        );
+        assert_eq!(store::resolve_head(repo.store())?, Some(commit_id));
+        assert_eq!(repo.store().list_objects()?, objects_before);
+        Ok(())
+    }
+
+    #[test]
+    fn decoded_data_at_reads_legacy_json_without_rewriting_history()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let schema = make_schema(&[("a", "object"), ("b", "string")]);
+        let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
+        let dataset = DataSetObject {
+            schema_id,
+            data: br#"[{"a": 1}]"#.to_vec(),
+            record_count: 1,
+            key: Some("legacy-key".to_owned()),
+        };
+        let dataset_id = repo.store_mut().put(&Object::DataSet(dataset))?;
+        let commit = CommitObject::builder(schema_id, "test", "alice", "legacy")
+            .data_ids(vec![dataset_id])
+            .build();
+        let commit_id = repo.store_mut().put(&Object::Commit(commit))?;
+        repo.store_mut().set_ref("refs/heads/main", commit_id)?;
+        let objects_before = repo.store().list_objects()?;
+
+        let datasets = repo.decoded_data_at("HEAD")?;
+
+        assert_eq!(datasets[0].records, vec![serde_json::json!({"a": 1})]);
+        assert_eq!(store::resolve_head(repo.store())?, Some(commit_id));
+        assert_eq!(repo.store().list_objects()?, objects_before);
+        Ok(())
+    }
+
+    #[test]
+    fn decoded_data_at_rejects_record_count_mismatch() -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let schema = make_schema(&[("a", "object")]);
+        repo.add(&schema)?;
+        repo.commit("schema", "alice")?;
+        let data_path = dir.path().join("data.json");
+        std::fs::write(&data_path, br#"[{"a": 1}]"#)?;
+        repo.add_data(&data_path, Some("counted"))?;
+        repo.commit("data", "alice")?;
+        let mut dataset = repo.data_at("HEAD")?.remove(0);
+        dataset.record_count = 2;
+
+        let Err(error) = repo.decode_data_set(dataset) else {
+            panic!("mismatched record count should fail");
+        };
+
+        assert!(matches!(error, VcsError::DataValidationFailed { .. }));
+        assert!(error.to_string().contains("payload contains 1"));
+        Ok(())
+    }
+
+    #[test]
+    fn decoded_data_at_rejects_malformed_canonical_payload()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let dir = tempfile::tempdir()?;
+        let mut repo = Repository::init(dir.path())?;
+        let schema = make_schema(&[("a", "object")]);
+        let schema_id = crate::tree::store_schema_as_tree(repo.store_mut(), schema)?;
+        let dataset = DataSetObject {
+            schema_id,
+            data: vec![0x91],
+            record_count: 1,
+            key: Some("broken".to_owned()),
+        };
+
+        let Err(error) = repo.decode_data_set(dataset) else {
+            panic!("malformed canonical data should fail");
+        };
+
+        assert!(matches!(error, VcsError::Serialization(_)));
         Ok(())
     }
 

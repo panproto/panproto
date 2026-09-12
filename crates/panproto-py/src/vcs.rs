@@ -30,7 +30,6 @@ use panproto_core::vcs::{
     blame::{self, BlameEntry},
     data_mig, edit_mig,
     gc::GcReport,
-    hash::hash_commit,
     index::ValidationStatus,
     merge::MergeResult,
     object::Object,
@@ -416,12 +415,11 @@ impl PyRepository {
     /// List commits reachable from HEAD, newest first.
     #[pyo3(signature = (limit=None))]
     fn log(&self, py: Python<'_>, limit: Option<usize>) -> PyResult<Py<PyAny>> {
-        let commits = self.inner.log(limit).map_err(vcs_err)?;
-        let dicts: Result<Vec<_>, _> = commits
+        let commits = self.inner.log_with_ids(limit).map_err(vcs_err)?;
+        let dicts: Vec<_> = commits
             .iter()
-            .map(|c| hash_commit(c).map(|id| commit_to_value(id, c)))
+            .map(|(id, commit)| commit_to_value(*id, commit))
             .collect();
-        let dicts = dicts.map_err(vcs_err)?;
         convert::to_python(py, &dicts)
     }
 
@@ -477,6 +475,26 @@ impl PyRepository {
             let dict = PyDict::new(py);
             dict.set_item("schema_id", ds.schema_id.to_string())?;
             dict.set_item("data", PyBytes::new(py, &ds.data))?;
+            dict.set_item("record_count", ds.record_count)?;
+            dict.set_item("key", ds.key)?;
+            list.append(dict)?;
+        }
+        Ok(list.into_any().unbind())
+    }
+
+    /// Read committed data as source-JSON-equivalent records.
+    ///
+    /// Decodes both current canonical `MessagePack` data sets and historical
+    /// source-JSON data sets through the schema recorded by each set. Record
+    /// counts and schema conformance are checked before any records are
+    /// returned.
+    fn decoded_data_at(&self, py: Python<'_>, r#ref: &str) -> PyResult<Py<PyAny>> {
+        let datasets = self.inner.decoded_data_at(r#ref).map_err(vcs_err)?;
+        let list = PyList::empty(py);
+        for ds in datasets {
+            let dict = PyDict::new(py);
+            dict.set_item("schema_id", ds.schema_id.to_string())?;
+            dict.set_item("records", convert::to_python(py, &ds.records)?)?;
             dict.set_item("record_count", ds.record_count)?;
             dict.set_item("key", ds.key)?;
             list.append(dict)?;
