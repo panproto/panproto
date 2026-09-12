@@ -4,6 +4,8 @@ All notable changes to panproto will be documented in this file.
 
 ## [Unreleased]
 
+## [0.74.2] - 2026-09-12
+
 ### Bug Fixes
 
 - **Historical content-addressed objects retain their original identities** (`panproto-vcs`, `panproto-xrpc`): filesystem and remote reads validated a decoded object by serializing it again with the current type definition. A commit written before the `unverified` field existed therefore gained an empty field during decoding and hashed to a new ID, so intact repositories created by Panproto 0.58 were reported as corrupted by 0.74.1. Directly serialized object kinds are now validated against the payload bytes that were actually stored or received. Every byte remains covered by blake3, substituted objects are still refused, and current writes keep their existing addresses.
