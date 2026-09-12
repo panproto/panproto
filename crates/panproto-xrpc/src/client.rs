@@ -229,7 +229,7 @@ impl NodeClient {
         }
         let bytes = resp.bytes().await?;
         let obj: Object = rmp_serde::from_slice(&bytes)?;
-        let actual = panproto_vcs::hash::object_id(&obj)?;
+        let actual = panproto_vcs::hash::object_id_from_stored_bytes(&obj, &bytes)?;
         if actual != *id {
             return Err(XrpcError::ObjectMismatch {
                 requested: id.to_string(),

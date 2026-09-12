@@ -499,8 +499,21 @@ fn push_sort_expr_eqs_into(
 pub fn infer_var_sorts(eq: &Equation, theory: &Theory) -> Result<VarContext, GatError> {
     let mut ctx = VarContext::default();
     let mut term_eqs: Vec<(Term, Term)> = Vec::new();
-    collect_constraints(&eq.lhs, theory, &mut ctx, &mut term_eqs)?;
-    collect_constraints(&eq.rhs, theory, &mut ctx, &mut term_eqs)?;
+    let mut next_implicit_scope = 0;
+    collect_constraints(
+        &eq.lhs,
+        theory,
+        &mut ctx,
+        &mut term_eqs,
+        &mut next_implicit_scope,
+    )?;
+    collect_constraints(
+        &eq.rhs,
+        theory,
+        &mut ctx,
+        &mut term_eqs,
+        &mut next_implicit_scope,
+    )?;
 
     let substitution = unify_all(term_eqs)?;
     if !substitution.is_empty() {
@@ -520,6 +533,7 @@ fn collect_constraints(
     theory: &Theory,
     ctx: &mut VarContext,
     term_eqs: &mut Vec<(Term, Term)>,
+    next_implicit_scope: &mut usize,
 ) -> Result<(), GatError> {
     let (op, args) = match term {
         Term::App { op, args } => (op, args),
@@ -527,15 +541,15 @@ fn collect_constraints(
             scrutinee,
             branches,
         } => {
-            collect_constraints(scrutinee, theory, ctx, term_eqs)?;
+            collect_constraints(scrutinee, theory, ctx, term_eqs, next_implicit_scope)?;
             for b in branches {
-                collect_constraints(&b.body, theory, ctx, term_eqs)?;
+                collect_constraints(&b.body, theory, ctx, term_eqs, next_implicit_scope)?;
             }
             return Ok(());
         }
         Term::Let { bound, body, .. } => {
-            collect_constraints(bound, theory, ctx, term_eqs)?;
-            collect_constraints(body, theory, ctx, term_eqs)?;
+            collect_constraints(bound, theory, ctx, term_eqs, next_implicit_scope)?;
+            collect_constraints(body, theory, ctx, term_eqs, next_implicit_scope)?;
             return Ok(());
         }
         Term::Var(_) | Term::Hole { .. } => return Ok(()),
@@ -544,16 +558,38 @@ fn collect_constraints(
         .find_op(op)
         .ok_or_else(|| GatError::OpNotFound(op.to_string()))?;
 
-    if args.len() != operation.inputs.len() {
+    let explicit_count = operation.explicit_arity();
+    if args.len() != explicit_count {
         return Err(GatError::TermArityMismatch {
             op: op.to_string(),
-            expected: operation.inputs.len(),
+            expected: explicit_count,
             got: args.len(),
         });
     }
 
     let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
-    for (arg, (param_name, declared_sort, _)) in args.iter().zip(operation.inputs.iter()) {
+    let implicit_scope = *next_implicit_scope;
+    *next_implicit_scope += 1;
+    for (index, (param_name, _, implicit)) in operation.inputs.iter().enumerate() {
+        if matches!(implicit, Implicit::Yes) {
+            let metavariable: Arc<str> =
+                Arc::from(format!("?{op}_{param_name}_{implicit_scope}_{index}"));
+            theta.insert(Arc::clone(param_name), Term::Var(metavariable));
+        }
+    }
+
+    let mut explicit_args = args.iter();
+    for (param_name, declared_sort, implicit) in &operation.inputs {
+        if matches!(implicit, Implicit::Yes) {
+            continue;
+        }
+        let Some(arg) = explicit_args.next() else {
+            return Err(GatError::TermArityMismatch {
+                op: op.to_string(),
+                expected: explicit_count,
+                got: args.len(),
+            });
+        };
         let expected = declared_sort.subst(&theta);
         match arg {
             Term::Var(var_name) => {
@@ -564,7 +600,7 @@ fn collect_constraints(
                 }
             }
             Term::App { .. } | Term::Case { .. } | Term::Hole { .. } | Term::Let { .. } => {
-                collect_constraints(arg, theory, ctx, term_eqs)?;
+                collect_constraints(arg, theory, ctx, term_eqs, next_implicit_scope)?;
             }
         }
         theta.insert(Arc::clone(param_name), arg.clone());
@@ -2606,6 +2642,27 @@ mod tests {
         ctx.insert(Arc::from("x"), SortExpr::from("Ob"));
         let result = typecheck_term(&Term::app("id", vec![Term::var("x")]), &ctx, &theory)?;
         assert_eq!(&**result.head(), "Hom");
+        Ok(())
+    }
+
+    #[test]
+    fn equation_applications_infer_implicit_arguments() -> Result<(), Box<dyn std::error::Error>> {
+        let mut theory = lambda_theory();
+        theory.eqs.push(Equation::new(
+            "app_reflexive",
+            Term::app("app", vec![Term::var("f"), Term::var("x")]),
+            Term::app("app", vec![Term::var("f"), Term::var("x")]),
+        ));
+
+        let context = infer_var_sorts(&theory.eqs[0], &theory)?;
+        assert_eq!(
+            context.len(),
+            2,
+            "only explicit equation variables are bound"
+        );
+        assert_eq!(context[&Arc::from("f")].head().as_ref(), "Tm");
+        assert_eq!(context[&Arc::from("x")].head().as_ref(), "Tm");
+        typecheck_theory(&theory)?;
         Ok(())
     }
 
