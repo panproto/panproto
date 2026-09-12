@@ -2,6 +2,14 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **Historical content-addressed objects retain their original identities** (`panproto-vcs`, `panproto-xrpc`): filesystem and remote reads validated a decoded object by serializing it again with the current type definition. A commit written before the `unverified` field existed therefore gained an empty field during decoding and hashed to a new ID, so intact repositories created by Panproto 0.58 were reported as corrupted by 0.74.1. Directly serialized object kinds are now validated against the payload bytes that were actually stored or received. Every byte remains covered by blake3, substituted objects are still refused, and current writes keep their existing addresses.
+
+- **Equations may invoke operations with inferred arguments** (`panproto-gat`): ordinary term checking counted only explicit arguments, while equation-variable inference counted implicit and explicit parameters together. Thus a well-typed indexed eliminator could be called normally but its defining equation failed with an arity error. Both paths now align supplied terms with the explicit telescope and introduce fresh, call-local metavariables for implicit parameters, so equations recover the same indices as ordinary applications.
+
 ## [0.74.1] - 2026-09-10
 
 ### Bug Fixes

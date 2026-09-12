@@ -682,6 +682,70 @@ pub fn object_id(object: &crate::object::Object) -> Result<ObjectId, VcsError> {
     }
 }
 
+/// Compute an object's content address from its persisted `MessagePack` bytes.
+///
+/// Most object kinds use a canonical projection because their payload contains
+/// unordered maps or derived indices. The directly serialized kinds instead
+/// define their ID as the blake3 hash of the enum payload. Hashing that payload
+/// in place is both stricter and more compatible than deserializing and then
+/// serializing it again: a newer reader may supply default values for fields an
+/// older writer did not have, which changes the second serialization even
+/// though the stored bytes are intact.
+///
+/// Callers must deserialize `bytes` as `object` before calling this function.
+/// When the outer enum is not in the canonical one-entry-map representation,
+/// the function falls back to [`object_id`].
+///
+/// # Errors
+///
+/// Returns an error if a canonical projection cannot be serialized.
+pub fn object_id_from_stored_bytes(
+    object: &crate::object::Object,
+    bytes: &[u8],
+) -> Result<ObjectId, VcsError> {
+    use crate::object::Object;
+
+    let direct_variant = match object {
+        Object::Commit(_) => Some("Commit"),
+        Object::Tag(_) => Some("Tag"),
+        Object::Protocol(_) => Some("Protocol"),
+        Object::Expr(_) => Some("Expr"),
+        Object::Theory(_) => Some("Theory"),
+        _ => None,
+    };
+    if let Some(variant) = direct_variant
+        && let Some(payload) = messagepack_enum_payload(bytes, variant)
+    {
+        return Ok(ObjectId(blake3::hash(payload).into()));
+    }
+    object_id(object)
+}
+
+/// Return the payload of an externally tagged enum encoded by `rmp-serde`.
+///
+/// `Object` variants are encoded as a one-entry map whose key is a fixstr
+/// variant name and whose value occupies the remainder of the byte slice. All
+/// current and historical variant names fit in a fixstr. A shape outside that
+/// contract is left to the ordinary typed canonicalizer.
+fn messagepack_enum_payload<'a>(bytes: &'a [u8], expected_variant: &str) -> Option<&'a [u8]> {
+    const FIXMAP_ONE: u8 = 0x81;
+    const FIXSTR_MASK: u8 = 0xe0;
+    const FIXSTR_TAG: u8 = 0xa0;
+    const FIXSTR_LEN_MASK: u8 = 0x1f;
+
+    let (&map_marker, after_map) = bytes.split_first()?;
+    if map_marker != FIXMAP_ONE {
+        return None;
+    }
+    let (&string_marker, after_marker) = after_map.split_first()?;
+    if string_marker & FIXSTR_MASK != FIXSTR_TAG {
+        return None;
+    }
+    let name_len = usize::from(string_marker & FIXSTR_LEN_MASK);
+    let (variant, payload) = after_marker.split_at_checked(name_len)?;
+    (variant == expected_variant.as_bytes()).then_some(payload)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -814,6 +878,91 @@ mod tests {
         let h1 = hash_commit(&commit)?;
         let h2 = hash_commit(&commit)?;
         assert_eq!(h1, h2);
+        Ok(())
+    }
+
+    #[test]
+    fn stored_commit_id_uses_the_original_payload_shape() -> Result<(), Box<dyn std::error::Error>>
+    {
+        #[derive(Serialize)]
+        struct CommitBeforeUnverified<'a> {
+            schema_id: ObjectId,
+            parents: &'a [ObjectId],
+            migration_id: Option<ObjectId>,
+            protocol: &'a str,
+            author: &'a str,
+            timestamp: u64,
+            message: &'a str,
+            renames: &'a [panproto_gat::SiteRename],
+            protocol_id: Option<ObjectId>,
+            data_ids: &'a [ObjectId],
+            complement_ids: &'a [ObjectId],
+            edit_log_ids: &'a [ObjectId],
+            theory_ids: &'a BTreeMap<String, ObjectId>,
+            cst_complement_ids: &'a [ObjectId],
+        }
+
+        #[derive(Serialize)]
+        enum ObjectBeforeUnverified<'a> {
+            Commit(CommitBeforeUnverified<'a>),
+        }
+
+        let legacy = CommitBeforeUnverified {
+            schema_id: ObjectId::ZERO,
+            parents: &[],
+            migration_id: None,
+            protocol: "qvr",
+            author: "test-author",
+            timestamp: 1_234_567_890,
+            message: "historical commit",
+            renames: &[],
+            protocol_id: None,
+            data_ids: &[],
+            complement_ids: &[],
+            edit_log_ids: &[],
+            theory_ids: &BTreeMap::new(),
+            cst_complement_ids: &[],
+        };
+        let legacy_payload = rmp_serde::to_vec(&legacy)?;
+        let expected = ObjectId(blake3::hash(&legacy_payload).into());
+        let bytes = rmp_serde::to_vec(&ObjectBeforeUnverified::Commit(legacy))?;
+        let decoded: crate::object::Object = rmp_serde::from_slice(&bytes)?;
+
+        assert_ne!(
+            object_id(&decoded)?,
+            expected,
+            "reserializing adds the defaulted unverified field"
+        );
+        assert_eq!(
+            object_id_from_stored_bytes(&decoded, &bytes)?,
+            expected,
+            "stored payload bytes must retain their historical address"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn stored_commit_id_covers_every_persisted_byte() -> Result<(), Box<dyn std::error::Error>> {
+        let commit = CommitObject::builder(ObjectId::ZERO, "test", "author", "message")
+            .timestamp(1_234_567_890)
+            .build();
+        let object = crate::object::Object::Commit(commit);
+        let mut bytes = rmp_serde::to_vec(&object)?;
+        let expected = object_id_from_stored_bytes(&object, &bytes)?;
+        assert_eq!(expected, object_id(&object)?);
+
+        let message = b"message";
+        let offset = bytes
+            .windows(message.len())
+            .position(|window| window == message)
+            .ok_or("test message is absent from serialized commit")?;
+        bytes[offset] = b'M';
+        let decoded: crate::object::Object = rmp_serde::from_slice(&bytes)?;
+        assert_ne!(
+            object_id_from_stored_bytes(&decoded, &bytes)?,
+            expected,
+            "changing one persisted byte must change the verified ID"
+        );
         Ok(())
     }
 

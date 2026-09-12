@@ -147,7 +147,7 @@ impl Store for FsStore {
         // must hash back to it. Re-deriving the address on read turns a
         // torn write or a substituted file into an error rather than a
         // silently wrong object.
-        let actual = hash::object_id(&object)?;
+        let actual = hash::object_id_from_stored_bytes(&object, &bytes)?;
         if actual != *id {
             return Err(VcsError::ObjectCorrupted { id: *id, actual });
         }
