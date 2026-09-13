@@ -210,6 +210,27 @@ pub fn log_walk(
     start: ObjectId,
     limit: Option<usize>,
 ) -> Result<Vec<CommitObject>, VcsError> {
+    Ok(log_walk_with_ids(store, start, limit)?
+        .into_iter()
+        .map(|(_, commit)| commit)
+        .collect())
+}
+
+/// Walk the commit log while retaining each commit's stored object ID.
+///
+/// The stored ID is not always reproducible from the decoded commit object:
+/// historical objects can omit fields that now deserialize with defaults.
+/// Callers that expose commit identity must use this form rather than hashing
+/// the decoded value again.
+///
+/// # Errors
+///
+/// Returns an error if loading commits fails.
+pub fn log_walk_with_ids(
+    store: &dyn Store,
+    start: ObjectId,
+    limit: Option<usize>,
+) -> Result<Vec<(ObjectId, CommitObject)>, VcsError> {
     let mut result = Vec::new();
     let mut visited: HashSet<ObjectId> = HashSet::new();
     let mut heap: BinaryHeap<(u64, ObjectId)> = BinaryHeap::new();
@@ -226,7 +247,7 @@ pub fn log_walk(
                 heap.push((parent_commit.timestamp, parent));
             }
         }
-        result.push(commit);
+        result.push((commit_id, commit));
 
         if let Some(n) = limit {
             if result.len() >= n {

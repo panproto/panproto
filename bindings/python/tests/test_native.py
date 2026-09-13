@@ -1982,6 +1982,33 @@ class TestRepositoryDataAccess:
         with pytest.raises(panproto.VcsError):
             repo.data_at("no-such-ref")
 
+    def test_decoded_data_at_returns_source_json_values(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        repo.commit("schema", "alice <a@example.com>")
+        data_file = tmp_path / "records.json"
+        data_file.write_text('[{"a": 1}, {"a": 2}]')
+        repo.add_data(str(data_file), key="records-key")
+        commit_id = repo.commit("data", "alice <a@example.com>")
+
+        datasets = repo.decoded_data_at(commit_id)
+
+        assert datasets == [
+            {
+                "schema_id": datasets[0]["schema_id"],
+                "records": [{"a": 1}, {"a": 2}],
+                "record_count": 2,
+                "key": "records-key",
+            }
+        ]
+
+    def test_log_reports_the_stored_commit_id(self, tmp_path: Path) -> None:
+        repo = panproto.Repository.init(str(tmp_path / "repo"))
+        repo.add(self._schema(("a", "integer")))
+        commit_id = repo.commit("schema", "alice <a@example.com>")
+
+        assert repo.log()[0]["id"] == commit_id
+
     def test_create_annotated_tag_param_order_and_return(self, tmp_path: Path) -> None:
         # The runtime order is (name, commit_id, author, message) and the
         # call returns the new tag object id, which the stub must reflect.
