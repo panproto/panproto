@@ -16,7 +16,7 @@ All notable changes to panproto will be documented in this file.
 
 - **Equations may invoke operations with inferred arguments** (`panproto-gat`): ordinary term checking counted only explicit arguments, while equation-variable inference counted implicit and explicit parameters together. Thus a well-typed indexed eliminator could be called normally but its defining equation failed with an arity error. Both paths now align supplied terms with the explicit telescope and introduce fresh, call-local metavariables for implicit parameters, so equations recover the same indices as ordinary applications.
 
-## [0.74.1] - 2026-09-10
+## [0.74.1] - 2026-09-11
 
 ### Bug Fixes
 

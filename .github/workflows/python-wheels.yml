@@ -38,6 +38,27 @@ jobs:
             target: x86_64-pc-windows-msvc
             native: true
     runs-on: ${{ matrix.os }}
+    env:
+      # Shared by both build attempts below. Package mirrors are the
+      # least reliable step in this job, so each fetch retries with a
+      # backoff before it is allowed to fail.
+      LINUX_PREREQS: |
+        set -eu
+        retry() {
+          for attempt in 1 2 3 4 5; do
+            if "$@"; then return 0; fi
+            echo "attempt $attempt of 5 failed: $*; retrying in $((attempt * 10))s" >&2
+            sleep $((attempt * 10))
+          done
+          echo "still failing after 5 attempts: $*" >&2
+          return 1
+        }
+        if command -v yum &>/dev/null; then
+          retry yum install -y perl-IPC-Cmd
+        elif command -v apt-get &>/dev/null; then
+          retry apt-get update
+          retry apt-get install -y perl
+        fi
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -45,7 +66,17 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.13"
+      # A build step that a network blip can fail runs twice before it
+      # counts as failed. `maturin-action` fetches maturin itself into
+      # the build container, and that fetch has no retry of its own; the
+      # package fetches inside `before-script-linux` retry, but a reset
+      # on the maturin download happens before any of that runs. With
+      # some fifty legs behind one publish gate, a single such reset
+      # withholds every wheel until someone re-runs the job by hand. The
+      # first attempt is allowed to fail; the second is the real verdict.
       - name: Build wheel
+        id: build
+        continue-on-error: true
         uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           target: ${{ matrix.target }}
@@ -61,29 +92,25 @@ jobs:
           working-directory: bindings/python
           args: --release --out dist
           manylinux: manylinux_2_28
-          before-script-linux: |
-            # Package mirrors are the least reliable step in this
-            # job, and the publish gate needs every one of some fifty
-            # legs green, so one mirror failure in one leg withholds
-            # every wheel until someone re-runs it by hand. A fetch
-            # therefore retries with a backoff before it is allowed to
-            # fail.
-            set -eu
-            retry() {
-              for attempt in 1 2 3 4 5; do
-                if "$@"; then return 0; fi
-                echo "attempt $attempt of 5 failed: $*; retrying in $((attempt * 10))s" >&2
-                sleep $((attempt * 10))
-              done
-              echo "still failing after 5 attempts: $*" >&2
-              return 1
-            }
-            if command -v yum &>/dev/null; then
-              retry yum install -y perl-IPC-Cmd
-            elif command -v apt-get &>/dev/null; then
-              retry apt-get update
-              retry apt-get install -y perl
-            fi
+          before-script-linux: ${{ env.LINUX_PREREQS }}
+      - name: Build wheel (second attempt)
+        if: steps.build.outcome == 'failure'
+        uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
+        with:
+          target: ${{ matrix.target }}
+          # The pyproject.toml lives at `bindings/python/`; it points
+          # at `crates/panproto-py/Cargo.toml` via tool.maturin.manifest-path.
+          # Invoking maturin with --working-directory bindings/python
+          # lets `python-source = "src"` resolve to the adjacent
+          # `bindings/python/src/panproto/` (with __init__.py and
+          # py.typed). The previous setup had pyproject.toml inside
+          # the Rust crate dir with `python-source = "../../sdk/python/src"`,
+          # which maturin silently dropped (the 0.42.0 wheel contained
+          # only `_native.abi3.so`).
+          working-directory: bindings/python
+          args: --release --out dist
+          manylinux: manylinux_2_28
+          before-script-linux: ${{ env.LINUX_PREREQS }}
       - name: Install the built wheel and run a real operation
         # A wheel would otherwise reach PyPI without anything having
         # installed it, and source-tree tests cannot see what a wheel
