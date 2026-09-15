@@ -256,39 +256,11 @@ fn typecheck_case(
         let constructor_op = theory
             .find_op(&b.constructor)
             .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
-        if constructor_op.inputs.len() != b.binders.len() {
-            return Err(GatError::TermArityMismatch {
-                op: b.constructor.to_string(),
-                expected: constructor_op.inputs.len(),
-                got: b.binders.len(),
-            });
-        }
-        // Unify constructor's declared output sort with the actual
-        // scrutinee sort to instantiate the constructor's parameter
-        // vars.
-        let unify_eqs: Vec<(Term, Term)> = constructor_op
-            .output
-            .args()
-            .iter()
-            .zip(scrutinee_sort.args().iter())
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect();
-        if constructor_op.output.head() != scrutinee_sort.head()
-            || constructor_op.output.args().len() != scrutinee_sort.args().len()
-        {
-            return Err(GatError::OpTypeMismatch {
-                op: b.constructor.to_string(),
-                detail: format!(
-                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
-                    constructor_op.output
-                ),
-            });
-        }
-        let subst = unify_all(unify_eqs)?;
+        let refinement = refine_branch(b, constructor_op, scrutinee, &scrutinee_sort)?;
+        let subst = refinement.subst;
         let mut extended = ctx.clone();
-        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
-            let binder_sort = declared_sort.subst(&subst);
-            extended.insert(Arc::clone(binder), binder_sort);
+        for (binder, binder_sort) in refinement.binder_sorts {
+            extended.insert(binder, binder_sort);
         }
         if let Some(motive) = expected {
             // The same `subst` that refined the binders refines the
@@ -865,40 +837,13 @@ fn typecheck_case_with_holes(
         let constructor_op = theory
             .find_op(&b.constructor)
             .ok_or_else(|| GatError::OpNotFound(b.constructor.to_string()))?;
-        if constructor_op.inputs.len() != b.binders.len() {
-            return Err(GatError::TermArityMismatch {
-                op: b.constructor.to_string(),
-                expected: constructor_op.inputs.len(),
-                got: b.binders.len(),
-            });
-        }
-        // Mirror the strict path: unify the constructor's declared
-        // output sort with the scrutinee's actual sort, apply the
-        // resulting subst to each declared binder input sort, and
-        // extend the context with the substituted sorts.
-        if constructor_op.output.head() != scrutinee_sort.head()
-            || constructor_op.output.args().len() != scrutinee_sort.args().len()
-        {
-            return Err(GatError::OpTypeMismatch {
-                op: b.constructor.to_string(),
-                detail: format!(
-                    "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
-                    constructor_op.output
-                ),
-            });
-        }
-        let unify_eqs: Vec<(Term, Term)> = constructor_op
-            .output
-            .args()
-            .iter()
-            .zip(scrutinee_sort.args().iter())
-            .map(|(a, b)| (a.clone(), b.clone()))
-            .collect();
-        let subst = unify_all(unify_eqs)?;
+        // The same refinement as the strict path, so the two cannot
+        // disagree about what a branch knows.
+        let refinement = refine_branch(b, constructor_op, scrutinee, &scrutinee_sort)?;
+        let subst = refinement.subst;
         let mut extended = ctx.clone();
-        for ((_, declared_sort, _), binder) in constructor_op.inputs.iter().zip(b.binders.iter()) {
-            let binder_sort = declared_sort.subst(&subst);
-            extended.insert(Arc::clone(binder), binder_sort);
+        for (binder, binder_sort) in refinement.binder_sorts {
+            extended.insert(binder, binder_sort);
         }
         if let Some(motive) = expected {
             // Mirror the strict path: compare each branch to the motive
@@ -952,6 +897,153 @@ fn typecheck_case_with_holes(
     })
 }
 
+/// What one branch learns: the substitution its constructor's pattern
+/// imposes on the names in scope, and the sorts its binders take.
+struct BranchRefinement {
+    subst: FxHashMap<Arc<str>, Term>,
+    binder_sorts: Vec<(Arc<str>, SortExpr)>,
+}
+
+/// Refine the world for one branch of a case on `scrutinee`.
+///
+/// The constructor's signature is written in its own parameter names,
+/// and neither those nor the branch's binder names can be unified
+/// against the scrutinee's sort directly. A constructor's `n` may
+/// coincide with an eliminator's `n` free in that sort, and a binder may
+/// legitimately shadow such a name: `len (m, v : Vec(m))` with a branch
+/// `cons m x rest` is ordinary, and either spelling would unify `succ(m)
+/// ~ m` and fail the occurs check, reporting the one branch that can
+/// exist as unreachable.
+///
+/// So the constructor is first renamed to fresh names no user can write,
+/// its output is unified with the scrutinee's sort in those names, and
+/// only then are the fresh names mapped to the branch's binders. That
+/// unification is the index refinement: matching `v : Vec(n)` against
+/// `cons` learns `n := succ(m)`, with `m` the binder.
+///
+/// A scrutinee that is a variable is also refined to the constructor's
+/// pattern. That is the other half of dependent matching: a case on `n :
+/// Nat` learns `n := zero()` in the `zero` branch, which is what lets a
+/// motive `Vec(n)` become `Vec(zero())` there. A sort with no indices
+/// gives unification nothing to learn, so without this step `replicate :
+/// (n : Nat, x : A) -> Vec(n)` could not be written.
+///
+/// The returned substitution is over the names in scope outside the
+/// branch and is meant to be applied once, to the motive; the binder
+/// sorts are already computed.
+fn refine_branch(
+    branch: &CaseBranch,
+    constructor_op: &Operation,
+    scrutinee: &Term,
+    scrutinee_sort: &SortExpr,
+) -> Result<BranchRefinement, GatError> {
+    if constructor_op.inputs.len() != branch.binders.len() {
+        return Err(GatError::TermArityMismatch {
+            op: branch.constructor.to_string(),
+            expected: constructor_op.inputs.len(),
+            got: branch.binders.len(),
+        });
+    }
+    let fresh = rename_apart(constructor_op);
+    let to_binder: FxHashMap<Arc<str>, Term> = constructor_op
+        .inputs
+        .iter()
+        .zip(branch.binders.iter())
+        .map(|((param, _, _), binder)| (fresh_name(param), Term::Var(Arc::clone(binder))))
+        .collect();
+
+    let output = constructor_op.output.subst(&fresh);
+    if output.head() != scrutinee_sort.head() || output.args().len() != scrutinee_sort.args().len()
+    {
+        return Err(GatError::OpTypeMismatch {
+            op: branch.constructor.to_string(),
+            detail: format!(
+                "constructor output sort {} does not match scrutinee sort {scrutinee_sort}",
+                constructor_op.output
+            ),
+        });
+    }
+    let unify_eqs: Vec<(Term, Term)> = output
+        .args()
+        .iter()
+        .zip(scrutinee_sort.args().iter())
+        .map(|(a, b)| (a.clone(), b.clone()))
+        .collect();
+    let in_fresh = unify_all(unify_eqs)?;
+
+    // Binder sorts: the constructor's inputs in fresh names, under the
+    // unifier, then in the branch's own names.
+    let binder_sorts = constructor_op
+        .inputs
+        .iter()
+        .zip(branch.binders.iter())
+        .map(|((_, declared, _), binder)| {
+            (
+                Arc::clone(binder),
+                declared.subst(&fresh).subst(&in_fresh).subst(&to_binder),
+            )
+        })
+        .collect();
+
+    // The unifier for the outside, in the branch's names. A key that is
+    // a fresh name is a constructor parameter the scrutinee's index
+    // determined; it is renamed too, and is harmless outside the branch.
+    let mut subst: FxHashMap<Arc<str>, Term> = in_fresh
+        .into_iter()
+        .map(|(key, value)| {
+            let key = match to_binder.get(&key) {
+                Some(Term::Var(binder)) => Arc::clone(binder),
+                _ => key,
+            };
+            (key, value.substitute(&to_binder))
+        })
+        .collect();
+
+    if let Term::Var(name) = scrutinee {
+        let pattern = Term::App {
+            op: Arc::clone(&branch.constructor),
+            args: constructor_op
+                .inputs
+                .iter()
+                .zip(branch.binders.iter())
+                .filter(|((_, _, implicit), _)| matches!(implicit, Implicit::No))
+                .map(|(_, binder)| Term::Var(Arc::clone(binder)))
+                .collect(),
+        };
+        let single: FxHashMap<Arc<str>, Term> =
+            std::iter::once((Arc::clone(name), pattern.clone())).collect();
+        for value in subst.values_mut() {
+            *value = value.substitute(&single);
+        }
+        subst.insert(Arc::clone(name), pattern);
+    }
+
+    Ok(BranchRefinement {
+        subst,
+        binder_sorts,
+    })
+}
+
+/// The name a constructor parameter is renamed to while its signature
+/// is unified against a scrutinee sort. `'` is not an identifier
+/// character in any surface that reaches this crate, so the result
+/// cannot collide with a name a user wrote, and it reads as the usual
+/// mathematical prime in a diagnostic.
+fn fresh_name(param: &Arc<str>) -> Arc<str> {
+    Arc::from(format!("{param}'"))
+}
+
+/// A substitution renaming a constructor's parameters to names no user
+/// can write, for unifying its signature against a scrutinee sort without
+/// capture when there are no binders to rename to.
+fn rename_apart(constructor: &Operation) -> FxHashMap<Arc<str>, Term> {
+    constructor
+        .inputs
+        .iter()
+        .map(|(param, _, _)| (Arc::clone(param), Term::Var(Arc::from(format!("{param}'")))))
+        .collect()
+}
+
 /// Whether the scrutinee's sort admits `constructor`, i.e. whether
 /// some inhabitant of that sort could have been built by it.
 ///
@@ -972,8 +1064,16 @@ fn constructor_admitted(constructor: &Operation, scrutinee_sort: &SortExpr) -> b
     {
         return false;
     }
-    let eqs: Vec<(Term, Term)> = constructor
-        .output
+    // The constructor's signature is written in its own parameter names,
+    // and those can coincide with names free in the scrutinee's sort:
+    // `cons : Vec(succ(n))` against a scrutinee of sort `Vec(n)` would
+    // unify `succ(n) ~ n` and fail the occurs check, reporting the one
+    // branch that can exist as unreachable. Rename the constructor's
+    // parameters apart first. The names only need to be distinct from
+    // anything a user can write, and `'` is not an identifier character.
+    let apart = rename_apart(constructor);
+    let output = constructor.output.subst(&apart);
+    let eqs: Vec<(Term, Term)> = output
         .args()
         .iter()
         .cloned()
@@ -1209,6 +1309,7 @@ pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
 /// - each `ci`'s output head must equal `S`,
 /// - no op outside `[c1, ..., cn]` produces `S`.
 fn check_closed_sorts(theory: &Theory) -> Result<(), GatError> {
+    let defined = defined_operations(theory);
     for sort in &theory.sorts {
         let SortClosure::Closed(ctors) = &sort.closure else {
             continue;
@@ -1236,17 +1337,63 @@ fn check_closed_sorts(theory: &Theory) -> Result<(), GatError> {
             }
         }
         for op in &theory.ops {
-            if op.output.head() == &sort.name && !ctor_set.contains(&op.name) {
+            if op.output.head() == &sort.name
+                && !ctor_set.contains(&op.name)
+                && !defined.contains(&op.name)
+            {
                 return Err(GatError::InvalidClosedSortConstructor {
                     sort: sort.name.to_string(),
                     constructor: op.name.to_string(),
-                    detail: "op produces the closed sort but is not listed in its closure"
+                    detail: "op produces the closed sort but is neither listed in its \
+                             closure nor defined by an equation"
                         .to_string(),
                 });
             }
         }
     }
     Ok(())
+}
+
+/// The operations the theory defines by an equation: those with some
+/// equation whose left side is the operation applied to distinct
+/// variables, one per explicit input.
+///
+/// A closed sort's closure lists its canonical forms, which is what makes
+/// a `Case` over it exhaustive. An operation defined this way introduces
+/// no canonical form: its equation says what it reduces to, and the
+/// checker has already required that to be well-typed at the sort. So
+/// `replicate : (n : Nat, x : A) -> Vec(n)` is a function into `Vec`, not
+/// a constructor of it, and may target the closed sort without being
+/// listed. An operation into a closed sort that is neither listed nor
+/// defined is still refused, since it would be a stuck term every `Case`
+/// on the sort silently fails to cover.
+fn defined_operations(theory: &Theory) -> rustc_hash::FxHashSet<Arc<str>> {
+    let mut defined = rustc_hash::FxHashSet::default();
+    let sides = theory
+        .eqs
+        .iter()
+        .map(|eq| &eq.lhs)
+        .chain(theory.directed_eqs.iter().map(|eq| &eq.lhs));
+    for lhs in sides {
+        let Term::App { op, args } = lhs else {
+            continue;
+        };
+        let Some(operation) = theory.find_op(op) else {
+            continue;
+        };
+        if args.len() != operation.explicit_arity() {
+            continue;
+        }
+        let mut seen = rustc_hash::FxHashSet::default();
+        let all_distinct_vars = args.iter().all(|arg| match arg {
+            Term::Var(name) => seen.insert(Arc::clone(name)),
+            _ => false,
+        });
+        if all_distinct_vars {
+            defined.insert(Arc::clone(op));
+        }
+    }
+    defined
 }
 
 /// Verify that every implicit parameter of `op` occurs as a `Term::Var`

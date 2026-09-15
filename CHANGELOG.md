@@ -2,6 +2,12 @@
 
 All notable changes to panproto will be documented in this file.
 
+## [Unreleased]
+
+### Bug Fixes
+
+- **A defined function may return a closed family, and a case on a variable refines it** (`panproto-gat`): three things stood between consuming an indexed family at a dependent result and producing one, and together they made `replicate : (n: Nat, x: A) -> Vec(n)`, `map`, and `append` over a closed `Vec` unwritable. First, the closure check refused any operation whose output is a closed sort unless it was a listed constructor. The closure lists a sort's canonical forms, which is what makes a `case` exhaustive; a function defined by an equation introduces none, since its equation says what it reduces to and that is built from the listed constructors. An operation into a closed sort is now permitted when the theory defines it, meaning some equation's left side is the operation applied to distinct variables, one per explicit input. One that is neither listed nor defined is still refused, and the message now says which of the two it needs to be. Second, a case on a variable learned nothing about that variable: matching `n : Nat` against `zero` refined nothing, because a sort with no indices gives unification nothing to unify, so a motive `Vec(n)` could not become `Vec(zero())` in that branch. The variable is now refined to the constructor's pattern. Third, a constructor's own parameter names were unified directly against the scrutinee's sort, so a constructor's `n` colliding with an eliminator's `n`, or a binder shadowing one, unified `succ(n) ~ n`, failed the occurs check, and reported the only branch that could exist as unreachable; and a binder's sort came out in the constructor's spelling, `Vec(n)` where `Vec(m)` was bound. The constructor is now renamed to fresh names before unification and the result mapped to the branch's binders afterwards, so the existing tests, which passed only because their names happened to coincide, now pass for the right reason. Both the strict and the hole-collecting checkers go through one refinement, so they cannot disagree about what a branch knows.
+
 ## [0.74.3] - 2026-09-13
 
 ### Bug Fixes
