@@ -175,6 +175,12 @@ pub fn execute(
 /// 5. Projection: extract observable fields from each matched element
 /// 6. Group-by: sort results by a field value
 ///
+/// Each step of the path is materialised in full before the next, and
+/// `limit` is applied only after the whole path and the predicate. On a
+/// graph, where [`ElementOps::pushforward`] counts paths, the intermediate
+/// lists hold one entry per walk, which can grow exponentially with the
+/// path's length; `limit` does not bound that work.
+///
 /// The `schema` parameter is reserved for future schema-aware operations.
 #[must_use]
 pub fn execute_elements<T: ElementOps>(

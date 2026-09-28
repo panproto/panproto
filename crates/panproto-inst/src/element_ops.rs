@@ -59,6 +59,12 @@ pub trait ElementOps {
     /// appears twice. Table-shaped instances deduplicate targets and yield
     /// them by foreign key in ascending schema-edge order, each key's pairs
     /// in stored order.
+    ///
+    /// Because paths are counted, composing pushforwards over a graph yields
+    /// one entry per walk, and the number of walks can grow exponentially in
+    /// the number of steps: `2k` steps through a chain of `k` diamonds list
+    /// its last node `2^k` times. A tree has one path to each node, so its
+    /// composed pushforwards never exceed its node count.
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32>;
 
     /// Stalk projection: observable data at element `x`.

@@ -10,8 +10,12 @@
 
 use std::collections::HashMap;
 
-use panproto_inst::{ElementOps, FInstance, GInstance, Node, Value, encode_finstance_id};
-use panproto_schema::Edge;
+use panproto_gat::Name;
+use panproto_inst::{
+    ElementOps, FInstance, GInstance, InstanceQuery, Node, Value, encode_finstance_id,
+    execute_graph,
+};
+use panproto_schema::{Edge, Protocol, SchemaBuilder};
 
 /// How many independently built instances each order is compared across.
 const INSTANCES: usize = 64;
@@ -88,4 +92,49 @@ fn a_graph_pushforward_keeps_one_target_per_path() {
         vec![1, 1, 2, 2],
         "ascending edge id, each edge once per occurrence of its source"
     );
+}
+
+#[test]
+fn composed_graph_pushforwards_list_one_entry_per_walk() -> Result<(), Box<dyn std::error::Error>> {
+    // A chain of diamonds: node 3i splits to 3i+1 and 3i+2, which both join
+    // at 3i+3. Every diamond doubles the number of walks to the next join.
+    const DIAMONDS: u32 = 12;
+    let mut graph =
+        (0..=3 * DIAMONDS).fold(GInstance::new(), |g, id| g.with_node(Node::new(id, "n")));
+    for i in 0..DIAMONDS {
+        let top = 3 * i;
+        graph = graph
+            .with_edge(top, top + 1, link())
+            .with_edge(top, top + 2, link())
+            .with_edge(top + 1, top + 3, link())
+            .with_edge(top + 2, top + 3, link());
+    }
+
+    let path: Vec<Name> = (0..2 * DIAMONDS).map(|_| Name::from("link")).collect();
+    let walks = path
+        .iter()
+        .fold(vec![0], |current, kind| graph.pushforward(&current, kind));
+    assert_eq!(walks.len(), 1 << DIAMONDS, "one entry per walk");
+    assert!(walks.iter().all(|&node| node == 3 * DIAMONDS));
+
+    // The query applies `limit` after the path, so it answers with the first
+    // entries of the full list of walks.
+    let schema = SchemaBuilder::new(&Protocol::default())
+        .vertex("n", "record", None)?
+        .edge("n", "n", "link", None)?
+        .build()?;
+    let query = InstanceQuery {
+        anchor: Name::from("n"),
+        path,
+        limit: Some(3),
+        ..Default::default()
+    };
+    let answers: Vec<u32> = execute_graph(&query, &graph, &schema)
+        .into_iter()
+        .map(|m| m.node_id)
+        .collect();
+    // Every node is a start; only the root's walks reach the far end in
+    // `2 * DIAMONDS` steps, and they come first by edge id.
+    assert_eq!(answers, vec![3 * DIAMONDS; 3]);
+    Ok(())
 }
