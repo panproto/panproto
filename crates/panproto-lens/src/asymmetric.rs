@@ -346,6 +346,45 @@ impl ReverseAnchors {
     }
 }
 
+/// The source edges behind each view edge, read off the source schema.
+///
+/// A source edge's image is its explicit entry in the edge remap, or, for an
+/// edge the remap does not name, the same kind and label across remapped
+/// endpoints; this indexes the source schema's edges by that image.
+struct EdgePreimages {
+    preimages: HashMap<Edge, Vec<Edge>>,
+}
+
+impl EdgePreimages {
+    fn new(lens: &Lens) -> Self {
+        let mut preimages: HashMap<Edge, Vec<Edge>> = HashMap::new();
+        for source in lens.src_schema.edges.keys() {
+            preimages
+                .entry(edge_image(lens, source))
+                .or_default()
+                .push(source.clone());
+        }
+        for sources in preimages.values_mut() {
+            sources.sort();
+        }
+        Self { preimages }
+    }
+
+    /// The source edges whose image is `view_edge`, in ascending order.
+    fn of(&self, view_edge: &Edge) -> &[Edge] {
+        self.preimages.get(view_edge).map_or(&[], Vec::as_slice)
+    }
+
+    /// The distinct source anchors the edges behind `view_edge` point
+    /// into, in ascending order.
+    fn target_anchors(&self, view_edge: &Edge) -> Vec<&Name> {
+        let mut anchors: Vec<&Name> = self.of(view_edge).iter().map(|edge| &edge.tgt).collect();
+        anchors.sort();
+        anchors.dedup();
+        anchors
+    }
+}
+
 /// Forward lens direction: restrict the source instance to the target view
 /// and capture the complement.
 ///
@@ -559,41 +598,88 @@ pub(crate) fn put_with_identity(
     reassemble(lens, view, complement).map(|source| (source, status))
 }
 
-/// The source anchor of view node `id`, whose view anchor is `view_anchor`.
+/// The source anchor of view node `id`, whose view anchor is `view_anchor`
+/// and whose incoming view arc carries `view_edge`.
 ///
 /// The anchor the complement recorded applies only while the view still
-/// holds the node where `get` put it, that is while the remap sends the
-/// recorded anchor to `view_anchor`. A view edit that moved the node to
-/// another anchor is followed back through the remap's inverse instead, so
-/// the edit survives the round trip.
+/// holds the node where `get` put it: the remap sends the recorded anchor
+/// to `view_anchor`, and the node's arc still carries the image of the edge
+/// `get` recorded for it. A view edit that moved the node, or relabelled
+/// the arc into it, is followed back instead, so the edit survives the
+/// round trip. For a node whose arc `get` recorded, the view edge is read
+/// back first: the source edges whose image it is name the node's anchor
+/// through their targets, which can tell apart the preimages of a merged
+/// anchor that the vertex remap alone cannot. A node the view added, or a
+/// view edge that is the image of no source edge, falls back to the vertex
+/// remap's inverse, keeping the recorded anchor while it still fits. Several candidates are reported as
+/// [`LensError::AmbiguousReverseAnchor`] rather than picked from, unless
+/// the recorded anchor is one of them.
 fn restored_anchor<'a>(
     lens: &Lens,
     reverse_anchors: &'a ReverseAnchors,
+    edge_preimages: &'a EdgePreimages,
     complement: &'a Complement,
     id: u32,
     view_anchor: &'a Name,
+    view_arc: Option<(u32, &Edge)>,
 ) -> Result<&'a Name, LensError> {
-    complement
-        .original_anchors
-        .get(&id)
-        .filter(|recorded| {
-            lens.compiled
-                .vertex_remap
-                .get(*recorded)
-                .unwrap_or(recorded)
-                == view_anchor
-        })
-        .map_or_else(
-            || {
-                reverse_anchors
-                    .source_anchor(view_anchor)
-                    .map_err(|candidates| LensError::AmbiguousReverseAnchor {
-                        node: id,
-                        candidates: candidates.to_vec(),
-                    })
-            },
-            Ok,
-        )
+    let recorded = complement.original_anchors.get(&id).filter(|recorded| {
+        lens.compiled
+            .vertex_remap
+            .get(*recorded)
+            .unwrap_or(recorded)
+            == view_anchor
+    });
+    let recorded_edge = view_arc.and_then(|(parent, _)| complement.arc_edges.get(&(parent, id)));
+    let edge_kept = match (view_arc, recorded_edge) {
+        (Some((_, view_edge)), Some(recorded_edge)) => {
+            edge_image(lens, recorded_edge) == *view_edge
+        }
+        _ => true,
+    };
+    if edge_kept && let Some(recorded) = recorded {
+        return Ok(recorded);
+    }
+
+    // Only anchors the node's own view anchor is the image of: an arc whose
+    // edge points elsewhere says nothing about where this node belongs.
+    // Only for a node whose arc `get` recorded: a node the view added has
+    // no source to be faithful to, and takes its anchor from the vertex
+    // remap alone.
+    let mut by_edge = view_arc
+        .filter(|_| recorded_edge.is_some())
+        .map(|(_, view_edge)| edge_preimages.target_anchors(view_edge))
+        .unwrap_or_default();
+    by_edge
+        .retain(|anchor| lens.compiled.vertex_remap.get(*anchor).unwrap_or(anchor) == view_anchor);
+    match by_edge.as_slice() {
+        [only] => return Ok(only),
+        [] => {}
+        many => {
+            // The source anchor the complement recorded settles it, when
+            // it is one of the anchors the edge could have come from.
+            let from_record = complement
+                .original_anchors
+                .get(&id)
+                .filter(|recorded| many.contains(recorded));
+            return from_record.ok_or_else(|| LensError::AmbiguousReverseAnchor {
+                node: id,
+                candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
+            });
+        }
+    }
+
+    recorded.map_or_else(
+        || {
+            reverse_anchors
+                .source_anchor(view_anchor)
+                .map_err(|candidates| LensError::AmbiguousReverseAnchor {
+                    node: id,
+                    candidates: candidates.to_vec(),
+                })
+        },
+        Ok,
+    )
 }
 
 /// The backward direction proper, once the complement's identity is
@@ -635,6 +721,14 @@ fn reassemble(
     let mut nodes = HashMap::new();
     let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let edge_preimages = EdgePreimages::new(lens);
+    // The arc into each view node: its parent and the edge it carries. A
+    // W-type node has at most one; the first is kept if a malformed view
+    // has more, so the choice is the same in every process.
+    let mut view_arc_into: HashMap<u32, (u32, &Edge)> = HashMap::new();
+    for (parent, child, edge) in &view.arcs {
+        view_arc_into.entry(*child).or_insert((*parent, edge));
+    }
 
     // Visited in ascending id order so that, of several nodes whose anchor
     // cannot be reversed, the one reported is the same in every process.
@@ -649,9 +743,11 @@ fn reassemble(
         restored_node.anchor.clone_from(restored_anchor(
             lens,
             &reverse_anchors,
+            &edge_preimages,
             complement,
             id,
             &node.anchor,
+            view_arc_into.get(&id).copied(),
         )?);
         // Restore original extra_fields.
         //
@@ -1360,13 +1456,16 @@ fn build_reverse_remap(forward: &HashMap<Name, Name>) -> HashMap<Name, Name> {
 /// schema has parallel edges.
 ///
 /// The recorded edge applies only while it still joins the restored
-/// endpoints. A view edit that moves the child (or the parent) to another
-/// anchor restores that node at a different source anchor, and the recorded
-/// edge would then point into the anchor the node left. The arc is instead
-/// read off the source schema between the restored anchors, preferring the
-/// source edge whose image is the edge the view arc now carries, so the
-/// view's edge edit survives the round trip. When the source schema has no
-/// edge between the restored anchors the recorded edge is kept, as nothing
+/// endpoints and its image is still the edge the view arc carries. A view
+/// edit that moves the child (or the parent) to another anchor restores
+/// that node at a different source anchor, and the recorded edge would
+/// then point into the anchor the node left; a view edit that relabels the
+/// arc onto another target edge leaves the anchors alone, and the recorded
+/// edge would then undo the relabel. Either way the arc is instead read off
+/// the source schema between the restored anchors, preferring the source
+/// edge whose image is the edge the view arc now carries, so the view's
+/// edge edit survives the round trip. When the source schema has no edge
+/// between the restored anchors the recorded edge is kept, as nothing
 /// better is known.
 fn find_original_arc(
     lens: &Lens,
@@ -1381,11 +1480,18 @@ fn find_original_arc(
         .get(&parent_id)
         .zip(nodes.get(&child_id))
         .map(|(parent, child)| (&parent.anchor, &child.anchor));
+    let view_edge = view
+        .arcs
+        .iter()
+        .find(|(p, c, _)| (*p, *c) == (parent_id, child_id))
+        .map(|(_, _, edge)| edge);
 
-    // Exact edge recorded during get, while it still fits the endpoints.
+    // Exact edge recorded during get, while it still fits the endpoints
+    // and the view has not relabelled the arc.
     let recorded = arc_edges.get(&(parent_id, child_id));
     if let Some(edge) = recorded
         && endpoints.is_none_or(|(src, tgt)| edge.src == *src && edge.tgt == *tgt)
+        && view_edge.is_none_or(|view_edge| edge_image(lens, edge) == *view_edge)
     {
         return Some((parent_id, child_id, edge.clone()));
     }
@@ -1399,28 +1505,23 @@ fn find_original_arc(
     // predates `arc_edges`, or a recorded edge a view edit made stale.
     let (src_anchor, tgt_anchor) = endpoints?;
     let candidates = lens.src_schema.edges_between(src_anchor, tgt_anchor);
-    let view_edge = view
-        .arcs
-        .iter()
-        .find(|(p, c, _)| (*p, *c) == (parent_id, child_id))
-        .map(|(_, _, edge)| edge);
     let chosen = view_edge
         .and_then(|view_edge| {
             candidates
                 .iter()
-                .find(|candidate| source_edge_maps_to(lens, candidate, view_edge))
+                .find(|candidate| edge_image(lens, candidate) == *view_edge)
         })
         .or_else(|| candidates.first())
         .or(recorded);
     chosen.map(|edge| (parent_id, child_id, edge.clone()))
 }
 
-/// Whether `get` carries source edge `source` onto view edge `view_edge`:
-/// through the explicit edge remap, or, for an edge the remap does not
-/// name, by keeping its kind and label across remapped endpoints.
-fn source_edge_maps_to(lens: &Lens, source: &Edge, view_edge: &Edge) -> bool {
+/// The view edge `get` carries source edge `source` onto: its entry in the
+/// explicit edge remap, or, for an edge the remap does not name, the same
+/// kind and label across remapped endpoints.
+fn edge_image(lens: &Lens, source: &Edge) -> Edge {
     if let Some(mapped) = lens.compiled.edge_remap.get(source) {
-        return mapped == view_edge;
+        return mapped.clone();
     }
     let remap = |vertex: &Name| {
         lens.compiled
@@ -1429,10 +1530,12 @@ fn source_edge_maps_to(lens: &Lens, source: &Edge, view_edge: &Edge) -> bool {
             .cloned()
             .unwrap_or_else(|| vertex.clone())
     };
-    source.kind == view_edge.kind
-        && source.name == view_edge.name
-        && remap(&source.src) == view_edge.src
-        && remap(&source.tgt) == view_edge.tgt
+    Edge {
+        src: remap(&source.src),
+        tgt: remap(&source.tgt),
+        kind: source.kind.clone(),
+        name: source.name.clone(),
+    }
 }
 
 #[cfg(test)]
@@ -1658,10 +1761,183 @@ mod tests {
         }
 
         #[test]
-        fn a_recorded_node_moved_to_a_merged_anchor_is_ambiguous() {
+        fn a_node_moved_to_a_merged_anchor_takes_the_anchor_its_edge_names() {
             let lens = merging_lens();
             let (mut view, complement) = get(&lens, &source()).unwrap();
             reanchor(&mut view, 1, "t2", "d");
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(restored.nodes[&1].anchor, "d");
+            assert_eq!(arc_edge(&restored, 0, 1), &prop("r", "d", "d"));
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(again.nodes[&1].anchor, "t2", "PutGet lost the move");
+            assert_eq!(arc_edge(&again, 0, 1), &prop("r", "t2", "d"));
+        }
+
+        #[test]
+        fn a_node_moved_to_a_merged_anchor_under_an_unknown_edge_is_ambiguous() {
+            let lens = merging_lens();
+            let (mut view, complement) = get(&lens, &source()).unwrap();
+            reanchor(&mut view, 1, "t2", "unmapped");
+
+            match put(&lens, &view, &complement) {
+                Err(LensError::AmbiguousReverseAnchor {
+                    node: 1,
+                    candidates,
+                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
+            }
+        }
+
+        /// Relabel the view arc into `child` to the target edge `r -> t`
+        /// named `edge_name`, leaving the child's anchor where it is.
+        fn relabel(view: &mut WInstance, child: u32, edge_name: &str) {
+            for (_, c, edge) in &mut view.arcs {
+                if *c == child {
+                    edge.name = Some(edge_name.into());
+                }
+            }
+        }
+
+        #[test]
+        fn a_relabelled_arc_on_a_merged_anchor_restores_the_other_preimage() {
+            let lens = merging_lens();
+            let (mut view, complement) = get(&lens, &source()).unwrap();
+            assert_eq!(arc_edge(&view, 0, 1), &prop("r", "t", "a"));
+            relabel(&mut view, 1, "b");
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(
+                restored.nodes[&1].anchor, "b",
+                "the relabelled arc names the source edge into b"
+            );
+            assert_eq!(arc_edge(&restored, 0, 1), &prop("r", "b", "b"));
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(
+                arc_edge(&again, 0, 1),
+                &prop("r", "t", "b"),
+                "PutGet lost a relabel"
+            );
+        }
+
+        /// `r -> a` carries two parallel edges `x` and `y`; the vertex map
+        /// is injective (`a -> t`).
+        fn parallel_lens() -> Lens {
+            let src_edges = vec![prop("r", "a", "x"), prop("r", "a", "y")];
+            let tgt_edges = vec![prop("r", "t", "x"), prop("r", "t", "y")];
+            let src = schema(&[("r", "object"), ("a", "string")], &src_edges);
+            let tgt = schema(&[("r", "object"), ("t", "string")], &tgt_edges);
+            let migration = Migration {
+                vertex_map: [("r", "r"), ("a", "t")]
+                    .iter()
+                    .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                    .collect(),
+                edge_map: src_edges.into_iter().zip(tgt_edges).collect(),
+                hyper_edge_map: HashMap::new(),
+                label_map: HashMap::new(),
+                resolver: HashMap::new(),
+                hyper_resolver: HashMap::new(),
+                expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
+                domain: None,
+                codomain: None,
+            };
+            let compiled = panproto_mig::compile(&src, &tgt, &migration).unwrap();
+            Lens {
+                compiled,
+                src_schema: src,
+                tgt_schema: tgt,
+            }
+        }
+
+        #[test]
+        fn a_relabelled_parallel_arc_is_restored_on_the_edge_it_names() {
+            let lens = parallel_lens();
+            let nodes = vec![Node::new(0, "r"), leaf(1, "a", "one")];
+            let source = WInstance::new(
+                nodes.into_iter().map(|n| (n.id, n)).collect(),
+                vec![(0, 1, prop("r", "a", "x"))],
+                Vec::new(),
+                0,
+                "r".into(),
+            );
+            let (mut view, complement) = get(&lens, &source).unwrap();
+            assert_eq!(arc_edge(&view, 0, 1), &prop("r", "t", "x"));
+            relabel(&mut view, 1, "y");
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(restored.nodes[&1].anchor, "a");
+            assert_eq!(arc_edge(&restored, 0, 1), &prop("r", "a", "y"));
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(
+                arc_edge(&again, 0, 1),
+                &prop("r", "t", "y"),
+                "PutGet lost a relabel"
+            );
+        }
+
+        /// `r -> d` and `r -> e` both carry an edge named `m`, and both map
+        /// onto the one target edge `r -> t2` named `m`.
+        fn merged_edge_lens() -> Lens {
+            let src_edges = vec![
+                prop("r", "a", "a"),
+                prop("r", "d", "m"),
+                prop("r", "e", "m"),
+            ];
+            let tgt_edges = vec![
+                prop("r", "t", "a"),
+                prop("r", "t2", "m"),
+                prop("r", "t2", "m"),
+            ];
+            let src = schema(
+                &[
+                    ("r", "object"),
+                    ("a", "string"),
+                    ("d", "string"),
+                    ("e", "string"),
+                ],
+                &src_edges,
+            );
+            let tgt = schema(
+                &[("r", "object"), ("t", "string"), ("t2", "string")],
+                &tgt_edges[..2],
+            );
+            let migration = Migration {
+                vertex_map: [("r", "r"), ("a", "t"), ("d", "t2"), ("e", "t2")]
+                    .iter()
+                    .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                    .collect(),
+                edge_map: src_edges.into_iter().zip(tgt_edges).collect(),
+                hyper_edge_map: HashMap::new(),
+                label_map: HashMap::new(),
+                resolver: HashMap::new(),
+                hyper_resolver: HashMap::new(),
+                expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
+                domain: None,
+                codomain: None,
+            };
+            let compiled = panproto_mig::compile(&src, &tgt, &migration).unwrap();
+            Lens {
+                compiled,
+                src_schema: src,
+                tgt_schema: tgt,
+            }
+        }
+
+        #[test]
+        fn a_node_moved_onto_an_edge_with_several_preimages_is_ambiguous() {
+            let lens = merged_edge_lens();
+            let nodes = vec![Node::new(0, "r"), leaf(1, "a", "one")];
+            let source = WInstance::new(
+                nodes.into_iter().map(|n| (n.id, n)).collect(),
+                vec![(0, 1, prop("r", "a", "a"))],
+                Vec::new(),
+                0,
+                "r".into(),
+            );
+            let (mut view, complement) = get(&lens, &source).unwrap();
+            reanchor(&mut view, 1, "t2", "m");
 
             match put(&lens, &view, &complement) {
                 Err(LensError::AmbiguousReverseAnchor {
