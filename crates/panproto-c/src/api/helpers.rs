@@ -236,7 +236,13 @@ pub fn build_minimal_schema(compiled: &CompiledMigration) -> Schema {
     let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
     let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
-    for e in &compiled.surviving_edges {
+    // The adjacency buckets keep the order edges are pushed in, and that
+    // order is part of the schema's canonical bytes (and so of its
+    // identity). A `HashSet` enumerates in hash-seed order, so the edges are
+    // sorted first.
+    let mut surviving_edges: Vec<&Edge> = compiled.surviving_edges.iter().collect();
+    surviving_edges.sort();
+    for e in surviving_edges {
         edges.insert(e.clone(), e.kind.clone());
         outgoing.entry(e.src.clone()).or_default().push(e.clone());
         incoming.entry(e.tgt.clone()).or_default().push(e.clone());
@@ -990,6 +996,50 @@ fn classify_complement(
         }
         _ => {
             *has_dropped = true;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashSet;
+
+    use panproto_core::inst::CompiledMigration;
+    use panproto_core::schema::{Edge, canonical_bytes};
+
+    use super::build_minimal_schema;
+
+    /// Twenty-four labelled edges out of one vertex, so the order of its
+    /// adjacency bucket is the order the edges are visited in.
+    fn fan_out() -> Vec<Edge> {
+        (0..24)
+            .map(|i| Edge {
+                src: "root".into(),
+                tgt: format!("leaf{}", i % 3).as_str().into(),
+                kind: "prop".into(),
+                name: Some(format!("f{i}").as_str().into()),
+            })
+            .collect()
+    }
+
+    /// The same migration built into fresh hash sets, each with its own
+    /// `RandomState`, so each enumerates its edges in a different order.
+    #[test]
+    fn a_minimal_schema_is_the_same_under_any_hash_seed() {
+        let build = || {
+            let mut compiled = CompiledMigration {
+                surviving_edges: fan_out().into_iter().collect::<HashSet<_>>(),
+                ..CompiledMigration::default()
+            };
+            for e in fan_out() {
+                compiled.surviving_verts.insert(e.src.clone());
+                compiled.surviving_verts.insert(e.tgt.clone());
+            }
+            canonical_bytes(&build_minimal_schema(&compiled))
+        };
+        let first = build();
+        for round in 0..16 {
+            assert_eq!(build(), first, "round {round} encoded differently");
         }
     }
 }

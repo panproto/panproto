@@ -659,6 +659,11 @@ fn minimal_schemas_for_migration(
         let mut incoming: HashMap<Name, SmallVec<Edge, 4>> = HashMap::new();
         let mut between: HashMap<(Name, Name), SmallVec<Edge, 2>> = HashMap::new();
 
+        // The edges come from a migration's hash map, which enumerates in
+        // hash-seed order; the adjacency buckets keep push order, and that
+        // order is part of the schema's canonical bytes. Sorted first.
+        let mut edges: Vec<Edge> = edges.collect();
+        edges.sort();
         for e in edges {
             // Endpoints of every edge must exist as vertices.
             vmap.entry(e.src.clone()).or_insert_with(|| Vertex {
@@ -730,6 +735,38 @@ mod tests {
     use crate::api::{pp_buf_free, pp_handle_free};
     use crate::canonical::{decode, encode};
     use crate::handle::Resource;
+
+    /// The schemas synthesized for a bare migration are the same whatever
+    /// order its maps enumerate in: each migration here is built into
+    /// fresh hash maps with their own `RandomState`.
+    #[test]
+    fn minimal_schemas_are_the_same_under_any_hash_seed() {
+        let edge = |i: usize, src: &str| Edge {
+            src: src.into(),
+            tgt: format!("leaf{}", i % 3).as_str().into(),
+            kind: "prop".into(),
+            name: Some(format!("f{i}").as_str().into()),
+        };
+        let build = || {
+            let migration = Migration {
+                vertex_map: [("root", "top"), ("leaf0", "leaf0"), ("leaf1", "leaf1")]
+                    .into_iter()
+                    .map(|(s, t)| (Name::from(s), Name::from(t)))
+                    .collect(),
+                edge_map: (0..24).map(|i| (edge(i, "root"), edge(i, "top"))).collect(),
+                ..Migration::empty()
+            };
+            let (src, tgt) = minimal_schemas_for_migration(&migration);
+            (
+                panproto_core::schema::canonical_bytes(&src),
+                panproto_core::schema::canonical_bytes(&tgt),
+            )
+        };
+        let first = build();
+        for round in 0..16 {
+            assert_eq!(build(), first, "round {round} encoded differently");
+        }
+    }
 
     /// A two-vertex source schema: a `post` record with a `text` string
     /// property.

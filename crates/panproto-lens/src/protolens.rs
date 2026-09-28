@@ -2990,28 +2990,9 @@ fn apply_merge_sorts_to_schema(
 }
 
 /// Rebuild `outgoing`, `incoming`, and `between` adjacency indices from
-/// `schema.edges`.
+/// `schema.edges`, in the content order [`rebuild_indices`] fixes.
 fn rebuild_adjacency(schema: &mut Schema) {
-    let mut outgoing: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-    let mut incoming: HashMap<Name, SmallVec<panproto_schema::Edge, 4>> = HashMap::new();
-    let mut between: HashMap<(Name, Name), SmallVec<panproto_schema::Edge, 2>> = HashMap::new();
-    for edge in schema.edges.keys() {
-        outgoing
-            .entry(edge.src.clone())
-            .or_default()
-            .push(edge.clone());
-        incoming
-            .entry(edge.tgt.clone())
-            .or_default()
-            .push(edge.clone());
-        between
-            .entry((edge.src.clone(), edge.tgt.clone()))
-            .or_default()
-            .push(edge.clone());
-    }
-    schema.outgoing = outgoing;
-    schema.incoming = incoming;
-    schema.between = between;
+    rebuild_indices(schema);
 }
 
 /// Rename a sort (vertex kind) within a schema.
@@ -5331,5 +5312,46 @@ mod step_laws {
             ),
             "opaque coercion must retain coerced-sort complement data",
         );
+    }
+}
+
+/// A schema a protolens rewrites is the same schema whatever the hash seed
+/// of the process that rewrote it: its adjacency buckets are part of its
+/// canonical bytes, and so of its identity.
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod rewritten_schemas_are_seed_independent {
+    use panproto_schema::{Protocol, Schema, SchemaBuilder, canonical_bytes};
+
+    fn wide() -> Schema {
+        let protocol = Protocol::default();
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None)
+            .unwrap()
+            .vertex("leaf", "string", None)
+            .unwrap();
+        for i in 0..24 {
+            builder = builder
+                .edge("root", "leaf", "prop", Some(&format!("f{i}")))
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    #[test]
+    fn renaming_an_edge_label_gives_the_same_bytes_in_every_rebuild() {
+        let rewrite = || {
+            canonical_bytes(&super::apply_rename_edge_name(
+                &wide(),
+                &"root".into(),
+                &"leaf".into(),
+                &"f0".into(),
+                &"g0".into(),
+            ))
+        };
+        let first = rewrite();
+        for round in 0..16 {
+            assert_eq!(rewrite(), first, "round {round} encoded differently");
+        }
     }
 }
