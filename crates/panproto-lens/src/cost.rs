@@ -10,7 +10,7 @@
 //! - **Triangle inequality**: guaranteed by Floyd-Warshall in the lens graph.
 //!
 //! The enrichment structure provides the theoretical justification for the
-//! "shortest path = minimal information loss" heuristic in [`crate::graph`].
+//! "shortest path = minimal information loss" heuristic in [`crate::lens_graph`].
 
 use crate::protolens::{ComplementConstructor, ProtolensChain};
 
