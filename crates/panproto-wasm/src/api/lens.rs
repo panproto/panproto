@@ -840,10 +840,7 @@ pub fn symmetric_lens_sync(
             reason: format!("view: {e}"),
         })?;
 
-    let comp: lens::Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let (result_view, _result_complement) = slab::with_resource(sym_lens, |r| {
         let sym = slab::as_symmetric_lens(r)?;
