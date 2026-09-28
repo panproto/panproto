@@ -54,442 +54,592 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
     theories::register_simple_graph_flat(registry, "ThProtobufSchema", "ThProtobufInstance");
 }
 
-/// Intermediate representation of a parsed field, used for two-pass resolution.
+/// A reference from a field, map value or rpc to a named type, resolved
+/// once every declaration in the file is known.
 struct FieldInfo {
+    /// The vertex the `type-of` edge leaves.
     field_id: String,
+    /// The type name as written: relative (`Inner`, `Outer.Inner`) or
+    /// fully qualified (`.pkg.Outer`).
     type_name: String,
+    /// The id of the message the reference is written in, empty at file
+    /// level. Relative names resolve from here outward.
+    scope: String,
+}
+
+/// A lexical token of a `.proto` file.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Tok<'a> {
+    /// An identifier, dotted name, keyword or number literal.
+    Word(&'a str),
+    /// A string literal (its contents are never needed).
+    Str,
+    /// A punctuation character.
+    Sym(u8),
+}
+
+/// Whether a byte continues a word: identifier and number characters,
+/// the `.` of dotted and fully qualified names, and any non-ASCII byte.
+const fn is_word_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b >= 0x80
+}
+
+/// Split `.proto` source into tokens, dropping whitespace, `//` line
+/// comments and `/* */` block comments.
+fn tokenize(src: &str) -> Result<Vec<Tok<'_>>, ProtocolError> {
+    let bytes = src.as_bytes();
+    let mut toks = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b.is_ascii_whitespace() {
+            i += 1;
+        } else if b == b'/' && bytes.get(i + 1) == Some(&b'/') {
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+        } else if b == b'/' && bytes.get(i + 1) == Some(&b'*') {
+            let end = src[i + 2..]
+                .find("*/")
+                .ok_or_else(|| ProtocolError::Parse("unterminated block comment".into()))?;
+            i += 2 + end + 2;
+        } else if b == b'"' || b == b'\'' {
+            i += 1;
+            loop {
+                match bytes.get(i) {
+                    None => {
+                        return Err(ProtocolError::Parse("unterminated string literal".into()));
+                    }
+                    Some(b'\\') => i += 2,
+                    Some(&c) if c == b => {
+                        i += 1;
+                        break;
+                    }
+                    Some(_) => i += 1,
+                }
+            }
+            toks.push(Tok::Str);
+        } else if is_word_byte(b) {
+            let start = i;
+            while i < bytes.len() && is_word_byte(bytes[i]) {
+                i += 1;
+            }
+            toks.push(Tok::Word(&src[start..i]));
+        } else {
+            toks.push(Tok::Sym(b));
+            i += 1;
+        }
+    }
+    Ok(toks)
+}
+
+/// A recursive-descent reader of a tokenized `.proto` file.
+///
+/// It reads the declarations the schema records (messages, enums,
+/// oneofs, fields, map fields, groups, services and rpcs) and steps over
+/// every other statement (`syntax`, `edition`, `import`, `option`,
+/// `reserved`, `extensions`, `extend`, and field options), with brackets
+/// balanced, so option values spanning lines or holding message literals
+/// are skipped whole.
+struct ProtoReader<'a> {
+    toks: Vec<Tok<'a>>,
+    pos: usize,
+    /// The `package` declaration, empty when there is none.
+    package: String,
+    /// The ids of the message and enum vertices, which type references
+    /// resolve against.
+    type_ids: std::collections::HashSet<String>,
+    /// The type references to resolve once every declaration is read.
+    refs: Vec<FieldInfo>,
+}
+
+impl<'a> ProtoReader<'a> {
+    fn peek(&self) -> Option<Tok<'a>> {
+        self.toks.get(self.pos).copied()
+    }
+
+    fn peek_word(&self) -> Option<&'a str> {
+        match self.peek() {
+            Some(Tok::Word(w)) => Some(w),
+            _ => None,
+        }
+    }
+
+    fn eat_sym(&mut self, c: u8) -> bool {
+        if self.peek() == Some(Tok::Sym(c)) {
+            self.pos += 1;
+            true
+        } else {
+            false
+        }
+    }
+
+    fn expect_sym(&mut self, c: u8, context: &str) -> Result<(), ProtocolError> {
+        if self.eat_sym(c) {
+            Ok(())
+        } else {
+            Err(self.unexpected(&format!("'{}' {context}", char::from(c))))
+        }
+    }
+
+    fn word(&mut self, context: &str) -> Result<&'a str, ProtocolError> {
+        if let Some(w) = self.peek_word() {
+            self.pos += 1;
+            Ok(w)
+        } else {
+            Err(self.unexpected(context))
+        }
+    }
+
+    fn unexpected(&self, wanted: &str) -> ProtocolError {
+        let found = match self.peek() {
+            None => "end of file".to_owned(),
+            Some(Tok::Word(w)) => format!("'{w}'"),
+            Some(Tok::Str) => "a string literal".to_owned(),
+            Some(Tok::Sym(c)) => format!("'{}'", char::from(c)),
+        };
+        ProtocolError::Parse(format!(
+            "expected {wanted}, found {found} (token {})",
+            self.pos
+        ))
+    }
+
+    /// Step over one statement: up to and including its `;` at bracket
+    /// depth zero, or its balanced `{ ... }` block and a `;` after it.
+    /// A `}` at depth zero closes the enclosing block and is left for
+    /// the caller.
+    fn skip_statement(&mut self) {
+        let mut depth = 0usize;
+        while let Some(tok) = self.peek() {
+            match tok {
+                Tok::Sym(b'{' | b'[' | b'(') => depth += 1,
+                Tok::Sym(b'}') if depth == 0 => return,
+                Tok::Sym(b'}' | b']' | b')') => {
+                    depth = depth.saturating_sub(1);
+                    if depth == 0 && tok == Tok::Sym(b'}') {
+                        self.pos += 1;
+                        self.eat_sym(b';');
+                        return;
+                    }
+                }
+                Tok::Sym(b';') if depth == 0 => {
+                    self.pos += 1;
+                    return;
+                }
+                _ => {}
+            }
+            self.pos += 1;
+        }
+    }
+
+    /// Read the whole file.
+    fn file(&mut self, mut builder: SchemaBuilder) -> Result<SchemaBuilder, ProtocolError> {
+        while let Some(tok) = self.peek() {
+            match tok {
+                Tok::Word("message") => {
+                    self.pos += 1;
+                    builder = self.message(builder, "")?;
+                }
+                Tok::Word("enum") => {
+                    self.pos += 1;
+                    builder = self.enumeration(builder, "")?;
+                }
+                Tok::Word("service") => {
+                    self.pos += 1;
+                    builder = self.service(builder)?;
+                }
+                Tok::Word("package") => {
+                    self.pos += 1;
+                    self.package = self.word("a package name")?.to_owned();
+                    self.skip_statement();
+                }
+                Tok::Sym(b'}') => return Err(self.unexpected("a declaration")),
+                _ => self.skip_statement(),
+            }
+        }
+        Ok(builder)
+    }
+
+    /// Read `message Name { ... }` from after the keyword, declaring it
+    /// under `scope`.
+    fn message(
+        &mut self,
+        mut builder: SchemaBuilder,
+        scope: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let name = self.word("a message name")?;
+        let msg_id = scoped(scope, name);
+        builder = builder.vertex(&msg_id, "message", None)?;
+        self.type_ids.insert(msg_id.clone());
+        self.message_body(builder, &msg_id)
+    }
+
+    /// Read a message body `{ ... }` for the message `msg_id`.
+    fn message_body(
+        &mut self,
+        mut builder: SchemaBuilder,
+        msg_id: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        self.expect_sym(b'{', "to open a message body")?;
+        loop {
+            match self.peek() {
+                None => return Err(self.unexpected(&format!("'}}' to close message {msg_id}"))),
+                Some(Tok::Sym(b'}')) => {
+                    self.pos += 1;
+                    return Ok(builder);
+                }
+                Some(Tok::Word("message")) => {
+                    self.pos += 1;
+                    builder = self.message(builder, msg_id)?;
+                }
+                Some(Tok::Word("enum")) => {
+                    self.pos += 1;
+                    builder = self.enumeration(builder, msg_id)?;
+                }
+                Some(Tok::Word("oneof")) => {
+                    self.pos += 1;
+                    builder = self.oneof(builder, msg_id)?;
+                }
+                Some(
+                    Tok::Word("option" | "reserved" | "extensions" | "extend") | Tok::Sym(b';'),
+                ) => {
+                    self.skip_statement();
+                }
+                Some(_) => builder = self.field(builder, msg_id, msg_id)?,
+            }
+        }
+    }
+
+    /// Read one field declaration into `parent_id` (a message or oneof),
+    /// written inside the message `scope`.
+    ///
+    /// `[label] Type name = N [options];`, a `map<K, V> name = N;`, or a
+    /// proto2 `[label] group Name = N { ... }`.
+    fn field(
+        &mut self,
+        mut builder: SchemaBuilder,
+        parent_id: &str,
+        scope: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let label = match self.peek_word() {
+            Some(l @ ("required" | "optional" | "repeated")) => {
+                self.pos += 1;
+                Some(l)
+            }
+            _ => None,
+        };
+        let type_name = self.word("a field type")?;
+        if type_name == "map" && self.peek() == Some(Tok::Sym(b'<')) {
+            return self.map_field(builder, parent_id, scope);
+        }
+        if type_name == "group" && self.toks.get(self.pos + 1) == Some(&Tok::Sym(b'=')) {
+            return self.group(builder, parent_id, scope, label);
+        }
+        let field_name = self.word("a field name")?;
+        self.expect_sym(b'=', &format!("after field {field_name}"))?;
+        let number = self.word("a field number")?;
+        self.skip_statement();
+
+        let field_id = format!("{parent_id}.{field_name}");
+        builder = builder.vertex(&field_id, "field", None)?;
+        builder = builder.edge(parent_id, &field_id, "field-of", Some(field_name))?;
+        builder = builder.constraint(&field_id, "field_number", number);
+        if let Some(l) = label {
+            builder = builder.constraint(&field_id, "label", l);
+        }
+        self.refs.push(FieldInfo {
+            field_id,
+            type_name: type_name.to_owned(),
+            scope: scope.to_owned(),
+        });
+        Ok(builder)
+    }
+
+    /// Read `map<K, V> name = N [options];` from after `map`.
+    ///
+    /// The map field has a `key` and a `value` vertex of the entry
+    /// types' kinds. A value of message or enum type refers to it.
+    fn map_field(
+        &mut self,
+        mut builder: SchemaBuilder,
+        parent_id: &str,
+        scope: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        self.expect_sym(b'<', "after map")?;
+        let key_type = self.word("a map key type")?;
+        self.expect_sym(b',', "between map key and value types")?;
+        let val_type = self.word("a map value type")?;
+        self.expect_sym(b'>', "to close a map type")?;
+        let field_name = self.word("a map field name")?;
+        self.expect_sym(b'=', &format!("after map field {field_name}"))?;
+        let number = self.word("a field number")?;
+        self.skip_statement();
+
+        let field_id = format!("{parent_id}.{field_name}");
+        builder = builder.vertex(&field_id, "map", None)?;
+        builder = builder.edge(parent_id, &field_id, "field-of", Some(field_name))?;
+        builder = builder.constraint(&field_id, "field_number", number);
+
+        let key_id = format!("{field_id}:key");
+        builder = builder.vertex(&key_id, proto_scalar_kind(key_type), None)?;
+        builder = builder.edge(&field_id, &key_id, "type-of", Some("key"))?;
+
+        let val_id = format!("{field_id}:value");
+        let val_kind = proto_scalar_kind(val_type);
+        builder = builder.vertex(&val_id, val_kind, None)?;
+        builder = builder.edge(&field_id, &val_id, "type-of", Some("value"))?;
+        if val_kind == "field" {
+            self.refs.push(FieldInfo {
+                field_id: val_id,
+                type_name: val_type.to_owned(),
+                scope: scope.to_owned(),
+            });
+        }
+        Ok(builder)
+    }
+
+    /// Read a proto2 `group Name = N [options] { ... }` from after
+    /// `group`: a nested message `Name` and a field named `Name` in
+    /// lower case whose type it is.
+    fn group(
+        &mut self,
+        mut builder: SchemaBuilder,
+        parent_id: &str,
+        scope: &str,
+        label: Option<&str>,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let name = self.word("a group name")?;
+        self.expect_sym(b'=', &format!("after group {name}"))?;
+        let number = self.word("a group field number")?;
+        if self.peek() == Some(Tok::Sym(b'[')) {
+            let mut depth = 0usize;
+            while let Some(tok) = self.peek() {
+                self.pos += 1;
+                match tok {
+                    Tok::Sym(b'[') => depth += 1,
+                    Tok::Sym(b']') => {
+                        depth -= 1;
+                        if depth == 0 {
+                            break;
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        let msg_id = scoped(scope, name);
+        builder = builder.vertex(&msg_id, "message", None)?;
+        self.type_ids.insert(msg_id.clone());
+        builder = self.message_body(builder, &msg_id)?;
+
+        let field_name = name.to_ascii_lowercase();
+        let field_id = format!("{parent_id}.{field_name}");
+        builder = builder.vertex(&field_id, "field", None)?;
+        builder = builder.edge(parent_id, &field_id, "field-of", Some(&field_name))?;
+        builder = builder.constraint(&field_id, "field_number", number);
+        if let Some(l) = label {
+            builder = builder.constraint(&field_id, "label", l);
+        }
+        self.refs.push(FieldInfo {
+            field_id,
+            type_name: name.to_owned(),
+            scope: scope.to_owned(),
+        });
+        Ok(builder)
+    }
+
+    /// Read `enum Name { ... }` from after the keyword, declaring it
+    /// under `scope`. Each value is an `enum-value` vertex.
+    fn enumeration(
+        &mut self,
+        mut builder: SchemaBuilder,
+        scope: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let name = self.word("an enum name")?;
+        let enum_id = scoped(scope, name);
+        builder = builder.vertex(&enum_id, "enum", None)?;
+        self.type_ids.insert(enum_id.clone());
+        self.expect_sym(b'{', &format!("to open enum {enum_id}"))?;
+        loop {
+            match self.peek() {
+                None => return Err(self.unexpected(&format!("'}}' to close enum {enum_id}"))),
+                Some(Tok::Sym(b'}')) => {
+                    self.pos += 1;
+                    return Ok(builder);
+                }
+                Some(Tok::Word("option" | "reserved") | Tok::Sym(b';')) => self.skip_statement(),
+                Some(_) => {
+                    let val_name = self.word("an enum value name")?;
+                    self.expect_sym(b'=', &format!("after enum value {val_name}"))?;
+                    self.skip_statement();
+                    let val_id = format!("{enum_id}.{val_name}");
+                    builder = builder.vertex(&val_id, "enum-value", None)?;
+                    builder = builder.edge(&enum_id, &val_id, "variant-of", Some(val_name))?;
+                }
+            }
+        }
+    }
+
+    /// Read `oneof name { ... }` from after the keyword, inside the
+    /// message `msg_id`.
+    fn oneof(
+        &mut self,
+        mut builder: SchemaBuilder,
+        msg_id: &str,
+    ) -> Result<SchemaBuilder, ProtocolError> {
+        let name = self.word("a oneof name")?;
+        let oneof_id = format!("{msg_id}.{name}");
+        builder = builder.vertex(&oneof_id, "oneof", None)?;
+        builder = builder.edge(msg_id, &oneof_id, "field-of", Some(name))?;
+        self.expect_sym(b'{', &format!("to open oneof {oneof_id}"))?;
+        loop {
+            match self.peek() {
+                None => return Err(self.unexpected(&format!("'}}' to close oneof {oneof_id}"))),
+                Some(Tok::Sym(b'}')) => {
+                    self.pos += 1;
+                    return Ok(builder);
+                }
+                Some(Tok::Word("option") | Tok::Sym(b';')) => self.skip_statement(),
+                Some(_) => builder = self.field(builder, &oneof_id, msg_id)?,
+            }
+        }
+    }
+
+    /// Read `service Name { ... }` from after the keyword. Each rpc is an
+    /// `rpc` vertex referring to its request and response types.
+    fn service(&mut self, mut builder: SchemaBuilder) -> Result<SchemaBuilder, ProtocolError> {
+        let name = self.word("a service name")?;
+        builder = builder.vertex(name, "service", None)?;
+        self.expect_sym(b'{', &format!("to open service {name}"))?;
+        loop {
+            match self.peek() {
+                None => return Err(self.unexpected(&format!("'}}' to close service {name}"))),
+                Some(Tok::Sym(b'}')) => {
+                    self.pos += 1;
+                    return Ok(builder);
+                }
+                Some(Tok::Word("rpc")) => {
+                    self.pos += 1;
+                    let rpc_name = self.word("an rpc name")?;
+                    let rpc_id = format!("{name}.{rpc_name}");
+                    builder = builder.vertex(&rpc_id, "rpc", None)?;
+                    builder = builder.edge(name, &rpc_id, "field-of", Some(rpc_name))?;
+                    let input = self.rpc_type(&rpc_id)?;
+                    if self.word("'returns'")? != "returns" {
+                        return Err(ProtocolError::Parse(format!(
+                            "expected 'returns' in rpc {rpc_id}"
+                        )));
+                    }
+                    let output = self.rpc_type(&rpc_id)?;
+                    for type_name in [input, output] {
+                        self.refs.push(FieldInfo {
+                            field_id: rpc_id.clone(),
+                            type_name: type_name.to_owned(),
+                            scope: String::new(),
+                        });
+                    }
+                    // `;`, or an options block `{ ... }`.
+                    self.skip_statement();
+                }
+                Some(_) => self.skip_statement(),
+            }
+        }
+    }
+
+    /// Read `( [stream] Type )`, returning the type name.
+    fn rpc_type(&mut self, rpc_id: &str) -> Result<&'a str, ProtocolError> {
+        self.expect_sym(b'(', &format!("in rpc {rpc_id}"))?;
+        let mut type_name = self.word("an rpc type")?;
+        if type_name == "stream" && self.peek() != Some(Tok::Sym(b')')) {
+            type_name = self.word("an rpc type")?;
+        }
+        self.expect_sym(b')', &format!("in rpc {rpc_id}"))?;
+        Ok(type_name)
+    }
+
+    /// The vertex id a type reference written in `scope` names, if the
+    /// file declares it.
+    ///
+    /// A fully qualified name (`.pkg.Outer.Inner`) names one type; a
+    /// relative name is looked up in `scope`, then in each enclosing
+    /// scope out to the package and the file, and the innermost
+    /// declaration wins, as `protoc` resolves it. Vertex ids leave the
+    /// package out, so a name resolves only to a type of this package.
+    fn resolve(&self, type_name: &str, scope: &str) -> Option<String> {
+        let local = |full: &str| -> Option<String> {
+            let id = if self.package.is_empty() {
+                full
+            } else {
+                full.strip_prefix(self.package.as_str())?
+                    .strip_prefix('.')?
+            };
+            self.type_ids.contains(id).then(|| id.to_owned())
+        };
+        if let Some(full) = type_name.strip_prefix('.') {
+            return local(full);
+        }
+        let mut enclosing: Vec<&str> = self
+            .package
+            .split('.')
+            .chain(scope.split('.'))
+            .filter(|s| !s.is_empty())
+            .collect();
+        loop {
+            let candidate = if enclosing.is_empty() {
+                type_name.to_owned()
+            } else {
+                format!("{}.{type_name}", enclosing.join("."))
+            };
+            if let Some(id) = local(&candidate) {
+                return Some(id);
+            }
+            enclosing.pop()?;
+        }
+    }
+}
+
+/// The id of a declaration `name` inside `scope` (empty at file level).
+fn scoped(scope: &str, name: &str) -> String {
+    if scope.is_empty() {
+        name.to_owned()
+    } else {
+        format!("{scope}.{name}")
+    }
 }
 
 /// Parse a `.proto` file into a [`Schema`].
 ///
-/// Uses a two-pass approach:
-/// - **Pass 1**: Parse all messages, enums, and services, collecting vertex IDs.
-/// - **Pass 2**: For each field that references another message/enum type, add a "type-of" edge.
+/// The file is tokenized, so comments, multi-line statements and option
+/// values holding message literals read the same wherever they fall.
+/// Declarations are read first; each field, map value and rpc type that
+/// names a message or enum of the file then gets a `type-of` edge to it,
+/// with relative names resolved from the enclosing scope outward.
 ///
 /// # Errors
 ///
-/// Returns [`ProtocolError`] if the proto file cannot be parsed.
+/// Returns [`ProtocolError::Parse`] for a token the grammar does not
+/// admit where it appears, or an unterminated block, comment or string;
+/// or the schema builder's error for a declaration it rejects, such as
+/// two declarations of one name.
 pub fn parse_proto(proto: &str) -> Result<Schema, ProtocolError> {
     let proto_def = protocol();
-    let mut builder = SchemaBuilder::new(&proto_def);
-    let mut vertex_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let mut field_infos: Vec<FieldInfo> = Vec::new();
+    let mut reader = ProtoReader {
+        toks: tokenize(proto)?,
+        pos: 0,
+        package: String::new(),
+        type_ids: std::collections::HashSet::new(),
+        refs: Vec::new(),
+    };
+    let mut builder = reader.file(SchemaBuilder::new(&proto_def))?;
 
-    let lines: Vec<&str> = proto.lines().collect();
-    let mut i = 0;
-
-    // Pass 1: Parse all declarations.
-    while i < lines.len() {
-        let trimmed = lines[i].trim();
-
-        if trimmed.starts_with("syntax") || trimmed.starts_with("package") {
-            // Metadata declarations; parsed and skipped.
-            i += 1;
-        } else if trimmed.starts_with("import") {
-            // Cross-file resolution is inherently limited; skip gracefully.
-            i += 1;
-        } else if trimmed.starts_with("message ") {
-            let (new_builder, new_i, new_fields) =
-                parse_message(builder, &lines, i, "", &mut vertex_ids)?;
-            builder = new_builder;
-            field_infos.extend(new_fields);
-            i = new_i;
-        } else if trimmed.starts_with("enum ") {
-            let (new_builder, new_i) = parse_enum(builder, &lines, i, "", &mut vertex_ids)?;
-            builder = new_builder;
-            i = new_i;
-        } else if trimmed.starts_with("service ") {
-            let (new_builder, new_i, new_fields) =
-                parse_service(builder, &lines, i, &mut vertex_ids)?;
-            builder = new_builder;
-            field_infos.extend(new_fields);
-            i = new_i;
-        } else {
-            i += 1;
-        }
-    }
-
-    // Pass 2: Resolve type-of edges for fields referencing other messages/enums.
-    for info in &field_infos {
-        if vertex_ids.contains(&info.type_name) {
-            builder = builder.edge(&info.field_id, &info.type_name, "type-of", None)?;
+    for info in &reader.refs {
+        if let Some(target) = reader.resolve(&info.type_name, &info.scope) {
+            builder = builder.edge(&info.field_id, &target, "type-of", None)?;
         }
     }
 
     let schema = builder.build()?;
     Ok(schema)
-}
-
-/// Parse a message declaration.
-fn parse_message(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    prefix: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize, Vec<FieldInfo>), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let name = trimmed
-        .strip_prefix("message ")
-        .and_then(|s| s.split('{').next())
-        .map(str::trim)
-        .ok_or_else(|| ProtocolError::Parse("invalid message declaration".into()))?;
-
-    let msg_id = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}.{name}")
-    };
-
-    builder = builder.vertex(&msg_id, "message", None)?;
-    vertex_ids.insert(msg_id.clone());
-
-    let mut field_infos = Vec::new();
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1, field_infos));
-        }
-
-        if line.starts_with("message ") {
-            let (new_builder, new_i, new_fields) =
-                parse_message(builder, lines, i, &msg_id, vertex_ids)?;
-            builder = new_builder;
-            field_infos.extend(new_fields);
-            i = new_i;
-            continue;
-        }
-
-        if line.starts_with("enum ") {
-            let (new_builder, new_i) = parse_enum(builder, lines, i, &msg_id, vertex_ids)?;
-            builder = new_builder;
-            i = new_i;
-            continue;
-        }
-
-        if line.starts_with("oneof ") {
-            let (new_builder, new_i, new_fields) =
-                parse_oneof(builder, lines, i, &msg_id, vertex_ids)?;
-            builder = new_builder;
-            field_infos.extend(new_fields);
-            i = new_i;
-            continue;
-        }
-
-        // Parse field: [label] type name = number;
-        if !line.is_empty() && !line.starts_with("//") && !line.starts_with("option ") {
-            let (new_builder, new_field) = parse_field(builder, line, &msg_id, vertex_ids)?;
-            builder = new_builder;
-            if let Some(info) = new_field {
-                field_infos.push(info);
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i, field_infos))
-}
-
-/// Parse an enum declaration.
-fn parse_enum(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    prefix: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let name = trimmed
-        .strip_prefix("enum ")
-        .and_then(|s| s.split('{').next())
-        .map(str::trim)
-        .ok_or_else(|| ProtocolError::Parse("invalid enum declaration".into()))?;
-
-    let enum_id = if prefix.is_empty() {
-        name.to_string()
-    } else {
-        format!("{prefix}.{name}")
-    };
-
-    builder = builder.vertex(&enum_id, "enum", None)?;
-    vertex_ids.insert(enum_id.clone());
-
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1));
-        }
-
-        // Parse enum value: NAME = NUMBER;
-        if !line.is_empty() && !line.starts_with("//") && !line.starts_with("option ") {
-            if let Some((val_name, _)) = line.split_once('=') {
-                let val_name = val_name.trim();
-                let val_id = format!("{enum_id}.{val_name}");
-                builder = builder.vertex(&val_id, "enum-value", None)?;
-                vertex_ids.insert(val_id.clone());
-                builder = builder.edge(&enum_id, &val_id, "variant-of", Some(val_name))?;
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i))
-}
-
-/// Parse a oneof declaration.
-fn parse_oneof(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    msg_id: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize, Vec<FieldInfo>), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let name = trimmed
-        .strip_prefix("oneof ")
-        .and_then(|s| s.split('{').next())
-        .map(str::trim)
-        .ok_or_else(|| ProtocolError::Parse("invalid oneof declaration".into()))?;
-
-    let oneof_id = format!("{msg_id}.{name}");
-    builder = builder.vertex(&oneof_id, "oneof", None)?;
-    vertex_ids.insert(oneof_id.clone());
-    builder = builder.edge(msg_id, &oneof_id, "field-of", Some(name))?;
-
-    let mut field_infos = Vec::new();
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1, field_infos));
-        }
-
-        if !line.is_empty() && !line.starts_with("//") {
-            let (new_builder, new_field) = parse_field(builder, line, &oneof_id, vertex_ids)?;
-            builder = new_builder;
-            if let Some(info) = new_field {
-                field_infos.push(info);
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i, field_infos))
-}
-
-/// Parse a service declaration.
-fn parse_service(
-    mut builder: SchemaBuilder,
-    lines: &[&str],
-    start: usize,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, usize, Vec<FieldInfo>), ProtocolError> {
-    let trimmed = lines[start].trim();
-    let name = trimmed
-        .strip_prefix("service ")
-        .and_then(|s| s.split('{').next())
-        .map(str::trim)
-        .ok_or_else(|| ProtocolError::Parse("invalid service declaration".into()))?;
-
-    builder = builder.vertex(name, "service", None)?;
-    vertex_ids.insert(name.to_string());
-
-    let mut field_infos = Vec::new();
-    let mut i = start + 1;
-    while i < lines.len() {
-        let line = lines[i].trim();
-        if line == "}" || line.starts_with('}') {
-            return Ok((builder, i + 1, field_infos));
-        }
-
-        if line.starts_with("rpc ") {
-            // rpc MethodName (InputType) returns (OutputType);
-            if let Some(rpc_name) = line
-                .strip_prefix("rpc ")
-                .and_then(|s| s.split('(').next())
-                .map(str::trim)
-            {
-                let rpc_id = format!("{name}.{rpc_name}");
-                builder = builder.vertex(&rpc_id, "rpc", None)?;
-                vertex_ids.insert(rpc_id.clone());
-                builder = builder.edge(name, &rpc_id, "field-of", Some(rpc_name))?;
-
-                // Extract input type from first parenthesized group.
-                if let Some(input_start) = line.find('(') {
-                    if let Some(input_end) = line[input_start..].find(')') {
-                        let input_type = line[input_start + 1..input_start + input_end].trim();
-                        if !input_type.is_empty() {
-                            field_infos.push(FieldInfo {
-                                field_id: rpc_id.clone(),
-                                type_name: input_type.to_string(),
-                            });
-                        }
-                    }
-                }
-
-                // Extract output type from "returns (...)" group.
-                if let Some(returns_idx) = line.find("returns") {
-                    let after_returns = &line[returns_idx + "returns".len()..];
-                    if let Some(out_start) = after_returns.find('(') {
-                        if let Some(out_end) = after_returns[out_start..].find(')') {
-                            let output_type =
-                                after_returns[out_start + 1..out_start + out_end].trim();
-                            if !output_type.is_empty() {
-                                field_infos.push(FieldInfo {
-                                    field_id: rpc_id.clone(),
-                                    type_name: output_type.to_string(),
-                                });
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Handle multi-line rpc blocks with braces.
-            if line.contains('{') && !line.contains('}') {
-                i += 1;
-                while i < lines.len() {
-                    let rpc_line = lines[i].trim();
-                    if rpc_line == "}" || rpc_line.starts_with('}') {
-                        break;
-                    }
-                    i += 1;
-                }
-            }
-        }
-
-        i += 1;
-    }
-
-    Ok((builder, i, field_infos))
-}
-
-/// Parse a single field declaration.
-///
-/// Returns the updated builder and optionally a `FieldInfo` for deferred type-of resolution.
-fn parse_field(
-    mut builder: SchemaBuilder,
-    line: &str,
-    parent_id: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, Option<FieldInfo>), ProtocolError> {
-    let parts: Vec<&str> = line
-        .split(';')
-        .next()
-        .unwrap_or(line)
-        .split_whitespace()
-        .collect();
-
-    if parts.len() < 3 {
-        return Ok((builder, None));
-    }
-
-    // Check for map<K, V> fields.
-    let joined = parts.join(" ");
-    if let Some(map_start) = joined.find("map<") {
-        return parse_map_field(builder, &joined, map_start, parent_id, vertex_ids);
-    }
-
-    // Determine if there is a label (required/optional/repeated).
-    let (label, type_name, field_name, field_number) =
-        if parts[0] == "required" || parts[0] == "optional" || parts[0] == "repeated" {
-            if parts.len() < 5 {
-                return Ok((builder, None));
-            }
-            (
-                Some(parts[0]),
-                parts[1],
-                parts[2],
-                parts.get(4).copied().unwrap_or("0"),
-            )
-        } else {
-            (
-                None,
-                parts[0],
-                parts[1],
-                parts.get(3).copied().unwrap_or("0"),
-            )
-        };
-
-    let field_id = format!("{parent_id}.{field_name}");
-    builder = builder.vertex(&field_id, "field", None)?;
-    vertex_ids.insert(field_id.clone());
-    builder = builder.edge(parent_id, &field_id, "field-of", Some(field_name))?;
-
-    // Add field number constraint.
-    let num = field_number.trim_matches(';').trim();
-    if !num.is_empty() {
-        builder = builder.constraint(&field_id, "field_number", num);
-    }
-
-    // Add label constraint.
-    if let Some(l) = label {
-        builder = builder.constraint(&field_id, "label", l);
-    }
-
-    // Collect type reference for pass 2 resolution.
-    let field_info = FieldInfo {
-        field_id,
-        type_name: type_name.to_string(),
-    };
-
-    Ok((builder, Some(field_info)))
-}
-
-/// Parse a `map<K, V>` field declaration.
-fn parse_map_field(
-    mut builder: SchemaBuilder,
-    line: &str,
-    map_start: usize,
-    parent_id: &str,
-    vertex_ids: &mut std::collections::HashSet<String>,
-) -> Result<(SchemaBuilder, Option<FieldInfo>), ProtocolError> {
-    // Extract the content between < and >.
-    let after_map = &line[map_start + 4..];
-    let close = after_map.find('>').unwrap_or(after_map.len());
-    let inner = &after_map[..close];
-    let rest = after_map[close + 1..].trim();
-
-    // Parse key and value types.
-    let kv: Vec<&str> = inner.splitn(2, ',').map(str::trim).collect();
-    let key_type = kv.first().copied().unwrap_or("string");
-    let val_type = kv.get(1).copied().unwrap_or("string");
-
-    // Parse field name and number from the rest.
-    let rest_parts: Vec<&str> = rest.split_whitespace().collect();
-    let field_name = rest_parts.first().copied().unwrap_or("unknown");
-    let field_number = rest_parts.get(2).copied().unwrap_or("0").trim_matches(';');
-
-    let field_id = format!("{parent_id}.{field_name}");
-    builder = builder.vertex(&field_id, "map", None)?;
-    vertex_ids.insert(field_id.clone());
-    builder = builder.edge(parent_id, &field_id, "field-of", Some(field_name))?;
-
-    if !field_number.is_empty() {
-        builder = builder.constraint(&field_id, "field_number", field_number);
-    }
-
-    // Create key type vertex.
-    let key_id = format!("{field_id}:key");
-    let key_kind = proto_scalar_kind(key_type);
-    builder = builder.vertex(&key_id, key_kind, None)?;
-    vertex_ids.insert(key_id.clone());
-    builder = builder.edge(&field_id, &key_id, "type-of", Some("key"))?;
-
-    // Create value type vertex.
-    let val_id = format!("{field_id}:value");
-    let val_kind = proto_scalar_kind(val_type);
-    builder = builder.vertex(&val_id, val_kind, None)?;
-    vertex_ids.insert(val_id.clone());
-    builder = builder.edge(&field_id, &val_id, "type-of", Some("value"))?;
-
-    Ok((builder, None))
 }
 
 /// Map a protobuf scalar type to a vertex kind.
