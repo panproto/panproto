@@ -4504,6 +4504,13 @@ checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "ciborium",
+ "panproto-gat",
+ "panproto-inst",
+ "panproto-lens",
+ "panproto-mig",
+ "panproto-schema",
+ "rmp-serde",
  "serde",
  "serde_json",
  "toml 1.1.1+spec-1.1.0",
