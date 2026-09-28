@@ -85,7 +85,7 @@
       "name": "jsonschema/tsconfig",
       "protocol": "json-schema",
       "source": "fixtures/jsonschema/tsconfig.json",
-      "digest": "7c28b27c0da399bc4d75fcf70f52360a363acdb35d044075d00176d9b0b565ab"
+      "digest": "b8db85b8eb99243572585eacb1c93efc54dd6f2c663c1206bdd42a729f1ab1f9"
     },
     {
       "name": "protobuf/common",
