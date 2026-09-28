@@ -16,11 +16,44 @@
 //! against them and what remains under test once they are excluded.
 
 use crate::Lens;
-use crate::asymmetric::{Complement, get, put};
+use crate::asymmetric::{Complement, get_with_identity, put_with_identity};
 use crate::derived::{DerivedMap, collect_derived_fields, extra_fields_equiv_modulo};
 use crate::error::LawViolation;
 
 use panproto_inst::WInstance;
+use panproto_inst::identity::{ComplementShape, IdentityEnvelope, IdentityPolicy};
+
+/// `get` and `put` through one lens, with its envelope computed once for
+/// every call a checker makes.
+struct Bound<'a> {
+    lens: &'a Lens,
+    envelope: IdentityEnvelope,
+}
+
+impl<'a> Bound<'a> {
+    fn new(lens: &'a Lens) -> Self {
+        Self {
+            lens,
+            envelope: lens.identity(ComplementShape::WType),
+        }
+    }
+
+    fn get(&self, instance: &WInstance) -> Result<(WInstance, Complement), LawViolation> {
+        get_with_identity(self.lens, instance, &self.envelope).map_err(LawViolation::Error)
+    }
+
+    fn put(&self, view: &WInstance, complement: &Complement) -> Result<WInstance, LawViolation> {
+        put_with_identity(
+            self.lens,
+            view,
+            complement,
+            &self.envelope,
+            IdentityPolicy::AllowLegacy,
+        )
+        .map(|(source, _)| source)
+        .map_err(LawViolation::Error)
+    }
+}
 
 /// Verify both `GetPut` and `PutGet` laws on a specific instance.
 ///
@@ -30,9 +63,10 @@ use panproto_inst::WInstance;
 /// [`LawViolation::PutGet`] if the put-get cycle fails, or
 /// `LawViolation::Error` if an operational error occurs.
 pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation> {
+    let bound = Bound::new(lens);
     // GetPut: put(s, get(s)) should recover s
-    let (view, complement) = get(lens, instance).map_err(LawViolation::Error)?;
-    let restored = put(lens, &view, &complement).map_err(LawViolation::Error)?;
+    let (view, complement) = bound.get(instance)?;
+    let restored = bound.put(&view, &complement)?;
 
     if !instances_equivalent(instance, &restored) {
         return Err(LawViolation::GetPut {
@@ -48,12 +82,12 @@ pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation>
 
     // PutGet: get(put(s, v, c)) should return v (for arbitrary v).
     // Test with original view.
-    check_put_get_with_view(lens, &view, &complement)?;
+    put_get_with_view(&bound, &view, &complement)?;
 
     // Test with a modified view.
     let modified_view = modify_leaf_values(&view);
     if !instances_equivalent(&view, &modified_view) {
-        check_put_get_with_view(lens, &modified_view, &complement)?;
+        put_get_with_view(&bound, &modified_view, &complement)?;
     }
 
     Ok(())
@@ -304,8 +338,9 @@ fn dropped_node_equiv(a: &panproto_inst::Node, b: &panproto_inst::Node) -> bool 
 ///
 /// Returns [`LawViolation::GetPut`] or [`LawViolation::Error`].
 pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation> {
-    let (view, complement) = get(lens, instance).map_err(LawViolation::Error)?;
-    let restored = put(lens, &view, &complement).map_err(LawViolation::Error)?;
+    let bound = Bound::new(lens);
+    let (view, complement) = bound.get(instance)?;
+    let restored = bound.put(&view, &complement)?;
 
     if !instances_equivalent(instance, &restored) {
         return Err(LawViolation::GetPut {
@@ -338,16 +373,17 @@ pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 ///
 /// Returns [`LawViolation::PutGet`] or [`LawViolation::Error`].
 pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation> {
-    let (view, complement) = get(lens, instance).map_err(LawViolation::Error)?;
+    let bound = Bound::new(lens);
+    let (view, complement) = bound.get(instance)?;
 
     // Test with original view (identity case).
-    check_put_get_with_view(lens, &view, &complement)?;
+    put_get_with_view(&bound, &view, &complement)?;
 
     // Test with a modified view: perturb the scalar leaves to exercise
     // the law with a genuinely different view.
     let modified_view = modify_leaf_values(&view);
     if !instances_equivalent(&view, &modified_view) {
-        check_put_get_with_view(lens, &modified_view, &complement)?;
+        put_get_with_view(&bound, &modified_view, &complement)?;
     }
 
     Ok(())
@@ -365,15 +401,25 @@ pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 /// # Errors
 ///
 /// Returns [`LawViolation::PutGet`] or [`LawViolation::Error`].
+#[cfg(test)]
 pub(crate) fn check_put_get_with_view(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,
 ) -> Result<(), LawViolation> {
-    let restored = put(lens, view, complement).map_err(LawViolation::Error)?;
-    let (view2, _) = get(lens, &restored).map_err(LawViolation::Error)?;
+    put_get_with_view(&Bound::new(lens), view, complement)
+}
 
-    let derived = collect_derived_fields(&lens.compiled);
+/// [`check_put_get_with_view`] through an already-bound lens.
+fn put_get_with_view(
+    bound: &Bound<'_>,
+    view: &WInstance,
+    complement: &Complement,
+) -> Result<(), LawViolation> {
+    let restored = bound.put(view, complement)?;
+    let (view2, _) = bound.get(&restored)?;
+
+    let derived = collect_derived_fields(&bound.lens.compiled);
     if let Some(detail) = instance_divergence_modulo_derived(view, &view2, &derived) {
         return Err(LawViolation::PutGet { detail });
     }
@@ -504,23 +550,8 @@ pub fn check_put_put(
     first_view: &WInstance,
     second_view: &WInstance,
 ) -> Result<(), LawViolation> {
-    let envelope = lens.identity(panproto_inst::identity::ComplementShape::WType);
-    let put = |view: &WInstance, complement: &Complement| {
-        crate::asymmetric::put_with_identity(
-            lens,
-            view,
-            complement,
-            &envelope,
-            panproto_inst::identity::IdentityPolicy::AllowLegacy,
-        )
-        .map(|(restored, _)| restored)
-        .map_err(LawViolation::Error)
-    };
-    let get = |instance: &WInstance| {
-        crate::asymmetric::get_with_identity(lens, instance, &envelope).map_err(LawViolation::Error)
-    };
-
-    let (view, complement) = get(source)?;
+    let bound = Bound::new(lens);
+    let (view, complement) = bound.get(source)?;
     if instances_equivalent(first_view, &view) {
         return Err(LawViolation::Error(crate::LensError::ComplementMismatch {
             detail: "PutPut needs a first view that differs from the source's own view; putting \
@@ -530,10 +561,10 @@ pub fn check_put_put(
         }));
     }
 
-    let after_first = put(first_view, &complement)?;
-    let (_, complement_after_first) = get(&after_first)?;
-    let chained = put(second_view, &complement_after_first)?;
-    let direct = put(second_view, &complement)?;
+    let after_first = bound.put(first_view, &complement)?;
+    let (_, complement_after_first) = bound.get(&after_first)?;
+    let chained = bound.put(second_view, &complement_after_first)?;
+    let direct = bound.put(second_view, &complement)?;
 
     if !instances_equivalent(&chained, &direct) {
         return Err(LawViolation::PutPut {
@@ -583,6 +614,7 @@ fn modify_leaf_values(instance: &WInstance) -> WInstance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::asymmetric::get;
     use crate::tests::{identity_lens, three_node_instance, three_node_schema};
 
     #[test]
