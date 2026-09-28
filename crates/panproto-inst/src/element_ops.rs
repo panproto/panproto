@@ -64,7 +64,9 @@ pub trait ElementOps {
     /// one entry per walk, and the number of walks can grow exponentially in
     /// the number of steps: `2k` steps through a chain of `k` diamonds list
     /// its last node `2^k` times. A tree has one path to each node, so its
-    /// composed pushforwards never exceed its node count.
+    /// composed pushforwards never exceed its node count. A query's path
+    /// navigation ([`execute_elements`](crate::execute_elements)) keeps each
+    /// target once per step, so its cost stays linear in the path's length.
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32>;
 
     /// Stalk projection: observable data at element `x`.

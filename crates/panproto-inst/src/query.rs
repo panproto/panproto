@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 
 use panproto_gat::Name;
-use rustc_hash::FxHashMap;
+use rustc_hash::{FxHashMap, FxHashSet};
 use serde::{Deserialize, Serialize};
 
 use crate::element_ops::ElementOps;
@@ -175,11 +175,13 @@ pub fn execute(
 /// 5. Projection: extract observable fields from each matched element
 /// 6. Group-by: sort results by a field value
 ///
-/// Each step of the path is materialised in full before the next, and
-/// `limit` is applied only after the whole path and the predicate. On a
-/// graph, where [`ElementOps::pushforward`] counts paths, the intermediate
-/// lists hold one entry per walk, which can grow exponentially with the
-/// path's length; `limit` does not bound that work.
+/// Each path step keeps every element it reaches once, at its first
+/// occurrence in [`ElementOps::pushforward`] order, and the next step starts
+/// from that list. So a query matches an element once however many walks
+/// reach it, and a step over a graph costs time in the number of matching
+/// edges rather than in the number of walks, which can grow exponentially
+/// with the path's length. `limit` is applied after the whole path and the
+/// predicate.
 ///
 /// The `schema` parameter is reserved for future schema-aware operations.
 #[must_use]
@@ -198,7 +200,7 @@ pub fn execute_elements<T: ElementOps>(
         candidates
     } else {
         query.path.iter().fold(candidates, |current, edge_kind| {
-            instance.pushforward(&current, edge_kind)
+            first_occurrences(instance.pushforward(&current, edge_kind))
         })
     };
 
@@ -301,7 +303,7 @@ pub fn execute_any(
 /// Follow a path of edge kinds from a set of starting nodes.
 ///
 /// Each step collects all children reachable via arcs whose edge kind
-/// matches the path element.
+/// matches the path element, each child once, as [`execute_elements`] does.
 fn navigate_path(instance: &WInstance, start_nodes: &[u32], path: &[Name]) -> Vec<u32> {
     let mut current = start_nodes.to_vec();
     for edge_kind in path {
@@ -313,9 +315,15 @@ fn navigate_path(instance: &WInstance, start_nodes: &[u32], path: &[Name]) -> Ve
                 }
             }
         }
-        current = next;
+        current = first_occurrences(next);
     }
     current
+}
+
+/// `ids` with each id kept only at its first occurrence.
+fn first_occurrences(ids: Vec<u32>) -> Vec<u32> {
+    let mut seen = FxHashSet::default();
+    ids.into_iter().filter(|id| seen.insert(*id)).collect()
 }
 
 /// Build an expression evaluation environment from a node's observable stalk.

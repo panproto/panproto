@@ -7,6 +7,8 @@
 //! the next, so a query that applies `limit` after a path step keeps a
 //! different subset. A graph instance's pushforward counts paths: a node
 //! reached twice is listed twice, and each copy is followed on the next step.
+//! A query's path navigation does not: it keeps each node once per step, so
+//! its work is bounded by the graph's size rather than by its number of walks.
 
 use std::collections::HashMap;
 
@@ -99,16 +101,7 @@ fn composed_graph_pushforwards_list_one_entry_per_walk() -> Result<(), Box<dyn s
     // A chain of diamonds: node 3i splits to 3i+1 and 3i+2, which both join
     // at 3i+3. Every diamond doubles the number of walks to the next join.
     const DIAMONDS: u32 = 12;
-    let mut graph =
-        (0..=3 * DIAMONDS).fold(GInstance::new(), |g, id| g.with_node(Node::new(id, "n")));
-    for i in 0..DIAMONDS {
-        let top = 3 * i;
-        graph = graph
-            .with_edge(top, top + 1, link())
-            .with_edge(top, top + 2, link())
-            .with_edge(top + 1, top + 3, link())
-            .with_edge(top + 2, top + 3, link());
-    }
+    let graph = diamond_chain(DIAMONDS);
 
     let path: Vec<Name> = (0..2 * DIAMONDS).map(|_| Name::from("link")).collect();
     let walks = path
@@ -117,24 +110,108 @@ fn composed_graph_pushforwards_list_one_entry_per_walk() -> Result<(), Box<dyn s
     assert_eq!(walks.len(), 1 << DIAMONDS, "one entry per walk");
     assert!(walks.iter().all(|&node| node == 3 * DIAMONDS));
 
-    // The query applies `limit` after the path, so it answers with the first
-    // entries of the full list of walks.
-    let schema = SchemaBuilder::new(&Protocol::default())
-        .vertex("n", "record", None)?
-        .edge("n", "n", "link", None)?
-        .build()?;
+    // A query over the same path matches the far end once, however many
+    // walks reach it.
     let query = InstanceQuery {
         anchor: Name::from("n"),
         path,
         limit: Some(3),
         ..Default::default()
     };
-    let answers: Vec<u32> = execute_graph(&query, &graph, &schema)
+    // Every node is a start; only the root reaches the far end in
+    // `2 * DIAMONDS` steps.
+    assert_eq!(query_answers(&query, &graph)?, vec![3 * DIAMONDS]);
+    Ok(())
+}
+
+/// A chain of `diamonds` diamonds over one vertex `n`: node `3i` splits to
+/// `3i + 1` and `3i + 2`, which both join at `3i + 3`.
+fn diamond_chain(diamonds: u32) -> GInstance {
+    let mut graph =
+        (0..=3 * diamonds).fold(GInstance::new(), |g, id| g.with_node(Node::new(id, "n")));
+    for i in 0..diamonds {
+        let top = 3 * i;
+        graph = graph
+            .with_edge(top, top + 1, link())
+            .with_edge(top, top + 2, link())
+            .with_edge(top + 1, top + 3, link())
+            .with_edge(top + 2, top + 3, link());
+    }
+    graph
+}
+
+/// The node ids a query over the one-vertex `n` schema matches, in order.
+fn query_answers(
+    query: &InstanceQuery,
+    graph: &GInstance,
+) -> Result<Vec<u32>, Box<dyn std::error::Error>> {
+    let schema = SchemaBuilder::new(&Protocol::default())
+        .vertex("n", "record", None)?
+        .edge("n", "n", "link", None)?
+        .build()?;
+    Ok(execute_graph(query, graph, &schema)
         .into_iter()
         .map(|m| m.node_id)
-        .collect();
-    // Every node is a start; only the root's walks reach the far end in
-    // `2 * DIAMONDS` steps, and they come first by edge id.
-    assert_eq!(answers, vec![3 * DIAMONDS; 3]);
+        .collect())
+}
+
+#[test]
+fn a_graph_query_matches_each_node_once_however_many_walks_reach_it()
+-> Result<(), Box<dyn std::error::Error>> {
+    // `2^16` walks reach the far end; the query lists it once.
+    const DIAMONDS: u32 = 16;
+    let query = InstanceQuery {
+        anchor: Name::from("n"),
+        path: (0..2 * DIAMONDS).map(|_| Name::from("link")).collect(),
+        ..Default::default()
+    };
+    assert_eq!(
+        query_answers(&query, &diamond_chain(DIAMONDS))?,
+        vec![3 * DIAMONDS]
+    );
+
+    // Each step keeps the first occurrence of each node, in pushforward
+    // order: from nodes 0, 1, 2 and 3, one step takes edges 0 to 3, reaching
+    // 1, 2, 3 and 3 again.
+    let one_step = InstanceQuery {
+        anchor: Name::from("n"),
+        path: vec![Name::from("link")],
+        ..Default::default()
+    };
+    assert_eq!(query_answers(&one_step, &diamond_chain(1))?, vec![1, 2, 3]);
+    Ok(())
+}
+
+#[test]
+fn a_graph_query_over_a_long_path_takes_time_in_the_graph_size()
+-> Result<(), Box<dyn std::error::Error>> {
+    // `2^200` walks reach the far end, far more than could be listed; each
+    // step holds at most one entry per node.
+    const DIAMONDS: u32 = 200;
+    let query = InstanceQuery {
+        anchor: Name::from("n"),
+        path: (0..2 * DIAMONDS).map(|_| Name::from("link")).collect(),
+        limit: Some(1),
+        ..Default::default()
+    };
+    assert_eq!(
+        query_answers(&query, &diamond_chain(DIAMONDS))?,
+        vec![3 * DIAMONDS]
+    );
+
+    // Two nodes linked both ways, one direction twice: a cycle whose walks
+    // double every two steps.
+    let cycle = GInstance::new()
+        .with_node(Node::new(0, "n"))
+        .with_node(Node::new(1, "n"))
+        .with_edge(0, 1, link())
+        .with_edge(0, 1, link())
+        .with_edge(1, 0, link());
+    let around = InstanceQuery {
+        anchor: Name::from("n"),
+        path: (0..400).map(|_| Name::from("link")).collect(),
+        ..Default::default()
+    };
+    assert_eq!(query_answers(&around, &cycle)?, vec![1, 0]);
     Ok(())
 }
