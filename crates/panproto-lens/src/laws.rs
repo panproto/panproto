@@ -618,6 +618,45 @@ mod tests {
         assert!(result.is_ok(), "identity lens should satisfy PutGet");
     }
 
+    /// Complements that restore differently are not equivalent: the arc
+    /// sequence decides the order a collection comes back in, the original
+    /// anchors decide which vertex a merged node returns to, and the
+    /// envelope decides which lens may use the complement at all.
+    #[test]
+    fn complements_that_restore_differently_diverge() {
+        let schema = three_node_schema();
+        let lens = identity_lens(&schema);
+        let Ok((_, base)) = get(&lens, &three_node_instance()) else {
+            panic!("get failed on the fixture");
+        };
+        assert!(complement_divergence(&base, &base.clone()).is_none());
+
+        let mut reordered = base.clone();
+        reordered.arc_order.reverse();
+        assert_ne!(
+            reordered.arc_order, base.arc_order,
+            "the fixture has two arcs"
+        );
+        assert_eq!(
+            complement_divergence(&base, &reordered).as_deref(),
+            Some("arc_order differs")
+        );
+
+        let mut reanchored = base.clone();
+        reanchored.original_anchors.insert(1, "elsewhere".into());
+        assert_eq!(
+            complement_divergence(&base, &reanchored).as_deref(),
+            Some("original_anchors differ")
+        );
+
+        let mut unstamped = base.clone();
+        unstamped.identity = None;
+        assert!(
+            complement_divergence(&base, &unstamped)
+                .is_some_and(|detail| detail.starts_with("identity"))
+        );
+    }
+
     #[test]
     fn different_arcs_are_not_equivalent() {
         use panproto_schema::Edge;
