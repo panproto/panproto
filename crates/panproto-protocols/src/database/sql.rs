@@ -129,26 +129,62 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
 /// The indices of the `CREATE TABLE` statements a later `DROP TABLE`
 /// removes: each `DROP TABLE` removes the latest declaration of each
 /// table it names that no earlier `DROP TABLE` removed.
+///
+/// Names compare as [`name_key`]s, so an unquoted name matches in any
+/// case. A name that matches no declaration exactly matches one that
+/// differs only in qualification: `t` drops `public.t`, and `public.t`
+/// drops `t`, but `a.t` does not drop `b.t`.
 fn dropped_creates(statements: &[String]) -> std::collections::HashSet<usize> {
-    let mut live: HashMap<String, usize> = HashMap::new();
+    let mut live: Vec<(Vec<String>, usize)> = Vec::new();
     let mut dropped = std::collections::HashSet::new();
     for (index, stmt) in statements.iter().enumerate() {
         if leading_words_are(stmt, &["CREATE", "TABLE"]) {
-            if let Ok((name, _)) = extract_table_name(stmt) {
-                live.insert(name, index);
+            if let Some((parts, _)) = created_table_text(stmt).and_then(read_name_parts) {
+                let key = name_key(parts);
+                live.retain(|(declared, _)| *declared != key);
+                live.push((key, index));
             }
         } else if leading_words_are(stmt, &["DROP", "TABLE"]) {
-            for name in extract_drop_table_names(stmt) {
-                let declared = live
-                    .remove(&name)
-                    .or_else(|| live.remove(unqualified(&name)));
-                if let Some(create) = declared {
-                    dropped.insert(create);
+            for parts in extract_drop_table_names(stmt) {
+                let key = name_key(parts);
+                let at = live
+                    .iter()
+                    .rposition(|(declared, _)| *declared == key)
+                    .or_else(|| {
+                        live.iter().rposition(|(declared, _)| {
+                            same_table_up_to_qualification(declared, &key)
+                        })
+                    });
+                if let Some(at) = at {
+                    dropped.insert(live.remove(at).1);
                 }
             }
         }
     }
     dropped
+}
+
+/// A name as [`read_name_parts`] reads it, as a key two spellings of one
+/// name share: each unquoted part is folded to lowercase, since an
+/// unquoted SQL identifier is case-insensitive, and each quoted part is
+/// kept as written.
+fn name_key(parts: Vec<(String, bool)>) -> Vec<String> {
+    parts
+        .into_iter()
+        .map(|(part, quoted)| {
+            if quoted {
+                part
+            } else {
+                part.to_ascii_lowercase()
+            }
+        })
+        .collect()
+}
+
+/// Whether two name keys name one table when one of them is
+/// unqualified: their last parts agree.
+fn same_table_up_to_qualification(a: &[String], b: &[String]) -> bool {
+    (a.len() == 1 || b.len() == 1) && a.last() == b.last()
 }
 
 /// Whether the statement's leading whitespace-separated words are
@@ -172,16 +208,31 @@ fn first_word(def: &str) -> &str {
 /// The (possibly schema-qualified) identifier at the start of `text`,
 /// after leading whitespace, and the text after it.
 ///
-/// Each dot-separated part is a double-quoted or backquoted identifier,
-/// which may hold any character (a doubled quote is an escaped one), or
-/// an unquoted run up to whitespace or one of `(),;.`. The parts are
-/// returned unquoted and joined by `.`.
+/// Each dot-separated part is a double-quoted, backquoted or (as SQLite
+/// and T-SQL write them) bracket-quoted identifier, which may hold any
+/// character (a doubled closing quote is an escaped one), or an unquoted
+/// run up to whitespace or one of `(),;.`. The parts are returned
+/// unquoted and joined by `.`.
 fn read_name(text: &str) -> Option<(String, &str)> {
+    read_name_parts(text).map(|(parts, after)| {
+        let parts: Vec<String> = parts.into_iter().map(|(part, _)| part).collect();
+        (parts.join("."), after)
+    })
+}
+
+/// The parts of the (possibly schema-qualified) identifier at the start
+/// of `text`, each unquoted with whether it was quoted, and the text
+/// after it. See [`read_name`].
+fn read_name_parts(text: &str) -> Option<(Vec<(String, bool)>, &str)> {
     let mut rest = text.trim_start();
-    let mut parts: Vec<String> = Vec::new();
+    let mut parts: Vec<(String, bool)> = Vec::new();
     loop {
         let bytes = rest.as_bytes();
         let (part, after) = match bytes.first() {
+            Some(b'[') => {
+                let end = skip_bracketed(bytes, 0)?;
+                ((rest[1..end - 1].replace("]]", "]"), true), &rest[end..])
+            }
             Some(&q @ (b'"' | b'`')) => {
                 let end = skip_quoted(bytes, 0, q);
                 if end < 2 || bytes[end - 1] != q {
@@ -189,7 +240,10 @@ fn read_name(text: &str) -> Option<(String, &str)> {
                 }
                 let doubled = if q == b'"' { "\"\"" } else { "``" };
                 let single = if q == b'"' { "\"" } else { "`" };
-                (rest[1..end - 1].replace(doubled, single), &rest[end..])
+                (
+                    (rest[1..end - 1].replace(doubled, single), true),
+                    &rest[end..],
+                )
             }
             Some(_) => {
                 let end = rest
@@ -198,16 +252,35 @@ fn read_name(text: &str) -> Option<(String, &str)> {
                 if end == 0 {
                     return None;
                 }
-                (rest[..end].to_owned(), &rest[end..])
+                ((rest[..end].to_owned(), false), &rest[end..])
             }
             None => return None,
         };
         parts.push(part);
         match after.strip_prefix('.') {
             Some(next) => rest = next,
-            None => return Some((parts.join("."), after)),
+            None => return Some((parts, after)),
         }
     }
+}
+
+/// The byte just past the `]` that closes the bracket-quoted identifier
+/// opening at byte `open`, where `]]` is an escaped `]`; `None` when it
+/// is not closed.
+fn skip_bracketed(bytes: &[u8], open: usize) -> Option<usize> {
+    let mut j = open + 1;
+    while j < bytes.len() {
+        if bytes[j] == b']' {
+            if bytes.get(j + 1) == Some(&b']') {
+                j += 2;
+            } else {
+                return Some(j + 1);
+            }
+        } else {
+            j += 1;
+        }
+    }
+    None
 }
 
 /// The identifiers of a parenthesized, comma-separated column list such
@@ -224,7 +297,10 @@ fn identifier_list(inner: &str) -> Vec<String> {
 struct ColumnType {
     /// The vertex kind of the element.
     kind: String,
-    /// For an enum type, its labels as written, comma-separated.
+    /// For an enum type, its labels, each as a standard SQL string
+    /// literal (`'it''s'`) however the script spelled it, comma-separated.
+    /// A comma inside a label is inside its quotes, so a quote-aware
+    /// split recovers the labels.
     labels: Option<String>,
     /// The number of array dimensions around the element.
     dims: usize,
@@ -295,40 +371,43 @@ impl Catalog {
 
     /// The type of a column declared with the words `words` after its
     /// name: its first word names the element type (through a declared
-    /// domain or enum), and `[...]` suffixes and an `ARRAY` keyword
-    /// among the words before the first constraint add dimensions.
+    /// domain or enum), and among the words of the type (up to the first
+    /// constraint, clause or literal) each array bound suffix (`[]`,
+    /// `[3]`) and an `ARRAY` keyword add dimensions.
+    ///
+    /// A bracketed word that is not an array bound is a bracket-quoted
+    /// identifier (`[int]`), which names the type.
     fn column_type(&self, words: &[&str]) -> ColumnType {
-        let Some(first) = words.first() else {
+        let Some((first, rest)) = words.split_first() else {
             return ColumnType {
                 kind: "string".into(),
                 labels: None,
                 dims: 0,
             };
         };
-        let type_words: Vec<&str> = words
-            .iter()
-            .copied()
-            .take_while(|w| !is_constraint_word(w))
-            .collect();
-        let brackets: usize = type_words.iter().map(|w| w.matches('[').count()).sum();
-        let keyword = type_words.iter().any(|w| {
-            w.get(..5)
-                .is_some_and(|head| head.eq_ignore_ascii_case("ARRAY"))
-                && !w[5..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
-        });
-        let dims = if keyword { brackets.max(1) } else { brackets };
+        let mut bounds = 0;
+        let mut keyword = false;
+        for word in
+            std::iter::once(*first).chain(rest.iter().copied().take_while(|w| !ends_column_type(w)))
+        {
+            let (head, count) = array_bounds(word);
+            bounds += count;
+            keyword |= head.eq_ignore_ascii_case("ARRAY");
+        }
+        let dims = if keyword { bounds.max(1) } else { bounds };
 
-        let base = first
-            .split(['(', '['])
-            .next()
-            .unwrap_or(first)
-            .to_ascii_lowercase();
+        let (head, _) = array_bounds(first);
+        let written = if head.starts_with(['[', '"', '`']) {
+            read_name(head).map_or_else(|| head.to_owned(), |(name, _)| name)
+        } else {
+            head.split('(').next().unwrap_or(head).to_owned()
+        };
         let mut ty = self
             .types
-            .get(unqualified(&base))
+            .get(&unqualified(&written).to_ascii_lowercase())
             .cloned()
             .unwrap_or_else(|| ColumnType {
-                kind: sql_type_to_kind(first),
+                kind: sql_type_to_kind(unqualified(&written)),
                 labels: None,
                 dims: 0,
             });
@@ -379,7 +458,13 @@ impl Catalog {
         let Some(close) = matching_paren(rest, open) else {
             return;
         };
-        let labels: Vec<String> = split_column_defs(&rest[open + 1..close]);
+        let labels: Vec<String> = split_column_defs(&rest[open + 1..close])
+            .iter()
+            .map(|written| {
+                sql_string_value(written)
+                    .map_or_else(|| written.clone(), |v| sql_string_literal(&v))
+            })
+            .collect();
         self.types.insert(
             unqualified(&name).to_ascii_lowercase(),
             ColumnType {
@@ -448,6 +533,99 @@ fn is_constraint_word(word: &str) -> bool {
     ]
     .iter()
     .any(|k| first_word(word).eq_ignore_ascii_case(k))
+}
+
+/// The value of the SQL string literal `written`: `'...'` with `''` for
+/// a quote, or `E'...'` which also takes backslash escapes. `None` for
+/// anything else.
+fn sql_string_value(written: &str) -> Option<String> {
+    let written = written.trim();
+    let (backslash, quoted) = match written.strip_prefix(['E', 'e']) {
+        Some(rest) if rest.starts_with('\'') => (true, rest),
+        _ => (false, written),
+    };
+    let body = quoted.strip_prefix('\'')?.strip_suffix('\'')?;
+    let mut value = String::with_capacity(body.len());
+    let mut chars = body.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\'' => {
+                // Inside the literal a quote is only ever doubled.
+                if chars.next() != Some('\'') {
+                    return None;
+                }
+                value.push('\'');
+            }
+            '\\' if backslash => match chars.next()? {
+                'b' => value.push('\u{8}'),
+                'f' => value.push('\u{c}'),
+                'n' => value.push('\n'),
+                'r' => value.push('\r'),
+                't' => value.push('\t'),
+                other => value.push(other),
+            },
+            other => value.push(other),
+        }
+    }
+    Some(value)
+}
+
+/// `value` as a standard SQL string literal, `'...'` with `''` for a
+/// quote.
+fn sql_string_literal(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "''"))
+}
+
+/// Whether `word`, after a column's first type word, ends the type: a
+/// constraint, a string literal, or a clause that follows the type
+/// (`COMMENT`, `CHARACTER SET`, `ON UPDATE`, `AS (...)`, ...).
+fn is_type_clause_word(word: &str) -> bool {
+    [
+        "COMMENT",
+        "CHARACTER",
+        "CHARSET",
+        "ON",
+        "AS",
+        "VISIBLE",
+        "INVISIBLE",
+        "STORED",
+        "VIRTUAL",
+        "IDENTITY",
+        "SRID",
+        "COLUMN_FORMAT",
+        "STORAGE",
+        "COMPRESSION",
+    ]
+    .iter()
+    .any(|k| first_word(word).eq_ignore_ascii_case(k))
+}
+
+/// Whether `word`, after a column's first type word, is past the type.
+fn ends_column_type(word: &str) -> bool {
+    is_constraint_word(word)
+        || is_type_clause_word(word)
+        || word.starts_with('\'')
+        || word.starts_with(['E', 'e']) && word[1..].starts_with('\'')
+}
+
+/// A type word without its trailing array bounds (`[]`, `[3]`), and the
+/// number of them. A bracketed suffix holding anything but digits is
+/// not a bound, so a bracket-quoted identifier (`[int]`) has none.
+fn array_bounds(word: &str) -> (&str, usize) {
+    let mut head = word;
+    let mut count = 0;
+    while let Some(inner) = head.strip_suffix(']') {
+        let Some(open) = inner.rfind('[') else {
+            break;
+        };
+        let bound = inner[open + 1..].trim();
+        if !bound.bytes().all(|b| b.is_ascii_digit()) {
+            break;
+        }
+        head = &inner[..open];
+        count += 1;
+    }
+    (head, count)
 }
 
 /// The last component of a possibly schema-qualified name, unquoted.
@@ -1011,21 +1189,26 @@ fn parse_alter_table(
 /// Extract the table name from a CREATE TABLE statement, and the text
 /// after it.
 fn extract_table_name(stmt: &str) -> Result<(String, &str), ProtocolError> {
-    // "CREATE TABLE [IF NOT EXISTS] name (...)"
-    let after = find_keyword_end(stmt, "TABLE")
-        .ok_or_else(|| ProtocolError::Parse("no TABLE keyword".into()))?;
-    let mut rest = stmt[after..].trim_start();
-    if let Some(stripped) = strip_keyword_prefix(rest, "IF NOT EXISTS") {
-        if stripped.starts_with(char::is_whitespace) {
-            rest = stripped;
-        }
-    }
+    let rest =
+        created_table_text(stmt).ok_or_else(|| ProtocolError::Parse("no TABLE keyword".into()))?;
     read_name(rest).ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
 }
 
+/// The text of a `CREATE TABLE [IF NOT EXISTS] name (...)` statement
+/// from its table name on.
+fn created_table_text(stmt: &str) -> Option<&str> {
+    let after = find_keyword_end(stmt, "TABLE")?;
+    let rest = stmt[after..].trim_start();
+    Some(
+        strip_keyword_prefix(rest, "IF NOT EXISTS")
+            .filter(|stripped| stripped.starts_with(char::is_whitespace))
+            .unwrap_or(rest),
+    )
+}
+
 /// The table names a `DROP TABLE [IF EXISTS] a [, b ...]` statement
-/// names.
-fn extract_drop_table_names(stmt: &str) -> Vec<String> {
+/// names, each as [`read_name_parts`] reads it.
+fn extract_drop_table_names(stmt: &str) -> Vec<Vec<(String, bool)>> {
     let Some(after) = find_keyword_end(stmt, "TABLE") else {
         return Vec::new();
     };
@@ -1036,7 +1219,7 @@ fn extract_drop_table_names(stmt: &str) -> Vec<String> {
         }
     }
     let mut names = Vec::new();
-    while let Some((name, after_name)) = read_name(rest) {
+    while let Some((name, after_name)) = read_name_parts(rest) {
         names.push(name);
         match after_name.trim_start().strip_prefix(',') {
             Some(next) => rest = next,
@@ -1061,8 +1244,9 @@ fn extract_parenthesized(stmt: &str) -> Result<String, ProtocolError> {
     Ok(stmt[open + 1..close].to_string())
 }
 
-/// Split column definitions by commas, respecting nested parentheses
-/// and quoted text.
+/// Split column definitions by commas, respecting nested parentheses,
+/// brackets (an `ARRAY[1, 2]` literal, a bracket-quoted identifier) and
+/// quoted text.
 fn split_column_defs(block: &str) -> Vec<String> {
     let bytes = block.as_bytes();
     let mut defs = Vec::new();
@@ -1072,8 +1256,8 @@ fn split_column_defs(block: &str) -> Vec<String> {
 
     while i < bytes.len() {
         match bytes[i] {
-            b'(' => depth += 1,
-            b')' => depth = depth.saturating_sub(1),
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth = depth.saturating_sub(1),
             q @ (b'\'' | b'"' | b'`') => {
                 i = skip_quoted(bytes, i, q);
                 continue;
@@ -1176,7 +1360,9 @@ fn kind_to_sql_type(kind: &str) -> &'static str {
 /// Reconstructs table definitions from the schema graph, including
 /// column types (an array column as its element type with a `[]` per
 /// dimension) and constraints (`NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
-/// `DEFAULT`, and an enum's labels as a `CHECK`).
+/// `DEFAULT`). A column whose element carries an `ENUM` constraint is of
+/// an enum type, `CREATE TYPE <table>_<column>_enum AS ENUM (...)`,
+/// declared before its table, so a re-parse reads the same labels.
 ///
 /// # Errors
 ///
@@ -1196,8 +1382,12 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
         .collect();
     tables.sort_by(|a, b| a.id.cmp(&b.id));
 
+    // The enum types declared so far, by name, with their labels.
+    let mut enum_types: HashMap<String, String> = HashMap::new();
+
     for table in &tables {
-        let _ = writeln!(output, "CREATE TABLE {} (", table.id);
+        let mut body = String::new();
+        let _ = writeln!(body, "CREATE TABLE {} (", table.id);
 
         let columns = children_by_edge(schema, &table.id, "prop");
         let col_count = columns.len();
@@ -1218,18 +1408,36 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
                 element = item;
                 dims.push_str("[]");
             }
-            let sql_type = format!("{}{dims}", kind_to_sql_type(&element.kind));
+            // An enum's labels, which constrain the element, are written
+            // as an enum type declared before the table, which the
+            // element is of.
+            let labels = vertex_constraints(schema, &element.id)
+                .into_iter()
+                .find(|c| c.sort == "ENUM")
+                .map(|c| c.value.clone());
+            let element_type = match labels {
+                Some(labels) => {
+                    let stem = format!("{}_{col_name}_enum", table.id);
+                    let mut name = stem.clone();
+                    let mut n = 1;
+                    while enum_types
+                        .get(&name)
+                        .is_some_and(|declared| *declared != labels)
+                    {
+                        n += 1;
+                        name = format!("{stem}{n}");
+                    }
+                    if !enum_types.contains_key(&name) {
+                        let _ = writeln!(output, "CREATE TYPE {name} AS ENUM ({labels});\n");
+                        enum_types.insert(name.clone(), labels);
+                    }
+                    name
+                }
+                None => kind_to_sql_type(&element.kind).to_owned(),
+            };
+            let sql_type = format!("{element_type}{dims}");
 
             let mut constraints_str = String::new();
-            // An enum's labels, which constrain the element, are written
-            // as a `CHECK` on a column of scalar type.
-            if dims.is_empty() {
-                for c in vertex_constraints(schema, &element.id) {
-                    if c.sort == "ENUM" {
-                        let _ = write!(constraints_str, " CHECK ({col_name} IN ({}))", c.value);
-                    }
-                }
-            }
             let constraints = vertex_constraints(schema, &col_vertex.id);
             for c in &constraints {
                 match c.sort.as_str() {
@@ -1250,10 +1458,11 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
             }
 
             let comma = if i + 1 < col_count { "," } else { "" };
-            let _ = writeln!(output, "  {col_name} {sql_type}{constraints_str}{comma}");
+            let _ = writeln!(body, "  {col_name} {sql_type}{constraints_str}{comma}");
         }
 
-        output.push_str(");\n\n");
+        body.push_str(");\n\n");
+        output.push_str(&body);
     }
 
     Ok(output)
@@ -1516,10 +1725,19 @@ mod tests {
         let emitted = emit_ddl(&schema1).expect("emit should succeed");
         assert!(emitted.contains("labels TEXT[]"), "{emitted}");
         assert!(emitted.contains("grid INTEGER[][]"), "{emitted}");
-        assert!(emitted.contains("CHECK (m IN ('sad','ok'))"), "{emitted}");
+        assert!(
+            emitted.contains("CREATE TYPE t_m_enum AS ENUM ('sad','ok');"),
+            "{emitted}"
+        );
+        assert!(emitted.contains("m t_m_enum"), "{emitted}");
         let schema2 = parse_ddl(&emitted).expect("re-parse should succeed");
-        for v in ["t.labels", "t.labels:items", "t.grid:items:items"] {
+        for v in ["t.m", "t.labels", "t.labels:items", "t.grid:items:items"] {
             assert_eq!(schema1.vertices[v].kind, schema2.vertices[v].kind, "{v}");
+            assert_eq!(
+                schema1.constraints.get(v),
+                schema2.constraints.get(v),
+                "{v}"
+            );
         }
     }
 

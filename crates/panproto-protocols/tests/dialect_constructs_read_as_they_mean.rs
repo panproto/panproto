@@ -178,7 +178,7 @@ fn a_ref_written_against_an_id_with_an_empty_fragment_resolves() {
         .entries
         .iter()
         .find(|e| !e.contains(":definitions/"))
-        .map(|e| e.to_string())
+        .map(ToString::to_string)
         .required_some("the document has a root entry");
     let p = ref_target(&schema, &format!("{root}.p"));
     assert_eq!(kind(&schema, p), "string", "the ref reaches the definition");

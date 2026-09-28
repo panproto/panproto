@@ -164,7 +164,8 @@ fn the_package_json_schema_parses() {
 #[test]
 fn the_tsconfig_schema_parses() {
     let schema = document("json-schema", "jsonschema/tsconfig.json");
-    let options = "root:definitions/compilerOptionsDefinition.compilerOptions";
+    // The draft-04 document names itself with `id`.
+    let options = "https://json.schemastore.org/tsconfig:definitions/compilerOptionsDefinition.compilerOptions";
     assert_eq!(kind(&schema, options), "union");
     // A pointer into the definition's properties lands on the property.
     assert!(

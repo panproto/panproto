@@ -52,6 +52,8 @@ pub fn protocol() -> Protocol {
             "enum".into(),
             "const".into(),
             "additionalProperties".into(),
+            "items".into(),
+            "additionalItems".into(),
         ],
         has_order: true,
         has_coproducts: true,
@@ -91,16 +93,24 @@ pub fn parse_json_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
 /// The vertex-id prefix for a document, and the `$id` other documents
 /// address it by.
 ///
-/// A document's identity is its `$id`, which is what a cross-document
-/// `$ref` names. A document without one is addressed as `root` when it
-/// is alone and `doc{i}` otherwise, so ids stay unique and a
-/// single-document parse keeps the `root:` prefix it has always had.
+/// A document's identity is its `$id` (or, in a draft-04 document
+/// without one, its `id`), which is what a cross-document `$ref` names.
+/// An empty fragment is no part of it: `http://x.test/s#`, as draft-06
+/// and draft-07 documents write it, is `http://x.test/s`, so a ref
+/// `http://x.test/s#/definitions/a` is a pointer into it. A document
+/// without an identity is addressed as `root` when it is alone and
+/// `doc{i}` otherwise, so ids stay unique and a single-document parse
+/// keeps the `root:` prefix it has always had.
 fn document_identity(
     json: &serde_json::Value,
     index: usize,
     count: usize,
 ) -> (String, Option<&str>) {
-    let declared = json.get("$id").and_then(serde_json::Value::as_str);
+    let declared = json
+        .get("$id")
+        .and_then(serde_json::Value::as_str)
+        .or_else(|| json.get("id").and_then(serde_json::Value::as_str))
+        .map(|id| id.strip_suffix('#').unwrap_or(id));
     let prefix = match declared {
         Some(id) => id.to_owned(),
         None if count == 1 => "root".to_owned(),
@@ -485,10 +495,17 @@ impl Walker<'_> {
     /// item off `holder`, the vertex of the schema's array instances.
     ///
     /// A single `items` schema is the one anonymous `items` edge of a
-    /// list. A tuple (`items` or `prefixItems` as an array of schemas)
-    /// gives each position an `items` edge named by its index, and
-    /// `additionalItems` an `items` edge of that name to the schema of the
-    /// items past them.
+    /// list (or, beside `prefixItems`, of the items past the prefix). A
+    /// draft-07 tuple (`items` as an array of schemas) gives each position
+    /// an `items` edge named by its index, and `additionalItems` an
+    /// `items` edge of that name to the schema of the items past them. A
+    /// 2020-12 tuple (`prefixItems`) gives position `i` an `items` edge
+    /// named `prefixItems/i`, so that emit writes each keyword back.
+    ///
+    /// A boolean `items` or `additionalItems` is not a schema of items:
+    /// `false`, which admits no item there, is a constraint of that name
+    /// on `holder`, and `true`, which admits any, is the default and adds
+    /// nothing.
     fn walk_array_keywords(
         &mut self,
         mut builder: SchemaBuilder,
@@ -497,29 +514,45 @@ impl Walker<'_> {
         pointer: &str,
         holder: &str,
     ) -> Result<SchemaBuilder, ProtocolError> {
-        for keyword in ["items", "prefixItems"] {
-            match schema.get(keyword) {
-                Some(serde_json::Value::Array(tuple)) => {
-                    for (i, item) in tuple.iter().enumerate() {
-                        let item_id = format!("{current_id}:{keyword}{i}");
-                        let item_pointer = format!("{pointer}/{keyword}/{i}");
-                        builder = self.walk(builder, item, &item_id, &item_pointer)?;
-                        builder = builder.edge(holder, &item_id, "items", Some(&i.to_string()))?;
-                    }
+        match schema.get("items") {
+            Some(serde_json::Value::Array(tuple)) => {
+                for (i, item) in tuple.iter().enumerate() {
+                    let item_id = format!("{current_id}:items{i}");
+                    let item_pointer = format!("{pointer}/items/{i}");
+                    builder = self.walk(builder, item, &item_id, &item_pointer)?;
+                    builder = builder.edge(holder, &item_id, "items", Some(&i.to_string()))?;
                 }
-                Some(items) if keyword == "items" => {
-                    let items_id = format!("{current_id}:items");
-                    builder = self.walk(builder, items, &items_id, &format!("{pointer}/items"))?;
-                    builder = builder.edge(holder, &items_id, "items", None)?;
-                }
-                _ => {}
+            }
+            Some(serde_json::Value::Bool(false)) => {
+                builder = builder.constraint(holder, "items", "false");
+            }
+            Some(serde_json::Value::Bool(true)) | None => {}
+            Some(items) => {
+                let items_id = format!("{current_id}:items");
+                builder = self.walk(builder, items, &items_id, &format!("{pointer}/items"))?;
+                builder = builder.edge(holder, &items_id, "items", None)?;
             }
         }
-        if let Some(additional @ serde_json::Value::Object(_)) = schema.get("additionalItems") {
-            let add_id = format!("{current_id}:additionalItems");
-            let add_pointer = format!("{pointer}/additionalItems");
-            builder = self.walk(builder, additional, &add_id, &add_pointer)?;
-            builder = builder.edge(holder, &add_id, "items", Some("additionalItems"))?;
+        if let Some(serde_json::Value::Array(tuple)) = schema.get("prefixItems") {
+            for (i, item) in tuple.iter().enumerate() {
+                let item_id = format!("{current_id}:prefixItems{i}");
+                let item_pointer = format!("{pointer}/prefixItems/{i}");
+                builder = self.walk(builder, item, &item_id, &item_pointer)?;
+                builder =
+                    builder.edge(holder, &item_id, "items", Some(&format!("prefixItems/{i}")))?;
+            }
+        }
+        match schema.get("additionalItems") {
+            Some(additional @ serde_json::Value::Object(_)) => {
+                let add_id = format!("{current_id}:additionalItems");
+                let add_pointer = format!("{pointer}/additionalItems");
+                builder = self.walk(builder, additional, &add_id, &add_pointer)?;
+                builder = builder.edge(holder, &add_id, "items", Some("additionalItems"))?;
+            }
+            Some(serde_json::Value::Bool(false)) => {
+                builder = builder.constraint(holder, "additionalItems", "false");
+            }
+            _ => {}
         }
         Ok(builder)
     }
@@ -792,9 +825,9 @@ fn emit_json_schema_vertex(
             "const" => {
                 obj.insert("const".to_string(), serde_json::json!(c.value));
             }
-            "additionalProperties" => {
+            "additionalProperties" | "items" | "additionalItems" => {
                 if c.value == "false" {
-                    obj.insert("additionalProperties".to_string(), serde_json::json!(false));
+                    obj.insert(c.sort.to_string(), serde_json::json!(false));
                 }
             }
             _ => {
@@ -845,15 +878,17 @@ fn emit_json_schema_vertex(
 }
 
 /// Emit the array keywords of `vertex` into `obj`: the anonymous `items`
-/// edge is a list's `items`, edges named by an index are a tuple's
-/// positions, and the edge named `additionalItems` is the schema of the
-/// items past them.
+/// edge is `items` as one schema, edges named by an index are the
+/// positions of a draft-07 `items` tuple, edges named `prefixItems/i`
+/// the positions of a 2020-12 `prefixItems`, and the edge named
+/// `additionalItems` is the schema of the items past a draft-07 tuple.
 fn emit_items(
     schema: &Schema,
     vertex: &panproto_schema::Vertex,
     obj: &mut serde_json::Map<String, serde_json::Value>,
 ) -> Result<(), ProtocolError> {
     let mut tuple: Vec<(usize, serde_json::Value)> = Vec::new();
+    let mut prefix: Vec<(usize, serde_json::Value)> = Vec::new();
     for (edge, item_vertex) in crate::emit::children_by_edge(schema, &vertex.id, "items") {
         let item_val = emit_json_schema_vertex(schema, item_vertex)?;
         match edge.name.as_deref() {
@@ -863,18 +898,22 @@ fn emit_items(
             Some("additionalItems") => {
                 obj.insert("additionalItems".to_string(), item_val);
             }
-            Some(position) => {
-                let index = position.parse().unwrap_or(usize::MAX);
-                tuple.push((index, item_val));
-            }
+            Some(name) => match name.strip_prefix("prefixItems/") {
+                Some(position) => {
+                    prefix.push((position.parse().unwrap_or(usize::MAX), item_val));
+                }
+                None => tuple.push((name.parse().unwrap_or(usize::MAX), item_val)),
+            },
         }
     }
-    if !tuple.is_empty() {
-        tuple.sort_by_key(|(index, _)| *index);
-        obj.insert(
-            "items".to_string(),
-            serde_json::Value::Array(tuple.into_iter().map(|(_, v)| v).collect()),
-        );
+    for (keyword, mut positions) in [("items", tuple), ("prefixItems", prefix)] {
+        if !positions.is_empty() {
+            positions.sort_by_key(|(index, _)| *index);
+            obj.insert(
+                keyword.to_string(),
+                serde_json::Value::Array(positions.into_iter().map(|(_, v)| v).collect()),
+            );
+        }
     }
     Ok(())
 }
