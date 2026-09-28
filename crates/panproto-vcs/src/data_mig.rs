@@ -5,6 +5,7 @@
 //! migration never loses data.
 
 use panproto_inst::WInstance;
+use panproto_inst::identity::{AnyComplement, ComplementShape, Encoding, decode_complements};
 use panproto_schema::{Protocol, Schema};
 
 use crate::error::VcsError;
@@ -169,10 +170,20 @@ pub fn migrate_backward(
         rmp_serde::from_slice(&data_obj.data).map_err(|e| VcsError::DataMigrationFailed {
             reason: format!("deserialize data: {e}"),
         })?;
-    let complements: Vec<panproto_lens::Complement> =
-        rmp_serde::from_slice(&comp_obj.complement).map_err(|e| VcsError::DataMigrationFailed {
-            reason: format!("deserialize complement: {e}"),
-        })?;
+    let complements: Vec<panproto_lens::Complement> = decode_complements(
+        &comp_obj.complement,
+        Encoding::MsgpackPositional,
+        ComplementShape::WType,
+    )
+    .map_err(|e| VcsError::DataMigrationFailed {
+        reason: format!("deserialize complement: {e}"),
+    })?
+    .into_iter()
+    .map(|decoded| {
+        let AnyComplement::WType(complement) = decoded;
+        *complement
+    })
+    .collect();
 
     // 3. Generate lens (same direction as forward -- we use put for backward)
     let config = panproto_lens::AutoLensConfig::default();
@@ -651,6 +662,42 @@ mod tests {
                 assert_eq!(insts.len(), 1);
             }
             other => panic!("expected DataSet, got {}", other.type_name()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_stored_complement_is_decoded_whole_or_refused() -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::Node;
+
+        let mut store = MemStore::new();
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+        let protocol = protocol_for_schema(&src);
+        let mut nodes = HashMap::new();
+        nodes.insert(0_u32, Node::new(0, "a"));
+        let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let ds_id = store.put(&Object::DataSet(DataSetObject {
+            schema_id: crate::hash::hash_schema(&src)?,
+            data: rmp_serde::to_vec(&vec![inst])?,
+            record_count: 1,
+            key: None,
+        }))?;
+
+        let (view_id, comp_id) = migrate_forward(&mut store, ds_id, &src, &tgt, &protocol)?;
+        migrate_backward(&mut store, view_id, comp_id, &src, &tgt, &protocol)?;
+
+        // The same complement with a byte left over after it.
+        let Object::Complement(mut comp) = store.get(&comp_id)? else {
+            panic!("expected a complement object");
+        };
+        comp.complement.push(0);
+        let padded_id = store.put(&Object::Complement(comp))?;
+        match migrate_backward(&mut store, view_id, padded_id, &src, &tgt, &protocol) {
+            Err(VcsError::DataMigrationFailed { reason }) => {
+                assert!(reason.contains("trailing byte"), "{reason}");
+            }
+            other => panic!("a padded complement was accepted: {other:?}"),
         }
         Ok(())
     }

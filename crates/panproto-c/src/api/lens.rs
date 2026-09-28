@@ -118,11 +118,16 @@ fn encode_complement_for_host(complement: &lens::Complement) -> Result<Vec<u8>, 
 ///
 /// Returns [`FfiError::Serialization`] if (de)serialization fails. Bytes
 /// that fail to decode in either shape report the failure against the
-/// bytes as they were given.
+/// bytes as they were given. A complement whose envelope names another
+/// format or layout is [`FfiError::Operation`], as
+/// [`canonical::decode_complement`] reports it.
 fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiError> {
-    match canonical::decode(bytes) {
+    match canonical::decode_complement(bytes) {
         Ok(complement) => Ok(complement),
-        Err(err) => {
+        // Only bytes that are not a complement as given can be an older
+        // encoding; a complement refused for its format or envelope is
+        // refused whatever its maps look like.
+        Err(err @ FfiError::Serialization(_)) => {
             let Ok(mut value) = canonical::decode::<CborValue>(bytes) else {
                 return Err(err);
             };
@@ -130,8 +135,13 @@ fn decode_complement_from_host(bytes: &[u8]) -> Result<lens::Complement, FfiErro
                 return Err(err);
             }
             let normalized = canonical::encode(&value)?;
-            canonical::decode(&normalized).map_err(|_| err)
+            match canonical::decode_complement(&normalized) {
+                Ok(complement) => Ok(complement),
+                Err(FfiError::Serialization(_)) => Err(err),
+                Err(refused) => Err(refused),
+            }
         }
+        Err(err) => Err(err),
     }
 }
 
@@ -1350,6 +1360,36 @@ mod tests {
 
         // Bytes that decode in neither shape are still an error.
         assert!(decode_complement_from_host(b"\xa1\x00\x00").is_err());
+    }
+
+    #[test]
+    fn a_host_complement_naming_another_format_is_refused() {
+        use panproto_core::inst::ComplementShape;
+        let schema = SchemaBuilder::new(&crate::api::helpers::default_protocol("test"))
+            .vertex("post", "record", None)
+            .unwrap()
+            .build()
+            .unwrap();
+        let the_lens = lens::auto_generate(
+            &schema,
+            &schema,
+            &protocol_for_schema(&schema),
+            &lens::AutoLensConfig::default(),
+        )
+        .unwrap()
+        .lens;
+        let mut envelope = the_lens.identity(ComplementShape::WType);
+        envelope.complement_format = ComplementShape::Graph.current_format();
+        let mut comp = lens::Complement::empty();
+        comp.identity = Some(envelope);
+
+        let bytes = encode_complement_for_host(&comp).unwrap();
+        match decode_complement_from_host(&bytes) {
+            Err(FfiError::Operation(detail)) => {
+                assert!(detail.contains("graph/1"), "{detail}");
+            }
+            other => panic!("a graph-format complement decoded as a tree one: {other:?}"),
+        }
     }
 
     #[test]

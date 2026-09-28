@@ -1457,37 +1457,59 @@ fn decode_shape(
     }
 }
 
-/// Decode a complement read from outside the process.
+/// Decode `bytes` as a sequence of complements of `shape`, or explain why
+/// not.
 ///
-/// Decodes `bytes` as a complement of the `expected` shape. If that fails
-/// and the bytes decode as the other shape instead, the error is a
-/// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
-/// complement whose envelope names a different format is refused the same
-/// way. An envelope whose layout version this build does not read gives
-/// [`IdentityError::UnsupportedEnvelopeVersion`].
-///
-/// Every path that takes a complement from bytes or from a host-language
-/// value goes through this function.
-///
-/// # Errors
-///
-/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
-/// neither shape.
-pub fn decode_complement(
+/// Returns `None` for a shape this build has no complement type for.
+fn decode_shape_seq(
+    bytes: &[u8],
+    encoding: Encoding,
+    shape: ComplementShape,
+) -> Option<Result<Vec<AnyComplement>, String>> {
+    match shape {
+        ComplementShape::WType => Some(decode_as::<Vec<Complement>>(bytes, encoding).map(|cs| {
+            cs.into_iter()
+                .map(|c| AnyComplement::WType(Box::new(c)))
+                .collect()
+        })),
+        ComplementShape::Graph => None,
+    }
+}
+
+/// The format a decoded complement of `shape` declares: its envelope's, or
+/// the shape's current one when it carries no envelope.
+fn declared_format(decoded: &AnyComplement, shape: ComplementShape) -> ComplementFormat {
+    decoded
+        .identity()
+        .map_or_else(|| shape.current_format(), |e| e.complement_format)
+}
+
+/// A decoder for one value of type `T` holding complements of a given
+/// shape: `None` when this build has no complement type for the shape,
+/// else the value or why it did not decode.
+type ShapeDecoder<T> = fn(&[u8], Encoding, ComplementShape) -> Option<Result<T, String>>;
+
+/// The checks [`decode_complement`] and [`decode_complements`] share, over
+/// a decoder for one value (`T`) of a given shape and the complements that
+/// value holds.
+fn decode_checked<T>(
     bytes: &[u8],
     encoding: Encoding,
     expected: ComplementShape,
-) -> Result<AnyComplement, IdentityError> {
+    decode: ShapeDecoder<T>,
+    complements: fn(&T) -> &[AnyComplement],
+) -> Result<T, IdentityError> {
     REFUSED_ENVELOPE_VERSION.with(|slot| slot.set(None));
     let refused = || REFUSED_ENVELOPE_VERSION.with(Cell::take);
 
-    let first = decode_shape(bytes, encoding, expected);
+    let first = decode(bytes, encoding, expected);
     if let Some(Ok(decoded)) = first {
-        let format = decoded
-            .identity()
-            .map_or_else(|| expected.current_format(), |e| e.complement_format);
         let wanted = expected.current_format();
-        if format != wanted {
+        if let Some(format) = complements(&decoded)
+            .iter()
+            .map(|c| declared_format(c, expected))
+            .find(|format| *format != wanted)
+        {
             return Err(IdentityError::Mismatch {
                 field: IdentityField::Format,
                 expected: wanted.to_string(),
@@ -1501,11 +1523,11 @@ pub fn decode_complement(
     }
 
     let other = expected.other();
-    match decode_shape(bytes, encoding, other) {
+    match decode(bytes, encoding, other) {
         Some(Ok(decoded)) => {
-            let found = decoded
-                .identity()
-                .map_or_else(|| other.current_format(), |e| e.complement_format);
+            let found = complements(&decoded)
+                .first()
+                .map_or_else(|| other.current_format(), |c| declared_format(c, other));
             Err(IdentityError::Mismatch {
                 field: IdentityField::Format,
                 expected: expected.current_format().to_string(),
@@ -1516,8 +1538,7 @@ pub fn decode_complement(
             if let Some(found) = refused() {
                 return Err(IdentityError::UnsupportedEnvelopeVersion { found });
             }
-            let reason = |shape: ComplementShape, r: Option<Result<AnyComplement, String>>| match r
-            {
+            let reason = |shape: ComplementShape, r: Option<Result<T, String>>| match r {
                 Some(Err(e)) => format!("as {shape}: {e}"),
                 Some(Ok(_)) => format!("as {shape}: decoded"),
                 None => format!("as {shape}: this build has no {shape} complement type"),
@@ -1529,6 +1550,56 @@ pub fn decode_complement(
             )))
         }
     }
+}
+
+/// Decode a complement read from outside the process.
+///
+/// Decodes `bytes` as a complement of the `expected` shape. If that fails
+/// and the bytes decode as the other shape instead, the error is a
+/// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
+/// complement whose envelope names a different format is refused the same
+/// way. An envelope whose layout version this build does not read gives
+/// [`IdentityError::UnsupportedEnvelopeVersion`]. Bytes left over after the
+/// complement are refused.
+///
+/// Every path that takes a complement from bytes or from a host-language
+/// value goes through this function, or through [`decode_complements`] for
+/// a sequence of them.
+///
+/// # Errors
+///
+/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
+/// neither shape.
+pub fn decode_complement(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<AnyComplement, IdentityError> {
+    decode_checked(
+        bytes,
+        encoding,
+        expected,
+        decode_shape,
+        std::slice::from_ref,
+    )
+}
+
+/// Decode a sequence of complements read from outside the process, as
+/// stored one per record alongside a data set.
+///
+/// The checks are [`decode_complement`]'s, applied to the sequence: it
+/// must decode whole as complements of the `expected` shape, and every
+/// element's envelope must name that shape's current format.
+///
+/// # Errors
+///
+/// As [`decode_complement`].
+pub fn decode_complements(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<Vec<AnyComplement>, IdentityError> {
+    decode_checked(bytes, encoding, expected, decode_shape_seq, Vec::as_slice)
 }
 
 #[cfg(test)]
@@ -1933,6 +2004,77 @@ mod tests {
                 "{encoding:?} accepted a trailing byte"
             );
         }
+    }
+
+    #[test]
+    fn a_sequence_of_complements_is_checked_like_one() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let seq = vec![c.clone(), c.clone()];
+        for (encoding, bytes) in [
+            (
+                Encoding::MsgpackPositional,
+                rmp_serde::to_vec(&seq).unwrap(),
+            ),
+            (
+                Encoding::MsgpackNamed,
+                rmp_serde::to_vec_named(&seq).unwrap(),
+            ),
+            (Encoding::Json, serde_json::to_vec(&seq).unwrap()),
+        ] {
+            let decoded = decode_complements(&bytes, encoding, ComplementShape::WType).unwrap();
+            assert_eq!(decoded.len(), 2, "{encoding:?}");
+            assert!(decoded.iter().all(|d| d.identity() == c.identity.as_ref()));
+
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(
+                matches!(
+                    decode_complements(&trailing, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte after the sequence"
+            );
+        }
+
+        // One foreign element refuses the whole sequence.
+        let mut foreign = c.clone();
+        let mut e = envelope();
+        e.complement_format = ComplementShape::Graph.current_format();
+        foreign.identity = Some(e);
+        let bytes = rmp_serde::to_vec(&vec![c.clone(), foreign]).unwrap();
+        assert_eq!(
+            decode_complements(&bytes, Encoding::MsgpackPositional, ComplementShape::WType)
+                .unwrap_err(),
+            IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: "wtype/1".into(),
+                found: "graph/1".into(),
+            }
+        );
+
+        // An unsupported envelope layout anywhere in the sequence is named.
+        let mut value = serde_json::to_value(&seq).unwrap();
+        value[1]["identity"]["version"] = serde_json::json!(9);
+        assert_eq!(
+            decode_complements(
+                &serde_json::to_vec(&value).unwrap(),
+                Encoding::Json,
+                ComplementShape::WType
+            )
+            .unwrap_err(),
+            IdentityError::UnsupportedEnvelopeVersion { found: 9 }
+        );
+
+        // A single complement is not a sequence of them.
+        assert!(matches!(
+            decode_complements(
+                &rmp_serde::to_vec(&c).unwrap(),
+                Encoding::MsgpackPositional,
+                ComplementShape::WType
+            ),
+            Err(IdentityError::Undecodable(_))
+        ));
     }
 
     #[test]
