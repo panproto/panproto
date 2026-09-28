@@ -47,6 +47,7 @@ pub mod error;
 pub mod fibration;
 pub mod graph;
 pub mod hint;
+pub mod identity;
 pub mod laws;
 pub mod layout_complement;
 pub mod optic;
@@ -56,7 +57,9 @@ pub mod symbolic;
 pub mod symmetric;
 
 // Re-exports for convenience.
-pub use asymmetric::{Complement, ComplementCompose, get, put, put_without_complement};
+pub use asymmetric::{
+    Complement, ComplementCompose, get, put, put_checked, put_without_complement,
+};
 pub use auto_lens::{
     AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,
     auto_generate_candidates_with_hints, auto_generate_with_hints,
@@ -74,9 +77,10 @@ pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
-pub use error::{LawViolation, LensError};
+pub use error::{IdKind, LawViolation, LensError};
 pub use graph::LensGraph;
-pub use laws::{check_get_put, check_laws, check_put_get, instances_equivalent};
+pub use identity::ComplementIdentity;
+pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,

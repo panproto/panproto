@@ -5,6 +5,11 @@
 //!   view recovers the original source.
 //! - **`PutGet`**: `get(put(s, v)) = v`: what you put is what you get back.
 //!
+//! A third, **`PutPut`**, is what a *very* well-behaved lens adds: a put of
+//! `v1` followed by a put of `v2` equals the put of `v2` alone. It is
+//! checked separately by [`check_put_put`] and is not part of
+//! [`check_laws`].
+//!
 //! `PutGet` is checked modulo the view's derived components, the
 //! coordinates a field transform materializes and `get` recomputes on every
 //! pass. See [`crate::derived`] for why the law cannot be checked strictly
@@ -155,8 +160,9 @@ fn child_sequences(instance: &WInstance) -> std::collections::HashMap<u32, Vec<u
 /// field — dropped nodes (by id, anchor, value, and `extra_fields`),
 /// dropped arcs and fans (order-independent), contraction choices,
 /// parent maps, arc-edge disambiguators, snapshot `extra_fields`/values,
-/// synthesized-node sets, contracted-into fibres, and the source
-/// fingerprint. The edit-lens complement-coherence checker
+/// synthesized-node sets, contracted-into fibres, arc order, original
+/// anchors, the identity envelope and the source fingerprint. The
+/// edit-lens complement-coherence checker
 /// ([`crate::edit_laws`]) and the delta-lens functoriality proptests both
 /// rely on it.
 pub(crate) fn complements_equivalent(a: &Complement, b: &Complement) -> bool {
@@ -198,6 +204,9 @@ pub(crate) fn complement_divergence(a: &Complement, b: &Complement) -> Option<St
             "source_fingerprint: {} vs {}",
             a.source_fingerprint, b.source_fingerprint
         ));
+    }
+    if a.identity != b.identity {
+        return Some(format!("identity: {:?} vs {:?}", a.identity, b.identity));
     }
 
     // Dropped nodes: same ids, structurally equal payloads.
@@ -250,6 +259,15 @@ pub(crate) fn complement_divergence(a: &Complement, b: &Complement) -> Option<St
     }
     if a.contracted_into != b.contracted_into {
         return Some("contracted_into differ".to_owned());
+    }
+    if a.original_anchors != b.original_anchors {
+        return Some("original_anchors differ".to_owned());
+    }
+    // The source's arc sequence: the order a collection's elements come
+    // back in, so two complements that record it differently restore
+    // differently ordered sources.
+    if a.arc_order != b.arc_order {
+        return Some("arc_order differs".to_owned());
     }
 
     // Snapshot extra_fields and node values: NaN-reflexive comparison.
@@ -459,38 +477,73 @@ fn instance_divergence_modulo_derived(
     None
 }
 
-/// Verify the `PutPut` law for two views over a shared complement:
-/// `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`, the law requiring a
-/// sequence of puts to be subsumed by the last of them.
+/// Verify the `PutPut` law: a put of `v1` followed by a put of `v2`
+/// equals the put of `v2` alone.
+///
+/// With `(v, c) = get(s)`, the check computes `s1 = put(v1, c)` and its
+/// complement `c1 = get(s1).1`, then asserts `put(v2, c1) ≡ put(v2, c)`.
+/// `v1` must differ from `v`: putting the unmodified view reproduces `s`
+/// (by `GetPut`), so `c1` would equal `c` and the two sides would be the
+/// same computation, which checks nothing.
 ///
 /// `PutPut` is what separates a *very well-behaved* lens from a
-/// well-behaved one: well-behavedness is `GetPut` and `PutGet` alone,
-/// and most lenses this crate builds satisfy those two while failing
-/// this one, which is why it is checked separately rather than as part
-/// of [`check_laws`].
+/// well-behaved one: well-behavedness is `GetPut` and `PutGet` alone, and
+/// a lens whose `put` depends on what the source held before (as any lens
+/// with a complement can) satisfies those two while failing this one,
+/// which is why it is checked separately rather than as part of
+/// [`check_laws`].
 ///
 /// # Errors
 ///
-/// Returns [`LawViolation::PutGet`] (re-used to signal a put-stage
-/// disagreement) or [`LawViolation::Error`] on operational failure.
+/// Returns [`LawViolation::PutPut`] when the two sides differ, and
+/// [`LawViolation::Error`] when an operation fails or `v1` equals the view
+/// of `s`.
 pub fn check_put_put(
     lens: &Lens,
-    instance: &WInstance,
+    source: &WInstance,
+    first_view: &WInstance,
     second_view: &WInstance,
 ) -> Result<(), LawViolation> {
-    let (first_view, complement) = get(lens, instance).map_err(LawViolation::Error)?;
-    let after_first = put(lens, &first_view, &complement).map_err(LawViolation::Error)?;
-    let (_, complement2) = get(lens, &after_first).map_err(LawViolation::Error)?;
-    let after_second_via_chain =
-        put(lens, second_view, &complement2).map_err(LawViolation::Error)?;
-    let after_second_direct = put(lens, second_view, &complement).map_err(LawViolation::Error)?;
+    let envelope = lens.identity(panproto_inst::identity::ComplementShape::WType);
+    let put = |view: &WInstance, complement: &Complement| {
+        crate::asymmetric::put_with_identity(
+            lens,
+            view,
+            complement,
+            &envelope,
+            panproto_inst::identity::IdentityPolicy::AllowLegacy,
+        )
+        .map(|(restored, _)| restored)
+        .map_err(LawViolation::Error)
+    };
+    let get = |instance: &WInstance| {
+        crate::asymmetric::get_with_identity(lens, instance, &envelope).map_err(LawViolation::Error)
+    };
 
-    if !instances_equivalent(&after_second_via_chain, &after_second_direct) {
-        return Err(LawViolation::PutGet {
+    let (view, complement) = get(source)?;
+    if instances_equivalent(first_view, &view) {
+        return Err(LawViolation::Error(crate::LensError::ComplementMismatch {
+            detail: "PutPut needs a first view that differs from the source's own view; putting \
+                     the unmodified view reproduces the source, so the check would compare a \
+                     computation with itself"
+                .to_owned(),
+        }));
+    }
+
+    let after_first = put(first_view, &complement)?;
+    let (_, complement_after_first) = get(&after_first)?;
+    let chained = put(second_view, &complement_after_first)?;
+    let direct = put(second_view, &complement)?;
+
+    if !instances_equivalent(&chained, &direct) {
+        return Err(LawViolation::PutPut {
             detail: format!(
-                "PutPut violated: chained put has {} nodes, direct put has {} nodes",
-                after_second_via_chain.node_count(),
-                after_second_direct.node_count(),
+                "putting the first view and then the second gives {} nodes and {} arcs; putting \
+                 the second alone gives {} nodes and {} arcs",
+                chained.node_count(),
+                chained.arc_count(),
+                direct.node_count(),
+                direct.arc_count(),
             ),
         });
     }
@@ -885,17 +938,19 @@ mod tests {
                 );
             }
 
-            /// PutPut: a second put subsumes the first. `put(put(s, v1, c), v2, c) ≡ put(s, v2, c)`.
-            /// Exercised over identity lenses (where the law follows trivially) and over
-            /// projections (where it constrains the round-trip).
+            /// PutPut: a second put subsumes the first. With `(v, c) = get(s)`,
+            /// putting a perturbed view and then `v` again gives what putting
+            /// `v` alone gives. Exercised over identity lenses and over
+            /// projections, where the complement carries data.
             #[test]
             fn identity_lens_satisfies_put_put_proptest(
                 (lens, instance) in arb_identity_lens_scenario()
             ) {
                 let (view, _) = get(&lens, &instance).unwrap();
                 let perturbed = perturb_view_leaves(&view);
+                prop_assume!(!instances_equivalent(&perturbed, &view));
                 prop_assert!(
-                    check_put_put(&lens, &instance, &perturbed).is_ok(),
+                    check_put_put(&lens, &instance, &perturbed, &view).is_ok(),
                     "identity lens should satisfy PutPut",
                 );
             }
@@ -906,8 +961,9 @@ mod tests {
             ) {
                 let (view, _) = get(&lens, &instance).unwrap();
                 let perturbed = perturb_view_leaves(&view);
+                prop_assume!(!instances_equivalent(&perturbed, &view));
                 prop_assert!(
-                    check_put_put(&lens, &instance, &perturbed).is_ok(),
+                    check_put_put(&lens, &instance, &perturbed, &view).is_ok(),
                     "projection lens should satisfy PutPut",
                 );
             }
@@ -1643,9 +1699,11 @@ mod tests {
                 mutation in arb_view_mutation(),
             ) {
                 let (view, _) = get(&lens, &instance).unwrap();
-                let second = apply_view_mutation(&view, &mutation);
+                let first = apply_view_mutation(&view, &mutation);
+                prop_assume!(!instances_equivalent(&first, &view));
+                let second = perturb_view_leaves(&view);
                 prop_assert!(
-                    check_put_put(&lens, &instance, &second).is_ok(),
+                    check_put_put(&lens, &instance, &first, &second).is_ok(),
                     "identity lens PutPut should hold for generated second view",
                 );
             }
@@ -1657,9 +1715,11 @@ mod tests {
                 mutation in arb_view_mutation(),
             ) {
                 let (view, _) = get(&lens, &instance).unwrap();
-                let second = apply_view_mutation(&view, &mutation);
+                let first = apply_view_mutation(&view, &mutation);
+                prop_assume!(!instances_equivalent(&first, &view));
+                let second = perturb_view_leaves(&view);
                 prop_assert!(
-                    check_put_put(&lens, &instance, &second).is_ok(),
+                    check_put_put(&lens, &instance, &first, &second).is_ok(),
                     "projection lens PutPut should hold for generated second view",
                 );
             }

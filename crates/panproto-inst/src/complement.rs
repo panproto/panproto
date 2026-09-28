@@ -10,16 +10,17 @@
 //! Not every field is populated by every producer: the lens `get` path fills
 //! the structural-reconstruction fields (dropped nodes/arcs/fans, contraction
 //! choices, parent map, arc-edge disambiguators, snapshots, synthesized
-//! nodes, source fingerprint); the restrict pipeline additionally records
-//! [`Complement::contracted_into`], the surviving ancestor each dropped node
-//! collapsed into. Unused fields stay empty and are omitted from the
-//! serialized form.
+//! nodes, original anchors, identity envelope); the restrict pipeline
+//! additionally records [`Complement::contracted_into`], the surviving
+//! ancestor each dropped node collapsed into. Unused fields stay empty.
 
 use std::collections::{HashMap, HashSet};
 
+use panproto_gat::Name;
 use panproto_schema::Edge;
 
 use crate::fan::Fan;
+use crate::identity::{ComplementShape, IdentityCarrier, IdentityEnvelope};
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 
@@ -30,10 +31,13 @@ use crate::value::{FieldPresence, Value};
 /// nodes, arcs, and structural decisions are lost. The complement records all
 /// of this so the backward direction can reconstruct the full source.
 ///
-/// Every field is written on every encoding, for the reason [`Node`] gives:
-/// `MessagePack` writes a struct as an array of its fields in declaration
-/// order, so omitting one puts every later field in the wrong slot. A field
-/// absent from an encoding still reads as its default.
+/// Every field but the last is written on every encoding, for the reason
+/// [`Node`] gives: `MessagePack` writes a struct as an array of its fields
+/// in declaration order, so omitting one puts every later field in the
+/// wrong slot. A field absent from an encoding still reads as its default,
+/// which is how complements written before the later fields existed still
+/// decode. [`identity`](Self::identity) is last and omitted when absent,
+/// which is safe for the same reason: nothing follows it.
 #[derive(Clone, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub struct Complement {
     /// Nodes from the source that do not appear in the target view.
@@ -49,9 +53,13 @@ pub struct Complement {
     /// Original parent mapping before contraction.
     #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     pub original_parent: HashMap<u32, u32>,
-    /// Fingerprint of the source schema at projection time, used by the
-    /// backward direction to validate that the complement matches the lens's
-    /// source schema.
+    /// The legacy fingerprint of the source schema: the only binding to a
+    /// lens that complements carried before [`identity`](Self::identity).
+    ///
+    /// Written alongside the envelope at 64-bit width (see
+    /// [`legacy_schema_fingerprint`](crate::identity::legacy_schema_fingerprint))
+    /// so that a reader which predates envelopes keeps its check. A reader
+    /// that finds an envelope ignores it.
     #[serde(default)]
     pub source_fingerprint: u64,
     /// Pre-transform `extra_fields` for nodes that had `field_transforms`
@@ -98,6 +106,24 @@ pub struct Complement {
     /// into it.
     #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub contracted_into: HashMap<u32, u32>,
+    /// The source anchor of every surviving node whose anchor the forward
+    /// projection rewrote to a target vertex with more than one source
+    /// preimage.
+    ///
+    /// Under an injective vertex remap the backward direction recovers a
+    /// node's source anchor by inverting the remap. When two source
+    /// vertices map to the same target vertex the inverse is not a
+    /// function, and the view alone cannot say which of them a node came
+    /// from; this records it.
+    #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
+    pub original_anchors: HashMap<u32, Name>,
+    /// The lens this complement was produced by. See
+    /// [`crate::identity`].
+    ///
+    /// `None` on a complement written before envelopes existed, which
+    /// binds itself only through [`source_fingerprint`](Self::source_fingerprint).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub identity: Option<IdentityEnvelope>,
 }
 
 impl Complement {
@@ -109,9 +135,10 @@ impl Complement {
 
     /// Returns `true` if every field of the complement is unset.
     ///
-    /// The [`source_fingerprint`](Self::source_fingerprint) is provenance
-    /// metadata rather than discarded data, so a projection that records
-    /// only a fingerprint counts as empty.
+    /// The [`source_fingerprint`](Self::source_fingerprint) and the
+    /// [`identity`](Self::identity) envelope are provenance rather than
+    /// discarded data, so a projection that records only those counts as
+    /// empty.
     ///
     /// This is a statement about the *representation*, not about
     /// information loss: a lens that discards nothing still populates
@@ -131,6 +158,7 @@ impl Complement {
             && self.original_values.is_empty()
             && self.synthesized_nodes.is_empty()
             && self.contracted_into.is_empty()
+            && self.original_anchors.is_empty()
     }
 
     /// Returns `true` when this complement carries no information that the
@@ -142,7 +170,8 @@ impl Complement {
     /// only one of them is `C`:
     ///
     /// * **Residue.** Dropped nodes, arcs, and fans; snapshots of values
-    ///   the forward pass overwrote; contraction choices. This is the
+    ///   the forward pass overwrote; contraction choices; source anchors a
+    ///   non-injective remap made unrecoverable. This is the
     ///   information present in `S` and absent from `V`, so it *is* the
     ///   complement, and no amount of looking at `V` recovers it.
     /// * **Bookkeeping.** `original_parent`, `arc_order`, `arc_edges`.
@@ -164,5 +193,30 @@ impl Complement {
             && self.original_extra_fields.is_empty()
             && self.original_values.is_empty()
             && self.contracted_into.is_empty()
+            && self.original_anchors.is_empty()
+    }
+}
+
+impl IdentityCarrier for Complement {
+    const SHAPE: ComplementShape = ComplementShape::WType;
+
+    fn identity(&self) -> Option<&IdentityEnvelope> {
+        self.identity.as_ref()
+    }
+
+    fn set_identity(&mut self, envelope: Option<IdentityEnvelope>) {
+        self.identity = envelope;
+    }
+
+    fn legacy_fingerprint(&self) -> u64 {
+        self.source_fingerprint
+    }
+
+    fn set_legacy_fingerprint(&mut self, fingerprint: u64) {
+        self.source_fingerprint = fingerprint;
+    }
+
+    fn records_nothing(&self) -> bool {
+        self.is_empty()
     }
 }

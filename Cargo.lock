@@ -2118,7 +2118,9 @@ dependencies = [
 name = "panproto-inst"
 version = "0.74.4"
 dependencies = [
+ "blake3",
  "bumpalo",
+ "ciborium",
  "divan",
  "panproto-expr",
  "panproto-gat",

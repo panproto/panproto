@@ -18,6 +18,13 @@
 //! `produce-wasm32.mjs` in the fixture directory; the other `wasm32.*` files
 //! are that complement transcoded into the remaining encodings.
 //!
+//! The files were first written by the build that produced legacy
+//! complements. This generator now writes them from the current `get` by
+//! dropping the envelope and writing the fingerprint with
+//! `legacy_schema_fingerprint` at each width, so `check` is also the proof
+//! that the reimplemented fingerprint and the current `get` reproduce the
+//! legacy output byte for byte.
+//!
 //! Run from the repo root:
 //!
 //! ```sh
@@ -25,15 +32,16 @@
 //! cargo run -p xtask --bin gen-complement-upgrade -- check
 //! ```
 //!
-//! `write` regenerates every file that can be produced natively and
-//! transcodes an existing `wasm32.named.msgpack`; `check` regenerates in
-//! memory and fails on any difference from the files on disk.
+//! `write` regenerates every file but the frozen `wasm32.named.msgpack`,
+//! which it checks instead; `check` regenerates in memory and fails on any
+//! difference from the files on disk.
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use panproto_gat::Name;
+use panproto_inst::identity::{LegacyWidth, legacy_schema_fingerprint};
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{Complement, Fan, Node, WInstance};
 use panproto_lens::Lens;
@@ -106,22 +114,29 @@ struct LegacyComplement {
 }
 
 impl LegacyComplement {
-    /// The legacy form of a complement produced by `get` on a 64-bit host.
-    fn from_native(c: Complement) -> Self {
-        Self {
+    /// The legacy form of a complement `get` produced: its envelope
+    /// dropped, and its fingerprint the one a host of `width` wrote.
+    ///
+    /// A complement that records original anchors has no legacy form, since
+    /// the legacy layout has nowhere to put them.
+    fn from_complement(c: Complement, source: &Schema, width: LegacyWidth) -> Result<Self, String> {
+        if !c.original_anchors.is_empty() {
+            return Err("the legacy layout cannot carry original anchors".to_owned());
+        }
+        Ok(Self {
             dropped_nodes: c.dropped_nodes,
             dropped_arcs: c.dropped_arcs,
             dropped_fans: c.dropped_fans,
             contraction_choices: c.contraction_choices,
             original_parent: c.original_parent,
-            source_fingerprint: c.source_fingerprint,
+            source_fingerprint: legacy_schema_fingerprint(source, width),
             original_extra_fields: c.original_extra_fields,
             arc_edges: c.arc_edges,
             arc_order: c.arc_order,
             original_values: c.original_values,
             synthesized_nodes: c.synthesized_nodes,
             contracted_into: c.contracted_into,
-        }
+        })
     }
 }
 
@@ -461,38 +476,51 @@ fn case_files(dir: &Path, case: &Case) -> Result<Vec<(String, Vec<u8>)>, String>
         tgt_schema: tgt,
     };
     let (_, complement) = panproto_lens::get(&lens, &case.instance).map_err(|e| e.to_string())?;
-    let native = LegacyComplement::from_native(complement);
+    let native = LegacyComplement::from_complement(
+        complement.clone(),
+        &lens.src_schema,
+        LegacyWidth::Bits64,
+    )?;
     for (ext, bytes) in encodings(&native)? {
         files.push((format!("native.{ext}"), bytes));
     }
 
-    // The wasm32 complement, transcoded from the file the WASM driver wrote.
+    // The wasm32 complement. Its named msgpack is the WASM driver's output,
+    // frozen; the legacy form of this build's complement at 32-bit width
+    // must reproduce it byte for byte, and the other encodings are written
+    // from that.
+    let wasm =
+        LegacyComplement::from_complement(complement, &lens.src_schema, LegacyWidth::Bits32)?;
     let wasm_named = dir.join("wasm32.named.msgpack");
+    let frozen = std::fs::read(&wasm_named).map_err(|e| {
+        format!(
+            "{}: {e}; produce it with produce-wasm32.mjs",
+            wasm_named.display()
+        )
+    })?;
+    for (ext, encoded) in encodings(&wasm)? {
+        if ext == "named.msgpack" {
+            if encoded != frozen {
+                return Err(format!(
+                    "{}: the legacy wasm32 form of this build's complement differs from the \
+                     frozen one",
+                    wasm_named.display()
+                ));
+            }
+            continue;
+        }
+        files.push((format!("wasm32.{ext}"), encoded));
+    }
+
     let mut fingerprints = serde_json::Map::new();
     fingerprints.insert(
         "native".to_owned(),
         serde_json::Value::from(native.source_fingerprint),
     );
-    if wasm_named.exists() {
-        let bytes = std::fs::read(&wasm_named).map_err(|e| e.to_string())?;
-        let wasm: LegacyComplement = rmp_serde::from_slice(&bytes).map_err(|e| e.to_string())?;
-        fingerprints.insert(
-            "wasm32".to_owned(),
-            serde_json::Value::from(wasm.source_fingerprint),
-        );
-        for (ext, encoded) in encodings(&wasm)? {
-            if ext == "named.msgpack" {
-                if encoded != bytes {
-                    return Err(format!(
-                        "{}: re-encoding the wasm32 complement does not reproduce it",
-                        wasm_named.display()
-                    ));
-                }
-                continue;
-            }
-            files.push((format!("wasm32.{ext}"), encoded));
-        }
-    }
+    fingerprints.insert(
+        "wasm32".to_owned(),
+        serde_json::Value::from(wasm.source_fingerprint),
+    );
     files.push((
         "fingerprints.json".to_owned(),
         pretty_json(&serde_json::Value::Object(fingerprints))?,

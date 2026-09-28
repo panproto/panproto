@@ -127,6 +127,8 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         arc_order: vec![(0, 99)],
         original_values: HashMap::new(),
         synthesized_nodes: std::collections::HashSet::new(),
+        original_anchors: HashMap::new(),
+        identity: None,
     };
 
     // Named encoding, matching every `Complement` site on the WASM

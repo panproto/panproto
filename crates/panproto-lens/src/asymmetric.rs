@@ -8,11 +8,15 @@
 use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
+use panproto_inst::identity::{
+    ComplementShape, IdentityCarrier, IdentityEnvelope, IdentityPolicy, IdentityStatus,
+    compose_identities,
+};
 use panproto_inst::{Fan, Node, WInstance, wtype_restrict};
 use panproto_schema::Edge;
 
 use crate::Lens;
-use crate::error::LensError;
+use crate::error::{IdKind, LensError};
 
 /// The complement: data discarded by `get`, needed by `put` to restore the
 /// original source instance.
@@ -47,9 +51,12 @@ pub trait ComplementCompose: Sized {
     /// Returns [`LensError::ComplementConflict`] when both operands carry
     /// distinct entries on the same key (the partial-monoid's
     /// disjointness/agreement condition fails). Returns
-    /// [`LensError::ComplementFingerprintMismatch`] when both fingerprints
-    /// are non-zero and differ; complements rooted at different source
-    /// schemas cannot be combined.
+    /// [`LensError::Identity`] when the two identities cannot be combined,
+    /// by the table at
+    /// [`compose_identities`]:
+    /// complements of different lenses, a stamped complement with a legacy
+    /// one, two legacy complements with different fingerprints, or any
+    /// complement that carries data but no identity.
     fn compose(&self, other: &Self) -> Result<Self, LensError>;
 
     /// Returns `true` exactly when [`compose`](Self::compose) would succeed.
@@ -61,8 +68,7 @@ pub trait ComplementCompose: Sized {
 
 impl ComplementCompose for Complement {
     fn compose(&self, other: &Self) -> Result<Self, LensError> {
-        let source_fingerprint =
-            compose_fingerprint(self.source_fingerprint, other.source_fingerprint)?;
+        let (identity, source_fingerprint) = compose_identities(self, other)?;
 
         let mut dropped_nodes = self.dropped_nodes.clone();
         merge_keyed_with_eq(
@@ -124,6 +130,14 @@ impl ComplementCompose for Complement {
             PartialEq::eq,
         )?;
 
+        let mut original_anchors = self.original_anchors.clone();
+        merge_keyed_with_eq(
+            &mut original_anchors,
+            &other.original_anchors,
+            "original_anchors",
+            PartialEq::eq,
+        )?;
+
         // Arc order: keep this operand's sequence and append any pair the
         // other records that this one does not, so a merged complement
         // still describes a single consistent ordering. Membership goes
@@ -151,19 +165,13 @@ impl ComplementCompose for Complement {
             original_values,
             synthesized_nodes,
             contracted_into,
+            original_anchors,
+            identity,
         })
     }
 
     fn is_compatible(&self, other: &Self) -> bool {
-        self.clone().compose(other).is_ok()
-    }
-}
-
-fn compose_fingerprint(left: u64, right: u64) -> Result<u64, LensError> {
-    match (left, right) {
-        (0, _) | (_, 0) => Ok(left.max(right)),
-        (l, r) if l == r => Ok(l),
-        (l, r) => Err(LensError::ComplementFingerprintMismatch { left: l, right: r }),
+        self.compose(other).is_ok()
     }
 }
 
@@ -304,18 +312,38 @@ pub(crate) fn value_equiv(
     }
 }
 
-/// Compute a fingerprint of a schema for complement provenance validation.
-fn schema_fingerprint(schema: &panproto_schema::Schema) -> u64 {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    let mut vert_names: Vec<&str> = schema.vertices.keys().map(|n| &**n).collect();
-    vert_names.sort_unstable();
-    for v in &vert_names {
-        v.hash(&mut hasher);
+/// The source anchor a view anchor maps back to, read off the vertex remap.
+///
+/// A target vertex with exactly one explicit preimage maps back to it; one
+/// with none was not renamed and maps back to itself. One with several has
+/// no inverse, and `put` takes the anchor from
+/// [`Complement::original_anchors`] instead, which `get` fills for exactly
+/// the nodes this inverse would get wrong.
+struct ReverseAnchors {
+    preimages: HashMap<Name, Vec<Name>>,
+}
+
+impl ReverseAnchors {
+    fn new(vertex_remap: &HashMap<Name, Name>) -> Self {
+        let mut preimages: HashMap<Name, Vec<Name>> = HashMap::new();
+        for (src, tgt) in vertex_remap {
+            preimages.entry(tgt.clone()).or_default().push(src.clone());
+        }
+        for candidates in preimages.values_mut() {
+            candidates.sort();
+        }
+        Self { preimages }
     }
-    schema.edges.len().hash(&mut hasher);
-    hasher.finish()
+
+    /// The source anchor of `view_anchor`, or every candidate when there is
+    /// more than one.
+    fn source_anchor<'a>(&'a self, view_anchor: &'a Name) -> Result<&'a Name, &'a [Name]> {
+        match self.preimages.get(view_anchor).map(Vec::as_slice) {
+            None | Some([]) => Ok(view_anchor),
+            Some([only]) => Ok(only),
+            Some(many) => Err(many),
+        }
+    }
 }
 
 /// Forward lens direction: restrict the source instance to the target view
@@ -324,10 +352,23 @@ fn schema_fingerprint(schema: &panproto_schema::Schema) -> u64 {
 /// This runs `wtype_restrict` and then computes the set difference between
 /// the source and result to populate the complement.
 ///
+/// The complement is stamped with the lens's
+/// [`identity`](Lens::identity), which `put` checks.
+///
 /// # Errors
 ///
 /// Returns `LensError::Restrict` if the underlying restrict pipeline fails.
 pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement), LensError> {
+    get_with_identity(lens, instance, &lens.identity(ComplementShape::WType))
+}
+
+/// [`get`] with the lens's envelope already computed, for callers that run
+/// many `get`s through one lens.
+pub(crate) fn get_with_identity(
+    lens: &Lens,
+    instance: &WInstance,
+    envelope: &IdentityEnvelope,
+) -> Result<(WInstance, Complement), LensError> {
     let view = wtype_restrict(instance, &lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
 
     // Compute complement: everything in source not in view
@@ -395,7 +436,18 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         }
     }
 
-    let source_fingerprint = schema_fingerprint(&lens.src_schema);
+    // The source anchor of every surviving node the remap's inverse would
+    // not recover: a node whose view anchor has several preimages, or a
+    // single preimage that is not where it came from.
+    let reverse = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let mut original_anchors = HashMap::new();
+    for (&id, view_node) in &view.nodes {
+        if let Some(source_node) = instance.nodes.get(&id)
+            && reverse.source_anchor(&view_node.anchor) != Ok(&source_node.anchor)
+        {
+            original_anchors.insert(id, source_node.anchor.clone());
+        }
+    }
 
     // Capture node ids that appear in the view but not in the source
     // instance. These were synthesized by `wtype_restrict` to satisfy a
@@ -418,13 +470,13 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         .map(|(parent, child, _)| (*parent, *child))
         .collect();
 
-    let complement = Complement {
+    let mut complement = Complement {
         dropped_nodes,
         dropped_arcs,
         dropped_fans,
         contraction_choices,
         original_parent,
-        source_fingerprint,
+        source_fingerprint: 0,
         original_extra_fields,
         arc_edges,
         arc_order,
@@ -433,7 +485,10 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
         // The lens `get` path records no ancestor-contraction fibre; that
         // field is populated only by the restrict pipeline.
         contracted_into: HashMap::new(),
+        original_anchors,
+        identity: None,
     };
+    complement.stamp(envelope.clone(), &lens.src_schema);
 
     Ok((view, complement))
 }
@@ -445,25 +500,71 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
 /// the (potentially modified) surviving data. Together they reconstruct
 /// the full source instance.
 ///
+/// The complement's identity is checked first, under
+/// [`IdentityPolicy::AllowLegacy`]: a complement stamped by this lens, a
+/// legacy complement whose fingerprint matches this lens's source schema,
+/// and an empty complement are accepted. [`put_checked`] takes the policy
+/// explicitly and reports the status.
+///
 /// # Errors
 ///
-/// Returns `LensError::ComplementMismatch` if the complement is inconsistent
-/// with the view.
+/// Returns [`LensError::Identity`] if the complement's identity is refused,
+/// [`LensError::ComplementMismatch`] if the complement is inconsistent with
+/// the view, [`LensError::IdCollision`] if a view node has the id of a node
+/// the complement holds, and [`LensError::AmbiguousReverseAnchor`] if a
+/// node added in the view has no single source anchor.
 pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WInstance, LensError> {
-    // Validate complement provenance: the complement must have been produced
-    // from the same source schema.
-    if complement.source_fingerprint != 0 {
-        let expected = schema_fingerprint(&lens.src_schema);
-        if complement.source_fingerprint != expected {
-            return Err(LensError::ComplementMismatch {
-                detail: format!(
-                    "source fingerprint mismatch: complement has {}, lens expects {}",
-                    complement.source_fingerprint, expected
-                ),
-            });
-        }
-    }
+    put_with_identity(
+        lens,
+        view,
+        complement,
+        &lens.identity(ComplementShape::WType),
+        IdentityPolicy::AllowLegacy,
+    )
+    .map(|(source, _)| source)
+}
 
+/// [`put`] under an explicit identity policy, reporting how the complement
+/// was bound to the lens.
+///
+/// # Errors
+///
+/// As [`put`], with the identity check made under `policy`.
+pub fn put_checked(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    policy: IdentityPolicy,
+) -> Result<(WInstance, IdentityStatus), LensError> {
+    put_with_identity(
+        lens,
+        view,
+        complement,
+        &lens.identity(ComplementShape::WType),
+        policy,
+    )
+}
+
+/// [`put_checked`] with the lens's envelope already computed, for callers
+/// that run many `put`s through one lens.
+pub(crate) fn put_with_identity(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    envelope: &IdentityEnvelope,
+    policy: IdentityPolicy,
+) -> Result<(WInstance, IdentityStatus), LensError> {
+    let status = crate::identity::verify_with_identity(complement, lens, envelope, policy)?;
+    reassemble(lens, view, complement).map(|source| (source, status))
+}
+
+/// The backward direction proper, once the complement's identity is
+/// accepted.
+fn reassemble(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> Result<WInstance, LensError> {
     // `put` inverts `get` on the image of `get`, and only there. A
     // complement that records no parent for any of the view's non-root
     // nodes cannot have come from a `get` of a source with this shape: it
@@ -495,15 +596,28 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
     // not in the source, so collapsing them back means dropping them.
     let mut nodes = HashMap::new();
     let reverse_remap = build_reverse_remap(&lens.compiled.vertex_remap);
+    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
 
-    for (&id, node) in &view.nodes {
+    // Visited in ascending id order so that, of several nodes whose anchor
+    // cannot be reversed, the one reported is the same in every process.
+    let mut view_ids: Vec<u32> = view.nodes.keys().copied().collect();
+    view_ids.sort_unstable();
+    for id in view_ids {
+        let node = &view.nodes[&id];
         if complement.synthesized_nodes.contains(&id) {
             continue;
         }
         let mut restored_node = node.clone();
-        if let Some(original_anchor) = reverse_remap.get(&node.anchor) {
-            restored_node.anchor.clone_from(original_anchor);
-        }
+        let source_anchor = match complement.original_anchors.get(&id) {
+            Some(recorded) => recorded,
+            None => reverse_anchors
+                .source_anchor(&node.anchor)
+                .map_err(|candidates| LensError::AmbiguousReverseAnchor {
+                    node: id,
+                    candidates: candidates.to_vec(),
+                })?,
+        };
+        restored_node.anchor.clone_from(source_anchor);
         // Restore original extra_fields.
         //
         // When a complement snapshot is present, start from the snapshot
@@ -517,8 +631,7 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         // When there is no snapshot (externally constructed complements
         // or composed lenses that did not propagate one), fall back to
         // applying inverse transforms to the view's fields directly.
-        let src_anchor = reverse_remap.get(&node.anchor).unwrap_or(&node.anchor);
-        let transforms = lens.compiled.field_transforms.get(src_anchor);
+        let transforms = lens.compiled.field_transforms.get(&restored_node.anchor);
         if let Some(original_fields) = complement.original_extra_fields.get(&id) {
             let view_fields = restored_node.extra_fields.clone();
             restored_node.extra_fields.clone_from(original_fields);
@@ -535,11 +648,21 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         nodes.insert(id, restored_node);
     }
 
-    invert_computations_on_child_scalars(lens, view, &mut nodes, &reverse_remap);
+    invert_computations_on_child_scalars(lens, view, &mut nodes);
 
-    // Re-insert dropped nodes from complement
-    for (&id, node) in &complement.dropped_nodes {
-        nodes.insert(id, node.clone());
+    // Re-insert dropped nodes from complement. A view node already holding
+    // one of their ids was added in the view under an id the source still
+    // uses; restoring the dropped node would silently overwrite it.
+    let mut dropped_ids: Vec<u32> = complement.dropped_nodes.keys().copied().collect();
+    dropped_ids.sort_unstable();
+    for id in dropped_ids {
+        if nodes.contains_key(&id) {
+            return Err(LensError::IdCollision {
+                kind: IdKind::Node,
+                id,
+            });
+        }
+        nodes.insert(id, complement.dropped_nodes[&id].clone());
     }
 
     // Rebuild arcs: start with original parent relationships for view nodes,
@@ -588,11 +711,16 @@ pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WIn
         }
     }
 
-    let schema_root = reverse_remap
-        .get(&view.schema_root)
-        .cloned()
-        .unwrap_or_else(|| view.schema_root.clone());
-    // schema_root is Name, which WInstance::new accepts via Into<Name>
+    // The root's restored anchor is the source's schema root; the remap's
+    // inverse is the fallback when the root is not among the nodes.
+    let schema_root = nodes.get(&view.root).map_or_else(
+        || {
+            reverse_anchors
+                .source_anchor(&view.schema_root)
+                .map_or_else(|_| view.schema_root.clone(), Clone::clone)
+        },
+        |root| root.anchor.clone(),
+    );
 
     Ok(WInstance::new(nodes, arcs, fans, view.root, schema_root))
 }
@@ -762,14 +890,16 @@ fn invert_computations_on_child_scalars(
     lens: &Lens,
     view: &WInstance,
     nodes: &mut HashMap<u32, Node>,
-    reverse_remap: &HashMap<Name, Name>,
 ) {
     use panproto_inst::FieldTransform;
     use panproto_inst::value::{FieldPresence, Value};
 
     for (&parent_id, parent) in &view.nodes {
-        let src_anchor = reverse_remap.get(&parent.anchor).unwrap_or(&parent.anchor);
-        let Some(transforms) = lens.compiled.field_transforms.get(src_anchor) else {
+        // The parent's anchor as already restored to the source.
+        let Some(src_anchor) = nodes.get(&parent_id).map(|n| n.anchor.clone()) else {
+            continue;
+        };
+        let Some(transforms) = lens.compiled.field_transforms.get(&src_anchor) else {
             continue;
         };
 
@@ -1144,16 +1274,24 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
         original_extra_fields.insert(id, fields);
     }
 
-    let complement = Complement {
+    let mut complement = Complement {
         original_parent,
         arc_edges,
         arc_order,
         original_extra_fields,
-        source_fingerprint: schema_fingerprint(&lens.src_schema),
         ..Complement::empty()
     };
+    let envelope = lens.identity(ComplementShape::WType);
+    complement.stamp(envelope.clone(), &lens.src_schema);
 
-    put(lens, view, &complement)
+    put_with_identity(
+        lens,
+        view,
+        &complement,
+        &envelope,
+        IdentityPolicy::AllowLegacy,
+    )
+    .map(|(source, _)| source)
 }
 
 /// The `extra_fields` key a transform writes, when it writes one.
@@ -1280,15 +1418,22 @@ mod tests {
             }
         }
 
+        /// The legacy fingerprint the hand-built complements below are
+        /// bound by. A complement that carries data must be bound to some
+        /// lens to take part in composition at all.
+        const BOUND: u64 = 0x00C0_FFEE;
+
         fn singleton_dropped_node(id: u32, anchor: &str) -> Complement {
             let mut c = Complement::empty();
             c.dropped_nodes.insert(id, mk_node(id, anchor));
+            c.source_fingerprint = BOUND;
             c
         }
 
         fn singleton_arc_edge(parent: u32, child: u32, kind: &str) -> Complement {
             let mut c = Complement::empty();
             c.arc_edges.insert((parent, child), mk_edge("a", "b", kind));
+            c.source_fingerprint = BOUND;
             c
         }
 
@@ -1336,8 +1481,29 @@ mod tests {
             b.source_fingerprint = 0xBBBB;
             assert!(matches!(
                 a.compose(&b),
-                Err(LensError::ComplementFingerprintMismatch { .. })
+                Err(LensError::Identity(
+                    panproto_inst::IdentityError::LegacyComplementRejected {
+                        reason: panproto_inst::identity::LegacyRejectReason::FingerprintMismatch,
+                    }
+                ))
             ));
+        }
+
+        #[test]
+        fn rejects_data_bound_to_no_lens() {
+            let mut unbound = Complement::empty();
+            unbound.dropped_nodes.insert(1, mk_node(1, "x"));
+            for (a, b) in [
+                (&unbound, &Complement::empty()),
+                (&Complement::empty(), &unbound),
+            ] {
+                assert!(matches!(
+                    a.compose(b),
+                    Err(LensError::Identity(
+                        panproto_inst::IdentityError::UnboundComplement
+                    ))
+                ));
+            }
         }
 
         #[test]
@@ -1462,8 +1628,29 @@ mod tests {
             fn arb_pair_set() -> impl Strategy<Value = PairSet> {
                 prop::collection::hash_set((0u32..KEY_POOL, 0u32..KEY_POOL), 0..=4)
             }
-            fn arb_fingerprint() -> impl Strategy<Value = u64> {
-                prop_oneof![Just(0u64), Just(FP)]
+            /// How every complement of one generated case is bound to its
+            /// lens: all by one legacy fingerprint, or all by one envelope.
+            /// Operands bound alike are always composable, which keeps the
+            /// algebraic laws inside the domain of definition.
+            #[derive(Clone, Copy, Debug)]
+            enum Binding {
+                Legacy,
+                Stamped,
+            }
+
+            fn arb_binding() -> impl Strategy<Value = Binding> {
+                prop_oneof![Just(Binding::Legacy), Just(Binding::Stamped)]
+            }
+
+            fn bind(c: &mut Complement, binding: Binding) {
+                match binding {
+                    Binding::Legacy => c.source_fingerprint = FP,
+                    Binding::Stamped => {
+                        let schema = crate::tests::three_node_schema();
+                        let lens = crate::tests::identity_lens(&schema);
+                        c.stamp(lens.identity(ComplementShape::WType), &schema);
+                    }
+                }
             }
 
             /// Strategy generating a [`Complement`] with `dropped_nodes`,
@@ -1471,7 +1658,7 @@ mod tests {
             /// `original_parent`, `original_extra_fields`, `arc_edges`,
             /// `original_values`, `synthesized_nodes`, and a fingerprint all
             /// independently populated from the shared key pool.
-            fn arb_complement() -> impl Strategy<Value = Complement> {
+            fn arb_complement(binding: Binding) -> impl Strategy<Value = Complement> {
                 (
                     arb_id_set(),
                     arb_pair_set(),
@@ -1482,10 +1669,9 @@ mod tests {
                     arb_pair_set(),
                     arb_id_set(),
                     arb_id_set(),
-                    arb_fingerprint(),
                 )
                     .prop_map(
-                        |(
+                        move |(
                             nodes,
                             arcs,
                             fans,
@@ -1495,7 +1681,6 @@ mod tests {
                             arc_edges,
                             values,
                             synth,
-                            fp,
                         )| {
                             let mut c = Complement::empty();
                             for k in nodes {
@@ -1523,7 +1708,7 @@ mod tests {
                                 c.original_values.insert(k, canon_presence(k));
                             }
                             c.synthesized_nodes = synth;
-                            c.source_fingerprint = fp;
+                            bind(&mut c, binding);
                             c
                         },
                     )
@@ -1547,6 +1732,7 @@ mod tests {
 
             fn complement_equiv(a: &Complement, b: &Complement) -> bool {
                 a.source_fingerprint == b.source_fingerprint
+                    && a.identity == b.identity
                     && map_equiv(&a.dropped_nodes, &b.dropped_nodes, node_equiv)
                     && vec_set_equiv(&a.dropped_arcs, &b.dropped_arcs)
                     && vec_set_equiv(&a.dropped_fans, &b.dropped_fans)
@@ -1568,14 +1754,28 @@ mod tests {
                     && a.synthesized_nodes == b.synthesized_nodes
             }
 
+            fn arb_one() -> impl Strategy<Value = Complement> {
+                arb_binding().prop_flat_map(arb_complement)
+            }
+
+            fn arb_two() -> impl Strategy<Value = (Complement, Complement)> {
+                arb_binding().prop_flat_map(|b| (arb_complement(b), arb_complement(b)))
+            }
+
+            fn arb_three() -> impl Strategy<Value = (Complement, Complement, Complement)> {
+                arb_binding()
+                    .prop_flat_map(|b| (arb_complement(b), arb_complement(b), arb_complement(b)))
+            }
+
             proptest! {
                 #![proptest_config(ProptestConfig::with_cases(128))]
 
                 /// `empty()` is a two-sided identity for `compose` on every
                 /// generated complement. The composite is always defined
-                /// because `empty()` carries fingerprint `0` and no keys.
+                /// because `empty()` carries no data and no identity, which
+                /// makes it the unit whatever the other operand is bound by.
                 #[test]
-                fn complement_partial_monoid_identity(c in arb_complement()) {
+                fn complement_partial_monoid_identity(c in arb_one()) {
                     let e = Complement::empty();
                     let left = e.compose(&c).expect("empty is left-compatible");
                     let right = c.compose(&e).expect("empty is right-compatible");
@@ -1585,13 +1785,11 @@ mod tests {
 
                 /// On the domain of definition `compose` is commutative:
                 /// `a.compose(b)` and `b.compose(a)` agree. The generator makes
-                /// every pair compatible by construction, so both sides are
-                /// defined and equality is asserted unconditionally.
+                /// every pair compatible by construction (agreeing values,
+                /// one binding), so both sides are defined and equality is
+                /// asserted unconditionally.
                 #[test]
-                fn complement_partial_monoid_commutative(
-                    a in arb_complement(),
-                    b in arb_complement(),
-                ) {
+                fn complement_partial_monoid_commutative((a, b) in arb_two()) {
                     prop_assert!(a.is_compatible(&b), "compatible by construction");
                     let ab = a.compose(&b).expect("ab defined");
                     let ba = b.compose(&a).expect("ba defined");
@@ -1600,14 +1798,10 @@ mod tests {
 
                 /// On the domain of definition `compose` is associative:
                 /// `(a.b).c == a.(b.c)`. Every triple drawn from the shared
-                /// key pool is pairwise compatible, so both bracketings are
-                /// defined.
+                /// key pool under one binding is pairwise compatible, so both
+                /// bracketings are defined.
                 #[test]
-                fn complement_partial_monoid_associative(
-                    a in arb_complement(),
-                    b in arb_complement(),
-                    c in arb_complement(),
-                ) {
+                fn complement_partial_monoid_associative((a, b, c) in arb_three()) {
                     let left = a
                         .compose(&b)
                         .and_then(|ab| ab.compose(&c))
@@ -1622,8 +1816,7 @@ mod tests {
                 /// Off the domain of definition `compose` reports a precise
                 /// error: a shared key with distinct values yields
                 /// [`LensError::ComplementConflict`], and two distinct
-                /// non-zero fingerprints yield
-                /// [`LensError::ComplementFingerprintMismatch`].
+                /// legacy fingerprints yield [`LensError::Identity`].
                 #[test]
                 fn complement_partial_monoid_conflict(
                     key in 0u32..KEY_POOL,
@@ -1636,8 +1829,10 @@ mod tests {
                     if left_tag != right_tag {
                         let mut a = Complement::empty();
                         a.dropped_nodes.insert(key, mk_node(key, &format!("L{left_tag}")));
+                        a.source_fingerprint = FP;
                         let mut b = Complement::empty();
                         b.dropped_nodes.insert(key, mk_node(key, &format!("R{right_tag}")));
+                        b.source_fingerprint = FP;
                         let node_conflict = matches!(
                             a.compose(&b),
                             Err(LensError::ComplementConflict {
@@ -1652,9 +1847,11 @@ mod tests {
                         let mut a2 = Complement::empty();
                         a2.arc_edges
                             .insert((0, 1), mk_edge("s", "t", &format!("L{left_tag}")));
+                        a2.source_fingerprint = FP;
                         let mut b2 = Complement::empty();
                         b2.arc_edges
                             .insert((0, 1), mk_edge("s", "t", &format!("R{right_tag}")));
+                        b2.source_fingerprint = FP;
                         let edge_conflict = matches!(
                             a2.compose(&b2),
                             Err(LensError::ComplementConflict {
@@ -1665,7 +1862,7 @@ mod tests {
                         prop_assert!(edge_conflict, "arc_edges conflict expected");
                     }
 
-                    // Two distinct non-zero fingerprints -> mismatch.
+                    // Two distinct legacy fingerprints -> refused.
                     if fp_a != fp_b {
                         let mut a = Complement::empty();
                         a.source_fingerprint = fp_a;
@@ -1673,7 +1870,9 @@ mod tests {
                         b.source_fingerprint = fp_b;
                         let fp_mismatch = matches!(
                             a.compose(&b),
-                            Err(LensError::ComplementFingerprintMismatch { .. })
+                            Err(LensError::Identity(
+                                panproto_inst::IdentityError::LegacyComplementRejected { .. }
+                            ))
                         );
                         prop_assert!(fp_mismatch, "fingerprint mismatch expected");
                     }
