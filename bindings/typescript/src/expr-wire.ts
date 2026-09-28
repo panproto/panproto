@@ -125,6 +125,7 @@ const BUILTIN_OPS = new Set<string>([
   'HasEdge',
   'EdgeCount',
   'Anchor',
+  'Edges',
 ] satisfies readonly BuiltinOp[]);
 
 /** Convert a public expression to Rust's externally tagged serde shape. */

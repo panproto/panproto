@@ -503,6 +503,7 @@ const fn builtin_name(op: BuiltinOp) -> &'static str {
         BuiltinOp::HasEdge => "has_edge",
         BuiltinOp::EdgeCount => "edge_count",
         BuiltinOp::Anchor => "anchor",
+        BuiltinOp::Edges => "edges",
     }
 }
 

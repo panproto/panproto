@@ -228,7 +228,7 @@ pub enum BuiltinOp {
     /// `is_list(v) → bool`
     IsList,
 
-    // --- Graph traversal (5) ---
+    // --- Graph traversal (6) ---
     // These builtins require an instance context (`InstanceEnv` in
     // panproto-inst) and are evaluated by `eval_with_instance`, not
     // the standard `eval`. In the standard evaluator they return Null.
@@ -247,6 +247,11 @@ pub enum BuiltinOp {
     /// `anchor(node_ref: string) → string`
     /// Get the schema anchor (sort/kind) of a node.
     Anchor,
+    /// `edges(node_ref: string, edge_kind: string) → [value]`
+    /// Follow every outgoing edge of a kind from a node, in edge order.
+    /// Where [`Self::Edge`] answers with the first such edge, this answers
+    /// with all of them, so parallel edges each contribute their target.
+    Edges,
 }
 
 impl BuiltinOp {
@@ -305,6 +310,7 @@ impl BuiltinOp {
             "has_edge" | "hasEdge" => Some(Self::HasEdge),
             "edge_count" | "edgeCount" => Some(Self::EdgeCount),
             "anchor" => Some(Self::Anchor),
+            "edges" => Some(Self::Edges),
             _ => None,
         }
     }
@@ -397,6 +403,7 @@ impl BuiltinOp {
             | Self::Contains
             | Self::FlatMap
             | Self::Edge
+            | Self::Edges
             | Self::HasEdge
             | Self::DefaultVal
             | Self::Range
@@ -485,7 +492,8 @@ impl BuiltinOp {
             | Self::Children
             | Self::HasEdge
             | Self::EdgeCount
-            | Self::Anchor => None,
+            | Self::Anchor
+            | Self::Edges => None,
         }
     }
 }

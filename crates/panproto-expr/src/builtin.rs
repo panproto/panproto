@@ -115,7 +115,8 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Children
         | BuiltinOp::HasEdge
         | BuiltinOp::EdgeCount
-        | BuiltinOp::Anchor => Err(ExprError::NoInstanceContext {
+        | BuiltinOp::Anchor
+        | BuiltinOp::Edges => Err(ExprError::NoInstanceContext {
             op: format!("{op:?}"),
         }),
     }
