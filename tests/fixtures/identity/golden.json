@@ -73,7 +73,7 @@
       "name": "jsonschema/github-workflow",
       "protocol": "json-schema",
       "source": "fixtures/jsonschema/github-workflow.json",
-      "digest": "0c02abc0ff027f87d797c9cfc28f0d80dc3a741eb1b5eabcd18ddf296e5e1e5e"
+      "digest": "97495d38bb6c14390705ed6cd02e60fb7f15db1cf2715995b0cef29c42aabf4c"
     },
     {
       "name": "jsonschema/package",
@@ -85,7 +85,7 @@
       "name": "jsonschema/tsconfig",
       "protocol": "json-schema",
       "source": "fixtures/jsonschema/tsconfig.json",
-      "digest": "9817b5393ac3eb0d9c3c1977ec24cb0a4ac00c59d68912d59417323a7291225d"
+      "digest": "7c28b27c0da399bc4d75fcf70f52360a363acdb35d044075d00176d9b0b565ab"
     },
     {
       "name": "protobuf/common",
@@ -115,13 +115,13 @@
       "name": "sql/sakila-postgres",
       "protocol": "sql",
       "source": "fixtures/sql/sakila-postgres.sql",
-      "digest": "012ba906e00b824c2eda9239d766d970c07670bda6e9ab9a63510485ffe4068c"
+      "digest": "ca8a36e2d3955747163a8a3d4c6d1a09a2d4e8eb6a86484ed74960dd54bcfcd2"
     },
     {
       "name": "sql/sakila-sqlite",
       "protocol": "sql",
       "source": "fixtures/sql/sakila-sqlite.sql",
-      "digest": "6dab939edbec65ac5b8a17e83fd58714bad6544afef116b02fab42bba6505008"
+      "digest": "1154ca2c9c17342f01f5ac7750d24ed49ab75d0c842c7f5f3f8eac7dfd40adca"
     },
     {
       "name": "sql-tests/users",
@@ -337,8 +337,242 @@
       "envelope": {
         "version": 1,
         "source_schema": "0e4d9b8f0649ee851b553c8a9acd5e5d0231b8be3720cb2f436d909d05754592",
-        "target_schema": "f2d1faaf0115d9ab984644eb7436289892a45fbc048179ebb9571f2f6b68a871",
-        "lens": "0a3d0659e2e9da22d526d5a6631dd8215f58e16e819034da0d9aaeb48dd321f0",
+        "target_schema": "8c1e622924bc4bd8fb1f216212e90bcbdaadbd9f7ae5c39ae25c0fe16499cd31",
+        "lens": "60e5e2634a4c31321ff2e7554ae005e4de12c2192a49f1c27852614e19568e26",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/profile-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.actor.profile",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "4b49194558eba5b7f7265ae3dd09fa2c5931f1a6b86f974db73ea7b001f4c0f6",
+        "target_schema": "e8c8bab068f9374484f676290b820930b57c550533d485954b42e0e6e17a8d15",
+        "lens": "c2c9728229acfddb482c46bdee9f9ec68efd5df08397bc4607b73ce118026735",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "b67dc3898b7a36ec55fb54b592fa12ad324ac621e0a0739de7e2bde613a1fcb4",
+        "target_schema": "0a7d557a61da8218625f0785b2abb7662bc4621b4d691dda6b766eac8a5e116c",
+        "lens": "cbbc69352a20155188b874d1f1f6ad4bc83a892fba58d0a835858113013d87d1",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/like-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.like",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "b67dc3898b7a36ec55fb54b592fa12ad324ac621e0a0739de7e2bde613a1fcb4",
+        "target_schema": "8fe97b5d9704f42bd0d45857f903d8eb4d62ac123c6c424c673ab5e69113b4e3",
+        "lens": "4d0506db4e9bfbaadf3404190815fce98850b1f0612a7bf0d6e82e808085e783",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "34986a53447daa22b0c755f23e44d25383c11dcbb91eda501e44edf7363d0e24",
+        "target_schema": "057b8bfd8b478d021a4b6d8436434b4796ae4fa77e59f6c18ca9d656515a12a6",
+        "lens": "726af3cc3ff91f683a2ad2715915df27b87fe42661b6237ef36156d43f3a5df3",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-follow",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/app.bsky.graph.follow",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "34986a53447daa22b0c755f23e44d25383c11dcbb91eda501e44edf7363d0e24",
+        "target_schema": "34986a53447daa22b0c755f23e44d25383c11dcbb91eda501e44edf7363d0e24",
+        "lens": "75c87cc9af7c5a32d6ce4e40985f692eb81021a4635c9ff03d79c52e664fa741",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/repost-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.feed.repost",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "34986a53447daa22b0c755f23e44d25383c11dcbb91eda501e44edf7363d0e24",
+        "target_schema": "9eeac08d66b81bd50fddc5ef5c1b3016b8f01c1ef2e3bfd2e5a3594f066a3dfe",
+        "lens": "d8fdbe34064c8a890f84d61b078c9f70ef81e9cf185ad98fd859c1d60e3a482d",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-profile",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.actor.profile",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "target_schema": "e1666890f30a6e7b1c6ed5215f9eb00f9f079c58cb6c063e35af3b6b1ced44d6",
+        "lens": "d21d8e219ba84e59835fa17b1bab21fcf9e6174b8409f0decf609617cc9b6342",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-like",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.feed.like",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "target_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "lens": "2c0f9d73bb092594f87c81e3f72047aa3483c0b9f7118b50ae03a2a17e47396f",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-repost",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/app.bsky.feed.repost",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "target_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "lens": "2c0f9d73bb092594f87c81e3f72047aa3483c0b9f7118b50ae03a2a17e47396f",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/follow-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto/app.bsky.graph.follow",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "4c42bd4609e1f70ddf8503dcffd00d18de8d4ddef64c45cbbeeb1f5b90650e2a",
+        "target_schema": "8a360c231c74e9c21562ab729263f198e7e4aae8c4d93ac2450b95ffa3acc5dc",
+        "lens": "688fadcca7225be604b96d355fd7559564ade05b3b554e3afd9c1a239a5c7a10",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/profile-tests-to-document",
+      "kind": "auto",
+      "protocol": "atproto",
+      "src": "atproto-tests/app.bsky.actor.profile",
+      "tgt": "atproto/site.standard.document",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "bd8576bed0d7703ee1ccde0025d4cf6c82dbeede557ccc8487671348e1df6239",
+        "target_schema": "9dce93b6ce71e8d2520d04005fccaa2a80f4fb0e85cac5cb17bd5979a3c5ebe3",
+        "lens": "d140df0a5523afbdc502111894ce06e8cb815b992372eb431870f3f68ca36ca2",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-common",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/common",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "74c744dc6d3e8b7a29d2ca000175b6fc83a835133bbdf8a4c82135e5bc4ea47e",
+        "target_schema": "db9f4646ccef38130ff36834ec532b0b51066ad3279e7a57c1abf37c78001592",
+        "lens": "f3a0ed6cadc75573e1a2bdc77354dcb55a8316885cf45dd0590aa67a24c944da",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-trace",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/trace",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "74c744dc6d3e8b7a29d2ca000175b6fc83a835133bbdf8a4c82135e5bc4ea47e",
+        "target_schema": "c36f47d697afff5fae4c6dbeae87bbaab2ffd760bc746822f895b62aa20de86a",
+        "lens": "f2d90c8659b729c83d6fc2f8fe0f3cc32fd5534bac688e307159b1643dd26d4f",
         "complement_format": {
           "shape": "wtype",
           "version": 1

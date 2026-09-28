@@ -13,16 +13,11 @@
 //! failure. The lenient tier, which permits spans, relates every pair by
 //! a partial alignment, which is the answer these pairs have.
 
-#![allow(
-    clippy::expect_used,
-    reason = "a corpus schema that does not load is a defect in the fixture"
-)]
-
 mod identity_corpus;
 
 use std::collections::HashMap;
 
-use identity_corpus::{load_schemas, protocol_named, read_golden};
+use identity_corpus::{Required, load_schemas, protocol_named, read_golden};
 use panproto_lens::{AutoLensConfig, LensError, Stringency, auto_generate};
 use panproto_schema::Schema;
 
@@ -41,7 +36,7 @@ fn kinds(schema: &Schema) -> Vec<&str> {
 /// a partial alignment.
 fn assert_no_total_morphism(protocol: &str, src: &Schema, tgt: &Schema) {
     let exact = panproto_mig::find_best_morphism(src, tgt, &panproto_mig::SearchOptions::default())
-        .expect("the total search completes");
+        .required("the total search completes");
     assert!(exact.is_none(), "the exact search finds a total morphism");
 
     let protocol = protocol_named(protocol);
@@ -55,7 +50,7 @@ fn assert_no_total_morphism(protocol: &str, src: &Schema, tgt: &Schema) {
         stringency: Stringency::Lenient,
         ..AutoLensConfig::default()
     };
-    auto_generate(src, tgt, &protocol, &lenient).expect("a span tier finds a partial alignment");
+    auto_generate(src, tgt, &protocol, &lenient).required("a span tier finds a partial alignment");
 }
 
 /// `users.active` is a boolean column and `users_posts` has no boolean
@@ -96,7 +91,7 @@ fn the_test_post_lexicon_to_the_full_one_has_no_total_morphism() {
 
     let reply = src
         .vertex(&format!("{body}.reply"))
-        .expect("the test lexicon declares reply");
+        .required("the test lexicon declares reply");
     assert_eq!(reply.kind, "object");
     let bodies: Vec<_> = tgt
         .edges

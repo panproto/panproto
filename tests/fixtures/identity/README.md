@@ -53,7 +53,10 @@ total morphism. Pairs with no total morphism, such as the two
 `app.bsky.feed.post` lexicons in either direction and
 `sql-tests/users` to `sql-tests/users_posts`, are pinned as typed
 failures by `auto_generate_reports_no_morphism_where_none_exists.rs`.
-`auto_generate` also finds lenses from `sql-tests/users_posts` to both
-Sakila schemas, but each takes seconds of search in a debug build and
+Every other ordered pair of corpus schemas of one protocol on which
+`auto_generate` finds a lens is in the corpus, with two exceptions: the
+lenses from `sql-tests/users_posts` to the two Sakila schemas. The
+total-morphism search behind them (`panproto_mig::find_best_morphism`)
+takes about 10 s (PostgreSQL) and 3 s (SQLite) in a debug build, and
 every process of the cross-process test rebuilds every lens, so those
-two are left out of the corpus.
+two are left out.
