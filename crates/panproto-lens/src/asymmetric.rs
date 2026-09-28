@@ -1552,13 +1552,25 @@ mod tests {
             )
         }
 
-        fn reanchor(view: &mut WInstance, id: u32, anchor: &str) {
+        /// Move view node `id` to `anchor`, carrying its arc onto the
+        /// target edge `r -> anchor` named `edge_name`, as a real view edit
+        /// must to stay well typed.
+        fn reanchor(view: &mut WInstance, id: u32, anchor: &str, edge_name: &str) {
             view.nodes.get_mut(&id).unwrap().anchor = anchor.into();
             for (_, child, edge) in &mut view.arcs {
                 if *child == id {
-                    edge.tgt = anchor.into();
+                    *edge = prop("r", anchor, edge_name);
                 }
             }
+        }
+
+        fn arc_edge(instance: &WInstance, parent: u32, child: u32) -> &Edge {
+            &instance
+                .arcs
+                .iter()
+                .find(|(p, c, _)| (*p, *c) == (parent, child))
+                .unwrap_or_else(|| panic!("no arc {parent} -> {child}"))
+                .2
         }
 
         #[test]
@@ -1569,6 +1581,8 @@ mod tests {
             let restored = put(&lens, &view, &complement).unwrap();
             assert_eq!(restored.nodes[&1].anchor, "a");
             assert_eq!(restored.nodes[&2].anchor, "b");
+            assert_eq!(arc_edge(&restored, 0, 1), &prop("r", "a", "a"));
+            assert_eq!(arc_edge(&restored, 0, 2), &prop("r", "b", "b"));
         }
 
         #[test]
@@ -1576,19 +1590,30 @@ mod tests {
             let lens = merging_lens();
             let (mut view, complement) = get(&lens, &source()).unwrap();
             assert_eq!(view.nodes[&1].anchor, "t");
-            reanchor(&mut view, 1, "u");
+            assert_eq!(arc_edge(&view, 0, 1), &prop("r", "t", "a"));
+            reanchor(&mut view, 1, "u", "c");
 
             let restored = put(&lens, &view, &complement).unwrap();
             assert_eq!(restored.nodes[&1].anchor, "c");
+            assert_eq!(
+                arc_edge(&restored, 0, 1),
+                &prop("r", "c", "c"),
+                "the restored arc must be the source edge into the node's restored anchor"
+            );
             let (again, _) = get(&lens, &restored).unwrap();
             assert_eq!(again.nodes[&1].anchor, "u", "PutGet lost the edit");
+            assert_eq!(
+                arc_edge(&again, 0, 1),
+                &prop("r", "u", "c"),
+                "PutGet lost the arc's edit"
+            );
         }
 
         #[test]
         fn a_recorded_node_moved_to_a_merged_anchor_is_ambiguous() {
             let lens = merging_lens();
             let (mut view, complement) = get(&lens, &source()).unwrap();
-            reanchor(&mut view, 1, "t2");
+            reanchor(&mut view, 1, "t2", "d");
 
             match put(&lens, &view, &complement) {
                 Err(LensError::AmbiguousReverseAnchor {
