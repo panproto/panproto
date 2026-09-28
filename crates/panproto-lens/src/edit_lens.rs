@@ -21,6 +21,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use panproto_gat::{CoercionClass, DirectedEquation, Name, Theory};
+use panproto_inst::identity::{ComplementShape, IdentityCarrier};
 use panproto_inst::{CompiledMigration, TreeEdit, WInstance};
 use panproto_schema::{Edge, Protocol, Schema};
 
@@ -42,7 +43,8 @@ pub struct EditLens {
     pub src_schema: Schema,
     /// The target (view) schema.
     pub tgt_schema: Schema,
-    /// The current complement state.
+    /// The current complement state, stamped with the identity of the
+    /// lens this edit lens was built from.
     pub complement: Complement,
     /// The protocol definition (carries the enriched theory).
     pub protocol: Protocol,
@@ -70,11 +72,15 @@ impl EditLens {
             .iter()
             .map(|(k, v)| (v.clone(), k.clone()))
             .collect();
+        // Stamped from the start, so a complement filled by edits alone,
+        // without a whole-state `initialize`, is still bound to this lens.
+        let mut complement = Complement::empty();
+        complement.stamp(lens.identity(ComplementShape::WType), &lens.src_schema);
         Self {
             compiled: lens.compiled,
             src_schema: lens.src_schema,
             tgt_schema: lens.tgt_schema,
-            complement: Complement::empty(),
+            complement,
             protocol,
             reverse_vertex_remap,
             reverse_edge_remap,
@@ -1483,6 +1489,49 @@ mod tests {
         assert!(
             edit_lens.complement.dropped_nodes.contains_key(&99),
             "node should be in complement"
+        );
+    }
+
+    /// An edit lens that was never initialized from a whole state still
+    /// produces a complement bound to its lens, and `put` accepts it under
+    /// the strict policy once edits have filled it.
+    #[test]
+    fn a_complement_filled_by_edits_alone_is_stamped() {
+        use panproto_inst::identity::{ComplementShape, IdentityPolicy, IdentityStatus};
+
+        use crate::identity::ComplementIdentity;
+
+        let schema = three_node_schema();
+        let lens = crate::tests::projection_lens(&schema, "createdAt");
+        let mut edit_lens = EditLens::from_lens(
+            crate::tests::projection_lens(&schema, "createdAt"),
+            test_protocol(),
+        );
+        assert_eq!(
+            edit_lens.complement.identity,
+            Some(lens.identity(ComplementShape::WType))
+        );
+
+        edit_lens
+            .get_edit(TreeEdit::InsertNode {
+                parent: 0,
+                child_id: 99,
+                node: Node::new(99, "post:body.createdAt"),
+                edge: Edge {
+                    src: "post:body".into(),
+                    tgt: "post:body.createdAt".into(),
+                    kind: "prop".into(),
+                    name: Some("createdAt".into()),
+                },
+            })
+            .unwrap();
+        assert!(!edit_lens.complement.is_empty());
+        assert_eq!(
+            edit_lens
+                .complement
+                .verify(&lens, IdentityPolicy::Strict)
+                .unwrap(),
+            IdentityStatus::Verified
         );
     }
 
