@@ -37,7 +37,7 @@ pub use abstract_schema::{
     AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
 };
 pub use builder::SchemaBuilder;
-pub use canonical::{canonical_bytes, canonical_digest};
+pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
 pub use colimit::{SchemaOverlap, schema_pushout};
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};

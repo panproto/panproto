@@ -113,12 +113,12 @@ use crate::schema::{
 /// ```
 #[must_use]
 pub fn canonical_bytes(schema: &Schema) -> Vec<u8> {
-    let mut out = Vec::new();
+    let mut out = CanonicalWriter::new();
     push_graph(&mut out, schema);
     push_annotations(&mut out, schema);
     push_enrichment(&mut out, schema);
     push_indices(&mut out, schema);
-    out
+    out.into_bytes()
 }
 
 /// The blake3 digest of a schema's [`canonical_bytes`].
@@ -160,40 +160,40 @@ pub fn canonical_digest(schema: &Schema) -> [u8; 32] {
 
 /// Fields 1 to 8: the protocol name, the graph itself, and everything keyed
 /// directly by a vertex id that the builder can set.
-fn push_graph(out: &mut Vec<u8>, schema: &Schema) {
+fn push_graph(out: &mut CanonicalWriter, schema: &Schema) {
     // 1. protocol
-    push_str(out, &schema.protocol);
+    out.str(&schema.protocol);
 
     // 2. vertices, keyed by vertex id
     let vertices = sorted(&schema.vertices);
-    push_len(out, vertices.len());
+    out.len(vertices.len());
     for (id, vertex) in vertices {
-        push_name(out, id);
+        out.name(id);
         push_vertex(out, vertex);
     }
 
     // 3. edges, keyed by the edge itself; the value is the edge kind
     let edges = sorted(&schema.edges);
-    push_len(out, edges.len());
+    out.len(edges.len());
     for (edge, kind) in edges {
-        push_edge(out, edge);
-        push_name(out, kind);
+        out.edge(edge);
+        out.name(kind);
     }
 
     // 4. hyper_edges, keyed by hyper-edge id
     let hyper_edges = sorted(&schema.hyper_edges);
-    push_len(out, hyper_edges.len());
+    out.len(hyper_edges.len());
     for (id, hyper_edge) in hyper_edges {
-        push_name(out, id);
+        out.name(id);
         push_hyper_edge(out, hyper_edge);
     }
 
     // 5. constraints, keyed by vertex id; lists in stored order, empties kept
     let constraints = sorted(&schema.constraints);
-    push_len(out, constraints.len());
+    out.len(constraints.len());
     for (id, list) in constraints {
-        push_name(out, id);
-        push_len(out, list.len());
+        out.name(id);
+        out.len(list.len());
         for constraint in list {
             push_constraint(out, constraint);
         }
@@ -201,38 +201,38 @@ fn push_graph(out: &mut Vec<u8>, schema: &Schema) {
 
     // 6. required, keyed by vertex id; lists in stored order, empties kept
     let required = sorted(&schema.required);
-    push_len(out, required.len());
+    out.len(required.len());
     for (id, list) in required {
-        push_name(out, id);
-        push_len(out, list.len());
+        out.name(id);
+        out.len(list.len());
         for edge in list {
-            push_edge(out, edge);
+            out.edge(edge);
         }
     }
 
     // 7. nsids, keyed by vertex id
     let nsids = sorted(&schema.nsids);
-    push_len(out, nsids.len());
+    out.len(nsids.len());
     for (id, nsid) in nsids {
-        push_name(out, id);
-        push_name(out, nsid);
+        out.name(id);
+        out.name(nsid);
     }
 
     // 8. entries: an ordered family of basepoints, written in stored order
-    push_len(out, schema.entries.len());
+    out.len(schema.entries.len());
     for entry in &schema.entries {
-        push_name(out, entry);
+        out.name(entry);
     }
 }
 
 /// Fields 9 to 14: the structural annotations the builder cannot set.
-fn push_annotations(out: &mut Vec<u8>, schema: &Schema) {
+fn push_annotations(out: &mut CanonicalWriter, schema: &Schema) {
     // 9. variants, keyed by the parent coproduct vertex id
     let variants = sorted(&schema.variants);
-    push_len(out, variants.len());
+    out.len(variants.len());
     for (parent, arms) in variants {
-        push_name(out, parent);
-        push_len(out, arms.len());
+        out.name(parent);
+        out.len(arms.len());
         for arm in arms {
             push_variant(out, arm);
         }
@@ -240,55 +240,55 @@ fn push_annotations(out: &mut Vec<u8>, schema: &Schema) {
 
     // 10. orderings, keyed by the edge
     let orderings = sorted(&schema.orderings);
-    push_len(out, orderings.len());
+    out.len(orderings.len());
     for (edge, position) in orderings {
-        push_edge(out, edge);
-        out.extend_from_slice(&position.to_le_bytes());
+        out.edge(edge);
+        out.u32(*position);
     }
 
     // 11. recursion_points, keyed by the fixpoint marker's vertex id
     let recursion_points = sorted(&schema.recursion_points);
-    push_len(out, recursion_points.len());
+    out.len(recursion_points.len());
     for (mu, point) in recursion_points {
-        push_name(out, mu);
-        push_name(out, &point.target_vertex);
+        out.name(mu);
+        out.name(&point.target_vertex);
     }
 
     // 12. spans, keyed by span id
     let spans = sorted(&schema.spans);
-    push_len(out, spans.len());
+    out.len(spans.len());
     for (id, span) in spans {
-        push_name(out, id);
-        push_name(out, &span.id);
-        push_name(out, &span.left);
-        push_name(out, &span.right);
+        out.name(id);
+        out.name(&span.id);
+        out.name(&span.left);
+        out.name(&span.right);
     }
 
     // 13. usage_modes, keyed by the edge
     let usage_modes = sorted(&schema.usage_modes);
-    push_len(out, usage_modes.len());
+    out.len(usage_modes.len());
     for (edge, mode) in usage_modes {
-        push_edge(out, edge);
+        out.edge(edge);
         push_usage_mode(out, mode);
     }
 
     // 14. nominal, keyed by vertex id
     let nominal = sorted(&schema.nominal);
-    push_len(out, nominal.len());
+    out.len(nominal.len());
     for (id, flag) in nominal {
-        push_name(out, id);
-        out.push(u8::from(*flag));
+        out.name(id);
+        out.bool(*flag);
     }
 }
 
 /// Fields 15 to 18: the enrichment fibres.
-fn push_enrichment(out: &mut Vec<u8>, schema: &Schema) {
+fn push_enrichment(out: &mut CanonicalWriter, schema: &Schema) {
     // 15. coercions, keyed by (source_kind, target_kind)
     let coercions = sorted(&schema.coercions);
-    push_len(out, coercions.len());
+    out.len(coercions.len());
     for ((source_kind, target_kind), spec) in coercions {
-        push_name(out, source_kind);
-        push_name(out, target_kind);
+        out.name(source_kind);
+        out.name(target_kind);
         push_coercion_spec(out, spec);
     }
 
@@ -301,7 +301,7 @@ fn push_enrichment(out: &mut Vec<u8>, schema: &Schema) {
 }
 
 /// Fields 19 to 21: the derived adjacency indices.
-fn push_indices(out: &mut Vec<u8>, schema: &Schema) {
+fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
     // 19. outgoing, keyed by Edge::src
     push_vertex_index(out, &schema.outgoing);
     // 20. incoming, keyed by Edge::tgt
@@ -309,10 +309,10 @@ fn push_indices(out: &mut Vec<u8>, schema: &Schema) {
 
     // 21. between, keyed by (src, tgt)
     let between = sorted(&schema.between);
-    push_len(out, between.len());
+    out.len(between.len());
     for ((src, tgt), bucket) in between {
-        push_name(out, src);
-        push_name(out, tgt);
+        out.name(src);
+        out.name(tgt);
         push_edges(out, bucket.as_slice());
     }
 }
@@ -329,98 +329,53 @@ fn sorted<K: Ord, V, S>(map: &HashMap<K, V, S>) -> Vec<(&K, &V)> {
 }
 
 // ---------------------------------------------------------------------------
-// Primitives. Every variable-length run carries a u64 little-endian length.
-// ---------------------------------------------------------------------------
-
-/// Write a length as eight little-endian bytes.
-fn push_len(out: &mut Vec<u8>, len: usize) {
-    let wide = u64::try_from(len).unwrap_or(u64::MAX);
-    out.extend_from_slice(&wide.to_le_bytes());
-}
-
-/// Write a length-prefixed byte string.
-fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
-    push_len(out, bytes.len());
-    out.extend_from_slice(bytes);
-}
-
-/// Write a length-prefixed UTF-8 string.
-fn push_str(out: &mut Vec<u8>, value: &str) {
-    push_bytes(out, value.as_bytes());
-}
-
-/// Write a length-prefixed [`Name`].
-fn push_name(out: &mut Vec<u8>, name: &Name) {
-    push_str(out, name.as_ref());
-}
-
-/// Write an optional [`Name`] as a presence byte followed by the name.
-fn push_opt_name(out: &mut Vec<u8>, name: Option<&Name>) {
-    match name {
-        None => out.push(0),
-        Some(value) => {
-            out.push(1);
-            push_name(out, value);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Schema value types.
 // ---------------------------------------------------------------------------
 
 /// Write a vertex: id, kind, optional NSID.
-fn push_vertex(out: &mut Vec<u8>, vertex: &Vertex) {
-    push_name(out, &vertex.id);
-    push_name(out, &vertex.kind);
-    push_opt_name(out, vertex.nsid.as_ref());
-}
-
-/// Write an edge: source, target, kind, optional label.
-fn push_edge(out: &mut Vec<u8>, edge: &Edge) {
-    push_name(out, &edge.src);
-    push_name(out, &edge.tgt);
-    push_name(out, &edge.kind);
-    push_opt_name(out, edge.name.as_ref());
+fn push_vertex(out: &mut CanonicalWriter, vertex: &Vertex) {
+    out.name(&vertex.id);
+    out.name(&vertex.kind);
+    out.opt_name(vertex.nsid.as_ref());
 }
 
 /// Write a length-prefixed run of edges in stored order.
-fn push_edges(out: &mut Vec<u8>, edges: &[Edge]) {
-    push_len(out, edges.len());
+fn push_edges(out: &mut CanonicalWriter, edges: &[Edge]) {
+    out.len(edges.len());
     for edge in edges {
-        push_edge(out, edge);
+        out.edge(edge);
     }
 }
 
 /// Write a hyper-edge, its signature sorted by label.
-fn push_hyper_edge(out: &mut Vec<u8>, hyper_edge: &HyperEdge) {
-    push_name(out, &hyper_edge.id);
-    push_name(out, &hyper_edge.kind);
+fn push_hyper_edge(out: &mut CanonicalWriter, hyper_edge: &HyperEdge) {
+    out.name(&hyper_edge.id);
+    out.name(&hyper_edge.kind);
     let signature = sorted(&hyper_edge.signature);
-    push_len(out, signature.len());
+    out.len(signature.len());
     for (label, vertex_id) in signature {
-        push_name(out, label);
-        push_name(out, vertex_id);
+        out.name(label);
+        out.name(vertex_id);
     }
-    push_name(out, &hyper_edge.parent_label);
+    out.name(&hyper_edge.parent_label);
 }
 
 /// Write a constraint: sort then value.
-fn push_constraint(out: &mut Vec<u8>, constraint: &Constraint) {
-    push_name(out, &constraint.sort);
-    push_str(out, &constraint.value);
+fn push_constraint(out: &mut CanonicalWriter, constraint: &Constraint) {
+    out.name(&constraint.sort);
+    out.str(&constraint.value);
 }
 
 /// Write a coproduct arm.
-fn push_variant(out: &mut Vec<u8>, variant: &Variant) {
-    push_name(out, &variant.id);
-    push_name(out, &variant.parent_vertex);
-    push_opt_name(out, variant.tag.as_ref());
+fn push_variant(out: &mut CanonicalWriter, variant: &Variant) {
+    out.name(&variant.id);
+    out.name(&variant.parent_vertex);
+    out.opt_name(variant.tag.as_ref());
 }
 
 /// Write a use-counting mode as a one-byte discriminant.
-fn push_usage_mode(out: &mut Vec<u8>, mode: &UsageMode) {
-    out.push(match mode {
+fn push_usage_mode(out: &mut CanonicalWriter, mode: &UsageMode) {
+    out.tag(match mode {
         UsageMode::Structural => 0,
         UsageMode::Linear => 1,
         UsageMode::Affine => 2,
@@ -431,207 +386,319 @@ fn push_usage_mode(out: &mut Vec<u8>, mode: &UsageMode) {
 ///
 /// The round-trip class is a fieldless enum, so its [`Debug`] rendering is
 /// exactly the variant name: total, injective, and stable.
-fn push_coercion_spec(out: &mut Vec<u8>, spec: &CoercionSpec) {
-    push_expr(out, &spec.forward);
+fn push_coercion_spec(out: &mut CanonicalWriter, spec: &CoercionSpec) {
+    out.expr(&spec.forward);
     match &spec.inverse {
-        None => out.push(0),
+        None => out.tag(0),
         Some(inverse) => {
-            out.push(1);
-            push_expr(out, inverse);
+            out.tag(1);
+            out.expr(inverse);
         }
     }
-    push_str(out, &format!("{:?}", spec.class));
+    out.str(&format!("{:?}", spec.class));
 }
 
 /// Write a [`Name`]-keyed map of expressions in ascending key order.
-fn push_expr_map<S>(out: &mut Vec<u8>, map: &HashMap<Name, Expr, S>) {
+fn push_expr_map<S>(out: &mut CanonicalWriter, map: &HashMap<Name, Expr, S>) {
     let items = sorted(map);
-    push_len(out, items.len());
+    out.len(items.len());
     for (key, expr) in items {
-        push_name(out, key);
-        push_expr(out, expr);
+        out.name(key);
+        out.expr(expr);
     }
 }
 
 /// Write a vertex-keyed adjacency index, each bucket in stored order.
-fn push_vertex_index<S>(out: &mut Vec<u8>, index: &HashMap<Name, SmallVec<Edge, 4>, S>) {
+fn push_vertex_index<S>(out: &mut CanonicalWriter, index: &HashMap<Name, SmallVec<Edge, 4>, S>) {
     let items = sorted(index);
-    push_len(out, items.len());
+    out.len(items.len());
     for (vertex_id, bucket) in items {
-        push_name(out, vertex_id);
+        out.name(vertex_id);
         push_edges(out, bucket.as_slice());
     }
 }
 
 // ---------------------------------------------------------------------------
-// The expression language.
+// The writer. Every variable-length run carries a u64 little-endian length.
 // ---------------------------------------------------------------------------
 
-/// Write a length-prefixed `Arc<str>`.
-fn push_arc_str(out: &mut Vec<u8>, value: &std::sync::Arc<str>) {
-    push_str(out, value);
-}
+/// The canonical byte writer [`canonical_bytes`] is built on.
+///
+/// Each method appends one value in the encoding the module documentation
+/// describes: lengths as eight little-endian bytes, strings and byte strings
+/// length-prefixed, sums as a one-byte discriminant before their payload,
+/// integers little-endian, floats as their IEEE-754 bit pattern. A value
+/// built from these methods alone is self-delimiting, so a caller that writes
+/// every map in ascending key order and every sequence with its length gets a
+/// total, injective encoding of its own types.
+///
+/// # Examples
+///
+/// ```
+/// use panproto_schema::CanonicalWriter;
+///
+/// let mut w = CanonicalWriter::new();
+/// w.str("ab");
+/// w.tag(7);
+/// assert_eq!(w.into_bytes(), [2, 0, 0, 0, 0, 0, 0, 0, b'a', b'b', 7]);
+/// ```
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct CanonicalWriter(Vec<u8>);
 
-/// Write an expression, discriminant first.
-fn push_expr(out: &mut Vec<u8>, expr: &Expr) {
-    match expr {
-        Expr::Var(name) => {
-            out.push(0);
-            push_arc_str(out, name);
-        }
-        Expr::Lam(param, body) => {
-            out.push(1);
-            push_arc_str(out, param);
-            push_expr(out, body);
-        }
-        Expr::App(func, arg) => {
-            out.push(2);
-            push_expr(out, func);
-            push_expr(out, arg);
-        }
-        Expr::Lit(literal) => {
-            out.push(3);
-            push_literal(out, literal);
-        }
-        Expr::Record(fields) => {
-            out.push(4);
-            push_len(out, fields.len());
-            for (name, value) in fields {
-                push_arc_str(out, name);
-                push_expr(out, value);
-            }
-        }
-        Expr::List(items) => {
-            out.push(5);
-            push_len(out, items.len());
-            for item in items {
-                push_expr(out, item);
-            }
-        }
-        Expr::Field(base, field) => {
-            out.push(6);
-            push_expr(out, base);
-            push_arc_str(out, field);
-        }
-        Expr::Index(base, index) => {
-            out.push(7);
-            push_expr(out, base);
-            push_expr(out, index);
-        }
-        Expr::Match { scrutinee, arms } => {
-            out.push(8);
-            push_expr(out, scrutinee);
-            push_len(out, arms.len());
-            for (pattern, body) in arms {
-                push_pattern(out, pattern);
-                push_expr(out, body);
-            }
-        }
-        Expr::Let { name, value, body } => {
-            out.push(9);
-            push_arc_str(out, name);
-            push_expr(out, value);
-            push_expr(out, body);
-        }
-        Expr::Builtin(op, args) => {
-            out.push(10);
-            // `BuiltinOp` is a fieldless enum, so its `Debug` rendering is
-            // exactly the variant name.
-            push_str(out, &format!("{op:?}"));
-            push_len(out, args.len());
-            for arg in args {
-                push_expr(out, arg);
+impl CanonicalWriter {
+    /// An empty writer.
+    #[must_use]
+    pub const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    /// The bytes written so far.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Consume the writer and return its bytes.
+    #[must_use]
+    pub fn into_bytes(self) -> Vec<u8> {
+        self.0
+    }
+
+    /// Write a length (or count) as eight little-endian bytes.
+    pub fn len(&mut self, len: usize) {
+        let wide = u64::try_from(len).unwrap_or(u64::MAX);
+        self.0.extend_from_slice(&wide.to_le_bytes());
+    }
+
+    /// Write a one-byte discriminant.
+    pub fn tag(&mut self, tag: u8) {
+        self.0.push(tag);
+    }
+
+    /// Write a boolean as one byte, `0` or `1`.
+    pub fn bool(&mut self, value: bool) {
+        self.0.push(u8::from(value));
+    }
+
+    /// Write a `u32` as four little-endian bytes.
+    pub fn u32(&mut self, value: u32) {
+        self.0.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// Write a `u64` as eight little-endian bytes.
+    pub fn u64(&mut self, value: u64) {
+        self.0.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// Write an `i64` as eight little-endian bytes.
+    pub fn i64(&mut self, value: i64) {
+        self.0.extend_from_slice(&value.to_le_bytes());
+    }
+
+    /// Write an `f64` as the eight little-endian bytes of its bit pattern.
+    ///
+    /// Total where a decimal rendering would not be: `-0.0` and `0.0` are
+    /// distinct, and a NaN is written with its payload.
+    pub fn f64(&mut self, value: f64) {
+        self.0.extend_from_slice(&value.to_bits().to_le_bytes());
+    }
+
+    /// Write a length-prefixed byte string.
+    pub fn bytes(&mut self, bytes: &[u8]) {
+        self.len(bytes.len());
+        self.0.extend_from_slice(bytes);
+    }
+
+    /// Write a length-prefixed UTF-8 string.
+    pub fn str(&mut self, value: &str) {
+        self.bytes(value.as_bytes());
+    }
+
+    /// Write a length-prefixed [`Name`].
+    pub fn name(&mut self, name: &Name) {
+        self.str(name.as_ref());
+    }
+
+    /// Write an optional [`Name`] as a presence byte followed by the name.
+    pub fn opt_name(&mut self, name: Option<&Name>) {
+        match name {
+            None => self.tag(0),
+            Some(value) => {
+                self.tag(1);
+                self.name(value);
             }
         }
     }
-}
 
-/// Write a literal value, discriminant first. Floats go in as raw bits, which
-/// is total where a decimal rendering would not be.
-fn push_literal(out: &mut Vec<u8>, literal: &Literal) {
-    match literal {
-        Literal::Bool(value) => {
-            out.push(0);
-            out.push(u8::from(*value));
-        }
-        Literal::Int(value) => {
-            out.push(1);
-            out.extend_from_slice(&value.to_le_bytes());
-        }
-        Literal::Float(value) => {
-            out.push(2);
-            out.extend_from_slice(&value.to_bits().to_le_bytes());
-        }
-        Literal::Str(value) => {
-            out.push(3);
-            push_str(out, value);
-        }
-        Literal::Bytes(value) => {
-            out.push(4);
-            push_bytes(out, value);
-        }
-        Literal::Null => out.push(5),
-        Literal::Record(fields) => {
-            out.push(6);
-            push_len(out, fields.len());
-            for (name, value) in fields {
-                push_arc_str(out, name);
-                push_literal(out, value);
+    /// Write an edge: source, target, kind, optional label.
+    pub fn edge(&mut self, edge: &Edge) {
+        self.name(&edge.src);
+        self.name(&edge.tgt);
+        self.name(&edge.kind);
+        self.opt_name(edge.name.as_ref());
+    }
+
+    /// Write an expression, discriminant first.
+    pub fn expr(&mut self, expr: &Expr) {
+        match expr {
+            Expr::Var(name) => {
+                self.tag(0);
+                self.str(name);
             }
-        }
-        Literal::List(items) => {
-            out.push(7);
-            push_len(out, items.len());
-            for item in items {
-                push_literal(out, item);
+            Expr::Lam(param, body) => {
+                self.tag(1);
+                self.str(param);
+                self.expr(body);
             }
-        }
-        Literal::Closure { param, body, env } => {
-            out.push(8);
-            push_arc_str(out, param);
-            push_expr(out, body);
-            push_len(out, env.len());
-            for (name, value) in env.iter() {
-                push_arc_str(out, name);
-                push_literal(out, value);
+            Expr::App(func, arg) => {
+                self.tag(2);
+                self.expr(func);
+                self.expr(arg);
+            }
+            Expr::Lit(literal) => {
+                self.tag(3);
+                self.literal(literal);
+            }
+            Expr::Record(fields) => {
+                self.tag(4);
+                self.len(fields.len());
+                for (name, value) in fields {
+                    self.str(name);
+                    self.expr(value);
+                }
+            }
+            Expr::List(items) => {
+                self.tag(5);
+                self.len(items.len());
+                for item in items {
+                    self.expr(item);
+                }
+            }
+            Expr::Field(base, field) => {
+                self.tag(6);
+                self.expr(base);
+                self.str(field);
+            }
+            Expr::Index(base, index) => {
+                self.tag(7);
+                self.expr(base);
+                self.expr(index);
+            }
+            Expr::Match { scrutinee, arms } => {
+                self.tag(8);
+                self.expr(scrutinee);
+                self.len(arms.len());
+                for (pattern, body) in arms {
+                    self.pattern(pattern);
+                    self.expr(body);
+                }
+            }
+            Expr::Let { name, value, body } => {
+                self.tag(9);
+                self.str(name);
+                self.expr(value);
+                self.expr(body);
+            }
+            Expr::Builtin(op, args) => {
+                self.tag(10);
+                // `BuiltinOp` is a fieldless enum, so its `Debug` rendering is
+                // exactly the variant name.
+                self.str(&format!("{op:?}"));
+                self.len(args.len());
+                for arg in args {
+                    self.expr(arg);
+                }
             }
         }
     }
-}
 
-/// Write a match pattern, discriminant first.
-fn push_pattern(out: &mut Vec<u8>, pattern: &Pattern) {
-    match pattern {
-        Pattern::Wildcard => out.push(0),
-        Pattern::Var(name) => {
-            out.push(1);
-            push_arc_str(out, name);
-        }
-        Pattern::Lit(literal) => {
-            out.push(2);
-            push_literal(out, literal);
-        }
-        Pattern::Record(fields) => {
-            out.push(3);
-            push_len(out, fields.len());
-            for (name, sub) in fields {
-                push_arc_str(out, name);
-                push_pattern(out, sub);
+    /// Write a literal value, discriminant first. Floats go in as raw bits, which
+    /// is total where a decimal rendering would not be.
+    pub fn literal(&mut self, literal: &Literal) {
+        match literal {
+            Literal::Bool(value) => {
+                self.tag(0);
+                self.bool(*value);
+            }
+            Literal::Int(value) => {
+                self.tag(1);
+                self.i64(*value);
+            }
+            Literal::Float(value) => {
+                self.tag(2);
+                self.f64(*value);
+            }
+            Literal::Str(value) => {
+                self.tag(3);
+                self.str(value);
+            }
+            Literal::Bytes(value) => {
+                self.tag(4);
+                self.bytes(value);
+            }
+            Literal::Null => self.tag(5),
+            Literal::Record(fields) => {
+                self.tag(6);
+                self.len(fields.len());
+                for (name, value) in fields {
+                    self.str(name);
+                    self.literal(value);
+                }
+            }
+            Literal::List(items) => {
+                self.tag(7);
+                self.len(items.len());
+                for item in items {
+                    self.literal(item);
+                }
+            }
+            Literal::Closure { param, body, env } => {
+                self.tag(8);
+                self.str(param);
+                self.expr(body);
+                self.len(env.len());
+                for (name, value) in env.iter() {
+                    self.str(name);
+                    self.literal(value);
+                }
             }
         }
-        Pattern::List(items) => {
-            out.push(4);
-            push_len(out, items.len());
-            for item in items {
-                push_pattern(out, item);
+    }
+
+    /// Write a match pattern, discriminant first.
+    pub fn pattern(&mut self, pattern: &Pattern) {
+        match pattern {
+            Pattern::Wildcard => self.tag(0),
+            Pattern::Var(name) => {
+                self.tag(1);
+                self.str(name);
             }
-        }
-        Pattern::Constructor(tag, args) => {
-            out.push(5);
-            push_arc_str(out, tag);
-            push_len(out, args.len());
-            for arg in args {
-                push_pattern(out, arg);
+            Pattern::Lit(literal) => {
+                self.tag(2);
+                self.literal(literal);
+            }
+            Pattern::Record(fields) => {
+                self.tag(3);
+                self.len(fields.len());
+                for (name, sub) in fields {
+                    self.str(name);
+                    self.pattern(sub);
+                }
+            }
+            Pattern::List(items) => {
+                self.tag(4);
+                self.len(items.len());
+                for item in items {
+                    self.pattern(item);
+                }
+            }
+            Pattern::Constructor(tag, args) => {
+                self.tag(5);
+                self.str(tag);
+                self.len(args.len());
+                for arg in args {
+                    self.pattern(arg);
+                }
             }
         }
     }
@@ -990,7 +1057,7 @@ mod tests {
         let closure = Literal::Closure {
             param: "p".into(),
             body: Box::new(Expr::Var("p".into())),
-            env: [("k".into(), Literal::Int(-3))].into_iter().collect(),
+            env: std::iter::once(("k".into(), Literal::Int(-3))).collect(),
         };
         let literals = Literal::List(vec![
             Literal::Bool(false),
@@ -1047,13 +1114,7 @@ mod tests {
     /// digests of the bytes, so any change to a single byte shows here.
     #[test]
     fn the_encoding_is_pinned() {
-        let hex = |bytes: &[u8]| -> String {
-            blake3::hash(bytes)
-                .as_bytes()
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect()
-        };
+        let hex = |bytes: &[u8]| -> String { blake3::hash(bytes).to_hex().to_string() };
 
         let base = fixture();
         let mut expressive = fixture();
