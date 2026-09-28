@@ -169,28 +169,70 @@ impl From<&FfiError> for ErrorEnvelope {
     }
 }
 
-static LAST_ERROR: Mutex<Option<ErrorEnvelope>> = Mutex::new(None);
+/// A last-error slot: one envelope, the most recent write winning.
+struct ErrorSlot(Mutex<Option<ErrorEnvelope>>);
 
-/// Lock the global last-error slot, recovering the guard if a previous
-/// holder panicked. `Option<ErrorEnvelope>` has no invariant a panic can
-/// break, so the recovered slot is sound and stays usable for subsequent
-/// calls; leaving it poisoned would instead make every later error
-/// report fail.
-fn lock_slot() -> MutexGuard<'static, Option<ErrorEnvelope>> {
-    LAST_ERROR
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+impl ErrorSlot {
+    const fn new() -> Self {
+        Self(Mutex::new(None))
+    }
+
+    /// Lock the slot, recovering the guard if a previous holder panicked.
+    /// `Option<ErrorEnvelope>` has no invariant a panic can break, so the
+    /// recovered slot is sound and stays usable for subsequent calls;
+    /// leaving it poisoned would instead make every later error report
+    /// fail.
+    fn lock(&self) -> MutexGuard<'_, Option<ErrorEnvelope>> {
+        self.0
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    fn set(&self, err: &FfiError) {
+        *self.lock() = Some(ErrorEnvelope::from(err));
+    }
+
+    fn take(&self) -> Option<ErrorEnvelope> {
+        self.lock().take()
+    }
+}
+
+/// The process-global slot every entry point reports into.
+#[cfg(not(test))]
+static LAST_ERROR: ErrorSlot = ErrorSlot::new();
+
+// The crate's own unit tests run in one process, each on its own thread,
+// and each stands in for an independent host that serializes its own
+// call-plus-drain. Sharing one slot between them would let one test's
+// failing call overwrite, or its drain consume, another test's envelope.
+// So in that build each test thread gets a slot of its own. The
+// integration tests under `tests/` link the library as released and
+// exercise the process-global slot, including a drain on another thread.
+#[cfg(test)]
+thread_local! {
+    static LAST_ERROR: ErrorSlot = const { ErrorSlot::new() };
+}
+
+fn with_slot<T>(f: impl FnOnce(&ErrorSlot) -> T) -> T {
+    #[cfg(not(test))]
+    {
+        f(&LAST_ERROR)
+    }
+    #[cfg(test)]
+    {
+        LAST_ERROR.with(f)
+    }
 }
 
 /// Stash the last error for retrieval by the host.
 pub fn set_last_error(err: &FfiError) {
-    *lock_slot() = Some(ErrorEnvelope::from(err));
+    with_slot(|slot| slot.set(err));
 }
 
 /// Take the last error, clearing the slot.
 #[must_use]
 pub fn take_last_error() -> Option<ErrorEnvelope> {
-    lock_slot().take()
+    with_slot(ErrorSlot::take)
 }
 
 #[cfg(test)]
@@ -278,14 +320,20 @@ mod tests {
     }
 
     #[test]
-    fn last_error_crosses_thread_boundaries() {
-        let _ = take_last_error();
-        std::thread::spawn(|| set_last_error(&FfiError::Internal("from a worker".into())))
-            .join()
-            .expect("worker thread did not panic");
-        let env = take_last_error().expect("envelope set on another thread is visible here");
+    fn an_error_slot_is_shared_across_threads() {
+        let slot = ErrorSlot::new();
+        std::thread::scope(|scope| {
+            scope
+                .spawn(|| slot.set(&FfiError::Internal("from a worker".into())))
+                .join()
+                .expect("worker thread did not panic");
+        });
+        let env = slot
+            .take()
+            .expect("envelope set on another thread is visible here");
         assert_eq!(env.tag, "internal");
         assert!(env.message.contains("from a worker"));
+        assert!(slot.take().is_none(), "a take clears the slot");
     }
 
     #[test]

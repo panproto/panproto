@@ -117,7 +117,9 @@ static PANIC_HOOK_INSTALLED: Once = Once::new();
 
 /// Free a handle, marking its slab slot reusable.
 ///
-/// Double-free is safe: a freed slot stays freed.
+/// Freeing an out-of-range or already-free handle is a no-op. A freed
+/// handle may be handed out again by a later allocation, so a handle must
+/// not be freed after its owner has freed it once.
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_handle_free(handle: u32) -> i32 {
@@ -178,10 +180,14 @@ mod tests {
         assert_eq!(pp_init(), PpStatus::Ok as i32);
     }
 
+    /// Freeing a handle the slab never gave out is a no-op, however often
+    /// it is repeated. `u32::MAX` is the one handle no allocation returns
+    /// for a live slot, so this frees nothing another test holds; freeing
+    /// a real handle twice is covered on a private table in `handle`.
     #[test]
-    fn handle_free_is_idempotent() {
-        assert_eq!(pp_handle_free(0), PpStatus::Ok as i32);
-        assert_eq!(pp_handle_free(0), PpStatus::Ok as i32);
+    fn handle_free_of_an_unallocated_handle_is_a_no_op() {
+        assert_eq!(pp_handle_free(u32::MAX), PpStatus::Ok as i32);
+        assert_eq!(pp_handle_free(u32::MAX), PpStatus::Ok as i32);
     }
 
     #[test]
