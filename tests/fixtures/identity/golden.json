@@ -70,10 +70,34 @@
       "digest": "21f0701e4f4f0b94a14f22029a0a3d1281aa9ccbc8711086afff8fe084eee42f"
     },
     {
+      "name": "jsonschema/github-workflow",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/github-workflow.json",
+      "digest": "0c02abc0ff027f87d797c9cfc28f0d80dc3a741eb1b5eabcd18ddf296e5e1e5e"
+    },
+    {
+      "name": "jsonschema/package",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/package.json",
+      "digest": "31f857497a4dacc5341eec787d400b9e23d58ee44da00d2e05cd6b0c69a36aa9"
+    },
+    {
+      "name": "jsonschema/tsconfig",
+      "protocol": "json-schema",
+      "source": "fixtures/jsonschema/tsconfig.json",
+      "digest": "9817b5393ac3eb0d9c3c1977ec24cb0a4ac00c59d68912d59417323a7291225d"
+    },
+    {
       "name": "protobuf/common",
       "protocol": "protobuf",
       "source": "fixtures/protobuf/common.proto",
       "digest": "c09ec2d224cc7425f25160ec579628d04219d764dd215c2a1f20c6ff96c894fa"
+    },
+    {
+      "name": "protobuf/descriptor",
+      "protocol": "protobuf",
+      "source": "fixtures/protobuf/descriptor.proto",
+      "digest": "0bcc7d85a8e196b9b6d0bb8637f976a2df67abed0e384efc56e97d11e0165239"
     },
     {
       "name": "protobuf/resource",
@@ -85,13 +109,19 @@
       "name": "protobuf/trace",
       "protocol": "protobuf",
       "source": "fixtures/protobuf/trace.proto",
-      "digest": "eeb044c9b29c75a25668f577fb614d44a2df84bf772f2e46453995ced1bebb2f"
+      "digest": "b08c432a00129bc1761d59358abd1eff5e6a2b27f15b02779409be5335999834"
+    },
+    {
+      "name": "sql/sakila-postgres",
+      "protocol": "sql",
+      "source": "fixtures/sql/sakila-postgres.sql",
+      "digest": "012ba906e00b824c2eda9239d766d970c07670bda6e9ab9a63510485ffe4068c"
     },
     {
       "name": "sql/sakila-sqlite",
       "protocol": "sql",
       "source": "fixtures/sql/sakila-sqlite.sql",
-      "digest": "0dfffd5f0c8c4e7a4c2000a2ce62ddeda91c8683c782d5f53de19112cecbb2b6"
+      "digest": "6dab939edbec65ac5b8a17e83fd58714bad6544afef116b02fab42bba6505008"
     },
     {
       "name": "sql-tests/users",
@@ -255,6 +285,60 @@
         "source_schema": "7afb5c21c55835fc775c26f43a34859021e295bbd6024d8b145b2246f17363a6",
         "target_schema": "2c262250de01bf81e2b78da04d83ca8b1e92cff5053399f9fe8f8ae4eb5acfe2",
         "lens": "8d662741e2be047774c354e5e50fa8288978230ef4bee1683364c78d95e126a1",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/resource-to-descriptor",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/resource",
+      "tgt": "protobuf/descriptor",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "74c744dc6d3e8b7a29d2ca000175b6fc83a835133bbdf8a4c82135e5bc4ea47e",
+        "target_schema": "c36f47d697afff5fae4c6dbeae87bbaab2ffd760bc746822f895b62aa20de86a",
+        "lens": "f2d90c8659b729c83d6fc2f8fe0f3cc32fd5534bac688e307159b1643dd26d4f",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/trace-to-descriptor",
+      "kind": "auto",
+      "protocol": "protobuf",
+      "src": "protobuf/trace",
+      "tgt": "protobuf/descriptor",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "b08c432a00129bc1761d59358abd1eff5e6a2b27f15b02779409be5335999834",
+        "target_schema": "b08c432a00129bc1761d59358abd1eff5e6a2b27f15b02779409be5335999834",
+        "lens": "5263aa9622ae9287260fbcc62e947dc992d4b67110321286f5511099bd6ceae4",
+        "complement_format": {
+          "shape": "wtype",
+          "version": 1
+        }
+      }
+    },
+    {
+      "name": "auto/users-to-sakila-postgres",
+      "kind": "auto",
+      "protocol": "sql",
+      "src": "sql-tests/users",
+      "tgt": "sql/sakila-postgres",
+      "shape": "wtype",
+      "envelope": {
+        "version": 1,
+        "source_schema": "0e4d9b8f0649ee851b553c8a9acd5e5d0231b8be3720cb2f436d909d05754592",
+        "target_schema": "f2d1faaf0115d9ab984644eb7436289892a45fbc048179ebb9571f2f6b68a871",
+        "lens": "0a3d0659e2e9da22d526d5a6631dd8215f58e16e819034da0d9aaeb48dd321f0",
         "complement_format": {
           "shape": "wtype",
           "version": 1
