@@ -566,6 +566,47 @@ fn from_wtype_refuses_a_node_its_graph_form_would_read_as_a_fan() {
 }
 
 #[test]
+fn to_wtype_reads_every_non_root_node_of_fan_form_as_a_fan() {
+    // A graph built by hand, not by `from_wtype`: node 1 has the fan-node
+    // shape and one `hyper_parent` out-edge. Fan nodes are recognised by
+    // form alone, so the way back reads node 1 as a childless fan over node 0
+    // rather than as an unreachable node.
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "sent"))
+        .with_node(Node::new(1, "arg").with_shape(NodeShape::HyperEdge))
+        .with_edge(
+            1,
+            0,
+            Edge {
+                src: "arg".into(),
+                tgt: "sent".into(),
+                kind: HYPER_PARENT_KIND.into(),
+                name: None,
+            },
+        );
+    let tree = graph.to_wtype(0).expect("node 1 reads as a fan");
+    assert_eq!(tree.nodes.len(), 1);
+    assert_eq!(tree.fans, vec![Fan::new("arg", 0)]);
+
+    // The same node with a plain edge instead is an ordinary node, and not
+    // part of a tree rooted at node 0.
+    let plain = GInstance::new()
+        .with_node(Node::new(0, "sent"))
+        .with_node(Node::new(1, "arg").with_shape(NodeShape::HyperEdge))
+        .with_edge(
+            1,
+            0,
+            Edge {
+                src: "arg".into(),
+                tgt: "sent".into(),
+                kind: "prop".into(),
+                name: None,
+            },
+        );
+    assert!(matches!(plain.to_wtype(0), Err(InstError::NotATree { .. })));
+}
+
+#[test]
 fn a_fan_cannot_name_another_fans_node() {
     // One tree node, 0. The first fan gets node 1, so a second fan naming
     // node 1 names a node the tree does not hold.
@@ -581,8 +622,9 @@ fn a_fan_cannot_name_another_fans_node() {
     ));
 }
 
-#[test]
-fn node_link_json_keeps_floats_json_cannot_write() {
+/// A graph holding `NaN` and both infinities: as a node's value, as extra
+/// fields and annotations, and inside a list and a record.
+fn graph_with_non_finite_floats() -> GInstance {
     let mut odd = Node::new(1, "a");
     odd.extra_fields
         .insert("up".into(), Value::Float(f64::INFINITY));
@@ -598,7 +640,7 @@ fn node_link_json_keeps_floats_json_cannot_write() {
     // A map entry named like the marker's variant, holding an ordinary value,
     // is data and stays as it is.
     odd.extra_fields.insert("Float".into(), Value::Null);
-    let graph = GInstance::new()
+    GInstance::new()
         .with_node(odd)
         .with_node(Node::new(0, "a"))
         .with_value(0, Value::Float(f64::NAN))
@@ -611,7 +653,41 @@ fn node_link_json_keeps_floats_json_cannot_write() {
                 kind: "k".into(),
                 name: None,
             },
-        );
+        )
+}
+
+#[test]
+fn the_serde_encoding_keeps_floats_json_cannot_write() {
+    let graph = graph_with_non_finite_floats();
+
+    let text = serde_json::to_string(&graph).expect("a graph encodes as JSON");
+    let back: GInstance = serde_json::from_str(&text).expect("the JSON reads back");
+    assert!(GInstance::identical(&back, &graph), "{text}");
+    assert!(text.contains(r#"{"Float":"Infinity"}"#), "{text}");
+    assert!(text.contains(r#"{"Float":"-Infinity"}"#), "{text}");
+    assert!(
+        !text.contains(r#"{"Float":null}"#),
+        "no float is written as null: {text}"
+    );
+    assert_eq!(
+        back.node(1).and_then(|n| n.extra_fields.get("up")).cloned(),
+        Some(Value::Float(f64::INFINITY)),
+        "an infinity keeps its sign"
+    );
+
+    // A binary format writes the floats as floats.
+    let bytes = rmp_serde::to_vec_named(&graph).expect("a graph encodes as MessagePack");
+    let back: GInstance = rmp_serde::from_slice(&bytes).expect("the MessagePack reads back");
+    assert!(GInstance::identical(&back, &graph));
+
+    let bad = text.replacen(r#""Infinity""#, r#""Endless""#, 1);
+    let err = serde_json::from_str::<GInstance>(&bad).expect_err("`Endless` is not a float");
+    assert!(err.to_string().contains("Endless"), "{err}");
+}
+
+#[test]
+fn node_link_json_keeps_floats_json_cannot_write() {
+    let graph = graph_with_non_finite_floats();
     let doc = to_node_link_json(&graph);
     let back = from_node_link_json(&doc).expect("the document reads back");
     assert!(GInstance::identical(&back, &graph));

@@ -30,7 +30,7 @@ mod embed;
 mod nodelink;
 mod reify;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 use panproto_schema::{Edge, Schema};
@@ -106,7 +106,12 @@ impl GEdge {
 ///
 /// A `GInstance` serializes as `{ nodes, edges }`, both maps written in
 /// ascending key order, so one instance encodes to the same bytes in every
-/// process. Decoding rebuilds the adjacency indices and fails with
+/// process. In a human-readable format (JSON among them), each node is
+/// written in the form [`to_node_link_json`] gives it: a float that is `NaN`
+/// or infinite, which JSON has no number for, is written as
+/// `{"Float": "NaN"}`, `{"Float": "Infinity"}` or `{"Float": "-Infinity"}`
+/// and read back as that float, so every instance round-trips through JSON.
+/// A binary format writes such floats as floats. Decoding rebuilds the adjacency indices and fails with
 /// [`InstError::DanglingEdge`] when an edge names a missing node, with
 /// [`InstError::NodeIdMismatch`] when a node is filed under an id other than
 /// its own, and with [`InstError::DuplicateNode`] or
@@ -118,8 +123,7 @@ impl GEdge {
 /// `==` compares the node and edge tables. [`GInstance::identical`] does the
 /// same but treats two `NaN` floats as equal, and
 /// [`GInstance::equivalent_modulo_edge_ids`] ignores which ids the edges carry.
-#[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(into = "GInstanceWire", try_from = "GInstanceWireEntries")]
+#[derive(Clone, Debug)]
 pub struct GInstance {
     nodes: HashMap<u32, Node>,
     edges: HashMap<EdgeId, GEdge>,
@@ -129,34 +133,76 @@ pub struct GInstance {
     in_index: HashMap<u32, Vec<EdgeId>>,
 }
 
-/// The serialized form of a [`GInstance`]: its node and edge tables.
-#[derive(Serialize)]
-struct GInstanceWire {
-    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
-    nodes: HashMap<u32, Node>,
-    #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
-    edges: HashMap<EdgeId, GEdge>,
-}
+/// Writes the struct `GInstanceWire { nodes, edges }`, both maps in ascending
+/// key order; see the type's encoding documentation.
+impl Serialize for GInstance {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::SerializeStruct as _;
 
-impl From<GInstance> for GInstanceWire {
-    fn from(graph: GInstance) -> Self {
         debug_assert!(
-            graph.nodes.iter().all(|(key, node)| *key == node.id),
+            self.nodes.iter().all(|(key, node)| *key == node.id),
             "a node's id was changed through node_mut"
         );
-        Self {
-            nodes: graph.nodes,
-            edges: graph.edges,
+        let readable = serializer.is_human_readable();
+        let mut wire = serializer.serialize_struct("GInstanceWire", 2)?;
+        if readable {
+            let nodes: BTreeMap<u32, serde_json::Value> = self
+                .nodes
+                .iter()
+                .map(|(id, node)| (*id, nodelink::node_json(node)))
+                .collect();
+            wire.serialize_field("nodes", &nodes)?;
+        } else {
+            let nodes: BTreeMap<u32, &Node> = self.nodes.iter().map(|(id, n)| (*id, n)).collect();
+            wire.serialize_field("nodes", &nodes)?;
         }
+        let edges: BTreeMap<EdgeId, &GEdge> = self.edges.iter().map(|(id, e)| (*id, e)).collect();
+        wire.serialize_field("edges", &edges)?;
+        wire.end()
     }
 }
 
-/// [`GInstanceWire`] as decoded: each map's entries in document order, a key
-/// listed twice kept twice so that decoding can refuse it.
+/// Reads what [`Serialize`] writes; see the type's encoding documentation.
+impl<'de> Deserialize<'de> for GInstance {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        use serde::de::Error as _;
+
+        let wire = if deserializer.is_human_readable() {
+            let readable = GInstanceReadableEntries::deserialize(deserializer)?;
+            let nodes = readable
+                .nodes
+                .into_iter()
+                .map(|(key, json)| nodelink::decode_node(&json).map(|node| (key, node)))
+                .collect::<Result<Vec<_>, _>>()
+                .map_err(D::Error::custom)?;
+            GInstanceWireEntries {
+                nodes,
+                edges: readable.edges,
+            }
+        } else {
+            GInstanceWireEntries::deserialize(deserializer)?
+        };
+        Self::try_from(wire).map_err(D::Error::custom)
+    }
+}
+
+/// The encoded form of a [`GInstance`] as decoded: each map's entries in
+/// document order, a key listed twice kept twice so that decoding can refuse
+/// it.
 #[derive(Deserialize)]
 struct GInstanceWireEntries {
     #[serde(deserialize_with = "map_entries")]
     nodes: Vec<(u32, Node)>,
+    #[serde(deserialize_with = "map_entries")]
+    edges: Vec<(EdgeId, GEdge)>,
+}
+
+/// [`GInstanceWireEntries`] in a human-readable format, each node still in
+/// the JSON form that may write a non-finite float as a string.
+#[derive(Deserialize)]
+struct GInstanceReadableEntries {
+    #[serde(deserialize_with = "map_entries")]
+    nodes: Vec<(u32, serde_json::Value)>,
     #[serde(deserialize_with = "map_entries")]
     edges: Vec<(EdgeId, GEdge)>,
 }

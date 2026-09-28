@@ -26,7 +26,7 @@ use crate::value::{FieldPresence, Value};
 
 #[derive(Serialize)]
 struct NodeLinkRef<'a> {
-    nodes: Vec<&'a Node>,
+    nodes: Vec<serde_json::Value>,
     edges: Vec<EdgeRef<'a>>,
 }
 
@@ -78,22 +78,12 @@ pub fn to_node_link_json(graph: &GInstance) -> serde_json::Value {
             position: e.position,
         })
         .collect();
-    let written = nodes.clone();
-    let mut doc = match serde_json::to_value(NodeLinkRef { nodes, edges }) {
+    let nodes = nodes.into_iter().map(node_json).collect();
+    match serde_json::to_value(NodeLinkRef { nodes, edges }) {
         Ok(value) => value,
-        // Every map in a node is keyed by `String` and every other field is a
-        // plain datum, which is exactly what `serde_json::Value` can hold.
+        // The nodes are JSON already and every edge field is a plain datum.
         Err(err) => unreachable!("a graph instance always has a JSON form: {err}"),
-    };
-    if let Some(slots) = doc
-        .get_mut("nodes")
-        .and_then(serde_json::Value::as_array_mut)
-    {
-        for (node, json) in written.into_iter().zip(slots) {
-            for_each_value_mut(node, json, mark_non_finite);
-        }
     }
-    doc
 }
 
 /// Pair each value a node holds with its place in the node's JSON form.
@@ -213,9 +203,9 @@ fn value_slots_mut(json: &mut serde_json::Value) -> Vec<&mut serde_json::Value> 
 ///
 /// # Errors
 ///
-/// Returns [`InstError::NodeLink`] when a string under `"Float"` names no
-/// non-finite float.
-fn unmark_value(json: &mut serde_json::Value) -> Result<bool, InstError> {
+/// Returns a message when a string under `"Float"` names no non-finite
+/// float.
+fn unmark_value(json: &mut serde_json::Value) -> Result<bool, String> {
     let Some(object) = json.as_object_mut() else {
         return Ok(false);
     };
@@ -225,9 +215,9 @@ fn unmark_value(json: &mut serde_json::Value) -> Result<bool, InstError> {
             "Float" => {
                 if let Some(name) = payload.as_str() {
                     if non_finite_value(name).is_none() {
-                        return Err(InstError::NodeLink(format!(
+                        return Err(format!(
                             "`{name}` is not a float; the strings allowed under \"Float\" are \"NaN\", \"Infinity\" and \"-Infinity\""
-                        )));
+                        ));
                     }
                     *payload = serde_json::json!(0.0);
                     found = true;
@@ -308,15 +298,34 @@ fn restore_fields(
     }
 }
 
-/// Decode one node from its node-link JSON form.
+/// The JSON form of a node, each non-finite float written as its string.
+///
+/// This is the node's form in node-link JSON and in the human-readable
+/// encoding of a [`GInstance`].
+pub(super) fn node_json(node: &Node) -> serde_json::Value {
+    let mut json = match serde_json::to_value(node) {
+        Ok(value) => value,
+        // Every map in a node is keyed by `String` and every other field is a
+        // plain datum, which is exactly what `serde_json::Value` can hold.
+        Err(err) => unreachable!("a node always has a JSON form: {err}"),
+    };
+    for_each_value_mut(node, &mut json, mark_non_finite);
+    json
+}
+
+/// Decode one node from the JSON form [`node_json`] writes.
 ///
 /// A node holding no non-finite float decodes directly. One that holds some
 /// fails that first attempt, since a string stands where a number belongs; it
 /// is then decoded with those strings replaced and the floats put back.
-fn decode_node(json: &serde_json::Value) -> Result<Node, InstError> {
+///
+/// # Errors
+///
+/// Returns the decoding error's message when `json` is not a node's form.
+pub(super) fn decode_node(json: &serde_json::Value) -> Result<Node, String> {
     let direct_error = match Node::deserialize(json) {
         Ok(node) => return Ok(node),
-        Err(err) => InstError::NodeLink(err.to_string()),
+        Err(err) => err.to_string(),
     };
     let mut clean = json.clone();
     let mut marked = false;
@@ -326,7 +335,7 @@ fn decode_node(json: &serde_json::Value) -> Result<Node, InstError> {
     if !marked {
         return Err(direct_error);
     }
-    let mut node = Node::deserialize(clean).map_err(|e| InstError::NodeLink(e.to_string()))?;
+    let mut node = Node::deserialize(clean).map_err(|e| e.to_string())?;
     if let Some(FieldPresence::Present(value)) = &mut node.value
         && let Some(slot) = json.get("value").and_then(|v| v.get("Present"))
     {
@@ -360,7 +369,7 @@ pub fn from_node_link_json(value: &serde_json::Value) -> Result<GInstance, InstE
     let doc = NodeLink::deserialize(value).map_err(|e| InstError::NodeLink(e.to_string()))?;
     let mut graph = GInstance::new();
     for node in doc.nodes {
-        graph.insert_node(decode_node(&node)?)?;
+        graph.insert_node(decode_node(&node).map_err(InstError::NodeLink)?)?;
     }
     for e in doc.edges {
         graph.insert_edge(
