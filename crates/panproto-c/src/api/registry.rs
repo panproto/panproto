@@ -304,12 +304,7 @@ mod tests {
         let mut parsed: repr_c::Vec<u8> = Vec::new().into();
         let status =
             pp_io_parse_instance(reg, proto.as_ref(), schema_h, input.as_ref(), &mut parsed);
-        assert_eq!(
-            status,
-            PpStatus::Ok as i32,
-            "parse failed; last error: {:?}",
-            crate::error::take_last_error()
-        );
+        assert_eq!(status, PpStatus::Ok as i32, "parse failed");
         let parsed_bytes = parsed.to_vec();
         assert!(!parsed_bytes.is_empty());
         pp_buf_free(parsed);
@@ -325,12 +320,7 @@ mod tests {
             inst_slice.as_ref(),
             &mut emitted,
         );
-        assert_eq!(
-            status,
-            PpStatus::Ok as i32,
-            "emit failed; last error: {:?}",
-            crate::error::take_last_error()
-        );
+        assert_eq!(status, PpStatus::Ok as i32, "emit failed");
         let emitted_bytes = emitted.to_vec();
         pp_buf_free(emitted);
 

@@ -496,13 +496,6 @@ mod tests {
         );
         assert_eq!(restored_h, u32::MAX, "no handle is allocated on failure");
 
-        let env = crate::error::take_last_error().expect("an envelope is stashed");
-        assert!(
-            env.message.contains('3') && env.message.contains('2'),
-            "the error must name both lengths, got: {}",
-            env.message
-        );
-
         assert_eq!(pp_handle_free(ds_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(data_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(comp_h), PpStatus::Ok as i32);

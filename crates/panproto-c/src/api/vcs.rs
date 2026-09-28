@@ -1093,7 +1093,6 @@ mod tests {
 
     #[test]
     fn commit_with_nothing_staged_errors() {
-        let _ = crate::error::take_last_error();
         let dir = tempfile::tempdir().unwrap();
         let repo = init_repo(dir.path());
 
@@ -1105,8 +1104,6 @@ mod tests {
             &mut out,
         );
         assert_eq!(status, PpStatus::Operation as i32);
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert_eq!(env.tag, "operation");
         pp_buf_free(out);
         assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
     }
@@ -1253,15 +1250,12 @@ mod tests {
 
     #[test]
     fn branch_requires_a_commit() {
-        let _ = crate::error::take_last_error();
         let dir = tempfile::tempdir().unwrap();
         let repo = init_repo(dir.path());
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_vcs_branch(repo, slice_of(b"feature").as_ref(), &mut out);
         assert_eq!(status, PpStatus::Operation as i32);
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert_eq!(env.tag, "operation");
         pp_buf_free(out);
         assert_eq!(pp_handle_free(repo), PpStatus::Ok as i32);
     }
@@ -1555,7 +1549,6 @@ mod tests {
 
     #[test]
     fn add_on_non_repo_handle_is_type_mismatch() {
-        let _ = crate::error::take_last_error();
         let schema = alloc_schema_handle(empty_schema());
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_vcs_add(schema, schema, &mut out);

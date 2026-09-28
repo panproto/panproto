@@ -232,9 +232,8 @@ mod tests {
     use panproto_core::schema::{Protocol, Schema};
 
     use super::*;
-    use crate::api::{pp_buf_free, pp_handle_free, pp_last_error_take, pp_protocol_define};
+    use crate::api::{pp_buf_free, pp_handle_free, pp_protocol_define};
     use crate::canonical::{decode, encode};
-    use crate::error::ErrorEnvelope;
 
     fn protocol_fixture() -> Protocol {
         Protocol {
@@ -325,25 +324,12 @@ mod tests {
 
     #[test]
     fn schema_to_cbor_on_protocol_handle_yields_type_mismatch() {
-        // Drain prior state.
-        let mut sink: repr_c::Vec<u8> = Vec::new().into();
-        let _ = pp_last_error_take(&mut sink);
-        pp_buf_free(sink);
-
         let proto_h = define_protocol_handle(&protocol_fixture());
 
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_schema_to_cbor(proto_h, &mut out);
         assert_eq!(status, PpStatus::TypeMismatch as i32);
         pp_buf_free(out);
-
-        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
-        let env: ErrorEnvelope = decode(&env_buf).unwrap();
-        assert_eq!(env.tag, "type_mismatch");
-        assert!(env.message.contains("Schema"));
-        assert!(env.message.contains("Protocol"));
-        pp_buf_free(env_buf);
 
         assert_eq!(pp_handle_free(proto_h), PpStatus::Ok as i32);
     }

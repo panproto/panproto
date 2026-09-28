@@ -571,7 +571,6 @@ mod tests {
 
     #[test]
     fn unknown_protocol_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         let reg = new_registry();
         let protocol = slice_box(b"no_such_protocol_xyz");
         let content = slice_box(GO_SOURCE);
@@ -587,31 +586,22 @@ mod tests {
         assert_eq!(status, PpStatus::Operation as i32);
         // The out-handle slot is left untouched on failure.
         assert_eq!(schema_h, u32::MAX);
-        let _ = crate::error::take_last_error();
         assert_eq!(pp_handle_free(reg), PpStatus::Ok as i32);
     }
 
     #[test]
     fn invalid_utf8_path_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         let reg = new_registry();
         let bad_path = slice_box(&[0xFF, 0xFE]);
         let content = slice_box(GO_SOURCE);
         let mut schema_h: u32 = u32::MAX;
         let status = pp_parse_file(reg, bad_path.as_ref(), content.as_ref(), &mut schema_h);
         assert_eq!(status, PpStatus::Operation as i32);
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert!(
-            env.message.contains("invalid path"),
-            "unexpected message: {}",
-            env.message
-        );
         assert_eq!(pp_handle_free(reg), PpStatus::Ok as i32);
     }
 
     #[test]
     fn non_registry_handle_is_a_type_mismatch() {
-        let _ = crate::error::take_last_error();
         // A Schema handle is not an AstRegistry.
         let reg = new_registry();
         let path = slice_box(b"main.go");
@@ -627,7 +617,6 @@ mod tests {
         let status = pp_parse_protocol_names(schema_h, &mut out);
         assert_eq!(status, PpStatus::TypeMismatch as i32);
         pp_buf_free(out);
-        let _ = crate::error::take_last_error();
 
         assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(reg), PpStatus::Ok as i32);

@@ -171,8 +171,6 @@ pub fn pp_buf_free(buf: repr_c::Vec<u8>) {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
-    use crate::error::{ErrorEnvelope, FfiError};
-
     use super::*;
 
     #[test]
@@ -188,23 +186,5 @@ mod tests {
     fn handle_free_of_an_unallocated_handle_is_a_no_op() {
         assert_eq!(pp_handle_free(u32::MAX), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(u32::MAX), PpStatus::Ok as i32);
-    }
-
-    #[test]
-    fn last_error_returns_empty_when_none() {
-        let _ = take_last_error();
-        let mut out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut out), PpStatus::Ok as i32);
-        assert!(out.is_empty());
-    }
-
-    #[test]
-    fn last_error_round_trips_envelope() {
-        crate::error::set_last_error(&FfiError::InvalidHandle { handle: 99 });
-        let mut out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut out), PpStatus::Ok as i32);
-        let env: ErrorEnvelope = crate::canonical::decode(&out).unwrap();
-        assert_eq!(env.tag, "invalid_handle");
-        assert!(env.message.contains("99"));
     }
 }

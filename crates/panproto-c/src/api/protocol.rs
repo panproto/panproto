@@ -70,7 +70,10 @@ mod tests {
     use panproto_core::schema::Protocol;
 
     use super::*;
-    use crate::api::{pp_buf_free, pp_handle_free, pp_last_error_take};
+    use crate::api::{pp_buf_free, pp_handle_free};
+
+    // What a failing call leaves in the last-error slot is checked in
+    // `tests/error_envelopes.rs`, against the slot as released.
     use crate::canonical::{decode, encode};
 
     fn fixture() -> Protocol {
@@ -106,22 +109,11 @@ mod tests {
     }
 
     #[test]
-    fn invalid_handle_yields_status_and_envelope() {
-        // Drain any prior state.
-        let mut sink: repr_c::Vec<u8> = Vec::new().into();
-        let _ = pp_last_error_take(&mut sink);
-        pp_buf_free(sink);
-
+    fn invalid_handle_yields_its_status() {
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_protocol_serialize(u32::MAX - 1, &mut out);
         assert_eq!(status, PpStatus::InvalidHandle as i32);
         pp_buf_free(out);
-
-        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
-        let env: crate::error::ErrorEnvelope = decode(&env_buf).unwrap();
-        assert_eq!(env.tag, "invalid_handle");
-        pp_buf_free(env_buf);
     }
 
     #[test]
@@ -130,11 +122,6 @@ mod tests {
 
         use panproto_core::schema::Schema;
         use std::collections::HashMap;
-
-        // Drain prior state.
-        let mut sink: repr_c::Vec<u8> = Vec::new().into();
-        let _ = pp_last_error_take(&mut sink);
-        pp_buf_free(sink);
 
         // Allocate a Schema handle and try to serialize it as a Protocol.
         let schema = Schema {
@@ -167,14 +154,6 @@ mod tests {
         assert_eq!(status, PpStatus::TypeMismatch as i32);
         pp_buf_free(out);
 
-        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
-        let env: crate::error::ErrorEnvelope = decode(&env_buf).unwrap();
-        assert_eq!(env.tag, "type_mismatch");
-        assert!(env.message.contains("Protocol"));
-        assert!(env.message.contains("Schema"));
-        pp_buf_free(env_buf);
-
         assert_eq!(pp_handle_free(h), PpStatus::Ok as i32);
     }
 
@@ -192,10 +171,5 @@ mod tests {
     fn internal_panic_is_caught() {
         let status = pp_internal_panic();
         assert_eq!(status, PpStatus::Panic as i32);
-        let mut env_buf: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(pp_last_error_take(&mut env_buf), PpStatus::Ok as i32);
-        let env: crate::error::ErrorEnvelope = decode(&env_buf).unwrap();
-        assert_eq!(env.tag, "panic");
-        pp_buf_free(env_buf);
     }
 }

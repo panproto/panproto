@@ -198,41 +198,23 @@ impl ErrorSlot {
 }
 
 /// The process-global slot every entry point reports into.
-#[cfg(not(test))]
+///
+/// The crate's unit tests share this one slot as they run in parallel, so
+/// none of them reads it: a drain there could see another test's
+/// envelope. Every check of what an entry point leaves in the slot lives
+/// in the integration test `tests/error_envelopes.rs`, which links the
+/// library as released and runs its checks one at a time.
 static LAST_ERROR: ErrorSlot = ErrorSlot::new();
-
-// The crate's own unit tests run in one process, each on its own thread,
-// and each stands in for an independent host that serializes its own
-// call-plus-drain. Sharing one slot between them would let one test's
-// failing call overwrite, or its drain consume, another test's envelope.
-// So in that build each test thread gets a slot of its own. The
-// integration tests under `tests/` link the library as released and
-// exercise the process-global slot, including a drain on another thread.
-#[cfg(test)]
-thread_local! {
-    static LAST_ERROR: ErrorSlot = const { ErrorSlot::new() };
-}
-
-fn with_slot<T>(f: impl FnOnce(&ErrorSlot) -> T) -> T {
-    #[cfg(not(test))]
-    {
-        f(&LAST_ERROR)
-    }
-    #[cfg(test)]
-    {
-        LAST_ERROR.with(f)
-    }
-}
 
 /// Stash the last error for retrieval by the host.
 pub fn set_last_error(err: &FfiError) {
-    with_slot(|slot| slot.set(err));
+    LAST_ERROR.set(err);
 }
 
 /// Take the last error, clearing the slot.
 #[must_use]
 pub fn take_last_error() -> Option<ErrorEnvelope> {
-    with_slot(ErrorSlot::take)
+    LAST_ERROR.take()
 }
 
 #[cfg(test)]
@@ -307,16 +289,26 @@ mod tests {
     }
 
     #[test]
-    fn last_error_set_take_clears_slot() {
-        let _ = take_last_error(); // drain whatever may be left
-        assert!(take_last_error().is_none());
+    fn an_error_slot_set_then_take_clears_it() {
+        let slot = ErrorSlot::new();
+        assert!(slot.take().is_none());
 
-        set_last_error(&FfiError::Internal("under test".into()));
-        let env = take_last_error().expect("envelope present");
+        slot.set(&FfiError::Internal("under test".into()));
+        let env = slot.take().expect("envelope present");
         assert_eq!(env.tag, "internal");
 
         // After take, slot is empty.
-        assert!(take_last_error().is_none());
+        assert!(slot.take().is_none());
+    }
+
+    #[test]
+    fn an_error_slot_keeps_the_most_recent_write() {
+        let slot = ErrorSlot::new();
+        slot.set(&FfiError::Internal("first".into()));
+        slot.set(&FfiError::InvalidHandle { handle: 7 });
+        let env = slot.take().expect("envelope present");
+        assert_eq!(env.tag, "invalid_handle");
+        assert!(slot.take().is_none());
     }
 
     #[test]
@@ -334,6 +326,29 @@ mod tests {
         assert_eq!(env.tag, "internal");
         assert!(env.message.contains("from a worker"));
         assert!(slot.take().is_none(), "a take clears the slot");
+    }
+
+    /// The slot entry points report into is the one the released library
+    /// has, so a unit test sees an error stashed on another thread, just as
+    /// a host that drains on a different OS thread does.
+    ///
+    /// Other unit tests running in parallel may stash their own failures in
+    /// the same slot between the worker's write and the drain here, so the
+    /// write is retried until the drain returns it. A slot that did not
+    /// cross threads would never return it.
+    #[test]
+    fn the_entry_point_slot_is_shared_across_threads() {
+        const MARKER: &str = "stashed on a worker for the shared-slot test";
+        let crossed = (0..100).any(|_| {
+            std::thread::spawn(|| set_last_error(&FfiError::Internal(MARKER.into())))
+                .join()
+                .expect("worker thread did not panic");
+            take_last_error().is_some_and(|env| env.message.contains(MARKER))
+        });
+        assert!(
+            crossed,
+            "an error stashed on a worker thread never reached this one"
+        );
     }
 
     #[test]
