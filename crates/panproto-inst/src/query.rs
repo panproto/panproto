@@ -75,7 +75,8 @@ pub struct QueryMatch {
 /// Execute a query against a W-type instance.
 ///
 /// Pipeline: anchor filter → path navigation → predicate evaluation
-/// → limit → `group_by` → field projection.
+/// → limit → `group_by` → field projection. Candidates are taken in
+/// ascending node id, so a limited query keeps the least matching ids.
 ///
 /// The `schema` parameter provides schema context for future
 /// schema-aware operations and instance-aware evaluation.
@@ -87,13 +88,9 @@ pub fn execute(
 ) -> Vec<QueryMatch> {
     let eval_config = panproto_expr::EvalConfig::default();
 
-    // 1. Find all nodes matching the anchor.
-    let candidates: Vec<u32> = instance
-        .nodes
-        .iter()
-        .filter(|(_, n)| n.anchor == query.anchor)
-        .map(|(id, _)| *id)
-        .collect();
+    // 1. Find all nodes matching the anchor, in ascending id, so the
+    //    candidates `limit` keeps are the same in every process.
+    let candidates = instance.fiber(&query.anchor);
 
     // 2. Follow path if specified.
     let navigated = if query.path.is_empty() {
@@ -170,7 +167,8 @@ pub fn execute(
 /// Execute a query against any instance shape via the category of elements.
 ///
 /// This is the polymorphic query executor. The pipeline is:
-/// 1. Fiber selection: `F(anchor)` — all elements over the anchor vertex
+/// 1. Fiber selection: `F(anchor)` — all elements over the anchor vertex,
+///    in ascending id
 /// 2. Relational pushforward: compose `F(e)` for each edge in the path
 /// 3. Subobject selection: filter by predicate in the stalk environment
 /// 4. Limit

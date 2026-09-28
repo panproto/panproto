@@ -75,7 +75,8 @@ impl Instance {
                 Ok(Self::Functor(restricted))
             }
             Self::Graph(g) => {
-                let restricted = crate::ginstance::graph_restrict(g, migration)?;
+                let restricted =
+                    crate::ginstance::graph_restrict(g, src_schema, tgt_schema, migration)?;
                 Ok(Self::Graph(restricted))
             }
         }
@@ -103,7 +104,7 @@ impl Instance {
                 Ok(Self::Functor(extended))
             }
             Self::Graph(g) => {
-                let extended = crate::ginstance::graph_extend(g, migration)?;
+                let extended = crate::ginstance::graph_extend(g, tgt_schema, migration)?;
                 Ok(Self::Graph(extended))
             }
         }

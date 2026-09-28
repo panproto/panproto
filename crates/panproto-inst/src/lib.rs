@@ -85,7 +85,10 @@ pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
 pub use functor::{FInstance, functor_extend, functor_restrict};
-pub use ginstance::{GInstance, graph_extend, graph_restrict};
+pub use ginstance::{
+    EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json,
+    graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
+};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};

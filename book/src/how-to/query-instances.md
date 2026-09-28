@@ -49,7 +49,7 @@ let posts = execute_query(&query, instance, schema);
 # }
 ```
 
-Predicates are `panproto_expr::Expr` values. The evaluator binds a node's extra fields, scalar child values reached by labeled edges, and the metadata variables `_anchor`, `_id`, `_value`, and `_children_count`. Instance-aware builtins such as `Edge`, `Children`, `HasEdge`, and `EdgeCount` receive the current instance and node.
+Predicates are `panproto_expr::Expr` values. The evaluator binds a node's extra fields, scalar child values reached by labeled edges, and the metadata variables `_anchor`, `_id`, `_value`, and `_children_count`. Instance-aware builtins such as `Edge`, `Edges`, `Children`, `HasEdge`, and `EdgeCount` receive the current instance and node. `Edge` follows the first matching edge, the least edge id on a graph instance, and `Edges` lists every matching edge in order, so parallel edges each contribute their target. Candidates are taken in ascending node id before the predicate and `limit` apply, so a limited query returns the same nodes in every process.
 
 ## TypeScript boundary
 

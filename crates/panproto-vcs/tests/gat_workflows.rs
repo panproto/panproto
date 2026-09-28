@@ -906,14 +906,14 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
     let g_res = AcsetOps::restrict(&g, &src_schema, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::element_count(&g_res), 2);
     // Nodes should be remapped to "human".
-    for node in g_res.nodes.values() {
+    for node in g_res.nodes().values() {
         assert_eq!(&*node.anchor, "human");
     }
 
     // Extend.
     let g_ext = AcsetOps::extend(&g, &tgt_schema, &compiled)?;
     assert_eq!(AcsetOps::element_count(&g_ext), 2);
-    for node in g_ext.nodes.values() {
+    for node in g_ext.nodes().values() {
         assert_eq!(&*node.anchor, "human");
     }
     Ok(())

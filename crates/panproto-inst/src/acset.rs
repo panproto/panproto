@@ -105,19 +105,19 @@ impl AcsetOps for FInstance {
 impl AcsetOps for GInstance {
     fn restrict(
         &self,
-        _src_schema: &Schema,
-        _tgt_schema: &Schema,
+        src_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
-        crate::ginstance::graph_restrict(self, migration)
+        crate::ginstance::graph_restrict(self, src_schema, tgt_schema, migration)
     }
 
     fn extend(
         &self,
-        _tgt_schema: &Schema,
+        tgt_schema: &Schema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
-        crate::ginstance::graph_extend(self, migration)
+        crate::ginstance::graph_extend(self, tgt_schema, migration)
     }
 
     fn element_count(&self) -> usize {
@@ -275,6 +275,14 @@ mod tests {
         FInstance::new().with_table("users", vec![row])
     }
 
+    fn alice() -> FieldPresence {
+        FieldPresence::Present(Value::Str("Alice".into()))
+    }
+
+    fn bob() -> FieldPresence {
+        FieldPresence::Present(Value::Str("Bob".into()))
+    }
+
     fn two_node_ginstance() -> (GInstance, Edge) {
         let edge = Edge {
             src: "person".into(),
@@ -400,7 +408,7 @@ mod tests {
         };
 
         let via_trait = AcsetOps::restrict(&g, &schema, &schema, &migration)?;
-        let via_fn = crate::ginstance::graph_restrict(&g, &migration)?;
+        let via_fn = crate::ginstance::graph_restrict(&g, &schema, &schema, &migration)?;
         assert_eq!(via_trait.node_count(), via_fn.node_count());
         assert_eq!(via_trait.edge_count(), via_fn.edge_count());
         Ok(())
@@ -419,9 +427,8 @@ mod tests {
         let result = AcsetOps::extend(&g, &schema, &migration)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.edge_count(), 1);
-        assert_eq!(result.values.len(), 2);
-        assert_eq!(result.values[&0], Value::Str("Alice".into()));
-        assert_eq!(result.values[&1], Value::Str("Bob".into()));
+        assert_eq!(result.node(0).and_then(|n| n.value.clone()), Some(alice()));
+        assert_eq!(result.node(1).and_then(|n| n.value.clone()), Some(bob()));
         Ok(())
     }
 
@@ -450,12 +457,21 @@ mod tests {
 
         let result = AcsetOps::extend(&g, &schema, &migration)?;
         assert_eq!(result.node_count(), 2);
-        assert_eq!(result.nodes[&0].anchor, Name::from("human"));
-        assert_eq!(result.nodes[&1].anchor, Name::from("human"));
+        assert_eq!(
+            result.node(0).map(|n| &n.anchor),
+            Some(&Name::from("human"))
+        );
+        assert_eq!(
+            result.node(1).map(|n| &n.anchor),
+            Some(&Name::from("human"))
+        );
         assert_eq!(result.edge_count(), 1);
-        assert_eq!(result.edges[0].2, new_edge);
+        assert_eq!(
+            result.edge(crate::ginstance::EdgeId(0)).map(|e| &e.edge),
+            Some(&new_edge)
+        );
         // Values preserved
-        assert_eq!(result.values[&0], Value::Str("Alice".into()));
+        assert_eq!(result.node(0).and_then(|n| n.value.clone()), Some(alice()));
         Ok(())
     }
 }

@@ -4,6 +4,8 @@ use std::fmt;
 
 use panproto_gat::Name;
 
+use crate::ginstance::EdgeId;
+
 /// Errors from instance construction or manipulation.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
@@ -32,6 +34,78 @@ pub enum InstError {
     /// Internal hom evaluation failed.
     #[error("eval_hom failed: {0}")]
     EvalHom(String),
+
+    /// A graph edge names a node the instance does not hold.
+    #[error("edge {edge} names node {endpoint}, which is not in the instance")]
+    DanglingEdge {
+        /// The edge.
+        edge: EdgeId,
+        /// The missing endpoint.
+        endpoint: u32,
+    },
+
+    /// A graph node is filed under an id other than its own.
+    #[error("node {node_id} is filed under {key}")]
+    NodeIdMismatch {
+        /// The key the node is filed under.
+        key: u32,
+        /// The id the node carries.
+        node_id: u32,
+    },
+
+    /// A node with this id is already in the instance.
+    #[error("node {0} is already in the instance")]
+    DuplicateNode(u32),
+
+    /// An edge with this id is already in the instance.
+    #[error("edge {0} is already in the instance")]
+    DuplicateEdge(EdgeId),
+
+    /// No edge has this id.
+    #[error("edge not found: {0}")]
+    EdgeNotFound(EdgeId),
+
+    /// A node cannot be removed while edges touch it.
+    #[error("node {node} still has incident edges {edges:?}")]
+    IncidentEdges {
+        /// The node.
+        node: u32,
+        /// The edges touching it, ascending.
+        edges: Vec<EdgeId>,
+    },
+
+    /// Every edge id up to `u32::MAX` is in use, so no fresh one exists.
+    #[error("no edge id is free above the largest in use")]
+    EdgeIdsExhausted,
+
+    /// Every node id up to `u32::MAX` is in use, so no fresh one exists.
+    #[error("no node id is free above the largest in use")]
+    NodeIdsExhausted,
+
+    /// A graph instance is not a tree rooted at the requested node, so it has
+    /// no tree form.
+    #[error("not a tree at node {node}: {detail}")]
+    NotATree {
+        /// The node where the tree shape fails.
+        node: u32,
+        /// What fails there.
+        detail: String,
+    },
+
+    /// A foreign-key pair names a row its table does not have.
+    #[error("foreign key {edge_kind} names row {row} of table `{table}`, which does not exist")]
+    DanglingForeignKey {
+        /// The kind of the foreign-key edge.
+        edge_kind: String,
+        /// The table.
+        table: String,
+        /// The missing row index.
+        row: usize,
+    },
+
+    /// A node-link document does not have the node-link shape.
+    #[error("malformed node-link document: {0}")]
+    NodeLink(String),
 }
 
 /// Errors from the restrict operation.

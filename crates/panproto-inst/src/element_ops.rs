@@ -23,7 +23,7 @@ use panproto_expr::{BuiltinOp, Literal};
 use panproto_gat::Name;
 
 use crate::functor::FInstance;
-use crate::ginstance::GInstance;
+use crate::ginstance::{EdgeId, GInstance};
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
@@ -39,7 +39,9 @@ use crate::wtype::{
 pub trait ElementOps {
     /// Fiber selection: all elements over schema vertex `v`.
     ///
-    /// Returns `F(v) = {x | sort(x) = v}` as a vector of element IDs.
+    /// Returns `F(v) = {x | sort(x) = v}` as a vector of element IDs in
+    /// ascending order, so that anything taken from the front of it (a
+    /// query's `limit`, say) is the same in every process.
     fn fiber(&self, vertex: &Name) -> Vec<u32>;
 
     /// Relational pushforward along a schema edge.
@@ -47,9 +49,10 @@ pub trait ElementOps {
     /// Given `S ⊆ F(v)` and edge kind `e: v → w`, computes the direct
     /// image `F(e)(S) = {y ∈ F(w) | ∃x ∈ S, (x,y) ∈ F(e)}`.
     ///
-    /// The result has set semantics (deduplicated). For tree-shaped
-    /// instances this is automatic; for graph-shaped instances with
-    /// cycles, explicit dedup is required.
+    /// Tree-shaped instances yield targets in arc order, element by element.
+    /// Graph-shaped instances yield one target per matching edge, in
+    /// ascending [`EdgeId`] order, so a target reached by two
+    /// parallel edges appears twice. Table-shaped instances deduplicate.
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32>;
 
     /// Stalk projection: observable data at element `x`.
@@ -68,8 +71,8 @@ pub trait ElementOps {
 
     /// Evaluate a graph traversal builtin at an element.
     ///
-    /// Interprets `Edge`, `Children`, `HasEdge`, `EdgeCount`, `Anchor`
-    /// in the internal logic of the category of elements.
+    /// Interprets `Edge`, `Edges`, `Children`, `HasEdge`, `EdgeCount`,
+    /// `Anchor` in the internal logic of the category of elements.
     ///
     /// # Errors
     ///
@@ -102,11 +105,14 @@ pub trait ElementOps {
 
 impl ElementOps for WInstance {
     fn fiber(&self, vertex: &Name) -> Vec<u32> {
-        self.nodes
+        let mut ids: Vec<u32> = self
+            .nodes
             .iter()
             .filter(|(_, n)| n.anchor == *vertex)
             .map(|(id, _)| *id)
-            .collect()
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
@@ -164,34 +170,36 @@ impl ElementOps for WInstance {
 
 impl ElementOps for GInstance {
     fn fiber(&self, vertex: &Name) -> Vec<u32> {
-        self.nodes
+        let mut ids: Vec<u32> = self
+            .nodes()
             .iter()
             .filter(|(_, n)| n.anchor == *vertex)
             .map(|(id, _)| *id)
-            .collect()
+            .collect();
+        ids.sort_unstable();
+        ids
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
-        let mut result = Vec::new();
-        let mut seen = rustc_hash::FxHashSet::default();
-        for &node_id in elements {
-            for &(src, tgt, ref edge) in &self.edges {
-                if src == node_id && edge.kind == *edge_kind && seen.insert(tgt) {
-                    result.push(tgt);
-                }
-            }
-        }
-        result
+        let sources: rustc_hash::FxHashSet<u32> = elements.iter().copied().collect();
+        let mut ids: Vec<EdgeId> = sources
+            .iter()
+            .flat_map(|&node| self.out_edges(node).iter().copied())
+            .filter(|id| self.edge(*id).is_some_and(|e| e.edge.kind == *edge_kind))
+            .collect();
+        ids.sort_unstable();
+        ids.into_iter()
+            .filter_map(|id| self.edge(id).map(|e| e.tgt))
+            .collect()
     }
 
     fn stalk(&self, element_id: u32) -> panproto_expr::Env {
-        let Some(node) = self.nodes.get(&element_id) else {
+        let Some(node) = self.node(element_id) else {
             return panproto_expr::Env::new();
         };
 
-        // Collect scalar values from outgoing edge targets (analogous to
-        // child scalar collection in WInstance). This is the dependent-sum
-        // projection for graph-shaped instances.
+        // Scalar values of out-edge targets: the dependent-sum projection
+        // for graph-shaped instances, as child scalars are for trees.
         let child_scalars = collect_graph_scalar_children(self, element_id);
         let mut env = build_env_with_children(&node.extra_fields, &child_scalars);
 
@@ -202,21 +210,14 @@ impl ElementOps for GInstance {
         );
         env = env.extend(Arc::from("_id"), Literal::Int(i64::from(node.id)));
 
-        if let Some(val) = self.values.get(&element_id) {
+        if let Some(FieldPresence::Present(val)) = &node.value {
             env = env.extend(Arc::from("_value"), value_to_expr_literal(val));
         }
 
-        let edge_count = self
-            .edges
-            .iter()
-            .filter(|(src, _, _)| *src == element_id)
-            .count();
-        #[allow(clippy::cast_possible_wrap)]
-        {
-            env = env.extend(Arc::from("_edge_count"), Literal::Int(edge_count as i64));
-        }
-
-        env
+        env.extend(
+            Arc::from("_edge_count"),
+            Literal::Int(count_literal(self.out_edges(element_id).len())),
+        )
     }
 
     fn eval_graph_builtin(
@@ -229,7 +230,7 @@ impl ElementOps for GInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(node) = self.nodes.get(&element_id) else {
+        let Some(node) = self.node(element_id) else {
             return HashMap::new();
         };
         let child_scalars = collect_graph_scalar_children(self, element_id);
@@ -241,38 +242,39 @@ impl ElementOps for GInstance {
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
-        self.nodes.get(&element_id).map(|n| n.anchor.clone())
+        self.node(element_id).map(|n| n.anchor.clone())
     }
 
     fn element_value(&self, element_id: u32) -> Option<FieldPresence> {
-        self.values
-            .get(&element_id)
-            .map(|v| FieldPresence::Present(v.clone()))
+        self.node(element_id).and_then(|n| n.value.clone())
     }
+}
+
+/// A count as an expression integer, saturating at `i64::MAX`.
+fn count_literal(count: usize) -> i64 {
+    i64::try_from(count).unwrap_or(i64::MAX)
 }
 
 /// Collect scalar values from a graph node's outgoing edge targets.
 ///
 /// Analogous to [`collect_scalar_child_values`] for W-type instances:
 /// this is the dependent-sum projection `Σ_{e: v→w} π_scalar(Fiber(w))`
-/// for graph-shaped instances. Uses `edge.name` (or `edge.tgt`) as the
-/// field name, matching the W-type convention.
+/// for graph-shaped instances. Out-edges are read in
+/// [`GInstance::ordered_out_edges`] order; each whose target holds a
+/// present value binds it under `edge.name` (or `edge.tgt`), a later edge
+/// overriding an earlier one of the same name, matching the W-type
+/// convention.
 fn collect_graph_scalar_children(instance: &GInstance, node_id: u32) -> HashMap<String, Value> {
     let mut result = HashMap::new();
-    for &(src, tgt, ref edge) in &instance.edges {
-        if src != node_id {
+    for id in instance.ordered_out_edges(node_id) {
+        let Some(edge) = instance.edge(id) else {
             continue;
-        }
-        // Check node values first (GInstance stores values separately)
-        if let Some(val) = instance.values.get(&tgt) {
-            let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
+        };
+        if let Some(FieldPresence::Present(val)) =
+            instance.node(edge.tgt).and_then(|n| n.value.as_ref())
+        {
+            let field_name = edge.edge.name.as_deref().unwrap_or(&*edge.edge.tgt);
             result.insert(field_name.to_string(), val.clone());
-        } else if let Some(tgt_node) = instance.nodes.get(&tgt) {
-            // Fall back to node.value if present
-            if let Some(FieldPresence::Present(val)) = &tgt_node.value {
-                let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
-                result.insert(field_name.to_string(), val.clone());
-            }
         }
     }
     result
@@ -500,10 +502,22 @@ fn node_to_literal(node: &Node) -> Literal {
         Arc::from("_anchor"),
         Literal::Str(node.anchor.as_ref().into()),
     ));
-    for (key, val) in &node.extra_fields {
+    let mut extra: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+    extra.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    for (key, val) in extra {
         fields.push((Arc::from(key.as_str()), value_to_expr_literal(val)));
     }
     Literal::Record(fields)
+}
+
+/// Read the edge-kind argument of `edge`, `edges` and `has_edge`.
+fn edge_kind_arg(lit: &Literal) -> Result<Name, panproto_expr::ExprError> {
+    lit.as_str()
+        .map(Name::from)
+        .ok_or_else(|| panproto_expr::ExprError::TypeError {
+            expected: "string".into(),
+            got: lit.type_name().into(),
+        })
 }
 
 /// Graph builtins for [`WInstance`].
@@ -534,6 +548,18 @@ fn winstance_graph_builtin(
                 }
             }
             Ok(Literal::Null)
+        }
+        BuiltinOp::Edges => {
+            let node_id = resolve_node_ref(&args[0], context)?;
+            let edge_name = edge_kind_arg(&args[1])?;
+            Ok(Literal::List(
+                instance
+                    .arcs
+                    .iter()
+                    .filter(|(src, _, edge)| *src == node_id && edge.kind == edge_name)
+                    .filter_map(|(_, tgt, _)| instance.nodes.get(tgt).map(node_to_literal))
+                    .collect(),
+            ))
         }
         BuiltinOp::Children => {
             let node_id = resolve_node_ref(&args[0], context)?;
@@ -587,6 +613,9 @@ fn winstance_graph_builtin(
 }
 
 /// Graph builtins for [`GInstance`].
+///
+/// Out-edges are read in ascending [`EdgeId`] order: `edge` follows the
+/// least matching edge, `edges` and `children` list targets one per edge.
 fn ginstance_graph_builtin(
     instance: &GInstance,
     op: BuiltinOp,
@@ -594,85 +623,106 @@ fn ginstance_graph_builtin(
     context: Option<u32>,
 ) -> Result<Literal, panproto_expr::ExprError> {
     crate::instance_env::check_graph_builtin_arity(op, args)?;
+    let target = |id: &EdgeId| instance.edge(*id).and_then(|e| instance.node(e.tgt));
+    let has_kind =
+        |id: &EdgeId, kind: &Name| instance.edge(*id).is_some_and(|e| e.edge.kind == *kind);
     match op {
         BuiltinOp::Edge => {
             let node_id = resolve_node_ref(&args[0], context)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
-            let edge_name = Name::from(edge_kind);
-            for &(src, tgt, ref edge) in &instance.edges {
-                if src == node_id && edge.kind == edge_name {
-                    if let Some(node) = instance.nodes.get(&tgt) {
-                        return Ok(node_to_literal(node));
-                    }
-                    return Ok(Literal::Null);
-                }
-            }
-            Ok(Literal::Null)
+            let edge_name = edge_kind_arg(&args[1])?;
+            Ok(instance
+                .out_edges(node_id)
+                .iter()
+                .find(|id| has_kind(id, &edge_name))
+                .and_then(target)
+                .map_or(Literal::Null, node_to_literal))
+        }
+        BuiltinOp::Edges => {
+            let node_id = resolve_node_ref(&args[0], context)?;
+            let edge_name = edge_kind_arg(&args[1])?;
+            Ok(Literal::List(
+                instance
+                    .out_edges(node_id)
+                    .iter()
+                    .filter(|id| has_kind(id, &edge_name))
+                    .filter_map(target)
+                    .map(node_to_literal)
+                    .collect(),
+            ))
         }
         BuiltinOp::Children => {
             let node_id = resolve_node_ref(&args[0], context)?;
-            let mut children = Vec::new();
-            for &(src, tgt, _) in &instance.edges {
-                if src == node_id {
-                    if let Some(node) = instance.nodes.get(&tgt) {
-                        children.push(node_to_literal(node));
-                    }
-                }
-            }
-            Ok(Literal::List(children))
+            Ok(Literal::List(
+                instance
+                    .out_edges(node_id)
+                    .iter()
+                    .filter_map(target)
+                    .map(node_to_literal)
+                    .collect(),
+            ))
         }
         BuiltinOp::HasEdge => {
             let node_id = resolve_node_ref(&args[0], context)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
-            let edge_name = Name::from(edge_kind);
-            let found = instance
-                .edges
-                .iter()
-                .any(|(src, _, edge)| *src == node_id && edge.kind == edge_name);
-            Ok(Literal::Bool(found))
+            let edge_name = edge_kind_arg(&args[1])?;
+            Ok(Literal::Bool(
+                instance
+                    .out_edges(node_id)
+                    .iter()
+                    .any(|id| has_kind(id, &edge_name)),
+            ))
         }
         BuiltinOp::EdgeCount => {
             let node_id = resolve_node_ref(&args[0], context)?;
-            let count = instance
-                .edges
-                .iter()
-                .filter(|(src, _, _)| *src == node_id)
-                .count();
-            #[allow(clippy::cast_possible_wrap)]
-            Ok(Literal::Int(count as i64))
+            Ok(Literal::Int(count_literal(
+                instance.out_edges(node_id).len(),
+            )))
         }
         BuiltinOp::Anchor => {
             let node_id = resolve_node_ref(&args[0], context)?;
-            instance
-                .nodes
-                .get(&node_id)
-                .map_or(Ok(Literal::Null), |node| {
-                    Ok(Literal::Str(node.anchor.as_ref().into()))
-                })
+            Ok(instance.node(node_id).map_or(Literal::Null, |node| {
+                Literal::Str(node.anchor.as_ref().into())
+            }))
         }
         _ => Ok(Literal::Null),
     }
 }
 
 /// Convert an [`FInstance`] row to a [`Literal::Record`].
+///
+/// Fields are listed in ascending column name.
 fn finstance_row_to_literal(row: &HashMap<String, Value>) -> Literal {
-    let fields: Vec<(Arc<str>, Literal)> = row
-        .iter()
+    let mut columns: Vec<(&String, &Value)> = row.iter().collect();
+    columns.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    let fields: Vec<(Arc<str>, Literal)> = columns
+        .into_iter()
         .map(|(k, v)| (Arc::from(k.as_str()), value_to_expr_literal(v)))
         .collect();
     Literal::Record(fields)
+}
+
+/// The rows a table-instance element reaches along foreign keys of `kind`
+/// (every kind when `None`): keys in ascending schema-edge order, pairs in
+/// stored order.
+fn finstance_targets<'a>(
+    instance: &'a FInstance,
+    src_table: &str,
+    src_row: usize,
+    kind: Option<&Name>,
+) -> Vec<&'a HashMap<String, Value>> {
+    let mut keys: Vec<_> = instance
+        .foreign_keys
+        .iter()
+        .filter(|(edge, _)| edge.src.as_ref() == src_table && kind.is_none_or(|k| edge.kind == *k))
+        .collect();
+    keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    keys.into_iter()
+        .flat_map(|(edge, pairs)| {
+            pairs
+                .iter()
+                .filter(move |(s, _)| *s == src_row)
+                .filter_map(move |&(_, t)| instance.tables.get(&*edge.tgt).and_then(|r| r.get(t)))
+        })
+        .collect()
 }
 
 /// Graph builtins for [`FInstance`]: maps graph traversal to FK semantics.
@@ -684,53 +734,33 @@ fn finstance_graph_builtin(
 ) -> Result<Literal, panproto_expr::ExprError> {
     crate::instance_env::check_graph_builtin_arity(op, args)?;
     match op {
-        BuiltinOp::Edge => {
+        BuiltinOp::Edge | BuiltinOp::Edges => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
-            let Some((src_table, src_row)) = instance.resolve_element(element_id) else {
-                return Ok(Literal::Null);
-            };
-            let edge_name = Name::from(edge_kind);
-            for (edge, pairs) in &instance.foreign_keys {
-                if edge.kind == edge_name && edge.src.as_ref() == src_table {
-                    for &(s, t) in pairs {
-                        if s == src_row {
-                            if let Some(row) =
-                                instance.tables.get(&*edge.tgt).and_then(|r| r.get(t))
-                            {
-                                return Ok(finstance_row_to_literal(row));
-                            }
-                        }
-                    }
-                }
-            }
-            Ok(Literal::Null)
+            let edge_name = edge_kind_arg(&args[1])?;
+            let rows = instance
+                .resolve_element(element_id)
+                .map(|(src_table, src_row)| {
+                    finstance_targets(instance, src_table, src_row, Some(&edge_name))
+                })
+                .unwrap_or_default();
+            Ok(if op == BuiltinOp::Edge {
+                rows.first()
+                    .map_or(Literal::Null, |row| finstance_row_to_literal(row))
+            } else {
+                Literal::List(rows.into_iter().map(finstance_row_to_literal).collect())
+            })
         }
         BuiltinOp::Children => {
             let element_id = resolve_node_ref(&args[0], context)?;
             let Some((src_table, src_row)) = instance.resolve_element(element_id) else {
                 return Ok(Literal::List(Vec::new()));
             };
-            let mut children = Vec::new();
-            for (edge, pairs) in &instance.foreign_keys {
-                if edge.src.as_ref() != src_table {
-                    continue;
-                }
-                for &(s, t) in pairs {
-                    if s == src_row {
-                        if let Some(row) = instance.tables.get(&*edge.tgt).and_then(|r| r.get(t)) {
-                            children.push(finstance_row_to_literal(row));
-                        }
-                    }
-                }
-            }
-            Ok(Literal::List(children))
+            Ok(Literal::List(
+                finstance_targets(instance, src_table, src_row, None)
+                    .into_iter()
+                    .map(finstance_row_to_literal)
+                    .collect(),
+            ))
         }
         BuiltinOp::HasEdge => {
             let element_id = resolve_node_ref(&args[0], context)?;
@@ -960,7 +990,7 @@ mod tests {
     }
 
     #[test]
-    fn ginstance_pushforward_with_dedup() {
+    fn ginstance_pushforward_yields_one_target_per_edge() {
         // Create a graph with two paths to the same target (cycle-like)
         let g = GInstance::new()
             .with_node(Node::new(0, "a"))
@@ -987,10 +1017,90 @@ mod tests {
                 },
             );
 
-        // Both source nodes reach the same target; result should be deduplicated
-        let result = g.pushforward(&[0, 1], &Name::from("link"));
-        assert_eq!(result.len(), 1);
-        assert_eq!(result[0], 2);
+        // Both source nodes reach the same target, once per edge.
+        let result = g.pushforward(&[1, 0], &Name::from("link"));
+        assert_eq!(result, vec![2, 2]);
+    }
+
+    #[test]
+    fn ginstance_edges_builtin_lists_parallel_edges() {
+        let link = SchemaEdge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "link".into(),
+            name: None,
+        };
+        let g = GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "b"))
+            .with_node(Node::new(2, "b"))
+            .with_edge(0, 2, link.clone())
+            .with_edge(0, 1, link.clone())
+            .with_edge(0, 2, link);
+        let ids = |lit: Literal| match lit {
+            Literal::List(items) => items
+                .into_iter()
+                .map(|item| match item {
+                    Literal::Record(fields) => fields[0].1.clone(),
+                    other => other,
+                })
+                .collect::<Vec<_>>(),
+            other => vec![other],
+        };
+        let all = g
+            .eval_graph_builtin(
+                BuiltinOp::Edges,
+                &[Literal::Int(0), Literal::Str("link".into())],
+                Some(0),
+            )
+            .unwrap();
+        assert_eq!(
+            ids(all),
+            vec![Literal::Int(2), Literal::Int(1), Literal::Int(2)]
+        );
+        let none = g
+            .eval_graph_builtin(
+                BuiltinOp::Edges,
+                &[Literal::Int(0), Literal::Str("other".into())],
+                Some(0),
+            )
+            .unwrap();
+        assert_eq!(none, Literal::List(Vec::new()));
+    }
+
+    #[test]
+    fn winstance_and_finstance_edges_builtin_list_every_match() {
+        let w = make_winstance_with_children();
+        let all = w
+            .eval_graph_builtin(
+                BuiltinOp::Edges,
+                &[Literal::Int(0), Literal::Str("prop".into())],
+                Some(0),
+            )
+            .unwrap();
+        assert!(matches!(all, Literal::List(ref items) if items.len() == 2));
+
+        let f = make_finstance_with_fk();
+        let post = f.fiber(&Name::from("posts"))[0];
+        let authors = f
+            .eval_graph_builtin(
+                BuiltinOp::Edges,
+                &[Literal::Int(i64::from(post)), Literal::Str("author".into())],
+                Some(post),
+            )
+            .unwrap();
+        let Literal::List(authors) = authors else {
+            panic!("edges yields a list");
+        };
+        assert_eq!(authors.len(), 1);
+        assert_eq!(
+            authors[0],
+            Literal::Record(vec![
+                ("age".into(), Literal::Int(30)),
+                ("name".into(), Literal::Str("Alice".into())),
+            ]),
+            "row fields are listed in ascending column name"
+        );
     }
 
     #[test]
