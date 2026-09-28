@@ -57,8 +57,11 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// A reference from a field, map value or rpc to a named type, resolved
 /// once every declaration in the file is known.
 struct FieldInfo {
-    /// The vertex the `type-of` edge leaves.
+    /// The vertex the edge leaves.
     field_id: String,
+    /// The edge's kind: `type-of` for a field or map value, `input-of`
+    /// for an rpc's request and `output-of` for its response.
+    edge_kind: &'static str,
     /// The type name as written: relative (`Inner`, `Outer.Inner`) or
     /// fully qualified (`.pkg.Outer`).
     type_name: String,
@@ -349,6 +352,7 @@ impl<'a> ProtoReader<'a> {
         }
         self.refs.push(FieldInfo {
             field_id,
+            edge_kind: "type-of",
             type_name: type_name.to_owned(),
             scope: scope.to_owned(),
         });
@@ -391,6 +395,7 @@ impl<'a> ProtoReader<'a> {
         if val_kind == "field" {
             self.refs.push(FieldInfo {
                 field_id: val_id,
+                edge_kind: "type-of",
                 type_name: val_type.to_owned(),
                 scope: scope.to_owned(),
             });
@@ -442,6 +447,7 @@ impl<'a> ProtoReader<'a> {
         }
         self.refs.push(FieldInfo {
             field_id,
+            edge_kind: "type-of",
             type_name: name.to_owned(),
             scope: scope.to_owned(),
         });
@@ -506,7 +512,9 @@ impl<'a> ProtoReader<'a> {
     }
 
     /// Read `service Name { ... }` from after the keyword. Each rpc is an
-    /// `rpc` vertex referring to its request and response types.
+    /// `rpc` vertex with an `input-of` edge to its request type and an
+    /// `output-of` edge to its response type, so the two stay apart even
+    /// when they are one message.
     fn service(&mut self, mut builder: SchemaBuilder) -> Result<SchemaBuilder, ProtocolError> {
         let name = self.word("a service name")?;
         builder = builder.vertex(name, "service", None)?;
@@ -531,9 +539,10 @@ impl<'a> ProtoReader<'a> {
                         )));
                     }
                     let output = self.rpc_type(&rpc_id)?;
-                    for type_name in [input, output] {
+                    for (edge_kind, type_name) in [("input-of", input), ("output-of", output)] {
                         self.refs.push(FieldInfo {
                             field_id: rpc_id.clone(),
+                            edge_kind,
                             type_name: type_name.to_owned(),
                             scope: String::new(),
                         });
@@ -611,9 +620,11 @@ fn scoped(scope: &str, name: &str) -> String {
 ///
 /// The file is tokenized, so comments, multi-line statements and option
 /// values holding message literals read the same wherever they fall.
-/// Declarations are read first; each field, map value and rpc type that
-/// names a message or enum of the file then gets a `type-of` edge to it,
-/// with relative names resolved from the enclosing scope outward.
+/// Declarations are read first; each field and map value that names a
+/// message or enum of the file then gets a `type-of` edge to it, and each
+/// rpc an `input-of` edge to its request and an `output-of` edge to its
+/// response, with relative names resolved from the enclosing scope
+/// outward.
 ///
 /// # Errors
 ///
@@ -634,7 +645,7 @@ pub fn parse_proto(proto: &str) -> Result<Schema, ProtocolError> {
 
     for info in &reader.refs {
         if let Some(target) = reader.resolve(&info.type_name, &info.scope) {
-            builder = builder.edge(&info.field_id, &target, "type-of", None)?;
+            builder = builder.edge(&info.field_id, &target, info.edge_kind, None)?;
         }
     }
 
@@ -846,24 +857,15 @@ fn emit_proto_service(
         }
         let rpc_name = edge.name.as_deref().unwrap_or(&rpc_vertex.id);
 
-        // Find input and output type-of edges.
-        let type_of_edges: Vec<_> = schema
-            .outgoing_edges(&rpc_vertex.id)
-            .iter()
-            .filter(|e| e.kind == "type-of")
-            .collect();
-
-        // The parser stores both input and output as type-of edges.
-        // First one is input, second is output (by insertion order).
-        let input_type = type_of_edges
-            .first()
-            .and_then(|e| schema.vertices.get(&e.tgt))
-            .map_or("Empty", |v| v.id.rsplit('.').next().unwrap_or(&v.id));
-
-        let output_type = type_of_edges
-            .get(1)
-            .and_then(|e| schema.vertices.get(&e.tgt))
-            .map_or("Empty", |v| v.id.rsplit('.').next().unwrap_or(&v.id));
+        // The request is the target of the rpc's `input-of` edge and the
+        // response the target of its `output-of` edge.
+        let message_of = |kind: &str| {
+            children_by_edge(schema, &rpc_vertex.id, kind)
+                .first()
+                .map_or("Empty", |(_, v)| v.id.rsplit('.').next().unwrap_or(&v.id))
+        };
+        let input_type = message_of("input-of");
+        let output_type = message_of("output-of");
 
         w.line(&format!(
             "rpc {rpc_name} ({input_type}) returns ({output_type});"
@@ -894,7 +896,7 @@ fn edge_rules() -> Vec<EdgeRule> {
         },
         EdgeRule {
             edge_kind: "type-of".into(),
-            src_kinds: vec!["field".into(), "rpc".into(), "map".into()],
+            src_kinds: vec!["field".into(), "map".into()],
             tgt_kinds: vec![
                 "message".into(),
                 "enum".into(),
@@ -910,6 +912,16 @@ fn edge_rules() -> Vec<EdgeRule> {
             edge_kind: "variant-of".into(),
             src_kinds: vec!["enum".into()],
             tgt_kinds: vec!["enum-value".into()],
+        },
+        EdgeRule {
+            edge_kind: "input-of".into(),
+            src_kinds: vec!["rpc".into()],
+            tgt_kinds: vec!["message".into()],
+        },
+        EdgeRule {
+            edge_kind: "output-of".into(),
+            src_kinds: vec!["rpc".into()],
+            tgt_kinds: vec!["message".into()],
         },
     ]
 }
@@ -1062,5 +1074,32 @@ message Config {
         assert_eq!(schema.vertices.get("Config.labels").unwrap().kind, "map");
         assert!(schema.has_vertex("Config.labels:key"));
         assert!(schema.has_vertex("Config.labels:value"));
+    }
+
+    #[test]
+    fn emit_proto_keeps_an_rpcs_request_and_response_apart() {
+        let proto = r"
+message Req { string q = 1; }
+message Resp { string r = 1; }
+service S {
+  rpc Ask (Req) returns (Resp);
+  rpc Echo (Req) returns (Req);
+}
+";
+        let schema1 = parse_proto(proto).expect("first parse should succeed");
+        let emitted = emit_proto(&schema1).expect("emit should succeed");
+        assert!(
+            emitted.contains("rpc Ask (Req) returns (Resp);"),
+            "{emitted}"
+        );
+        assert!(
+            emitted.contains("rpc Echo (Req) returns (Req);"),
+            "{emitted}"
+        );
+        let schema2 = parse_proto(&emitted).expect("re-parse should succeed");
+        assert_eq!(schema1.edges.len(), schema2.edges.len());
+        for edge in schema1.edges.keys() {
+            assert!(schema2.edges.contains_key(edge), "{edge:?} survives");
+        }
     }
 }

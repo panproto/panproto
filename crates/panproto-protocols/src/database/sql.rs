@@ -5,7 +5,8 @@
 //! instance theory (`ThFunctor`).
 //!
 //! Tables are modeled as hyper-edges connecting column vertices.
-//! Foreign keys are hyper-edges connecting source columns to target columns.
+//! A foreign key is a `FOREIGN KEY` constraint on the referencing column
+//! whose value is the referenced column's vertex id.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
@@ -14,8 +15,7 @@ use panproto_gat::Theory;
 use panproto_schema::{EdgeRule, Protocol, Schema, SchemaBuilder};
 
 use super::keyword::{
-    contains_keyword, find_keyword_end, name_after_keyword, starts_with_keyword,
-    strip_keyword_prefix,
+    contains_keyword, find_keyword_end, starts_with_keyword, strip_keyword_prefix,
 };
 use crate::error::ProtocolError;
 use crate::theories;
@@ -42,6 +42,7 @@ pub fn protocol() -> Protocol {
             "date".into(),
             "uuid".into(),
             "json".into(),
+            "array".into(),
         ],
         constraint_sorts: vec![
             "NOT NULL".into(),
@@ -50,6 +51,7 @@ pub fn protocol() -> Protocol {
             "PRIMARY KEY".into(),
             "DEFAULT".into(),
             "FOREIGN KEY".into(),
+            "ENUM".into(),
         ],
         has_order: true,
         nominal_identity: true,
@@ -77,7 +79,20 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// database dump parse: a `PostgreSQL` dump declares functions with
 /// `$$`-quoted bodies, adds its keys in `ALTER TABLE ONLY t ADD
 /// CONSTRAINT ...` statements, declares partitions that `INHERITS` their
-/// parent's columns, and types columns with `CREATE DOMAIN`s.
+/// parent's columns, and types columns with `CREATE DOMAIN`s and `CREATE
+/// TYPE ... AS ENUM`s.
+///
+/// Statements take effect in script order: a `DROP TABLE` removes the
+/// table declared before it, so the dump idiom `DROP TABLE IF EXISTS t;
+/// CREATE TABLE t (...)` declares `t`.
+///
+/// A column of an array type (`text[]`, `integer ARRAY`) is an `array`
+/// vertex with an `items` edge to its element, one level per dimension.
+/// A column of an enum type is a `string` whose element carries an
+/// `ENUM` constraint listing the labels as written. A `FOREIGN KEY`
+/// constraint's value is the column it references, `table.column`, with
+/// a reference that lists no columns resolved to the referenced table's
+/// primary key.
 ///
 /// # Errors
 ///
@@ -89,33 +104,51 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
     let mut catalog = Catalog::default();
 
     let statements = split_statements(ddl);
+    let dropped = dropped_creates(&statements);
 
-    // First pass: identify dropped tables.
-    for stmt in &statements {
-        if leading_words_are(stmt, &["DROP", "TABLE"]) {
-            if let Ok(name) = extract_drop_table_name(stmt) {
-                catalog.dropped.insert(name);
-            }
-        }
-    }
-
-    for stmt in &statements {
+    for (index, stmt) in statements.iter().enumerate() {
         if leading_words_are(stmt, &["CREATE", "TABLE"]) {
-            let table_name = extract_table_name(stmt)?;
-            if catalog.dropped.contains(&table_name) {
+            if dropped.contains(&index) {
                 continue;
             }
             builder = parse_create_table(builder, stmt, &mut catalog)?;
         } else if leading_words_are(stmt, &["CREATE", "DOMAIN"]) {
             catalog.declare_domain(stmt);
+        } else if leading_words_are(stmt, &["CREATE", "TYPE"]) {
+            catalog.declare_enum(stmt);
         } else if leading_words_are(stmt, &["ALTER", "TABLE"]) {
             builder = parse_alter_table(builder, stmt, &mut catalog)?;
         }
-        // DROP TABLE already handled via dropped_tables set.
     }
 
+    builder = catalog.record_foreign_keys(builder);
     let schema = builder.build()?;
     Ok(schema)
+}
+
+/// The indices of the `CREATE TABLE` statements a later `DROP TABLE`
+/// removes: each `DROP TABLE` removes the latest declaration of each
+/// table it names that no earlier `DROP TABLE` removed.
+fn dropped_creates(statements: &[String]) -> std::collections::HashSet<usize> {
+    let mut live: HashMap<String, usize> = HashMap::new();
+    let mut dropped = std::collections::HashSet::new();
+    for (index, stmt) in statements.iter().enumerate() {
+        if leading_words_are(stmt, &["CREATE", "TABLE"]) {
+            if let Ok((name, _)) = extract_table_name(stmt) {
+                live.insert(name, index);
+            }
+        } else if leading_words_are(stmt, &["DROP", "TABLE"]) {
+            for name in extract_drop_table_names(stmt) {
+                let declared = live
+                    .remove(&name)
+                    .or_else(|| live.remove(unqualified(&name)));
+                if let Some(create) = declared {
+                    dropped.insert(create);
+                }
+            }
+        }
+    }
+    dropped
 }
 
 /// Whether the statement's leading whitespace-separated words are
@@ -136,14 +169,94 @@ fn first_word(def: &str) -> &str {
     &def[..end]
 }
 
+/// The (possibly schema-qualified) identifier at the start of `text`,
+/// after leading whitespace, and the text after it.
+///
+/// Each dot-separated part is a double-quoted or backquoted identifier,
+/// which may hold any character (a doubled quote is an escaped one), or
+/// an unquoted run up to whitespace or one of `(),;.`. The parts are
+/// returned unquoted and joined by `.`.
+fn read_name(text: &str) -> Option<(String, &str)> {
+    let mut rest = text.trim_start();
+    let mut parts: Vec<String> = Vec::new();
+    loop {
+        let bytes = rest.as_bytes();
+        let (part, after) = match bytes.first() {
+            Some(&q @ (b'"' | b'`')) => {
+                let end = skip_quoted(bytes, 0, q);
+                if end < 2 || bytes[end - 1] != q {
+                    return None;
+                }
+                let doubled = if q == b'"' { "\"\"" } else { "``" };
+                let single = if q == b'"' { "\"" } else { "`" };
+                (rest[1..end - 1].replace(doubled, single), &rest[end..])
+            }
+            Some(_) => {
+                let end = rest
+                    .find(|c: char| c.is_whitespace() || "(),;.".contains(c))
+                    .unwrap_or(rest.len());
+                if end == 0 {
+                    return None;
+                }
+                (rest[..end].to_owned(), &rest[end..])
+            }
+            None => return None,
+        };
+        parts.push(part);
+        match after.strip_prefix('.') {
+            Some(next) => rest = next,
+            None => return Some((parts.join("."), after)),
+        }
+    }
+}
+
+/// The identifiers of a parenthesized, comma-separated column list such
+/// as `("a", b)`, given the text inside the parentheses.
+fn identifier_list(inner: &str) -> Vec<String> {
+    split_column_defs(inner)
+        .iter()
+        .filter_map(|item| read_name(item).map(|(name, _)| name))
+        .collect()
+}
+
+/// A column type as the parse resolves it.
+#[derive(Clone, Debug)]
+struct ColumnType {
+    /// The vertex kind of the element.
+    kind: String,
+    /// For an enum type, its labels as written, comma-separated.
+    labels: Option<String>,
+    /// The number of array dimensions around the element.
+    dims: usize,
+}
+
 /// A column as declared, kept so that a table that `INHERITS` from its
 /// table declares the same column.
 #[derive(Clone, Debug)]
 struct ColumnSpec {
     name: String,
-    kind: String,
+    ty: ColumnType,
     not_null: bool,
     default: Option<String>,
+}
+
+/// A `FOREIGN KEY` read from the script, recorded once every table and
+/// primary key is known.
+struct ForeignKey {
+    /// The declaring table.
+    table: String,
+    /// The referencing column as written.
+    column: String,
+    /// The referencing column's vertex, when the table declares it.
+    column_id: Option<String>,
+    /// The referenced table as written.
+    ref_table: String,
+    /// The referenced column as written, or `None` for the referenced
+    /// table's primary key.
+    ref_column: Option<String>,
+    /// The column's position in the constraint's column list, which
+    /// picks the primary-key column it references.
+    position: usize,
 }
 
 /// What the parse knows of the declarations read so far.
@@ -153,11 +266,13 @@ struct Catalog {
     columns: HashMap<String, HashMap<String, String>>,
     /// Per table: its columns in declaration order.
     specs: HashMap<String, Vec<ColumnSpec>>,
-    /// `CREATE DOMAIN` names, lowercased, to the vertex kind of the
-    /// domain's base type.
-    domains: HashMap<String, String>,
-    /// Tables a `DROP TABLE` removes.
-    dropped: std::collections::HashSet<String>,
+    /// Per table: its primary-key columns.
+    primary_keys: HashMap<String, Vec<String>>,
+    /// `CREATE DOMAIN` and `CREATE TYPE ... AS ENUM` names, lowercased
+    /// and unqualified, to the type they declare.
+    types: HashMap<String, ColumnType>,
+    /// The foreign keys read so far.
+    foreign_keys: Vec<ForeignKey>,
     /// The number of table hyper-edges declared, which names the next.
     hyper_edges: usize,
 }
@@ -178,31 +293,161 @@ impl Catalog {
         }
     }
 
-    /// The vertex kind of a column type, through a declared domain.
-    fn column_kind(&self, sql_type: &str) -> String {
-        let base = sql_type.split('(').next().unwrap_or(sql_type);
-        self.domains
-            .get(&unqualified(base).to_ascii_lowercase())
+    /// The type of a column declared with the words `words` after its
+    /// name: its first word names the element type (through a declared
+    /// domain or enum), and `[...]` suffixes and an `ARRAY` keyword
+    /// among the words before the first constraint add dimensions.
+    fn column_type(&self, words: &[&str]) -> ColumnType {
+        let Some(first) = words.first() else {
+            return ColumnType {
+                kind: "string".into(),
+                labels: None,
+                dims: 0,
+            };
+        };
+        let type_words: Vec<&str> = words
+            .iter()
+            .copied()
+            .take_while(|w| !is_constraint_word(w))
+            .collect();
+        let brackets: usize = type_words.iter().map(|w| w.matches('[').count()).sum();
+        let keyword = type_words.iter().any(|w| {
+            w.get(..5)
+                .is_some_and(|head| head.eq_ignore_ascii_case("ARRAY"))
+                && !w[5..].starts_with(|c: char| c.is_ascii_alphanumeric() || c == '_')
+        });
+        let dims = if keyword { brackets.max(1) } else { brackets };
+
+        let base = first
+            .split(['(', '['])
+            .next()
+            .unwrap_or(first)
+            .to_ascii_lowercase();
+        let mut ty = self
+            .types
+            .get(unqualified(&base))
             .cloned()
-            .unwrap_or_else(|| sql_type_to_kind(sql_type))
+            .unwrap_or_else(|| ColumnType {
+                kind: sql_type_to_kind(first),
+                labels: None,
+                dims: 0,
+            });
+        ty.dims += dims;
+        ty
     }
 
-    /// Record `CREATE DOMAIN name [AS] base_type ...`.
+    /// Record `CREATE DOMAIN name [AS] data_type ...`.
     fn declare_domain(&mut self, stmt: &str) {
-        let mut words = stmt.split_whitespace().skip(2);
-        let Some(name) = words.next() else {
+        let Some(after) = find_keyword_end(stmt, "DOMAIN") else {
             return;
         };
-        let base = match words.next() {
-            Some(w) if w.eq_ignore_ascii_case("AS") => words.next(),
-            other => other,
+        let Some((name, rest)) = read_name(&stmt[after..]) else {
+            return;
         };
-        if let Some(base) = base {
-            let kind = self.column_kind(base);
-            let name = unqualified(name).trim_matches('"').to_ascii_lowercase();
-            self.domains.insert(name, kind);
+        let words: Vec<&str> = rest.split_whitespace().collect();
+        let words = match words.split_first() {
+            Some((first, tail)) if first.eq_ignore_ascii_case("AS") => tail,
+            _ => &words[..],
+        };
+        if !words.is_empty() {
+            let ty = self.column_type(words);
+            self.types
+                .insert(unqualified(&name).to_ascii_lowercase(), ty);
         }
     }
+
+    /// Record `CREATE TYPE name AS ENUM ('label', ...)`. Other type
+    /// declarations (composite, range, base) declare no column type the
+    /// parser reads, so a column of one keeps its fallback kind.
+    fn declare_enum(&mut self, stmt: &str) {
+        let Some(after) = find_keyword_end(stmt, "TYPE") else {
+            return;
+        };
+        let Some((name, rest)) = read_name(&stmt[after..]) else {
+            return;
+        };
+        let words: Vec<&str> = rest.split_whitespace().take(2).collect();
+        let is_enum = words.len() == 2
+            && words[0].eq_ignore_ascii_case("AS")
+            && first_word(words[1]).eq_ignore_ascii_case("ENUM");
+        if !is_enum {
+            return;
+        }
+        let Some(open) = rest.find('(') else {
+            return;
+        };
+        let Some(close) = matching_paren(rest, open) else {
+            return;
+        };
+        let labels: Vec<String> = split_column_defs(&rest[open + 1..close]);
+        self.types.insert(
+            unqualified(&name).to_ascii_lowercase(),
+            ColumnType {
+                kind: "string".into(),
+                labels: Some(labels.join(",")),
+                dims: 0,
+            },
+        );
+    }
+
+    /// Add the `FOREIGN KEY` constraint of every foreign key read.
+    ///
+    /// The value is the referenced column, `table.column`, spelled as the
+    /// referenced table declares it when it does. A reference with no
+    /// column list refers to the referenced table's primary key; when that
+    /// is not declared, the value is the referenced table alone. A
+    /// constraint on a column its table does not declare is recorded on
+    /// the table, as `column->reference`.
+    fn record_foreign_keys(&self, mut builder: SchemaBuilder) -> SchemaBuilder {
+        for fk in &self.foreign_keys {
+            let table = self.table_named(&fk.ref_table);
+            let ref_column = fk.ref_column.clone().or_else(|| {
+                self.primary_keys
+                    .get(&table)
+                    .and_then(|pk| pk.get(fk.position))
+                    .cloned()
+            });
+            let target = match ref_column {
+                Some(col) => self
+                    .columns
+                    .get(&table)
+                    .and_then(|sig| lookup_column(sig, &col))
+                    .cloned()
+                    .unwrap_or_else(|| format!("{table}.{col}")),
+                None => table,
+            };
+            builder = match &fk.column_id {
+                Some(col_id) => builder.constraint(col_id, "FOREIGN KEY", &target),
+                None => builder.constraint(
+                    &fk.table,
+                    "FOREIGN KEY",
+                    &format!("{}->{target}", fk.column),
+                ),
+            };
+        }
+        builder
+    }
+}
+
+/// Whether `word` opens a column constraint, which ends the column's
+/// type.
+fn is_constraint_word(word: &str) -> bool {
+    [
+        "NOT",
+        "NULL",
+        "DEFAULT",
+        "PRIMARY",
+        "UNIQUE",
+        "CHECK",
+        "REFERENCES",
+        "CONSTRAINT",
+        "COLLATE",
+        "GENERATED",
+        "AUTO_INCREMENT",
+        "AUTOINCREMENT",
+    ]
+    .iter()
+    .any(|k| first_word(word).eq_ignore_ascii_case(k))
 }
 
 /// The last component of a possibly schema-qualified name, unquoted.
@@ -368,26 +613,25 @@ fn parse_create_table(
     stmt: &str,
     catalog: &mut Catalog,
 ) -> Result<SchemaBuilder, ProtocolError> {
-    // Extract table name.
-    let table_name = extract_table_name(stmt)?;
+    let (table_name, after_name) = extract_table_name(stmt)?;
 
     // Create a vertex for the table.
     builder = builder.vertex(&table_name, "table", None)?;
 
     // The column block, and what follows it.
-    let (columns_block, tail) = split_table_body(stmt)?;
+    let (columns_block, tail) = split_table_body(after_name)?;
 
     let mut sig = HashMap::new();
     let mut specs: Vec<ColumnSpec> = Vec::new();
 
     for parent in inherited_tables(tail) {
-        let parent = catalog.table_named(parent);
+        let parent = catalog.table_named(&parent);
         for spec in catalog.specs.get(&parent).cloned().unwrap_or_default() {
             if sig.contains_key(&spec.name) {
                 continue;
             }
             let col_id = format!("{table_name}.{}", spec.name);
-            builder = builder.vertex(&col_id, &spec.kind, None)?;
+            builder = column_vertices(builder, &col_id, &spec.ty)?;
             if spec.not_null {
                 builder = builder.constraint(&col_id, "NOT NULL", "true");
             }
@@ -400,13 +644,17 @@ fn parse_create_table(
         }
     }
 
-    for col_def in &split_column_defs(&columns_block) {
+    // Column constraints refer to the columns declared before them, and
+    // table constraints may come first, so the columns are read first.
+    let defs = split_column_defs(&columns_block);
+    let mut constraints = Vec::new();
+    for col_def in &defs {
         let trimmed = col_def.trim();
         if trimmed.is_empty() {
             continue;
         }
         if is_table_constraint(trimmed) {
-            builder = apply_table_constraint(builder, trimmed, &table_name, &sig);
+            constraints.push(trimmed);
             continue;
         }
         let (new_builder, spec) = declare_column(builder, &table_name, trimmed, catalog)?;
@@ -415,6 +663,9 @@ fn parse_create_table(
             sig.insert(spec.name.clone(), format!("{table_name}.{}", spec.name));
             specs.push(spec);
         }
+    }
+    for def in constraints {
+        builder = apply_table_constraint(builder, def, &table_name, &sig, catalog);
     }
 
     // Create a hyper-edge for the table (connecting all columns).
@@ -450,15 +701,17 @@ fn apply_table_constraint(
     def: &str,
     table_name: &str,
     sig: &HashMap<String, String>,
+    catalog: &mut Catalog,
 ) -> SchemaBuilder {
     // A named constraint, `CONSTRAINT name <constraint>`, is recorded as
     // its constraint.
     if contains_keyword(def, "PRIMARY KEY") {
         if let Some(cols) = extract_constraint_columns(def) {
             builder = builder.constraint(table_name, "PRIMARY KEY", &cols.join(","));
+            catalog.primary_keys.insert(table_name.to_owned(), cols);
         }
     } else if contains_keyword(def, "FOREIGN KEY") {
-        builder = parse_table_foreign_key(builder, def, table_name, sig);
+        read_table_foreign_key(def, table_name, sig, catalog);
     } else if contains_keyword(def, "UNIQUE") {
         if let Some(cols) = extract_constraint_columns(def) {
             builder = builder.constraint(table_name, "UNIQUE", &cols.join(","));
@@ -471,6 +724,33 @@ fn apply_table_constraint(
     builder
 }
 
+/// Declare the vertex `col_id` of a column of type `ty`: for an array,
+/// an `array` vertex per dimension, each with an `items` edge to the
+/// next, around the element; the element carries an enum's `ENUM`
+/// constraint.
+fn column_vertices(
+    mut builder: SchemaBuilder,
+    col_id: &str,
+    ty: &ColumnType,
+) -> Result<SchemaBuilder, ProtocolError> {
+    let mut levels = vec![col_id.to_owned()];
+    for d in 0..ty.dims {
+        let item = format!("{}:items", levels[d]);
+        levels.push(item);
+    }
+    for (d, vertex) in levels.iter().enumerate() {
+        let kind = if d < ty.dims { "array" } else { &ty.kind };
+        builder = builder.vertex(vertex, kind, None)?;
+    }
+    for pair in levels.windows(2) {
+        builder = builder.edge(&pair[0], &pair[1], "items", None)?;
+    }
+    if let (Some(labels), Some(element)) = (&ty.labels, levels.last()) {
+        builder = builder.constraint(element, "ENUM", labels);
+    }
+    Ok(builder)
+}
+
 /// Declare the column `def` (`name type [constraints...]`) of
 /// `table_name`: its vertex, its inline constraints and the `prop` edge
 /// from the table. A definition with no type declares nothing.
@@ -478,29 +758,31 @@ fn declare_column(
     mut builder: SchemaBuilder,
     table_name: &str,
     def: &str,
-    catalog: &Catalog,
+    catalog: &mut Catalog,
 ) -> Result<(SchemaBuilder, Option<ColumnSpec>), ProtocolError> {
-    let parts: Vec<&str> = def.split_whitespace().collect();
-    if parts.len() < 2 {
+    let Some((col_name, after_name)) = read_name(def) else {
+        return Ok((builder, None));
+    };
+    let parts: Vec<&str> = after_name.split_whitespace().collect();
+    if parts.is_empty() {
         return Ok((builder, None));
     }
 
-    let col_name = parts[0].trim_matches('"').trim_matches('`');
-    let col_type = parts[1];
     let col_id = format!("{table_name}.{col_name}");
-
-    // Determine vertex kind from SQL type.
-    let kind = catalog.column_kind(col_type);
-    builder = builder.vertex(&col_id, &kind, None)?;
+    let ty = catalog.column_type(&parts);
+    builder = column_vertices(builder, &col_id, &ty)?;
 
     // Parse inline constraints.
-    let rest = parts[2..].join(" ");
+    let rest = parts[1..].join(" ");
     let not_null = contains_keyword(&rest, "NOT NULL");
     if not_null {
         builder = builder.constraint(&col_id, "NOT NULL", "true");
     }
     if contains_keyword(&rest, "PRIMARY KEY") {
         builder = builder.constraint(&col_id, "PRIMARY KEY", "true");
+        catalog
+            .primary_keys
+            .insert(table_name.to_owned(), vec![col_name.clone()]);
     }
     if contains_keyword(&rest, "UNIQUE") {
         builder = builder.constraint(&col_id, "UNIQUE", "true");
@@ -511,59 +793,74 @@ fn declare_column(
     }
 
     // Handle inline REFERENCES.
-    if let Some(ref_start) = find_keyword_end(&rest, "REFERENCES") {
-        let ref_table = rest[ref_start..]
-            .trim()
-            .split(|c: char| c == '(' || c.is_whitespace())
-            .next()
-            .unwrap_or("")
-            .trim();
-        if !ref_table.is_empty() {
-            builder =
-                builder.constraint(&col_id, "FOREIGN KEY", &format!("{ref_table}.{col_name}"));
-        }
+    if let Some((ref_table, ref_columns)) = references(&rest) {
+        catalog.foreign_keys.push(ForeignKey {
+            table: table_name.to_owned(),
+            column: col_name.clone(),
+            column_id: Some(col_id.clone()),
+            ref_table,
+            ref_column: ref_columns.into_iter().next(),
+            position: 0,
+        });
     }
 
     // Add a prop edge from table to column.
-    builder = builder.edge(table_name, &col_id, "prop", Some(col_name))?;
+    builder = builder.edge(table_name, &col_id, "prop", Some(&col_name))?;
 
     Ok((
         builder,
         Some(ColumnSpec {
-            name: col_name.to_owned(),
-            kind,
+            name: col_name,
+            ty,
             not_null,
             default,
         }),
     ))
 }
 
+/// The table and the columns a `REFERENCES table [(col, ...)]` clause in
+/// `text` names; the column list is empty when the clause has none.
+fn references(text: &str) -> Option<(String, Vec<String>)> {
+    let at = find_keyword_end(text, "REFERENCES")?;
+    let (table, rest) = read_name(&text[at..])?;
+    let rest = rest.trim_start();
+    let columns = if rest.starts_with('(') {
+        matching_paren(rest, 0)
+            .map(|close| identifier_list(&rest[1..close]))
+            .unwrap_or_default()
+    } else {
+        Vec::new()
+    };
+    Some((table, columns))
+}
+
 /// The tables an `INHERITS (a, b)` clause after a table body names.
-fn inherited_tables(tail: &str) -> Vec<&str> {
+fn inherited_tables(tail: &str) -> Vec<String> {
     let Some(at) = find_keyword_end(tail, "INHERITS") else {
         return Vec::new();
     };
     let rest = tail[at..].trim_start();
-    let Some(inner) = rest.strip_prefix('(') else {
+    if !rest.starts_with('(') {
         return Vec::new();
-    };
-    let inner = inner.split(')').next().unwrap_or(inner);
-    inner
-        .split(',')
-        .map(|t| t.trim().trim_matches('"').trim_matches('`'))
-        .filter(|t| !t.is_empty())
-        .collect()
+    }
+    matching_paren(rest, 0)
+        .map(|close| identifier_list(&rest[1..close]))
+        .unwrap_or_default()
 }
 
 /// The column block of a `CREATE TABLE` (between the parenthesis that
-/// opens it and the one that closes it) and the text after it.
-fn split_table_body(stmt: &str) -> Result<(String, &str), ProtocolError> {
-    let open = stmt
+/// opens it and the one that closes it) and the text after it, given
+/// the text after the table's name.
+fn split_table_body(after_name: &str) -> Result<(String, &str), ProtocolError> {
+    let open = after_name
         .find('(')
         .ok_or_else(|| ProtocolError::Parse("no opening parenthesis".into()))?;
-    let close = matching_paren(stmt, open)
+    let close = matching_paren(after_name, open)
         .ok_or_else(|| ProtocolError::Parse("no closing parenthesis".into()))?;
-    Ok((stmt[open + 1..close].to_string(), &stmt[close + 1..]))
+    Ok((
+        after_name[open + 1..close].to_string(),
+        &after_name[close + 1..],
+    ))
 }
 
 /// The byte of the `)` that closes the `(` at byte `open`, skipping
@@ -592,48 +889,30 @@ fn matching_paren(text: &str, open: usize) -> Option<usize> {
     None
 }
 
-/// Parse a table-level FOREIGN KEY constraint.
-fn parse_table_foreign_key(
-    mut builder: SchemaBuilder,
+/// Read a table-level `FOREIGN KEY (cols) REFERENCES table [(cols)]`
+/// constraint into the catalog, pairing the columns by position.
+fn read_table_foreign_key(
     constraint_str: &str,
     table_name: &str,
     sig: &HashMap<String, String>,
-) -> SchemaBuilder {
-    // Extract the column(s) in the FOREIGN KEY clause.
-    let fk_cols = extract_constraint_columns_at(constraint_str, "FOREIGN KEY");
-
-    // Extract REFERENCES target.
-    if let Some(ref_start) = find_keyword_end(constraint_str, "REFERENCES") {
-        let ref_table = constraint_str[ref_start..]
-            .trim()
-            .split(|c: char| c == '(' || c.is_whitespace())
-            .next()
-            .unwrap_or("")
-            .trim();
-
-        if !ref_table.is_empty() {
-            if let Some(fk_cols) = fk_cols {
-                for col in &fk_cols {
-                    if let Some(col_id) = lookup_column(sig, col) {
-                        builder = builder.constraint(
-                            col_id,
-                            "FOREIGN KEY",
-                            &format!("{ref_table}.{col}"),
-                        );
-                    } else {
-                        // Column may not exist yet; add constraint to table.
-                        builder = builder.constraint(
-                            table_name,
-                            "FOREIGN KEY",
-                            &format!("{col}->{ref_table}"),
-                        );
-                    }
-                }
-            }
-        }
+    catalog: &mut Catalog,
+) {
+    let Some(fk_cols) = extract_constraint_columns_at(constraint_str, "FOREIGN KEY") else {
+        return;
+    };
+    let Some((ref_table, ref_columns)) = references(constraint_str) else {
+        return;
+    };
+    for (position, col) in fk_cols.iter().enumerate() {
+        catalog.foreign_keys.push(ForeignKey {
+            table: table_name.to_owned(),
+            column: col.clone(),
+            column_id: lookup_column(sig, col).cloned(),
+            ref_table: ref_table.clone(),
+            ref_column: ref_columns.get(position).cloned(),
+            position,
+        });
     }
-
-    builder
 }
 
 /// Resolve a column name against a table's column signature.
@@ -661,8 +940,8 @@ fn lookup_column<'a, S: BuildHasher>(
 /// a table body would, and an `ADD [COLUMN] [IF NOT EXISTS] <column>`
 /// declares the column. Other actions (`OWNER TO`, `DROP COLUMN`,
 /// `ALTER COLUMN`, ...) leave the schema as it is, as does any action on
-/// a dropped table or on a relation that is not a declared table (a
-/// sequence or a view).
+/// a table that is not declared at that point in the script (a dropped
+/// table, a sequence or a view).
 fn parse_alter_table(
     mut builder: SchemaBuilder,
     stmt: &str,
@@ -679,14 +958,13 @@ fn parse_alter_table(
             }
         }
     }
-    let table_end = remainder
-        .find(char::is_whitespace)
-        .unwrap_or(remainder.len());
-    let written = remainder[..table_end].trim_end_matches('*');
-    let table_name = catalog.table_named(written.trim_matches('"').trim_matches('`'));
-    let actions = remainder[table_end..].trim_start().trim_start_matches('*');
+    let Some((written, after_name)) = read_name(remainder) else {
+        return Ok(builder);
+    };
+    let table_name = catalog.table_named(&written);
+    let actions = after_name.trim_start().trim_start_matches('*');
 
-    if catalog.dropped.contains(&table_name) || !catalog.columns.contains_key(&table_name) {
+    if !catalog.columns.contains_key(&table_name) {
         return Ok(builder);
     }
 
@@ -703,7 +981,7 @@ fn parse_alter_table(
                 .get(&table_name)
                 .cloned()
                 .unwrap_or_default();
-            builder = apply_table_constraint(builder, added, &table_name, &sig);
+            builder = apply_table_constraint(builder, added, &table_name, &sig, catalog);
             continue;
         }
         let mut col_def = added;
@@ -730,19 +1008,42 @@ fn parse_alter_table(
     Ok(builder)
 }
 
-/// Extract the table name from a CREATE TABLE statement.
-fn extract_table_name(stmt: &str) -> Result<String, ProtocolError> {
+/// Extract the table name from a CREATE TABLE statement, and the text
+/// after it.
+fn extract_table_name(stmt: &str) -> Result<(String, &str), ProtocolError> {
     // "CREATE TABLE [IF NOT EXISTS] name (...)"
-    name_after_keyword(stmt, "TABLE", &["IF NOT EXISTS"])
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
+    let after = find_keyword_end(stmt, "TABLE")
+        .ok_or_else(|| ProtocolError::Parse("no TABLE keyword".into()))?;
+    let mut rest = stmt[after..].trim_start();
+    if let Some(stripped) = strip_keyword_prefix(rest, "IF NOT EXISTS") {
+        if stripped.starts_with(char::is_whitespace) {
+            rest = stripped;
+        }
+    }
+    read_name(rest).ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
 }
 
-/// Extract the table name from a DROP TABLE statement.
-fn extract_drop_table_name(stmt: &str) -> Result<String, ProtocolError> {
-    name_after_keyword(stmt, "TABLE", &["IF EXISTS"])
-        .map(ToOwned::to_owned)
-        .ok_or_else(|| ProtocolError::Parse("no table name after TABLE keyword".into()))
+/// The table names a `DROP TABLE [IF EXISTS] a [, b ...]` statement
+/// names.
+fn extract_drop_table_names(stmt: &str) -> Vec<String> {
+    let Some(after) = find_keyword_end(stmt, "TABLE") else {
+        return Vec::new();
+    };
+    let mut rest = stmt[after..].trim_start();
+    if let Some(stripped) = strip_keyword_prefix(rest, "IF EXISTS") {
+        if stripped.starts_with(char::is_whitespace) {
+            rest = stripped;
+        }
+    }
+    let mut names = Vec::new();
+    while let Some((name, after_name)) = read_name(rest) {
+        names.push(name);
+        match after_name.trim_start().strip_prefix(',') {
+            Some(next) => rest = next,
+            None => break,
+        }
+    }
+    names
 }
 
 /// Extract the parenthesized block from a statement: from its first `(`
@@ -844,29 +1145,15 @@ fn extract_default(constraint_str: &str) -> Option<String> {
 /// Extract column names from a constraint like `PRIMARY KEY(col1, col2)`.
 fn extract_constraint_columns(constraint_str: &str) -> Option<Vec<String>> {
     let open = constraint_str.find('(')?;
-    let close = constraint_str[open..].find(')')? + open;
-    let inner = &constraint_str[open + 1..close];
-    let cols: Vec<String> = inner
-        .split(',')
-        .map(|s| s.trim().trim_matches('"').trim_matches('`').to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let close = matching_paren(constraint_str, open)?;
+    let cols = identifier_list(&constraint_str[open + 1..close]);
     if cols.is_empty() { None } else { Some(cols) }
 }
 
 /// Extract column names from a constraint starting at a specific keyword.
 fn extract_constraint_columns_at(stmt: &str, keyword: &str) -> Option<Vec<String>> {
     let idx = find_keyword_end(stmt, keyword)?;
-    let after = &stmt[idx..];
-    let open = after.find('(')?;
-    let close = after[open..].find(')')? + open;
-    let inner = &after[open + 1..close];
-    let cols: Vec<String> = inner
-        .split(',')
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
-    if cols.is_empty() { None } else { Some(cols) }
+    extract_constraint_columns(&stmt[idx..])
 }
 
 /// Map a vertex kind back to a SQL type name.
@@ -887,8 +1174,9 @@ fn kind_to_sql_type(kind: &str) -> &'static str {
 /// Emit a [`Schema`] as SQL DDL `CREATE TABLE` statements.
 ///
 /// Reconstructs table definitions from the schema graph, including
-/// column types and constraints (`NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
-/// `DEFAULT`).
+/// column types (an array column as its element type with a `[]` per
+/// dimension) and constraints (`NOT NULL`, `PRIMARY KEY`, `UNIQUE`,
+/// `DEFAULT`, and an enum's labels as a `CHECK`).
 ///
 /// # Errors
 ///
@@ -915,9 +1203,33 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
         let col_count = columns.len();
         for (i, (edge, col_vertex)) in columns.iter().enumerate() {
             let col_name = edge.name.as_deref().unwrap_or(&col_vertex.id);
-            let sql_type = kind_to_sql_type(&col_vertex.kind);
+
+            // An array column is written as its element's type with a
+            // `[]` per dimension.
+            let mut element = *col_vertex;
+            let mut dims = String::new();
+            while element.kind == "array" {
+                let Some((_, item)) = children_by_edge(schema, &element.id, "items")
+                    .first()
+                    .copied()
+                else {
+                    break;
+                };
+                element = item;
+                dims.push_str("[]");
+            }
+            let sql_type = format!("{}{dims}", kind_to_sql_type(&element.kind));
 
             let mut constraints_str = String::new();
+            // An enum's labels, which constrain the element, are written
+            // as a `CHECK` on a column of scalar type.
+            if dims.is_empty() {
+                for c in vertex_constraints(schema, &element.id) {
+                    if c.sort == "ENUM" {
+                        let _ = write!(constraints_str, " CHECK ({col_name} IN ({}))", c.value);
+                    }
+                }
+            }
             let constraints = vertex_constraints(schema, &col_vertex.id);
             for c in &constraints {
                 match c.sort.as_str() {
@@ -958,6 +1270,11 @@ fn edge_rules() -> Vec<EdgeRule> {
         EdgeRule {
             edge_kind: "foreign-key".into(),
             src_kinds: vec![],
+            tgt_kinds: vec![],
+        },
+        EdgeRule {
+            edge_kind: "items".into(),
+            src_kinds: vec!["array".into()],
             tgt_kinds: vec![],
         },
     ]
@@ -1183,5 +1500,40 @@ mod tests {
         ";
         let schema = parse_ddl(ddl).expect("should parse");
         assert!(schema.has_vertex("users.name"));
+    }
+
+    #[test]
+    fn emit_ddl_keeps_array_and_enum_columns() {
+        let ddl = r"
+            CREATE TYPE mood AS ENUM ('sad', 'ok');
+            CREATE TABLE t (
+                m mood,
+                labels TEXT[],
+                grid INTEGER[][]
+            );
+        ";
+        let schema1 = parse_ddl(ddl).expect("first parse should succeed");
+        let emitted = emit_ddl(&schema1).expect("emit should succeed");
+        assert!(emitted.contains("labels TEXT[]"), "{emitted}");
+        assert!(emitted.contains("grid INTEGER[][]"), "{emitted}");
+        assert!(emitted.contains("CHECK (m IN ('sad','ok'))"), "{emitted}");
+        let schema2 = parse_ddl(&emitted).expect("re-parse should succeed");
+        for v in ["t.labels", "t.labels:items", "t.grid:items:items"] {
+            assert_eq!(schema1.vertices[v].kind, schema2.vertices[v].kind, "{v}");
+        }
+    }
+
+    #[test]
+    fn a_foreign_key_declared_before_its_table_resolves_to_its_primary_key() {
+        let ddl = r"
+            CREATE TABLE child (parent_ref INTEGER REFERENCES parent);
+            CREATE TABLE parent (code TEXT, PRIMARY KEY (code));
+        ";
+        let schema = parse_ddl(ddl).expect("should parse");
+        let fk = schema.constraints["child.parent_ref"]
+            .iter()
+            .find(|c| c.sort == "FOREIGN KEY")
+            .expect("foreign key constraint");
+        assert_eq!(fk.value, "parent.code");
     }
 }
