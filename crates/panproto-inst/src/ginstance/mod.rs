@@ -107,9 +107,11 @@ impl GEdge {
 /// A `GInstance` serializes as `{ nodes, edges }`, both maps written in
 /// ascending key order, so one instance encodes to the same bytes in every
 /// process. Decoding rebuilds the adjacency indices and fails with
-/// [`InstError::DanglingEdge`] when an edge names a missing node and with
+/// [`InstError::DanglingEdge`] when an edge names a missing node, with
 /// [`InstError::NodeIdMismatch`] when a node is filed under an id other than
-/// its own.
+/// its own, and with [`InstError::DuplicateNode`] or
+/// [`InstError::DuplicateEdge`] when a map lists one key twice, rather than
+/// keeping either entry.
 ///
 /// # Equality
 ///
@@ -117,7 +119,7 @@ impl GEdge {
 /// same but treats two `NaN` floats as equal, and
 /// [`GInstance::equivalent_modulo_edge_ids`] ignores which ids the edges carry.
 #[derive(Clone, Debug, Serialize, Deserialize)]
-#[serde(into = "GInstanceWire", try_from = "GInstanceWire")]
+#[serde(into = "GInstanceWire", try_from = "GInstanceWireEntries")]
 pub struct GInstance {
     nodes: HashMap<u32, Node>,
     edges: HashMap<EdgeId, GEdge>,
@@ -128,7 +130,7 @@ pub struct GInstance {
 }
 
 /// The serialized form of a [`GInstance`]: its node and edge tables.
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize)]
 struct GInstanceWire {
     #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     nodes: HashMap<u32, Node>,
@@ -149,25 +151,72 @@ impl From<GInstance> for GInstanceWire {
     }
 }
 
-impl TryFrom<GInstanceWire> for GInstance {
+/// [`GInstanceWire`] as decoded: each map's entries in document order, a key
+/// listed twice kept twice so that decoding can refuse it.
+#[derive(Deserialize)]
+struct GInstanceWireEntries {
+    #[serde(deserialize_with = "map_entries")]
+    nodes: Vec<(u32, Node)>,
+    #[serde(deserialize_with = "map_entries")]
+    edges: Vec<(EdgeId, GEdge)>,
+}
+
+/// Read a map as its entries in document order, duplicate keys included.
+fn map_entries<'de, D, K, V>(deserializer: D) -> Result<Vec<(K, V)>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    K: Deserialize<'de>,
+    V: Deserialize<'de>,
+{
+    struct Entries<K, V>(std::marker::PhantomData<(K, V)>);
+
+    impl<'de, K: Deserialize<'de>, V: Deserialize<'de>> serde::de::Visitor<'de> for Entries<K, V> {
+        type Value = Vec<(K, V)>;
+
+        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str("a map")
+        }
+
+        fn visit_map<A: serde::de::MapAccess<'de>>(
+            self,
+            mut map: A,
+        ) -> Result<Self::Value, A::Error> {
+            let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0).min(4096));
+            while let Some(entry) = map.next_entry()? {
+                entries.push(entry);
+            }
+            Ok(entries)
+        }
+    }
+
+    deserializer.deserialize_map(Entries(std::marker::PhantomData))
+}
+
+impl TryFrom<GInstanceWireEntries> for GInstance {
     type Error = InstError;
 
-    fn try_from(wire: GInstanceWire) -> Result<Self, InstError> {
-        let mut keys: Vec<u32> = wire.nodes.keys().copied().collect();
-        keys.sort_unstable();
-        for key in keys {
-            let node_id = wire.nodes[&key].id;
-            if node_id != key {
-                return Err(InstError::NodeIdMismatch { key, node_id });
+    fn try_from(wire: GInstanceWireEntries) -> Result<Self, InstError> {
+        let mut entries = wire.nodes;
+        entries.sort_unstable_by_key(|(key, _)| *key);
+        let mut nodes = HashMap::with_capacity(entries.len());
+        for (key, node) in entries {
+            if node.id != key {
+                return Err(InstError::NodeIdMismatch {
+                    key,
+                    node_id: node.id,
+                });
+            }
+            if nodes.insert(key, node).is_some() {
+                return Err(InstError::DuplicateNode(key));
             }
         }
         let mut graph = Self {
-            nodes: wire.nodes,
+            nodes,
             edges: HashMap::with_capacity(wire.edges.len()),
             out_index: HashMap::new(),
             in_index: HashMap::new(),
         };
-        let mut edges: Vec<(EdgeId, GEdge)> = wire.edges.into_iter().collect();
+        let mut edges = wire.edges;
         edges.sort_unstable_by_key(|(id, _)| *id);
         for (id, edge) in edges {
             graph.insert_edge(id, edge)?;

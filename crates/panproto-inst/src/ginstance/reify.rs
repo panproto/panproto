@@ -42,8 +42,8 @@ pub const HYPER_LABEL_KIND: &str = "hyper_label";
 ///
 /// # Errors
 ///
-/// Returns [`InstError::DanglingEdge`] when a fan names a node the graph does
-/// not hold, and [`InstError::NodeIdsExhausted`] or
+/// Returns [`InstError::DanglingEdge`] when a fan names a node `graph` does
+/// not hold (a fan node added here is not one of them), and [`InstError::NodeIdsExhausted`] or
 /// [`InstError::EdgeIdsExhausted`] when the id space above the graph's
 /// largest ids is too small.
 pub fn reify_fans(
@@ -81,7 +81,7 @@ pub fn reify_fans(
             let raw = next_edge.ok_or(InstError::EdgeIdsExhausted)?;
             next_edge = raw.checked_add(1);
             let id = EdgeId(raw);
-            let anchor = result
+            let anchor = graph
                 .node(target)
                 .ok_or(InstError::DanglingEdge {
                     edge: id,
@@ -139,16 +139,27 @@ fn fan_of(graph: &GInstance, node: &Node) -> Option<(Fan, Vec<EdgeId>)> {
 /// Take every fan node out of a graph, returning the rest and the fans.
 ///
 /// Fans are listed in ascending fan-node id, which is the order
-/// [`reify_fans`] allocates them in, so this inverts it exactly, duplicate
-/// fans included. A node of shape [`NodeShape::HyperEdge`] that does not have
-/// the fan-node form described in the module documentation is left in the
-/// graph as an ordinary node.
+/// [`reify_fans`] allocates them in. A node of shape [`NodeShape::HyperEdge`]
+/// that does not have the fan-node form described in the module
+/// documentation is left in the graph as an ordinary node.
+///
+/// Fan nodes are recognised by that form alone. So this inverts
+/// [`reify_fans`] exactly, duplicate fans included, whenever the graph given
+/// to [`reify_fans`] has no node of fan-node form of its own; such a node
+/// would be taken out as a fan too. In the graph form of a tree, where every
+/// node but the root has an incoming arc, only the root can have that form,
+/// and [`GInstance::to_wtype`] keeps the root.
 #[must_use]
 pub fn unreify_fans(graph: &GInstance) -> (GInstance, Vec<Fan>) {
+    unreify_fans_keeping(graph, None)
+}
+
+/// [`unreify_fans`], leaving the node `keep` in place whatever its form.
+pub(crate) fn unreify_fans_keeping(graph: &GInstance, keep: Option<u32>) -> (GInstance, Vec<Fan>) {
     let mut ids: Vec<u32> = graph
         .nodes()
         .values()
-        .filter(|n| n.shape == NodeShape::HyperEdge)
+        .filter(|n| n.shape == NodeShape::HyperEdge && Some(n.id) != keep)
         .map(|n| n.id)
         .collect();
     ids.sort_unstable();

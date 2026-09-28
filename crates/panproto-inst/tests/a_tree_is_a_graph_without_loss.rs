@@ -70,9 +70,10 @@ fn arb_tree() -> impl Strategy<Value = WInstance> {
                 ),
                 0..4,
             );
-            (nodes, parents, fans, any::<bool>())
+            let schema_root = prop::option::of(prop::sample::select(vec!["doc", "entry"]));
+            (nodes, parents, fans, any::<bool>(), schema_root)
         })
-        .prop_flat_map(|(nodes, parents, fans, repeat)| {
+        .prop_flat_map(|(nodes, parents, fans, repeat, schema_root)| {
             let arcs: Vec<(u32, u32, Edge)> = parents
                 .iter()
                 .zip(1u32..)
@@ -97,12 +98,19 @@ fn arb_tree() -> impl Strategy<Value = WInstance> {
             if repeat && let Some(first) = fans.first().cloned() {
                 fans.push(first);
             }
-            (Just(nodes), Just(arcs).prop_shuffle(), Just(fans))
+            (
+                Just(nodes),
+                Just(arcs).prop_shuffle(),
+                Just(fans),
+                Just(schema_root),
+            )
         })
-        .prop_map(|(nodes, arcs, fans)| {
-            let root_anchor = nodes[0].anchor.clone();
+        .prop_map(|(nodes, arcs, fans, schema_root)| {
+            // The schema root is usually the root's anchor, but a tree may
+            // name any vertex there.
+            let schema_root = schema_root.map_or_else(|| nodes[0].anchor.clone(), Name::from);
             let nodes: HashMap<u32, Node> = nodes.into_iter().map(|n| (n.id, n)).collect();
-            WInstance::new(nodes, arcs, fans, 0, root_anchor)
+            WInstance::new(nodes, arcs, fans, 0, schema_root)
         })
 }
 
@@ -110,8 +118,18 @@ proptest! {
     #[test]
     fn a_tree_round_trips_through_its_graph_form(tree in arb_tree()) {
         let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
-        let back = graph.to_wtype(tree.root).expect("the graph form is a tree");
+        let back = graph
+            .to_wtype_with_schema_root(tree.root, tree.schema_root.clone())
+            .expect("the graph form is a tree");
         prop_assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+
+        // Without the schema root, the root node's anchor stands in for it.
+        let anchored = graph.to_wtype(tree.root).expect("the graph form is a tree");
+        let root_anchor = tree.nodes[&tree.root].anchor.clone();
+        prop_assert_eq!(&anchored.schema_root, &root_anchor);
+        if tree.schema_root == root_anchor {
+            prop_assert_eq!(tree_bytes(&anchored), tree_bytes(&tree));
+        }
     }
 
     #[test]
@@ -427,4 +445,152 @@ fn node_link_json_lists_by_id_and_rejects_dangling_edges() {
         from_node_link_json(&serde_json::json!({"nodes": 3})),
         Err(InstError::NodeLink(_))
     ));
+}
+
+#[test]
+fn a_schema_root_other_than_the_root_anchor_comes_back() {
+    let nodes = HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "para"))]);
+    let tree = WInstance::new(
+        nodes,
+        vec![(0, 1, label("doc", "para", "p"))],
+        vec![],
+        0,
+        "entry".into(),
+    );
+    let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
+    let back = graph
+        .to_wtype_with_schema_root(tree.root, tree.schema_root.clone())
+        .expect("the graph form is a tree");
+    assert_eq!(back.schema_root, "entry");
+    assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+}
+
+#[test]
+fn a_root_shaped_like_a_fan_node_stays_the_root() {
+    // The root has the fan-node shape and a single `hyper_parent` out-edge,
+    // so on shape alone it reads as a fan node. It is the root all the same.
+    let root = Node::new(0, "doc").with_shape(NodeShape::HyperEdge);
+    let nodes = HashMap::from([(0, root), (1, Node::new(1, "para"))]);
+    let arc = Edge {
+        src: "doc".into(),
+        tgt: "para".into(),
+        kind: HYPER_PARENT_KIND.into(),
+        name: None,
+    };
+    let tree = WInstance::new(nodes, vec![(0, 1, arc)], vec![], 0, "doc".into());
+    let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
+    let back = graph.to_wtype(0).expect("the graph form is a tree");
+    assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+}
+
+#[test]
+fn a_fan_cannot_name_another_fans_node() {
+    // One tree node, 0. The first fan gets node 1, so a second fan naming
+    // node 1 names a node the tree does not hold.
+    let nodes = HashMap::from([(0, Node::new(0, "sent"))]);
+    let fans = vec![
+        Fan::new("arg", 0),
+        Fan::new("arg", 0).with_child("theme", 1),
+    ];
+    let tree = WInstance::new(nodes, vec![], fans, 0, "sent".into());
+    assert!(matches!(
+        GInstance::from_wtype(&tree),
+        Err(InstError::DanglingEdge { endpoint: 1, .. })
+    ));
+}
+
+#[test]
+fn node_link_json_keeps_floats_json_cannot_write() {
+    let mut odd = Node::new(1, "a");
+    odd.extra_fields
+        .insert("up".into(), Value::Float(f64::INFINITY));
+    odd.extra_fields.insert(
+        "nested".into(),
+        Value::List(vec![
+            Value::Float(f64::NEG_INFINITY),
+            Value::Unknown(HashMap::from([("x".into(), Value::Float(f64::NAN))])),
+        ]),
+    );
+    odd.annotations
+        .insert("score".into(), Value::Float(f64::NAN));
+    // A map entry named like the marker's variant, holding an ordinary value,
+    // is data and stays as it is.
+    odd.extra_fields.insert("Float".into(), Value::Null);
+    let graph = GInstance::new()
+        .with_node(odd)
+        .with_node(Node::new(0, "a"))
+        .with_value(0, Value::Float(f64::NAN))
+        .with_edge(
+            0,
+            1,
+            Edge {
+                src: "a".into(),
+                tgt: "a".into(),
+                kind: "k".into(),
+                name: None,
+            },
+        );
+    let doc = to_node_link_json(&graph);
+    let back = from_node_link_json(&doc).expect("the document reads back");
+    assert!(GInstance::identical(&back, &graph));
+    let text = doc.to_string();
+    let reparsed: serde_json::Value = serde_json::from_str(&text).expect("the text is JSON");
+    let again = from_node_link_json(&reparsed).expect("the text reads back");
+    assert!(GInstance::identical(&again, &graph));
+    assert_eq!(
+        again
+            .node(1)
+            .and_then(|n| n.extra_fields.get("up"))
+            .cloned(),
+        Some(Value::Float(f64::INFINITY)),
+        "an infinity keeps its sign"
+    );
+
+    let mut bad = doc;
+    bad["nodes"][0]["value"]["Present"]["Float"] = serde_json::json!("NotANumber");
+    assert!(matches!(
+        from_node_link_json(&bad),
+        Err(InstError::NodeLink(_))
+    ));
+}
+
+#[test]
+fn decoding_refuses_a_key_listed_twice() {
+    let node = |id: u32| {
+        format!(
+            r#""{id}":{{"id":{id},"anchor":"a","value":null,"discriminator":null,"extra_fields":{{}}}}"#
+        )
+    };
+    let edge = |kind: &str| {
+        format!(
+            r#"{{"src":0,"tgt":1,"edge":{{"src":"a","tgt":"a","kind":"{kind}","name":null}},"position":null}}"#
+        )
+    };
+    let canonical = format!(
+        r#"{{"nodes":{{{},{}}},"edges":{{"1":{}}}}}"#,
+        node(0),
+        node(1),
+        edge("k")
+    );
+    let graph: GInstance = serde_json::from_str(&canonical).expect("the canonical form decodes");
+    assert_eq!(graph.edge_count(), 1);
+
+    let twice_edge = format!(
+        r#"{{"nodes":{{{},{}}},"edges":{{"1":{},"1":{}}}}}"#,
+        node(0),
+        node(1),
+        edge("k"),
+        edge("j")
+    );
+    let err = serde_json::from_str::<GInstance>(&twice_edge).expect_err("edge 1 is listed twice");
+    assert!(err.to_string().contains("edge 1"), "{err}");
+
+    let twice_node = format!(
+        r#"{{"nodes":{{{},{},{}}},"edges":{{}}}}"#,
+        node(0),
+        node(1),
+        node(0)
+    );
+    let err = serde_json::from_str::<GInstance>(&twice_node).expect_err("node 0 is listed twice");
+    assert!(err.to_string().contains("node 0"), "{err}");
 }
