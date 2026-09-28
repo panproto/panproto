@@ -256,10 +256,24 @@ fn lens_digest_over(src: &Digest, tgt: &Digest, compiled: &CompiledMigration) ->
 /// process; migrations that differ in any field give different bytes.
 #[must_use]
 pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
+    // Destructured without `..`, so a field added to `CompiledMigration`
+    // fails to compile here until it is given an encoding.
+    let CompiledMigration {
+        surviving_verts,
+        surviving_edges,
+        vertex_remap,
+        edge_remap,
+        resolver,
+        hyper_resolver,
+        field_transforms,
+        conditional_survival,
+        op_term_assignments,
+        expansion_path,
+    } = compiled;
     let mut w = CanonicalWriter::new();
 
     // 1. surviving_verts
-    let mut verts: Vec<&Name> = compiled.surviving_verts.iter().collect();
+    let mut verts: Vec<&Name> = surviving_verts.iter().collect();
     verts.sort();
     w.len(verts.len());
     for v in verts {
@@ -267,7 +281,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 2. surviving_edges
-    let mut edges: Vec<_> = compiled.surviving_edges.iter().collect();
+    let mut edges: Vec<_> = surviving_edges.iter().collect();
     edges.sort();
     w.len(edges.len());
     for e in edges {
@@ -275,7 +289,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 3. vertex_remap
-    let vertex_remap = sorted(&compiled.vertex_remap);
+    let vertex_remap = sorted(vertex_remap);
     w.len(vertex_remap.len());
     for (src, tgt) in vertex_remap {
         w.name(src);
@@ -283,7 +297,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 4. edge_remap
-    let edge_remap = sorted(&compiled.edge_remap);
+    let edge_remap = sorted(edge_remap);
     w.len(edge_remap.len());
     for (src, tgt) in edge_remap {
         w.edge(src);
@@ -291,7 +305,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 5. resolver
-    let resolver = sorted(&compiled.resolver);
+    let resolver = sorted(resolver);
     w.len(resolver.len());
     for ((src, tgt), edge) in resolver {
         w.name(src);
@@ -300,7 +314,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 6. hyper_resolver
-    let hyper_resolver = sorted(&compiled.hyper_resolver);
+    let hyper_resolver = sorted(hyper_resolver);
     w.len(hyper_resolver.len());
     for ((hyper_edge, labels), (target, label_remap)) in hyper_resolver {
         w.name(hyper_edge);
@@ -315,7 +329,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 7. field_transforms
-    let field_transforms = sorted(&compiled.field_transforms);
+    let field_transforms = sorted(field_transforms);
     w.len(field_transforms.len());
     for (anchor, transforms) in field_transforms {
         w.name(anchor);
@@ -326,7 +340,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 8. conditional_survival
-    let conditional_survival = sorted(&compiled.conditional_survival);
+    let conditional_survival = sorted(conditional_survival);
     w.len(conditional_survival.len());
     for (anchor, predicate) in conditional_survival {
         w.name(anchor);
@@ -334,7 +348,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 9. op_term_assignments
-    let op_term_assignments = sorted(&compiled.op_term_assignments);
+    let op_term_assignments = sorted(op_term_assignments);
     w.len(op_term_assignments.len());
     for (anchor, assignments) in op_term_assignments {
         w.name(anchor);
@@ -345,7 +359,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 10. expansion_path
-    let expansion_path = sorted(&compiled.expansion_path);
+    let expansion_path = sorted(expansion_path);
     w.len(expansion_path.len());
     for ((src, tgt), path) in expansion_path {
         w.name(src);
@@ -777,9 +791,18 @@ impl IdentityEnvelope {
     }
 
     /// The first field on which `self` (the expected envelope) and `found`
-    /// differ, as an [`IdentityError::Mismatch`], or `None` when they agree.
+    /// differ, or `None` when every field agrees.
+    ///
+    /// A differing layout `version` is reported first, as
+    /// [`IdentityError::UnsupportedEnvelopeVersion`] naming `found`'s
+    /// version; any other differing field as an [`IdentityError::Mismatch`].
     #[must_use]
     pub fn mismatch(&self, found: &Self) -> Option<IdentityError> {
+        if self.version != found.version {
+            return Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: found.version,
+            });
+        }
         let digest = |field, a: &Digest, b: &Digest| {
             (a != b).then(|| IdentityError::Mismatch {
                 field,
@@ -1387,24 +1410,35 @@ fn decode_as<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
     encoding: Encoding,
 ) -> Result<T, String> {
-    match encoding {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let (value, name): (T, &str) = match encoding {
         Encoding::MsgpackPositional | Encoding::MsgpackNamed => {
-            rmp_serde::from_slice(bytes).map_err(|e| e.to_string())
+            let mut de = rmp_serde::Deserializer::new(&mut cursor);
+            (
+                T::deserialize(&mut de).map_err(|e| e.to_string())?,
+                "msgpack",
+            )
         }
-        Encoding::Cbor => {
-            let mut cursor = std::io::Cursor::new(bytes);
-            let value: T = ciborium::de::from_reader(&mut cursor).map_err(|e| e.to_string())?;
-            let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
-            if consumed < bytes.len() {
-                return Err(format!(
-                    "{} trailing byte(s) after the CBOR value",
-                    bytes.len() - consumed
-                ));
-            }
-            Ok(value)
+        Encoding::Cbor => (
+            ciborium::de::from_reader(&mut cursor).map_err(|e| e.to_string())?,
+            "CBOR",
+        ),
+        // `from_slice` already refuses anything but whitespace after the
+        // value, so the whole input counts as consumed.
+        Encoding::Json => {
+            let value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+            cursor.set_position(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+            (value, "JSON")
         }
-        Encoding::Json => serde_json::from_slice(bytes).map_err(|e| e.to_string()),
+    };
+    let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
+    if consumed < bytes.len() {
+        return Err(format!(
+            "{} trailing byte(s) after the {name} value",
+            bytes.len() - consumed
+        ));
     }
+    Ok(value)
 }
 
 /// Decode `bytes` as a complement of `shape`, or explain why not.
@@ -1875,13 +1909,42 @@ mod tests {
     }
 
     #[test]
-    fn cbor_with_trailing_bytes_is_undecodable() {
-        let mut bytes = Vec::new();
-        ciborium::ser::into_writer(&Complement::empty(), &mut bytes).unwrap();
-        bytes.push(0);
-        assert!(matches!(
-            decode_complement(&bytes, Encoding::Cbor, ComplementShape::WType),
-            Err(IdentityError::Undecodable(_))
-        ));
+    fn trailing_bytes_are_undecodable_in_every_encoding() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&c, &mut cbor).unwrap();
+        for (encoding, mut bytes) in [
+            (Encoding::MsgpackPositional, rmp_serde::to_vec(&c).unwrap()),
+            (Encoding::MsgpackNamed, rmp_serde::to_vec_named(&c).unwrap()),
+            (Encoding::Cbor, cbor),
+            (Encoding::Json, serde_json::to_vec(&c).unwrap()),
+        ] {
+            assert!(
+                decode_complement(&bytes, encoding, ComplementShape::WType).is_ok(),
+                "{encoding:?} without trailing bytes"
+            );
+            bytes.push(0);
+            assert!(
+                matches!(
+                    decode_complement(&bytes, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte"
+            );
+        }
+    }
+
+    #[test]
+    fn a_mismatch_compares_the_envelope_version() {
+        let e = envelope();
+        let mut other = e.clone();
+        other.version = IDENTITY_ENVELOPE_VERSION + 1;
+        assert_eq!(
+            e.mismatch(&other),
+            Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: IDENTITY_ENVELOPE_VERSION + 1
+            })
+        );
     }
 }
