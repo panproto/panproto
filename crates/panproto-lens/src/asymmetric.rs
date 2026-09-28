@@ -856,7 +856,8 @@ fn rebuild_source_arcs(
                 return;
             }
             if let Some(arc) = find_original_arc(
-                &lens.src_schema,
+                lens,
+                view,
                 nodes,
                 original_parent,
                 child_id,
@@ -1354,19 +1355,38 @@ fn build_reverse_remap(forward: &HashMap<Name, Name>) -> HashMap<Name, Name> {
 ///
 /// Consults `arc_edges` (exact edge recorded during `get`) first, then
 /// `contraction_choices`, then falls back to the source schema. When the
-/// complement was produced by this module's `get`, `arc_edges` will always
-/// contain the exact edge, making this function deterministic even when
-/// the source schema has parallel edges.
+/// complement was produced by this module's `get`, `arc_edges` contains the
+/// exact edge, which keeps this function deterministic even when the source
+/// schema has parallel edges.
+///
+/// The recorded edge applies only while it still joins the restored
+/// endpoints. A view edit that moves the child (or the parent) to another
+/// anchor restores that node at a different source anchor, and the recorded
+/// edge would then point into the anchor the node left. The arc is instead
+/// read off the source schema between the restored anchors, preferring the
+/// source edge whose image is the edge the view arc now carries, so the
+/// view's edge edit survives the round trip. When the source schema has no
+/// edge between the restored anchors the recorded edge is kept, as nothing
+/// better is known.
 fn find_original_arc(
-    src_schema: &panproto_schema::Schema,
+    lens: &Lens,
+    view: &WInstance,
     nodes: &HashMap<u32, Node>,
     parent_id: u32,
     child_id: u32,
     contraction_choices: &HashMap<(u32, u32), Edge>,
     arc_edges: &HashMap<(u32, u32), Edge>,
 ) -> Option<(u32, u32, Edge)> {
-    // Exact edge recorded during get: deterministic.
-    if let Some(edge) = arc_edges.get(&(parent_id, child_id)) {
+    let endpoints = nodes
+        .get(&parent_id)
+        .zip(nodes.get(&child_id))
+        .map(|(parent, child)| (&parent.anchor, &child.anchor));
+
+    // Exact edge recorded during get, while it still fits the endpoints.
+    let recorded = arc_edges.get(&(parent_id, child_id));
+    if let Some(edge) = recorded
+        && endpoints.is_none_or(|(src, tgt)| edge.src == *src && edge.tgt == *tgt)
+    {
         return Some((parent_id, child_id, edge.clone()));
     }
 
@@ -1375,16 +1395,44 @@ fn find_original_arc(
         return Some((parent_id, child_id, edge.clone()));
     }
 
-    // Fallback: look up in the source schema (backward compat for old complements).
-    let parent_node = nodes.get(&parent_id)?;
-    let child_node = nodes.get(&child_id)?;
+    // The source schema between the restored anchors: a complement that
+    // predates `arc_edges`, or a recorded edge a view edit made stale.
+    let (src_anchor, tgt_anchor) = endpoints?;
+    let candidates = lens.src_schema.edges_between(src_anchor, tgt_anchor);
+    let view_edge = view
+        .arcs
+        .iter()
+        .find(|(p, c, _)| (*p, *c) == (parent_id, child_id))
+        .map(|(_, _, edge)| edge);
+    let chosen = view_edge
+        .and_then(|view_edge| {
+            candidates
+                .iter()
+                .find(|candidate| source_edge_maps_to(lens, candidate, view_edge))
+        })
+        .or_else(|| candidates.first())
+        .or(recorded);
+    chosen.map(|edge| (parent_id, child_id, edge.clone()))
+}
 
-    let edges = src_schema.edges_between(&parent_node.anchor, &child_node.anchor);
-    if edges.len() == 1 {
-        Some((parent_id, child_id, edges[0].clone()))
-    } else {
-        edges.first().map(|e| (parent_id, child_id, e.clone()))
+/// Whether `get` carries source edge `source` onto view edge `view_edge`:
+/// through the explicit edge remap, or, for an edge the remap does not
+/// name, by keeping its kind and label across remapped endpoints.
+fn source_edge_maps_to(lens: &Lens, source: &Edge, view_edge: &Edge) -> bool {
+    if let Some(mapped) = lens.compiled.edge_remap.get(source) {
+        return mapped == view_edge;
     }
+    let remap = |vertex: &Name| {
+        lens.compiled
+            .vertex_remap
+            .get(vertex)
+            .cloned()
+            .unwrap_or_else(|| vertex.clone())
+    };
+    source.kind == view_edge.kind
+        && source.name == view_edge.name
+        && remap(&source.src) == view_edge.src
+        && remap(&source.tgt) == view_edge.tgt
 }
 
 #[cfg(test)]
