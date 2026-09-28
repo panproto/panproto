@@ -200,10 +200,14 @@ impl ErrorSlot {
 /// The process-global slot every entry point reports into.
 ///
 /// The crate's unit tests share this one slot as they run in parallel, so
-/// none of them reads it: a drain there could see another test's
-/// envelope. Every check of what an entry point leaves in the slot lives
-/// in the integration test `tests/error_envelopes.rs`, which links the
-/// library as released and runs its checks one at a time.
+/// a drain there can see another test's envelope. No unit test checks
+/// what an entry point leaves in the slot: those checks live in the
+/// integration test `tests/error_envelopes.rs`, which links the library
+/// as released and runs its checks one at a time. The one unit test that
+/// drains the slot, `the_entry_point_slot_is_shared_across_threads`, looks
+/// only for an envelope carrying its own marker and retries when a drain
+/// finds another test's instead, and draining that envelope cannot fail
+/// the test that set it, since no other unit test reads the slot.
 static LAST_ERROR: ErrorSlot = ErrorSlot::new();
 
 /// Stash the last error for retrieval by the host.
