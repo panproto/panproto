@@ -559,6 +559,43 @@ pub(crate) fn put_with_identity(
     reassemble(lens, view, complement).map(|source| (source, status))
 }
 
+/// The source anchor of view node `id`, whose view anchor is `view_anchor`.
+///
+/// The anchor the complement recorded applies only while the view still
+/// holds the node where `get` put it, that is while the remap sends the
+/// recorded anchor to `view_anchor`. A view edit that moved the node to
+/// another anchor is followed back through the remap's inverse instead, so
+/// the edit survives the round trip.
+fn restored_anchor<'a>(
+    lens: &Lens,
+    reverse_anchors: &'a ReverseAnchors,
+    complement: &'a Complement,
+    id: u32,
+    view_anchor: &'a Name,
+) -> Result<&'a Name, LensError> {
+    complement
+        .original_anchors
+        .get(&id)
+        .filter(|recorded| {
+            lens.compiled
+                .vertex_remap
+                .get(*recorded)
+                .unwrap_or(recorded)
+                == view_anchor
+        })
+        .map_or_else(
+            || {
+                reverse_anchors
+                    .source_anchor(view_anchor)
+                    .map_err(|candidates| LensError::AmbiguousReverseAnchor {
+                        node: id,
+                        candidates: candidates.to_vec(),
+                    })
+            },
+            Ok,
+        )
+}
+
 /// The backward direction proper, once the complement's identity is
 /// accepted.
 fn reassemble(
@@ -609,27 +646,13 @@ fn reassemble(
             continue;
         }
         let mut restored_node = node.clone();
-        // The recorded anchor applies only while the view still holds the
-        // node where `get` put it. A view edit that moved the node to
-        // another anchor is followed back through the remap's inverse
-        // instead, so the edit survives the round trip.
-        let recorded = complement.original_anchors.get(&id).filter(|recorded| {
-            lens.compiled
-                .vertex_remap
-                .get(*recorded)
-                .unwrap_or(recorded)
-                == &node.anchor
-        });
-        let source_anchor = match recorded {
-            Some(recorded) => recorded,
-            None => reverse_anchors
-                .source_anchor(&node.anchor)
-                .map_err(|candidates| LensError::AmbiguousReverseAnchor {
-                    node: id,
-                    candidates: candidates.to_vec(),
-                })?,
-        };
-        restored_node.anchor.clone_from(source_anchor);
+        restored_node.anchor.clone_from(restored_anchor(
+            lens,
+            &reverse_anchors,
+            complement,
+            id,
+            &node.anchor,
+        )?);
         // Restore original extra_fields.
         //
         // When a complement snapshot is present, start from the snapshot
