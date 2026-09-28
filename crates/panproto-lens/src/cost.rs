@@ -275,7 +275,7 @@ mod tests {
 mod quantale_laws {
     use super::*;
 
-    use crate::graph::LensGraph;
+    use crate::lens_graph::LensGraph;
     use crate::protolens::{Protolens, elementary, horizontal_compose, vertical_compose};
     use panproto_gat::{
         CoercionClass, EnrichmentKind, Name, TheoryConstraint, TheoryEndofunctor, TheoryTransform,

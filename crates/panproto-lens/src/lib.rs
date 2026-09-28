@@ -45,10 +45,10 @@ pub mod edit_provenance;
 pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
-pub mod graph;
 pub mod hint;
 pub mod laws;
 pub mod layout_complement;
+pub mod lens_graph;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
@@ -75,8 +75,8 @@ pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError};
-pub use graph::LensGraph;
 pub use laws::{check_get_put, check_laws, check_put_get, instances_equivalent};
+pub use lens_graph::LensGraph;
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
