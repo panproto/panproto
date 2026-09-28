@@ -33,11 +33,19 @@ impl GInstance {
     /// [`Self::to_wtype`] when the tree's schema root is its root node's
     /// anchor.
     ///
+    /// A node other than the root that, in the graph form, has the form of a
+    /// fan node (see [`unreify_fans`](crate::unreify_fans)) could not be told
+    /// apart from a reified fan, so the way back would read it as one. Such a
+    /// node has no incoming arc, which no non-root node of a tree lacks, and
+    /// the input is refused rather than laid out ambiguously.
+    ///
     /// # Errors
     ///
     /// Returns [`InstError::DanglingEdge`] when an arc or a fan names a node
-    /// the tree does not hold, and [`InstError::EdgeIdsExhausted`] or
-    /// [`InstError::NodeIdsExhausted`] when the ids do not fit in `u32`.
+    /// the tree does not hold, [`InstError::NotATree`] when a node other than
+    /// the root has the form of a fan node, and
+    /// [`InstError::EdgeIdsExhausted`] or [`InstError::NodeIdsExhausted`]
+    /// when the ids do not fit in `u32`.
     pub fn from_wtype(tree: &WInstance) -> Result<Self, InstError> {
         embed_tree(tree, None)
     }
@@ -83,9 +91,10 @@ impl GInstance {
     /// position, since a tree orders children by arc order alone. Arcs are
     /// emitted in ascending [`EdgeId`] order.
     ///
-    /// For every tree `t` whose nodes are all reachable from its root,
+    /// For every tree `t` that [`Self::from_wtype`] accepts,
     /// `from_wtype(&t)?.to_wtype_with_schema_root(t.root, t.schema_root.clone())`
-    /// is `t`.
+    /// is `t` when every node of `t` is reachable from its root, and is
+    /// [`InstError::NotATree`] otherwise; it is never a different tree.
     ///
     /// # Errors
     ///
@@ -235,5 +244,24 @@ fn embed_tree(tree: &WInstance, schema: Option<&Schema>) -> Result<GInstance, In
         let id = EdgeId(u32::try_from(index).map_err(|_| InstError::EdgeIdsExhausted)?);
         graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
     }
-    reify::reify_fans(&graph, &tree.fans, schema)
+    let graph = reify::reify_fans(&graph, &tree.fans, schema)?;
+    let mut tree_ids: Vec<u32> = tree.nodes.keys().copied().collect();
+    tree_ids.sort_unstable();
+    for id in tree_ids {
+        if id == tree.root {
+            continue;
+        }
+        if graph
+            .node(id)
+            .is_some_and(|node| reify::fan_of(&graph, node).is_some())
+        {
+            return Err(InstError::NotATree {
+                node: id,
+                detail: "a node other than the root has the form of a fan node, so its graph \
+                         form would read back as a fan"
+                    .to_owned(),
+            });
+        }
+    }
+    Ok(graph)
 }

@@ -107,7 +107,7 @@ pub fn reify_fans(
 /// one outgoing [`HYPER_PARENT_KIND`] edge, and otherwise only named
 /// [`HYPER_LABEL_KIND`] edges with distinct names. Its edges are returned with
 /// the fan.
-fn fan_of(graph: &GInstance, node: &Node) -> Option<(Fan, Vec<EdgeId>)> {
+pub(super) fn fan_of(graph: &GInstance, node: &Node) -> Option<(Fan, Vec<EdgeId>)> {
     if node.shape != NodeShape::HyperEdge || !graph.in_edges(node.id).is_empty() {
         return None;
     }
@@ -146,16 +146,16 @@ fn fan_of(graph: &GInstance, node: &Node) -> Option<(Fan, Vec<EdgeId>)> {
 /// Fan nodes are recognised by that form alone. So this inverts
 /// [`reify_fans`] exactly, duplicate fans included, whenever the graph given
 /// to [`reify_fans`] has no node of fan-node form of its own; such a node
-/// would be taken out as a fan too. In the graph form of a tree, where every
-/// node but the root has an incoming arc, only the root can have that form,
-/// and [`GInstance::to_wtype`] keeps the root.
+/// would be taken out as a fan too. In the graph form of a tree only the root
+/// can have that form, which [`GInstance::to_wtype`] keeps:
+/// [`GInstance::from_wtype`] refuses a tree any other node of which has it.
 #[must_use]
 pub fn unreify_fans(graph: &GInstance) -> (GInstance, Vec<Fan>) {
     unreify_fans_keeping(graph, None)
 }
 
 /// [`unreify_fans`], leaving the node `keep` in place whatever its form.
-pub(crate) fn unreify_fans_keeping(graph: &GInstance, keep: Option<u32>) -> (GInstance, Vec<Fan>) {
+pub(super) fn unreify_fans_keeping(graph: &GInstance, keep: Option<u32>) -> (GInstance, Vec<Fan>) {
     let mut ids: Vec<u32> = graph
         .nodes()
         .values()

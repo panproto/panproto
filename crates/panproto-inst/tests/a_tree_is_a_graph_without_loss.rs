@@ -133,6 +133,41 @@ proptest! {
     }
 
     #[test]
+    fn a_graph_form_never_reads_back_as_a_different_tree(
+        tree in arb_tree(),
+        hyper in any::<bool>(),
+        out_arcs in prop::collection::vec((0u32..10, any::<bool>(), prop::option::of("[a-c]")), 0..4),
+    ) {
+        // An extra node with no incoming arc, possibly of the fan-node shape
+        // and with out-arcs of the fan-node edge kinds, so that its graph form
+        // may look like a reified fan.
+        let mut odd = tree.clone();
+        let n = u32::try_from(tree.nodes.len()).expect("small");
+        let node = Node::new(n, "arg");
+        let node = if hyper { node.with_shape(NodeShape::HyperEdge) } else { node };
+        odd.nodes.insert(n, node);
+        for (target, parent_kind, name) in out_arcs {
+            let target = target % n;
+            let kind = if parent_kind { HYPER_PARENT_KIND } else { HYPER_LABEL_KIND };
+            odd.arcs.push((n, target, Edge {
+                src: "arg".into(),
+                tgt: odd.nodes[&target].anchor.clone(),
+                kind: kind.into(),
+                name: name.map(|s| Name::from(s.as_str())),
+            }));
+        }
+        if let Ok(graph) = GInstance::from_wtype(&odd) {
+            match graph.to_wtype_with_schema_root(odd.root, odd.schema_root.clone()) {
+                Ok(back) => prop_assert_eq!(tree_bytes(&back), tree_bytes(&odd)),
+                Err(error) => prop_assert!(
+                    matches!(error, InstError::NotATree { .. }),
+                    "unexpected error {error:?}"
+                ),
+            }
+        }
+    }
+
+    #[test]
     fn unreify_inverts_reify_on_a_trees_graph_form(tree in arb_tree()) {
         let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
         let (rest, fans) = unreify_fans(&graph);
@@ -481,6 +516,53 @@ fn a_root_shaped_like_a_fan_node_stays_the_root() {
     let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
     let back = graph.to_wtype(0).expect("the graph form is a tree");
     assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+}
+
+#[test]
+fn from_wtype_refuses_a_node_its_graph_form_would_read_as_a_fan() {
+    // Node 1 has no incoming arc and the form of a fan node: the fan-node
+    // shape, one `hyper_parent` out-arc and a named `hyper_label` out-arc.
+    // Its graph form is the graph form of the one-node tree with a fan, so
+    // reading the graph back would turn node 1 into that fan.
+    let nodes = HashMap::from([
+        (0, Node::new(0, "sent")),
+        (1, Node::new(1, "arg").with_shape(NodeShape::HyperEdge)),
+    ]);
+    let parent = Edge {
+        src: "arg".into(),
+        tgt: "sent".into(),
+        kind: HYPER_PARENT_KIND.into(),
+        name: None,
+    };
+    let child = Edge {
+        src: "arg".into(),
+        tgt: "sent".into(),
+        kind: HYPER_LABEL_KIND.into(),
+        name: Some("theme".into()),
+    };
+    let orphan = WInstance::new(
+        nodes,
+        vec![(1, 0, parent), (1, 0, child)],
+        vec![],
+        0,
+        "sent".into(),
+    );
+    let as_fan = WInstance::new(
+        HashMap::from([(0, Node::new(0, "sent"))]),
+        vec![],
+        vec![Fan::new("arg", 0).with_child("theme", 0)],
+        0,
+        "sent".into(),
+    );
+    let fan_graph = GInstance::from_wtype(&as_fan).expect("a tree has a graph form");
+    assert_eq!(
+        tree_bytes(&fan_graph.to_wtype(0).expect("the graph form is a tree")),
+        tree_bytes(&as_fan)
+    );
+    assert!(matches!(
+        GInstance::from_wtype(&orphan),
+        Err(InstError::NotATree { node: 1, .. })
+    ));
 }
 
 #[test]
