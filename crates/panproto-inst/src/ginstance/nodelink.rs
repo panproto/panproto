@@ -58,8 +58,10 @@ struct NodeLinkEdge {
 
 /// The node-link JSON form of a graph instance, arrays in ascending id order.
 ///
-/// A float that JSON cannot represent (`NaN` or an infinity) is written as a
-/// string (see the [module documentation](self)), so that
+/// Values are written as serde writes [`Value`], except that a float JSON
+/// cannot represent is written as `{"Float": "NaN"}`, `{"Float": "Infinity"}`
+/// or `{"Float": "-Infinity"}`. Every other value writes a number under
+/// `"Float"`, so the strings cannot be mistaken for anything else, and
 /// [`from_node_link_json`] reads every graph back; a `NaN` comes back as the
 /// standard `NaN`, whatever its payload bits were.
 #[must_use]
