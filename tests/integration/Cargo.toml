@@ -36,6 +36,7 @@ panproto-expr-parser = { path = "../../crates/panproto-expr-parser" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 rmp-serde = { workspace = true }
+ciborium = { workspace = true }
 smallvec = { workspace = true }
 rustc-hash = { workspace = true }
 

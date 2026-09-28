@@ -2138,6 +2138,7 @@ dependencies = [
 name = "panproto-integration-tests"
 version = "0.74.4"
 dependencies = [
+ "ciborium",
  "panproto-check",
  "panproto-core",
  "panproto-expr",
