@@ -512,7 +512,8 @@ pub(crate) fn get_with_identity(
 /// [`LensError::ComplementMismatch`] if the complement is inconsistent with
 /// the view, [`LensError::IdCollision`] if a view node has the id of a node
 /// the complement holds, and [`LensError::AmbiguousReverseAnchor`] if a
-/// node added in the view has no single source anchor.
+/// node added in the view, or moved in the view away from the anchor `get`
+/// gave it, has no single source anchor.
 pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WInstance, LensError> {
     put_with_identity(
         lens,
@@ -608,7 +609,18 @@ fn reassemble(
             continue;
         }
         let mut restored_node = node.clone();
-        let source_anchor = match complement.original_anchors.get(&id) {
+        // The recorded anchor applies only while the view still holds the
+        // node where `get` put it. A view edit that moved the node to
+        // another anchor is followed back through the remap's inverse
+        // instead, so the edit survives the round trip.
+        let recorded = complement.original_anchors.get(&id).filter(|recorded| {
+            lens.compiled
+                .vertex_remap
+                .get(*recorded)
+                .unwrap_or(recorded)
+                == &node.anchor
+        });
+        let source_anchor = match recorded {
             Some(recorded) => recorded,
             None => reverse_anchors
                 .source_anchor(&node.anchor)
@@ -1395,6 +1407,174 @@ mod tests {
     fn complement_is_empty_for_identity() {
         let complement = Complement::empty();
         assert!(complement.is_empty());
+    }
+
+    /// A view edit that moves a node to another anchor survives `put`,
+    /// even for a node whose source anchor the complement recorded.
+    mod reanchoring {
+        use super::*;
+        use panproto_inst::value::{FieldPresence, Value};
+        use panproto_mig::Migration;
+        use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+
+        fn prop(src: &str, tgt: &str, name: &str) -> Edge {
+            Edge {
+                src: src.into(),
+                tgt: tgt.into(),
+                kind: "prop".into(),
+                name: Some(name.into()),
+            }
+        }
+
+        fn schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
+            let protocol = Protocol::default();
+            let mut builder = SchemaBuilder::new(&protocol);
+            for (id, kind) in vertices {
+                builder = builder.vertex(id, kind, None).unwrap();
+            }
+            for e in edges {
+                builder = builder
+                    .edge(&e.src, &e.tgt, &e.kind, e.name.as_deref())
+                    .unwrap();
+            }
+            builder.build().unwrap()
+        }
+
+        fn leaf(id: u32, anchor: &str, s: &str) -> Node {
+            Node::new(id, anchor).with_value(FieldPresence::Present(Value::Str(s.into())))
+        }
+
+        /// `r -> r`, `a -> t`, `b -> t`, `c -> u`, and `d -> t2`, `e -> t2`:
+        /// `t` and `t2` each have two preimages, `u` has one.
+        fn merging_lens() -> Lens {
+            let src_edges: Vec<Edge> = ["a", "b", "c", "d", "e"]
+                .iter()
+                .map(|v| prop("r", v, v))
+                .collect();
+            let tgt_edges = vec![
+                prop("r", "t", "a"),
+                prop("r", "t", "b"),
+                prop("r", "u", "c"),
+                prop("r", "t2", "d"),
+                prop("r", "t2", "e"),
+            ];
+            let src = schema(
+                &[
+                    ("r", "object"),
+                    ("a", "string"),
+                    ("b", "string"),
+                    ("c", "string"),
+                    ("d", "string"),
+                    ("e", "string"),
+                ],
+                &src_edges,
+            );
+            let tgt = schema(
+                &[
+                    ("r", "object"),
+                    ("t", "string"),
+                    ("u", "string"),
+                    ("t2", "string"),
+                ],
+                &tgt_edges,
+            );
+            let migration = Migration {
+                vertex_map: [
+                    ("r", "r"),
+                    ("a", "t"),
+                    ("b", "t"),
+                    ("c", "u"),
+                    ("d", "t2"),
+                    ("e", "t2"),
+                ]
+                .iter()
+                .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                .collect(),
+                edge_map: src_edges.into_iter().zip(tgt_edges).collect(),
+                hyper_edge_map: HashMap::new(),
+                label_map: HashMap::new(),
+                resolver: HashMap::new(),
+                hyper_resolver: HashMap::new(),
+                expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
+                domain: None,
+                codomain: None,
+            };
+            let compiled = panproto_mig::compile(&src, &tgt, &migration).unwrap();
+            Lens {
+                compiled,
+                src_schema: src,
+                tgt_schema: tgt,
+            }
+        }
+
+        fn source() -> WInstance {
+            let nodes = vec![
+                Node::new(0, "r"),
+                leaf(1, "a", "one"),
+                leaf(2, "b", "two"),
+                leaf(3, "c", "three"),
+            ];
+            let arcs = vec![
+                (0, 1, prop("r", "a", "a")),
+                (0, 2, prop("r", "b", "b")),
+                (0, 3, prop("r", "c", "c")),
+            ];
+            WInstance::new(
+                nodes.into_iter().map(|n| (n.id, n)).collect(),
+                arcs,
+                Vec::new(),
+                0,
+                "r".into(),
+            )
+        }
+
+        fn reanchor(view: &mut WInstance, id: u32, anchor: &str) {
+            view.nodes.get_mut(&id).unwrap().anchor = anchor.into();
+            for (_, child, edge) in &mut view.arcs {
+                if *child == id {
+                    edge.tgt = anchor.into();
+                }
+            }
+        }
+
+        #[test]
+        fn a_recorded_anchor_is_restored_while_the_view_keeps_it() {
+            let lens = merging_lens();
+            let (view, complement) = get(&lens, &source()).unwrap();
+            assert_eq!(complement.original_anchors.get(&1), Some(&Name::from("a")));
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(restored.nodes[&1].anchor, "a");
+            assert_eq!(restored.nodes[&2].anchor, "b");
+        }
+
+        #[test]
+        fn a_view_edit_that_moves_a_recorded_node_is_kept() {
+            let lens = merging_lens();
+            let (mut view, complement) = get(&lens, &source()).unwrap();
+            assert_eq!(view.nodes[&1].anchor, "t");
+            reanchor(&mut view, 1, "u");
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(restored.nodes[&1].anchor, "c");
+            let (again, _) = get(&lens, &restored).unwrap();
+            assert_eq!(again.nodes[&1].anchor, "u", "PutGet lost the edit");
+        }
+
+        #[test]
+        fn a_recorded_node_moved_to_a_merged_anchor_is_ambiguous() {
+            let lens = merging_lens();
+            let (mut view, complement) = get(&lens, &source()).unwrap();
+            reanchor(&mut view, 1, "t2");
+
+            match put(&lens, &view, &complement) {
+                Err(LensError::AmbiguousReverseAnchor {
+                    node: 1,
+                    candidates,
+                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
+            }
+        }
     }
 
     /// Partial-monoid laws: identity, idempotence, associativity, and
