@@ -41,6 +41,7 @@ pub mod functor;
 pub mod ginstance;
 /// Internal hom schema construction and evaluation.
 pub mod hom;
+pub mod identity;
 /// Unified instance enum (attributed C-set).
 pub mod instance;
 /// Instance-aware expression evaluation (graph traversal builtins).
@@ -90,6 +91,9 @@ pub use ginstance::{
     graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
+pub use identity::{
+    ComplementShape, Digest, IdentityEnvelope, IdentityError, IdentityPolicy, IdentityStatus,
+};
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
 pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};

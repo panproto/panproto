@@ -1,0 +1,34 @@
+[
+  {
+    "id": "post",
+    "kind": "record",
+    "nsid": "app.test.post",
+    "op": "vertex"
+  },
+  {
+    "id": "post.tag",
+    "kind": "string",
+    "nsid": null,
+    "op": "vertex"
+  },
+  {
+    "id": "post.note",
+    "kind": "string",
+    "nsid": null,
+    "op": "vertex"
+  },
+  {
+    "kind": "prop",
+    "name": "tags",
+    "op": "edge",
+    "src": "post",
+    "tgt": "post.tag"
+  },
+  {
+    "kind": "prop",
+    "name": "notes",
+    "op": "edge",
+    "src": "post",
+    "tgt": "post.note"
+  }
+]

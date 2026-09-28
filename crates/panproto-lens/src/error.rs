@@ -2,7 +2,7 @@
 //!
 //! [`LensError`] covers failures during lens construction and combinator
 //! compilation. [`LawViolation`] reports failures of the round-trip laws
-//! (`GetPut` and `PutGet`).
+//! (`GetPut`, `PutGet` and `PutPut`).
 
 use std::fmt;
 
@@ -120,17 +120,34 @@ pub enum LensError {
         key: String,
     },
 
-    /// Partial-monoid `Complement::compose` rejected an attempted merge
-    /// because the two complements were taken at distinct source
-    /// schemas (their fingerprints differ).
+    /// A complement's identity was refused: it names a different lens,
+    /// carries a legacy fingerprint that does not match or that the policy
+    /// refuses, or carries data with no identity at all. See
+    /// [`panproto_inst::identity`].
+    #[error("complement identity: {0}")]
+    Identity(#[from] panproto_inst::IdentityError),
+
+    /// A view object has the id of an object the complement holds, so
+    /// restoring the complement's object would overwrite it.
+    #[error("the view's {kind} {id} has the id of an object the complement holds")]
+    IdCollision {
+        /// Whether the id is a node id or an edge id.
+        kind: IdKind,
+        /// The colliding id.
+        id: u32,
+    },
+
+    /// A node added in the view is anchored at a target vertex with more
+    /// than one source preimage, so the source anchor it should take back
+    /// is not determined.
     #[error(
-        "complement fingerprint mismatch: {left:#x} vs {right:#x}; complements were captured against different source schemas"
+        "view node {node} is anchored at a vertex with several source preimages: {candidates:?}"
     )]
-    ComplementFingerprintMismatch {
-        /// Left fingerprint.
-        left: u64,
-        /// Right fingerprint.
-        right: u64,
+    AmbiguousReverseAnchor {
+        /// The view node.
+        node: u32,
+        /// The source vertices mapping to its anchor, in ascending order.
+        candidates: Vec<panproto_gat::Name>,
     },
 
     /// No enrichment synthesis driver is registered for the named
@@ -158,6 +175,25 @@ pub enum LensError {
     },
 }
 
+/// Which kind of object an id names.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum IdKind {
+    /// A node id.
+    Node,
+    /// An edge id.
+    Edge,
+}
+
+impl fmt::Display for IdKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Node => "node",
+            Self::Edge => "edge",
+        })
+    }
+}
+
 /// A violation of a round-trip lens law.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -174,6 +210,13 @@ pub enum LawViolation {
         detail: String,
     },
 
+    /// `PutPut` law violation: putting `v1` and then `v2` differs from
+    /// putting `v2` alone.
+    PutPut {
+        /// Human-readable description of the difference.
+        detail: String,
+    },
+
     /// An error occurred while checking the laws.
     Error(LensError),
 }
@@ -183,6 +226,7 @@ impl fmt::Display for LawViolation {
         match self {
             Self::GetPut { detail } => write!(f, "GetPut law violated: {detail}"),
             Self::PutGet { detail } => write!(f, "PutGet law violated: {detail}"),
+            Self::PutPut { detail } => write!(f, "PutPut law violated: {detail}"),
             Self::Error(e) => write!(f, "error during law check: {e}"),
         }
     }

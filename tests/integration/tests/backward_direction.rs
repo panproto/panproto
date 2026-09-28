@@ -370,6 +370,9 @@ fn composing_arc_order_is_not_quadratic() {
         let mut c = panproto_inst::Complement::empty();
         c.arc_order = (0..ARCS).map(|i| (i + offset, i + offset + 1)).collect();
         c.original_parent = (0..ARCS).map(|i| (i + offset + 1, i + offset)).collect();
+        // Complements that carry data compose only when bound to one lens;
+        // a shared legacy fingerprint binds these two.
+        c.source_fingerprint = 0x00C0_FFEE;
         c
     };
     // Half the pairs overlap, so the merge does real work on both branches

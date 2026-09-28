@@ -2118,7 +2118,9 @@ dependencies = [
 name = "panproto-inst"
 version = "0.74.4"
 dependencies = [
+ "blake3",
  "bumpalo",
+ "ciborium",
  "divan",
  "panproto-expr",
  "panproto-gat",
@@ -2136,6 +2138,7 @@ dependencies = [
 name = "panproto-integration-tests"
 version = "0.74.4"
 dependencies = [
+ "ciborium",
  "panproto-check",
  "panproto-core",
  "panproto-expr",
@@ -4504,6 +4507,13 @@ checksum = "9edde0db4769d2dc68579893f2306b26c6ecfbe0ef499b013d731b7b9247e0b9"
 name = "xtask"
 version = "0.0.0"
 dependencies = [
+ "ciborium",
+ "panproto-gat",
+ "panproto-inst",
+ "panproto-lens",
+ "panproto-mig",
+ "panproto-schema",
+ "rmp-serde",
  "serde",
  "serde_json",
  "toml 1.1.1+spec-1.1.0",
