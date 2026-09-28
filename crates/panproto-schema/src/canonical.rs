@@ -984,6 +984,94 @@ mod tests {
         );
     }
 
+    /// A merger touching every `Expr`, `Literal` and `Pattern` variant.
+    fn every_expression_form() -> Expr {
+        use panproto_expr::BuiltinOp;
+        let closure = Literal::Closure {
+            param: "p".into(),
+            body: Box::new(Expr::Var("p".into())),
+            env: [("k".into(), Literal::Int(-3))].into_iter().collect(),
+        };
+        let literals = Literal::List(vec![
+            Literal::Bool(false),
+            Literal::Int(i64::MIN),
+            Literal::Float(-0.0),
+            Literal::Str("s".into()),
+            Literal::Bytes(vec![0, 255]),
+            Literal::Null,
+            Literal::Record(vec![("f".into(), Literal::Float(f64::NAN))]),
+            closure,
+        ]);
+        let pattern = Pattern::Record(vec![
+            ("a".into(), Pattern::Wildcard),
+            ("b".into(), Pattern::Var("v".into())),
+            ("c".into(), Pattern::Lit(Literal::Int(1))),
+            (
+                "d".into(),
+                Pattern::List(vec![Pattern::Constructor(
+                    "Some".into(),
+                    vec![Pattern::Wildcard],
+                )]),
+            ),
+        ]);
+        Expr::Let {
+            name: "x".into(),
+            value: Box::new(Expr::Lit(literals)),
+            body: Box::new(Expr::Match {
+                scrutinee: Box::new(Expr::App(
+                    Box::new(Expr::Lam("y".into(), Box::new(Expr::Var("y".into())))),
+                    Box::new(Expr::Record(vec![(
+                        "r".into(),
+                        Expr::List(vec![Expr::Field(
+                            Box::new(Expr::Var("x".into())),
+                            "f".into(),
+                        )]),
+                    )])),
+                )),
+                arms: vec![(
+                    pattern,
+                    Expr::Builtin(
+                        BuiltinOp::Add,
+                        vec![Expr::Index(
+                            Box::new(Expr::Var("x".into())),
+                            Box::new(Expr::Lit(Literal::Int(0))),
+                        )],
+                    ),
+                )],
+            }),
+        }
+    }
+
+    /// The encoding is frozen: anything keyed by it (a span's apex digest,
+    /// a schema identity) changes when it does. These are the blake3
+    /// digests of the bytes, so any change to a single byte shows here.
+    #[test]
+    fn the_encoding_is_pinned() {
+        let hex = |bytes: &[u8]| -> String {
+            blake3::hash(bytes)
+                .as_bytes()
+                .iter()
+                .map(|b| format!("{b:02x}"))
+                .collect()
+        };
+
+        let base = fixture();
+        let mut expressive = fixture();
+        expressive
+            .mergers
+            .insert(Name::from("leaf"), every_expression_form());
+
+        assert_eq!(canonical_bytes(&base).len(), PINNED_FIXTURE_LEN);
+        assert_eq!(hex(&canonical_bytes(&base)), PINNED_FIXTURE_DIGEST);
+        assert_eq!(hex(&canonical_bytes(&expressive)), PINNED_EXPRESSIVE_DIGEST);
+    }
+
+    const PINNED_FIXTURE_LEN: usize = 1213;
+    const PINNED_FIXTURE_DIGEST: &str =
+        "63bf72046a3a2714478e6f7cd7eec8a67a2fe90a7c710540e2240a43ae00a1ef";
+    const PINNED_EXPRESSIVE_DIGEST: &str =
+        "11e163d4cbeb3f6376eead2f18e9cdddbc5b0788649ffea6369db307f2350353";
+
     #[test]
     fn induced_apices_that_agree_encode_alike() {
         let protocol = protocol();
