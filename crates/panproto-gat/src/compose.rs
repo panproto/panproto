@@ -29,13 +29,10 @@ use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::check_status::CheckStatus;
-use crate::eq::{
-    DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation,
-    normalize_with_status,
-};
+use crate::eq::{DirectedEquation, Equation, Term, alpha_equivalent, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::ident::SiteRename;
-use crate::morphism::{OpAssignment, TheoryMorphism, check_morphism};
+use crate::morphism::{OpAssignment, TheoryMorphism, check_morphism, normalize_bounded};
 use crate::op::{Implicit, Operation};
 use crate::quotient::UnionFind;
 use crate::sort::{Sort, SortExpr};
@@ -594,9 +591,10 @@ pub struct ComposeOptions {
     pub result_name: Arc<str>,
     /// What to do when two classes would get the same name.
     pub clash: ClashPolicy,
-    /// The number of rewrite steps [`Composition::verify_universal`] may
+    /// The number of rewrite steps a verification of the composition may
     /// spend deciding one equality before it reports the check as
-    /// incomplete.
+    /// incomplete; recorded in recipes and passed to
+    /// [`Composition::verify_universal_within`].
     pub rewrite_budget: u32,
 }
 
@@ -604,7 +602,30 @@ pub struct ComposeOptions {
 
 /// The colimit of a [`TheoryDiagram`], with its cocone, provenance and
 /// report.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+///
+/// A composition is exactly its four fields, so it can be taken apart and
+/// rebuilt anywhere:
+///
+/// ```
+/// use std::sync::Arc;
+/// use panproto_gat::{
+///     ClashPolicy, ComposeOptions, Composition, CompositionMode, Sort, Theory, TheoryDiagram,
+///     compose,
+/// };
+///
+/// let t = Theory::new("T", vec![Sort::simple("A")], vec![], vec![]);
+/// let opts = ComposeOptions {
+///     mode: CompositionMode::ExplicitIdentity,
+///     result_name: Arc::from("R"),
+///     clash: ClashPolicy::Reject,
+///     rewrite_budget: 64,
+/// };
+/// let c = compose(&TheoryDiagram::discrete(vec![("T", t)]), &opts)?;
+/// let Composition { theory, inclusions, provenance, report } = c.clone();
+/// assert_eq!(Composition { theory, inclusions, provenance, report }, c);
+/// # Ok::<(), panproto_gat::CompositionError>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Composition {
     /// The result theory.
     pub theory: Theory,
@@ -615,40 +636,15 @@ pub struct Composition {
     pub provenance: Provenance,
     /// Every check that ran and its outcome.
     pub report: CompositionReport,
-    /// The rewrite budget of the options the composition ran with, used by
-    /// [`Composition::verify_universal`]. Not serialized: a decoded
-    /// composition verifies with [`DEFAULT_VERIFY_BUDGET`].
-    #[serde(skip, default = "default_verify_budget")]
-    rewrite_budget: u32,
 }
 
-/// The rewrite budget a decoded [`Composition`] verifies with; it is the
-/// step budget [`crate::check_morphism`] uses for equation preservation.
+/// The rewrite budget [`Composition::verify_universal`] spends deciding one
+/// equality.
+///
+/// It is the step budget [`crate::check_morphism`] uses for equation
+/// preservation. [`Composition::verify_universal_within`] takes another
+/// budget, such as the one a [`ComposeOptions`] records.
 pub const DEFAULT_VERIFY_BUDGET: u32 = 512;
-
-const fn default_verify_budget() -> u32 {
-    DEFAULT_VERIFY_BUDGET
-}
-
-impl PartialEq for Composition {
-    fn eq(&self, other: &Self) -> bool {
-        self.theory == other.theory
-            && self.inclusions == other.inclusions
-            && self.provenance == other.provenance
-            && self.report == other.report
-    }
-}
-
-impl Eq for Composition {}
-
-impl Composition {
-    /// The rewrite budget [`Composition::verify_universal`] spends on one
-    /// equality.
-    #[must_use]
-    pub const fn rewrite_budget(&self) -> u32 {
-        self.rewrite_budget
-    }
-}
 
 /// An equation [`compose`] added to identify an operation with the derived
 /// term a diagram edge sends it to.
@@ -787,7 +783,7 @@ pub struct Freshening {
 /// | `UniversalIdentity` | `Diagram` | by every [`compose`]: the canonical cocone factors through the result by the identity; `Inapplicable` when a node uses a sort no node declares |
 /// | `UniversalAgainst` | `Diagram`, `Edge(i)`, `Cocone(i)` | by [`Composition::verify_universal`] only: the mediator is a morphism (`Diagram`), each edge's square commutes in the target (`Edge(i)`), and the mediator factors leg `i` (`Cocone(i)`) |
 /// | `ResultWellTyped` | `Diagram` | by every [`compose`]: the result passes [`crate::typecheck_signature`] and [`crate::typecheck_theory`] |
-/// | `NameClashFree` | `Diagram` | by every [`compose`]: no two nodes share a same-kind name the diagram's morphisms do not relate |
+/// | `NameClashFree` | `Diagram` | by every [`compose`]: every same-kind name two nodes share without the diagram's morphisms relating it (a clash) is resolved by the mode, `Amalgamate` identifying the symbols and `Freshen` renaming them apart; always `Passed` in a returned composition, since `Reject` returns [`CompositionError::NameClash`] instead. Whether the diagram has no clash at all is [`CompositionReport::name_clash_free`] |
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum CompositionCheckKind {
@@ -1341,23 +1337,22 @@ pub(crate) fn compose_with_naming(
     cocone.record_squares(&mut records);
     cocone.record_inclusions(&inclusions, &mut records);
     cocone.record_universal_identity(&mut records);
+    // A clash that survives to here was resolved by the mode: `Amalgamate`
+    // identifies same-name symbols and `Freshen` renamed them apart (a
+    // `Reject` clash returned `NameClash` during naming). The diagram's own
+    // property is the report's `name_clash_free`.
     let clash_free = name_clash_free(&nodes, &mut edge_uf, &provenance);
     records.push(record(
         CompositionCheckKind::NameClashFree,
         CheckSubject::Diagram,
-        clash_free
-            .as_ref()
-            .map_or(CheckOutcome::Passed, |detail| CheckOutcome::Failed {
-                detail: detail.clone(),
-            }),
+        CheckOutcome::Passed,
     ));
 
     Ok(Composition {
         theory,
         inclusions,
         provenance,
-        report: CompositionReport::new(opts.mode, clash_free.is_none(), records, freshened),
-        rewrite_budget: opts.rewrite_budget,
+        report: CompositionReport::new(opts.mode, clash_free, records, freshened),
     })
 }
 
@@ -2712,8 +2707,8 @@ impl Cocone<'_> {
     }
 }
 
-/// `None` when no two nodes share a same-kind name that the diagram's
-/// morphisms do not relate; otherwise the first such name, described.
+/// Whether no two nodes share a same-kind name that the diagram's
+/// morphisms do not relate (mossakowskirabecodescu2017canonical Def. 5).
 ///
 /// Sorts and operations are related by the identification the edges
 /// generate (with undeclared sorts joined by name); equations, directed
@@ -2723,7 +2718,7 @@ fn name_clash_free(
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     edge_uf: &mut UnionFind<Key>,
     provenance: &Provenance,
-) -> Option<String> {
+) -> bool {
     let mut symbols: BTreeMap<(SymKind, Arc<str>), Vec<SymRef>> = BTreeMap::new();
     for (label, info) in nodes {
         let sorts = info
@@ -2745,13 +2740,11 @@ fn name_clash_free(
                 .push(SymRef::new(Arc::clone(label), Arc::clone(&op.name)));
         }
     }
-    for ((kind, name), refs) in &symbols {
+    for ((kind, _), refs) in &symbols {
         for (i, a) in refs.iter().enumerate() {
             for b in &refs[i + 1..] {
                 if a.node != b.node && !edge_uf.same(&(*kind, a.clone()), &(*kind, b.clone())) {
-                    return Some(format!(
-                        "{kind} `{name}` is declared by {a} and {b} unrelated"
-                    ));
+                    return false;
                 }
             }
         }
@@ -2764,19 +2757,17 @@ fn name_clash_free(
                 .or_default()
                 .push((source, image));
         }
-        for (name, entries) in by_name {
+        for entries in by_name.into_values() {
             for (i, (a, ai)) in entries.iter().enumerate() {
                 for (b, bi) in &entries[i + 1..] {
                     if a.node != b.node && ai != bi {
-                        return Some(format!(
-                            "{kind} `{name}` is declared by {a} and {b} with different content"
-                        ));
+                        return false;
                     }
                 }
             }
         }
     }
-    None
+    true
 }
 
 // ─── the universal property ────────────────────────────────────────
@@ -2795,18 +2786,19 @@ enum Decision {
 /// Decide `a = b` in `q`: alpha-equivalence first, then normal forms under
 /// `q`'s directed equations, then normal forms under every equation of `q`
 /// oriented both ways (as [`crate::check_morphism`] does).
-fn decide_equal(a: &Term, b: &Term, q: &Theory, budget: usize) -> Decision {
+fn decide_equal(a: &Term, b: &Term, q: &Theory, budget: u32) -> Decision {
+    let budget = budget as usize;
     if alpha_equivalent(a, b) {
         return Decision::Equal;
     }
-    let (na, ea) = normalize_with_status(a, &q.directed_eqs, budget);
-    let (nb, eb) = normalize_with_status(b, &q.directed_eqs, budget);
+    let (na, ea) = normalize_bounded(a, &q.directed_eqs, budget);
+    let (nb, eb) = normalize_bounded(b, &q.directed_eqs, budget);
     if !ea && !eb && alpha_equivalent(&na, &nb) {
         return Decision::Equal;
     }
     let rules = crate::nat_transform::full_rewrite_rules(q);
-    let (na, ea) = normalize_with_status(a, &rules, budget);
-    let (nb, eb) = normalize_with_status(b, &rules, budget);
+    let (na, ea) = normalize_bounded(a, &rules, budget);
+    let (nb, eb) = normalize_bounded(b, &rules, budget);
     if ea || eb {
         Decision::Exhausted
     } else if alpha_equivalent(&na, &nb) {
@@ -2864,7 +2856,7 @@ impl Composition {
     ///
     /// `legs[i]` is the leg from `diagram.nodes[i]` into `q`. The legs form
     /// a cocone when every edge's square commutes; operation images are
-    /// compared by rewriting in `q` within [`Composition::rewrite_budget`]
+    /// compared by rewriting in `q` within [`DEFAULT_VERIFY_BUDGET`]
     /// steps. The mediator is built class by class, and is well defined
     /// only if every member of a class has one image. It is then checked
     /// with [`crate::check_morphism`] (the `UniversalAgainst` record on the
@@ -2888,10 +2880,26 @@ impl Composition {
         q: &Theory,
         legs: &[TheoryMorphism],
     ) -> Result<(TheoryMorphism, CompositionReport), CompositionError> {
+        self.verify_universal_within(diagram, q, legs, DEFAULT_VERIFY_BUDGET)
+    }
+
+    /// [`Composition::verify_universal`] with `budget` rewrite steps for
+    /// each equality in place of [`DEFAULT_VERIFY_BUDGET`], for instance
+    /// the [`ComposeOptions::rewrite_budget`] the composition ran with.
+    ///
+    /// # Errors
+    ///
+    /// As [`Composition::verify_universal`].
+    pub fn verify_universal_within(
+        &self,
+        diagram: &TheoryDiagram,
+        q: &Theory,
+        legs: &[TheoryMorphism],
+        budget: u32,
+    ) -> Result<(TheoryMorphism, CompositionReport), CompositionError> {
         if legs.len() != diagram.nodes.len() || self.inclusions.len() != diagram.nodes.len() {
             return Err(CompositionError::NotACocone { class: Vec::new() });
         }
-        let budget = self.rewrite_budget as usize;
         let leg_of: BTreeMap<&Arc<str>, (&TheoryMorphism, &Theory)> = diagram
             .nodes
             .iter()
@@ -2923,7 +2931,7 @@ impl Composition {
             })
             .cloned()
             .collect();
-        self.record_edge_squares(diagram, q, &leg_of, budget, &mut records)?;
+        Self::record_edge_squares(diagram, q, &leg_of, budget, &mut records)?;
         self.record_factorization(&mediator, legs, &mut records);
         let signature_only = Theory::full(
             Arc::clone(&self.theory.name),
@@ -2941,7 +2949,7 @@ impl Composition {
             (Ok(()), Some(name)) => CheckOutcome::Incomplete {
                 reason: CompositionIncomplete::RewriteBudgetExhausted {
                     equation: name,
-                    steps: self.rewrite_budget,
+                    steps: budget,
                 },
             },
             (Ok(()), None) => CheckOutcome::Passed,
@@ -3000,7 +3008,7 @@ impl Composition {
         &self,
         leg_of: &BTreeMap<&Arc<str>, (&TheoryMorphism, &Theory)>,
         q: &Theory,
-        budget: usize,
+        budget: u32,
         incomplete: &mut Option<Arc<str>>,
     ) -> Result<HashMap<Arc<str>, OpAssignment>, CompositionError> {
         let mut op_map: HashMap<Arc<str>, OpAssignment> = HashMap::new();
@@ -3070,11 +3078,10 @@ impl Composition {
     /// sends an operation to a derived term commutes when the two legs'
     /// images of the operation and of the term are equal in `q`.
     fn record_edge_squares(
-        &self,
         diagram: &TheoryDiagram,
         q: &Theory,
         leg_of: &BTreeMap<&Arc<str>, (&TheoryMorphism, &Theory)>,
-        budget: usize,
+        budget: u32,
         records: &mut Vec<CheckRecord>,
     ) -> Result<(), CompositionError> {
         for (index, edge) in diagram.edges.iter().enumerate() {
@@ -3115,7 +3122,7 @@ impl Composition {
                         outcome = CheckOutcome::Incomplete {
                             reason: CompositionIncomplete::RewriteBudgetExhausted {
                                 equation: Arc::from(format!("{}.{o}", edge.src)),
-                                steps: self.rewrite_budget,
+                                steps: budget,
                             },
                         };
                     }
@@ -3136,7 +3143,7 @@ impl Composition {
         &self,
         mediator: &TheoryMorphism,
         q: &Theory,
-        budget: usize,
+        budget: u32,
     ) -> CheckOutcome {
         if self.theory.eqs.is_empty() {
             return if q.eqs.is_empty() {
@@ -3176,7 +3183,7 @@ impl Composition {
         exhausted.map_or(CheckOutcome::Passed, |equation| CheckOutcome::Incomplete {
             reason: CompositionIncomplete::RewriteBudgetExhausted {
                 equation,
-                steps: self.rewrite_budget,
+                steps: budget,
             },
         })
     }
@@ -4133,13 +4140,13 @@ mod tests {
         }
         expected.sort();
         assert_eq!(checks_of(&c.report), expected);
-        // `T1` and `T2` share names their legs do not relate, so only the
-        // name-clash check fails, and it decides the status.
+        // `T1` and `T2` share names their legs do not relate; `Amalgamate`
+        // identifies them, so no check fails.
+        assert!(!c.report.name_clash_free);
         for r in &c.report.checks {
-            let failed = matches!(r.outcome, CheckOutcome::Failed { .. });
-            assert_eq!(failed, r.check == K::NameClashFree, "{r:?}");
+            assert!(!matches!(r.outcome, CheckOutcome::Failed { .. }), "{r:?}");
         }
-        assert_eq!(c.report.status, CheckStatus::Failed);
+        assert_eq!(c.report.status, CheckStatus::Passed);
         Ok(())
     }
 
@@ -4221,9 +4228,9 @@ mod tests {
             serde_json::from_value::<CompositionReport>(json.clone())?,
             c.report
         );
-        // `name_clash_free` fails, so the status is `failed`.
-        assert_eq!(json["status"], "failed");
-        json["status"] = serde_json::Value::from("passed");
+        // Every check passes, so the status is `passed`.
+        assert_eq!(json["status"], "passed");
+        json["status"] = serde_json::Value::from("failed");
         let decoded = serde_json::from_value::<CompositionReport>(json);
         assert!(decoded.is_err(), "{decoded:?}");
         Ok(())
@@ -4343,7 +4350,6 @@ mod tests {
         let json = serde_json::to_string(&c)?;
         let back: Composition = serde_json::from_str(&json)?;
         assert_eq!(back, c);
-        assert_eq!(back.rewrite_budget(), DEFAULT_VERIFY_BUDGET);
         Ok(())
     }
 
@@ -4556,6 +4562,100 @@ mod tests {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// A diagram that is not name-clash free still composes soundly when
+    /// the mode resolves every clash: `Amalgamate` identifies same-name
+    /// symbols by definition and `Freshen` renames them apart. Such a
+    /// composition reports `Passed`; the diagram's own property is in
+    /// `name_clash_free`.
+    #[test]
+    fn a_name_clash_the_mode_resolves_does_not_fail_the_report() -> TestResult {
+        use CompositionCheckKind as K;
+        for opts in [amalgamate(), explicit(ClashPolicy::Freshen)] {
+            let c = compose(&same_name_span(), &opts)?;
+            assert!(!c.report.name_clash_free, "{:?}", opts.mode);
+            let outcomes: Vec<&CheckOutcome> = c
+                .report
+                .records(K::NameClashFree)
+                .map(|r| &r.outcome)
+                .collect();
+            assert_eq!(outcomes, [&CheckOutcome::Passed], "{:?}", opts.mode);
+            assert_eq!(c.report.status, CheckStatus::Passed, "{:?}", opts.mode);
+        }
+        assert!(
+            !compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?
+                .report
+                .freshened
+                .is_empty()
+        );
+        // Under `Reject` the same clashes return no composition at all.
+        let differ = equation_span(idempotent("ax", "x"), involutive("ax"));
+        for d in [same_name_span(), differ] {
+            assert!(matches!(
+                compose(&d, &explicit(ClashPolicy::Reject)),
+                Err(CompositionError::NameClash { .. })
+            ));
+        }
+        Ok(())
+    }
+
+    /// An equation used right to left can grow a term without bound
+    /// (`x` rewrites to `h(h(x))`). Deciding entailment with the default
+    /// budget then gives up as incomplete instead of exhausting the stack
+    /// of the thread it runs on.
+    #[test]
+    fn entailment_by_growing_rewrites_is_incomplete_on_a_default_stack() -> TestResult {
+        let t = th(
+            "T",
+            &["A"],
+            &[("h", &["A"], "A")],
+            vec![idempotent("e", "x")],
+        );
+        let q = th("Q", &["A"], &[("h", &["A"], "A")], vec![involutive("k")]);
+        let d = TheoryDiagram::discrete(vec![("T", t)]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let legs = [leg("T", "Q", &[("A", "A")], &[("h", "h")])];
+        let (_, report) = c.verify_universal(&d, &q, &legs)?;
+        let entailed: Vec<&CheckOutcome> = report
+            .records(CompositionCheckKind::EquationEntailed)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(
+            entailed,
+            [&CheckOutcome::Incomplete {
+                reason: CompositionIncomplete::RewriteBudgetExhausted {
+                    equation: "e".into(),
+                    steps: DEFAULT_VERIFY_BUDGET,
+                },
+            }]
+        );
+        Ok(())
+    }
+
+    /// A composition carries only its four serialized fields, so a decoded
+    /// copy verifies exactly as the original does.
+    #[test]
+    fn a_decoded_composition_verifies_as_the_original() -> TestResult {
+        let t = th(
+            "T",
+            &["A"],
+            &[("h", &["A"], "A")],
+            vec![idempotent("e", "x")],
+        );
+        let q = th("Q", &["A"], &[("h", &["A"], "A")], vec![involutive("k")]);
+        let d = TheoryDiagram::discrete(vec![("T", t)]);
+        let mut opts = explicit(ClashPolicy::Reject);
+        opts.rewrite_budget = 16;
+        let c = compose(&d, &opts)?;
+        let back: Composition = serde_json::from_str(&serde_json::to_string(&c)?)?;
+        assert_eq!(back, c);
+        let legs = [leg("T", "Q", &[("A", "A")], &[("h", "h")])];
+        let (m1, original) = c.verify_universal(&d, &q, &legs)?;
+        let (m2, decoded) = back.verify_universal(&d, &q, &legs)?;
+        assert_eq!(m1, m2);
+        assert_eq!(original, decoded);
         Ok(())
     }
 
@@ -4891,7 +4991,7 @@ mod tests {
         opts.rewrite_budget = 16;
         let c = compose(&d, &opts)?;
         let legs = [leg("T", "Q", &[("A", "A")], &[("h", "h")])];
-        let (_, report) = c.verify_universal(&d, &q, &legs)?;
+        let (_, report) = c.verify_universal_within(&d, &q, &legs, opts.rewrite_budget)?;
         let entailed: Vec<&CheckOutcome> = report
             .records(CompositionCheckKind::EquationEntailed)
             .map(|r| &r.outcome)
