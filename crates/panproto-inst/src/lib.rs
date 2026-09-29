@@ -49,6 +49,7 @@ pub mod instance;
 pub mod instance_env;
 /// First-class instance homomorphisms (morphisms of instances over a schema).
 pub mod instance_hom;
+pub mod locality;
 /// Metadata types for instance nodes.
 pub mod metadata;
 /// JSON parsing for W-type instances.
@@ -63,6 +64,7 @@ pub mod provenance;
 pub mod query;
 /// Incremental reachability index for W-type instances.
 pub mod reachability;
+pub mod segment;
 /// Edit algebra for functor (table-shaped) instances.
 pub mod table_edit;
 /// Edit algebra for W-type (tree-shaped) instances.
@@ -114,6 +116,7 @@ pub use query::{
     execute_elements, execute_functor, execute_graph,
 };
 pub use reachability::ReachabilityIndex;
+pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
 pub use validate::{validate_attributes, validate_wtype};
