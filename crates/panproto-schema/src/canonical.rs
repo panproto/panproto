@@ -635,6 +635,10 @@ impl CanonicalWriter {
 
     /// Write a literal value, discriminant first. Floats go in as raw bits, which
     /// is total where a decimal rendering would not be.
+    ///
+    /// The exact values take the tags after the closure's `8`: `9` a
+    /// decimal, `10` an integer outside `i64` and `11` a date or time, each
+    /// followed by its `canonical_bytes` (see `panproto_expr::exact`).
     pub fn literal(&mut self, literal: &Literal) {
         match literal {
             Literal::Bool(value) => {
@@ -682,6 +686,18 @@ impl CanonicalWriter {
                     self.str(name);
                     self.literal(value);
                 }
+            }
+            Literal::Decimal(value) => {
+                self.tag(9);
+                self.raw(&value.canonical_bytes());
+            }
+            Literal::BigInt(value) => {
+                self.tag(10);
+                self.raw(&value.canonical_bytes());
+            }
+            Literal::Temporal(value) => {
+                self.tag(11);
+                self.raw(&value.canonical_bytes());
             }
         }
     }
