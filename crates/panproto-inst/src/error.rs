@@ -4,7 +4,8 @@ use std::fmt;
 
 use panproto_gat::Name;
 
-use crate::ginstance::EdgeId;
+use crate::fan_violation::FanViolation;
+use crate::ginstance::{EdgeId, NotTreeReason};
 use crate::value::ValueFidelityError;
 
 /// Errors from instance construction or manipulation.
@@ -83,14 +84,12 @@ pub enum InstError {
     #[error("no node id is free above the largest in use")]
     NodeIdsExhausted,
 
-    /// A graph instance is not a tree rooted at the requested node, so it has
-    /// no tree form.
-    #[error("not a tree at node {node}: {detail}")]
+    /// A graph instance is not a tree (rooted at the requested node, where
+    /// one is requested), so it has no tree form.
+    #[error("not a tree: {reason}")]
     NotATree {
-        /// The node where the tree shape fails.
-        node: u32,
-        /// What fails there.
-        detail: String,
+        /// Why the graph is not a tree.
+        reason: NotTreeReason,
     },
 
     /// A foreign-key pair names a row its table does not have.
@@ -107,6 +106,17 @@ pub enum InstError {
     /// A node-link document does not have the node-link shape.
     #[error("malformed node-link document: {0}")]
     NodeLink(String),
+
+    /// A graph instance holds reserved fan vocabulary outside a well-formed
+    /// fan: a node of the fan shape, or the source of an edge of a reserved
+    /// fan kind, that is not a well-formed fan node.
+    #[error("node {node} is not a well-formed fan: {reason}")]
+    MalformedFan {
+        /// The offending node.
+        node: u32,
+        /// The condition it breaks.
+        reason: FanViolation,
+    },
 }
 
 /// Errors from the restrict operation.

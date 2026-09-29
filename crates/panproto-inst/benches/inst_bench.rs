@@ -497,3 +497,177 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
 
     bencher.bench(|| functor_extend(&inst, &compiled));
 }
+
+// ---------------------------------------------------------------------------
+// Graph instances
+// ---------------------------------------------------------------------------
+
+fn link() -> Edge {
+    make_edge("item", "item", "link")
+}
+
+/// A graph of `n` nodes and no edges.
+fn graph_nodes(n: u32) -> panproto_inst::GInstance {
+    let mut graph = panproto_inst::GInstance::new();
+    for id in 0..n {
+        graph
+            .insert_node(Node::new(id, "item"))
+            .expect("each id is fresh");
+    }
+    graph
+}
+
+/// A chain of `n` nodes, each with one value and one extra field, under
+/// fresh edge ids.
+fn graph_chain(n: u32) -> panproto_inst::GInstance {
+    let mut graph = panproto_inst::GInstance::new();
+    for id in 0..n {
+        let mut node = Node::new(id, "item");
+        node.value = Some(FieldPresence::Present(Value::Int(i64::from(id))));
+        node.extra_fields
+            .insert("label".into(), Value::Str(format!("n{id}")));
+        graph.insert_node(node).expect("each id is fresh");
+    }
+    for id in 1..n {
+        graph
+            .add_edge(id - 1, id, link())
+            .expect("both endpoints exist");
+    }
+    graph
+}
+
+/// A tree of `n` nodes with no fans: node `i > 0` hangs under `i / 2`.
+fn fanless_tree(n: u32) -> WInstance {
+    let nodes: HashMap<u32, Node> = (0..n).map(|id| (id, Node::new(id, "item"))).collect();
+    let arcs = (1..n).map(|id| (id / 2, id, link())).collect();
+    WInstance::new(nodes, arcs, vec![], 0, "item".into())
+}
+
+/// Adding `n` edges one at a time. Each allocation must cost O(1), so the
+/// loop is linear in `n`.
+#[divan::bench(args = [1_000, 4_000, 16_000])]
+fn add_edge_in_a_loop(bencher: Bencher, n: u32) {
+    bencher
+        .with_inputs(|| graph_nodes(n))
+        .bench_local_values(|mut graph| {
+            for id in 0..n {
+                graph
+                    .add_edge(id, (id + 1) % n, link())
+                    .expect("both endpoints exist");
+            }
+            graph
+        });
+}
+
+/// Encoding a graph as `MessagePack`, which serializes by reference.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn encode_graph_msgpack(bencher: Bencher, n: u32) {
+    let graph = graph_chain(n);
+    bencher.bench_local(|| rmp_serde::to_vec(divan::black_box(&graph)).expect("encodes"));
+}
+
+/// Reifying no fans into a graph taken by value: the graph is checked for
+/// reserved vocabulary and handed back without a copy. The graph each
+/// iteration consumes is cloned outside the timed region.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn reify_without_fans(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|g| panproto_inst::reify_fans_owned(g, &[], None).expect("reifies"));
+}
+
+/// Reifying no fans into a graph taken by reference: the returned graph is
+/// the one copy a by-reference call must make.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn reify_without_fans_by_reference(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher.bench_local(|| {
+        panproto_inst::reify_fans(divan::black_box(&graph), &[], None).expect("reifies")
+    });
+}
+
+/// Unreifying a graph with no fan nodes, taken by value: the graph is
+/// checked against the fan domain and handed back without a copy.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn unreify_without_fans(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|g| panproto_inst::unreify_fans_owned(g).expect("unreifies"));
+}
+
+/// Unreifying a graph with no fan nodes, taken by reference: the returned
+/// rest is the one copy a by-reference call must make.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn unreify_without_fans_by_reference(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .bench_local(|| panproto_inst::unreify_fans(divan::black_box(&graph)).expect("unreifies"));
+}
+
+/// The graph form of a tree with no fans: nothing is reified, so the graph
+/// is built once and not copied.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn tree_to_graph_without_fans(bencher: Bencher, n: u32) {
+    let tree = fanless_tree(n);
+    bencher.bench_local(|| {
+        panproto_inst::GInstance::from_wtype(divan::black_box(&tree)).expect("a tree embeds")
+    });
+}
+
+/// The tree form of a graph with no fan nodes: the graph is read in place,
+/// without being copied first.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn graph_to_tree_without_fans(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher.bench_local(|| divan::black_box(&graph).to_wtype(0).expect("a tree"));
+}
+
+/// Deciding the tree shape of a tree-shaped graph, over growing inputs: the
+/// time grows linearly with the number of nodes and edges.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn tree_shape_linear(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    let schema = Schema::default();
+    bencher.bench_local(|| divan::black_box(&graph).tree_shape(&schema));
+}
+
+/// Alternately removing the edge with the largest id and adding an edge,
+/// `n` times, over a chain of `n` nodes. Each step must cost at most a
+/// logarithm of the edge count, so the loop is near linear in `n`.
+#[divan::bench(args = [2_000, 8_000, 32_000], sample_count = 10)]
+fn add_edge_after_removing_the_largest(bencher: Bencher, n: u32) {
+    let graph = graph_chain(n);
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|mut graph| {
+            let mut largest = graph.max_edge_id().expect("the chain has edges");
+            for _ in 0..n {
+                let edge = graph.remove_edge(largest).expect("the edge exists");
+                largest = graph
+                    .add_edge(edge.src, edge.tgt, edge.edge)
+                    .expect("both endpoints exist");
+            }
+            graph
+        });
+}
+
+/// The graph form of a tree with one fan per node but the root: each fan's
+/// targets are checked in constant time, so the time grows linearly with
+/// the number of fans.
+#[divan::bench(args = [8_000, 32_000, 128_000], sample_count = 10)]
+fn tree_to_graph_with_fans(bencher: Bencher, n: u32) {
+    let mut tree = fanless_tree(n);
+    tree.fans = (1..n)
+        .map(|id| panproto_inst::Fan {
+            hyper_edge_id: "rel".into(),
+            parent: id / 2,
+            children: HashMap::from([("arg".to_owned(), id)]),
+        })
+        .collect();
+    bencher.bench_local(|| {
+        panproto_inst::GInstance::from_wtype_embedded(divan::black_box(&tree), None)
+            .expect("a tree embeds")
+    });
+}
