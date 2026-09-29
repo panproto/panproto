@@ -3070,4 +3070,38 @@ mod tests {
             }
         }
     }
+
+    /// A signature that no rule admits: `id : (x : Ob) -> Cell(x, x)` where
+    /// `Cell` takes two `Mor`s, and `mk : (o : Ob) -> V(o)` where `V` takes
+    /// no parameters.
+    #[test]
+    fn typecheck_rejects_ill_typed_signatures() {
+        let bad = Theory::new(
+            "Bad",
+            vec![
+                Sort::simple("Ob"),
+                Sort::simple("Mor"),
+                Sort::simple("V"),
+                Sort::dependent(
+                    "Cell",
+                    vec![SortParam::new("f", "Mor"), SortParam::new("g", "Mor")],
+                ),
+            ],
+            vec![
+                Operation::new(
+                    "id",
+                    vec![(Arc::from("x"), SortExpr::from("Ob"))],
+                    SortExpr::app("Cell", vec![Term::var("x"), Term::var("x")]),
+                ),
+                Operation::new(
+                    "mk",
+                    vec![(Arc::from("o"), SortExpr::from("Ob"))],
+                    SortExpr::app("V", vec![Term::var("o")]),
+                ),
+            ],
+            vec![],
+        );
+        let result = typecheck_theory(&bad);
+        assert!(result.is_err(), "ill-typed signature accepted: {result:?}");
+    }
 }

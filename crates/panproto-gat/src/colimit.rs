@@ -2037,6 +2037,183 @@ mod tests {
             .expect("the pushout cocone commutes");
     }
 
+    // --- failing-first cases for the composition defects ---
+
+    /// A morphism that only maps sorts.
+    fn sort_leg(name: &str, dom: &str, cod: &str, sorts: &[(&str, &str)]) -> TheoryMorphism {
+        TheoryMorphism::new(
+            name,
+            dom,
+            cod,
+            sorts
+                .iter()
+                .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+                .collect(),
+            HashMap::<Arc<str>, Arc<str>>::new(),
+        )
+    }
+
+    /// A span whose legs identify `X` and `Y` in one leg and keep them apart
+    /// in the other is a quotient: the pushout identifies `A` with `B`. The
+    /// result must not depend on which leg is passed first.
+    #[test]
+    fn non_injective_leg_builds_the_quotient_in_either_argument_order() {
+        let u1 = Theory::new("U1", vec![Sort::simple("V")], vec![], vec![]);
+        let u2 = Theory::new(
+            "U2",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![],
+            vec![],
+        );
+        let j1 = sort_leg("j1", "S2", "U1", &[("X", "V"), ("Y", "V")]);
+        let j2 = sort_leg("j2", "S2", "U2", &[("X", "A"), ("Y", "B")]);
+        let forward = colimit(&u1, &u2, &j1, &j2).expect("non-injective first leg");
+        let backward = colimit(&u2, &u1, &j2, &j1).expect("non-injective second leg");
+        assert_eq!(forward.theory.sorts.len(), 1, "{:?}", forward.theory.sorts);
+        assert_eq!(backward.theory.sorts.len(), 1, "{:?}", backward.theory.sorts);
+    }
+
+    /// Identifying a simple sort with a dependent one collapses sorts of
+    /// different arity; the pushout must refuse it rather than return a
+    /// theory whose inclusion is not a morphism.
+    #[test]
+    fn collapsing_sorts_of_different_arity_is_a_typed_obstruction() {
+        let (w1, w2, k1, k2) = arity_collapsing_span();
+        let result = colimit(&w1, &w2, &k1, &k2);
+        assert!(result.is_err(), "collapse accepted: {result:?}");
+    }
+
+    /// The span of the arity-collapse case: `X` and `Y` both go to `V` on the
+    /// left, and to the simple `A` and the dependent `B(o : Ob)` on the right.
+    fn arity_collapsing_span() -> (Theory, Theory, TheoryMorphism, TheoryMorphism) {
+        let w2 = Theory::new(
+            "W2",
+            vec![
+                Sort::simple("Ob"),
+                Sort::simple("A"),
+                Sort::dependent("B", vec![SortParam::new("o", "Ob")]),
+            ],
+            vec![Operation::new(
+                "mk",
+                vec![(Arc::from("o"), crate::sort::SortExpr::from("Ob"))],
+                crate::sort::SortExpr::app("B", vec![Term::var("o")]),
+            )],
+            vec![],
+        );
+        let w1 = Theory::new(
+            "W1",
+            vec![Sort::simple("Ob"), Sort::simple("V")],
+            vec![],
+            vec![],
+        );
+        let k1 = sort_leg("k1", "S3", "W1", &[("Ob", "Ob"), ("X", "V"), ("Y", "V")]);
+        let k2 = sort_leg("k2", "S3", "W2", &[("Ob", "Ob"), ("X", "A"), ("Y", "B")]);
+        (w1, w2, k1, k2)
+    }
+
+    /// Whatever a colimit returns must be well typed: its inclusions are
+    /// morphisms and its signature passes the typechecker.
+    #[test]
+    fn colimit_output_signatures_typecheck() {
+        let (w1, w2, k1, k2) = arity_collapsing_span();
+        if let Ok(result) = colimit(&w1, &w2, &k1, &k2) {
+            crate::typecheck::typecheck_theory(&result.theory).expect("pushout typechecks");
+            check_morphism(&result.inclusion1, &w1, &result.theory).expect("j1 is a morphism");
+            check_morphism(&result.inclusion2, &w2, &result.theory).expect("j2 is a morphism");
+        }
+    }
+
+    /// A leg that sends a shared operation to a derived term is a valid
+    /// morphism; the pushout identifies the operation with the term by
+    /// adding the equation `e() = inv(u())`.
+    #[test]
+    fn derived_term_leg_adds_the_identifying_equation() {
+        let sp = Theory::new(
+            "SP",
+            vec![Sort::simple("A")],
+            vec![Operation::nullary("e", "A")],
+            vec![],
+        );
+        let tp1 = Theory::new(
+            "TP1",
+            vec![Sort::simple("A")],
+            vec![Operation::nullary("e", "A")],
+            vec![],
+        );
+        let tp2 = Theory::new(
+            "TP2",
+            vec![Sort::simple("A")],
+            vec![
+                Operation::nullary("u", "A"),
+                Operation::unary("inv", "x", "A", "A"),
+            ],
+            vec![],
+        );
+        let ip1 = TheoryMorphism::new(
+            "ip1",
+            "SP",
+            "TP1",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(Arc::from("e"), Arc::from("e"))]),
+        );
+        let ip2 = TheoryMorphism::new(
+            "ip2",
+            "SP",
+            "TP2",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(
+                Arc::from("e"),
+                crate::morphism::OpAssignment::Term(Term::app(
+                    "inv",
+                    vec![Term::constant("u")],
+                )),
+            )]),
+        );
+        check_morphism(&ip2, &sp, &tp2).expect("the derived-term leg is a morphism");
+        let result = colimit(&tp1, &tp2, &ip1, &ip2).expect("derived-term span composes");
+        let expected = (
+            Term::constant("e"),
+            Term::app("inv", vec![Term::constant("u")]),
+        );
+        assert!(
+            result
+                .theory
+                .eqs
+                .iter()
+                .any(|eq| eq.lhs == expected.0 && eq.rhs == expected.1),
+            "missing e() = inv(u()): {:?}",
+            result.theory.eqs,
+        );
+    }
+
+    /// A shared operation typed `A -> B` in the apex and `B -> A` in one
+    /// side makes that leg ill typed; the pushout must reject the span.
+    #[test]
+    fn ill_typed_leg_is_rejected_before_composition() {
+        let l = Theory::new(
+            "L",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![Operation::unary("f", "x", "A", "B")],
+            vec![],
+        );
+        let rt = Theory::new(
+            "Rt",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![Operation::unary("f", "x", "B", "A")],
+            vec![],
+        );
+        let sh = Theory::new(
+            "ShF",
+            vec![Sort::simple("A"), Sort::simple("B")],
+            vec![Operation::unary("f", "x", "A", "B")],
+            vec![],
+        );
+        let result = pushout_by_name(&l, &rt, &sh);
+        assert!(result.is_err(), "ill-typed leg accepted: {result:?}");
+        let by_name = colimit_by_name(&l, &rt, &sh);
+        assert!(by_name.is_err(), "ill-typed leg accepted: {by_name:?}");
+    }
+
     /// Every operation name applied anywhere inside a term.
     fn referenced_ops(term: &Term) -> Vec<Arc<str>> {
         let mut names = Vec::new();

@@ -937,4 +937,67 @@ mod tests {
             quotiented.ops,
         );
     }
+
+    /// `Hom(a : Ob, b : Ob)` and `Cell(f : Mor, g : Mor)`, with an optional
+    /// `id : (x : Ob) -> Hom(x, x)`.
+    fn hom_and_cell(with_id: bool) -> Theory {
+        let ops = if with_id {
+            vec![Operation::new(
+                "id",
+                vec![(Arc::from("x"), crate::sort::SortExpr::from("Ob"))],
+                crate::sort::SortExpr::app("Hom", vec![Term::var("x"), Term::var("x")]),
+            )]
+        } else {
+            Vec::new()
+        };
+        Theory::new(
+            "Q",
+            vec![
+                Sort::simple("Ob"),
+                Sort::simple("Mor"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+                Sort::dependent(
+                    "Cell",
+                    vec![SortParam::new("f", "Mor"), SortParam::new("g", "Mor")],
+                ),
+            ],
+            ops,
+            Vec::new(),
+        )
+    }
+
+    /// `Hom` and `Cell` have the same arity but parameters of different
+    /// sorts, so identifying them is not a well-typed quotient.
+    #[test]
+    fn identifying_dependent_sorts_with_different_parameter_sorts_is_rejected() {
+        for with_id in [false, true] {
+            let result = quotient(&hom_and_cell(with_id), &[("Hom".into(), "Cell".into())]);
+            assert!(
+                matches!(result, Err(GatError::QuotientIncompatible { .. })),
+                "with_id={with_id}: {result:?}",
+            );
+        }
+    }
+
+    /// Whatever `quotient` returns passes the typechecker.
+    #[test]
+    fn quotient_output_signatures_typecheck() {
+        for with_id in [false, true] {
+            if let Ok(q) = quotient(&hom_and_cell(with_id), &[("Hom".into(), "Cell".into())]) {
+                let checked = crate::typecheck::typecheck_theory(&q);
+                assert!(checked.is_ok(), "with_id={with_id}: {checked:?}");
+                let has_ill_typed_output = q.ops.iter().any(|op| {
+                    op.output.args().iter().any(|arg| {
+                        matches!(arg, Term::Var(v) if op.inputs.iter().any(|(n, s, _)| n == v && s.head().as_ref() == "Ob"))
+                    }) && q
+                        .find_sort(op.output.head())
+                        .is_some_and(|s| s.params.iter().any(|p| p.sort.head().as_ref() == "Mor"))
+                });
+                assert!(!has_ill_typed_output, "with_id={with_id}: {:?}", q.ops);
+            }
+        }
+    }
 }
