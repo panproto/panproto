@@ -632,3 +632,42 @@ fn tree_shape_linear(bencher: Bencher, n: u32) {
     let schema = Schema::default();
     bencher.bench_local(|| divan::black_box(&graph).tree_shape(&schema));
 }
+
+/// Alternately removing the edge with the largest id and adding an edge,
+/// `n` times, over a chain of `n` nodes. Each step must cost at most a
+/// logarithm of the edge count, so the loop is near linear in `n`.
+#[divan::bench(args = [2_000, 8_000, 32_000], sample_count = 10)]
+fn add_edge_after_removing_the_largest(bencher: Bencher, n: u32) {
+    let graph = graph_chain(n);
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|mut graph| {
+            let mut largest = graph.max_edge_id().expect("the chain has edges");
+            for _ in 0..n {
+                let edge = graph.remove_edge(largest).expect("the edge exists");
+                largest = graph
+                    .add_edge(edge.src, edge.tgt, edge.edge)
+                    .expect("both endpoints exist");
+            }
+            graph
+        });
+}
+
+/// The graph form of a tree with one fan per node but the root: each fan's
+/// targets are checked in constant time, so the time grows linearly with
+/// the number of fans.
+#[divan::bench(args = [8_000, 32_000, 128_000], sample_count = 10)]
+fn tree_to_graph_with_fans(bencher: Bencher, n: u32) {
+    let mut tree = fanless_tree(n);
+    tree.fans = (1..n)
+        .map(|id| panproto_inst::Fan {
+            hyper_edge_id: "rel".into(),
+            parent: id / 2,
+            children: HashMap::from([("arg".to_owned(), id)]),
+        })
+        .collect();
+    bencher.bench_local(|| {
+        panproto_inst::GInstance::from_wtype_embedded(divan::black_box(&tree), None)
+            .expect("a tree embeds")
+    });
+}

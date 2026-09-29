@@ -396,14 +396,12 @@ fn tree_parts(graph: &GInstance, schema: &Schema) -> Result<TreeParts, NotTreeRe
     })
 }
 
-/// The schema root a tree read out of a graph is given: the first entry
-/// vertex `schema` declares, or the root node's anchor when it declares none.
-fn schema_root_for(graph: &GInstance, root: u32, schema: &Schema) -> Name {
-    schema.entries.first().cloned().unwrap_or_else(|| {
-        graph
-            .node(root)
-            .map_or_else(|| Name::from(""), |n| n.anchor.clone())
-    })
+/// The schema root a tree read out of a graph is given: the vertex its root
+/// node is anchored at, which is what [`WInstance::schema_root`] names.
+fn schema_root_for(graph: &GInstance, root: u32) -> Name {
+    graph
+        .node(root)
+        .map_or_else(|| Name::from(""), |n| n.anchor.clone())
 }
 
 /// Read the tree rooted at `root` out of a checked graph: the tree nodes the
@@ -501,12 +499,14 @@ impl GInstance {
     /// order; fans come in ascending fan-node id. The embedding records each
     /// arc's and each fan's graph ids, with `next_node` and `next_edge` one
     /// above the graph's largest node and edge ids. The tree's schema root is
-    /// the first entry vertex `schema` declares, or the root's anchor.
+    /// the root node's anchor, the vertex [`WInstance::schema_root`] names.
     ///
     /// For every tree `t` that [`Self::from_wtype_embedded`] accepts under
-    /// `schema`, this returns `t` from `t`'s graph form when `schema`'s first
-    /// entry vertex is `t`'s schema root, or `schema` declares none and the
-    /// root's anchor is.
+    /// `schema` and whose schema root is its root node's anchor, this returns
+    /// `t` from `t`'s graph form, whichever entry vertices `schema` declares.
+    /// A tree whose schema root names another vertex comes back with only
+    /// its schema root changed, to the root's anchor, since the graph holds
+    /// no other.
     ///
     /// # Errors
     ///
@@ -529,7 +529,7 @@ impl GInstance {
             self,
             &parts.fans,
             *root,
-            schema_root_for(self, *root, schema),
+            schema_root_for(self, *root),
             &|_| true,
             true,
         );
@@ -567,7 +567,7 @@ impl GInstance {
                     self,
                     &parts.fans,
                     root,
-                    schema_root_for(self, root, schema),
+                    schema_root_for(self, root),
                     &keep,
                     false,
                 )

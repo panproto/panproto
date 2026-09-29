@@ -87,9 +87,12 @@ fn arb_tree() -> impl Strategy<Value = WInstance> {
                 ),
                 0..4,
             );
-            (Just(ids), nodes, parents, fans, any::<bool>(), "[a-z]{1,4}")
+            (Just(ids), nodes, parents, fans, any::<bool>())
         })
-        .prop_flat_map(|(ids, nodes, parents, fans, repeat, schema_root)| {
+        .prop_flat_map(|(ids, nodes, parents, fans, repeat)| {
+            // The schema root is the vertex the root node is anchored at, the
+            // invariant `WInstance::schema_root` documents.
+            let schema_root = nodes[0].anchor.clone();
             let arcs: Vec<(u32, u32, Edge)> = parents
                 .iter()
                 .zip(1usize..)
@@ -125,7 +128,7 @@ fn arb_tree() -> impl Strategy<Value = WInstance> {
         })
         .prop_map(|(nodes, arcs, fans, root, schema_root)| {
             let nodes: HashMap<u32, Node> = nodes.into_iter().map(|n| (n.id, n)).collect();
-            WInstance::new(nodes, arcs, fans, root, Name::from(schema_root.as_str()))
+            WInstance::new(nodes, arcs, fans, root, schema_root)
         })
 }
 
@@ -280,8 +283,16 @@ proptest! {
     }
 
     #[test]
-    fn a_tree_round_trips_through_its_embedded_graph(tree in arb_tree()) {
-        let schema = entry_schema(&tree.schema_root);
+    fn a_tree_round_trips_through_its_embedded_graph(
+        tree in arb_tree(),
+        entries in prop::collection::vec(prop::sample::select(vec!["doc", "para", "rel", "other"]), 0..3),
+    ) {
+        // Obligation (1) holds under every schema, whichever entry vertices
+        // it declares and in whatever order.
+        let schema = Schema {
+            entries: entries.into_iter().map(Name::from).collect(),
+            ..Schema::default()
+        };
         let (graph, embedding) = GInstance::from_wtype_embedded(&tree, Some(&schema))
             .expect("a valid tree always embeds");
         let (back, read) = graph.to_wtype_embedded(&schema).expect("the graph form is a tree");
@@ -292,13 +303,23 @@ proptest! {
     }
 
     #[test]
-    fn a_tree_named_by_its_root_round_trips_under_a_schema_without_entries(tree in arb_tree()) {
-        let mut tree = tree;
-        tree.schema_root = tree.nodes[&tree.root].anchor.clone();
-        let schema = Schema::default();
-        let (graph, embedding) = GInstance::from_wtype_embedded(&tree, Some(&schema))
+    fn a_tree_misnaming_its_schema_root_comes_back_named_by_its_root_anchor(
+        tree in arb_tree(),
+        misnamed in "[a-z]{1,4}",
+    ) {
+        // A tree breaking the documented invariant loses only its schema
+        // root, which the graph does not hold: it comes back as the root's
+        // anchor, and everything else comes back as it was.
+        let mut odd = tree.clone();
+        odd.schema_root = Name::from(misnamed.as_str());
+        let schema = Schema {
+            entries: vec![Name::from(misnamed.as_str())],
+            ..Schema::default()
+        };
+        let (graph, embedding) = GInstance::from_wtype_embedded(&odd, Some(&schema))
             .expect("a valid tree always embeds");
         let (back, read) = graph.to_wtype_embedded(&schema).expect("the graph form is a tree");
+        prop_assert_eq!(&back.schema_root, &tree.nodes[&tree.root].anchor);
         prop_assert_eq!(tree_bytes(&back), tree_bytes(&tree));
         prop_assert_eq!(&read, &embedding);
     }
@@ -671,4 +692,33 @@ fn a_sequence_of_every_edit_kind_keeps_the_embedding() {
         .collect();
     assert!(ids.windows(2).all(|w| w[0] < w[1]), "{ids:?}");
     assert!(is_well_formed(&tree));
+}
+
+#[test]
+fn a_fan_naming_an_earlier_fan_node_is_dangling() {
+    // The first fan's node takes id 2; a later fan naming node 2 names no
+    // tree node, and the set of fan nodes added so far refuses it.
+    let nodes = HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "para"))]);
+    let arc = Edge {
+        src: "doc".into(),
+        tgt: "para".into(),
+        kind: "prop".into(),
+        name: None,
+    };
+    let fan = |label: &str, child: u32| Fan {
+        hyper_edge_id: "rel".into(),
+        parent: 0,
+        children: HashMap::from([(label.to_owned(), child)]),
+    };
+    let tree = WInstance::new(
+        nodes,
+        vec![(0, 1, arc)],
+        vec![fan("x", 1), fan("y", 2)],
+        0,
+        "doc".into(),
+    );
+    assert!(matches!(
+        GInstance::from_wtype_embedded(&tree, None),
+        Err(InstError::DanglingEdge { endpoint: 2, .. })
+    ));
 }

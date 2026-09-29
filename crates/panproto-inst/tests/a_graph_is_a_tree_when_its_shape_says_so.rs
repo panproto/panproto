@@ -193,8 +193,8 @@ fn not_tree_reasons_serialize_externally_tagged() {
 
 #[test]
 fn tree_shape_prefers_the_schema_root() {
-    // Two trees; the one anchored at the entry vertex is listed first, and a
-    // tree read out takes the first entry vertex as its schema root.
+    // Two trees; the one anchored at the entry vertex is listed first, and
+    // every tree read out takes its root's anchor as its schema root.
     let forest = GInstance::new()
         .with_node(Node::new(0, "note"))
         .with_node(Node::new(1, "doc"))
@@ -213,6 +213,7 @@ fn tree_shape_prefers_the_schema_root() {
     assert_eq!((trees[0].root, trees[1].root), (1, 0));
     assert_eq!(trees[0].arcs.len(), 1);
     assert_eq!(trees[0].schema_root, "doc");
+    assert_eq!(trees[1].schema_root, "note", "each tree names its own root");
 
     let tree = GInstance::new()
         .with_node(Node::new(0, "doc"))
@@ -221,7 +222,10 @@ fn tree_shape_prefers_the_schema_root() {
     let with_entry = tree
         .try_to_wtype(&entry_schema(&["entry"]))
         .expect("a tree");
-    assert_eq!(with_entry.schema_root, "entry");
+    assert_eq!(
+        with_entry.schema_root, "doc",
+        "the root's anchor, not the schema's first entry"
+    );
     let without = tree.try_to_wtype(&schema()).expect("a tree");
     assert_eq!(
         without.schema_root, "doc",
@@ -574,15 +578,34 @@ fn every_tree_read_out_refuses_a_fan_that_carries_data() {
 }
 
 #[test]
-fn a_tree_read_out_takes_its_schema_root_from_the_schema_or_the_root() {
-    // The graph does not hold a tree's schema root, so reading the tree back
-    // takes it from the schema's first entry vertex or, with none, from the
-    // root's anchor.
-    let nodes = HashMap::from([(0, Node::new(0, "item")), (1, Node::new(1, "item"))]);
+fn a_tree_read_out_takes_its_schema_root_from_its_root_anchor() {
+    // A tree's schema root is the vertex its root is anchored at, which the
+    // graph holds on the root node, so every schema reads the same tree back.
+    let nodes = HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "item"))]);
     let tree = panproto_inst::WInstance::new(nodes, vec![(0, 1, link())], vec![], 0, "doc".into());
     let (graph, _) = GInstance::from_wtype_embedded(&tree, None).expect("embeds");
-    let under = |s: &Schema| graph.to_wtype_embedded(s).expect("a tree").0.schema_root;
-    assert_eq!(under(&entry_schema(&["doc"])), Name::from("doc"));
-    assert_eq!(under(&entry_schema(&["other", "doc"])), Name::from("other"));
-    assert_eq!(under(&schema()), Name::from("item"));
+    let bytes = |t: &panproto_inst::WInstance| rmp_serde::to_vec(t).expect("a tree encodes");
+    let under = |s: &Schema| graph.to_wtype_embedded(s).expect("a tree").0;
+    for entries in [&["doc"][..], &["other", "doc"], &["other"], &[]] {
+        let back = under(&entry_schema(entries));
+        assert_eq!(back.schema_root, "doc", "entries {entries:?}");
+        assert_eq!(bytes(&back), bytes(&tree), "entries {entries:?}");
+    }
+}
+
+#[test]
+fn each_tree_of_a_forest_takes_its_own_root_anchor_as_schema_root() {
+    let forest = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "b"))
+        .with_node(Node::new(2, "item"))
+        .with_edge(1, 2, link());
+    let trees = forest
+        .to_wtypes(&entry_schema(&["a", "b"]))
+        .expect("a forest");
+    let named: Vec<(u32, Name)> = trees
+        .iter()
+        .map(|t| (t.root, t.schema_root.clone()))
+        .collect();
+    assert_eq!(named, vec![(0, Name::from("a")), (1, Name::from("b"))]);
 }

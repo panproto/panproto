@@ -24,7 +24,7 @@
 //! vocabulary, and [`unreify_fans`] takes them out of a graph in
 //! [`FanDomain`]; see [`unreify_fans`] for the laws relating the two.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
@@ -308,7 +308,7 @@ pub(super) fn reify_into(
     nodes: &mut IdAllocator,
     edges: &mut IdAllocator,
 ) -> Result<(GInstance, Vec<FanIds>), InstError> {
-    let mut added: Vec<u32> = Vec::with_capacity(fans.len());
+    let mut added: HashSet<u32> = HashSet::with_capacity(fans.len());
     let mut ids = Vec::with_capacity(fans.len());
     for fan in fans {
         let fan_id = nodes.allocate().map_err(|e| e.whole_state(IdKind::Node))?;
@@ -325,7 +325,7 @@ pub(super) fn reify_into(
             },
             &|target| target != fan_id && !added.contains(&target),
         )?;
-        added.push(fan_id);
+        added.insert(fan_id);
         ids.push(fan_ids);
     }
     Ok((graph, ids))

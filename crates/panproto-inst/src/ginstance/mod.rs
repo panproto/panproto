@@ -35,7 +35,7 @@ mod reify;
 mod table_embed;
 mod tree_shape;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
 use panproto_schema::{Edge, Schema};
@@ -146,13 +146,11 @@ pub struct GInstance {
     /// In-edges of each node, ascending.
     in_index: HashMap<u32, Vec<EdgeId>>,
     /// The edge id allocator. Its floor is one above the largest edge id in
-    /// use (0 for none) unless `edge_floor_stale` is set.
+    /// use, 0 for none.
     edge_ids: IdAllocator,
-    /// Set once the edge with the largest id is removed: the floor may then
-    /// lie above the largest id left, and is recomputed before the next
-    /// allocation, so that what `add_edge` returns depends on the edges
-    /// present alone.
-    edge_floor_stale: bool,
+    /// The edge ids in use, ascending, so that removing the edge with the
+    /// largest id finds the next largest without a scan.
+    edge_order: BTreeSet<u32>,
 }
 
 /// Writes the struct `GInstanceWire { nodes, edges }`, both maps in ascending
@@ -284,7 +282,7 @@ impl TryFrom<GInstanceWireEntries> for GInstance {
             out_index: HashMap::new(),
             in_index: HashMap::new(),
             edge_ids: IdAllocator::new(IdRange::FULL),
-            edge_floor_stale: false,
+            edge_order: BTreeSet::new(),
         };
         let mut edges = wire.edges;
         edges.sort_unstable_by_key(|(id, _)| *id);
@@ -348,7 +346,7 @@ impl GInstance {
             out_index: HashMap::new(),
             in_index: HashMap::new(),
             edge_ids: IdAllocator::new(IdRange::FULL),
-            edge_floor_stale: false,
+            edge_order: BTreeSet::new(),
         }
     }
 
@@ -510,7 +508,7 @@ impl GInstance {
     /// The largest edge id in use.
     #[must_use]
     pub fn max_edge_id(&self) -> Option<EdgeId> {
-        self.edges.keys().copied().max()
+        self.edge_order.last().copied().map(EdgeId)
     }
 
     // -----------------------------------------------------------------------
@@ -575,18 +573,9 @@ impl GInstance {
         index_insert(&mut self.out_index, edge.src, id);
         index_insert(&mut self.in_index, edge.tgt, id);
         self.edges.insert(id, edge);
+        self.edge_order.insert(id.0);
         self.edge_ids.observe(id.0);
         Ok(())
-    }
-
-    /// The edge allocator, its floor first brought back to one above the
-    /// largest edge id in use when the edge that held it was removed.
-    fn edge_allocator(&mut self) -> &mut IdAllocator {
-        if self.edge_floor_stale {
-            self.edge_ids = IdAllocator::from_source(IdRange::FULL, self.edges.keys().map(|e| e.0));
-            self.edge_floor_stale = false;
-        }
-        &mut self.edge_ids
     }
 
     /// Add an edge under a fresh id and return the id.
@@ -595,8 +584,9 @@ impl GInstance {
     /// none, so it depends on the edges present alone: two instances that
     /// compare equal allocate the same id, whatever edges each once held.
     /// The id comes from an [`IdAllocator`] over the whole id space, so a
-    /// loop of calls takes constant time per call; removing the edge with the
-    /// largest id costs one scan of the edge ids at the next call.
+    /// loop of calls takes constant time per call beyond recording the id;
+    /// removing the edge with the largest id brings the floor down to the
+    /// next largest in logarithmic time, without a scan.
     ///
     /// # Errors
     ///
@@ -605,12 +595,12 @@ impl GInstance {
     pub fn add_edge(&mut self, src: u32, tgt: u32, edge: Edge) -> Result<EdgeId, InstError> {
         for endpoint in [src, tgt] {
             if !self.nodes.contains_key(&endpoint) {
-                let id = EdgeId(self.edge_allocator().floor().unwrap_or(u32::MAX));
+                let id = EdgeId(self.edge_ids.floor().unwrap_or(u32::MAX));
                 return Err(InstError::DanglingEdge { edge: id, endpoint });
             }
         }
         let id = EdgeId(
-            self.edge_allocator()
+            self.edge_ids
                 .allocate()
                 .map_err(|e| e.whole_state(IdKind::Edge))?,
         );
@@ -625,8 +615,10 @@ impl GInstance {
     /// Returns [`InstError::EdgeNotFound`] if there is no such edge.
     pub fn remove_edge(&mut self, id: EdgeId) -> Result<GEdge, InstError> {
         let edge = self.edges.remove(&id).ok_or(InstError::EdgeNotFound(id))?;
+        self.edge_order.remove(&id.0);
         if self.edge_ids.floor() == id.0.checked_add(1) {
-            self.edge_floor_stale = true;
+            self.edge_ids =
+                IdAllocator::from_source(IdRange::FULL, self.edge_order.last().copied());
         }
         index_remove(&mut self.out_index, edge.src, id);
         index_remove(&mut self.in_index, edge.tgt, id);
@@ -907,6 +899,7 @@ fn carry_edges(instance: &GInstance, migration: &CompiledMigration, result: &mut
         index_insert(&mut result.out_index, edge.src, id);
         index_insert(&mut result.in_index, edge.tgt, id);
         result.edge_ids.observe(id.0);
+        result.edge_order.insert(id.0);
         result.edges.insert(
             id,
             GEdge {
@@ -1023,6 +1016,37 @@ mod tests {
             })
         ));
         assert_eq!(c.add_edge(0, 1, knows()).unwrap(), EdgeId(1));
+    }
+
+    #[test]
+    fn removing_the_largest_edges_one_after_another_lowers_the_floor_each_time() {
+        // The floor follows the largest id left down across gaps, and a
+        // restricted copy keeps the ids it carried in order.
+        let mut g = people(2)
+            .with_edge_id(EdgeId(0), 0, 1, knows())
+            .with_edge_id(EdgeId(5), 1, 0, knows())
+            .with_edge_id(EdgeId(9), 0, 0, knows());
+        g.remove_edge(EdgeId(9)).unwrap();
+        assert_eq!(g.max_edge_id(), Some(EdgeId(5)));
+        assert_eq!(g.add_edge(1, 1, knows()).unwrap(), EdgeId(6));
+        g.remove_edge(EdgeId(6)).unwrap();
+        g.remove_edge(EdgeId(5)).unwrap();
+        assert_eq!(g.max_edge_id(), Some(EdgeId(0)));
+        assert_eq!(g.add_edge(1, 1, knows()).unwrap(), EdgeId(1));
+        g.remove_edge(EdgeId(1)).unwrap();
+        g.remove_edge(EdgeId(0)).unwrap();
+        assert_eq!(g.max_edge_id(), None);
+        assert_eq!(g.add_edge(1, 1, knows()).unwrap(), EdgeId(0));
+
+        let h = people(2)
+            .with_edge_id(EdgeId(3), 0, 1, knows())
+            .with_edge_id(EdgeId(8), 1, 0, knows());
+        let schema = empty_schema();
+        let mut restricted = graph_restrict(&h, &schema, &schema, &migration(&["person"], &[]))
+            .expect("graph_restrict should succeed");
+        restricted.remove_edge(EdgeId(8)).unwrap();
+        assert_eq!(restricted.max_edge_id(), Some(EdgeId(3)));
+        assert_eq!(restricted.add_edge(0, 0, knows()).unwrap(), EdgeId(4));
     }
 
     #[test]
