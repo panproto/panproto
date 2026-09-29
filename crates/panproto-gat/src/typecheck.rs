@@ -1383,7 +1383,7 @@ impl SignatureDefect {
     /// The sort this defect reports as undeclared, when it is an
     /// [`SignatureDefect::UndeclaredSort`].
     #[must_use]
-    pub fn undeclared_sort(&self) -> Option<&Arc<str>> {
+    pub const fn undeclared_sort(&self) -> Option<&Arc<str>> {
         match self {
             Self::UndeclaredSort { sort, .. } => Some(sort),
             _ => None,
@@ -1417,7 +1417,10 @@ impl std::fmt::Display for SignatureDefect {
                 "{site}: argument {index} of `{sort}` should have sort {expected}, has {found}"
             ),
             Self::UnboundParamVar { site, var } => {
-                write!(f, "{site}: variable `{var}` is not bound by an earlier parameter")
+                write!(
+                    f,
+                    "{site}: variable `{var}` is not bound by an earlier parameter"
+                )
             }
             Self::DuplicateSymbol { kind, name } => {
                 write!(f, "{kind} `{name}` is declared more than once")
@@ -1525,7 +1528,11 @@ fn duplicate_symbols(theory: &Theory) -> Vec<SignatureDefect> {
         }
     }
     let mut out = Vec::new();
-    dups(SymKind::Sort, theory.sorts.iter().map(|s| &s.name), &mut out);
+    dups(
+        SymKind::Sort,
+        theory.sorts.iter().map(|s| &s.name),
+        &mut out,
+    );
     dups(SymKind::Op, theory.ops.iter().map(|o| &o.name), &mut out);
     dups(SymKind::Eq, theory.eqs.iter().map(|e| &e.name), &mut out);
     dups(
@@ -1659,7 +1666,7 @@ pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
 
 /// Everything [`typecheck_theory`] checks after the signature: implicit
 /// inferrability, closed sorts, and every equation.
-pub(crate) fn typecheck_theory_body(theory: &Theory) -> Result<(), GatError> {
+pub fn typecheck_theory_body(theory: &Theory) -> Result<(), GatError> {
     for op in &theory.ops {
         check_implicits_inferrable(op)?;
     }
@@ -3446,12 +3453,22 @@ mod tests {
     /// `target : Constraint -> Vertex` and `th_simple_graph`'s
     /// `src, tgt : Edge -> Vertex` use a dependent sort unapplied.
     fn building_blocks() -> Vec<Theory> {
+        let mut blocks = schema_blocks();
+        blocks.extend(instance_blocks());
+        blocks
+    }
+
+    /// The schema-side building blocks.
+    fn schema_blocks() -> Vec<Theory> {
         let unary = Operation::unary;
         vec![
             Theory::new(
                 "ThGraph",
                 vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-                vec![unary("src", "e", "Edge", "Vertex"), unary("tgt", "e", "Edge", "Vertex")],
+                vec![
+                    unary("src", "e", "Edge", "Vertex"),
+                    unary("tgt", "e", "Edge", "Vertex"),
+                ],
                 vec![],
             ),
             Theory::new(
@@ -3465,41 +3482,58 @@ mod tests {
             ),
             Theory::new(
                 "ThMulti",
-                vec![Sort::simple("Vertex"), Sort::simple("Edge"), Sort::simple("EdgeLabel")],
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::simple("Edge"),
+                    Sort::simple("EdgeLabel"),
+                ],
                 vec![unary("edge_label", "e", "Edge", "EdgeLabel")],
                 vec![],
             ),
-            Theory::new(
-                "ThWType",
-                vec![
-                    Sort::simple("Node"),
-                    Sort::simple("Arc"),
-                    Sort::simple("Value"),
-                    Sort::simple("Vertex"),
-                    Sort::simple("Edge"),
-                ],
-                vec![
-                    unary("anchor", "n", "Node", "Vertex"),
-                    unary("arc_src", "a", "Arc", "Node"),
-                    unary("arc_tgt", "a", "Arc", "Node"),
-                    unary("arc_edge", "a", "Arc", "Edge"),
-                    unary("node_value", "n", "Node", "Value"),
-                    unary("src", "e", "Edge", "Vertex"),
-                    unary("tgt", "e", "Edge", "Vertex"),
-                ],
-                vec![
-                    Equation::new(
-                        "arc_src_anchor",
-                        Term::app("anchor", vec![Term::app("arc_src", vec![Term::var("a")])]),
-                        Term::app("src", vec![Term::app("arc_edge", vec![Term::var("a")])]),
-                    ),
-                    Equation::new(
-                        "arc_tgt_anchor",
-                        Term::app("anchor", vec![Term::app("arc_tgt", vec![Term::var("a")])]),
-                        Term::app("tgt", vec![Term::app("arc_edge", vec![Term::var("a")])]),
-                    ),
-                ],
-            ),
+        ]
+    }
+
+    /// `ThWType`, with its two arc-anchor coherence axioms.
+    fn wtype_block() -> Theory {
+        let unary = Operation::unary;
+        Theory::new(
+            "ThWType",
+            vec![
+                Sort::simple("Node"),
+                Sort::simple("Arc"),
+                Sort::simple("Value"),
+                Sort::simple("Vertex"),
+                Sort::simple("Edge"),
+            ],
+            vec![
+                unary("anchor", "n", "Node", "Vertex"),
+                unary("arc_src", "a", "Arc", "Node"),
+                unary("arc_tgt", "a", "Arc", "Node"),
+                unary("arc_edge", "a", "Arc", "Edge"),
+                unary("node_value", "n", "Node", "Value"),
+                unary("src", "e", "Edge", "Vertex"),
+                unary("tgt", "e", "Edge", "Vertex"),
+            ],
+            vec![
+                Equation::new(
+                    "arc_src_anchor",
+                    Term::app("anchor", vec![Term::app("arc_src", vec![Term::var("a")])]),
+                    Term::app("src", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+                ),
+                Equation::new(
+                    "arc_tgt_anchor",
+                    Term::app("anchor", vec![Term::app("arc_tgt", vec![Term::var("a")])]),
+                    Term::app("tgt", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+                ),
+            ],
+        )
+    }
+
+    /// The instance-side building blocks and the remaining schema ones.
+    fn instance_blocks() -> Vec<Theory> {
+        let unary = Operation::unary;
+        vec![
+            wtype_block(),
             Theory::new(
                 "ThMeta",
                 vec![
@@ -3512,7 +3546,10 @@ mod tests {
                     unary("discriminator", "n", "Node", "Discriminator"),
                     Operation::new(
                         "extra_field",
-                        vec![("n".into(), "Node".into()), ("key".into(), "ExtraField".into())],
+                        vec![
+                            ("n".into(), "Node".into()),
+                            ("key".into(), "ExtraField".into()),
+                        ],
                         "Value",
                     ),
                 ],
@@ -3527,16 +3564,26 @@ mod tests {
                         vec![SortParam::new("s", "Vertex"), SortParam::new("t", "Vertex")],
                     ),
                 ],
-                vec![unary("src", "e", "Edge", "Vertex"), unary("tgt", "e", "Edge", "Vertex")],
+                vec![
+                    unary("src", "e", "Edge", "Vertex"),
+                    unary("tgt", "e", "Edge", "Vertex"),
+                ],
                 vec![],
             ),
             Theory::new(
                 "ThHypergraph",
-                vec![Sort::simple("Vertex"), Sort::simple("HyperEdge"), Sort::simple("Label")],
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::simple("HyperEdge"),
+                    Sort::simple("Label"),
+                ],
                 vec![
                     Operation::new(
                         "incident",
-                        vec![("he".into(), "HyperEdge".into()), ("l".into(), "Label".into())],
+                        vec![
+                            ("he".into(), "HyperEdge".into()),
+                            ("l".into(), "Label".into()),
+                        ],
                         "Vertex",
                     ),
                     unary("parent_label", "he", "HyperEdge", "Label"),
@@ -3548,7 +3595,10 @@ mod tests {
                 vec![Sort::simple("Vertex"), Sort::simple("Interface")],
                 vec![Operation::new(
                     "implements",
-                    vec![("v".into(), "Vertex".into()), ("i".into(), "Interface".into())],
+                    vec![
+                        ("v".into(), "Vertex".into()),
+                        ("i".into(), "Interface".into()),
+                    ],
                     "Vertex",
                 )],
                 vec![],
@@ -3638,6 +3688,18 @@ mod tests {
             ]
         );
 
+        rejects_undeclared_unbound_and_duplicate_symbols();
+        for block in building_blocks() {
+            typecheck_signature(&block).map_err(|d| format!("{} rejected: {d:?}", block.name))?;
+            typecheck_theory(&block)?;
+        }
+        Ok(())
+    }
+
+    /// One negative per remaining defect: an undeclared sort, a parameter
+    /// sort declared only through a cycle, an unbound variable, and a
+    /// duplicate name.
+    fn rejects_undeclared_unbound_and_duplicate_symbols() {
         // Undeclared sort, and a parameter sort only declared through a cycle.
         let undeclared = Theory::new(
             "U",
@@ -3653,15 +3715,24 @@ mod tests {
             defects,
             vec![
                 SignatureDefect::UndeclaredSort {
-                    site: SignatureSite::SortParam { sort: "P".into(), index: 0 },
+                    site: SignatureSite::SortParam {
+                        sort: "P".into(),
+                        index: 0
+                    },
                     sort: "Q".into(),
                 },
                 SignatureDefect::UndeclaredSort {
-                    site: SignatureSite::SortParam { sort: "Q".into(), index: 0 },
+                    site: SignatureSite::SortParam {
+                        sort: "Q".into(),
+                        index: 0
+                    },
                     sort: "P".into(),
                 },
                 SignatureDefect::UndeclaredSort {
-                    site: SignatureSite::OpInput { op: "f".into(), index: 0 },
+                    site: SignatureSite::OpInput {
+                        op: "f".into(),
+                        index: 0
+                    },
                     sort: "Missing".into(),
                 },
             ]
@@ -3673,7 +3744,10 @@ mod tests {
             vec![
                 Sort::simple("Ob"),
                 Sort::simple("Ob"),
-                Sort::dependent("Hom", vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")]),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
             ],
             vec![Operation::new(
                 "loop",
@@ -3696,13 +3770,6 @@ mod tests {
                 },
             ]
         );
-
-        for block in building_blocks() {
-            typecheck_signature(&block)
-                .map_err(|d| format!("{} rejected: {d:?}", block.name))?;
-            typecheck_theory(&block)?;
-        }
-        Ok(())
     }
 
     /// Every [`SignatureDefect`] and [`SignatureSite`] variant serializes
@@ -3710,8 +3777,14 @@ mod tests {
     #[test]
     fn signature_defect_round_trips_every_variant() -> Result<(), serde_json::Error> {
         let sites = [
-            SignatureSite::SortParam { sort: "S".into(), index: 1 },
-            SignatureSite::OpInput { op: "f".into(), index: 0 },
+            SignatureSite::SortParam {
+                sort: "S".into(),
+                index: 1,
+            },
+            SignatureSite::OpInput {
+                op: "f".into(),
+                index: 0,
+            },
             SignatureSite::OpOutput { op: "f".into() },
         ];
         let site_tags = ["sort_param", "op_input", "op_output"];
@@ -3720,9 +3793,15 @@ mod tests {
             assert!(json.get(tag).is_some(), "{json}");
             assert_eq!(&serde_json::from_value::<SignatureSite>(json)?, site);
         }
-        let site = sites[2].clone();
+        defects_round_trip(sites[2].clone())
+    }
+
+    fn defects_round_trip(site: SignatureSite) -> Result<(), serde_json::Error> {
         let defects = [
-            SignatureDefect::UndeclaredSort { site: site.clone(), sort: "V".into() },
+            SignatureDefect::UndeclaredSort {
+                site: site.clone(),
+                sort: "V".into(),
+            },
             SignatureDefect::SortArity {
                 site: site.clone(),
                 sort: "V".into(),
@@ -3736,8 +3815,14 @@ mod tests {
                 expected: "Mor".into(),
                 found: "Ob".into(),
             },
-            SignatureDefect::UnboundParamVar { site, var: "y".into() },
-            SignatureDefect::DuplicateSymbol { kind: SymKind::Op, name: "f".into() },
+            SignatureDefect::UnboundParamVar {
+                site,
+                var: "y".into(),
+            },
+            SignatureDefect::DuplicateSymbol {
+                kind: SymKind::Op,
+                name: "f".into(),
+            },
         ];
         let tags = [
             "undeclared_sort",

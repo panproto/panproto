@@ -18,30 +18,25 @@ use crate::theory::Theory;
 /// quotients key it by name; diagram composition keys it by symbol kind
 /// and node-qualified symbol.
 #[derive(Debug, Clone, Default)]
-pub(crate) struct UnionFind<K: Ord + Clone> {
+pub struct UnionFind<K: Ord + Clone> {
     parent: BTreeMap<K, K>,
 }
 
 impl<K: Ord + Clone> UnionFind<K> {
     /// An empty union-find.
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             parent: BTreeMap::new(),
         }
     }
 
     /// Ensure `key` is present, as a singleton class if it is new.
-    pub(crate) fn insert(&mut self, key: K) {
+    pub fn insert(&mut self, key: K) {
         self.parent.entry(key.clone()).or_insert(key);
     }
 
-    /// Whether `key` is present.
-    pub(crate) fn contains(&self, key: &K) -> bool {
-        self.parent.contains_key(key)
-    }
-
     /// The representative of `key`'s class, inserting `key` if it is new.
-    pub(crate) fn find(&mut self, key: &K) -> K {
+    pub fn find(&mut self, key: &K) -> K {
         self.insert(key.clone());
         let mut root = key.clone();
         while let Some(p) = self.parent.get(&root) {
@@ -52,7 +47,11 @@ impl<K: Ord + Clone> UnionFind<K> {
         }
         let mut cursor = key.clone();
         while cursor != root {
-            let next = self.parent.get(&cursor).cloned().unwrap_or_else(|| root.clone());
+            let next = self
+                .parent
+                .get(&cursor)
+                .cloned()
+                .unwrap_or_else(|| root.clone());
             self.parent.insert(cursor, root.clone());
             cursor = next;
         }
@@ -61,7 +60,7 @@ impl<K: Ord + Clone> UnionFind<K> {
 
     /// Merge the classes of `a` and `b`; the least of the two
     /// representatives represents the merged class.
-    pub(crate) fn union(&mut self, a: &K, b: &K) {
+    pub fn union(&mut self, a: &K, b: &K) {
         let ra = self.find(a);
         let rb = self.find(b);
         match ra.cmp(&rb) {
@@ -76,13 +75,13 @@ impl<K: Ord + Clone> UnionFind<K> {
     }
 
     /// Whether `a` and `b` are in one class.
-    pub(crate) fn same(&mut self, a: &K, b: &K) -> bool {
+    pub fn same(&mut self, a: &K, b: &K) -> bool {
         self.find(a) == self.find(b)
     }
 
     /// Every key whose representative differs from itself, mapped to that
     /// representative.
-    pub(crate) fn rename_map(&mut self) -> BTreeMap<K, K> {
+    pub fn rename_map(&mut self) -> BTreeMap<K, K> {
         let keys: Vec<K> = self.parent.keys().cloned().collect();
         let mut map = BTreeMap::new();
         for k in keys {
@@ -96,7 +95,7 @@ impl<K: Ord + Clone> UnionFind<K> {
 
     /// Every class, keyed by its representative, with its members in
     /// ascending order.
-    pub(crate) fn classes(&mut self) -> BTreeMap<K, Vec<K>> {
+    pub fn classes(&mut self) -> BTreeMap<K, Vec<K>> {
         let keys: Vec<K> = self.parent.keys().cloned().collect();
         let mut classes: BTreeMap<K, Vec<K>> = BTreeMap::new();
         for k in keys {

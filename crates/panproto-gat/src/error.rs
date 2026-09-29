@@ -584,26 +584,9 @@ pub enum GatError {
         detail: String,
     },
 
-    /// A colimit inclusion leg induces a non-injective rename: two shared
-    /// elements are identified with the same element in one input theory
-    /// while their images in the other input theory differ. The pushout
-    /// rejects this rather than choosing one image, since the underlying
-    /// span is not the disjoint identification the construction assumes.
-    #[error(
-        "non-injective colimit leg on {kind} `{shared_image}`: it is the shared image of two elements mapped to the distinct targets `{first}` and `{second}`"
-    )]
-    NonInjectiveIdentification {
-        /// Whether this is a `sort` or an `op`.
-        kind: &'static str,
-        /// The element in the second theory that both shared elements
-        /// map onto.
-        shared_image: String,
-        /// One of the two conflicting first-theory targets, ordered
-        /// deterministically with `second` so the message is stable.
-        first: String,
-        /// The other conflicting first-theory target.
-        second: String,
-    },
+    /// A composition of theories was refused.
+    #[error("composition failed: {0}")]
+    Composition(Box<crate::compose::CompositionError>),
 
     /// Model equation checking enumerated more variable assignments for a
     /// single equation than the configured per-equation bound allows, so
