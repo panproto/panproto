@@ -146,10 +146,10 @@ impl Serialize for GInstance {
         let readable = serializer.is_human_readable();
         let mut wire = serializer.serialize_struct("GInstanceWire", 2)?;
         if readable {
-            let nodes: BTreeMap<u32, serde_json::Value> = self
+            let nodes: BTreeMap<u32, nodelink::MarkedNode<'_>> = self
                 .nodes
                 .iter()
-                .map(|(id, node)| (*id, nodelink::node_json(node)))
+                .map(|(id, node)| (*id, nodelink::MarkedNode::new(node)))
                 .collect();
             wire.serialize_field("nodes", &nodes)?;
         } else {

@@ -16,17 +16,21 @@
 //! and read back as that float. Every other value writes a number under
 //! `"Float"`, so the strings cannot be mistaken for anything else.
 
+use std::collections::{BTreeMap, HashMap};
+
+use panproto_gat::Name;
 use panproto_schema::Edge;
+use serde::ser::{SerializeSeq as _, SerializeStructVariant as _, Serializer};
 use serde::{Deserialize, Serialize};
 
 use super::{EdgeId, GEdge, GInstance};
 use crate::error::InstError;
-use crate::metadata::Node;
+use crate::metadata::{Node, NodeShape};
 use crate::value::{FieldPresence, Value};
 
 #[derive(Serialize)]
 struct NodeLinkRef<'a> {
-    nodes: Vec<serde_json::Value>,
+    nodes: Vec<MarkedNode<'a>>,
     edges: Vec<EdgeRef<'a>>,
 }
 
@@ -78,34 +82,12 @@ pub fn to_node_link_json(graph: &GInstance) -> serde_json::Value {
             position: e.position,
         })
         .collect();
-    let nodes = nodes.into_iter().map(node_json).collect();
+    let nodes = nodes.into_iter().map(MarkedNode::new).collect();
     match serde_json::to_value(NodeLinkRef { nodes, edges }) {
         Ok(value) => value,
-        // The nodes are JSON already and every edge field is a plain datum.
+        // Every map in a graph is keyed by `String` and every other field is
+        // a plain datum, which is exactly what `serde_json::Value` can hold.
         Err(err) => unreachable!("a graph instance always has a JSON form: {err}"),
-    }
-}
-
-/// Pair each value a node holds with its place in the node's JSON form.
-fn for_each_value_mut(
-    node: &Node,
-    json: &mut serde_json::Value,
-    mut visit: impl FnMut(&Value, &mut serde_json::Value),
-) {
-    if let Some(FieldPresence::Present(value)) = &node.value
-        && let Some(slot) = json.get_mut("value").and_then(|v| v.get_mut("Present"))
-    {
-        visit(value, slot);
-    }
-    for (field, map) in [
-        ("extra_fields", &node.extra_fields),
-        ("annotations", &node.annotations),
-    ] {
-        for (key, value) in map {
-            if let Some(slot) = json.get_mut(field).and_then(|m| m.get_mut(key)) {
-                visit(value, slot);
-            }
-        }
     }
 }
 
@@ -127,49 +109,6 @@ fn non_finite_value(name: &str) -> Option<f64> {
         "Infinity" => Some(f64::INFINITY),
         "-Infinity" => Some(f64::NEG_INFINITY),
         _ => None,
-    }
-}
-
-/// Rewrite each non-finite float inside `value`'s JSON form as its string.
-fn mark_non_finite(value: &Value, json: &mut serde_json::Value) {
-    match value {
-        Value::Float(x) if !x.is_finite() => {
-            *json = serde_json::json!({ "Float": non_finite_name(*x) });
-        }
-        Value::List(items) => {
-            if let Some(slots) = json
-                .get_mut("List")
-                .and_then(serde_json::Value::as_array_mut)
-            {
-                for (item, slot) in items.iter().zip(slots) {
-                    mark_non_finite(item, slot);
-                }
-            }
-        }
-        Value::Unknown(fields) => {
-            let slots = json.get_mut("Unknown");
-            mark_fields(fields, slots);
-        }
-        Value::Opaque { fields, .. } => {
-            let slots = json.get_mut("Opaque").and_then(|o| o.get_mut("fields"));
-            mark_fields(fields, slots);
-        }
-        _ => {}
-    }
-}
-
-/// [`mark_non_finite`] over the fields of a record value.
-fn mark_fields(
-    fields: &std::collections::HashMap<String, Value>,
-    slots: Option<&mut serde_json::Value>,
-) {
-    let Some(slots) = slots else {
-        return;
-    };
-    for (key, value) in fields {
-        if let Some(slot) = slots.get_mut(key) {
-            mark_non_finite(value, slot);
-        }
     }
 }
 
@@ -298,22 +237,129 @@ fn restore_fields(
     }
 }
 
-/// The JSON form of a node, each non-finite float written as its string.
+/// A node written as [`Node`] writes itself, except that each non-finite
+/// float is written as its string.
 ///
 /// This is the node's form in node-link JSON and in the human-readable
-/// encoding of a [`GInstance`].
-pub(super) fn node_json(node: &Node) -> serde_json::Value {
-    let mut json = match serde_json::to_value(node) {
-        Ok(value) => value,
-        // Every map in a node is keyed by `String` and every other field is a
-        // plain datum, which is exactly what `serde_json::Value` can hold.
-        Err(err) => unreachable!("a node always has a JSON form: {err}"),
-    };
-    for_each_value_mut(node, &mut json, mark_non_finite);
-    json
+/// encoding of a [`GInstance`]. It writes straight to the serializer, fields
+/// in declaration order, and never builds a `serde_json::Value`, whose
+/// object order would depend on whether `serde_json`'s `preserve_order`
+/// feature is part of the build.
+#[derive(Serialize)]
+#[serde(rename = "Node")]
+pub(super) struct MarkedNode<'a> {
+    id: u32,
+    anchor: &'a Name,
+    value: Option<MarkedPresence<'a>>,
+    discriminator: &'a Option<Name>,
+    extra_fields: MarkedMap<'a>,
+    position: Option<u32>,
+    shape: &'a NodeShape,
+    annotations: MarkedMap<'a>,
 }
 
-/// Decode one node from the JSON form [`node_json`] writes.
+impl<'a> MarkedNode<'a> {
+    /// The marked form of `node`.
+    pub(super) fn new(node: &'a Node) -> Self {
+        // Destructured without `..` so that a field added to `Node` fails to
+        // compile here rather than going missing from the JSON form.
+        let Node {
+            id,
+            anchor,
+            value,
+            discriminator,
+            extra_fields,
+            position,
+            shape,
+            annotations,
+        } = node;
+        Self {
+            id: *id,
+            anchor,
+            value: value.as_ref().map(MarkedPresence),
+            discriminator,
+            extra_fields: MarkedMap(extra_fields),
+            position: *position,
+            shape,
+            annotations: MarkedMap(annotations),
+        }
+    }
+}
+
+/// A [`FieldPresence`] written as it writes itself, its value marked.
+struct MarkedPresence<'a>(&'a FieldPresence);
+
+impl Serialize for MarkedPresence<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        match self.0 {
+            FieldPresence::Present(value) => serializer.serialize_newtype_variant(
+                "FieldPresence",
+                0,
+                "Present",
+                &MarkedValue(value),
+            ),
+            other => other.serialize(serializer),
+        }
+    }
+}
+
+/// A map of values written in key order, each value marked.
+struct MarkedMap<'a>(&'a HashMap<String, Value>);
+
+impl Serialize for MarkedMap<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let sorted: BTreeMap<&str, MarkedValue<'_>> = self
+            .0
+            .iter()
+            .map(|(key, value)| (key.as_str(), MarkedValue(value)))
+            .collect();
+        sorted.serialize(serializer)
+    }
+}
+
+/// A [`Value`] written as it writes itself, except that a non-finite float
+/// is written as its string.
+struct MarkedValue<'a>(&'a Value);
+
+impl Serialize for MarkedValue<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        // Variant indices are the declaration indices of `Value`, which the
+        // derived implementation writes.
+        match self.0 {
+            Value::Float(x) if !x.is_finite() => {
+                serializer.serialize_newtype_variant("Value", 2, "Float", non_finite_name(*x))
+            }
+            Value::Opaque { type_, fields } => {
+                let mut variant = serializer.serialize_struct_variant("Value", 9, "Opaque", 2)?;
+                variant.serialize_field("type_", type_)?;
+                variant.serialize_field("fields", &MarkedMap(fields))?;
+                variant.end()
+            }
+            Value::Unknown(fields) => {
+                serializer.serialize_newtype_variant("Value", 10, "Unknown", &MarkedMap(fields))
+            }
+            Value::List(items) => {
+                serializer.serialize_newtype_variant("Value", 11, "List", &MarkedList(items))
+            }
+            other => other.serialize(serializer),
+        }
+    }
+}
+
+/// A list of values, each marked.
+struct MarkedList<'a>(&'a [Value]);
+
+impl Serialize for MarkedList<'_> {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let mut seq = serializer.serialize_seq(Some(self.0.len()))?;
+        for item in self.0 {
+            seq.serialize_element(&MarkedValue(item))?;
+        }
+        seq.end()
+    }
+}
+
+/// Decode one node from the JSON form [`MarkedNode`] writes.
 ///
 /// A node holding no non-finite float decodes directly. One that holds some
 /// fails that first attempt, since a string stands where a number belongs; it
