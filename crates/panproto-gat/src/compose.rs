@@ -1073,7 +1073,8 @@ pub enum CompositionError {
     /// In [`CompositionMode::ExplicitIdentity`] with [`ClashPolicy::Reject`],
     /// distinct classes would get the same name; or, under either clash
     /// policy, a sort name some node uses without declaring is declared in
-    /// several classes, which the use cannot choose between.
+    /// several classes of the relation the edges generate, which the use
+    /// would identify.
     NameClash {
         /// Their kind.
         kind: SymKind,
@@ -1250,10 +1251,12 @@ impl NodeInfo<'_> {
 ///    declare, and when none does it stays a free name of the result,
 ///    joined by name with the other nodes' uses of it. Outside
 ///    [`CompositionMode::Amalgamate`] those declarations must lie in one
-///    class of the relation the edges generate, or the use must already be
-///    related to one of them; a use that would join several classes, and
-///    so identify declarations no morphism relates, is
-///    [`CompositionError::NameClash`] under either clash policy.
+///    class of the relation the edges generate; a name whose declarations
+///    lie in several classes would identify declarations no morphism
+///    relates, and is [`CompositionError::NameClash`] under either clash
+///    policy. Every join is decided against the edge classes and all of
+///    them are applied together, so the outcome depends neither on the
+///    order in which names are visited nor on how sorts are named.
 /// 3. The edges identify each sort with its image and each operation with
 ///    the operation it is renamed to; in [`CompositionMode::Amalgamate`],
 ///    same-kind symbols with the same name are identified as well.
@@ -1802,18 +1805,23 @@ fn validate_edges(
 /// declarations of that name, or, when no node declares it, to every other
 /// undeclared use of it.
 ///
+/// Every join is decided against the classes of the relation the edges
+/// generate, before any join is applied, and the joins are then added to
+/// the union-find together as one closure. So the result depends neither on
+/// the order in which names are visited nor on how sorts are named: a join
+/// made for one name never changes what is decided for another.
+///
 /// In [`CompositionMode::Amalgamate`] a use joins every same-name
-/// declaration, which the name rule identifies anyway. Otherwise the
-/// declarations may lie in several classes of the relation the edges
-/// generate; a use already related to one of them keeps that class, a use
-/// that is not joins the one class when there is one, and when there are
-/// several it could only join them all, identifying declarations no
-/// morphism relates, so the composition is refused.
+/// declaration, which the name rule identifies anyway. Otherwise a name
+/// whose declarations lie in one edge class has its uses joined to that
+/// class; a name whose declarations lie in several edge classes could only
+/// join them all, identifying declarations no morphism relates, so the
+/// composition is refused.
 ///
 /// # Errors
 ///
-/// [`CompositionError::NameClash`] listing the classes of the same-name
-/// declarations, when a use would have to choose between two of them.
+/// [`CompositionError::NameClash`] for the first such name in ascending
+/// byte order, listing the edge classes of its declarations.
 fn join_implicit_sorts(
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     uf: &mut UnionFind<Key>,
@@ -1835,48 +1843,41 @@ fn join_implicit_sorts(
             ));
         }
     }
-    for (name, users) in implicit {
+    let edge_classes = uf.classes();
+    let class_of: BTreeMap<&Key, &Key> = edge_classes
+        .iter()
+        .flat_map(|(rep, members)| members.iter().map(move |m| (m, rep)))
+        .collect();
+    let mut joins: Vec<(&Key, &Key)> = Vec::new();
+    for (name, users) in &implicit {
         let Some(decls) = declared.get(name) else {
-            for pair in users.windows(2) {
-                uf.union(&pair[0], &pair[1]);
-            }
+            joins.extend(users.windows(2).map(|pair| (&pair[0], &pair[1])));
             continue;
         };
-        if mode == CompositionMode::Amalgamate {
-            for user in &users {
-                for decl in decls {
-                    uf.union(user, decl);
-                }
-            }
-            continue;
+        let reps: BTreeSet<&Key> = decls.iter().map(|d| class_of[d]).collect();
+        if mode != CompositionMode::Amalgamate && reps.len() > 1 {
+            let mut classes: Vec<Vec<SymRef>> = reps
+                .iter()
+                .map(|rep| {
+                    let mut class: Vec<SymRef> =
+                        edge_classes[*rep].iter().map(|(_, s)| s.clone()).collect();
+                    class.sort();
+                    class
+                })
+                .collect();
+            classes.sort();
+            return Err(CompositionError::NameClash {
+                kind: SymKind::Sort,
+                name: Arc::clone(name),
+                classes,
+            });
         }
-        for user in &users {
-            let reps: BTreeSet<Key> = decls.iter().map(|d| uf.find(d)).collect();
-            if reps.contains(&uf.find(user)) {
-                continue;
-            }
-            match reps.first() {
-                Some(rep) if reps.len() == 1 => uf.union(user, rep),
-                Some(_) => {
-                    let mut classes: Vec<Vec<SymRef>> = uf
-                        .classes()
-                        .into_iter()
-                        .filter(|(rep, _)| reps.contains(rep))
-                        .map(|(_, members)| members.into_iter().map(|(_, s)| s).collect())
-                        .collect();
-                    for class in &mut classes {
-                        class.sort();
-                    }
-                    classes.sort();
-                    return Err(CompositionError::NameClash {
-                        kind: SymKind::Sort,
-                        name: Arc::clone(name),
-                        classes,
-                    });
-                }
-                None => {}
-            }
+        for user in users {
+            joins.extend(decls.iter().map(|decl| (user, decl)));
         }
+    }
+    for (a, b) in joins {
+        uf.union(a, b);
     }
     Ok(())
 }
@@ -4420,6 +4421,60 @@ mod tests {
         Ok(())
     }
 
+    /// Five nodes: `b` declares `u` and `c` declares `w`, related by
+    /// `b -> c`; `a` uses `u` without declaring it and `y` declares `w`,
+    /// related by `a -> y`; `e` uses `w` without declaring it.
+    fn undeclared_order_diagram(u: &str) -> TheoryDiagram {
+        let node = |label: &str, theory: Theory| DiagramNode {
+            label: label.into(),
+            theory,
+        };
+        let edge = |src: &str, tgt: &str, morphism: TheoryMorphism| DiagramEdge {
+            src: src.into(),
+            tgt: tgt.into(),
+            morphism,
+        };
+        TheoryDiagram {
+            nodes: vec![
+                node("a", th("A", &[], &[("f", &[], u)], vec![])),
+                node("b", th("B", &[u], &[], vec![])),
+                node("c", th("C", &["w"], &[], vec![])),
+                node("e", th("E", &[], &[("h", &[], "w")], vec![])),
+                node("y", th("Y", &["w"], &[("g", &[], "w")], vec![])),
+            ],
+            edges: vec![
+                edge("b", "c", leg("B", "C", &[(u, "w")], &[])),
+                edge("a", "y", leg("A", "Y", &[(u, "w")], &[("f", "g")])),
+            ],
+        }
+    }
+
+    #[test]
+    fn undeclared_sort_joins_do_not_depend_on_name_order() -> TestResult {
+        // `e`'s `w` meets declarations in two edge classes, whichever name
+        // sorts first: `U` sorts before `w` and `zz` after it.
+        for u in ["U", "zz"] {
+            let clash = CompositionError::NameClash {
+                kind: SymKind::Sort,
+                name: "w".into(),
+                classes: vec![
+                    vec![sym("a", u), sym("y", "w")],
+                    vec![sym("b", u), sym("c", "w")],
+                ],
+            };
+            for policy in [ClashPolicy::Reject, ClashPolicy::Freshen] {
+                assert_eq!(
+                    refused(compose(&undeclared_order_diagram(u), &explicit(policy)))?,
+                    clash,
+                    "{u} {policy:?}"
+                );
+            }
+            let amalgamated = compose(&undeclared_order_diagram(u), &amalgamate())?;
+            assert_eq!(names(&amalgamated.theory.sorts, |s| &s.name), ["w"]);
+        }
+        Ok(())
+    }
+
     #[test]
     fn decoding_a_composition_report_with_a_wrong_status_is_rejected() -> TestResult {
         let c = compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?;
@@ -5510,6 +5565,203 @@ mod tests {
             TestCaseError::fail(e.to_string())
         }
 
+        /// The sort names of an open diagram.
+        const POOL: [&str; 4] = ["p", "q", "r", "s"];
+
+        /// A diagram whose nodes may use sorts they do not declare.
+        #[derive(Clone, Debug)]
+        struct OpenSpec {
+            /// Per node, which pool sorts it declares and the output sorts
+            /// (pool indices) of its constants.
+            nodes: Vec<(Vec<bool>, Vec<usize>)>,
+            /// Edges `(from, to, choices)`: the endpoints are reduced modulo
+            /// the node count and ordered upwards, and `choices[k]` picks the
+            /// image of the source's `k`-th sort symbol.
+            edges: Vec<(usize, usize, Vec<usize>)>,
+        }
+
+        fn arb_open_spec() -> impl Strategy<Value = OpenSpec> {
+            let node = (
+                prop::collection::vec(any::<bool>(), POOL.len()),
+                prop::collection::vec(0..POOL.len(), 0..=2),
+            );
+            let edge = (
+                0..5usize,
+                0..5usize,
+                prop::collection::vec(0..8usize, POOL.len()),
+            );
+            (
+                prop::collection::vec(node, 2..=5),
+                prop::collection::vec(edge, 0..=5),
+            )
+                .prop_map(|(nodes, edges)| OpenSpec { nodes, edges })
+        }
+
+        /// Build the open diagram with every sort name `POOL[k]` written
+        /// `POOL[rename[k]]`. Each edge copies its source's constants into
+        /// its target, so every leg is a morphism: a declared sort goes to a
+        /// declared sort, an undeclared one to any pool sort, which the
+        /// copied constant then uses.
+        fn build_open(spec: &OpenSpec, rename: &[usize]) -> TheoryDiagram {
+            let n = spec.nodes.len();
+            let name = |k: usize| POOL[rename[k]].to_owned();
+            let mut declared: Vec<Vec<usize>> = spec
+                .nodes
+                .iter()
+                .map(|(d, _)| (0..POOL.len()).filter(|k| d[*k]).collect())
+                .collect();
+            let mut ops: Vec<Vec<(String, usize)>> = spec
+                .nodes
+                .iter()
+                .map(|(_, outs)| {
+                    outs.iter()
+                        .enumerate()
+                        .map(|(i, k)| (format!("c{i}"), *k))
+                        .collect()
+                })
+                .collect();
+            let mut edges: Vec<(usize, usize, &Vec<usize>)> = spec
+                .edges
+                .iter()
+                .filter_map(|(a, b, choices)| {
+                    let (a, b) = (a % n, b % n);
+                    (a != b).then(|| (a.min(b), a.max(b), choices))
+                })
+                .collect();
+            edges.sort_by_key(|(src, _, _)| *src);
+            let mut built: Vec<OpenLeg> = Vec::new();
+            for (index, (src, tgt, choices)) in edges.into_iter().enumerate() {
+                let mut symbols: Vec<usize> = declared[src].clone();
+                for (_, k) in &ops[src] {
+                    if !symbols.contains(k) {
+                        symbols.push(*k);
+                    }
+                }
+                if let (Some(first), true) =
+                    (declared[src].first().copied(), declared[tgt].is_empty())
+                {
+                    declared[tgt].push(first);
+                }
+                let image = |at: usize, k: usize| {
+                    let choice = choices[at];
+                    if declared[src].contains(&k) {
+                        declared[tgt][choice % declared[tgt].len()]
+                    } else {
+                        choice % POOL.len()
+                    }
+                };
+                let sort_map: HashMap<Arc<str>, Arc<str>> = symbols
+                    .iter()
+                    .enumerate()
+                    .map(|(at, k)| (Arc::from(name(*k)), Arc::from(name(image(at, *k)))))
+                    .collect();
+                let images: HashMap<usize, usize> = symbols
+                    .iter()
+                    .enumerate()
+                    .map(|(at, k)| (*k, image(at, *k)))
+                    .collect();
+                let copies: Vec<(String, String, usize)> = ops[src]
+                    .iter()
+                    .map(|(o, k)| (o.clone(), format!("e{index}_{o}"), images[k]))
+                    .collect();
+                let op_map: HashMap<Arc<str>, Arc<str>> = copies
+                    .iter()
+                    .map(|(o, copy, _)| (Arc::from(o.as_str()), Arc::from(copy.as_str())))
+                    .collect();
+                ops[tgt].extend(copies.into_iter().map(|(_, copy, k)| (copy, k)));
+                built.push((src, tgt, sort_map, op_map));
+            }
+            assemble_open(&declared, &ops, built, &name)
+        }
+
+        /// One leg of an open diagram: its endpoints, sort map and operation map.
+        type OpenLeg = (
+            usize,
+            usize,
+            HashMap<Arc<str>, Arc<str>>,
+            HashMap<Arc<str>, Arc<str>>,
+        );
+
+        /// The nodes `n{i}` (theories `T{i}`) and legs of an open diagram.
+        fn assemble_open(
+            declared: &[Vec<usize>],
+            ops: &[Vec<(String, usize)>],
+            legs: Vec<OpenLeg>,
+            name: &dyn Fn(usize) -> String,
+        ) -> TheoryDiagram {
+            let theory_of = |i: usize| {
+                Theory::new(
+                    format!("T{i}"),
+                    declared[i].iter().map(|k| Sort::simple(name(*k))).collect(),
+                    ops[i]
+                        .iter()
+                        .map(|(o, k)| Operation::new(o.as_str(), vec![], name(*k)))
+                        .collect(),
+                    vec![],
+                )
+            };
+            TheoryDiagram {
+                nodes: (0..declared.len())
+                    .map(|i| DiagramNode {
+                        label: format!("n{i}").into(),
+                        theory: theory_of(i),
+                    })
+                    .collect(),
+                edges: legs
+                    .into_iter()
+                    .map(|(src, tgt, sort_map, op_map)| DiagramEdge {
+                        src: format!("n{src}").into(),
+                        tgt: format!("n{tgt}").into(),
+                        morphism: TheoryMorphism::new(
+                            format!("m{src}_{tgt}"),
+                            format!("T{src}"),
+                            format!("T{tgt}"),
+                            sort_map,
+                            op_map,
+                        ),
+                    })
+                    .collect(),
+            }
+        }
+
+        /// Sort classes renamed back along the pool permutation `rename`.
+        fn unrename(
+            classes: BTreeSet<(SymKind, BTreeSet<SymRef>)>,
+            rename: &[usize],
+        ) -> BTreeSet<(SymKind, BTreeSet<SymRef>)> {
+            let back = |n: &Arc<str>| -> Arc<str> {
+                POOL.iter().position(|p| **p == **n).map_or_else(
+                    || Arc::clone(n),
+                    |j| Arc::from(POOL[rename.iter().position(|r| *r == j).unwrap_or(j)]),
+                )
+            };
+            classes
+                .into_iter()
+                .map(|(kind, members)| {
+                    let members = members
+                        .into_iter()
+                        .map(|m| {
+                            if kind == SymKind::Sort {
+                                SymRef::new(Arc::clone(&m.node), back(&m.name))
+                            } else {
+                                m
+                            }
+                        })
+                        .collect();
+                    (kind, members)
+                })
+                .collect()
+        }
+
+        /// The outcome of a composition up to its error payload.
+        fn outcome_tag(r: &Result<Composition, CompositionError>) -> String {
+            match r {
+                Ok(_) => "ok".to_owned(),
+                Err(CompositionError::NameClash { kind, .. }) => format!("name_clash {kind:?}"),
+                Err(e) => format!("{:?}", std::mem::discriminant(e)),
+            }
+        }
+
         fn all_modes() -> [ComposeOptions; 3] {
             [
                 explicit(ClashPolicy::Freshen),
@@ -5636,6 +5888,47 @@ mod tests {
                         prop_assert_eq!(&a.provenance, &e.provenance);
                         prop_assert_eq!(&a.inclusions, &e.inclusions);
                     }
+                }
+            }
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(512))]
+
+            #[test]
+            fn open_diagrams_compose_independently_of_order_and_names(
+                spec in arb_open_spec(),
+                rename in Just(vec![0usize, 1, 2, 3]).prop_shuffle(),
+                rotate in 0..5usize,
+            ) {
+                let identity = [0usize, 1, 2, 3];
+                let d = build_open(&spec, &identity);
+                let renamed = build_open(&spec, &rename);
+                let mut permuted = d.clone();
+                permuted.nodes.reverse();
+                let n = permuted.nodes.len();
+                permuted.nodes.rotate_left(rotate % n);
+                permuted.edges.reverse();
+                // Freshen and Amalgamate resolve every clash of result names,
+                // so the only refusal they share with Reject that depends on
+                // names is the one for undeclared sorts, and their outcome
+                // must survive the renaming. Reject also refuses a clash of
+                // result names, and which names clash depends on how ties
+                // between member names are broken; its classes must still
+                // agree whenever both sides compose.
+                for opts in all_modes() {
+                    let (a, b, p) = (compose(&d, &opts), compose(&renamed, &opts), compose(&permuted, &opts));
+                    if opts.clash != ClashPolicy::Reject || opts.mode == CompositionMode::Amalgamate {
+                        prop_assert_eq!(outcome_tag(&a), outcome_tag(&b), "renamed by {:?}: {:?} against {:?}", rename, a.as_ref().err(), b.as_ref().err());
+                    }
+                    prop_assert_eq!(&a.as_ref().err(), &p.as_ref().err());
+                    if let (Ok(a), Ok(p)) = (&a, &p) {
+                        prop_assert_eq!(serde_json::to_vec(&a.theory).map_err(fail)?, serde_json::to_vec(&p.theory).map_err(fail)?);
+                        prop_assert_eq!(serde_json::to_vec(&a.provenance).map_err(fail)?, serde_json::to_vec(&p.provenance).map_err(fail)?);
+                    }
+                    let (Ok(a), Ok(b)) = (a, b) else { continue };
+                    prop_assert_eq!(classes(&a), unrename(classes(&b), &rename));
+                    prop_assert_eq!(a.report.name_clash_free, b.report.name_clash_free);
                 }
             }
         }
