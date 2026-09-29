@@ -350,15 +350,24 @@ impl ReverseAnchors {
 ///
 /// A source edge's image is its explicit entry in the edge remap, or, for an
 /// edge the remap does not name, the same kind and label across remapped
-/// endpoints; this indexes the source schema's edges by that image.
+/// endpoints; this indexes the source schema's edges by that image. Only
+/// edges `get` carries into the view are indexed: those the edge remap
+/// names, and those whose endpoints both survive. An edge into a dropped
+/// vertex has no image, even when the dropped vertex shares its name with
+/// a view vertex.
 struct EdgePreimages {
     preimages: HashMap<Edge, Vec<Edge>>,
 }
 
 impl EdgePreimages {
     fn new(lens: &Lens) -> Self {
+        let remap = &lens.compiled;
         let mut preimages: HashMap<Edge, Vec<Edge>> = HashMap::new();
-        for source in lens.src_schema.edges.keys() {
+        for source in lens.src_schema.edges.keys().filter(|source| {
+            remap.edge_remap.contains_key(*source)
+                || (remap.vertex_remap.contains_key(&source.src)
+                    && remap.vertex_remap.contains_key(&source.tgt))
+        }) {
             preimages
                 .entry(edge_image(lens, source))
                 .or_default()
@@ -1946,6 +1955,58 @@ mod tests {
                 }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
+        }
+
+        /// `a` is renamed onto `t`, and the source's own vertex `t`, which
+        /// the lens drops, carries an edge with the same label as `a`'s.
+        fn dropped_namesake_lens() -> Lens {
+            let src_edges = vec![prop("r", "a", "k"), prop("r", "t", "k")];
+            let tgt_edges = vec![prop("r", "t", "k")];
+            let src = schema(
+                &[("r", "object"), ("a", "string"), ("t", "string")],
+                &src_edges,
+            );
+            let tgt = schema(&[("r", "object"), ("t", "string")], &tgt_edges);
+            let migration = Migration {
+                vertex_map: [("r", "r"), ("a", "t")]
+                    .iter()
+                    .map(|(s, t)| (Name::from(*s), Name::from(*t)))
+                    .collect(),
+                edge_map: src_edges.into_iter().take(1).zip(tgt_edges).collect(),
+                hyper_edge_map: HashMap::new(),
+                label_map: HashMap::new(),
+                resolver: HashMap::new(),
+                hyper_resolver: HashMap::new(),
+                expr_resolvers: HashMap::new(),
+                coercions: HashMap::new(),
+                domain: None,
+                codomain: None,
+            };
+            let compiled = panproto_mig::compile(&src, &tgt, &migration).unwrap();
+            Lens {
+                compiled,
+                src_schema: src,
+                tgt_schema: tgt,
+            }
+        }
+
+        #[test]
+        fn a_rename_onto_the_name_of_a_dropped_vertex_round_trips() {
+            let lens = dropped_namesake_lens();
+            let nodes = vec![Node::new(0, "r"), leaf(1, "a", "one")];
+            let source = WInstance::new(
+                nodes.into_iter().map(|n| (n.id, n)).collect(),
+                vec![(0, 1, prop("r", "a", "k"))],
+                Vec::new(),
+                0,
+                "r".into(),
+            );
+            let (view, complement) = get(&lens, &source).unwrap();
+            assert_eq!(view.nodes[&1].anchor, "t");
+
+            let restored = put(&lens, &view, &complement).unwrap();
+            assert_eq!(restored.nodes[&1].anchor, "a", "GetPut lost the anchor");
+            assert_eq!(arc_edge(&restored, 0, 1), &prop("r", "a", "k"));
         }
     }
 
