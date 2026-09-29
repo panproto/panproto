@@ -3693,7 +3693,64 @@ mod tests {
             typecheck_signature(&block).map_err(|d| format!("{} rejected: {d:?}", block.name))?;
             typecheck_theory(&block)?;
         }
+        // `ThFunctor` and `ThFlat` are open: they use `Vertex`, which the
+        // schema side of a composition declares, and that is their only
+        // defect standalone.
+        for (block, op) in open_instance_blocks() {
+            assert_eq!(
+                typecheck_signature(&block),
+                Err(vec![SignatureDefect::UndeclaredSort {
+                    site: SignatureSite::OpOutput { op: op.into() },
+                    sort: "Vertex".into(),
+                }]),
+                "{}",
+                block.name
+            );
+        }
         Ok(())
+    }
+
+    /// The building blocks of `panproto-protocols::theories` that use the
+    /// schema sort `Vertex` without declaring it, each with the operation
+    /// whose output is `Vertex`.
+    fn open_instance_blocks() -> Vec<(Theory, &'static str)> {
+        let unary = Operation::unary;
+        vec![
+            (
+                Theory::new(
+                    "ThFunctor",
+                    vec![
+                        Sort::simple("Table"),
+                        Sort::simple("Row"),
+                        Sort::simple("ForeignKey"),
+                    ],
+                    vec![
+                        unary("table_vertex", "t", "Table", "Vertex"),
+                        Operation::new("fk_src", vec![("fk".into(), "ForeignKey".into())], "Row"),
+                        Operation::new("fk_tgt", vec![("fk".into(), "ForeignKey".into())], "Row"),
+                    ],
+                    vec![],
+                ),
+                "table_vertex",
+            ),
+            (
+                Theory::new(
+                    "ThFlat",
+                    vec![
+                        Sort::simple("Node"),
+                        Sort::simple("Field"),
+                        Sort::simple("Value"),
+                    ],
+                    vec![
+                        unary("field_node", "f", "Field", "Node"),
+                        unary("field_value", "f", "Field", "Value"),
+                        unary("node_anchor", "n", "Node", "Vertex"),
+                    ],
+                    vec![],
+                ),
+                "node_anchor",
+            ),
+        ]
     }
 
     /// One negative per remaining defect: an undeclared sort, a parameter
