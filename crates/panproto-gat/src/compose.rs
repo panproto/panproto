@@ -1071,7 +1071,9 @@ pub enum CompositionError {
         second: SymRef,
     },
     /// In [`CompositionMode::ExplicitIdentity`] with [`ClashPolicy::Reject`],
-    /// distinct classes would get the same name.
+    /// distinct classes would get the same name; or, under either clash
+    /// policy, a sort name some node uses without declaring is declared in
+    /// several classes, which the use cannot choose between.
     NameClash {
         /// Their kind.
         kind: SymKind,
@@ -1080,7 +1082,9 @@ pub enum CompositionError {
         /// The clashing classes, each ascending, in ascending order.
         classes: Vec<Vec<SymRef>>,
     },
-    /// An equation translated into the result does not typecheck there.
+    /// An equation or directed equation translated into the result does
+    /// not typecheck there (a directed equation is checked as the equation
+    /// between its two sides).
     IllTypedTransport {
         /// The source equation, or for an added equation the operation it
         /// identifies.
@@ -1242,9 +1246,14 @@ impl NodeInfo<'_> {
 ///    [`crate::check_morphism`] between its endpoints.
 /// 2. Every node's sorts and operations form one disjoint union per kind.
 ///    A sort name a node uses without declaring is a symbol of that node
-///    too; it is joined by name to every same-name sort another node
-///    declares, and when none does it stays a free name of the result,
-///    joined by name with the other nodes' uses of it.
+///    too; it is joined by name to the same-name sorts other nodes
+///    declare, and when none does it stays a free name of the result,
+///    joined by name with the other nodes' uses of it. Outside
+///    [`CompositionMode::Amalgamate`] those declarations must lie in one
+///    class of the relation the edges generate, or the use must already be
+///    related to one of them; a use that would join several classes, and
+///    so identify declarations no morphism relates, is
+///    [`CompositionError::NameClash`] under either clash policy.
 /// 3. The edges identify each sort with its image and each operation with
 ///    the operation it is renamed to; in [`CompositionMode::Amalgamate`],
 ///    same-kind symbols with the same name are identified as well.
@@ -1296,7 +1305,7 @@ pub(crate) fn compose_with_naming(
     let nodes = validate_nodes(diagram, &mut records)?;
     validate_edges(diagram, &nodes, &mut records)?;
 
-    let (mut edge_uf, sort_classes, op_classes) = identify(diagram, &nodes, opts.mode);
+    let (mut edge_uf, sort_classes, op_classes) = identify(diagram, &nodes, opts.mode)?;
     check_classes(&sort_classes, &op_classes, &nodes, opts, &mut edge_uf)?;
     records.push(record(
         CompositionCheckKind::ClassSignaturesAgree,
@@ -1359,11 +1368,17 @@ pub(crate) fn compose_with_naming(
 /// Steps 2 and 3: the union-find over node-qualified symbols. Returns the
 /// relation the edges generate (with undeclared sorts joined by name),
 /// and the sort and operation classes of the full identification.
+///
+/// # Errors
+///
+/// [`CompositionError::NameClash`] when, outside
+/// [`CompositionMode::Amalgamate`], an undeclared sort name would have to
+/// join same-name declarations the edges keep apart.
 fn identify(
     diagram: &TheoryDiagram,
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     mode: CompositionMode,
-) -> (UnionFind<Key>, Vec<Vec<SymRef>>, Vec<Vec<SymRef>>) {
+) -> Result<(UnionFind<Key>, Vec<Vec<SymRef>>, Vec<Vec<SymRef>>), CompositionError> {
     let mut uf: UnionFind<Key> = UnionFind::new();
     for (label, info) in nodes {
         let sym = |name: &Arc<str>| SymRef::new(Arc::clone(label), Arc::clone(name));
@@ -1398,7 +1413,7 @@ fn identify(
             }
         }
     }
-    join_implicit_sorts(nodes, &mut uf);
+    join_implicit_sorts(nodes, &mut uf, mode)?;
     let edge_uf = uf.clone();
     if mode == CompositionMode::Amalgamate {
         join_same_names(&mut uf);
@@ -1406,7 +1421,7 @@ fn identify(
     let classes = uf.classes();
     let sort_classes = kind_classes(&classes, SymKind::Sort);
     let op_classes = kind_classes(&classes, SymKind::Op);
-    (edge_uf, sort_classes, op_classes)
+    Ok((edge_uf, sort_classes, op_classes))
 }
 
 /// Step 4: tier-1 class checks, in tokens that name classes independently
@@ -1779,39 +1794,87 @@ fn validate_edges(
     Ok(())
 }
 
-/// Join each undeclared use of a sort name to every other node's
-/// declaration of that name, or, when no node declares it, to every other
+/// Join each undeclared use of a sort name to the other nodes'
+/// declarations of that name, or, when no node declares it, to every other
 /// undeclared use of it.
-fn join_implicit_sorts(nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>, uf: &mut UnionFind<Key>) {
-    let mut declared: BTreeMap<&Arc<str>, Vec<SymRef>> = BTreeMap::new();
-    let mut implicit: BTreeMap<&Arc<str>, Vec<SymRef>> = BTreeMap::new();
+///
+/// In [`CompositionMode::Amalgamate`] a use joins every same-name
+/// declaration, which the name rule identifies anyway. Otherwise the
+/// declarations may lie in several classes of the relation the edges
+/// generate; a use already related to one of them keeps that class, a use
+/// that is not joins the one class when there is one, and when there are
+/// several it could only join them all, identifying declarations no
+/// morphism relates, so the composition is refused.
+///
+/// # Errors
+///
+/// [`CompositionError::NameClash`] listing the classes of the same-name
+/// declarations, when a use would have to choose between two of them.
+fn join_implicit_sorts(
+    nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
+    uf: &mut UnionFind<Key>,
+    mode: CompositionMode,
+) -> Result<(), CompositionError> {
+    let mut declared: BTreeMap<&Arc<str>, Vec<Key>> = BTreeMap::new();
+    let mut implicit: BTreeMap<&Arc<str>, Vec<Key>> = BTreeMap::new();
     for (label, info) in nodes {
         for sort in &info.theory.sorts {
-            declared
-                .entry(&sort.name)
-                .or_default()
-                .push(SymRef::new(Arc::clone(label), Arc::clone(&sort.name)));
+            declared.entry(&sort.name).or_default().push((
+                SymKind::Sort,
+                SymRef::new(Arc::clone(label), Arc::clone(&sort.name)),
+            ));
         }
         for name in &info.implicit {
-            implicit
-                .entry(name)
-                .or_default()
-                .push(SymRef::new(Arc::clone(label), Arc::clone(name)));
+            implicit.entry(name).or_default().push((
+                SymKind::Sort,
+                SymRef::new(Arc::clone(label), Arc::clone(name)),
+            ));
         }
     }
     for (name, users) in implicit {
-        let partners: Vec<&SymRef> = declared
-            .get(name)
-            .map_or_else(|| users.iter().collect(), |decls| decls.iter().collect());
+        let Some(decls) = declared.get(name) else {
+            for pair in users.windows(2) {
+                uf.union(&pair[0], &pair[1]);
+            }
+            continue;
+        };
+        if mode == CompositionMode::Amalgamate {
+            for user in &users {
+                for decl in decls {
+                    uf.union(user, decl);
+                }
+            }
+            continue;
+        }
         for user in &users {
-            for partner in &partners {
-                uf.union(
-                    &(SymKind::Sort, user.clone()),
-                    &(SymKind::Sort, (*partner).clone()),
-                );
+            let reps: BTreeSet<Key> = decls.iter().map(|d| uf.find(d)).collect();
+            if reps.contains(&uf.find(user)) {
+                continue;
+            }
+            match reps.first() {
+                Some(rep) if reps.len() == 1 => uf.union(user, rep),
+                Some(_) => {
+                    let mut classes: Vec<Vec<SymRef>> = uf
+                        .classes()
+                        .into_iter()
+                        .filter(|(rep, _)| reps.contains(rep))
+                        .map(|(_, members)| members.into_iter().map(|(_, s)| s).collect())
+                        .collect();
+                    for class in &mut classes {
+                        class.sort();
+                    }
+                    classes.sort();
+                    return Err(CompositionError::NameClash {
+                        kind: SymKind::Sort,
+                        name: Arc::clone(name),
+                        classes,
+                    });
+                }
+                None => {}
             }
         }
     }
+    Ok(())
 }
 
 /// Identify every two same-kind symbols with the same name.
@@ -2495,6 +2558,27 @@ fn gate_result(
         }
     }
     for ((members, rep), name) in eq_groups.members.iter().zip(&eq_groups.reps).zip(eq_names) {
+        let eq = Equation {
+            name: Arc::clone(name),
+            lhs: rep.lhs.clone(),
+            rhs: rep.rhs.clone(),
+        };
+        if let Err(err) = typecheck_equation(&eq, theory) {
+            return Err(CompositionError::IllTypedTransport {
+                source: members[0].clone(),
+                detail: err.to_string(),
+            });
+        }
+    }
+    // A directed equation is well typed when the equation between its two
+    // sides is: both sides sort in the same context.
+    let directed = &elements.directed;
+    for ((members, rep), name) in directed
+        .members
+        .iter()
+        .zip(&directed.directed_reps)
+        .zip(&elements.directed_names)
+    {
         let eq = Equation {
             name: Arc::clone(name),
             lhs: rep.lhs.clone(),
@@ -4089,6 +4173,37 @@ mod tests {
     }
 
     #[test]
+    fn an_ill_typed_directed_equation_is_reported() -> TestResult {
+        let t = with_directed("T", vec![rule("loose", Term::var("x"), Term::var("y"))]);
+        for opts in [explicit(ClashPolicy::Reject), amalgamate()] {
+            match refused(compose(
+                &TheoryDiagram::discrete(vec![("T", t.clone())]),
+                &opts,
+            ))? {
+                CompositionError::IllTypedTransport { source, .. } => {
+                    assert_eq!(source, sym("T", "loose"));
+                }
+                other => return Err(format!("expected IllTypedTransport, got {other:?}").into()),
+            }
+        }
+        // A well-typed rule still composes.
+        let ok = with_directed(
+            "T",
+            vec![rule(
+                "collapse",
+                Term::app("f", vec![Term::var("x")]),
+                Term::constant("c"),
+            )],
+        );
+        let c = compose(
+            &TheoryDiagram::discrete(vec![("T", ok)]),
+            &explicit(ClashPolicy::Reject),
+        )?;
+        assert_eq!(names(&c.theory.directed_eqs, |e| &e.name), ["collapse"]);
+        Ok(())
+    }
+
+    #[test]
     fn a_closed_sort_gap_is_an_ill_typed_result() -> TestResult {
         // `stray` produces the closed sort `Bool` without being one of its
         // constructors: a defect beyond the signature, which the result gate
@@ -4217,6 +4332,87 @@ mod tests {
             c.provenance.members(SymKind::Sort, "Vertex"),
             [sym("flat", "Vertex"), sym("graph", "Vertex")]
         );
+        Ok(())
+    }
+
+    #[test]
+    fn an_undeclared_sort_does_not_bridge_unrelated_declarations() -> TestResult {
+        let a = th("A", &["V"], &[("x", &[], "V")], vec![]);
+        let b = th("B", &["V"], &[("y", &[], "V")], vec![]);
+        let c = th("C", &[], &[("u", &["V"], "V")], vec![]);
+        let nodes = |with_c: bool| {
+            let mut nodes = vec![("a", a.clone()), ("b", b.clone())];
+            if with_c {
+                nodes.push(("c", c.clone()));
+            }
+            TheoryDiagram::discrete(nodes)
+        };
+        let clash = CompositionError::NameClash {
+            kind: SymKind::Sort,
+            name: "V".into(),
+            classes: vec![vec![sym("a", "V")], vec![sym("b", "V")]],
+        };
+        // Without the open node the two declarations clash or are freshened.
+        assert_eq!(
+            refused(compose(&nodes(false), &explicit(ClashPolicy::Reject)))?,
+            clash
+        );
+        let freshened = compose(&nodes(false), &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(names(&freshened.theory.sorts, |s| &s.name), ["a.V", "b.V"]);
+        assert!(!freshened.report.name_clash_free);
+        // The open node's `V` cannot pick one of the two classes, and it must
+        // not merge them: both clash policies refuse.
+        for policy in [ClashPolicy::Reject, ClashPolicy::Freshen] {
+            assert_eq!(
+                refused(compose(&nodes(true), &explicit(policy)))?,
+                clash,
+                "{policy:?}"
+            );
+        }
+        // Amalgamation identifies same-name sorts anyway.
+        let amalgamated = compose(&nodes(true), &amalgamate())?;
+        assert_eq!(names(&amalgamated.theory.sorts, |s| &s.name), ["V"]);
+        // An edge relating the declarations leaves one class to join.
+        let apex = th("S", &["V"], &[], vec![]);
+        let related = TheoryDiagram {
+            nodes: vec![
+                DiagramNode {
+                    label: "s".into(),
+                    theory: apex,
+                },
+                DiagramNode {
+                    label: "a".into(),
+                    theory: a,
+                },
+                DiagramNode {
+                    label: "b".into(),
+                    theory: b,
+                },
+                DiagramNode {
+                    label: "c".into(),
+                    theory: c,
+                },
+            ],
+            edges: vec![
+                DiagramEdge {
+                    src: "s".into(),
+                    tgt: "a".into(),
+                    morphism: leg("S", "A", &[("V", "V")], &[]),
+                },
+                DiagramEdge {
+                    src: "s".into(),
+                    tgt: "b".into(),
+                    morphism: leg("S", "B", &[("V", "V")], &[]),
+                },
+            ],
+        };
+        let joined = compose(&related, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(names(&joined.theory.sorts, |s| &s.name), ["V"]);
+        assert_eq!(
+            joined.provenance.members(SymKind::Sort, "V"),
+            [sym("a", "V"), sym("b", "V"), sym("c", "V"), sym("s", "V")]
+        );
+        assert!(joined.report.name_clash_free);
         Ok(())
     }
 
