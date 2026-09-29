@@ -54,6 +54,13 @@ pub use check_model::{
 };
 pub use check_status::CheckStatus;
 pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
+pub use compose::{
+    AddedEquation, CheckOutcome, CheckRecord, CheckSubject, ClashPolicy, ComposeOptions,
+    Composition, CompositionCheckKind, CompositionError, CompositionIncomplete, CompositionMode,
+    CompositionReport, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode, Freshening,
+    InapplicableReason, NotRepresentableReason, Provenance, SortMismatch, SymKind, SymRef,
+    TheoryDiagram, compose,
+};
 pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 

@@ -3181,3 +3181,2163 @@ impl Composition {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sort::SortParam;
+
+    type TestResult = Result<(), Box<dyn std::error::Error>>;
+
+    fn options(mode: CompositionMode, clash: ClashPolicy, name: &str) -> ComposeOptions {
+        ComposeOptions {
+            mode,
+            result_name: Arc::from(name),
+            clash,
+            rewrite_budget: DEFAULT_VERIFY_BUDGET,
+        }
+    }
+
+    fn explicit(clash: ClashPolicy) -> ComposeOptions {
+        options(CompositionMode::ExplicitIdentity, clash, "R")
+    }
+
+    fn amalgamate() -> ComposeOptions {
+        options(CompositionMode::Amalgamate, ClashPolicy::Reject, "R")
+    }
+
+    /// A theory of simple sorts and operations `(name, inputs, output)`.
+    fn th(name: &str, sorts: &[&str], ops: &[(&str, &[&str], &str)], eqs: Vec<Equation>) -> Theory {
+        Theory::new(
+            name,
+            sorts.iter().map(|s| Sort::simple(*s)).collect(),
+            ops.iter()
+                .map(|(o, ins, out)| {
+                    Operation::new(
+                        *o,
+                        ins.iter()
+                            .enumerate()
+                            .map(|(i, s)| (Arc::from(format!("x{i}")), SortExpr::from(*s)))
+                            .collect(),
+                        *out,
+                    )
+                })
+                .collect(),
+            eqs,
+        )
+    }
+
+    /// A renaming morphism.
+    fn leg(dom: &str, cod: &str, sorts: &[(&str, &str)], ops: &[(&str, &str)]) -> TheoryMorphism {
+        TheoryMorphism::new(
+            format!("{dom}_to_{cod}"),
+            dom,
+            cod,
+            sorts
+                .iter()
+                .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+                .collect(),
+            ops.iter()
+                .map(|(a, b)| (Arc::from(*a), Arc::from(*b)))
+                .collect::<HashMap<Arc<str>, Arc<str>>>(),
+        )
+    }
+
+    /// The error of a composition that must fail.
+    fn refused(result: Result<Composition, CompositionError>) -> Result<CompositionError, String> {
+        match result {
+            Ok(c) => Err(format!("composition accepted: {:?}", c.theory)),
+            Err(e) => Ok(e),
+        }
+    }
+
+    fn names<T>(items: &[T], name: impl Fn(&T) -> &Arc<str>) -> Vec<String> {
+        items.iter().map(|i| name(i).to_string()).collect()
+    }
+
+    fn sym(node: &str, name: &str) -> SymRef {
+        SymRef::new(node, name)
+    }
+
+    /// `T1` and `T2` share `S` through an apex and each declare their own
+    /// `X`, `Label`, `f : S -> X` and `h : S -> S`.
+    fn same_name_span() -> TheoryDiagram {
+        let side = |name: &str| {
+            th(
+                name,
+                &["S", "X", "Label"],
+                &[("f", &["S"], "X"), ("h", &["S"], "S")],
+                vec![],
+            )
+        };
+        TheoryDiagram::span(
+            ("Sh", th("Sh", &["S"], &[], vec![])),
+            ("T1", side("T1")),
+            ("T2", side("T2")),
+            leg("Sh", "T1", &[("S", "S")], &[]),
+            leg("Sh", "T2", &[("S", "S")], &[]),
+        )
+    }
+
+    #[test]
+    fn composition_mode_serde_names() -> TestResult {
+        assert_eq!(
+            serde_json::to_string(&[
+                CompositionMode::Amalgamate,
+                CompositionMode::ExplicitIdentity
+            ])?,
+            r#"["amalgamate","explicit_identity"]"#
+        );
+        assert_eq!(
+            serde_json::to_string(&[ClashPolicy::Freshen, ClashPolicy::Reject])?,
+            r#"["freshen","reject"]"#
+        );
+        let back: CompositionMode = serde_json::from_str(r#""explicit_identity""#)?;
+        assert_eq!(back, CompositionMode::ExplicitIdentity);
+        let opts = explicit(ClashPolicy::Freshen);
+        let json = serde_json::to_value(&opts)?;
+        let keys: Vec<&String> = json
+            .as_object()
+            .map(|o| o.keys().collect())
+            .unwrap_or_default();
+        assert_eq!(keys.len(), 4);
+        assert_eq!(serde_json::from_value::<ComposeOptions>(json)?, opts);
+        Ok(())
+    }
+
+    #[test]
+    fn invalid_and_duplicate_node_labels_are_rejected() -> TestResult {
+        let t = th("T", &["S"], &[], vec![]);
+        for bad in ["", "a.b", "a#b"] {
+            let d = TheoryDiagram::discrete(vec![(bad, t.clone())]);
+            assert_eq!(
+                refused(compose(&d, &amalgamate()))?,
+                CompositionError::InvalidNodeLabel { label: bad.into() }
+            );
+        }
+        let d = TheoryDiagram::discrete(vec![("A", t.clone()), ("A", t)]);
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::DuplicateNodeLabel { label: "A".into() }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_edge_to_an_unknown_label_is_rejected() -> TestResult {
+        let t = th("T", &["S"], &[], vec![]);
+        let mut d = TheoryDiagram::discrete(vec![("A", t.clone())]);
+        d.edges.push(DiagramEdge {
+            src: "A".into(),
+            tgt: "B".into(),
+            morphism: TheoryMorphism::identity(&t),
+        });
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::UnknownNodeLabel { label: "B".into() }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn an_ill_typed_node_is_rejected() -> TestResult {
+        let bad = Theory::new(
+            "Bad",
+            vec![Sort::simple("Ob"), Sort::simple("V")],
+            vec![Operation::new(
+                "mk",
+                vec![(Arc::from("o"), SortExpr::from("Ob"))],
+                SortExpr::app("V", vec![Term::var("o")]),
+            )],
+            vec![],
+        );
+        let d = TheoryDiagram::discrete(vec![("B", bad)]);
+        match refused(compose(&d, &amalgamate()))? {
+            CompositionError::InvalidNode { label, defects } => {
+                assert_eq!(&*label, "B");
+                assert!(
+                    matches!(defects[..], [SignatureDefect::SortArity { .. }]),
+                    "{defects:?}"
+                );
+            }
+            other => return Err(format!("expected InvalidNode, got {other:?}").into()),
+        }
+        // A node whose only defect is an undeclared sort is admitted.
+        let open = th(
+            "Open",
+            &["Node"],
+            &[("anchor", &["Node"], "Vertex")],
+            vec![],
+        );
+        compose(&TheoryDiagram::discrete(vec![("O", open)]), &amalgamate())?;
+        Ok(())
+    }
+
+    #[test]
+    fn diagram_constructors_build_the_contract_shapes() -> TestResult {
+        let s = th("S", &["A"], &[], vec![]);
+        let l = th("L", &["A", "B"], &[], vec![]);
+        let r = th("R", &["A", "C"], &[], vec![]);
+        let i1 = leg("S", "L", &[("A", "A")], &[]);
+        let i2 = leg("S", "R", &[("A", "A")], &[]);
+        let span = TheoryDiagram::span(
+            ("s", s.clone()),
+            ("l", l.clone()),
+            ("r", r.clone()),
+            i1.clone(),
+            i2,
+        );
+        assert_eq!(names(&span.nodes, |n| &n.label), ["s", "l", "r"]);
+        let ends: Vec<(String, String)> = span
+            .edges
+            .iter()
+            .map(|e| (e.src.to_string(), e.tgt.to_string()))
+            .collect();
+        assert_eq!(ends, [("s".into(), "l".into()), ("s".into(), "r".into())]);
+        assert_eq!(span.edges[0].morphism, i1);
+
+        let by_name = TheoryDiagram::by_name(("s", s.clone()), ("l", l.clone()), ("r", r.clone()))?;
+        assert_eq!(by_name.nodes, span.nodes);
+        assert_eq!(by_name.edges[0].morphism.sort_map, i1.sort_map);
+        let missing = TheoryDiagram::by_name(("s", l.clone()), ("l", s.clone()), ("r", r));
+        assert!(
+            matches!(missing, Err(GatError::MissingSortMapping(_))),
+            "{missing:?}"
+        );
+        let with_op = th("S2", &["A"], &[("c", &[], "A")], vec![]);
+        let missing = TheoryDiagram::by_name(("s", with_op), ("l", l.clone()), ("r", l.clone()));
+        assert!(
+            matches!(missing, Err(GatError::MissingOpMapping(_))),
+            "{missing:?}"
+        );
+
+        let par = TheoryDiagram::parallel(("s", s.clone()), ("l", l.clone()), i1.clone(), i1);
+        assert_eq!(par.nodes.len(), 2);
+        assert!(par.edges.iter().all(|e| &*e.src == "s" && &*e.tgt == "l"));
+
+        let disc = TheoryDiagram::discrete(vec![("s", s), ("l", l)]);
+        assert_eq!(disc.nodes.len(), 2);
+        assert!(disc.edges.is_empty());
+        let json = serde_json::to_value(&disc)?;
+        assert!(json.get("nodes").is_some() && json.get("edges").is_some());
+        assert_eq!(serde_json::from_value::<TheoryDiagram>(json)?, disc);
+        Ok(())
+    }
+
+    #[test]
+    fn same_name_nonshared_symbols_stay_distinct_in_explicit_mode() -> TestResult {
+        let d = same_name_span();
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(
+            names(&c.theory.sorts, |s| &s.name),
+            ["S", "T1.Label", "T1.X", "T2.Label", "T2.X"]
+        );
+        assert_eq!(
+            names(&c.theory.ops, |o| &o.name),
+            ["T1.f", "T1.h", "T2.f", "T2.h"]
+        );
+        assert!(!c.report.name_clash_free);
+        match refused(compose(&d, &explicit(ClashPolicy::Reject)))? {
+            CompositionError::NameClash {
+                kind,
+                name,
+                classes,
+            } => {
+                assert_eq!((kind, &*name), (SymKind::Sort, "Label"));
+                assert_eq!(
+                    classes,
+                    vec![vec![sym("T1", "Label")], vec![sym("T2", "Label")]]
+                );
+            }
+            other => return Err(format!("expected NameClash, got {other:?}").into()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn same_name_nonshared_symbols_merge_in_amalgamate_mode() -> TestResult {
+        let c = compose(&same_name_span(), &amalgamate())?;
+        assert_eq!(names(&c.theory.sorts, |s| &s.name), ["Label", "S", "X"]);
+        assert_eq!(names(&c.theory.ops, |o| &o.name), ["f", "h"]);
+        assert!(c.report.freshened.is_empty());
+        Ok(())
+    }
+
+    #[test]
+    fn clash_policy_is_ignored_in_amalgamate_mode() -> TestResult {
+        let d = same_name_span();
+        let reject = compose(
+            &d,
+            &options(CompositionMode::Amalgamate, ClashPolicy::Reject, "R"),
+        )?;
+        let freshen = compose(
+            &d,
+            &options(CompositionMode::Amalgamate, ClashPolicy::Freshen, "R"),
+        )?;
+        assert_eq!(reject, freshen);
+        Ok(())
+    }
+
+    #[test]
+    fn the_result_is_named_by_the_options() -> TestResult {
+        let d = same_name_span();
+        let mut reversed = d.clone();
+        reversed.nodes.reverse();
+        reversed.edges.reverse();
+        for diagram in [&d, &reversed] {
+            let c = compose(
+                diagram,
+                &options(CompositionMode::Amalgamate, ClashPolicy::Reject, "Custom"),
+            )?;
+            assert_eq!(&*c.theory.name, "Custom");
+            assert!(c.inclusions.iter().all(|i| &*i.codomain == "Custom"));
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn morphisms_identify_differently_named_symbols() -> TestResult {
+        let a = th("A", &["Node"], &[], vec![]);
+        let b = th("B", &["Vertex"], &[], vec![]);
+        let c = th("C", &["Vertex"], &[], vec![]);
+        let to = |cod: &str| leg("A", cod, &[("Node", "Vertex")], &[]);
+        // A tie between `Node` and `Vertex` goes to the least name.
+        let pair = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![("a", a.clone()), ("b", b.clone())]).nodes,
+            edges: vec![DiagramEdge {
+                src: "a".into(),
+                tgt: "b".into(),
+                morphism: to("B"),
+            }],
+        };
+        let r = compose(&pair, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(names(&r.theory.sorts, |s| &s.name), ["Node"]);
+        // Two `Vertex` members outvote one `Node`.
+        let triple = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![("a", a), ("b", b), ("c", c)]).nodes,
+            edges: vec![
+                DiagramEdge {
+                    src: "a".into(),
+                    tgt: "b".into(),
+                    morphism: to("B"),
+                },
+                DiagramEdge {
+                    src: "a".into(),
+                    tgt: "c".into(),
+                    morphism: to("C"),
+                },
+            ],
+        };
+        let r = compose(&triple, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(names(&r.theory.sorts, |s| &s.name), ["Vertex"]);
+        assert_eq!(
+            r.provenance.members(SymKind::Sort, "Vertex"),
+            [sym("a", "Node"), sym("b", "Vertex"), sym("c", "Vertex")]
+        );
+        assert!(r.report.name_clash_free);
+        Ok(())
+    }
+
+    /// `T1.X`, `T2.X` and `T3.X` clash with `T1`'s other `X`, and the least
+    /// label of both classes is `T1`, so the qualified names collide too.
+    fn doubly_clashing_diagram() -> TheoryDiagram {
+        let t1 = th("T1", &["X", "Z"], &[], vec![]);
+        let t2 = th("T2", &["X"], &[], vec![]);
+        let t3 = th("T3", &["X"], &[], vec![]);
+        TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![("T1", t1), ("T2", t2), ("T3", t3)]).nodes,
+            edges: vec![
+                DiagramEdge {
+                    src: "T2".into(),
+                    tgt: "T1".into(),
+                    morphism: leg("T2", "T1", &[("X", "Z")], &[]),
+                },
+                DiagramEdge {
+                    src: "T3".into(),
+                    tgt: "T1".into(),
+                    morphism: leg("T3", "T1", &[("X", "Z")], &[]),
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn every_freshening_is_reported() -> TestResult {
+        let c = compose(&doubly_clashing_diagram(), &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(names(&c.theory.sorts, |s| &s.name), ["T1.X#1", "T1.X#2"]);
+        assert_eq!(
+            c.report.freshened,
+            vec![
+                Freshening {
+                    kind: SymKind::Sort,
+                    members: vec![sym("T1", "X")],
+                    candidate: "X".into(),
+                    result: "T1.X#1".into(),
+                },
+                Freshening {
+                    kind: SymKind::Sort,
+                    members: vec![sym("T1", "Z"), sym("T2", "X"), sym("T3", "X")],
+                    candidate: "X".into(),
+                    result: "T1.X#2".into(),
+                },
+            ]
+        );
+        let s = compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?;
+        let reported: Vec<(SymKind, String, String)> = s
+            .report
+            .freshened
+            .iter()
+            .map(|f| (f.kind, f.candidate.to_string(), f.result.to_string()))
+            .collect();
+        assert_eq!(reported.len(), 8, "{reported:?}");
+        assert!(reported.contains(&(SymKind::Op, "f".into(), "T2.f".into())));
+        Ok(())
+    }
+
+    #[test]
+    fn freshened_classes_keep_every_member_in_provenance() -> TestResult {
+        let mut d = same_name_span();
+        d.nodes.push(DiagramNode {
+            label: "T3".into(),
+            theory: th("T3", &["S"], &[], vec![]),
+        });
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(
+            c.provenance.members(SymKind::Sort, "Sh.S"),
+            [sym("Sh", "S"), sym("T1", "S"), sym("T2", "S")]
+        );
+        assert_eq!(
+            c.provenance.members(SymKind::Sort, "T3.S"),
+            [sym("T3", "S")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn amalgamate_name_conflicts_are_typed() -> TestResult {
+        let t1 = th("T1", &["A", "B"], &[("f", &["A"], "B")], vec![]);
+        let t2 = th("T2", &["A", "B"], &[("f", &["B"], "A")], vec![]);
+        let d = TheoryDiagram::discrete(vec![("T1", t1), ("T2", t2)]);
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::NameConflict {
+                kind: SymKind::Op,
+                name: "f".into(),
+                first: sym("T1", "f"),
+                second: sym("T2", "f"),
+            }
+        );
+        let simple = th("T1", &["X"], &[], vec![]);
+        let dependent = Theory::new(
+            "T2",
+            vec![
+                Sort::simple("O"),
+                Sort::dependent("X", vec![SortParam::new("o", "O")]),
+            ],
+            vec![],
+            vec![],
+        );
+        let d = TheoryDiagram::discrete(vec![("T1", simple), ("T2", dependent)]);
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::NameConflict {
+                kind: SymKind::Sort,
+                name: "X".into(),
+                first: sym("T1", "X"),
+                second: sym("T2", "X"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn op_signature_mismatch_is_reported() -> TestResult {
+        // `check_morphism` does not compare which inputs are implicit, so
+        // both legs are morphisms; the class of `g` still disagrees.
+        let explicit_g = th("Sh", &["A"], &[("g", &["A"], "A")], vec![]);
+        let implicit_g = Theory::new(
+            "T2",
+            vec![Sort::simple("A")],
+            vec![Operation::with_implicit(
+                "g",
+                vec![(Arc::from("x0"), SortExpr::from("A"), Implicit::Yes)],
+                "A",
+            )],
+            vec![],
+        );
+        let d = TheoryDiagram::by_name(
+            ("Sh", explicit_g.clone()),
+            ("T1", explicit_g),
+            ("T2", implicit_g),
+        )?;
+        assert_eq!(
+            refused(compose(&d, &explicit(ClashPolicy::Reject)))?,
+            CompositionError::OpSignatureMismatch {
+                first: sym("Sh", "g"),
+                second: sym("T2", "g"),
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn op_class_needing_a_sort_equation_is_not_representable() -> TestResult {
+        let hom = |name: &str, op: &str, swapped: bool| {
+            let args = if swapped {
+                vec![Term::var("y"), Term::var("x")]
+            } else {
+                vec![Term::var("x"), Term::var("y")]
+            };
+            Theory::new(
+                name,
+                vec![
+                    Sort::simple("O"),
+                    Sort::dependent(
+                        "H",
+                        vec![SortParam::new("a", "O"), SortParam::new("b", "O")],
+                    ),
+                ],
+                vec![Operation::new(
+                    op,
+                    vec![
+                        (Arc::from("x"), SortExpr::from("O")),
+                        (Arc::from("y"), SortExpr::from("O")),
+                    ],
+                    SortExpr::app("H", args),
+                )],
+                vec![],
+            )
+        };
+        // `m.r` is renamed to `l.p` by the edge and glued to `r.r` by name;
+        // `l.p` and `r.r` differ only in the order of `H`'s arguments.
+        let d = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![
+                ("l", hom("L", "p", false)),
+                ("m", hom("M", "r", false)),
+                ("r", hom("R", "r", true)),
+            ])
+            .nodes,
+            edges: vec![DiagramEdge {
+                src: "m".into(),
+                tgt: "l".into(),
+                morphism: leg("M", "L", &[("O", "O"), ("H", "H")], &[("r", "p")]),
+            }],
+        };
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::QuotientNotRepresentable {
+                first: sym("l", "p"),
+                second: sym("r", "r"),
+                reason: NotRepresentableReason::NeedsSortEquation,
+            }
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn coequalizer_of_parallel_morphisms_identifies_their_images() -> TestResult {
+        let src = th("Src", &["A"], &[("c", &[], "A")], vec![]);
+        let tgt = th(
+            "Tgt",
+            &["X", "Y"],
+            &[("cx", &[], "X"), ("cy", &[], "Y")],
+            vec![],
+        );
+        let f = leg("Src", "Tgt", &[("A", "X")], &[("c", "cx")]);
+        let g = leg("Src", "Tgt", &[("A", "Y")], &[("c", "cy")]);
+        let d = TheoryDiagram::parallel(("s", src), ("t", tgt.clone()), f, g);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        // {s.A, t.X, t.Y} ties three ways and takes the least name.
+        assert_eq!(names(&c.theory.sorts, |s| &s.name), ["A"]);
+        assert_eq!(names(&c.theory.ops, |o| &o.name), ["c"]);
+        assert_eq!(
+            c.inclusions[1].sort_map.get("X").map(AsRef::as_ref),
+            Some("A")
+        );
+        assert_eq!(
+            c.inclusions[1].sort_map.get("Y").map(AsRef::as_ref),
+            Some("A")
+        );
+        check_morphism(&c.inclusions[1], &tgt, &c.theory)?;
+        Ok(())
+    }
+
+    /// `T1` and `T2` over a shared `A` and `h : A -> A`, each with one
+    /// equation over `h`.
+    fn equation_span(e1: Equation, e2: Equation) -> TheoryDiagram {
+        let side = |name: &str, eq: Equation| th(name, &["A"], &[("h", &["A"], "A")], vec![eq]);
+        let apex = th("Sh", &["A"], &[("h", &["A"], "A")], vec![]);
+        TheoryDiagram::span(
+            ("Sh", apex),
+            ("T1", side("T1", e1)),
+            ("T2", side("T2", e2)),
+            leg("Sh", "T1", &[("A", "A")], &[("h", "h")]),
+            leg("Sh", "T2", &[("A", "A")], &[("h", "h")]),
+        )
+    }
+
+    fn idempotent(name: &str, var: &str) -> Equation {
+        Equation::new(
+            name,
+            Term::app("h", vec![Term::app("h", vec![Term::var(var)])]),
+            Term::app("h", vec![Term::var(var)]),
+        )
+    }
+
+    fn involutive(name: &str) -> Equation {
+        Equation::new(
+            name,
+            Term::app("h", vec![Term::app("h", vec![Term::var("x")])]),
+            Term::var("x"),
+        )
+    }
+
+    #[test]
+    fn alpha_equivalent_equations_merge_and_keep_both_provenance_entries() -> TestResult {
+        let d = equation_span(idempotent("e1", "x"), idempotent("e2_different_name", "y"));
+        for opts in [explicit(ClashPolicy::Reject), amalgamate()] {
+            let c = compose(&d, &opts)?;
+            assert_eq!(names(&c.theory.eqs, |e| &e.name), ["e1"]);
+            assert_eq!(
+                c.provenance.members(SymKind::Eq, "e1"),
+                [sym("T1", "e1"), sym("T2", "e2_different_name")]
+            );
+        }
+        // Differing equations under one name stay distinct.
+        let d = equation_span(idempotent("ax", "x"), involutive("ax"));
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(names(&c.theory.eqs, |e| &e.name), ["T1.ax", "T2.ax"]);
+        Ok(())
+    }
+
+    #[test]
+    fn amalgamate_equation_conflicts_are_name_conflicts() -> TestResult {
+        let d = equation_span(idempotent("ax", "x"), involutive("ax"));
+        assert_eq!(
+            refused(compose(&d, &amalgamate()))?,
+            CompositionError::NameConflict {
+                kind: SymKind::Eq,
+                name: "ax".into(),
+                first: sym("T1", "ax"),
+                second: sym("T2", "ax"),
+            }
+        );
+        Ok(())
+    }
+
+    fn with_directed(name: &str, eqs: Vec<DirectedEquation>) -> Theory {
+        Theory::full(
+            name,
+            Vec::new(),
+            vec![Sort::simple("A")],
+            vec![
+                Operation::unary("f", "x", "A", "A"),
+                Operation::nullary("c", "A"),
+            ],
+            Vec::new(),
+            eqs,
+            Vec::new(),
+        )
+    }
+
+    fn rule(name: &str, lhs: Term, rhs: Term) -> DirectedEquation {
+        DirectedEquation::new(name, lhs, rhs, panproto_expr::Expr::Var("_".into()))
+    }
+
+    fn with_policies(name: &str, policies: Vec<ConflictPolicy>) -> Theory {
+        Theory::full(
+            name,
+            Vec::new(),
+            vec![Sort::simple("A")],
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            policies,
+        )
+    }
+
+    fn policy(name: &str, strategy: crate::theory::ConflictStrategy) -> ConflictPolicy {
+        ConflictPolicy {
+            name: name.into(),
+            value_kind: crate::sort::ValueKind::Str,
+            strategy,
+        }
+    }
+
+    #[test]
+    fn amalgamate_directed_equation_conflicts_are_name_conflicts() -> TestResult {
+        let fc = || {
+            rule(
+                "rule",
+                Term::app("f", vec![Term::constant("c")]),
+                Term::constant("c"),
+            )
+        };
+        let ff = || rule("rule", Term::app("f", vec![Term::var("x")]), Term::var("x"));
+        let shared = th("Sh", &["A"], &[], vec![]);
+        let result = crate::colimit::colimit_by_name(
+            &with_directed("T1", vec![fc()]),
+            &with_directed("T2", vec![ff()]),
+            &shared,
+        );
+        match result {
+            Err(GatError::Composition(err)) => assert_eq!(
+                *err,
+                CompositionError::NameConflict {
+                    kind: SymKind::DirectedEq,
+                    name: "rule".into(),
+                    first: sym("left", "rule"),
+                    second: sym("right", "rule"),
+                }
+            ),
+            other => return Err(format!("expected NameConflict, got {other:?}").into()),
+        }
+        // Same name and content merge, keeping both sources.
+        let r = crate::colimit::pushout_by_name(
+            &with_directed("T1", vec![fc()]),
+            &with_directed("T2", vec![fc()]),
+            &shared,
+        )?;
+        assert_eq!(names(&r.theory.directed_eqs, |e| &e.name), ["rule"]);
+        assert_eq!(
+            r.provenance.members(SymKind::DirectedEq, "rule"),
+            [sym("left", "rule"), sym("right", "rule")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn amalgamate_policy_conflicts_are_name_conflicts() -> TestResult {
+        use crate::theory::ConflictStrategy::{KeepLeft, KeepRight};
+        let shared = th("Sh", &["A"], &[], vec![]);
+        let result = crate::colimit::colimit_by_name(
+            &with_policies("T1", vec![policy("p", KeepLeft)]),
+            &with_policies("T2", vec![policy("p", KeepRight)]),
+            &shared,
+        );
+        match result {
+            Err(GatError::Composition(err)) => assert_eq!(
+                *err,
+                CompositionError::NameConflict {
+                    kind: SymKind::Policy,
+                    name: "p".into(),
+                    first: sym("left", "p"),
+                    second: sym("right", "p"),
+                }
+            ),
+            other => return Err(format!("expected NameConflict, got {other:?}").into()),
+        }
+        let r = crate::colimit::pushout_by_name(
+            &with_policies("T1", vec![policy("p", KeepLeft)]),
+            &with_policies("T2", vec![policy("p", KeepLeft)]),
+            &shared,
+        )?;
+        assert_eq!(names(&r.theory.policies, |p| &p.name), ["p"]);
+        assert_eq!(
+            r.provenance.members(SymKind::Policy, "p"),
+            [sym("left", "p"), sym("right", "p")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn policies_are_a_set_by_content_with_provenance() -> TestResult {
+        use crate::theory::ConflictStrategy::{KeepLeft, KeepRight};
+        let d = TheoryDiagram::discrete(vec![
+            ("T1", with_policies("T1", vec![policy("p1", KeepLeft)])),
+            (
+                "T2",
+                with_policies("T2", vec![policy("p2", KeepLeft), policy("p1", KeepRight)]),
+            ),
+        ]);
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_eq!(names(&c.theory.policies, |p| &p.name), ["T1.p1", "T2.p1"]);
+        assert_eq!(
+            c.provenance.members(SymKind::Policy, "T1.p1"),
+            [sym("T1", "p1"), sym("T2", "p2")]
+        );
+        assert_eq!(
+            c.provenance.members(SymKind::Policy, "T2.p1"),
+            [sym("T2", "p1")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn equations_are_transported_with_provenance() -> TestResult {
+        // `T2` calls the shared operation `g`; the equation lands in `h`.
+        let apex = th("Sh", &["A"], &[("h", &["A"], "A")], vec![]);
+        let t1 = th("T1", &["A"], &[("h", &["A"], "A")], vec![]);
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("A")],
+            vec![Operation::unary("g", "x", "A", "A")],
+            vec![Equation::new(
+                "g_idem",
+                Term::app("g", vec![Term::app("g", vec![Term::var("x")])]),
+                Term::app("g", vec![Term::var("x")]),
+            )],
+        );
+        let d = TheoryDiagram::span(
+            ("Sh", apex),
+            ("T1", t1),
+            ("T2", t2),
+            leg("Sh", "T1", &[("A", "A")], &[("h", "h")]),
+            leg("Sh", "T2", &[("A", "A")], &[("h", "g")]),
+        );
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let eq = c.theory.find_eq("g_idem").ok_or("equation lost")?;
+        assert_eq!(eq.rhs, Term::app("h", vec![Term::var("x")]));
+        assert_eq!(
+            c.provenance
+                .image(SymKind::Eq, &sym("T2", "g_idem"))
+                .map(AsRef::as_ref),
+            Some("g_idem")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn directed_equations_are_transported_with_provenance() -> TestResult {
+        let t = with_directed(
+            "T",
+            vec![rule(
+                "r",
+                Term::app("f", vec![Term::constant("c")]),
+                Term::constant("c"),
+            )],
+        );
+        let mut renamed = with_directed("U", Vec::new());
+        renamed.ops = vec![
+            Operation::unary("g", "x", "A", "A"),
+            Operation::nullary("c", "A"),
+        ];
+        let renamed = Theory::full(
+            "U",
+            Vec::new(),
+            renamed.sorts,
+            renamed.ops,
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        let d = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![("t", t), ("u", renamed)]).nodes,
+            edges: vec![DiagramEdge {
+                src: "u".into(),
+                tgt: "t".into(),
+                morphism: leg("U", "T", &[("A", "A")], &[("g", "f"), ("c", "c")]),
+            }],
+        };
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        // The class {t.f, u.g} ties and takes `f`; the rule keeps its name.
+        let r = c
+            .theory
+            .find_directed_eq("r")
+            .ok_or("directed equation lost")?;
+        assert_eq!(r.lhs, Term::app("f", vec![Term::constant("c")]));
+        assert_eq!(
+            c.provenance.members(SymKind::DirectedEq, "r"),
+            [sym("t", "r")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn policies_are_transported_with_provenance() -> TestResult {
+        use crate::theory::ConflictStrategy::KeepLeft;
+        let d = TheoryDiagram::discrete(vec![(
+            "T1",
+            with_policies("T1", vec![policy("p", KeepLeft)]),
+        )]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(c.theory.policies, vec![policy("p", KeepLeft)]);
+        assert_eq!(
+            c.provenance
+                .image(SymKind::Policy, &sym("T1", "p"))
+                .map(AsRef::as_ref),
+            Some("p")
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn ill_typed_transport_is_reported() -> TestResult {
+        let t = th(
+            "T",
+            &["A"],
+            &[],
+            vec![Equation::new("loose", Term::var("x"), Term::var("y"))],
+        );
+        match refused(compose(
+            &TheoryDiagram::discrete(vec![("T", t)]),
+            &amalgamate(),
+        ))? {
+            CompositionError::IllTypedTransport { source, .. } => {
+                assert_eq!(source, sym("T", "loose"));
+            }
+            other => return Err(format!("expected IllTypedTransport, got {other:?}").into()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn a_closed_sort_gap_is_an_ill_typed_result() -> TestResult {
+        // `stray` produces the closed sort `Bool` without being one of its
+        // constructors: a defect beyond the signature, which the result gate
+        // reports with no signature defects.
+        let t = Theory::new(
+            "T",
+            vec![Sort::closed("Bool", vec![], ["t", "f"])],
+            vec![
+                Operation::nullary("t", "Bool"),
+                Operation::nullary("f", "Bool"),
+                Operation::nullary("stray", "Bool"),
+            ],
+            vec![],
+        );
+        assert_eq!(
+            refused(compose(
+                &TheoryDiagram::discrete(vec![("T", t)]),
+                &amalgamate()
+            ))?,
+            CompositionError::IllTypedResult {
+                defects: Vec::new()
+            }
+        );
+        Ok(())
+    }
+
+    fn checks_of(report: &CompositionReport) -> Vec<(CompositionCheckKind, CheckSubject)> {
+        report
+            .checks
+            .iter()
+            .map(|r| (r.check, r.subject.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn every_composition_reports_each_applicable_check() -> TestResult {
+        use CompositionCheckKind as K;
+        let c = compose(&same_name_span(), &amalgamate())?;
+        let node = |l: &str| CheckSubject::Node(l.into());
+        let mut expected = vec![(K::ClassSignaturesAgree, CheckSubject::Diagram)];
+        for k in [K::LegIsMorphism, K::CoconeCommutes] {
+            expected.extend([(k, CheckSubject::Edge(0)), (k, CheckSubject::Edge(1))]);
+        }
+        for k in [K::NodeWellFormed, K::InclusionIsMorphism, K::EquationImage] {
+            expected.extend([(k, node("Sh")), (k, node("T1")), (k, node("T2"))]);
+        }
+        for k in [K::UniversalIdentity, K::ResultWellTyped, K::NameClashFree] {
+            expected.push((k, CheckSubject::Diagram));
+        }
+        expected.sort();
+        assert_eq!(checks_of(&c.report), expected);
+        // `T1` and `T2` share names their legs do not relate, so only the
+        // name-clash check fails, and it decides the status.
+        for r in &c.report.checks {
+            let failed = matches!(r.outcome, CheckOutcome::Failed { .. });
+            assert_eq!(failed, r.check == K::NameClashFree, "{r:?}");
+        }
+        assert_eq!(c.report.status, CheckStatus::Failed);
+        Ok(())
+    }
+
+    #[test]
+    fn equation_free_nodes_pass_equation_checks_vacuously() -> TestResult {
+        let c = compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?;
+        let image: Vec<&CheckOutcome> = c
+            .report
+            .records(CompositionCheckKind::EquationImage)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(image, [&CheckOutcome::Passed; 3]);
+        Ok(())
+    }
+
+    #[test]
+    fn open_theory_checks_are_reported_inapplicable_not_passed() -> TestResult {
+        let flat = th(
+            "ThFlat",
+            &["Node", "Field", "Value"],
+            &[
+                ("field_node", &["Field"], "Node"),
+                ("node_anchor", &["Node"], "Vertex"),
+            ],
+            vec![],
+        );
+        let meta = th(
+            "ThMeta",
+            &["Node", "Value"],
+            &[("tag", &["Node"], "Value")],
+            vec![],
+        );
+        let apex = th("NV", &["Node", "Value"], &[], vec![]);
+        let d = TheoryDiagram::by_name(("nv", apex), ("flat", flat.clone()), ("meta", meta))?;
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let open = CheckOutcome::Inapplicable {
+            reason: InapplicableReason::OpenTheory {
+                missing_sorts: vec!["Vertex".into()],
+            },
+        };
+        let inclusion: Vec<(CheckSubject, CheckOutcome)> = c
+            .report
+            .records(CompositionCheckKind::InclusionIsMorphism)
+            .map(|r| (r.subject.clone(), r.outcome.clone()))
+            .collect();
+        assert_eq!(
+            inclusion,
+            [
+                (CheckSubject::Node("flat".into()), open.clone()),
+                (CheckSubject::Node("meta".into()), CheckOutcome::Passed),
+                (CheckSubject::Node("nv".into()), CheckOutcome::Passed),
+            ]
+        );
+        let universal: Vec<&CheckOutcome> = c
+            .report
+            .records(CompositionCheckKind::UniversalIdentity)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(universal, [&open]);
+        assert_eq!(c.report.status, CheckStatus::Incomplete);
+        assert!(c.theory.find_sort("Vertex").is_none());
+        // Joined to a declared `Vertex`, the same node is closed.
+        let graph = th("ThGraph", &["Vertex"], &[], vec![]);
+        let d = TheoryDiagram::discrete(vec![("flat", flat), ("graph", graph)]);
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        assert_eq!(c.report.status, CheckStatus::Passed);
+        assert_eq!(
+            c.provenance.members(SymKind::Sort, "Vertex"),
+            [sym("flat", "Vertex"), sym("graph", "Vertex")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn decoding_a_composition_report_with_a_wrong_status_is_rejected() -> TestResult {
+        let c = compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?;
+        let mut json = serde_json::to_value(&c.report)?;
+        assert_eq!(
+            serde_json::from_value::<CompositionReport>(json.clone())?,
+            c.report
+        );
+        // `name_clash_free` fails, so the status is `failed`.
+        assert_eq!(json["status"], "failed");
+        json["status"] = serde_json::Value::from("passed");
+        let decoded = serde_json::from_value::<CompositionReport>(json);
+        assert!(decoded.is_err(), "{decoded:?}");
+        Ok(())
+    }
+
+    #[test]
+    fn composition_check_kind_order_is_the_contract_order() -> TestResult {
+        use CompositionCheckKind as K;
+        let order = [
+            K::LegIsMorphism,
+            K::NodeWellFormed,
+            K::ClassSignaturesAgree,
+            K::CoconeCommutes,
+            K::InclusionIsMorphism,
+            K::EquationImage,
+            K::EquationEntailed,
+            K::UniversalIdentity,
+            K::UniversalAgainst,
+            K::ResultWellTyped,
+            K::NameClashFree,
+        ];
+        assert!(order.windows(2).all(|w| w[0] < w[1]));
+        assert_eq!(
+            serde_json::to_value(order)?,
+            serde_json::json!([
+                "leg_is_morphism",
+                "node_well_formed",
+                "class_signatures_agree",
+                "cocone_commutes",
+                "inclusion_is_morphism",
+                "equation_image",
+                "equation_entailed",
+                "universal_identity",
+                "universal_against",
+                "result_well_typed",
+                "name_clash_free"
+            ])
+        );
+        Ok(())
+    }
+
+    fn round_trips<T>(value: &T, tag: &str) -> TestResult
+    where
+        T: Serialize + serde::de::DeserializeOwned + PartialEq + std::fmt::Debug,
+    {
+        let json = serde_json::to_value(value)?;
+        let found = json
+            .as_str()
+            .map(str::to_owned)
+            .or_else(|| json.as_object().and_then(|o| o.keys().next().cloned()));
+        assert_eq!(found.as_deref(), Some(tag), "{json}");
+        assert_eq!(&serde_json::from_value::<T>(json)?, value);
+        Ok(())
+    }
+
+    #[test]
+    fn composition_report_types_round_trip_every_variant() -> TestResult {
+        round_trips(&CheckSubject::Diagram, "diagram")?;
+        round_trips(&CheckSubject::Node("a".into()), "node")?;
+        round_trips(&CheckSubject::Edge(1), "edge")?;
+        round_trips(&CheckSubject::Cocone(2), "cocone")?;
+        let open = InapplicableReason::OpenTheory {
+            missing_sorts: vec!["V".into()],
+        };
+        round_trips(&open, "open_theory")?;
+        round_trips(&InapplicableReason::NoEquations, "no_equations")?;
+        let budget = CompositionIncomplete::RewriteBudgetExhausted {
+            equation: "e".into(),
+            steps: 3,
+        };
+        round_trips(&budget, "rewrite_budget_exhausted")?;
+        round_trips(
+            &CompositionIncomplete::NoTerminatingRewriteSystem,
+            "no_terminating_rewrite_system",
+        )?;
+        round_trips(&CheckOutcome::Passed, "passed")?;
+        round_trips(
+            &CheckOutcome::PassedByEquation {
+                equation: "e".into(),
+            },
+            "passed_by_equation",
+        )?;
+        round_trips(&CheckOutcome::Failed { detail: "d".into() }, "failed")?;
+        round_trips(&CheckOutcome::Inapplicable { reason: open }, "inapplicable")?;
+        round_trips(&CheckOutcome::Incomplete { reason: budget }, "incomplete")?;
+        for (kind, tag) in [
+            (SymKind::Sort, "sort"),
+            (SymKind::Op, "op"),
+            (SymKind::Eq, "eq"),
+            (SymKind::DirectedEq, "directed_eq"),
+            (SymKind::Policy, "policy"),
+        ] {
+            round_trips(&kind, tag)?;
+        }
+        round_trips(
+            &SortMismatch::Arity {
+                first: 0,
+                second: 1,
+            },
+            "arity",
+        )?;
+        round_trips(
+            &SortMismatch::ParamSort {
+                index: 0,
+                first: "A".into(),
+                second: "B".into(),
+            },
+            "param_sort",
+        )?;
+        round_trips(&SortMismatch::Kind, "kind")?;
+        round_trips(&SortMismatch::Closure, "closure")?;
+        round_trips(
+            &NotRepresentableReason::NeedsSortEquation,
+            "needs_sort_equation",
+        )?;
+        let c = compose(&same_name_span(), &explicit(ClashPolicy::Freshen))?;
+        let json = serde_json::to_string(&c)?;
+        let back: Composition = serde_json::from_str(&json)?;
+        assert_eq!(back, c);
+        assert_eq!(back.rewrite_budget(), DEFAULT_VERIFY_BUDGET);
+        Ok(())
+    }
+
+    #[test]
+    fn composition_error_tags_are_the_contract_tags_in_order() -> TestResult {
+        let (a, b) = (sym("A", "x"), sym("B", "x"));
+        let errors = [
+            CompositionError::DuplicateNodeLabel { label: "A".into() },
+            CompositionError::InvalidNodeLabel {
+                label: "A.b".into(),
+            },
+            CompositionError::UnknownNodeLabel { label: "C".into() },
+            CompositionError::InvalidNode {
+                label: "A".into(),
+                defects: Vec::new(),
+            },
+            CompositionError::InvalidLeg {
+                edge: 0,
+                detail: "d".into(),
+            },
+            CompositionError::SortSignatureMismatch {
+                first: a.clone(),
+                second: b.clone(),
+                detail: SortMismatch::Kind,
+            },
+            CompositionError::OpSignatureMismatch {
+                first: a.clone(),
+                second: b.clone(),
+            },
+            CompositionError::QuotientNotRepresentable {
+                first: a.clone(),
+                second: b.clone(),
+                reason: NotRepresentableReason::NeedsSortEquation,
+            },
+            CompositionError::NameConflict {
+                kind: SymKind::Sort,
+                name: "x".into(),
+                first: a.clone(),
+                second: b.clone(),
+            },
+            CompositionError::NameClash {
+                kind: SymKind::Sort,
+                name: "x".into(),
+                classes: vec![vec![a.clone()], vec![b]],
+            },
+            CompositionError::IllTypedTransport {
+                source: a.clone(),
+                detail: "d".into(),
+            },
+            CompositionError::IllTypedResult {
+                defects: Vec::new(),
+            },
+            CompositionError::NotACocone { class: vec![a] },
+        ];
+        let tags = [
+            "duplicate_node_label",
+            "invalid_node_label",
+            "unknown_node_label",
+            "invalid_node",
+            "invalid_leg",
+            "sort_signature_mismatch",
+            "op_signature_mismatch",
+            "quotient_not_representable",
+            "name_conflict",
+            "name_clash",
+            "ill_typed_transport",
+            "ill_typed_result",
+            "not_a_cocone",
+        ];
+        assert_eq!(errors.len(), tags.len());
+        for (err, tag) in errors.iter().zip(tags) {
+            round_trips(err, tag)?;
+            assert!(!err.to_string().is_empty());
+        }
+        Ok(())
+    }
+
+    /// Every source element of every node, by kind.
+    fn sources(d: &TheoryDiagram) -> Vec<(SymKind, SymRef)> {
+        let mut out = Vec::new();
+        for node in &d.nodes {
+            let at = |name: &Arc<str>| sym(&node.label, name);
+            let t = &node.theory;
+            out.extend(t.sorts.iter().map(|s| (SymKind::Sort, at(&s.name))));
+            out.extend(
+                undeclared_sort_names(t)
+                    .iter()
+                    .map(|s| (SymKind::Sort, at(s))),
+            );
+            out.extend(t.ops.iter().map(|o| (SymKind::Op, at(&o.name))));
+            out.extend(t.eqs.iter().map(|e| (SymKind::Eq, at(&e.name))));
+            out.extend(
+                t.directed_eqs
+                    .iter()
+                    .map(|e| (SymKind::DirectedEq, at(&e.name))),
+            );
+            out.extend(t.policies.iter().map(|p| (SymKind::Policy, at(&p.name))));
+        }
+        out
+    }
+
+    fn assert_total(d: &TheoryDiagram, c: &Composition) {
+        let all = sources(d);
+        for (kind, source) in &all {
+            assert!(
+                c.provenance.image(*kind, source).is_some(),
+                "{kind} {source} has no image"
+            );
+        }
+        let entries: usize = [
+            SymKind::Sort,
+            SymKind::Op,
+            SymKind::Eq,
+            SymKind::DirectedEq,
+            SymKind::Policy,
+        ]
+        .iter()
+        .map(|k| c.provenance.map(*k).len())
+        .sum();
+        assert_eq!(
+            entries,
+            all.len(),
+            "provenance holds entries for non-sources"
+        );
+    }
+
+    #[test]
+    fn provenance_is_total_for_every_source_element() -> TestResult {
+        use crate::theory::ConflictStrategy::KeepLeft;
+        let d = equation_span(idempotent("e1", "x"), idempotent("e2_different_name", "y"));
+        assert_total(&d, &compose(&d, &explicit(ClashPolicy::Reject))?);
+        let d = TheoryDiagram::discrete(vec![
+            ("T1", with_policies("T1", vec![policy("p1", KeepLeft)])),
+            ("T2", with_policies("T2", vec![policy("p2", KeepLeft)])),
+            (
+                "R",
+                with_directed(
+                    "R",
+                    vec![rule(
+                        "r",
+                        Term::app("f", vec![Term::constant("c")]),
+                        Term::constant("c"),
+                    )],
+                ),
+            ),
+            (
+                "O",
+                th("O", &["Node"], &[("anchor", &["Node"], "Vertex")], vec![]),
+            ),
+        ]);
+        let c = compose(&d, &explicit(ClashPolicy::Freshen))?;
+        assert_total(&d, &c);
+        assert_eq!(
+            c.provenance.members(SymKind::Policy, "p1"),
+            [sym("T1", "p1"), sym("T2", "p2")]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn provenance_accessors_invert_the_class_map() -> TestResult {
+        let apex = th("S", &["Pt"], &[("pt", &[], "Pt")], vec![]);
+        let t1 = th("T1", &["Point"], &[("p", &[], "Point")], vec![]);
+        let t2 = th("T2", &["P2"], &[("q", &[], "P2")], vec![]);
+        let d = TheoryDiagram::span(
+            ("S", apex),
+            ("T1", t1),
+            ("T2", t2),
+            leg("S", "T1", &[("Pt", "Point")], &[("pt", "p")]),
+            leg("S", "T2", &[("Pt", "P2")], &[("pt", "q")]),
+        );
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        for (kind, source) in sources(&d) {
+            let image = c.provenance.image(kind, &source).ok_or("no image")?;
+            assert!(c.provenance.members(kind, image).contains(&source));
+        }
+        // {S.Pt, T1.Point, T2.P2} ties three ways and takes the least name.
+        assert_eq!(names(&c.theory.sorts, |s| &s.name), ["P2"]);
+        let renames = |label: &str| -> Vec<(String, String)> {
+            c.provenance
+                .site_renames(label)
+                .iter()
+                .map(|r| (r.old.to_string(), r.new.to_string()))
+                .collect()
+        };
+        // {S.pt, T1.p, T2.q} takes `p`.
+        assert_eq!(renames("T1"), [("Point".to_owned(), "P2".to_owned())]);
+        assert_eq!(renames("T2"), [("q".to_owned(), "p".to_owned())]);
+        Ok(())
+    }
+
+    #[test]
+    fn inclusions_are_morphisms_and_send_each_symbol_to_its_class() -> TestResult {
+        let d = same_name_span();
+        for opts in [explicit(ClashPolicy::Freshen), amalgamate()] {
+            let c = compose(&d, &opts)?;
+            for (node, inclusion) in d.nodes.iter().zip(&c.inclusions) {
+                check_morphism(inclusion, &node.theory, &c.theory)?;
+                for (s, image) in &inclusion.sort_map {
+                    assert_eq!(
+                        c.provenance.image(SymKind::Sort, &sym(&node.label, s)),
+                        Some(image)
+                    );
+                }
+                for (o, image) in &inclusion.op_map {
+                    assert_eq!(
+                        c.provenance.image(SymKind::Op, &sym(&node.label, o)),
+                        image.as_op()
+                    );
+                }
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn name_clash_free_is_false_exactly_when_an_unrelated_name_is_shared() -> TestResult {
+        assert!(
+            !compose(&same_name_span(), &amalgamate())?
+                .report
+                .name_clash_free
+        );
+        let distinct = TheoryDiagram::span(
+            ("Sh", th("Sh", &["S"], &[], vec![])),
+            ("T1", th("T1", &["S", "X"], &[("f", &["S"], "X")], vec![])),
+            ("T2", th("T2", &["S", "Y"], &[("g", &["S"], "Y")], vec![])),
+            leg("Sh", "T1", &[("S", "S")], &[]),
+            leg("Sh", "T2", &[("S", "S")], &[]),
+        );
+        let c = compose(&distinct, &explicit(ClashPolicy::Reject))?;
+        assert!(c.report.name_clash_free);
+        assert_eq!(c.report.status, CheckStatus::Passed);
+        // Same-name equations: related when their content coincides.
+        let same = equation_span(idempotent("ax", "x"), idempotent("ax", "y"));
+        assert!(
+            compose(&same, &explicit(ClashPolicy::Reject))?
+                .report
+                .name_clash_free
+        );
+        let differ = equation_span(idempotent("ax", "x"), involutive("ax"));
+        assert!(
+            !compose(&differ, &explicit(ClashPolicy::Freshen))?
+                .report
+                .name_clash_free
+        );
+        Ok(())
+    }
+
+    /// The source symbols of a class of a composition in which the node
+    /// `stage` is an earlier composition: members of `stage` are replaced
+    /// by the members of their class there.
+    fn flatten(
+        kind: SymKind,
+        members: Vec<SymRef>,
+        stage: &str,
+        earlier: &Composition,
+    ) -> BTreeSet<SymRef> {
+        members
+            .into_iter()
+            .flat_map(|m| {
+                if &*m.node == stage {
+                    earlier.provenance.members(kind, &m.name)
+                } else {
+                    vec![m]
+                }
+            })
+            .collect()
+    }
+
+    /// The one-diagram composition, the iterated one, and the bijection of
+    /// result sort names between them.
+    type Iterated = (Composition, Composition, BTreeMap<Arc<str>, Arc<str>>);
+
+    /// Compose `a -> b` and then `a -> c` against the one diagram with both
+    /// edges, and return the bijection of result sort names the two
+    /// provenance maps induce, iterated name to one-diagram name.
+    fn iterated_against_one_diagram(
+        a: &Theory,
+        b: &Theory,
+        c: &Theory,
+        ab: &TheoryMorphism,
+        ac: &TheoryMorphism,
+    ) -> Result<Iterated, Box<dyn std::error::Error>> {
+        let opts = explicit(ClashPolicy::Reject);
+        let edge = |src: &str, tgt: &str, m: &TheoryMorphism| DiagramEdge {
+            src: src.into(),
+            tgt: tgt.into(),
+            morphism: m.clone(),
+        };
+        let one = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![
+                ("a", a.clone()),
+                ("b", b.clone()),
+                ("c", c.clone()),
+            ])
+            .nodes,
+            edges: vec![edge("a", "b", ab), edge("a", "c", ac)],
+        };
+        let one = compose(&one, &opts)?;
+        let first = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![("a", a.clone()), ("b", b.clone())]).nodes,
+            edges: vec![edge("a", "b", ab)],
+        };
+        let first = compose(&first, &opts)?;
+        let into_first = first.inclusions[0].clone();
+        let second = TheoryDiagram {
+            nodes: TheoryDiagram::discrete(vec![
+                ("a", a.clone()),
+                ("r1", first.theory.clone()),
+                ("c", c.clone()),
+            ])
+            .nodes,
+            edges: vec![edge("a", "r1", &into_first), edge("a", "c", ac)],
+        };
+        let second = compose(&second, &opts)?;
+        let mut bijection = BTreeMap::new();
+        for sort in &second.theory.sorts {
+            let class = flatten(
+                SymKind::Sort,
+                second.provenance.members(SymKind::Sort, &sort.name),
+                "r1",
+                &first,
+            );
+            let partner = one
+                .theory
+                .sorts
+                .iter()
+                .find(|s| {
+                    one.provenance
+                        .members(SymKind::Sort, &s.name)
+                        .into_iter()
+                        .collect::<BTreeSet<_>>()
+                        == class
+                })
+                .ok_or("no one-diagram class with the same membership")?;
+            bijection.insert(Arc::clone(&sort.name), Arc::clone(&partner.name));
+        }
+        Ok((one, second, bijection))
+    }
+
+    #[test]
+    fn iterated_pushouts_agree_up_to_the_provenance_bijection() -> TestResult {
+        // Node / Vertex / Vertex: the iterated class ties twice and stays
+        // `Node`, the one-diagram class is `Vertex`.
+        let a = th("A", &["Node"], &[], vec![]);
+        let b = th("B", &["Vertex"], &[], vec![]);
+        let c = th("C", &["Vertex"], &[], vec![]);
+        let ab = leg("A", "B", &[("Node", "Vertex")], &[]);
+        let ac = leg("A", "C", &[("Node", "Vertex")], &[]);
+        let (one, iterated, bijection) = iterated_against_one_diagram(&a, &b, &c, &ab, &ac)?;
+        assert_eq!(names(&one.theory.sorts, |s| &s.name), ["Vertex"]);
+        assert_eq!(names(&iterated.theory.sorts, |s| &s.name), ["Node"]);
+        assert_eq!(
+            bijection,
+            BTreeMap::from([(Arc::from("Node"), Arc::from("Vertex"))])
+        );
+        assert!(one.report.freshened.is_empty() && iterated.report.freshened.is_empty());
+
+        // Every class has a single member name: byte-identical.
+        let a = th("A", &["V", "E"], &[("s", &["E"], "V")], vec![]);
+        let b = th(
+            "B",
+            &["V", "E", "L"],
+            &[("s", &["E"], "V"), ("l", &["E"], "L")],
+            vec![],
+        );
+        let c = th(
+            "C",
+            &["V", "E", "K"],
+            &[("s", &["E"], "V"), ("k", &["V"], "K")],
+            vec![],
+        );
+        let ab = leg("A", "B", &[("V", "V"), ("E", "E")], &[("s", "s")]);
+        let ac = leg("A", "C", &[("V", "V"), ("E", "E")], &[("s", "s")]);
+        let (one, iterated, bijection) = iterated_against_one_diagram(&a, &b, &c, &ab, &ac)?;
+        assert!(bijection.iter().all(|(x, y)| x == y));
+        assert_eq!(
+            serde_json::to_vec(&one.theory)?,
+            serde_json::to_vec(&iterated.theory)?
+        );
+        Ok(())
+    }
+
+    /// The graph and constraint theories over `Vertex`, the first with an
+    /// idempotent `loop`.
+    fn graph_constraint() -> TheoryDiagram {
+        let g = th(
+            "G",
+            &["Vertex", "Edge"],
+            &[
+                ("src", &["Edge"], "Vertex"),
+                ("loop", &["Vertex"], "Vertex"),
+            ],
+            vec![Equation::new(
+                "idem",
+                Term::app("loop", vec![Term::app("loop", vec![Term::var("v")])]),
+                Term::app("loop", vec![Term::var("v")]),
+            )],
+        );
+        let c = th(
+            "C",
+            &["Vertex", "Constraint"],
+            &[("target", &["Constraint"], "Vertex")],
+            vec![],
+        );
+        TheoryDiagram::span(
+            ("V", th("V", &["Vertex"], &[], vec![])),
+            ("G", g),
+            ("C", c),
+            leg("V", "G", &[("Vertex", "Vertex")], &[]),
+            leg("V", "C", &[("Vertex", "Vertex")], &[]),
+        )
+    }
+
+    /// A theory containing the graph-constraint pushout, plus `Extra`.
+    fn larger() -> Theory {
+        th(
+            "Q",
+            &["Vertex", "Edge", "Constraint", "Extra"],
+            &[
+                ("src", &["Edge"], "Vertex"),
+                ("loop", &["Vertex"], "Vertex"),
+                ("target", &["Constraint"], "Vertex"),
+            ],
+            vec![Equation::new(
+                "idem",
+                Term::app("loop", vec![Term::app("loop", vec![Term::var("w")])]),
+                Term::app("loop", vec![Term::var("w")]),
+            )],
+        )
+    }
+
+    fn larger_legs(constraint_vertex: &str) -> Vec<TheoryMorphism> {
+        vec![
+            leg("V", "Q", &[("Vertex", "Vertex")], &[]),
+            leg(
+                "G",
+                "Q",
+                &[("Vertex", "Vertex"), ("Edge", "Edge")],
+                &[("src", "src"), ("loop", "loop")],
+            ),
+            leg(
+                "C",
+                "Q",
+                &[("Vertex", constraint_vertex), ("Constraint", "Constraint")],
+                &[("target", "target")],
+            ),
+        ]
+    }
+
+    #[test]
+    fn verify_universal_builds_the_mediator() -> TestResult {
+        let d = graph_constraint();
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let (mediator, report) = c.verify_universal(&d, &larger(), &larger_legs("Vertex"))?;
+        for s in ["Vertex", "Edge", "Constraint"] {
+            assert_eq!(mediator.sort_map.get(s).map(AsRef::as_ref), Some(s));
+        }
+        assert_eq!(
+            mediator.op_map.get("target"),
+            Some(&OpAssignment::op("target"))
+        );
+        let universal: Vec<(CheckSubject, CheckOutcome)> = report
+            .records(CompositionCheckKind::UniversalAgainst)
+            .map(|r| (r.subject.clone(), r.outcome.clone()))
+            .collect();
+        assert_eq!(
+            universal,
+            [
+                (CheckSubject::Diagram, CheckOutcome::Passed),
+                (CheckSubject::Edge(0), CheckOutcome::Passed),
+                (CheckSubject::Edge(1), CheckOutcome::Passed),
+                (CheckSubject::Cocone(0), CheckOutcome::Passed),
+                (CheckSubject::Cocone(1), CheckOutcome::Passed),
+                (CheckSubject::Cocone(2), CheckOutcome::Passed),
+            ]
+        );
+        let entailed: Vec<&CheckOutcome> = report
+            .records(CompositionCheckKind::EquationEntailed)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(entailed, [&CheckOutcome::Passed]);
+        assert_eq!(report.status, CheckStatus::Passed);
+
+        // A derived-term leg: the mediator sends `e` to `inv(u())`.
+        let sp = th("SP", &["A"], &[("e", &[], "A")], vec![]);
+        let tp1 = th("TP1", &["A"], &[("e", &[], "A")], vec![]);
+        let tp2 = th(
+            "TP2",
+            &["A"],
+            &[("u", &[], "A"), ("inv", &["A"], "A")],
+            vec![],
+        );
+        let inv_u = Term::app("inv", vec![Term::constant("u")]);
+        let mut to_term = leg("SP", "TP2", &[("A", "A")], &[]);
+        to_term
+            .op_map
+            .insert("e".into(), OpAssignment::Term(inv_u.clone()));
+        let d = TheoryDiagram::span(
+            ("SP", sp),
+            ("TP1", tp1),
+            ("TP2", tp2.clone()),
+            leg("SP", "TP1", &[("A", "A")], &[("e", "e")]),
+            to_term.clone(),
+        );
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        let mut via_tp1 = leg("TP1", "TP2", &[("A", "A")], &[]);
+        via_tp1
+            .op_map
+            .insert("e".into(), OpAssignment::Term(inv_u.clone()));
+        let legs = [to_term, via_tp1, TheoryMorphism::identity(&tp2)];
+        let (mediator, report) = c.verify_universal(&d, &tp2, &legs)?;
+        assert_eq!(mediator.op_map.get("e"), Some(&OpAssignment::Term(inv_u)));
+        assert_eq!(report.status, CheckStatus::Passed, "{:?}", report.checks);
+        Ok(())
+    }
+
+    #[test]
+    fn verify_universal_rejects_a_non_cocone() -> TestResult {
+        let d = graph_constraint();
+        let c = compose(&d, &explicit(ClashPolicy::Reject))?;
+        match c.verify_universal(&d, &larger(), &larger_legs("Extra")) {
+            Err(CompositionError::NotACocone { class }) => {
+                assert_eq!(
+                    class,
+                    [sym("C", "Vertex"), sym("G", "Vertex"), sym("V", "Vertex")]
+                );
+            }
+            other => return Err(format!("expected NotACocone, got {other:?}").into()),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn entailment_beyond_the_rewrite_budget_is_incomplete() -> TestResult {
+        let t = th(
+            "T",
+            &["A"],
+            &[("h", &["A"], "A")],
+            vec![idempotent("e", "x")],
+        );
+        let q = th("Q", &["A"], &[("h", &["A"], "A")], vec![involutive("k")]);
+        let d = TheoryDiagram::discrete(vec![("T", t)]);
+        let mut opts = explicit(ClashPolicy::Reject);
+        opts.rewrite_budget = 16;
+        let c = compose(&d, &opts)?;
+        let legs = [leg("T", "Q", &[("A", "A")], &[("h", "h")])];
+        let (_, report) = c.verify_universal(&d, &q, &legs)?;
+        let entailed: Vec<&CheckOutcome> = report
+            .records(CompositionCheckKind::EquationEntailed)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(
+            entailed,
+            [&CheckOutcome::Incomplete {
+                reason: CompositionIncomplete::RewriteBudgetExhausted {
+                    equation: "e".into(),
+                    steps: 16,
+                },
+            }]
+        );
+        assert_eq!(report.status, CheckStatus::Incomplete);
+        // With no equations on either side the check does not apply.
+        let bare = compose(
+            &TheoryDiagram::discrete(vec![("T", th("T", &["A"], &[], vec![]))]),
+            &opts,
+        )?;
+        let (_, report) = bare.verify_universal(
+            &TheoryDiagram::discrete(vec![("T", th("T", &["A"], &[], vec![]))]),
+            &th("Q", &["A"], &[], vec![]),
+            &[leg("T", "Q", &[("A", "A")], &[])],
+        )?;
+        let entailed: Vec<&CheckOutcome> = report
+            .records(CompositionCheckKind::EquationEntailed)
+            .map(|r| &r.outcome)
+            .collect();
+        assert_eq!(
+            entailed,
+            [&CheckOutcome::Inapplicable {
+                reason: InapplicableReason::NoEquations
+            }]
+        );
+        Ok(())
+    }
+
+    mod property {
+        use super::*;
+        use proptest::prelude::*;
+
+        /// One side of a generated star diagram.
+        #[derive(Clone, Debug)]
+        struct SideSpec {
+            /// Whether the side renames the apex symbols (to `M_*`).
+            rename: bool,
+            /// Which of the extra sorts `X`, `Y` it declares.
+            extra_sorts: Vec<bool>,
+            /// Extra operations `(inputs, output)`, as indices into its sorts.
+            extra_ops: Vec<(Vec<usize>, usize)>,
+            /// Whether it states an equation `e` on its first operation.
+            equation: bool,
+        }
+
+        /// A star: an apex and sides that each extend it.
+        #[derive(Clone, Debug)]
+        struct Spec {
+            base_sorts: usize,
+            base_ops: Vec<(Vec<usize>, usize)>,
+            sides: Vec<SideSpec>,
+        }
+
+        fn arb_ops() -> impl Strategy<Value = Vec<(Vec<usize>, usize)>> {
+            prop::collection::vec((prop::collection::vec(0..6usize, 0..=2), 0..6usize), 0..=2)
+        }
+
+        fn arb_spec() -> impl Strategy<Value = Spec> {
+            let side = (
+                any::<bool>(),
+                prop::collection::vec(any::<bool>(), 2),
+                arb_ops(),
+                any::<bool>(),
+            )
+                .prop_map(|(rename, extra_sorts, extra_ops, equation)| SideSpec {
+                    rename,
+                    extra_sorts,
+                    extra_ops,
+                    equation,
+                });
+            (1..=2usize, arb_ops(), prop::collection::vec(side, 1..=3)).prop_map(
+                |(base_sorts, base_ops, sides)| Spec {
+                    base_sorts,
+                    base_ops,
+                    sides,
+                },
+            )
+        }
+
+        type OpSpec = (String, Vec<String>, String);
+
+        /// A theory of simple sorts and the given operations, with an
+        /// equation `e : op(x..) = x_j` on the first operation whose output
+        /// sort is one of its input sorts, when `equation` is set.
+        fn theory(name: &str, sorts: &[String], ops: &[OpSpec], equation: bool) -> Theory {
+            let operations: Vec<Operation> = ops
+                .iter()
+                .map(|(o, ins, out)| {
+                    Operation::new(
+                        o.as_str(),
+                        ins.iter()
+                            .enumerate()
+                            .map(|(i, s)| (Arc::from(format!("x{i}")), SortExpr::from(s.as_str())))
+                            .collect(),
+                        out.as_str(),
+                    )
+                })
+                .collect();
+            let eqs = ops
+                .iter()
+                .find_map(|(o, ins, out)| {
+                    let j = ins.iter().position(|s| s == out)?;
+                    let args = (0..ins.len()).map(|i| Term::var(format!("x{i}"))).collect();
+                    Some(Equation::new(
+                        "e",
+                        Term::app(o.as_str(), args),
+                        Term::var(format!("x{j}")),
+                    ))
+                })
+                .filter(|_| equation)
+                .into_iter()
+                .collect();
+            Theory::new(
+                name,
+                sorts.iter().map(|s| Sort::simple(s.as_str())).collect(),
+                operations,
+                eqs,
+            )
+        }
+
+        fn ops_over(prefix: &str, specs: &[(Vec<usize>, usize)], sorts: &[String]) -> Vec<OpSpec> {
+            specs
+                .iter()
+                .enumerate()
+                .map(|(i, (ins, out))| {
+                    (
+                        format!("{prefix}{i}"),
+                        ins.iter().map(|k| sorts[k % sorts.len()].clone()).collect(),
+                        sorts[out % sorts.len()].clone(),
+                    )
+                })
+                .collect()
+        }
+
+        fn build(spec: &Spec) -> TheoryDiagram {
+            let base_sorts: Vec<String> = ["A", "B"][..spec.base_sorts]
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect();
+            let base_ops = ops_over("f", &spec.base_ops, &base_sorts);
+            let apex = theory("Apex", &base_sorts, &base_ops, false);
+            let mut nodes = vec![("apex".to_owned(), apex)];
+            let mut edges = Vec::new();
+            for (i, side) in spec.sides.iter().enumerate() {
+                let label = format!("s{i}");
+                let rn = |n: &str| {
+                    if side.rename {
+                        format!("M_{n}")
+                    } else {
+                        n.to_owned()
+                    }
+                };
+                let mut sorts: Vec<String> = base_sorts.iter().map(|s| rn(s)).collect();
+                for (k, extra) in ["X", "Y"].iter().enumerate() {
+                    if side.extra_sorts[k] {
+                        sorts.push((*extra).to_owned());
+                    }
+                }
+                let mut ops: Vec<OpSpec> = base_ops
+                    .iter()
+                    .map(|(o, ins, out)| (rn(o), ins.iter().map(|s| rn(s)).collect(), rn(out)))
+                    .collect();
+                ops.extend(ops_over("p", &side.extra_ops, &sorts));
+                nodes.push((label.clone(), theory(&label, &sorts, &ops, side.equation)));
+                let sort_map: HashMap<Arc<str>, Arc<str>> = base_sorts
+                    .iter()
+                    .map(|s| (Arc::from(s.as_str()), Arc::from(rn(s))))
+                    .collect();
+                let op_map: HashMap<Arc<str>, Arc<str>> = base_ops
+                    .iter()
+                    .map(|(o, _, _)| (Arc::from(o.as_str()), Arc::from(rn(o))))
+                    .collect();
+                edges.push(DiagramEdge {
+                    src: "apex".into(),
+                    tgt: label.as_str().into(),
+                    morphism: TheoryMorphism::new(
+                        format!("to_{label}"),
+                        "Apex",
+                        label.as_str(),
+                        sort_map,
+                        op_map,
+                    ),
+                });
+            }
+            TheoryDiagram {
+                nodes: nodes
+                    .into_iter()
+                    .map(|(label, theory)| DiagramNode {
+                        label: label.into(),
+                        theory,
+                    })
+                    .collect(),
+                edges,
+            }
+        }
+
+        /// Prefix every symbol of a theory, keeping the order of names.
+        fn prefixed(t: &Theory) -> Theory {
+            let p = |n: &Arc<str>| Arc::from(format!("r_{n}"));
+            let sorts: HashMap<Arc<str>, Arc<str>> = t
+                .sorts
+                .iter()
+                .map(|s| (Arc::clone(&s.name), p(&s.name)))
+                .collect();
+            let ops: HashMap<Arc<str>, Arc<str>> = t
+                .ops
+                .iter()
+                .map(|o| (Arc::clone(&o.name), p(&o.name)))
+                .collect();
+            Theory::new(
+                Arc::clone(&t.name),
+                t.sorts.iter().map(|s| Sort::simple(p(&s.name))).collect(),
+                t.ops
+                    .iter()
+                    .map(|o| {
+                        let mut op = translate_op(o, &sorts, &ops);
+                        op.name = p(&o.name);
+                        op
+                    })
+                    .collect(),
+                t.eqs
+                    .iter()
+                    .map(|e| {
+                        let mut eq = e.rename_ops(&ops);
+                        eq.name = p(&e.name);
+                        eq
+                    })
+                    .collect(),
+            )
+        }
+
+        fn prefixed_diagram(d: &TheoryDiagram) -> TheoryDiagram {
+            let p = |n: &Arc<str>| Arc::from(format!("r_{n}"));
+            TheoryDiagram {
+                nodes: d
+                    .nodes
+                    .iter()
+                    .map(|n| DiagramNode {
+                        label: Arc::clone(&n.label),
+                        theory: prefixed(&n.theory),
+                    })
+                    .collect(),
+                edges: d
+                    .edges
+                    .iter()
+                    .map(|e| DiagramEdge {
+                        src: Arc::clone(&e.src),
+                        tgt: Arc::clone(&e.tgt),
+                        morphism: TheoryMorphism::new(
+                            Arc::clone(&e.morphism.name),
+                            Arc::clone(&e.morphism.domain),
+                            Arc::clone(&e.morphism.codomain),
+                            e.morphism
+                                .sort_map
+                                .iter()
+                                .map(|(a, b)| (p(a), p(b)))
+                                .collect(),
+                            e.morphism
+                                .op_rename_map()
+                                .iter()
+                                .map(|(a, b)| (p(a), p(b)))
+                                .collect::<HashMap<Arc<str>, Arc<str>>>(),
+                        ),
+                    })
+                    .collect(),
+            }
+        }
+
+        /// The classes of a composition, as sets of source symbols per kind.
+        fn classes(c: &Composition) -> BTreeSet<(SymKind, BTreeSet<SymRef>)> {
+            let mut out = BTreeSet::new();
+            for kind in [SymKind::Sort, SymKind::Op, SymKind::Eq] {
+                let images: BTreeSet<&Arc<str>> = c.provenance.map(kind).values().collect();
+                for image in images {
+                    out.insert((
+                        kind,
+                        c.provenance.members(kind, image).into_iter().collect(),
+                    ));
+                }
+            }
+            out
+        }
+
+        fn unprefix(
+            classes: BTreeSet<(SymKind, BTreeSet<SymRef>)>,
+        ) -> BTreeSet<(SymKind, BTreeSet<SymRef>)> {
+            classes
+                .into_iter()
+                .map(|(k, members)| {
+                    (
+                        k,
+                        members
+                            .into_iter()
+                            .map(|m| {
+                                SymRef::new(
+                                    Arc::clone(&m.node),
+                                    m.name.strip_prefix("r_").unwrap_or(&m.name),
+                                )
+                            })
+                            .collect(),
+                    )
+                })
+                .collect()
+        }
+
+        fn fail(e: impl std::fmt::Display) -> TestCaseError {
+            TestCaseError::fail(e.to_string())
+        }
+
+        fn all_modes() -> [ComposeOptions; 3] {
+            [
+                explicit(ClashPolicy::Freshen),
+                explicit(ClashPolicy::Reject),
+                amalgamate(),
+            ]
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(64))]
+
+            #[test]
+            fn result_symbols_are_one_per_class(spec in arb_spec()) {
+                let d = build(&spec);
+                for opts in all_modes() {
+                    let Ok(c) = compose(&d, &opts) else { continue };
+                    for (kind, declared) in [(SymKind::Sort, c.theory.sorts.len()), (SymKind::Op, c.theory.ops.len())] {
+                        let images: BTreeSet<&Arc<str>> = c.provenance.map(kind).values().collect();
+                        prop_assert_eq!(images.len(), declared);
+                    }
+                    for sort in &c.theory.sorts {
+                        prop_assert!(!c.provenance.members(SymKind::Sort, &sort.name).is_empty());
+                    }
+                    for op in &c.theory.ops {
+                        prop_assert!(!c.provenance.members(SymKind::Op, &op.name).is_empty());
+                    }
+                }
+            }
+
+            #[test]
+            fn compose_results_typecheck(spec in arb_spec()) {
+                let d = build(&spec);
+                let freshened = compose(&d, &explicit(ClashPolicy::Freshen)).map_err(fail)?;
+                crate::typecheck::typecheck_theory(&freshened.theory).map_err(fail)?;
+                for opts in all_modes() {
+                    if let Ok(c) = compose(&d, &opts) {
+                        prop_assert!(typecheck_signature(&c.theory).is_ok());
+                        crate::typecheck::typecheck_theory(&c.theory).map_err(fail)?;
+                        for (node, inclusion) in d.nodes.iter().zip(&c.inclusions) {
+                            check_morphism(inclusion, &node.theory, &c.theory).map_err(fail)?;
+                        }
+                    }
+                }
+            }
+
+            #[test]
+            fn result_vectors_are_sorted_and_extends_is_empty(spec in arb_spec()) {
+                let d = build(&spec);
+                for opts in all_modes() {
+                    let Ok(c) = compose(&d, &opts) else { continue };
+                    let t = &c.theory;
+                    prop_assert!(t.extends.is_empty());
+                    prop_assert!(t.sorts.windows(2).all(|w| w[0].name < w[1].name));
+                    prop_assert!(t.ops.windows(2).all(|w| w[0].name < w[1].name));
+                    prop_assert!(t.eqs.windows(2).all(|w| w[0].name < w[1].name));
+                    prop_assert!(t.directed_eqs.windows(2).all(|w| w[0].name < w[1].name));
+                    prop_assert!(t.policies.windows(2).all(|w| w[0].name < w[1].name));
+                }
+            }
+
+            #[test]
+            fn check_records_are_sorted(spec in arb_spec()) {
+                let d = build(&spec);
+                for opts in all_modes() {
+                    let Ok(c) = compose(&d, &opts) else { continue };
+                    prop_assert!(c
+                        .report
+                        .checks
+                        .windows(2)
+                        .all(|w| (w[0].check, &w[0].subject) < (w[1].check, &w[1].subject)));
+                }
+            }
+
+            #[test]
+            fn diagram_colimit_is_invariant_under_node_and_edge_permutation(
+                spec in arb_spec(),
+                rotate in 0..4usize,
+            ) {
+                let d = build(&spec);
+                let mut permuted = d.clone();
+                permuted.nodes.reverse();
+                let n = permuted.nodes.len();
+                permuted.nodes.rotate_left(rotate % n);
+                permuted.edges.reverse();
+                for opts in all_modes() {
+                    let (a, b) = (compose(&d, &opts), compose(&permuted, &opts));
+                    prop_assert_eq!(a.is_ok(), b.is_ok());
+                    let (Ok(a), Ok(b)) = (a, b) else { continue };
+                    prop_assert_eq!(serde_json::to_vec(&a.theory).map_err(fail)?, serde_json::to_vec(&b.theory).map_err(fail)?);
+                    prop_assert_eq!(serde_json::to_vec(&a.provenance).map_err(fail)?, serde_json::to_vec(&b.provenance).map_err(fail)?);
+                    prop_assert_eq!(&a.report.freshened, &b.report.freshened);
+                    for (node, inclusion) in d.nodes.iter().zip(&a.inclusions) {
+                        let at = permuted.nodes.iter().position(|m| m.label == node.label).ok_or_else(|| fail("label lost"))?;
+                        prop_assert_eq!(serde_json::to_vec(inclusion).map_err(fail)?, serde_json::to_vec(&b.inclusions[at]).map_err(fail)?);
+                    }
+                }
+            }
+
+            #[test]
+            fn renaming_symbols_by_a_bijection_renames_the_result(spec in arb_spec()) {
+                let d = build(&spec);
+                let renamed = prefixed_diagram(&d);
+                for opts in all_modes() {
+                    let (a, b) = (compose(&d, &opts), compose(&renamed, &opts));
+                    prop_assert_eq!(a.is_ok(), b.is_ok());
+                    let (Ok(a), Ok(b)) = (a, b) else { continue };
+                    prop_assert_eq!(classes(&a), unprefix(classes(&b)));
+                    if a.report.freshened.is_empty() {
+                        let expected = prefixed(&a.theory);
+                        prop_assert_eq!(names(&b.theory.sorts, |s| &s.name), names(&expected.sorts, |s| &s.name));
+                        prop_assert_eq!(&b.theory.ops, &expected.ops);
+                    }
+                }
+            }
+
+            #[test]
+            fn explicit_and_amalgamate_agree_on_name_clash_free_diagrams(spec in arb_spec()) {
+                let d = build(&spec);
+                let explicit = compose(&d, &explicit(ClashPolicy::Reject));
+                if let Ok(e) = explicit {
+                    if e.report.name_clash_free {
+                        let a = compose(&d, &amalgamate()).map_err(fail)?;
+                        prop_assert_eq!(&a.theory, &e.theory);
+                        prop_assert_eq!(&a.provenance, &e.provenance);
+                        prop_assert_eq!(&a.inclusions, &e.inclusions);
+                    }
+                }
+            }
+        }
+    }
+}

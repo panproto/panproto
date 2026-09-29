@@ -1773,6 +1773,82 @@ mod tests {
         assert!(by_name.is_err(), "ill-typed leg accepted: {by_name:?}");
     }
 
+    /// The wrappers keep the names their pushouts have always had: a class
+    /// is named after its member in the first side, else the second, even
+    /// where the majority rule of `compose` would choose another member.
+    #[test]
+    fn amalgamate_wrappers_name_classes_by_their_t1_member() {
+        let shared = Theory::new(
+            "S",
+            vec![Sort::simple("Pt")],
+            vec![Operation::nullary("x", "Pt")],
+            Vec::new(),
+        );
+        let t1 = Theory::new(
+            "T1",
+            vec![Sort::simple("Point")],
+            vec![Operation::nullary("a", "Point")],
+            Vec::new(),
+        );
+        let t2 = Theory::new(
+            "T2",
+            vec![Sort::simple("P2")],
+            vec![Operation::nullary("b", "P2")],
+            Vec::new(),
+        );
+        let i1 = TheoryMorphism::new(
+            "i1",
+            "S",
+            "T1",
+            HashMap::from([(Arc::from("Pt"), Arc::from("Point"))]),
+            HashMap::from([(Arc::from("x"), Arc::from("a"))]),
+        );
+        let i2 = TheoryMorphism::new(
+            "i2",
+            "S",
+            "T2",
+            HashMap::from([(Arc::from("Pt"), Arc::from("P2"))]),
+            HashMap::from([(Arc::from("x"), Arc::from("b"))]),
+        );
+        let result = colimit(&shared, &t1, &t2, &i1, &i2).expect("pushout exists");
+        assert_eq!(result.theory.sorts[0].name.as_ref(), "Point");
+        assert_eq!(result.theory.ops[0].name.as_ref(), "a");
+        assert_eq!(
+            result.inclusion2.sort_map.get("P2").map(AsRef::as_ref),
+            Some("Point")
+        );
+        assert_eq!(
+            result
+                .inclusion2
+                .op_map
+                .get("b")
+                .and_then(|a| a.as_op())
+                .map(AsRef::as_ref),
+            Some("a")
+        );
+        assert_eq!(
+            result
+                .provenance
+                .members(crate::compose::SymKind::Sort, "Point")
+                .len(),
+            3
+        );
+        // The same span through `compose` takes the majority name, `P2`.
+        let diagram =
+            crate::compose::TheoryDiagram::span(("S", shared), ("T1", t1), ("T2", t2), i1, i2);
+        let composed = crate::compose::compose(
+            &diagram,
+            &ComposeOptions {
+                mode: CompositionMode::Amalgamate,
+                result_name: "R".into(),
+                clash: ClashPolicy::Reject,
+                rewrite_budget: DEFAULT_VERIFY_BUDGET,
+            },
+        )
+        .expect("composes");
+        assert_eq!(composed.theory.sorts[0].name.as_ref(), "P2");
+    }
+
     /// Every operation name applied anywhere inside a term.
     fn referenced_ops(term: &Term) -> Vec<Arc<str>> {
         let mut names = Vec::new();
