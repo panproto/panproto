@@ -43,7 +43,10 @@ pub use abstract_schema::{
 pub use builder::SchemaBuilder;
 pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
 pub use colimit::{SchemaOverlap, schema_pushout};
-pub use constraint_semantics::{ConstraintSemantics, LengthUnit};
+pub use constraint_semantics::{
+    ConstraintSemantics, ConstraintValue, ConstraintValueError, ConstraintValueReason, LengthUnit,
+    ValueParameter,
+};
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
 pub use induce::{induce, induce_on_vertices};

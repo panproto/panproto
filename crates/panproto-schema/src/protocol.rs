@@ -87,16 +87,47 @@ pub struct Protocol {
     pub has_policies: bool,
 
     // -- shape and value declarations (all default to empty) --
-    /// The shape of the instances this protocol's codec produces.
+    //
+    // The built-in protocols of `panproto-protocols` fill these four fields
+    // from its per-protocol tables as each `protocol()` constructor builds
+    // its `Protocol`. Each is `#[serde(default)]`, so a protocol serialized
+    // without them decodes with the defaults.
+    /// The shape of the instances this protocol's instance codec produces:
+    /// the shape its syntax has.
+    ///
+    /// Nested text formats are trees, delimited and columnar formats are
+    /// tables, and native graph formats (triples, edge lists) are graphs.
+    /// A plain parse of the protocol's data returns an instance of this
+    /// shape, and the codec's native representation converts to it.
+    /// Defaults to [`InstanceShapeKind::Tree`].
     #[serde(default)]
     pub syntactic_shape: InstanceShapeKind,
-    /// The shape of this protocol's instances once references are resolved.
+    /// The shape of this protocol's instances once the references its
+    /// schemas declare are resolved.
+    ///
+    /// It differs from [`syntactic_shape`](Self::syntactic_shape) exactly
+    /// when references carry structure the syntax does not: a tree format
+    /// whose identifiers and references encode a graph declares `Tree` and
+    /// `Graph`. Defaults to [`InstanceShapeKind::Tree`].
     #[serde(default)]
     pub semantic_shape: InstanceShapeKind,
     /// The meaning of each constraint sort, keyed by sort name.
+    ///
+    /// Covers the entries of [`constraint_sorts`](Self::constraint_sorts):
+    /// validation reads a constraint through the meaning of its sort (for
+    /// instance whether `maxLength` counts UTF-8 bytes or characters), and
+    /// a sort absent from this map is a declaration validation cannot
+    /// interpret. [`ConstraintSemantics::parse_value`] reads a constraint's
+    /// value under its meaning. Defaults to empty.
     #[serde(default)]
     pub constraint_semantics: BTreeMap<String, ConstraintSemantics>,
     /// The scalar kind of each scalar vertex kind, keyed by vertex kind.
+    ///
+    /// Codecs coerce a value at a vertex to the kind its vertex kind maps
+    /// to here, refined by the vertex's value-parameter constraints through
+    /// [`ValueSpec::for_vertex`](crate::ValueSpec::for_vertex); a vertex
+    /// kind absent from this map holds [`ScalarKind::Any`]. Defaults to
+    /// empty.
     #[serde(default)]
     pub value_kinds: BTreeMap<String, ScalarKind>,
 }
