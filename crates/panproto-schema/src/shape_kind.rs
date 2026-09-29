@@ -22,6 +22,19 @@ use serde::{Deserialize, Serialize};
 ///
 /// Serialized in `snake_case` (`"tree"`, `"table"`, `"graph"`). The derived
 /// order is the declaration order. The default is [`InstanceShapeKind::Tree`].
+///
+/// ```
+/// use panproto_schema::InstanceShapeKind;
+///
+/// let json = serde_json::to_string(&InstanceShapeKind::Table).unwrap();
+/// assert_eq!(json, r#""table""#);
+/// let back: InstanceShapeKind = serde_json::from_str(r#""graph""#).unwrap();
+/// assert_eq!(back, InstanceShapeKind::Graph);
+/// assert!(serde_json::from_str::<InstanceShapeKind>(r#""Graph""#).is_err());
+/// ```
+///
+/// `panproto-inst` re-exports this type, so `panproto_inst::InstanceShapeKind`
+/// and `panproto_schema::InstanceShapeKind` name one type.
 #[derive(
     Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize,
 )]
@@ -51,6 +64,19 @@ mod tests {
         let back: Vec<InstanceShapeKind> = serde_json::from_str(r#"["tree","table","graph"]"#)?;
         assert_eq!(back, all);
         assert!(all.windows(2).all(|w| w[0] < w[1]));
+        Ok(())
+    }
+
+    #[test]
+    fn instance_shape_kind_round_trips_msgpack() -> Result<(), Box<dyn std::error::Error>> {
+        for kind in [
+            InstanceShapeKind::Tree,
+            InstanceShapeKind::Table,
+            InstanceShapeKind::Graph,
+        ] {
+            let bytes = rmp_serde::to_vec(&kind)?;
+            assert_eq!(rmp_serde::from_slice::<InstanceShapeKind>(&bytes)?, kind);
+        }
         Ok(())
     }
 
