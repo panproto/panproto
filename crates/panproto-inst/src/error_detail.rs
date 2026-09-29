@@ -11,6 +11,7 @@
 //! crate defines project onto them, and this crate cannot depend on
 //! `panproto-lens`, which re-exports both.
 
+use panproto_gat::CompositionError;
 use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
@@ -192,5 +193,10 @@ pub enum ErrorDetail {
     PutDomain {
         /// Why.
         error: PutDomainError,
+    },
+    /// A composition of theories was refused.
+    Composition {
+        /// Why.
+        error: CompositionError,
     },
 }
