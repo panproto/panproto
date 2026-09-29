@@ -4,7 +4,8 @@
 //! decides, so writing one out as it comes makes the bytes of one and the
 //! same value differ from process to process. The helpers here write maps
 //! in key order instead. `panproto_schema::serde_helpers` re-exports
-//! [`sorted_map`], so one definition serves both crates.
+//! [`sorted_map`] and [`btree_map_as_vec`], so one definition of each
+//! serves both crates.
 //!
 //! [`btree_map_as_vec`] writes a `BTreeMap` whose key is a struct (which
 //! JSON cannot use as an object key) as a sequence of pairs in key order,

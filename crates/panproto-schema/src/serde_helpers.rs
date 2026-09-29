@@ -263,86 +263,10 @@ pub mod sorted_set {
 /// let dup = r#"{"map":[[[1,5],"a"],[[1,5],"b"]]}"#;
 /// assert!(serde_json::from_str::<Wrapper>(dup).is_err());
 /// ```
-pub mod btree_map_as_vec {
-    use std::collections::BTreeMap;
-    use std::collections::btree_map::Entry;
-    use std::fmt;
-    use std::marker::PhantomData;
-
-    use serde::de::{Deserializer, Error as _, SeqAccess, Visitor};
-    use serde::ser::{SerializeSeq as _, Serializer};
-    use serde::{Deserialize, Serialize};
-
-    /// Serialize a `BTreeMap` as a sequence of key-value pairs, in key order.
-    ///
-    /// # Errors
-    ///
-    /// Returns a serialization error if any key or value fails to serialize.
-    pub fn serialize<S, K, V>(map: &BTreeMap<K, V>, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        K: Serialize,
-        V: Serialize,
-        S: Serializer,
-    {
-        let mut seq = serializer.serialize_seq(Some(map.len()))?;
-        for pair in map {
-            seq.serialize_element(&pair)?;
-        }
-        seq.end()
-    }
-
-    /// Deserialize a sequence of key-value pairs into a `BTreeMap`.
-    ///
-    /// # Errors
-    ///
-    /// Returns a deserialization error if the input is not a sequence of
-    /// `(K, V)` pairs, or if a key occurs more than once.
-    pub fn deserialize<'de, D, K, V>(deserializer: D) -> Result<BTreeMap<K, V>, D::Error>
-    where
-        K: Deserialize<'de> + Ord + fmt::Debug,
-        V: Deserialize<'de>,
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_seq(PairsVisitor(PhantomData))
-    }
-
-    /// Reads the pairs one at a time so a duplicate key is caught as it
-    /// arrives.
-    struct PairsVisitor<K, V>(PhantomData<fn() -> (K, V)>);
-
-    impl<'de, K, V> Visitor<'de> for PairsVisitor<K, V>
-    where
-        K: Deserialize<'de> + Ord + fmt::Debug,
-        V: Deserialize<'de>,
-    {
-        type Value = BTreeMap<K, V>;
-
-        fn expecting(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_str("a sequence of [key, value] pairs with distinct keys")
-        }
-
-        fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
-        where
-            A: SeqAccess<'de>,
-        {
-            let mut map = BTreeMap::new();
-            while let Some((key, value)) = seq.next_element::<(K, V)>()? {
-                match map.entry(key) {
-                    Entry::Vacant(slot) => {
-                        slot.insert(value);
-                    }
-                    Entry::Occupied(slot) => {
-                        return Err(A::Error::custom(format_args!(
-                            "duplicate map key {:?}",
-                            slot.key()
-                        )));
-                    }
-                }
-            }
-            Ok(map)
-        }
-    }
-}
+///
+/// Defined in `panproto-gat`, which this crate depends on, so that the
+/// composition provenance and schemas share one definition.
+pub use panproto_gat::serde_helpers::btree_map_as_vec;
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
