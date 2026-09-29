@@ -12,6 +12,7 @@ use smallvec::SmallVec;
 
 use crate::error::SchemaError;
 use crate::induce::ordered_edges;
+use crate::keys::DeclarationReport;
 use crate::morphism::SchemaMorphism;
 use crate::schema::{Edge, Schema, Vertex};
 
@@ -64,6 +65,30 @@ pub fn schema_pushout(
     right: &Schema,
     overlap: &SchemaOverlap,
 ) -> Result<(Schema, SchemaMorphism, SchemaMorphism), SchemaError> {
+    schema_pushout_with_report(left, right, overlap)
+        .map(|(pushout, left_morphism, right_morphism, _)| (pushout, left_morphism, right_morphism))
+}
+
+/// [`schema_pushout`], also reporting the key and reference declarations
+/// that could not be carried into the pushout.
+///
+/// Each side's declarations are carried along its injection
+/// ([`SchemaMorphism::map_declarations`]) and the two images are merged. Two
+/// keys with the same id on identified vertices merge into one when their
+/// mapped parts, role and scope are equal, and two references with the same
+/// id merge when they are equal after mapping. A declaration naming a vertex
+/// or an edge its injection does not map is dropped and reported.
+///
+/// # Errors
+///
+/// Returns the errors of [`schema_pushout`], and
+/// [`SchemaError::KeyConflict`] or [`SchemaError::ReferenceConflict`] when
+/// two declarations with the same id land on the same place and differ.
+pub fn schema_pushout_with_report(
+    left: &Schema,
+    right: &Schema,
+    overlap: &SchemaOverlap,
+) -> Result<(Schema, SchemaMorphism, SchemaMorphism, DeclarationReport), SchemaError> {
     let quotient = build_vertex_quotient(left, right, overlap)?;
 
     let (merged_vertices, left_vertex_map, right_vertex_map) =
@@ -92,7 +117,15 @@ pub fn schema_pushout(
         renames: vec![],
     };
 
-    Ok((pushout, left_morphism, right_morphism))
+    let (mut declarations, mut report) = left_morphism.map_declarations(&left.declarations)?;
+    let (right_declarations, right_report) =
+        right_morphism.map_declarations(&right.declarations)?;
+    declarations.merge(&right_declarations)?;
+    report.absorb(right_report);
+    let mut pushout = pushout;
+    pushout.declarations = declarations;
+
+    Ok((pushout, left_morphism, right_morphism, report))
 }
 
 /// An element of the span's apex: a vertex ID tagged with the schema it comes

@@ -419,6 +419,13 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         // chase; render it with its identity so it stays distinguishable
         // from a concrete null.
         Value::LabeledNull(id) => json!({ "$labeledNull": id }),
+        // A JSON number in `serde_json::Value` is an `i64`, `u64` or
+        // `f64`, which cannot hold every exact value, so the exact values
+        // are written as their lexical form: the decimal with its scale,
+        // the integer's digits, the date or time in RFC 3339.
+        Value::Decimal(d) => json!(d.to_string()),
+        Value::BigInt(b) => json!(b.to_string()),
+        Value::Temporal(t) => json!(t.to_string()),
     }
 }
 
@@ -804,6 +811,22 @@ mod tests {
         ]);
         let j = value_to_json(&v);
         assert_eq!(j, json!([1, "two", true, null]));
+    }
+
+    #[test]
+    fn value_to_json_writes_exact_values_as_their_lexical_form() {
+        use crate::value::{BigIntValue, DecimalValue, Temporal};
+        let decimal = Value::Decimal(DecimalValue::parse("1.50").unwrap());
+        let big = Value::integer(BigIntValue::parse("18446744073709551615").unwrap());
+        let when = Value::Temporal(Temporal::parse("2026-09-28T12:34:56.789+05:30").unwrap());
+        assert_eq!(
+            value_to_json(&Value::List(vec![decimal, big, when])),
+            json!([
+                "1.50",
+                "18446744073709551615",
+                "2026-09-28T12:34:56.789+05:30"
+            ])
+        );
     }
 
     #[test]

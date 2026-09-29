@@ -83,7 +83,7 @@ use crate::wtype::{
 
 /// The blake3 key-derivation context for a schema's identity. Its input is
 /// [`panproto_schema::canonical_bytes`].
-pub const SCHEMA_CONTEXT: &str = "panproto 2026-09 schema identity v1";
+pub const SCHEMA_CONTEXT: &str = "panproto 2026-09 schema identity v2";
 
 /// The blake3 key-derivation context for a compiled lens's identity. Its
 /// input is the source schema digest, the target schema digest and
@@ -103,7 +103,7 @@ pub const VCS_GRAPH_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 vcs graph_compl
 pub const VCS_GRAPH_EDIT_LOG_CONTEXT: &str = "panproto 2026-09 vcs graph_editlog v1";
 
 /// The version of the [`IdentityEnvelope`] layout.
-pub const IDENTITY_ENVELOPE_VERSION: u16 = 1;
+pub const IDENTITY_ENVELOPE_VERSION: u16 = 2;
 
 /// The version of the tree ([`ComplementShape::WType`]) complement format.
 pub const TREE_COMPLEMENT_FORMAT_VERSION: u16 = 1;
@@ -514,6 +514,9 @@ pub trait CanonicalSink {
     /// | 10  | `Unknown`     | the field map                             |
     /// | 11  | `List`        | count, then each item                     |
     /// | 12  | `LabeledNull` | `u64`                                     |
+    /// | 13  | `Decimal`     | `DecimalValue::canonical_bytes`           |
+    /// | 14  | `BigInt`      | `BigIntValue::canonical_bytes`            |
+    /// | 15  | `Temporal`    | `Temporal::canonical_bytes`               |
     ///
     /// A field map is its entry count, then each key and value in ascending
     /// key order. This is the only encoding of a value in canonical
@@ -574,6 +577,18 @@ pub trait CanonicalSink {
             Value::LabeledNull(id) => {
                 self.tag(12);
                 self.u64(*id);
+            }
+            Value::Decimal(d) => {
+                self.tag(13);
+                self.write(&d.canonical_bytes());
+            }
+            Value::BigInt(b) => {
+                self.tag(14);
+                self.write(&b.canonical_bytes());
+            }
+            Value::Temporal(t) => {
+                self.tag(15);
+                self.write(&t.canonical_bytes());
             }
         }
     }
@@ -2098,12 +2113,13 @@ mod tests {
 
     #[test]
     fn an_envelope_of_another_version_is_refused_before_the_rest_is_read() {
-        // Version 2 with a tail this build cannot decode at all.
-        let positional = rmp_serde::to_vec(&(2u16, "not a digest", 7u8)).unwrap();
+        // The next version with a tail this build cannot decode at all.
+        let next = IDENTITY_ENVELOPE_VERSION + 1;
+        let positional = rmp_serde::to_vec(&(next, "not a digest", 7u8)).unwrap();
         let err = rmp_serde::from_slice::<IdentityEnvelope>(&positional).unwrap_err();
         assert!(
             err.to_string()
-                .contains("unsupported identity envelope version 2"),
+                .contains(&format!("unsupported identity envelope version {next}")),
             "{err}"
         );
 
@@ -2244,7 +2260,7 @@ mod tests {
         let s = schema(None);
         assert_eq!(
             lens_digest(&s, &s, &rich_migration()).to_hex(),
-            "70d26a739774b1328e34ea05a8459b605d35e346a326097119454185b019f6fc",
+            "8216d519f8b0dbc38841032dc195a56b93c2c550ac01010342c5ed678081f835",
             "lens_digest moved"
         );
     }
