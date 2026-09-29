@@ -5,7 +5,10 @@
 
 use std::sync::Arc;
 
+use std::cmp::Ordering;
+
 use crate::error::ExprError;
+use crate::exact::DecimalValue;
 use crate::expr::BuiltinOp;
 use crate::literal::Literal;
 
@@ -49,7 +52,15 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
         | BuiltinOp::Abs
         | BuiltinOp::Floor
         | BuiltinOp::Ceil
-        | BuiltinOp::Round => apply_arithmetic(op, args),
+        | BuiltinOp::Round => {
+            if let Some(exact) = args.iter().find(|a| is_exact(a)) {
+                return Err(ExprError::ExactArithmetic {
+                    op: format!("{op:?}"),
+                    operand: exact.type_name().into(),
+                });
+            }
+            apply_arithmetic(op, args)
+        }
 
         // --- Comparison ---
         BuiltinOp::Eq
@@ -106,6 +117,11 @@ pub fn apply_builtin(op: BuiltinOp, args: &[Literal]) -> Result<Literal, ExprErr
 
         // --- Type inspection ---
         BuiltinOp::TypeOf | BuiltinOp::IsNull | BuiltinOp::IsList => apply_inspection(op, args),
+
+        // --- Exact values ---
+        BuiltinOp::ToString | BuiltinOp::ParseDecimal | BuiltinOp::DecimalToFloat => {
+            apply_exact(op, &args[0])
+        }
         // Graph traversal builtins read an instance, which this evaluator
         // does not hold. Answering `null` would make "no such edge" and "no
         // graph was consulted" indistinguishable, so the caller is told
@@ -538,6 +554,9 @@ fn compare(
     b: &Literal,
     pred: fn(std::cmp::Ordering) -> bool,
 ) -> Result<Literal, ExprError> {
+    if let Some(ord) = compare_exact(a, b) {
+        return ord.map(|o| Literal::Bool(pred(o)));
+    }
     let ord = match (a, b) {
         (Literal::Int(x), Literal::Int(y)) => x.cmp(y),
         (Literal::Float(x), Literal::Float(y)) => x.total_cmp(y),
@@ -554,6 +573,94 @@ fn compare(
         }
     };
     Ok(Literal::Bool(pred(ord)))
+}
+
+/// Whether `lit` is one of the exact literals arithmetic is not defined
+/// on.
+const fn is_exact(lit: &Literal) -> bool {
+    matches!(
+        lit,
+        Literal::Decimal(_) | Literal::BigInt(_) | Literal::Temporal(_)
+    )
+}
+
+/// `lit` as an exact decimal, when it is an integer or a decimal.
+fn as_decimal(lit: &Literal) -> Option<DecimalValue> {
+    match lit {
+        Literal::Int(n) => Some(DecimalValue::from_i64(*n)),
+        Literal::BigInt(b) => DecimalValue::new(b.negative, b.digits.clone(), 0).ok(),
+        Literal::Decimal(d) => Some(d.clone()),
+        _ => None,
+    }
+}
+
+/// The ordering of two literals when at least one is exact: integers and
+/// decimals compare as numbers, exactly; two temporals compare in time when
+/// they are of one form and both local or both zoned. `None` when neither
+/// is exact, so the ordinary comparison applies.
+fn compare_exact(a: &Literal, b: &Literal) -> Option<Result<Ordering, ExprError>> {
+    if !is_exact(a) && !is_exact(b) {
+        return None;
+    }
+    let incomparable = || ExprError::TypeError {
+        expected: "comparable exact values (int, bigint and decimal, or temporals of one form)"
+            .into(),
+        got: format!("({}, {})", a.type_name(), b.type_name()),
+    };
+    Some(match (a, b) {
+        (Literal::BigInt(x), Literal::BigInt(y)) => Ok(x.cmp_numeric(y)),
+        (Literal::BigInt(x), Literal::Int(y)) => Ok(x.cmp_i64(*y)),
+        (Literal::Int(x), Literal::BigInt(y)) => Ok(y.cmp_i64(*x).reverse()),
+        (Literal::Temporal(x), Literal::Temporal(y)) => {
+            x.cmp_chronological(y).ok_or_else(incomparable)
+        }
+        _ => match (as_decimal(a), as_decimal(b)) {
+            (Some(x), Some(y)) => Ok(x.cmp_numeric(&y)),
+            _ => Err(incomparable()),
+        },
+    })
+}
+
+/// The exact-value builtins: `to_string`, `parse_decimal` and
+/// `decimal_to_float`.
+fn apply_exact(op: BuiltinOp, arg: &Literal) -> Result<Literal, ExprError> {
+    match op {
+        BuiltinOp::ToString => match arg {
+            Literal::Bool(_)
+            | Literal::Int(_)
+            | Literal::Float(_)
+            | Literal::Decimal(_)
+            | Literal::BigInt(_)
+            | Literal::Temporal(_) => Ok(Literal::Str(arg.to_string())),
+            Literal::Str(s) => Ok(Literal::Str(s.clone())),
+            other => Err(type_err(
+                "bool|int|float|string|decimal|bigint|temporal",
+                other,
+            )),
+        },
+        BuiltinOp::ParseDecimal => {
+            match arg {
+                Literal::Str(s) => DecimalValue::parse(s).map(Literal::Decimal).map_err(|_| {
+                    ExprError::ParseError {
+                        value: s.clone(),
+                        target_type: "decimal".into(),
+                    }
+                }),
+                Literal::Int(_) | Literal::BigInt(_) | Literal::Decimal(_) => as_decimal(arg)
+                    .map(Literal::Decimal)
+                    .ok_or_else(|| type_err("string|int|bigint|decimal", arg)),
+                other => Err(type_err("string|int|bigint|decimal", other)),
+            }
+        }
+        BuiltinOp::DecimalToFloat => match arg {
+            Literal::Decimal(d) => Ok(Literal::Float(d.to_f64())),
+            Literal::BigInt(b) => Ok(Literal::Float(b.to_f64())),
+            other => Err(type_err("decimal|bigint", other)),
+        },
+        _ => Err(ExprError::InternalDispatch {
+            op: format!("{op:?}"),
+        }),
+    }
 }
 
 fn type_err(expected: &str, got: &Literal) -> ExprError {

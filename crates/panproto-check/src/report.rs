@@ -260,6 +260,18 @@ fn format_breaking(change: &BreakingChange) -> String {
         BreakingChange::RenamedVertex { old_id, new_id } => {
             format!("Renamed vertex: {old_id} -> {new_id}")
         }
+        BreakingChange::KeyAdded { vertex_id, key_id } => {
+            format!("Key added: {vertex_id} {key_id}")
+        }
+        BreakingChange::KeyTightened { vertex_id, key_id } => {
+            format!("Key tightened: {vertex_id} {key_id}")
+        }
+        BreakingChange::ReferenceAdded { reference_id } => {
+            format!("Reference added: {reference_id}")
+        }
+        BreakingChange::ReferenceTightened { reference_id } => {
+            format!("Reference tightened: {reference_id}")
+        }
         BreakingChange::UnclassifiedChange { category, count } => {
             format!("Unclassified change: {category} ({count})")
         }
@@ -326,6 +338,24 @@ fn format_non_breaking(change: &NonBreakingChange) -> String {
                 "Linearity relaxed: {} -> {} ({}) {old_mode:?} -> {new_mode:?}",
                 edge.src, edge.tgt, edge.kind
             )
+        }
+        NonBreakingChange::KeyAdded { vertex_id, key_id } => {
+            format!("Key added: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
+            format!("Key removed: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::KeyRelaxed { vertex_id, key_id } => {
+            format!("Key relaxed: {vertex_id} {key_id}")
+        }
+        NonBreakingChange::ReferenceAdded { reference_id } => {
+            format!("Reference added: {reference_id}")
+        }
+        NonBreakingChange::ReferenceRemoved { reference_id } => {
+            format!("Reference removed: {reference_id}")
+        }
+        NonBreakingChange::ReferenceRelaxed { reference_id } => {
+            format!("Reference relaxed: {reference_id}")
         }
     }
 }
@@ -554,6 +584,16 @@ fn breaking_to_json(change: &BreakingChange) -> serde_json::Value {
             "old_id": old_id,
             "new_id": new_id,
         }),
+        BreakingChange::KeyAdded { vertex_id, key_id } => key_json("key_added", vertex_id, key_id),
+        BreakingChange::KeyTightened { vertex_id, key_id } => {
+            key_json("key_tightened", vertex_id, key_id)
+        }
+        BreakingChange::ReferenceAdded { reference_id } => {
+            reference_json("reference_added", reference_id)
+        }
+        BreakingChange::ReferenceTightened { reference_id } => {
+            reference_json("reference_tightened", reference_id)
+        }
         BreakingChange::UnclassifiedChange { category, count } => json!({
             "type": "unclassified_change",
             "category": category,
@@ -640,7 +680,42 @@ fn non_breaking_to_json(change: &NonBreakingChange) -> serde_json::Value {
             "old_mode": format!("{old_mode:?}"),
             "new_mode": format!("{new_mode:?}"),
         }),
+        NonBreakingChange::KeyAdded { vertex_id, key_id } => {
+            key_json("key_added", vertex_id, key_id)
+        }
+        NonBreakingChange::KeyRemoved { vertex_id, key_id } => {
+            key_json("key_removed", vertex_id, key_id)
+        }
+        NonBreakingChange::KeyRelaxed { vertex_id, key_id } => {
+            key_json("key_relaxed", vertex_id, key_id)
+        }
+        NonBreakingChange::ReferenceAdded { reference_id } => {
+            reference_json("reference_added", reference_id)
+        }
+        NonBreakingChange::ReferenceRemoved { reference_id } => {
+            reference_json("reference_removed", reference_id)
+        }
+        NonBreakingChange::ReferenceRelaxed { reference_id } => {
+            reference_json("reference_relaxed", reference_id)
+        }
     }
+}
+
+/// The JSON of a key change.
+fn key_json(kind: &str, vertex_id: &str, key_id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "vertex_id": vertex_id,
+        "key_id": key_id,
+    })
+}
+
+/// The JSON of a reference change.
+fn reference_json(kind: &str, reference_id: &str) -> serde_json::Value {
+    json!({
+        "type": kind,
+        "reference_id": reference_id,
+    })
 }
 
 #[cfg(test)]

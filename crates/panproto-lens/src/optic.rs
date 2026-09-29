@@ -389,6 +389,23 @@ fn perturb_value(value: &mut panproto_inst::value::Value) {
             }
         }
         Value::Null | Value::LabeledNull(_) => {}
+        // Each neighbour keeps the value's invariants: a decimal moves its
+        // exponent, a big integer gains a digit (and stays outside `i64`),
+        // a date moves by a whole Gregorian cycle of 400 years (so every
+        // month and day stay valid), and a time moves its minute.
+        Value::Decimal(d) => {
+            d.exponent = d.exponent.checked_sub(1).unwrap_or(i32::MIN + 1);
+        }
+        Value::BigInt(b) => b.digits.push('1'),
+        Value::Temporal(t) => match t {
+            panproto_inst::value::Temporal::Date(date) => {
+                date.year = date.year.checked_add(400).unwrap_or(date.year - 400);
+            }
+            panproto_inst::value::Temporal::Time(time, _)
+            | panproto_inst::value::Temporal::DateTime(_, time, _) => {
+                time.minute = (time.minute + 1) % 60;
+            }
+        },
     }
 }
 
@@ -643,5 +660,39 @@ mod tests {
             OpticKind::Affine,
             OpticKind::Traversal,
         ]
+    }
+
+    #[test]
+    fn an_exact_value_perturbs_to_a_distinct_well_formed_neighbour() {
+        use panproto_inst::value::{BigIntValue, DecimalValue, ExactInteger, Temporal, Value};
+
+        let ExactInteger::Big(big) =
+            BigIntValue::parse("9223372036854775808").unwrap_or_else(|e| panic!("{e}"))
+        else {
+            panic!("outside i64")
+        };
+        let values = [
+            Value::Decimal(DecimalValue::parse("1.50").unwrap_or_else(|e| panic!("{e}"))),
+            Value::BigInt(big),
+            Value::Temporal(Temporal::parse("2024-02-29").unwrap_or_else(|e| panic!("{e}"))),
+            Value::Temporal(Temporal::parse("12:59:00Z").unwrap_or_else(|e| panic!("{e}"))),
+            Value::Temporal(
+                Temporal::parse("2026-09-28T23:59:60+05:30").unwrap_or_else(|e| panic!("{e}")),
+            ),
+        ];
+        for original in values {
+            let mut neighbour = original.clone();
+            perturb_value(&mut neighbour);
+            assert_ne!(neighbour, original);
+            // The neighbour still reads back from its own lexical form.
+            match &neighbour {
+                Value::Decimal(d) => {
+                    assert_eq!(DecimalValue::parse(&d.to_string()).as_ref(), Ok(d));
+                }
+                Value::BigInt(b) => assert!(b.is_well_formed()),
+                Value::Temporal(t) => assert_eq!(Temporal::parse(&t.to_string()).as_ref(), Ok(t)),
+                other => panic!("unexpected {other:?}"),
+            }
+        }
     }
 }

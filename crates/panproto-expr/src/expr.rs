@@ -252,6 +252,18 @@ pub enum BuiltinOp {
     /// Where [`Self::Edge`] answers with the first such edge, this answers
     /// with all of them, so parallel edges each contribute their target.
     Edges,
+
+    // --- Exact values (3) ---
+    /// `to_string(v: bool|int|float|string|decimal|bigint|temporal) → string`
+    /// The value's lexical form: a decimal keeps its scale, a temporal is
+    /// written in RFC 3339.
+    ToString,
+    /// `parse_decimal(v: string|int|bigint|decimal) → decimal`
+    /// Read a decimal lexeme exactly, or convert an integer exactly.
+    ParseDecimal,
+    /// `decimal_to_float(v: decimal|bigint) → float`
+    /// The nearest float; lossy, as its name says.
+    DecimalToFloat,
 }
 
 impl BuiltinOp {
@@ -311,6 +323,9 @@ impl BuiltinOp {
             "edge_count" | "edgeCount" => Some(Self::EdgeCount),
             "anchor" => Some(Self::Anchor),
             "edges" => Some(Self::Edges),
+            "to_string" | "toString" => Some(Self::ToString),
+            "parse_decimal" | "parseDecimal" => Some(Self::ParseDecimal),
+            "decimal_to_float" | "decimalToFloat" => Some(Self::DecimalToFloat),
             _ => None,
         }
     }
@@ -377,7 +392,10 @@ impl BuiltinOp {
             | Self::Length
             | Self::Children
             | Self::EdgeCount
-            | Self::Anchor => 1,
+            | Self::Anchor
+            | Self::ToString
+            | Self::ParseDecimal
+            | Self::DecimalToFloat => 1,
             // Binary
             Self::Add
             | Self::Sub
@@ -428,6 +446,7 @@ impl BuiltinOp {
             Self::FloatToStr => Some((&[ExprType::Float], ExprType::Str)),
             Self::StrToInt | Self::Len => Some((&[ExprType::Str], ExprType::Int)),
             Self::StrToFloat => Some((&[ExprType::Str], ExprType::Float)),
+            Self::DecimalToFloat => Some((&[ExprType::Any], ExprType::Float)),
 
             // Boolean operations.
             Self::And | Self::Or => Some((&[ExprType::Bool, ExprType::Bool], ExprType::Bool)),
@@ -468,7 +487,7 @@ impl BuiltinOp {
             Self::HasField => Some((&[ExprType::Record, ExprType::Str], ExprType::Bool)),
 
             // Type inspection.
-            Self::TypeOf => Some((&[ExprType::Any], ExprType::Str)),
+            Self::TypeOf | Self::ToString => Some((&[ExprType::Any], ExprType::Str)),
             Self::IsNull | Self::IsList => Some((&[ExprType::Any], ExprType::Bool)),
 
             // Polymorphic builtins: return None.
@@ -493,7 +512,8 @@ impl BuiltinOp {
             | Self::HasEdge
             | Self::EdgeCount
             | Self::Anchor
-            | Self::Edges => None,
+            | Self::Edges
+            | Self::ParseDecimal => None,
         }
     }
 }

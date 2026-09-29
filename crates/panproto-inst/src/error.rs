@@ -6,6 +6,7 @@ use panproto_gat::Name;
 
 use crate::fan_violation::FanViolation;
 use crate::ginstance::{EdgeId, NotTreeReason};
+use crate::value::ValueFidelityError;
 
 /// Errors from instance construction or manipulation.
 #[derive(Debug, thiserror::Error)]
@@ -282,6 +283,11 @@ pub enum ParseError {
     /// JSON structure error.
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    /// Values whose declared scalar kind cannot hold their lexeme exactly,
+    /// every one in the document, in document order.
+    #[error("{} value(s) cannot be read exactly; the first: {}", .0.len(), .0.first().map_or_else(String::new, ToString::to_string))]
+    Fidelity(Vec<ValueFidelityError>),
 }
 
 /// A validation error found when checking a W-type instance against a schema.

@@ -5,10 +5,12 @@
 //! purely structural; it does not yet classify changes as breaking or
 //! non-breaking (that is handled by [`crate::classify()`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
-use panproto_schema::{Constraint, Edge, RecursionPoint, Schema, UsageMode, Variant};
+use panproto_schema::{
+    Constraint, Edge, Key, RecursionPoint, Reference, Schema, UsageMode, Variant,
+};
 use rustc_hash::FxHashSet;
 use serde::{Deserialize, Serialize};
 
@@ -139,6 +141,29 @@ pub struct SchemaDiff {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub modified_policies: Vec<String>,
 
+    // --- Declarations ---
+    /// Keys declared in the new schema but not the old, as
+    /// `(vertex_id, key)`, sorted by vertex then key id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_keys: Vec<(String, Key)>,
+    /// Keys declared in the old schema but not the new, as
+    /// `(vertex_id, key)`, sorted by vertex then key id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_keys: Vec<(String, Key)>,
+    /// Keys declared in both schemas, on the same vertex with the same id,
+    /// whose parts, role or scope changed.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_keys: Vec<KeyChange>,
+    /// References declared in the new schema but not the old, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub added_references: Vec<Reference>,
+    /// References declared in the old schema but not the new, sorted by id.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub removed_references: Vec<Reference>,
+    /// References declared in both schemas with the same id that differ.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified_references: Vec<ReferenceChange>,
+
     // --- Renames ---
     /// Vertex renames as `(old_id, new_id)` pairs, populated by
     /// [`apply_renames`] from an external rename detector. When set, the
@@ -247,6 +272,30 @@ pub struct RecursionPointChange {
     pub new_target: String,
 }
 
+/// Records a key, declared on the same vertex with the same id in both
+/// schemas, whose parts, role or scope changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeyChange {
+    /// The keyed vertex ID.
+    pub vertex_id: String,
+    /// The key as the old schema declares it.
+    pub old: Key,
+    /// The key as the new schema declares it.
+    pub new: Key,
+}
+
+/// Records a reference, declared with the same id in both schemas, that
+/// changed.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ReferenceChange {
+    /// The reference ID.
+    pub id: String,
+    /// The reference as the old schema declares it.
+    pub old: Reference,
+    /// The reference as the new schema declares it.
+    pub new: Reference,
+}
+
 /// Records a span whose left or right vertex changed.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SpanChange {
@@ -262,7 +311,7 @@ pub struct SpanChange {
 ///
 /// Compares every schema field: vertices, edges, constraints, hyper-edges,
 /// required edges, NSIDs, variants, orderings, recursion points, usage modes,
-/// spans, and nominal flags.
+/// spans, nominal flags, enrichments, and declared keys and references.
 // Structural diff walks every field of `Schema` in turn; each branch
 // contributes one field to `SchemaDiff` and is naturally co-located.
 #[must_use]
@@ -420,7 +469,69 @@ pub fn diff(old: &Schema, new: &Schema) -> SchemaDiff {
         &mut result.modified_policies,
     );
 
+    // --- Declarations ---
+    diff_keys(old, new, &mut result);
+    diff_references(old, new, &mut result);
+
     result
+}
+
+/// Diff the keys two schemas declare, matching them by `(vertex, key id)`.
+fn diff_keys(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let index = |schema: &Schema| -> BTreeMap<(String, String), Key> {
+        schema
+            .declarations
+            .keys
+            .iter()
+            .flat_map(|(vertex, keys)| {
+                keys.iter()
+                    .map(move |key| ((vertex.to_string(), key.id.to_string()), key.clone()))
+            })
+            .collect()
+    };
+    let old_keys = index(old);
+    let new_keys = index(new);
+
+    for ((vertex, id), key) in &new_keys {
+        match old_keys.get(&(vertex.clone(), id.clone())) {
+            None => result.added_keys.push((vertex.clone(), key.clone())),
+            Some(previous) if previous != key => result.modified_keys.push(KeyChange {
+                vertex_id: vertex.clone(),
+                old: previous.clone(),
+                new: key.clone(),
+            }),
+            Some(_) => {}
+        }
+    }
+    for ((vertex, id), key) in &old_keys {
+        if !new_keys.contains_key(&(vertex.clone(), id.clone())) {
+            result.removed_keys.push((vertex.clone(), key.clone()));
+        }
+    }
+}
+
+/// Diff the references two schemas declare, matching them by id.
+fn diff_references(old: &Schema, new: &Schema, result: &mut SchemaDiff) {
+    let old_refs = &old.declarations.references;
+    let new_refs = &new.declarations.references;
+    for (id, reference) in new_refs {
+        match old_refs.get(id) {
+            None => result.added_references.push(reference.clone()),
+            Some(previous) if previous != reference => {
+                result.modified_references.push(ReferenceChange {
+                    id: id.to_string(),
+                    old: previous.clone(),
+                    new: reference.clone(),
+                });
+            }
+            Some(_) => {}
+        }
+    }
+    for (id, reference) in old_refs {
+        if !new_refs.contains_key(id) {
+            result.removed_references.push(reference.clone());
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -850,6 +961,12 @@ impl SchemaDiff {
             && self.added_policies.is_empty()
             && self.removed_policies.is_empty()
             && self.modified_policies.is_empty()
+            && self.added_keys.is_empty()
+            && self.removed_keys.is_empty()
+            && self.modified_keys.is_empty()
+            && self.added_references.is_empty()
+            && self.removed_references.is_empty()
+            && self.modified_references.is_empty()
             && self.renamed_vertices.is_empty()
     }
 }
