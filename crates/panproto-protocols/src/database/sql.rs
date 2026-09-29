@@ -287,6 +287,38 @@ fn skip_bracketed(bytes: &[u8], open: usize) -> Option<usize> {
     None
 }
 
+/// The byte just past the bracket-quoted identifier that the `[` at byte
+/// `i` opens, or `None` when that `[` opens an array or a subscript (or
+/// is not closed).
+///
+/// A `[` opens an array when `in_array` (it is inside another array's
+/// brackets, as the inner rows of `ARRAY[[1, 2], [3, 4]]` are), when it
+/// follows the word `ARRAY`, and when it is written against the text
+/// before it (`INT[]`, `VARCHAR(5)[]`, `x[1]`). Otherwise it opens an
+/// identifier, which the scanners pass over whole, so a quote,
+/// parenthesis, comma or `;` inside it (`[a"b]`, `[e(f]`) is part of
+/// the name.
+fn bracket_identifier_end(bytes: &[u8], i: usize, in_array: bool) -> Option<usize> {
+    if in_array {
+        return None;
+    }
+    let before = bytes[..i].trim_ascii_end();
+    if let Some(&last) = before.last()
+        && before.len() == i
+        && (is_ident_byte(last) || matches!(last, b']' | b')' | b'['))
+    {
+        return None;
+    }
+    let word = before
+        .iter()
+        .rposition(|b| !is_ident_byte(*b))
+        .map_or(before, |p| &before[p + 1..]);
+    if word.eq_ignore_ascii_case(b"ARRAY") {
+        return None;
+    }
+    skip_bracketed(bytes, i)
+}
+
 /// The identifiers of a parenthesized, comma-separated column list such
 /// as `("a", b)`, given the text inside the parentheses.
 fn identifier_list(inner: &str) -> Vec<String> {
@@ -710,9 +742,22 @@ fn split_statements(ddl: &str) -> Vec<String> {
     let mut statements = Vec::new();
     let mut current = String::new();
     let mut run = 0;
+    let mut arrays = 0usize;
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
+            b'[' => {
+                if let Some(end) = bracket_identifier_end(bytes, i, arrays > 0) {
+                    i = end;
+                } else {
+                    arrays += 1;
+                    i += 1;
+                }
+            }
+            b']' => {
+                arrays = arrays.saturating_sub(1);
+                i += 1;
+            }
             b'-' if bytes.get(i + 1) == Some(&b'-') => {
                 current.push_str(&ddl[run..i]);
                 current.push(' ');
@@ -753,6 +798,7 @@ fn split_statements(ddl: &str) -> Vec<String> {
             }
             b';' => {
                 current.push_str(&ddl[run..i]);
+                arrays = 0;
                 i += 1;
                 let stmt = std::mem::take(&mut current).trim().to_owned();
                 if leading_words_are(&stmt, &["COPY"]) && contains_keyword(&stmt, "FROM stdin") {
@@ -1052,13 +1098,22 @@ fn split_table_body(after_name: &str) -> Result<(String, &str), ProtocolError> {
 }
 
 /// The byte of the `)` that closes the `(` at byte `open`, skipping
-/// quoted text.
+/// quoted text and bracket-quoted identifiers.
 fn matching_paren(text: &str, open: usize) -> Option<usize> {
     let bytes = text.as_bytes();
     let mut depth = 0usize;
+    let mut arrays = 0usize;
     let mut i = open;
     while i < bytes.len() {
         match bytes[i] {
+            b'[' => match bracket_identifier_end(bytes, i, arrays > 0) {
+                Some(end) => {
+                    i = end;
+                    continue;
+                }
+                None => arrays += 1,
+            },
+            b']' => arrays = arrays.saturating_sub(1),
             b'(' => depth += 1,
             b')' => {
                 depth -= 1;
@@ -1255,24 +1310,33 @@ fn extract_parenthesized(stmt: &str) -> Result<String, ProtocolError> {
 }
 
 /// Split column definitions by commas, respecting nested parentheses,
-/// brackets (an `ARRAY[1, 2]` literal, a bracket-quoted identifier) and
+/// brackets (an `ARRAY[1, 2]` literal), bracket-quoted identifiers and
 /// quoted text.
 fn split_column_defs(block: &str) -> Vec<String> {
     let bytes = block.as_bytes();
     let mut defs = Vec::new();
     let mut start = 0;
     let mut depth = 0usize;
+    let mut arrays = 0usize;
     let mut i = 0;
 
     while i < bytes.len() {
         match bytes[i] {
-            b'(' | b'[' => depth += 1,
-            b')' | b']' => depth = depth.saturating_sub(1),
+            b'[' => match bracket_identifier_end(bytes, i, arrays > 0) {
+                Some(end) => {
+                    i = end;
+                    continue;
+                }
+                None => arrays += 1,
+            },
+            b']' => arrays = arrays.saturating_sub(1),
+            b'(' => depth += 1,
+            b')' => depth = depth.saturating_sub(1),
             q @ (b'\'' | b'"' | b'`') => {
                 i = skip_quoted(bytes, i, q);
                 continue;
             }
-            b',' if depth == 0 => {
+            b',' if depth == 0 && arrays == 0 => {
                 defs.push(block[start..i].trim().to_string());
                 start = i + 1;
             }
@@ -1383,6 +1447,39 @@ fn quoted_identifier(name: &str) -> std::borrow::Cow<'_, str> {
     }
 }
 
+/// A (possibly schema-qualified) table name as it is written in DDL:
+/// each `.`-separated part as [`quoted_identifier`] writes it, so
+/// `public.t` stays qualified and `my table` is `"my table"`.
+fn quoted_name(name: &str) -> String {
+    name.split('.')
+        .map(quoted_identifier)
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// The name of the enum type emit declares for column `column` of
+/// `table`: `<table>_<column>_enum`, with each byte that cannot continue
+/// an identifier (a space, a `.` of a qualified table name) written as
+/// `_`, and a leading `_` before a digit, so the name is a plain
+/// identifier the column's type reads as one word.
+fn enum_type_stem(table: &str, column: &str) -> String {
+    let stem: String = format!("{table}_{column}_enum")
+        .chars()
+        .map(|c| {
+            if c.is_ascii() && !is_ident_byte(c as u8) {
+                '_'
+            } else {
+                c
+            }
+        })
+        .collect();
+    if stem.starts_with(|c: char| c.is_ascii_digit()) {
+        format!("_{stem}")
+    } else {
+        stem
+    }
+}
+
 /// Map a vertex kind back to a SQL type name.
 fn kind_to_sql_type(kind: &str) -> &'static str {
     match kind {
@@ -1430,7 +1527,7 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
 
     for table in &tables {
         let mut body = String::new();
-        let _ = writeln!(body, "CREATE TABLE {} (", table.id);
+        let _ = writeln!(body, "CREATE TABLE {} (", quoted_name(&table.id));
 
         let columns = children_by_edge(schema, &table.id, "prop");
         let col_count = columns.len();
@@ -1460,7 +1557,7 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
                 .map(|c| c.value.clone());
             let element_type = match labels {
                 Some(labels) => {
-                    let stem = format!("{}_{col_name}_enum", table.id);
+                    let stem = enum_type_stem(&table.id, col_name);
                     let mut name = stem.clone();
                     let mut n = 1;
                     while enum_types
