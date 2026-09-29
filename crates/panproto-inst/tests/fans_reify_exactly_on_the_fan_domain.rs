@@ -364,6 +364,15 @@ proptest! {
     }
 }
 
+/// `count` distinct ids below `below`, in a random order: a shuffled prefix of
+/// the range, so the draw never rejects (a fixed-size set drawn element by
+/// element rejects whenever two draws collide).
+fn distinct_ids(below: u32, count: usize) -> impl Strategy<Value = Vec<u32>> {
+    Just((0..below).collect::<Vec<u32>>())
+        .prop_shuffle()
+        .prop_map(move |ids| ids[..count].to_vec())
+}
+
 /// A graph in the fan domain with fan node ids and fan edge ids chosen
 /// freely: an ordinary graph, then fans over its nodes whose nodes and edges
 /// take shuffled ids from a pool above and below the ordinary ones.
@@ -377,20 +386,13 @@ fn arb_fan_domain() -> impl Strategy<Value = GInstance> {
                     (0..n, prop::collection::btree_map("[a-c]", 0..n, 0..3)),
                     0..4,
                 ),
-                prop::collection::btree_set(0u32..40, 4..=4),
-                prop::collection::btree_set(0u32..80, 16..=16),
+                distinct_ids(40, 4),
+                distinct_ids(80, 16),
                 any::<bool>(),
             )
         })
-        .prop_flat_map(|(n, edges, fans, fan_nodes, fan_edges, canonical)| {
-            (
-                Just((n, edges, fans, canonical)),
-                Just(fan_nodes.into_iter().collect::<Vec<_>>()).prop_shuffle(),
-                Just(fan_edges.into_iter().collect::<Vec<_>>()).prop_shuffle(),
-            )
-        })
         .prop_map(
-            |((n, edges, fans, canonical), fan_node_pool, fan_edge_pool)| {
+            |(n, edges, fans, fan_node_pool, fan_edge_pool, canonical)| {
                 // Ordinary nodes take ids 100.., ordinary edges 200.., so the
                 // pools (below 100) never collide with them.
                 let mut graph = GInstance::new();

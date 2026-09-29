@@ -65,6 +65,15 @@ fn arb_node(id: u32) -> impl Strategy<Value = Node> {
         })
 }
 
+/// `count` distinct ids below `below`, in a random order: a shuffled prefix of
+/// the range, so the draw never rejects (a fixed-size set drawn element by
+/// element rejects whenever two draws collide).
+fn distinct_ids(below: u32, count: usize) -> impl Strategy<Value = Vec<u32>> {
+    Just((0..below).collect::<Vec<u32>>())
+        .prop_shuffle()
+        .prop_map(move |ids| ids[..count].to_vec())
+}
+
 /// A valid tree over nodes whose ids are spread out (so that fan node ids
 /// can fall between them after an edit), arcs in a shuffled order, and fans
 /// over its nodes, some repeated. Some nodes look like fans: they have
@@ -72,11 +81,13 @@ fn arb_node(id: u32) -> impl Strategy<Value = Node> {
 fn arb_tree() -> impl Strategy<Value = WInstance> {
     (1usize..9)
         .prop_flat_map(|n| {
-            let ids = prop::collection::btree_set(0u32..40, n..=n);
+            let ids = distinct_ids(40, n).prop_map(|mut ids| {
+                ids.sort_unstable();
+                ids
+            });
             (Just(n), ids)
         })
         .prop_flat_map(|(n, ids)| {
-            let ids: Vec<u32> = ids.into_iter().collect();
             let nodes: Vec<_> = ids.iter().map(|&id| arb_node(id)).collect();
             let parents: Vec<_> = (1..n).map(|i| 0..i).collect();
             let fans = prop::collection::vec(

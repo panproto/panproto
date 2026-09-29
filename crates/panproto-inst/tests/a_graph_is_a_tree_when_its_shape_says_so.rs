@@ -354,6 +354,15 @@ fn a_fan_a_tree_does_not_write_is_not_representable_under_a_schema() {
     );
 }
 
+/// `count` distinct ids below `below`, in a random order: a shuffled prefix of
+/// the range, so the draw never rejects (a fixed-size set drawn element by
+/// element rejects whenever two draws collide).
+fn distinct_ids(below: u32, count: usize) -> impl Strategy<Value = Vec<u32>> {
+    Just((0..below).collect::<Vec<u32>>())
+        .prop_shuffle()
+        .prop_map(move |ids| ids[..count].to_vec())
+}
+
 /// A tree-shaped graph built by hand, with node ids, edge ids and fan ids
 /// chosen freely rather than as `from_wtype` lays them out, and sometimes one
 /// extra edge that may break the tree shape.
@@ -362,8 +371,8 @@ fn arb_graph() -> impl Strategy<Value = GInstance> {
         .prop_flat_map(|n| {
             (
                 Just(n),
-                prop::collection::btree_set(0u32..60, n + 4..=n + 4),
-                prop::collection::btree_set(0u32..90, 3 * n + 12..=3 * n + 12),
+                distinct_ids(60, n + 4),
+                distinct_ids(90, 3 * n + 12),
                 (1..n.max(2)).map(|i| 0..i.max(1)).collect::<Vec<_>>(),
                 prop::collection::vec(
                     (0..n, prop::collection::btree_map("[a-c]", 0..n, 0..3)),
@@ -372,16 +381,7 @@ fn arb_graph() -> impl Strategy<Value = GInstance> {
                 prop::option::of((0..n, 0..n)),
             )
         })
-        .prop_flat_map(|(n, node_ids, edge_ids, parents, fans, extra)| {
-            let node_ids: Vec<u32> = node_ids.into_iter().collect();
-            let edge_ids: Vec<u32> = edge_ids.into_iter().collect();
-            (
-                Just((n, node_ids.clone(), parents, fans, extra)),
-                Just(node_ids).prop_shuffle(),
-                Just(edge_ids).prop_shuffle(),
-            )
-        })
-        .prop_map(|((n, _, parents, fans, extra), node_ids, edge_ids)| {
+        .prop_map(|(n, node_ids, edge_ids, parents, fans, extra)| {
             let mut edges = edge_ids.into_iter().map(EdgeId);
             let mut graph = GInstance::new();
             for (i, &id) in node_ids.iter().take(n).enumerate() {
