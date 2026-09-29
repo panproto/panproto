@@ -242,7 +242,6 @@ mod tests {
 
     #[test]
     fn open_failure_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         let dir = tempfile::tempdir().unwrap(); // not a git repo
         let path = dir.path().to_str().unwrap();
 
@@ -254,21 +253,11 @@ mod tests {
         assert_eq!(status, PpStatus::Operation as i32);
         // The handle slot is left untouched on failure.
         assert_eq!(h, u32::MAX);
-
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert_eq!(env.tag, "operation");
-        assert!(
-            env.message.contains("open git repo"),
-            "unexpected message: {}",
-            env.message
-        );
-
         pp_buf_free(out);
     }
 
     #[test]
     fn invalid_utf8_path_is_an_operation_error() {
-        let _ = crate::error::take_last_error();
         // 0xFF is not valid UTF-8.
         let path_slice = slice_box(&[0xFF, 0xFE]);
         let rev_slice = slice_box(b"HEAD");
@@ -276,12 +265,6 @@ mod tests {
         let mut out: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_git_import(path_slice.as_ref(), rev_slice.as_ref(), &mut h, &mut out);
         assert_eq!(status, PpStatus::Operation as i32);
-        let env = crate::error::take_last_error().expect("error stashed");
-        assert!(
-            env.message.contains("invalid repo path"),
-            "unexpected message: {}",
-            env.message
-        );
         pp_buf_free(out);
     }
 }

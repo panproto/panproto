@@ -256,10 +256,24 @@ fn lens_digest_over(src: &Digest, tgt: &Digest, compiled: &CompiledMigration) ->
 /// process; migrations that differ in any field give different bytes.
 #[must_use]
 pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
+    // Destructured without `..`, so a field added to `CompiledMigration`
+    // fails to compile here until it is given an encoding.
+    let CompiledMigration {
+        surviving_verts,
+        surviving_edges,
+        vertex_remap,
+        edge_remap,
+        resolver,
+        hyper_resolver,
+        field_transforms,
+        conditional_survival,
+        op_term_assignments,
+        expansion_path,
+    } = compiled;
     let mut w = CanonicalWriter::new();
 
     // 1. surviving_verts
-    let mut verts: Vec<&Name> = compiled.surviving_verts.iter().collect();
+    let mut verts: Vec<&Name> = surviving_verts.iter().collect();
     verts.sort();
     w.len(verts.len());
     for v in verts {
@@ -267,7 +281,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 2. surviving_edges
-    let mut edges: Vec<_> = compiled.surviving_edges.iter().collect();
+    let mut edges: Vec<_> = surviving_edges.iter().collect();
     edges.sort();
     w.len(edges.len());
     for e in edges {
@@ -275,7 +289,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 3. vertex_remap
-    let vertex_remap = sorted(&compiled.vertex_remap);
+    let vertex_remap = sorted(vertex_remap);
     w.len(vertex_remap.len());
     for (src, tgt) in vertex_remap {
         w.name(src);
@@ -283,7 +297,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 4. edge_remap
-    let edge_remap = sorted(&compiled.edge_remap);
+    let edge_remap = sorted(edge_remap);
     w.len(edge_remap.len());
     for (src, tgt) in edge_remap {
         w.edge(src);
@@ -291,7 +305,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 5. resolver
-    let resolver = sorted(&compiled.resolver);
+    let resolver = sorted(resolver);
     w.len(resolver.len());
     for ((src, tgt), edge) in resolver {
         w.name(src);
@@ -300,7 +314,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 6. hyper_resolver
-    let hyper_resolver = sorted(&compiled.hyper_resolver);
+    let hyper_resolver = sorted(hyper_resolver);
     w.len(hyper_resolver.len());
     for ((hyper_edge, labels), (target, label_remap)) in hyper_resolver {
         w.name(hyper_edge);
@@ -315,7 +329,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 7. field_transforms
-    let field_transforms = sorted(&compiled.field_transforms);
+    let field_transforms = sorted(field_transforms);
     w.len(field_transforms.len());
     for (anchor, transforms) in field_transforms {
         w.name(anchor);
@@ -326,7 +340,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 8. conditional_survival
-    let conditional_survival = sorted(&compiled.conditional_survival);
+    let conditional_survival = sorted(conditional_survival);
     w.len(conditional_survival.len());
     for (anchor, predicate) in conditional_survival {
         w.name(anchor);
@@ -334,7 +348,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 9. op_term_assignments
-    let op_term_assignments = sorted(&compiled.op_term_assignments);
+    let op_term_assignments = sorted(op_term_assignments);
     w.len(op_term_assignments.len());
     for (anchor, assignments) in op_term_assignments {
         w.name(anchor);
@@ -345,7 +359,7 @@ pub fn canonical_compiled_bytes(compiled: &CompiledMigration) -> Vec<u8> {
     }
 
     // 10. expansion_path
-    let expansion_path = sorted(&compiled.expansion_path);
+    let expansion_path = sorted(expansion_path);
     w.len(expansion_path.len());
     for ((src, tgt), path) in expansion_path {
         w.name(src);
@@ -777,9 +791,18 @@ impl IdentityEnvelope {
     }
 
     /// The first field on which `self` (the expected envelope) and `found`
-    /// differ, as an [`IdentityError::Mismatch`], or `None` when they agree.
+    /// differ, or `None` when every field agrees.
+    ///
+    /// A differing layout `version` is reported first, as
+    /// [`IdentityError::UnsupportedEnvelopeVersion`] naming `found`'s
+    /// version; any other differing field as an [`IdentityError::Mismatch`].
     #[must_use]
     pub fn mismatch(&self, found: &Self) -> Option<IdentityError> {
+        if self.version != found.version {
+            return Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: found.version,
+            });
+        }
         let digest = |field, a: &Digest, b: &Digest| {
             (a != b).then(|| IdentityError::Mismatch {
                 field,
@@ -1387,24 +1410,35 @@ fn decode_as<T: serde::de::DeserializeOwned>(
     bytes: &[u8],
     encoding: Encoding,
 ) -> Result<T, String> {
-    match encoding {
+    let mut cursor = std::io::Cursor::new(bytes);
+    let (value, name): (T, &str) = match encoding {
         Encoding::MsgpackPositional | Encoding::MsgpackNamed => {
-            rmp_serde::from_slice(bytes).map_err(|e| e.to_string())
+            let mut de = rmp_serde::Deserializer::new(&mut cursor);
+            (
+                T::deserialize(&mut de).map_err(|e| e.to_string())?,
+                "msgpack",
+            )
         }
-        Encoding::Cbor => {
-            let mut cursor = std::io::Cursor::new(bytes);
-            let value: T = ciborium::de::from_reader(&mut cursor).map_err(|e| e.to_string())?;
-            let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
-            if consumed < bytes.len() {
-                return Err(format!(
-                    "{} trailing byte(s) after the CBOR value",
-                    bytes.len() - consumed
-                ));
-            }
-            Ok(value)
+        Encoding::Cbor => (
+            ciborium::de::from_reader(&mut cursor).map_err(|e| e.to_string())?,
+            "CBOR",
+        ),
+        // `from_slice` already refuses anything but whitespace after the
+        // value, so the whole input counts as consumed.
+        Encoding::Json => {
+            let value = serde_json::from_slice(bytes).map_err(|e| e.to_string())?;
+            cursor.set_position(u64::try_from(bytes.len()).unwrap_or(u64::MAX));
+            (value, "JSON")
         }
-        Encoding::Json => serde_json::from_slice(bytes).map_err(|e| e.to_string()),
+    };
+    let consumed = usize::try_from(cursor.position()).unwrap_or(bytes.len());
+    if consumed < bytes.len() {
+        return Err(format!(
+            "{} trailing byte(s) after the {name} value",
+            bytes.len() - consumed
+        ));
     }
+    Ok(value)
 }
 
 /// Decode `bytes` as a complement of `shape`, or explain why not.
@@ -1423,37 +1457,59 @@ fn decode_shape(
     }
 }
 
-/// Decode a complement read from outside the process.
+/// Decode `bytes` as a sequence of complements of `shape`, or explain why
+/// not.
 ///
-/// Decodes `bytes` as a complement of the `expected` shape. If that fails
-/// and the bytes decode as the other shape instead, the error is a
-/// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
-/// complement whose envelope names a different format is refused the same
-/// way. An envelope whose layout version this build does not read gives
-/// [`IdentityError::UnsupportedEnvelopeVersion`].
-///
-/// Every path that takes a complement from bytes or from a host-language
-/// value goes through this function.
-///
-/// # Errors
-///
-/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
-/// neither shape.
-pub fn decode_complement(
+/// Returns `None` for a shape this build has no complement type for.
+fn decode_shape_seq(
+    bytes: &[u8],
+    encoding: Encoding,
+    shape: ComplementShape,
+) -> Option<Result<Vec<AnyComplement>, String>> {
+    match shape {
+        ComplementShape::WType => Some(decode_as::<Vec<Complement>>(bytes, encoding).map(|cs| {
+            cs.into_iter()
+                .map(|c| AnyComplement::WType(Box::new(c)))
+                .collect()
+        })),
+        ComplementShape::Graph => None,
+    }
+}
+
+/// The format a decoded complement of `shape` declares: its envelope's, or
+/// the shape's current one when it carries no envelope.
+fn declared_format(decoded: &AnyComplement, shape: ComplementShape) -> ComplementFormat {
+    decoded
+        .identity()
+        .map_or_else(|| shape.current_format(), |e| e.complement_format)
+}
+
+/// A decoder for one value of type `T` holding complements of a given
+/// shape: `None` when this build has no complement type for the shape,
+/// else the value or why it did not decode.
+type ShapeDecoder<T> = fn(&[u8], Encoding, ComplementShape) -> Option<Result<T, String>>;
+
+/// The checks [`decode_complement`] and [`decode_complements`] share, over
+/// a decoder for one value (`T`) of a given shape and the complements that
+/// value holds.
+fn decode_checked<T>(
     bytes: &[u8],
     encoding: Encoding,
     expected: ComplementShape,
-) -> Result<AnyComplement, IdentityError> {
+    decode: ShapeDecoder<T>,
+    complements: fn(&T) -> &[AnyComplement],
+) -> Result<T, IdentityError> {
     REFUSED_ENVELOPE_VERSION.with(|slot| slot.set(None));
     let refused = || REFUSED_ENVELOPE_VERSION.with(Cell::take);
 
-    let first = decode_shape(bytes, encoding, expected);
+    let first = decode(bytes, encoding, expected);
     if let Some(Ok(decoded)) = first {
-        let format = decoded
-            .identity()
-            .map_or_else(|| expected.current_format(), |e| e.complement_format);
         let wanted = expected.current_format();
-        if format != wanted {
+        if let Some(format) = complements(&decoded)
+            .iter()
+            .map(|c| declared_format(c, expected))
+            .find(|format| *format != wanted)
+        {
             return Err(IdentityError::Mismatch {
                 field: IdentityField::Format,
                 expected: wanted.to_string(),
@@ -1467,11 +1523,11 @@ pub fn decode_complement(
     }
 
     let other = expected.other();
-    match decode_shape(bytes, encoding, other) {
+    match decode(bytes, encoding, other) {
         Some(Ok(decoded)) => {
-            let found = decoded
-                .identity()
-                .map_or_else(|| other.current_format(), |e| e.complement_format);
+            let found = complements(&decoded)
+                .first()
+                .map_or_else(|| other.current_format(), |c| declared_format(c, other));
             Err(IdentityError::Mismatch {
                 field: IdentityField::Format,
                 expected: expected.current_format().to_string(),
@@ -1482,8 +1538,7 @@ pub fn decode_complement(
             if let Some(found) = refused() {
                 return Err(IdentityError::UnsupportedEnvelopeVersion { found });
             }
-            let reason = |shape: ComplementShape, r: Option<Result<AnyComplement, String>>| match r
-            {
+            let reason = |shape: ComplementShape, r: Option<Result<T, String>>| match r {
                 Some(Err(e)) => format!("as {shape}: {e}"),
                 Some(Ok(_)) => format!("as {shape}: decoded"),
                 None => format!("as {shape}: this build has no {shape} complement type"),
@@ -1495,6 +1550,56 @@ pub fn decode_complement(
             )))
         }
     }
+}
+
+/// Decode a complement read from outside the process.
+///
+/// Decodes `bytes` as a complement of the `expected` shape. If that fails
+/// and the bytes decode as the other shape instead, the error is a
+/// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
+/// complement whose envelope names a different format is refused the same
+/// way. An envelope whose layout version this build does not read gives
+/// [`IdentityError::UnsupportedEnvelopeVersion`]. Bytes left over after the
+/// complement are refused.
+///
+/// Every path that takes a complement from bytes or from a host-language
+/// value goes through this function, or through [`decode_complements`] for
+/// a sequence of them.
+///
+/// # Errors
+///
+/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
+/// neither shape.
+pub fn decode_complement(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<AnyComplement, IdentityError> {
+    decode_checked(
+        bytes,
+        encoding,
+        expected,
+        decode_shape,
+        std::slice::from_ref,
+    )
+}
+
+/// Decode a sequence of complements read from outside the process, as
+/// stored one per record alongside a data set.
+///
+/// The checks are [`decode_complement`]'s, applied to the sequence: it
+/// must decode whole as complements of the `expected` shape, and every
+/// element's envelope must name that shape's current format.
+///
+/// # Errors
+///
+/// As [`decode_complement`].
+pub fn decode_complements(
+    bytes: &[u8],
+    encoding: Encoding,
+    expected: ComplementShape,
+) -> Result<Vec<AnyComplement>, IdentityError> {
+    decode_checked(bytes, encoding, expected, decode_shape_seq, Vec::as_slice)
 }
 
 #[cfg(test)]
@@ -1875,13 +1980,113 @@ mod tests {
     }
 
     #[test]
-    fn cbor_with_trailing_bytes_is_undecodable() {
-        let mut bytes = Vec::new();
-        ciborium::ser::into_writer(&Complement::empty(), &mut bytes).unwrap();
-        bytes.push(0);
+    fn trailing_bytes_are_undecodable_in_every_encoding() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let mut cbor = Vec::new();
+        ciborium::ser::into_writer(&c, &mut cbor).unwrap();
+        for (encoding, mut bytes) in [
+            (Encoding::MsgpackPositional, rmp_serde::to_vec(&c).unwrap()),
+            (Encoding::MsgpackNamed, rmp_serde::to_vec_named(&c).unwrap()),
+            (Encoding::Cbor, cbor),
+            (Encoding::Json, serde_json::to_vec(&c).unwrap()),
+        ] {
+            assert!(
+                decode_complement(&bytes, encoding, ComplementShape::WType).is_ok(),
+                "{encoding:?} without trailing bytes"
+            );
+            bytes.push(0);
+            assert!(
+                matches!(
+                    decode_complement(&bytes, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte"
+            );
+        }
+    }
+
+    #[test]
+    fn a_sequence_of_complements_is_checked_like_one() {
+        let mut c = Complement::empty();
+        c.identity = Some(envelope());
+        let seq = vec![c.clone(), c.clone()];
+        for (encoding, bytes) in [
+            (
+                Encoding::MsgpackPositional,
+                rmp_serde::to_vec(&seq).unwrap(),
+            ),
+            (
+                Encoding::MsgpackNamed,
+                rmp_serde::to_vec_named(&seq).unwrap(),
+            ),
+            (Encoding::Json, serde_json::to_vec(&seq).unwrap()),
+        ] {
+            let decoded = decode_complements(&bytes, encoding, ComplementShape::WType).unwrap();
+            assert_eq!(decoded.len(), 2, "{encoding:?}");
+            assert!(decoded.iter().all(|d| d.identity() == c.identity.as_ref()));
+
+            let mut trailing = bytes.clone();
+            trailing.push(0);
+            assert!(
+                matches!(
+                    decode_complements(&trailing, encoding, ComplementShape::WType),
+                    Err(IdentityError::Undecodable(_))
+                ),
+                "{encoding:?} accepted a trailing byte after the sequence"
+            );
+        }
+
+        // One foreign element refuses the whole sequence.
+        let mut foreign = c.clone();
+        let mut e = envelope();
+        e.complement_format = ComplementShape::Graph.current_format();
+        foreign.identity = Some(e);
+        let bytes = rmp_serde::to_vec(&vec![c.clone(), foreign]).unwrap();
+        assert_eq!(
+            decode_complements(&bytes, Encoding::MsgpackPositional, ComplementShape::WType)
+                .unwrap_err(),
+            IdentityError::Mismatch {
+                field: IdentityField::Format,
+                expected: "wtype/1".into(),
+                found: "graph/1".into(),
+            }
+        );
+
+        // An unsupported envelope layout anywhere in the sequence is named.
+        let mut value = serde_json::to_value(&seq).unwrap();
+        value[1]["identity"]["version"] = serde_json::json!(9);
+        assert_eq!(
+            decode_complements(
+                &serde_json::to_vec(&value).unwrap(),
+                Encoding::Json,
+                ComplementShape::WType
+            )
+            .unwrap_err(),
+            IdentityError::UnsupportedEnvelopeVersion { found: 9 }
+        );
+
+        // A single complement is not a sequence of them.
         assert!(matches!(
-            decode_complement(&bytes, Encoding::Cbor, ComplementShape::WType),
+            decode_complements(
+                &rmp_serde::to_vec(&c).unwrap(),
+                Encoding::MsgpackPositional,
+                ComplementShape::WType
+            ),
             Err(IdentityError::Undecodable(_))
         ));
+    }
+
+    #[test]
+    fn a_mismatch_compares_the_envelope_version() {
+        let e = envelope();
+        let mut other = e.clone();
+        other.version = IDENTITY_ENVELOPE_VERSION + 1;
+        assert_eq!(
+            e.mismatch(&other),
+            Some(IdentityError::UnsupportedEnvelopeVersion {
+                found: IDENTITY_ENVELOPE_VERSION + 1
+            })
+        );
     }
 }

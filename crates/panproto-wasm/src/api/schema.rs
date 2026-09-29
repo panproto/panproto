@@ -5,7 +5,7 @@
 use panproto_core::{
     check,
     inst::{self, WInstance},
-    lens::{self, Complement},
+    lens::{self},
     mig::{self, Migration},
     protocols,
     schema::{self, SchemaBuilder},
@@ -486,7 +486,7 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 ///
 /// The `record` bytes are a `MessagePack`-encoded [`WInstance`].
 /// Returns `MessagePack`-encoded `{ view: WInstance, complement: Vec<u8> }`
-/// where `complement` is the serialized [`Complement`] needed by `put_record`.
+/// where `complement` is the serialized [`Complement`](lens::Complement) needed by `put_record`.
 ///
 /// # Errors
 ///
@@ -542,7 +542,7 @@ pub fn get_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 /// Restore a record from a view and complement (lens put direction).
 ///
 /// The `view` and `complement` bytes are `MessagePack`-encoded
-/// [`WInstance`] and [`Complement`] respectively.
+/// [`WInstance`] and [`Complement`](lens::Complement) respectively.
 ///
 /// # Errors
 ///
@@ -555,10 +555,7 @@ pub fn put_record(migration: u32, view: &[u8], complement: &[u8]) -> Result<Vec<
             reason: format!("view: {e}"),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;
@@ -701,10 +698,7 @@ pub fn put_json(
             reason: e.to_string(),
         })?;
 
-    let comp: Complement =
-        rmp_serde::from_slice(complement).map_err(|e| WasmError::DeserializationFailed {
-            reason: format!("complement: {e}"),
-        })?;
+    let comp = super::helpers::decode_complement(complement, "complement")?;
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_owned(r)?;

@@ -195,7 +195,6 @@ fn the_two_producers_differ_only_in_the_fingerprint() {
 
 /// The complement exactly as a reader that predates envelopes declares it.
 #[derive(Deserialize)]
-#[allow(dead_code, reason = "the fields are read only to prove they decode")]
 struct PreEnvelopeComplement {
     #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
     dropped_nodes: HashMap<u32, Node>,
@@ -221,6 +220,68 @@ struct PreEnvelopeComplement {
     contracted_into: HashMap<u32, u32>,
 }
 
+impl PreEnvelopeComplement {
+    /// Assert that this reader saw every field it declares exactly as the
+    /// current complement holds it.
+    fn assert_reads(self, current: &Complement, label: &str) {
+        let Self {
+            dropped_nodes,
+            dropped_arcs,
+            dropped_fans,
+            contraction_choices,
+            original_parent,
+            source_fingerprint,
+            original_extra_fields,
+            arc_edges,
+            arc_order,
+            original_values,
+            synthesized_nodes,
+            contracted_into,
+        } = self;
+        // `Node` has no `PartialEq`; its serialized form stands in for it.
+        let as_json = |nodes: &HashMap<u32, Node>| {
+            serde_json::to_value(nodes).expect("dropped nodes encode as JSON")
+        };
+        assert_eq!(
+            as_json(&dropped_nodes),
+            as_json(&current.dropped_nodes),
+            "{label}: dropped_nodes"
+        );
+        assert_eq!(dropped_arcs, current.dropped_arcs, "{label}: dropped_arcs");
+        assert_eq!(dropped_fans, current.dropped_fans, "{label}: dropped_fans");
+        assert_eq!(
+            contraction_choices, current.contraction_choices,
+            "{label}: contraction_choices"
+        );
+        assert_eq!(
+            original_parent, current.original_parent,
+            "{label}: original_parent"
+        );
+        assert_eq!(
+            source_fingerprint, current.source_fingerprint,
+            "{label}: source_fingerprint"
+        );
+        assert_eq!(
+            original_extra_fields, current.original_extra_fields,
+            "{label}: original_extra_fields"
+        );
+        assert_eq!(arc_edges, current.arc_edges, "{label}: arc_edges");
+        assert_eq!(arc_order, current.arc_order, "{label}: arc_order");
+        assert_eq!(
+            original_values, current.original_values,
+            "{label}: original_values"
+        );
+        assert_eq!(
+            synthesized_nodes, current.synthesized_nodes,
+            "{label}: synthesized_nodes"
+        );
+        assert_eq!(
+            contracted_into, current.contracted_into,
+            "{label}: contracted_into"
+        );
+    }
+}
+
 /// What a reader that predates envelopes makes of a complement written
 /// now: positional msgpack has fields it cannot place and is unreadable;
 /// every self-describing encoding reads, with the envelope ignored and the
@@ -239,14 +300,24 @@ fn a_reader_that_predates_envelopes_reads_the_self_describing_encodings() {
         let mut cbor = Vec::new();
         ciborium::ser::into_writer(&complement, &mut cbor).expect("encodes");
         let json = serde_json::to_vec(&complement).expect("encodes");
+        assert_eq!(complement.source_fingerprint, bits64, "{case}");
         let read = [
-            rmp_serde::from_slice::<PreEnvelopeComplement>(&named).expect("named reads"),
-            ciborium::de::from_reader::<PreEnvelopeComplement, _>(cbor.as_slice())
-                .expect("CBOR reads"),
-            serde_json::from_slice::<PreEnvelopeComplement>(&json).expect("JSON reads"),
+            (
+                "named msgpack",
+                rmp_serde::from_slice::<PreEnvelopeComplement>(&named).expect("named reads"),
+            ),
+            (
+                "CBOR",
+                ciborium::de::from_reader::<PreEnvelopeComplement, _>(cbor.as_slice())
+                    .expect("CBOR reads"),
+            ),
+            (
+                "JSON",
+                serde_json::from_slice::<PreEnvelopeComplement>(&json).expect("JSON reads"),
+            ),
         ];
-        for old in read {
-            assert_eq!(old.source_fingerprint, bits64, "{case}");
+        for (encoding, old) in read {
+            old.assert_reads(&complement, &format!("{case} as {encoding}"));
         }
     }
 }

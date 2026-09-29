@@ -759,7 +759,6 @@ mod tests {
 
     #[test]
     fn eval_in_model_rejects_unknown_op() {
-        let _ = crate::error::take_last_error();
         let theory_h = alloc_theory(theory_two_points_collapsed());
         let mut model_h: u32 = u32::MAX;
         let empty: c_slice::Box<u8> = Vec::new().into_boxed_slice().into();

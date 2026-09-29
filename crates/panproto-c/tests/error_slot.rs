@@ -28,8 +28,13 @@ fn drain() -> Option<ErrorEnvelope> {
     envelope
 }
 
+/// One host's sequence of calls against the process-global slot.
+///
+/// The two checks share the one slot this binary's process has, so they
+/// run in order inside one test: as separate tests under the default
+/// parallel runner, one's drain could consume the other's envelope.
 #[test]
-fn an_error_raised_on_one_thread_is_drained_on_another() {
+fn the_process_global_slot_crosses_threads_and_drains_once() {
     // Fail on a worker thread: handle 9999 was never allocated.
     let status = std::thread::spawn(|| {
         let mut out: repr_c::Vec<u8> = Vec::new().into();
@@ -50,10 +55,9 @@ fn an_error_raised_on_one_thread_is_drained_on_another() {
         "envelope lost the failing handle: {}",
         envelope.message
     );
-}
+    assert!(drain().is_none(), "the slot must be empty after a drain");
 
-#[test]
-fn draining_twice_yields_the_error_once() {
+    // A second failure is drained once, and only once.
     let mut out: repr_c::Vec<u8> = Vec::new().into();
     assert_eq!(
         pp_protocol_serialize(4242, &mut out),
@@ -63,5 +67,6 @@ fn draining_twice_yields_the_error_once() {
 
     let first = drain().expect("first drain sees the envelope");
     assert_eq!(first.tag, "invalid_handle");
+    assert!(first.message.contains("4242"), "{}", first.message);
     assert!(drain().is_none(), "the slot must be empty after a drain");
 }

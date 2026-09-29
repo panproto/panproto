@@ -10,9 +10,55 @@
 //! serialization policy (canonical mode, integer encoding, etc.) lives
 //! in one place.
 
+use panproto_core::inst::identity::{
+    AnyComplement, ComplementShape, Encoding, IdentityError, decode_complement as decode_any,
+    decode_complements as decode_any_seq,
+};
+use panproto_core::lens::Complement;
 use serde::{Serialize, de::DeserializeOwned};
 
 use crate::error::FfiError;
+
+/// An identity failure met while decoding a complement: bytes that are
+/// not a complement at all are a serialization error, and a complement
+/// of another format or envelope layout is an operation error naming it.
+fn complement_error(err: IdentityError) -> FfiError {
+    match err {
+        IdentityError::Undecodable(detail) => FfiError::Serialization(detail),
+        other => FfiError::Operation(format!("complement: {other}")),
+    }
+}
+
+fn into_tree(decoded: AnyComplement) -> Complement {
+    let AnyComplement::WType(complement) = decoded;
+    *complement
+}
+
+/// Decode one tree complement from CBOR, with the shape, format and
+/// trailing-byte checks every complement import makes.
+///
+/// # Errors
+///
+/// Returns [`FfiError::Serialization`] if `bytes` is not a CBOR
+/// complement, and [`FfiError::Operation`] if it is one of another
+/// format or envelope layout.
+pub fn decode_complement(bytes: &[u8]) -> Result<Complement, FfiError> {
+    decode_any(bytes, Encoding::Cbor, ComplementShape::WType)
+        .map(into_tree)
+        .map_err(complement_error)
+}
+
+/// Decode a CBOR list of tree complements, one per record, with the
+/// checks [`decode_complement`] makes applied to every element.
+///
+/// # Errors
+///
+/// As [`decode_complement`].
+pub fn decode_complements(bytes: &[u8]) -> Result<Vec<Complement>, FfiError> {
+    decode_any_seq(bytes, Encoding::Cbor, ComplementShape::WType)
+        .map(|decoded| decoded.into_iter().map(into_tree).collect())
+        .map_err(complement_error)
+}
 
 /// Decode a value of type `T` from a CBOR byte slice.
 ///

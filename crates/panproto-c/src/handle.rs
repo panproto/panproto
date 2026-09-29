@@ -38,10 +38,11 @@
 //! touching structurally intact, so one panicking operation cannot brick
 //! the slab.
 //!
-//! Tests rely on `cargo nextest`'s per-test process isolation for a
-//! fresh table per test; running under `cargo test` (one process,
-//! shared global table) can cause spurious handle-equality failures, so
-//! the project's CI uses nextest.
+//! The process-wide table is one `Slab` value. Tests that depend on
+//! how a table hands out, reuses or forgets indices run against a `Slab`
+//! of their own; every other test only ever touches the handles it
+//! allocated, so the suite is correct under the default parallel test
+//! runner as well as under nextest.
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -417,44 +418,26 @@ struct Table {
     free: Vec<u32>,
 }
 
-impl Table {
-    const fn new() -> Self {
-        Self {
-            slots: Vec::new(),
-            free: Vec::new(),
-        }
-    }
+/// A handle table behind its lock, with the operations the C ABI needs.
+///
+/// The process has one, [`SLAB`], which the free functions below use. The
+/// type exists apart from that static so a test can exercise allocation,
+/// reuse and freeing on a table of its own, without depending on or
+/// disturbing the handles other tests hold in the shared one.
+struct Slab {
+    table: Mutex<Table>,
 }
 
-static SLAB: Mutex<Table> = Mutex::new(Table::new());
+static SLAB: Slab = Slab::new();
 
-/// Lock the handle table, recovering the guard if a previous holder
-/// panicked. A panic inside an access closure (caught by
-/// [`crate::panic::guard`]) poisons the mutex, but the table is
-/// structurally sound, so taking the inner guard is safe and keeps it
-/// usable for subsequent calls.
-fn lock_table() -> MutexGuard<'static, Table> {
-    SLAB.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Lock one resource, with the same poison recovery as the table.
+/// Lock one resource, recovering the guard if a previous holder panicked.
+///
+/// A panic inside an access closure (caught by [`crate::panic::guard`])
+/// poisons the mutex, but the resource is structurally sound, so taking
+/// the inner guard is safe and keeps it usable for subsequent calls.
 fn lock_resource(slot: &Slot) -> MutexGuard<'_, Resource> {
     slot.lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
-}
-
-/// Look a handle up in the table, cloning out its slot.
-///
-/// The table lock is released when this returns, so the caller holds
-/// only the resource's own lock while it works.
-fn find(handle: u32) -> Result<Slot, FfiError> {
-    lock_table()
-        .slots
-        .get(handle as usize)
-        .and_then(Option::as_ref)
-        .map(Arc::clone)
-        .ok_or(FfiError::InvalidHandle { handle })
 }
 
 /// Lock the given slots, taking each distinct handle exactly once and in
@@ -492,6 +475,129 @@ fn borrow<'g>(
         .ok_or(FfiError::InvalidHandle { handle })
 }
 
+impl Slab {
+    const fn new() -> Self {
+        Self {
+            table: Mutex::new(Table {
+                slots: Vec::new(),
+                free: Vec::new(),
+            }),
+        }
+    }
+
+    /// Lock the handle table, with the same poison recovery as
+    /// [`lock_resource`]: the table is structurally sound after a caught
+    /// panic.
+    fn lock_table(&self) -> MutexGuard<'_, Table> {
+        self.table
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+
+    /// Look a handle up in the table, cloning out its slot.
+    ///
+    /// The table lock is released when this returns, so the caller holds
+    /// only the resource's own lock while it works.
+    fn find(&self, handle: u32) -> Result<Slot, FfiError> {
+        self.lock_table()
+            .slots
+            .get(handle as usize)
+            .and_then(Option::as_ref)
+            .map(Arc::clone)
+            .ok_or(FfiError::InvalidHandle { handle })
+    }
+
+    /// See [`alloc`].
+    fn alloc(&self, resource: Resource) -> u32 {
+        let slot: Slot = Arc::new(Mutex::new(resource));
+        let mut table = self.lock_table();
+        if let Some(handle) = table.free.pop() {
+            if let Some(entry) = table.slots.get_mut(handle as usize) {
+                *entry = Some(slot);
+                return handle;
+            }
+        }
+        match u32::try_from(table.slots.len()) {
+            Ok(handle) if handle < u32::MAX => {
+                table.slots.push(Some(slot));
+                handle
+            }
+            _ => u32::MAX,
+        }
+    }
+
+    /// See [`with_resource`].
+    fn with_resource<T>(
+        &self,
+        handle: u32,
+        f: impl FnOnce(&Resource) -> Result<T, FfiError>,
+    ) -> Result<T, FfiError> {
+        let slot = self.find(handle)?;
+        let guard = lock_resource(&slot);
+        f(&guard)
+    }
+
+    /// See [`with_two_resources`].
+    fn with_two_resources<T>(
+        &self,
+        h1: u32,
+        h2: u32,
+        f: impl FnOnce(&Resource, &Resource) -> Result<T, FfiError>,
+    ) -> Result<T, FfiError> {
+        let entries = [(h1, self.find(h1)?), (h2, self.find(h2)?)];
+        let guards = lock_in_order(&entries);
+        f(borrow(&guards, h1)?, borrow(&guards, h2)?)
+    }
+
+    /// See [`with_resource_mut`].
+    fn with_resource_mut<T>(
+        &self,
+        handle: u32,
+        f: impl FnOnce(&mut Resource) -> Result<T, FfiError>,
+    ) -> Result<T, FfiError> {
+        let slot = self.find(handle)?;
+        let mut guard = lock_resource(&slot);
+        f(&mut guard)
+    }
+
+    /// See [`with_three_resources`].
+    fn with_three_resources<T>(
+        &self,
+        h1: u32,
+        h2: u32,
+        h3: u32,
+        f: impl FnOnce(&Resource, &Resource, &Resource) -> Result<T, FfiError>,
+    ) -> Result<T, FfiError> {
+        let entries = [
+            (h1, self.find(h1)?),
+            (h2, self.find(h2)?),
+            (h3, self.find(h3)?),
+        ];
+        let guards = lock_in_order(&entries);
+        f(
+            borrow(&guards, h1)?,
+            borrow(&guards, h2)?,
+            borrow(&guards, h3)?,
+        )
+    }
+
+    /// See [`free`].
+    fn free(&self, handle: u32) {
+        let dropped = {
+            let mut table = self.lock_table();
+            match table.slots.get_mut(handle as usize) {
+                Some(entry @ Some(_)) => {
+                    let taken = entry.take();
+                    table.free.push(handle);
+                    taken
+                }
+                _ => None,
+            }
+        };
+        drop(dropped);
+    }
+}
+
 /// Allocate a resource and return its handle.
 ///
 /// Reuses a freed slot when the free list has one; otherwise appends.
@@ -500,21 +606,7 @@ fn borrow<'g>(
 /// invalid-handle error rather than a silently truncated index.
 #[must_use]
 pub fn alloc(resource: Resource) -> u32 {
-    let slot: Slot = Arc::new(Mutex::new(resource));
-    let mut table = lock_table();
-    if let Some(handle) = table.free.pop() {
-        if let Some(entry) = table.slots.get_mut(handle as usize) {
-            *entry = Some(slot);
-            return handle;
-        }
-    }
-    match u32::try_from(table.slots.len()) {
-        Ok(handle) if handle < u32::MAX => {
-            table.slots.push(Some(slot));
-            handle
-        }
-        _ => u32::MAX,
-    }
+    SLAB.alloc(resource)
 }
 
 /// Read access to a resource by handle.
@@ -527,9 +619,7 @@ pub fn with_resource<T>(
     handle: u32,
     f: impl FnOnce(&Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let slot = find(handle)?;
-    let guard = lock_resource(&slot);
-    f(&guard)
+    SLAB.with_resource(handle, f)
 }
 
 /// Read access to two resources by handle.
@@ -543,9 +633,7 @@ pub fn with_two_resources<T>(
     h2: u32,
     f: impl FnOnce(&Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let entries = [(h1, find(h1)?), (h2, find(h2)?)];
-    let guards = lock_in_order(&entries);
-    f(borrow(&guards, h1)?, borrow(&guards, h2)?)
+    SLAB.with_two_resources(h1, h2, f)
 }
 
 /// Mutable access to a resource by handle.
@@ -561,9 +649,7 @@ pub fn with_resource_mut<T>(
     handle: u32,
     f: impl FnOnce(&mut Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let slot = find(handle)?;
-    let mut guard = lock_resource(&slot);
-    f(&mut guard)
+    SLAB.with_resource_mut(handle, f)
 }
 
 /// Read access to three resources by handle.
@@ -581,42 +667,17 @@ pub fn with_three_resources<T>(
     h3: u32,
     f: impl FnOnce(&Resource, &Resource, &Resource) -> Result<T, FfiError>,
 ) -> Result<T, FfiError> {
-    let entries = [(h1, find(h1)?), (h2, find(h2)?), (h3, find(h3)?)];
-    let guards = lock_in_order(&entries);
-    f(
-        borrow(&guards, h1)?,
-        borrow(&guards, h2)?,
-        borrow(&guards, h3)?,
-    )
+    SLAB.with_three_resources(h1, h2, h3, f)
 }
 
 /// Free a resource, marking the slot reusable.
 ///
-/// Calling on an out-of-range or already-freed handle is a no-op
-/// (double-free is safe). The resource itself is dropped after the table
-/// lock is released, so a destructor that takes time or touches disk
-/// does not hold up other handle operations.
+/// Calling on an out-of-range or already-freed handle is a no-op. The
+/// resource itself is dropped after the table lock is released, so a
+/// destructor that takes time or touches disk does not hold up other
+/// handle operations.
 pub fn free(handle: u32) {
-    let dropped = {
-        let mut table = lock_table();
-        match table.slots.get_mut(handle as usize) {
-            Some(entry @ Some(_)) => {
-                let taken = entry.take();
-                table.free.push(handle);
-                taken
-            }
-            _ => None,
-        }
-    };
-    drop(dropped);
-}
-
-/// Test-only: drop every resource in the slab and reset its length.
-#[cfg(test)]
-pub fn reset() {
-    let mut table = lock_table();
-    table.slots.clear();
-    table.free.clear();
+    SLAB.free(handle);
 }
 
 #[cfg(test)]
@@ -681,11 +742,11 @@ mod tests {
 
     #[test]
     fn schema_lookup_shares_the_slot_allocation() {
-        reset();
-        let h = alloc(Resource::Schema(Arc::new(test_schema())));
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Schema(Arc::new(test_schema())));
 
-        let first = with_resource(h, Resource::as_schema_arc).unwrap();
-        let second = with_resource(h, Resource::as_schema_arc).unwrap();
+        let first = slab.with_resource(h, Resource::as_schema_arc).unwrap();
+        let second = slab.with_resource(h, Resource::as_schema_arc).unwrap();
 
         // Both lookups must hand back the slot's own allocation. A deep
         // copy here would cost a full traversal of every vertex, edge,
@@ -694,53 +755,54 @@ mod tests {
             Arc::ptr_eq(&first, &second),
             "two lookups of one handle returned separate schema allocations"
         );
-        let slot_shared = with_resource(h, |r| {
-            let held = r.as_schema_arc()?;
-            Ok(Arc::ptr_eq(&held, &first))
-        })
-        .unwrap();
+        let slot_shared = slab
+            .with_resource(h, |r| {
+                let held = r.as_schema_arc()?;
+                Ok(Arc::ptr_eq(&held, &first))
+            })
+            .unwrap();
         assert!(slot_shared, "the lookup did not share the slot's schema");
 
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn non_schema_handle_rejected_by_schema_arc() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        match with_resource(h, Resource::as_schema_arc) {
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        match slab.with_resource(h, Resource::as_schema_arc) {
             Err(FfiError::TypeMismatch { expected, actual }) => {
                 assert_eq!(expected, "Schema");
                 assert_eq!(actual, "Protocol");
             }
             other => panic!("expected TypeMismatch, got {:?}", other.map(|_| ())),
         }
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn alloc_and_get_protocol() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let result = with_resource(h, |r| Ok(r.as_protocol()?.name.clone()));
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = slab.with_resource(h, |r| Ok(r.as_protocol()?.name.clone()));
         assert_eq!(result.unwrap(), "test");
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn alloc_and_get_schema() {
-        reset();
-        let h = alloc(Resource::Schema(Arc::new(test_schema())));
-        let result = with_resource(h, |r| Ok(r.as_schema()?.protocol.clone()));
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = slab.with_resource(h, |r| Ok(r.as_schema()?.protocol.clone()));
         assert_eq!(result.unwrap(), "test");
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn protocol_handle_rejected_as_schema() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let result = with_resource(h, |r| {
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = slab.with_resource(h, |r| {
             let _ = r.as_schema()?;
             Ok(())
         });
@@ -751,14 +813,14 @@ mod tests {
             }
             other => panic!("expected TypeMismatch, got {other:?}"),
         }
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn schema_handle_rejected_as_protocol() {
-        reset();
-        let h = alloc(Resource::Schema(Arc::new(test_schema())));
-        let result = with_resource(h, |r| {
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = slab.with_resource(h, |r| {
             let _ = r.as_protocol()?;
             Ok(())
         });
@@ -769,50 +831,50 @@ mod tests {
             }
             other => panic!("expected TypeMismatch, got {other:?}"),
         }
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn free_reuses_slot() {
-        reset();
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        free(h1);
-        let h2 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let slab = Slab::new();
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        slab.free(h1);
+        let h2 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h1, h2);
-        free(h2);
+        slab.free(h2);
     }
 
     #[test]
     fn invalid_handle_errors() {
-        reset();
-        let result = with_resource(9999, |_| Ok(()));
+        let slab = Slab::new();
+        let result = slab.with_resource(9999, |_| Ok(()));
         assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
     }
 
     #[test]
     fn double_free_is_safe() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        free(h);
-        free(h);
-        assert!(with_resource(h, |_| Ok(())).is_err());
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        slab.free(h);
+        slab.free(h);
+        assert!(slab.with_resource(h, |_| Ok(())).is_err());
     }
 
     #[test]
     fn alloc_grows_then_reuses() {
-        reset();
-        let h0 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let h2 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let slab = Slab::new();
+        let h0 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h0, 0);
         assert_eq!(h1, 1);
         assert_eq!(h2, 2);
-        free(h1);
-        let h3 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        slab.free(h1);
+        let h3 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
         assert_eq!(h3, h1);
-        free(h0);
-        free(h2);
-        free(h3);
+        slab.free(h0);
+        slab.free(h2);
+        slab.free(h3);
     }
 
     #[test]
@@ -825,92 +887,98 @@ mod tests {
 
     #[test]
     fn with_two_resources_works() {
-        reset();
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
-        let result = with_two_resources(h1, h2, |r1, r2| {
+        let slab = Slab::new();
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = slab.alloc(Resource::Schema(Arc::new(test_schema())));
+        let result = slab.with_two_resources(h1, h2, |r1, r2| {
             let _ = r1.as_protocol()?;
             let _ = r2.as_schema()?;
             Ok(())
         });
         assert!(result.is_ok());
-        free(h1);
-        free(h2);
+        slab.free(h1);
+        slab.free(h2);
     }
 
     #[test]
     fn with_two_resources_invalid_handle() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let result = with_two_resources(h, 9999, |_, _| Ok(()));
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = slab.with_two_resources(h, 9999, |_, _| Ok(()));
         assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn migration_projection_accepts_both_variants() {
-        reset();
-        let bare = alloc(Resource::Migration(Box::new(test_migration())));
-        assert!(with_resource(bare, |r| r.as_migration().map(|_| ())).is_ok());
+        let slab = Slab::new();
+        let bare = slab.alloc(Resource::Migration(Box::new(test_migration())));
+        assert!(
+            slab.with_resource(bare, |r| r.as_migration().map(|_| ()))
+                .is_ok()
+        );
 
-        let bundled = alloc(Resource::MigrationWithSchemas {
+        let bundled = slab.alloc(Resource::MigrationWithSchemas {
             compiled: Box::new(test_migration()),
             src_schema: Arc::new(test_schema()),
             tgt_schema: Arc::new(test_schema()),
         });
-        assert!(with_resource(bundled, |r| r.as_migration().map(|_| ())).is_ok());
+        assert!(
+            slab.with_resource(bundled, |r| r.as_migration().map(|_| ()))
+                .is_ok()
+        );
 
         // A non-migration handle is rejected.
-        let proto = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let mismatch = with_resource(proto, |r| r.as_migration().map(|_| ()));
+        let proto = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let mismatch = slab.with_resource(proto, |r| r.as_migration().map(|_| ()));
         assert!(matches!(mismatch, Err(FfiError::TypeMismatch { .. })));
 
-        free(bare);
-        free(bundled);
-        free(proto);
+        slab.free(bare);
+        slab.free(bundled);
+        slab.free(proto);
     }
 
     #[test]
     fn with_resource_mut_allows_mutation() {
-        reset();
+        let slab = Slab::new();
         // Exercise the mut accessor path on a VcsRepo resource backed by
         // an on-disk Repository rooted at a temp dir.
         let dir = tempfile::tempdir().unwrap();
         let repo = panproto_core::vcs::Repository::init(dir.path()).unwrap();
-        let h = alloc(Resource::VcsRepo(Box::new(repo)));
-        let result = with_resource_mut(h, |r| {
+        let h = slab.alloc(Resource::VcsRepo(Box::new(repo)));
+        let result = slab.with_resource_mut(h, |r| {
             let _store = r.as_vcs_repo_mut()?;
             Ok(())
         });
         assert!(result.is_ok());
-        free(h);
+        slab.free(h);
     }
 
     #[test]
     fn with_three_resources_works() {
-        reset();
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
-        let h3 = alloc(Resource::Migration(Box::new(test_migration())));
-        let result = with_three_resources(h1, h2, h3, |r1, r2, r3| {
+        let slab = Slab::new();
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = slab.alloc(Resource::Schema(Arc::new(test_schema())));
+        let h3 = slab.alloc(Resource::Migration(Box::new(test_migration())));
+        let result = slab.with_three_resources(h1, h2, h3, |r1, r2, r3| {
             let _ = r1.as_protocol()?;
             let _ = r2.as_schema()?;
             let _ = r3.as_migration()?;
             Ok(())
         });
         assert!(result.is_ok());
-        free(h1);
-        free(h2);
-        free(h3);
+        slab.free(h1);
+        slab.free(h2);
+        slab.free(h3);
     }
 
     #[test]
     fn with_three_resources_invalid_handle() {
-        reset();
-        let h = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let result = with_three_resources(h, 9999, h, |_, _, _| Ok(()));
+        let slab = Slab::new();
+        let h = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let result = slab.with_three_resources(h, 9999, h, |_, _, _| Ok(()));
         assert!(matches!(result, Err(FfiError::InvalidHandle { .. })));
-        free(h);
+        slab.free(h);
     }
 
     #[test]
@@ -954,28 +1022,29 @@ mod tests {
 
     #[test]
     fn a_borrow_may_span_another_handles_borrow() {
-        reset();
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
-        let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
+        let slab = Slab::new();
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
+        let h2 = slab.alloc(Resource::Schema(Arc::new(test_schema())));
         // Borrowing one resource must not lock every other handle in the
         // process. An entry point that reaches back into the slab for a
         // second, unrelated resource has to make progress; under a
         // single table-wide lock held for the whole borrow it cannot.
-        let both = with_resource(h1, |p| {
-            let proto = p.as_protocol()?.name.clone();
-            let schema = with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))?;
-            Ok(format!("{proto}/{schema}"))
-        })
-        .unwrap();
+        let both = slab
+            .with_resource(h1, |p| {
+                let proto = p.as_protocol()?.name.clone();
+                let schema = slab.with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))?;
+                Ok(format!("{proto}/{schema}"))
+            })
+            .unwrap();
         assert_eq!(both, "test/test");
-        free(h1);
-        free(h2);
+        slab.free(h1);
+        slab.free(h2);
     }
 
     #[test]
     fn slow_work_on_one_handle_does_not_stall_another() {
-        reset();
-        let h1 = alloc(Resource::Protocol(Box::new(test_protocol())));
+        let slab = Slab::new();
+        let h1 = slab.alloc(Resource::Protocol(Box::new(test_protocol())));
         let (borrowed_tx, borrowed_rx) = std::sync::mpsc::channel::<()>();
         let (finished_tx, finished_rx) = std::sync::mpsc::channel::<String>();
 
@@ -984,24 +1053,29 @@ mod tests {
         // happen inside such a borrow, so a table lock held across it
         // would serialize every unrelated call in the process; here that
         // shows up as the worker never finishing.
-        let worker = std::thread::spawn(move || {
-            borrowed_rx.recv().expect("main thread borrowed h1");
-            let h2 = alloc(Resource::Schema(Arc::new(test_schema())));
-            let name = with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))
-                .expect("worker handle valid");
-            free(h2);
-            finished_tx.send(name).expect("main thread still listening");
+        let reported = std::thread::scope(|scope| {
+            let slab = &slab;
+            let worker = scope.spawn(move || {
+                borrowed_rx.recv().expect("main thread borrowed h1");
+                let h2 = slab.alloc(Resource::Schema(Arc::new(test_schema())));
+                let name = slab
+                    .with_resource(h2, |s| Ok(s.as_schema()?.protocol.clone()))
+                    .expect("worker handle valid");
+                slab.free(h2);
+                finished_tx.send(name).expect("main thread still listening");
+            });
+
+            let reported = slab
+                .with_resource(h1, |p| {
+                    let _ = p.as_protocol()?;
+                    borrowed_tx.send(()).expect("worker still listening");
+                    Ok(finished_rx.recv().expect("worker made progress"))
+                })
+                .unwrap();
+            worker.join().expect("worker thread panicked");
+            reported
         });
-
-        let reported = with_resource(h1, |p| {
-            let _ = p.as_protocol()?;
-            borrowed_tx.send(()).expect("worker still listening");
-            Ok(finished_rx.recv().expect("worker made progress"))
-        })
-        .unwrap();
-
-        worker.join().expect("worker thread panicked");
         assert_eq!(reported, "test");
-        free(h1);
+        slab.free(h1);
     }
 }

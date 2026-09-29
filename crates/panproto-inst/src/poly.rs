@@ -16,6 +16,7 @@ use panproto_schema::Edge;
 use rustc_hash::{FxHashMap, FxHashSet};
 
 use crate::complement::Complement;
+use crate::identity::IdentityCarrier;
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
@@ -176,7 +177,9 @@ pub fn join(
 ///
 /// Like `wtype_restrict` but also returns a [`Complement`] recording all
 /// dropped nodes and their nearest surviving ancestors. This complement
-/// is needed for [`fiber_at_node`] and for backward data migration.
+/// is needed for [`fiber_at_node`] and for backward data migration. It is
+/// stamped with the identity of the lens `src_schema`, `tgt_schema` and
+/// `migration` denote.
 ///
 /// # Errors
 ///
@@ -184,7 +187,7 @@ pub fn join(
 /// pruned or edge resolution fails during ancestor contraction.
 pub fn restrict_with_complement(
     instance: &WInstance,
-    _src_schema: &panproto_schema::Schema,
+    src_schema: &panproto_schema::Schema,
     tgt_schema: &panproto_schema::Schema,
     migration: &CompiledMigration,
 ) -> Result<(WInstance, Complement), crate::error::RestrictError> {
@@ -284,6 +287,15 @@ pub fn restrict_with_complement(
         new_fans,
         instance.root,
         new_schema_root,
+    );
+    complement.stamp(
+        crate::identity::lens_identity(
+            src_schema,
+            tgt_schema,
+            migration,
+            crate::identity::ComplementShape::WType,
+        ),
+        src_schema,
     );
     Ok((restricted, complement))
 }
@@ -953,6 +965,18 @@ mod tests {
 
         // Dropped arcs: the arc from doc -> annotation
         assert_eq!(complement.dropped_arcs.len(), 1);
+
+        // The complement names the lens its three inputs denote.
+        let expected = crate::identity::lens_identity(
+            &src_schema,
+            &tgt_schema,
+            &migration,
+            crate::identity::ComplementShape::WType,
+        );
+        assert_eq!(
+            crate::identity::identity_status(&complement, &expected, &src_schema),
+            Ok(crate::identity::IdentityStatus::Verified)
+        );
     }
 
     #[test]
