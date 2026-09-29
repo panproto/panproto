@@ -41,6 +41,22 @@ PP_IDENTITY_GOLDEN=bless cargo test -p panproto-integration-tests --test every_i
 A change that moves a digest without bumping its context fails the golden
 test, which is the point: stored complements name these digests.
 
-Fixtures the protocol parsers do not yet read are left out of the corpus:
-`fixtures/jsonschema/{github-workflow,package,tsconfig}.json`,
-`fixtures/protobuf/descriptor.proto` and `fixtures/sql/sakila-postgres.sql`.
+Every schema fixture under `fixtures/` is in the corpus. A change to a
+protocol parser that changes what it reads from a fixture moves that
+schema's digest (and the envelope of every lens over it) without any
+encoding change; that is a change to the schema, so the file is
+re-blessed in the same change and no context version moves.
+
+An `auto` entry exists only for a pair on which `auto_generate` finds a
+lens under the default configuration, whose balanced tier asks for a
+total morphism. Pairs with no total morphism, such as the two
+`app.bsky.feed.post` lexicons in either direction and
+`sql-tests/users` to `sql-tests/users_posts`, are pinned as typed
+failures by `auto_generate_reports_no_morphism_where_none_exists.rs`.
+Every other ordered pair of corpus schemas of one protocol on which
+`auto_generate` finds a lens is in the corpus, with two exceptions: the
+lenses from `sql-tests/users_posts` to the two Sakila schemas. The
+total-morphism search behind them (`panproto_mig::find_best_morphism`)
+takes about 10 s (PostgreSQL) and 3 s (SQLite) in a debug build, and
+every process of the cross-process test rebuilds every lens, so those
+two are left out.

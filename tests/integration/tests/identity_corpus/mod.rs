@@ -23,6 +23,25 @@ use panproto_mig::Migration;
 use panproto_schema::{Protocol, Schema, SchemaBuilder};
 use serde::{Deserialize, Serialize};
 
+/// A result a test requires to be `Ok`, or an option it requires to be
+/// `Some`: a corpus entry that does not load is a defect in the fixture.
+pub trait Required<T> {
+    /// The value, or a panic naming `what`.
+    fn required(self, what: &str) -> T;
+}
+
+impl<T, E: std::fmt::Display> Required<T> for Result<T, E> {
+    fn required(self, what: &str) -> T {
+        self.unwrap_or_else(|e| panic!("{what}: {e}"))
+    }
+}
+
+impl<T> Required<T> for Option<T> {
+    fn required(self, what: &str) -> T {
+        self.unwrap_or_else(|| panic!("{what}"))
+    }
+}
+
 /// The golden file, relative to the repository root.
 pub const GOLDEN: &str = "tests/fixtures/identity/golden.json";
 
@@ -31,7 +50,7 @@ pub fn repo_root() -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
-        .expect("the repository root exists")
+        .required("the repository root exists")
 }
 
 /// The golden file's contents.
@@ -159,7 +178,7 @@ fn build_from_ops(protocol: &Protocol, ops: &[BuildOp]) -> Schema {
         builder = match op {
             BuildOp::Vertex { id, kind, nsid } => builder
                 .vertex(id, kind, nsid.as_deref())
-                .expect("a case vertex builds"),
+                .required("a case vertex builds"),
             BuildOp::Edge {
                 src,
                 tgt,
@@ -167,10 +186,10 @@ fn build_from_ops(protocol: &Protocol, ops: &[BuildOp]) -> Schema {
                 name,
             } => builder
                 .edge(src, tgt, kind, name.as_deref())
-                .expect("a case edge builds"),
+                .required("a case edge builds"),
         };
     }
-    builder.build().expect("a case schema builds")
+    builder.build().required("a case schema builds")
 }
 
 /// The lens of a `tests/fixtures/complement_upgrade` case directory.
@@ -181,7 +200,7 @@ pub fn case_lens(case_dir: &Path) -> Lens {
     let migration: Migration = read_json(&case_dir.join("migration.json"));
     let src = build_from_ops(&protocol, &src_ops);
     let tgt = build_from_ops(&protocol, &tgt_ops);
-    let compiled = panproto_mig::compile(&src, &tgt, &migration).expect("a case compiles");
+    let compiled = panproto_mig::compile(&src, &tgt, &migration).required("a case compiles");
     Lens {
         compiled,
         src_schema: src,
@@ -246,7 +265,7 @@ pub fn every_identity(golden: &Golden) -> Vec<(String, String)> {
         let envelope = lens.identity(entry.shape);
         out.push((
             format!("lens {}", entry.name),
-            serde_json::to_string(&envelope).expect("an envelope serializes"),
+            serde_json::to_string(&envelope).required("an envelope serializes"),
         ));
     }
     out
