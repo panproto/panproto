@@ -97,6 +97,11 @@ pub use ginstance::{
     EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json,
     graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
 };
+pub use ginstance::{
+    FanDomain, FanEmbedding, NotTreeReason, TreeEmbedding, TreeShapeReport,
+    canonical_ginstance_bytes, reify_fans_owned, unreify_fans_owned, unreify_fans_with_schema,
+    write_edge_record, write_ginstance, write_node_record,
+};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
 pub use identity::{
