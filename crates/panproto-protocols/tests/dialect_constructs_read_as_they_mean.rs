@@ -43,6 +43,11 @@ fn constraint(schema: &Schema, vertex: &str, sort: &str) -> Option<String> {
         .map(|c| c.value.clone())
 }
 
+/// The ids of a schema's vertices, in order.
+fn vertex_ids(schema: &Schema) -> std::collections::BTreeSet<String> {
+    schema.vertices.keys().map(ToString::to_string).collect()
+}
+
 /// The target of the one `ref` edge out of `src`.
 fn ref_target<'a>(schema: &'a Schema, src: &str) -> &'a str {
     let refs: Vec<_> = schema
@@ -374,6 +379,72 @@ fn a_drop_removes_a_bracket_quoted_create_in_any_case() {
         "brackets compare without regard to case"
     );
     assert!(schema.has_vertex("keep"));
+}
+
+#[test]
+fn an_odd_table_name_survives_emit_and_reparse() {
+    let ddl = "CREATE TABLE [h]]x] (id INT); CREATE TABLE [my table] (id INT); \
+               CREATE TABLE public.t (id INT);";
+    let first = parse_ddl(ddl).required("first parse");
+    for vertex in [
+        "h]x",
+        "h]x.id",
+        "my table",
+        "my table.id",
+        "public.t",
+        "public.t.id",
+    ] {
+        assert!(first.has_vertex(vertex), "{vertex} parses");
+    }
+    let emitted = emit_ddl(&first).required("emit");
+    let second = parse_ddl(&emitted).required("re-parse");
+    assert_eq!(vertex_ids(&second), vertex_ids(&first), "{emitted}");
+}
+
+#[test]
+fn an_enum_column_of_an_odd_table_survives_emit_and_reparse() {
+    let ddl = "CREATE TYPE mood AS ENUM ('sad', 'ok'); \
+               CREATE TABLE [my table] ([a b] mood, c mood[]);";
+    let first = parse_ddl(ddl).required("first parse");
+    let labels = constraint(&first, "my table.a b", "ENUM");
+    assert!(labels.is_some(), "the column carries its labels");
+    let emitted = emit_ddl(&first).required("emit");
+    let second = parse_ddl(&emitted).required("re-parse");
+    assert_eq!(
+        constraint(&second, "my table.a b", "ENUM"),
+        labels,
+        "{emitted}"
+    );
+    assert_eq!(
+        constraint(&second, "my table.c:items", "ENUM"),
+        labels,
+        "{emitted}"
+    );
+}
+
+#[test]
+fn a_quote_inside_a_bracket_quoted_identifier_is_part_of_its_name() {
+    let ddl = "CREATE TABLE [t\"x] ([a\"b] INT, [c'd] TEXT DEFAULT 'q;r', [e(f] INT, \
+               g INT[] DEFAULT ARRAY[[1, 2], [3, 4]]); CREATE TABLE u ([;] INT);";
+    let first = parse_ddl(ddl).required("first parse");
+    for vertex in [
+        "t\"x",
+        "t\"x.a\"b",
+        "t\"x.c'd",
+        "t\"x.e(f",
+        "t\"x.g",
+        "u",
+        "u.;",
+    ] {
+        assert!(first.has_vertex(vertex), "{vertex} parses");
+    }
+    assert_eq!(
+        constraint(&first, "t\"x.g", "DEFAULT").as_deref(),
+        Some("ARRAY[[1, 2], [3, 4]]")
+    );
+    let emitted = emit_ddl(&first).required("emit");
+    let second = parse_ddl(&emitted).required("re-parse");
+    assert_eq!(vertex_ids(&second), vertex_ids(&first), "{emitted}");
 }
 
 /// An option a test requires to be `Some`.
