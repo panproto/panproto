@@ -1365,6 +1365,10 @@ pub(crate) fn compose_with_naming(
     })
 }
 
+/// The relation the edges generate, and the sort and operation classes of
+/// the full identification.
+type Identification = (UnionFind<Key>, Vec<Vec<SymRef>>, Vec<Vec<SymRef>>);
+
 /// Steps 2 and 3: the union-find over node-qualified symbols. Returns the
 /// relation the edges generate (with undeclared sorts joined by name),
 /// and the sort and operation classes of the full identification.
@@ -1378,7 +1382,7 @@ fn identify(
     diagram: &TheoryDiagram,
     nodes: &BTreeMap<Arc<str>, NodeInfo<'_>>,
     mode: CompositionMode,
-) -> Result<(UnionFind<Key>, Vec<Vec<SymRef>>, Vec<Vec<SymRef>>), CompositionError> {
+) -> Result<Identification, CompositionError> {
     let mut uf: UnionFind<Key> = UnionFind::new();
     for (label, info) in nodes {
         let sym = |name: &Arc<str>| SymRef::new(Arc::clone(label), Arc::clone(name));
