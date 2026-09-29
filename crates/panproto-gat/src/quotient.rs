@@ -1,65 +1,90 @@
 use std::sync::Arc;
 
+use std::collections::BTreeMap;
+
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use crate::compose::{op_class_mismatch, sort_class_mismatch, translate_op, translate_sort};
 use crate::eq::{DirectedEquation, Equation, alpha_equivalent_equation};
 use crate::error::GatError;
 use crate::op::Operation;
 use crate::sort::{Sort, SortParam};
 use crate::theory::Theory;
 
-/// HashMap-based union-find over `Arc<str>` with path compression
-/// and alphabetically-first representative selection.
-struct NameUnionFind {
-    parent: FxHashMap<Arc<str>, Arc<str>>,
+/// A union-find over any ordered key, with path compression.
+///
+/// The representative of a class is its least key, so the partition and
+/// its representatives do not depend on the order of the unions. Theory
+/// quotients key it by name; diagram composition keys it by symbol kind
+/// and node-qualified symbol.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct UnionFind<K: Ord + Clone> {
+    parent: BTreeMap<K, K>,
 }
 
-impl NameUnionFind {
-    fn new() -> Self {
+impl<K: Ord + Clone> UnionFind<K> {
+    /// An empty union-find.
+    pub(crate) const fn new() -> Self {
         Self {
-            parent: FxHashMap::default(),
+            parent: BTreeMap::new(),
         }
     }
 
-    /// Ensure a name exists in the union-find.
-    fn insert(&mut self, name: Arc<str>) {
-        self.parent.entry(name.clone()).or_insert(name);
+    /// Ensure `key` is present, as a singleton class if it is new.
+    pub(crate) fn insert(&mut self, key: K) {
+        self.parent.entry(key.clone()).or_insert(key);
     }
 
-    /// Find the representative for `name` with path compression.
-    fn find(&mut self, name: &Arc<str>) -> Arc<str> {
-        if !self.parent.contains_key(name) {
-            self.parent.insert(name.clone(), name.clone());
+    /// Whether `key` is present.
+    pub(crate) fn contains(&self, key: &K) -> bool {
+        self.parent.contains_key(key)
+    }
+
+    /// The representative of `key`'s class, inserting `key` if it is new.
+    pub(crate) fn find(&mut self, key: &K) -> K {
+        self.insert(key.clone());
+        let mut root = key.clone();
+        while let Some(p) = self.parent.get(&root) {
+            if *p == root {
+                break;
+            }
+            root = p.clone();
         }
-        // Safety: we just ensured the key exists above.
-        let p = self.parent[name].clone();
-        if &p == name {
-            return p;
+        let mut cursor = key.clone();
+        while cursor != root {
+            let next = self.parent.get(&cursor).cloned().unwrap_or_else(|| root.clone());
+            self.parent.insert(cursor, root.clone());
+            cursor = next;
         }
-        let root = self.find(&p);
-        self.parent.insert(name.clone(), root.clone());
         root
     }
 
-    /// Union two names, choosing the alphabetically-first as representative.
-    fn union(&mut self, a: &Arc<str>, b: &Arc<str>) {
+    /// Merge the classes of `a` and `b`; the least of the two
+    /// representatives represents the merged class.
+    pub(crate) fn union(&mut self, a: &K, b: &K) {
         let ra = self.find(a);
         let rb = self.find(b);
-        if ra == rb {
-            return;
-        }
-        if ra <= rb {
-            self.parent.insert(rb, ra);
-        } else {
-            self.parent.insert(ra, rb);
+        match ra.cmp(&rb) {
+            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Less => {
+                self.parent.insert(rb, ra);
+            }
+            std::cmp::Ordering::Greater => {
+                self.parent.insert(ra, rb);
+            }
         }
     }
 
-    /// Get the rename map: for each name, its representative.
-    /// Only includes entries where the name differs from its representative.
-    fn rename_map(&mut self) -> FxHashMap<Arc<str>, Arc<str>> {
-        let keys: Vec<Arc<str>> = self.parent.keys().cloned().collect();
-        let mut map = FxHashMap::default();
+    /// Whether `a` and `b` are in one class.
+    pub(crate) fn same(&mut self, a: &K, b: &K) -> bool {
+        self.find(a) == self.find(b)
+    }
+
+    /// Every key whose representative differs from itself, mapped to that
+    /// representative.
+    pub(crate) fn rename_map(&mut self) -> BTreeMap<K, K> {
+        let keys: Vec<K> = self.parent.keys().cloned().collect();
+        let mut map = BTreeMap::new();
         for k in keys {
             let rep = self.find(&k);
             if rep != k {
@@ -69,10 +94,11 @@ impl NameUnionFind {
         map
     }
 
-    /// Get all equivalence classes as a map from representative to members.
-    fn classes(&mut self) -> FxHashMap<Arc<str>, Vec<Arc<str>>> {
-        let keys: Vec<Arc<str>> = self.parent.keys().cloned().collect();
-        let mut classes: FxHashMap<Arc<str>, Vec<Arc<str>>> = FxHashMap::default();
+    /// Every class, keyed by its representative, with its members in
+    /// ascending order.
+    pub(crate) fn classes(&mut self) -> BTreeMap<K, Vec<K>> {
+        let keys: Vec<K> = self.parent.keys().cloned().collect();
+        let mut classes: BTreeMap<K, Vec<K>> = BTreeMap::new();
         for k in keys {
             let rep = self.find(&k);
             classes.entry(rep).or_default().push(k);
@@ -111,36 +137,18 @@ fn as_std_map(rename: &RenameMap) -> std::collections::HashMap<Arc<str>, Arc<str
     rename.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
 }
 
-/// Compute the quotiented signature of an operation: its input sort list
-/// and output sort, with every sort head sent to its representative and
-/// every operation applied inside a dependent sort's argument terms sent
-/// to its representative.
-///
-/// Both maps matter. A dependent sort argument is a term, so two
-/// operations whose signatures differ only in operations the quotient
-/// identifies — `Hom(pt1(), pt1())` against `Hom(pt2(), pt2())` under
-/// `pt1 ~ pt2` — have the same signature in the quotient.
-fn renamed_op_signature(
-    op: &Operation,
-    sort_rename: &RenameMap,
-    op_rename: &RenameMap,
-) -> (Vec<crate::sort::SortExpr>, crate::sort::SortExpr) {
-    let sort_std = as_std_map(sort_rename);
-    let op_std = as_std_map(op_rename);
-    let inputs: Vec<crate::sort::SortExpr> = op
-        .inputs
-        .iter()
-        .map(|(_, s, _)| s.apply_maps(&sort_std, &op_std))
-        .collect();
-    let output = op.output.apply_maps(&sort_std, &op_std);
-    (inputs, output)
-}
-
 /// A mapping from original names to their equivalence-class representatives.
 type RenameMap = FxHashMap<Arc<str>, Arc<str>>;
 
 /// Classify identifications, build union-finds, and verify compatibility.
 /// Returns the sort and op rename maps.
+///
+/// The compatibility checks are those of diagram composition: every member
+/// of a sort class, with the sorts and operations its parameters mention
+/// sent to their classes, must agree with the class representative on
+/// arity, on each parameter's sort class (modulo renaming the parameters),
+/// on kind and on closure; every member of an operation class must agree
+/// with the representative on its signature, translated the same way.
 fn build_rename_maps(
     theory: &Theory,
     identifications: &[(Arc<str>, Arc<str>)],
@@ -162,86 +170,58 @@ fn build_rename_maps(
         }
     }
 
-    // Build sort union-find.
-    let mut sort_uf = NameUnionFind::new();
+    let mut sort_uf: UnionFind<Arc<str>> = UnionFind::new();
     for s in &theory.sorts {
         sort_uf.insert(s.name.clone());
     }
     for (a, b) in &sort_ids {
         sort_uf.union(a, b);
     }
-
-    // Verify that every member of a sort class agrees with the class
-    // representative on arity, kind, and closure. Identifying two sorts
-    // collapses them to a single representative, so any field that differs
-    // between members would be silently discarded; reject it instead.
-    for (rep, members) in &sort_uf.classes() {
-        let rep_sort = get_sort(theory, rep)?;
-        let rep_arity = rep_sort.arity();
-        for member in members {
-            if member == rep {
-                continue;
-            }
-            let member_sort = get_sort(theory, member)?;
-            let member_arity = member_sort.arity();
-            if member_arity != rep_arity {
-                return Err(GatError::QuotientIncompatible {
-                    name_a: rep.to_string(),
-                    name_b: member.to_string(),
-                    detail: format!("sort arities differ ({rep_arity} vs {member_arity})"),
-                });
-            }
-            if member_sort.kind != rep_sort.kind {
-                return Err(GatError::QuotientIncompatible {
-                    name_a: rep.to_string(),
-                    name_b: member.to_string(),
-                    detail: format!(
-                        "sort kinds differ ({:?} vs {:?})",
-                        rep_sort.kind, member_sort.kind
-                    ),
-                });
-            }
-            if member_sort.closure != rep_sort.closure {
-                return Err(GatError::QuotientIncompatible {
-                    name_a: rep.to_string(),
-                    name_b: member.to_string(),
-                    detail: format!(
-                        "sort closures differ ({:?} vs {:?})",
-                        rep_sort.closure, member_sort.closure
-                    ),
-                });
-            }
-        }
-    }
-
-    let sort_rename = sort_uf.rename_map();
-
-    // Build op union-find.
-    let mut op_uf = NameUnionFind::new();
+    let mut op_uf: UnionFind<Arc<str>> = UnionFind::new();
     for op in &theory.ops {
         op_uf.insert(op.name.clone());
     }
     for (a, b) in &op_ids {
         op_uf.union(a, b);
     }
+    let sort_rename: RenameMap = sort_uf.rename_map().into_iter().collect();
+    let op_rename: RenameMap = op_uf.rename_map().into_iter().collect();
+    let sort_std = as_std_map(&sort_rename);
+    let op_std = as_std_map(&op_rename);
 
-    let op_rename = op_uf.rename_map();
-
-    // Verify op signature compatibility in the quotient, i.e. after both
-    // the sort and the operation identifications are applied.
-    for (rep, members) in &op_uf.classes() {
-        let rep_sig = renamed_op_signature(get_op(theory, rep)?, &sort_rename, &op_rename);
+    for (rep, members) in &sort_uf.classes() {
+        let rep_sort = get_sort(theory, rep)?;
+        let rep_translated = translate_sort(rep_sort, &sort_std, &op_std);
         for member in members {
             if member == rep {
                 continue;
             }
-            let member_sig =
-                renamed_op_signature(get_op(theory, member)?, &sort_rename, &op_rename);
-            if rep_sig != member_sig {
+            let member_sort = get_sort(theory, member)?;
+            let member_translated = translate_sort(member_sort, &sort_std, &op_std);
+            if let Some(mismatch) =
+                sort_class_mismatch(&rep_translated, &member_translated, rep_sort, member_sort)
+            {
                 return Err(GatError::QuotientIncompatible {
                     name_a: rep.to_string(),
                     name_b: member.to_string(),
-                    detail: "operation signatures differ in the quotient".into(),
+                    detail: mismatch.to_string(),
+                });
+            }
+        }
+    }
+
+    for (rep, members) in &op_uf.classes() {
+        let rep_op = translate_op(get_op(theory, rep)?, &sort_std, &op_std);
+        for member in members {
+            if member == rep {
+                continue;
+            }
+            let member_op = translate_op(get_op(theory, member)?, &sort_std, &op_std);
+            if let Some(mismatch) = op_class_mismatch(&rep_op, &member_op) {
+                return Err(GatError::QuotientIncompatible {
+                    name_a: rep.to_string(),
+                    name_b: member.to_string(),
+                    detail: mismatch.to_string(),
                 });
             }
         }
@@ -421,9 +401,12 @@ fn rebuild_directed_eqs(
 ///
 /// # Errors
 ///
-/// Returns [`GatError::QuotientIncompatible`] if identified sorts have
-/// different arities or identified operations have incompatible signatures
-/// (after applying sort renaming). Returns [`GatError::SortNotFound`] or
+/// Returns [`GatError::QuotientIncompatible`] if identified sorts disagree
+/// on arity, on a parameter's sort class, on kind or on closure (the
+/// `detail` names the [`crate::compose::SortMismatch`]), or if identified
+/// operations have signatures that differ once every sort and operation is
+/// sent to its class. Returns [`GatError::IllTypedSignature`] if the
+/// quotient's signature fails [`crate::typecheck_signature`]. Returns [`GatError::SortNotFound`] or
 /// [`GatError::OpNotFound`] if a name referenced internally is missing.
 pub fn quotient(
     theory: &Theory,
@@ -433,7 +416,10 @@ pub fn quotient(
         return Ok(theory.clone());
     }
     let (sort_rename, op_rename) = build_rename_maps(theory, identifications)?;
-    rebuild_theory(theory, &sort_rename, &op_rename)
+    let quotiented = rebuild_theory(theory, &sort_rename, &op_rename)?;
+    crate::typecheck::typecheck_signature(&quotiented)
+        .map_err(|defects| GatError::IllTypedSignature { defects })?;
+    Ok(quotiented)
 }
 
 #[cfg(test)]
@@ -979,6 +965,24 @@ mod tests {
                 matches!(result, Err(GatError::QuotientIncompatible { .. })),
                 "with_id={with_id}: {result:?}",
             );
+        }
+    }
+
+    /// The rejection names how the sort class disagrees.
+    #[test]
+    fn quotient_reports_the_sort_mismatch() {
+        let result = quotient(&hom_and_cell(false), &[("Hom".into(), "Cell".into())]);
+        match result {
+            Err(GatError::QuotientIncompatible { detail, .. }) => {
+                let expected = crate::compose::SortMismatch::ParamSort {
+                    index: 0,
+                    first: "Mor".into(),
+                    second: "Ob".into(),
+                };
+                assert_eq!(detail, expected.to_string());
+                assert_eq!(detail, "parameter 0 sorts differ (Mor vs Ob)");
+            }
+            other => panic!("expected QuotientIncompatible, got {other:?}"),
         }
     }
 

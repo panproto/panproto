@@ -566,6 +566,13 @@ pub enum GatError {
         rule: String,
     },
 
+    /// A theory's signature is ill formed; every defect found is listed.
+    #[error("ill-typed signature: {}", render_defects(defects))]
+    IllTypedSignature {
+        /// The defects, as [`crate::typecheck_signature`] reports them.
+        defects: Vec<crate::typecheck::SignatureDefect>,
+    },
+
     /// Identified elements are incompatible for quotienting.
     #[error("cannot identify {name_a} and {name_b}: {detail}")]
     QuotientIncompatible {
@@ -614,4 +621,13 @@ pub enum GatError {
         /// The configured per-equation assignment bound.
         limit: usize,
     },
+}
+
+/// Render a list of signature defects for an error message.
+fn render_defects(defects: &[crate::typecheck::SignatureDefect]) -> String {
+    defects
+        .iter()
+        .map(ToString::to_string)
+        .collect::<Vec<_>>()
+        .join("; ")
 }

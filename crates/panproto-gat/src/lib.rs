@@ -25,6 +25,7 @@ pub mod alg_struct;
 mod check_model;
 pub mod check_status;
 mod colimit;
+pub mod compose;
 pub mod composition;
 mod enrichment;
 mod eq;
@@ -83,9 +84,9 @@ pub use sort::{
 };
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{
-    HoleReport, SortScheme, VarContext, check_term, infer_var_sorts, typecheck_equation,
-    typecheck_equation_modulo_rewrites, typecheck_term, typecheck_term_with_holes,
-    typecheck_theory,
+    HoleReport, SignatureDefect, SignatureSite, SortScheme, VarContext, check_term,
+    infer_var_sorts, typecheck_equation, typecheck_equation_modulo_rewrites, typecheck_signature,
+    typecheck_term, typecheck_term_with_holes, typecheck_theory,
 };
 
 pub use alg_struct::{AlgStruct, StructField, StructParam};
