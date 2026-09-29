@@ -1754,7 +1754,8 @@ pub enum Encoding {
     Json,
 }
 
-/// A decoded complement of either shape.
+/// A decoded complement, of whichever [`ComplementShape`] this build has a
+/// complement type for.
 #[derive(Clone, Debug)]
 pub enum AnyComplement {
     /// A tree complement.
@@ -1937,7 +1938,8 @@ fn reason<T>(shape: ComplementShape, attempt: Option<Result<T, String>>) -> Stri
 /// Decode a complement read from outside the process.
 ///
 /// Decodes `bytes` as a complement of the `expected` shape. If that fails
-/// and the bytes decode as the other shape instead, the error is a
+/// and the bytes decode as a complement of another shape in
+/// [`ComplementShape::ALL`] instead, the error is a
 /// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
 /// complement whose envelope names a different format is refused the same
 /// way. An envelope whose layout version this build does not read gives
@@ -1950,8 +1952,9 @@ fn reason<T>(shape: ComplementShape, attempt: Option<Result<T, String>>) -> Stri
 ///
 /// # Errors
 ///
-/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
-/// neither shape.
+/// As above, or [`IdentityError::Undecodable`] when the bytes decode as a
+/// complement of no shape in [`ComplementShape::ALL`]; its message gives
+/// the reason for each shape tried.
 pub fn decode_complement(
     bytes: &[u8],
     encoding: Encoding,

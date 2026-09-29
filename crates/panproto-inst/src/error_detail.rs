@@ -23,9 +23,9 @@ use crate::view_ref::ViewRef;
 ///
 /// One enum serves all three shapes: an element is named by a [`ViewRef`]
 /// of the view's own shape. Serialized externally tagged in `snake_case`,
-/// for instance `{"id_collision": {"elem": {"node": 3}}}`. The variants are
-/// declared in the primary order in which a report of several errors lists
-/// them ([`variant_index`](Self::variant_index)).
+/// for instance `{"contracted_edge_inserted": {"elem": {"node": 3}}}`.
+/// The variants are declared in the primary order in which a report of
+/// several errors lists them ([`variant_index`](Self::variant_index)).
 ///
 /// ```
 /// use panproto_inst::{PutDomainError, ViewRef};
@@ -36,6 +36,12 @@ use crate::view_ref::ViewRef;
 ///     r#"{"synthesized_edited":{"elem":{"node":4}}}"#,
 /// );
 /// assert_eq!(e.variant_index(), 1);
+///
+/// let e = PutDomainError::ContractedEdgeInserted { elem: ViewRef::Node(3) };
+/// assert_eq!(
+///     serde_json::to_string(&e).unwrap(),
+///     r#"{"contracted_edge_inserted":{"elem":{"node":3}}}"#,
+/// );
 /// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, thiserror::Error)]
 #[serde(rename_all = "snake_case")]
