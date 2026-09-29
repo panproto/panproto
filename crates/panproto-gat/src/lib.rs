@@ -42,6 +42,7 @@ mod quotient;
 pub mod refinement;
 pub mod rewriting;
 mod schema_functor;
+pub mod serde_helpers;
 mod sort;
 mod theory;
 mod typecheck;

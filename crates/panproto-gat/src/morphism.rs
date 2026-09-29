@@ -149,10 +149,14 @@ pub struct TheoryMorphism {
     pub domain: Arc<str>,
     /// The name of the codomain theory.
     pub codomain: Arc<str>,
-    /// Mapping from domain sort names to codomain sort names.
+    /// Mapping from domain sort names to codomain sort names, serialized
+    /// in key order.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub sort_map: HashMap<Arc<str>, Arc<str>>,
     /// Mapping from domain operation names to their codomain image, each
-    /// either a renamed operation or a derived term (see [`OpAssignment`]).
+    /// either a renamed operation or a derived term (see [`OpAssignment`]),
+    /// serialized in key order.
+    #[serde(with = "crate::serde_helpers::sorted_map")]
     pub op_map: HashMap<Arc<str>, OpAssignment>,
 }
 
@@ -420,8 +424,8 @@ impl TheoryMorphism {
 /// # Soundness note on equation preservation
 ///
 /// For every domain equation `lhs = rhs`, the mapped pair `F(lhs) = F(rhs)` is
-/// preserved when it is alpha-equivalent to an equation already listed in the
-/// codomain (syntactic membership) or, failing that, when its two sides are
+/// preserved when it is alpha-equivalent, in either orientation, to an
+/// equation already listed in the codomain (syntactic membership) or, failing that, when its two sides are
 /// provably equal in the codomain's equational theory: both sides are
 /// normalized with the codomain's directed equations, and then, if that does
 /// not decide it, with the congruence closure over all codomain equations
@@ -571,10 +575,19 @@ pub fn check_morphism_with_witnesses(
 fn preservation_witness(lhs: &Term, rhs: &Term, codomain: &Theory) -> EqWitness {
     const BUDGET: usize = 512;
 
-    // Syntactic membership: an axiom naming the matched codomain equation.
+    // Syntactic membership: an axiom naming the matched codomain equation,
+    // read in whichever orientation matches (an undirected equation states
+    // the same axiom both ways).
     for c in &codomain.eqs {
         if alpha_equivalent_equation(&c.lhs, &c.rhs, lhs, rhs) {
             return EqWitness::axiom(Arc::clone(&c.name), lhs.clone(), rhs.clone());
+        }
+        if alpha_equivalent_equation(&c.lhs, &c.rhs, rhs, lhs) {
+            return EqWitness::symmetry(EqWitness::axiom(
+                Arc::clone(&c.name),
+                rhs.clone(),
+                lhs.clone(),
+            ));
         }
     }
 
@@ -816,10 +829,10 @@ fn check_equations_preserved(
         let mapped_lhs = m.apply_to_term_substituting(&eq.lhs, domain);
         let mapped_rhs = m.apply_to_term_substituting(&eq.rhs, domain);
 
-        let syntactic = codomain
-            .eqs
-            .iter()
-            .any(|ceq| alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs));
+        let syntactic = codomain.eqs.iter().any(|ceq| {
+            alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_lhs, &mapped_rhs)
+                || alpha_equivalent_equation(&ceq.lhs, &ceq.rhs, &mapped_rhs, &mapped_lhs)
+        });
         if syntactic {
             continue;
         }
@@ -2646,6 +2659,101 @@ mod tests {
         assert!(
             matches!(err, crate::error::GatError::ComposeDomainMismatch { .. }),
             "got {err:?}",
+        );
+    }
+
+    /// An undirected equation states the same axiom in either orientation,
+    /// so a domain equation whose image is a codomain equation read right
+    /// to left is preserved.
+    #[test]
+    fn morphism_accepts_an_equation_stated_in_the_other_orientation() {
+        let sorts = vec![Sort::simple("A")];
+        let ops = vec![Operation::unary("f", "x", "A", "A")];
+        let domain = Theory::new(
+            "D",
+            sorts.clone(),
+            ops.clone(),
+            vec![Equation::new(
+                "ax",
+                Term::app("f", vec![Term::var("x")]),
+                Term::var("x"),
+            )],
+        );
+        let codomain = Theory::new(
+            "C",
+            sorts,
+            ops,
+            vec![Equation::new(
+                "xa",
+                Term::var("y"),
+                Term::app("f", vec![Term::var("y")]),
+            )],
+        );
+        let m = TheoryMorphism::new(
+            "m",
+            "D",
+            "C",
+            HashMap::from([(Arc::from("A"), Arc::from("A"))]),
+            HashMap::from([(Arc::from("f"), Arc::from("f"))]),
+        );
+        check_morphism(&m, &domain, &codomain).unwrap();
+        let witnesses = check_morphism_with_witnesses(&m, &domain, &codomain).unwrap();
+        assert_eq!(witnesses.len(), 1);
+        witnesses[0].verify(&codomain).unwrap();
+    }
+
+    /// Serializing one morphism in many processes gives one byte string:
+    /// the sort and operation maps are written in key order, not in the
+    /// order a process's hash seed enumerates them.
+    #[test]
+    fn theory_morphism_bytes_are_identical_across_processes() {
+        const CHILD: &str = "PP_GAT_MORPHISM_BYTES_CHILD";
+        const PROCESSES: usize = 32;
+        let sort_map: HashMap<Arc<str>, Arc<str>> = (0..24)
+            .map(|i| (Arc::from(format!("S{i}")), Arc::from(format!("T{i}"))))
+            .collect();
+        let op_map: HashMap<Arc<str>, OpAssignment> = (0..24)
+            .map(|i| {
+                let image = if i % 3 == 0 {
+                    OpAssignment::Term(Term::app(format!("g{i}"), vec![Term::var("x")]))
+                } else {
+                    OpAssignment::op(format!("g{i}"))
+                };
+                (Arc::from(format!("f{i}")), image)
+            })
+            .collect();
+        let m = TheoryMorphism::new("wide", "D", "C", sort_map, op_map);
+        let bytes = serde_json::to_vec(&m).unwrap();
+        if std::env::var_os(CHILD).is_some() {
+            println!("BYTES:{}", String::from_utf8(bytes).unwrap());
+            return;
+        }
+        let exe = std::env::current_exe().unwrap();
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..PROCESSES {
+            let out = std::process::Command::new(&exe)
+                .args([
+                    "--exact",
+                    "morphism::tests::theory_morphism_bytes_are_identical_across_processes",
+                    "--nocapture",
+                    "--test-threads=1",
+                ])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(out.status.success(), "child failed: {out:?}");
+            let stdout = String::from_utf8(out.stdout).unwrap();
+            let line = stdout
+                .lines()
+                .find_map(|l| l.split_once("BYTES:").map(|(_, rest)| rest))
+                .map(str::to_owned);
+            assert!(line.is_some(), "child printed no bytes: {stdout}");
+            seen.extend(line);
+        }
+        assert_eq!(seen.len(), 1, "{} distinct encodings", seen.len());
+        assert_eq!(
+            seen.into_iter().next(),
+            Some(String::from_utf8(bytes).unwrap())
         );
     }
 }
