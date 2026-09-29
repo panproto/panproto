@@ -814,6 +814,22 @@ mod tests {
     }
 
     #[test]
+    fn value_to_json_writes_exact_values_as_their_lexical_form() {
+        use crate::value::{BigIntValue, DecimalValue, Temporal};
+        let decimal = Value::Decimal(DecimalValue::parse("1.50").unwrap());
+        let big = Value::integer(BigIntValue::parse("18446744073709551615").unwrap());
+        let when = Value::Temporal(Temporal::parse("2026-09-28T12:34:56.789+05:30").unwrap());
+        assert_eq!(
+            value_to_json(&Value::List(vec![decimal, big, when])),
+            json!([
+                "1.50",
+                "18446744073709551615",
+                "2026-09-28T12:34:56.789+05:30"
+            ])
+        );
+    }
+
+    #[test]
     fn value_json_round_trip_is_faithful_for_arrays() {
         // The composition value_to_json ∘ json_value_to_value should be
         // the identity on the JSON subalgebra (up to the Int/Float
