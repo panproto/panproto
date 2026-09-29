@@ -466,8 +466,12 @@ impl CanonicalWriter {
 
     /// Append `bytes` as they are, with no length prefix.
     ///
-    /// The unprefixed append the other encoders are built on, for a caller
-    /// that encodes a type of its own and writes its bytes here.
+    /// The inherent encoders of this type write to the buffer directly and do
+    /// not go through this method. It exists for encoders outside this crate,
+    /// which cannot reach the private buffer: the `CanonicalSink`
+    /// implementation for `CanonicalWriter` in panproto-inst appends through
+    /// it, as does any caller that encodes a type of its own and writes its
+    /// bytes here.
     ///
     /// ```
     /// use panproto_schema::CanonicalWriter;
