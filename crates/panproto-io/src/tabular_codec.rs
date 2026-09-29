@@ -73,7 +73,7 @@ impl InstanceParser for TabularCodec {
     }
 
     fn native_repr(&self) -> NativeRepr {
-        NativeRepr::Functor
+        NativeRepr::Table
     }
 
     fn parse_wtype(
@@ -83,8 +83,8 @@ impl InstanceParser for TabularCodec {
     ) -> Result<WInstance, ParseInstanceError> {
         Err(ParseInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::WType,
-            native: NativeRepr::Functor,
+            requested: NativeRepr::Tree,
+            native: NativeRepr::Table,
         })
     }
 
@@ -116,8 +116,8 @@ impl InstanceEmitter for TabularCodec {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         Err(EmitInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::WType,
-            native: NativeRepr::Functor,
+            requested: NativeRepr::Tree,
+            native: NativeRepr::Table,
         })
     }
 

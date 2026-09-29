@@ -44,7 +44,7 @@ impl InstanceParser for XmlCodec {
     }
 
     fn native_repr(&self) -> NativeRepr {
-        NativeRepr::WType
+        NativeRepr::Tree
     }
 
     fn parse_wtype(&self, schema: &Schema, input: &[u8]) -> Result<WInstance, ParseInstanceError> {
@@ -58,8 +58,8 @@ impl InstanceParser for XmlCodec {
     ) -> Result<FInstance, ParseInstanceError> {
         Err(ParseInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
-            native: NativeRepr::WType,
+            requested: NativeRepr::Table,
+            native: NativeRepr::Tree,
         })
     }
 }
@@ -84,8 +84,8 @@ impl InstanceEmitter for XmlCodec {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         Err(EmitInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
-            native: NativeRepr::WType,
+            requested: NativeRepr::Table,
+            native: NativeRepr::Tree,
         })
     }
 }

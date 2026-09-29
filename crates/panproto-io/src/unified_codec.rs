@@ -53,7 +53,7 @@ impl UnifiedCodec {
     /// `panproto-grammars/lang-json`), or [`UnifiedCodecError::ParserInit`]
     /// if the grammar is present but parser initialization fails.
     pub fn json(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Json, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Json, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for an XML-based protocol.
@@ -63,7 +63,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter XML grammar is
     /// unavailable or parser initialization fails.
     pub fn xml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Xml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Xml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a YAML-based protocol.
@@ -73,7 +73,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter YAML grammar is
     /// unavailable or parser initialization fails.
     pub fn yaml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Yaml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Yaml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a TOML-based protocol.
@@ -83,7 +83,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter TOML grammar is
     /// unavailable or parser initialization fails.
     pub fn toml(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Toml, NativeRepr::WType)
+        Self::new(protocol, FormatKind::Toml, NativeRepr::Tree)
     }
 
     /// Create a new unified codec for a CSV-based protocol.
@@ -93,7 +93,7 @@ impl UnifiedCodec {
     /// Returns [`UnifiedCodecError`] if the tree-sitter CSV grammar is
     /// unavailable or parser initialization fails.
     pub fn csv(protocol: impl Into<String>) -> Result<Self, UnifiedCodecError> {
-        Self::new(protocol, FormatKind::Csv, NativeRepr::Functor)
+        Self::new(protocol, FormatKind::Csv, NativeRepr::Table)
     }
 
     /// Create a new unified codec for a TSV-based protocol.
@@ -106,7 +106,7 @@ impl UnifiedCodec {
         protocol: impl Into<String>,
         table_vertex: impl Into<String>,
     ) -> Result<Self, UnifiedCodecError> {
-        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Functor)?;
+        let mut codec = Self::new(protocol, FormatKind::Tsv, NativeRepr::Table)?;
         codec.table_vertex = Some(table_vertex.into());
         Ok(codec)
     }
@@ -204,8 +204,8 @@ impl UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => {
                 return Err(ParseInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 });
             }
         };
@@ -236,8 +236,8 @@ impl UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => {
                 return Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 });
             }
         }
@@ -276,7 +276,7 @@ impl UnifiedCodec {
             _ => {
                 return Err(ParseInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::Functor,
+                    requested: NativeRepr::Table,
                     native: self.native_repr,
                 });
             }
@@ -317,7 +317,7 @@ impl UnifiedCodec {
             _ => {
                 return Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::Functor,
+                    requested: NativeRepr::Table,
                     native: self.native_repr,
                 });
             }
@@ -402,7 +402,7 @@ impl InstanceParser for UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => self.parse_functor_from_cst(schema, input),
             _ => Err(ParseInstanceError::UnsupportedRepresentation {
                 protocol: self.protocol.clone(),
-                requested: NativeRepr::Functor,
+                requested: NativeRepr::Table,
                 native: self.native_repr,
             }),
         }
@@ -433,8 +433,8 @@ impl InstanceEmitter for UnifiedCodec {
             FormatKind::Csv | FormatKind::Tsv => {
                 Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
-                    requested: NativeRepr::WType,
-                    native: NativeRepr::Functor,
+                    requested: NativeRepr::Tree,
+                    native: NativeRepr::Table,
                 })
             }
         }
@@ -461,7 +461,7 @@ impl InstanceEmitter for UnifiedCodec {
             }
             _ => Err(EmitInstanceError::UnsupportedRepresentation {
                 protocol: self.protocol.clone(),
-                requested: NativeRepr::Functor,
+                requested: NativeRepr::Table,
                 native: self.native_repr,
             }),
         }

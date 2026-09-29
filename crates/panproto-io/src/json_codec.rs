@@ -42,7 +42,7 @@ impl JsonCodec {
     pub fn new(protocol: impl Into<String>) -> Self {
         Self {
             protocol: protocol.into(),
-            native_repr: NativeRepr::WType,
+            native_repr: NativeRepr::Tree,
         }
     }
 
@@ -88,7 +88,7 @@ impl InstanceParser for JsonCodec {
     ) -> Result<FInstance, ParseInstanceError> {
         Err(ParseInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
+            requested: NativeRepr::Table,
             native: self.native_repr,
         })
     }
@@ -114,7 +114,7 @@ impl InstanceEmitter for JsonCodec {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         Err(EmitInstanceError::UnsupportedRepresentation {
             protocol: self.protocol.clone(),
-            requested: NativeRepr::Functor,
+            requested: NativeRepr::Table,
             native: self.native_repr,
         })
     }
