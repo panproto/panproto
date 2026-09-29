@@ -20,7 +20,7 @@ use crate::theories;
 /// Returns the ISO-Space protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "iso-space".into(),
         schema_theory: "ThIsoSpaceSchema".into(),
         instance_theory: "ThIsoSpaceInstance".into(),
@@ -63,8 +63,10 @@ pub fn protocol() -> Protocol {
             "gazref".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for ISO-Space.

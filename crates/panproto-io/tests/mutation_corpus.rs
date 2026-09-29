@@ -39,7 +39,7 @@ fn open_schema(protocol_name: &str) -> Schema {
         edge_rules: vec![],
         obj_kinds: vec![],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -239,7 +239,7 @@ fn tabular_schema() -> Schema {
         name: "test".into(),
         schema_theory: "ThtestSchema".into(),
         instance_theory: "ThtestInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("rows", "object", None)

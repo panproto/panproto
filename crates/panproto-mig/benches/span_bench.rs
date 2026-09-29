@@ -375,7 +375,7 @@ fn generic_protocol() -> Protocol {
             "integer".to_owned(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

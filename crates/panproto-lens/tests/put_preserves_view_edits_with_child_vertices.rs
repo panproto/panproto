@@ -37,7 +37,7 @@ fn object_graph_protocol() -> Protocol {
             "array".into(),
         ],
         constraint_sorts: vec!["entries".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

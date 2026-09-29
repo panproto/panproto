@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the Parquet protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "parquet".into(),
         schema_theory: "ThParquetSchema".into(),
         instance_theory: "ThParquetInstance".into(),
@@ -46,8 +46,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Parquet with a theory registry.

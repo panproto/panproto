@@ -33,7 +33,7 @@ fn test_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -119,6 +119,7 @@ fn bare_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -903,7 +904,7 @@ fn record_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

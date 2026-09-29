@@ -374,6 +374,7 @@ mod tests {
             outgoing,
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

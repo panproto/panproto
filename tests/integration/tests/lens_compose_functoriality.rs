@@ -71,6 +71,7 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -107,7 +108,7 @@ fn test_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

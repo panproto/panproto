@@ -26,7 +26,7 @@ use crate::theories;
 /// Instance theory: `ThFunctor`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "sql".into(),
         schema_theory: "ThSQLSchema".into(),
         instance_theory: "ThSQLInstance".into(),
@@ -55,8 +55,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for SQL with a theory registry.

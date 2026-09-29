@@ -448,6 +448,7 @@ impl ProjectBuilder {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         };
 
         let mut builder = panproto_schema::SchemaBuilder::new(&coproduct_protocol);
@@ -584,6 +585,7 @@ where
         has_coercions: false,
         has_mergers: false,
         has_policies: false,
+        ..Default::default()
     };
 
     let mut builder = panproto_schema::SchemaBuilder::new(&coproduct_protocol);

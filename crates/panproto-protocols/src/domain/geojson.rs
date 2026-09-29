@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the `GeoJSON` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "geojson".into(),
         schema_theory: "ThGeoJsonSchema".into(),
         instance_theory: "ThGeoJsonInstance".into(),
@@ -41,8 +41,10 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec!["required".into()],
         has_order: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `GeoJSON`.

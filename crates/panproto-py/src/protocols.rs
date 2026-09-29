@@ -21,7 +21,7 @@ fn grammar_protocol(name: &str) -> Option<Protocol> {
         name: name.to_owned(),
         schema_theory: name.to_owned(),
         instance_theory: name.to_owned(),
-        ..Protocol::default()
+        ..Default::default()
     })
 }
 

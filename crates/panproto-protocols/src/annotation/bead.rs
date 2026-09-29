@@ -22,7 +22,7 @@ use crate::theories;
 /// Returns the bead protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "bead".into(),
         schema_theory: "ThBeadSchema".into(),
         instance_theory: "ThBeadInstance".into(),
@@ -68,8 +68,10 @@ pub fn protocol() -> Protocol {
             "response-time".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for bead with a theory registry.

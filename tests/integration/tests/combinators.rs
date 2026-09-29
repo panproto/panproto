@@ -74,6 +74,7 @@ fn make_schema(protocol: &str, verts: &[(&str, &str)], edge_list: &[Edge]) -> Sc
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

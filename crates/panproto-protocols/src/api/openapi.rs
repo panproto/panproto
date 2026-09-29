@@ -21,7 +21,7 @@ use crate::theories;
 /// Returns the `OpenAPI` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "openapi".into(),
         schema_theory: "ThOpenAPISchema".into(),
         instance_theory: "ThOpenAPIInstance".into(),
@@ -59,8 +59,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `OpenAPI` with a theory registry.

@@ -46,7 +46,7 @@ use crate::theories;
 /// Returns the UIMA/CAS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "uima-cas".into(),
         schema_theory: "ThUimaSchema".into(),
         instance_theory: "ThUimaInstance".into(),
@@ -81,8 +81,10 @@ pub fn protocol() -> Protocol {
             "end".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for UIMA/CAS.

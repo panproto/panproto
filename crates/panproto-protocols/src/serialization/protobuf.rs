@@ -21,7 +21,7 @@ use crate::theories;
 /// Instance theory: `ThFlat`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "protobuf".into(),
         schema_theory: "ThProtobufSchema".into(),
         instance_theory: "ThProtobufInstance".into(),
@@ -45,8 +45,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Protobuf with a theory registry.

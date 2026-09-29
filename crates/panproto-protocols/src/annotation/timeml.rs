@@ -20,7 +20,7 @@ use crate::theories;
 /// Returns the `TimeML` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "timeml".into(),
         schema_theory: "ThTimeMlSchema".into(),
         instance_theory: "ThTimeMlInstance".into(),
@@ -62,8 +62,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         has_causal: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `TimeML`.

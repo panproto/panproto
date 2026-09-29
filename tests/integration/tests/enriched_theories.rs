@@ -82,6 +82,7 @@ fn make_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -102,7 +103,7 @@ fn test_protocol() -> Protocol {
             "record".into(),
         ],
         constraint_sorts: vec!["maxLength".into(), "minLength".into(), "maximum".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

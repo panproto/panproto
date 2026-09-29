@@ -3425,7 +3425,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -3444,7 +3444,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "string".into(), "integer".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         // Build a schema with enough vertices/edges that HashMap
         // iteration order is very likely to diverge from insertion.
@@ -4122,6 +4122,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         (panproto_gat::Name::from(name), schema)
     }
@@ -4762,6 +4763,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -4891,6 +4893,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         };
 
         let protocol = test_protocol();
@@ -4960,7 +4963,7 @@ mod step_laws {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -5013,6 +5016,7 @@ mod step_laws {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

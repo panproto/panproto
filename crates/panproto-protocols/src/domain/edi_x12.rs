@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the EDI X12 protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "edi-x12".into(),
         schema_theory: "ThEdiX12Schema".into(),
         instance_theory: "ThEdiX12Instance".into(),
@@ -44,8 +44,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for EDI X12 with a theory registry.

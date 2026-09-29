@@ -98,6 +98,7 @@ pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
 pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};
 pub use metadata::{Node, NodeShape};
+pub use panproto_schema::InstanceShapeKind;
 pub use parse::{parse_json, to_json};
 pub use pi::{functor_pi, wtype_pi};
 pub use poly::{

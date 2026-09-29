@@ -23,7 +23,7 @@ use crate::theories;
 /// Returns the NAF protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "naf".into(),
         schema_theory: "ThNafSchema".into(),
         instance_theory: "ThNafInstance".into(),
@@ -81,8 +81,10 @@ pub fn protocol() -> Protocol {
             "prediction".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for NAF.

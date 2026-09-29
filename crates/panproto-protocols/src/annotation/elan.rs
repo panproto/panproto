@@ -25,7 +25,7 @@ use crate::theories;
 /// Returns the ELAN/Praat protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "elan".into(),
         schema_theory: "ThElanSchema".into(),
         instance_theory: "ThElanInstance".into(),
@@ -68,8 +68,10 @@ pub fn protocol() -> Protocol {
             "mark".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for ELAN.

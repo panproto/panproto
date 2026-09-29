@@ -101,6 +101,7 @@ fn simple_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -269,6 +270,7 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         outgoing: outgoing.clone(),
         incoming: incoming.clone(),
         between: between.clone(),
+        ..Default::default()
     };
 
     // Target schema: only post, body, text survive
@@ -333,6 +335,7 @@ fn thread_view_post_schema() -> (Schema, Schema) {
         outgoing: tgt_outgoing,
         incoming: tgt_incoming,
         between: tgt_between,
+        ..Default::default()
     };
 
     (src_schema, tgt_schema)
@@ -578,6 +581,7 @@ fn test_fan_reconstruction_4_to_3() {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     };
 
     // Build instance with fan

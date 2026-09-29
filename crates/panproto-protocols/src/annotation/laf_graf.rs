@@ -31,7 +31,7 @@ use crate::theories;
 /// Returns the LAF/GrAF protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "laf-graf".into(),
         schema_theory: "ThLafGrafSchema".into(),
         instance_theory: "ThLafGrafInstance".into(),
@@ -57,8 +57,10 @@ pub fn protocol() -> Protocol {
             "label".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for LAF/GrAF.

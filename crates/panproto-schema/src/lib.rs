@@ -23,15 +23,19 @@ mod abstract_schema;
 mod builder;
 pub mod canonical;
 mod colimit;
+pub mod constraint_semantics;
 pub mod equivalence;
 mod error;
 pub mod induce;
+pub mod keys;
 mod morphism;
 mod normalize;
 mod protocol;
 mod schema;
 pub mod serde_helpers;
+pub mod shape_kind;
 mod validate;
+pub mod value_kinds;
 
 pub use abstract_schema::{
     AbstractSchema, DecoratedSchema, LayoutConstraintsPresent, LayoutWitness,
@@ -39,9 +43,14 @@ pub use abstract_schema::{
 pub use builder::SchemaBuilder;
 pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
 pub use colimit::{SchemaOverlap, schema_pushout};
+pub use constraint_semantics::{ConstraintSemantics, LengthUnit};
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
 pub use induce::{induce, induce_on_vertices};
+pub use keys::{
+    Cardinality, Key, KeyPart, KeyRole, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource,
+    RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+};
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;
 pub use protocol::{EdgeRule, Protocol};
@@ -49,4 +58,6 @@ pub use schema::{
     CoercionSpec, Constraint, Edge, HyperEdge, Ordering, RecursionPoint, Schema, Span, UsageMode,
     Variant, Vertex, primary_entry,
 };
+pub use shape_kind::InstanceShapeKind;
 pub use validate::validate;
+pub use value_kinds::{BytesText, ScalarKind, ValueSpec};

@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the BSON protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "bson".into(),
         schema_theory: "ThBsonSchema".into(),
         instance_theory: "ThBsonInstance".into(),
@@ -45,8 +45,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for BSON.

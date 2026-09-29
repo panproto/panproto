@@ -2748,6 +2748,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between,
+            ..Default::default()
         };
 
         let resolver = HashMap::new();
@@ -2780,6 +2781,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let resolved_edge = Edge {
@@ -2842,6 +2844,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between,
+            ..Default::default()
         }
     }
 
@@ -3313,6 +3316,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: tgt_between,
+            ..Default::default()
         };
 
         // Migration: post:text → post:content and its incident edge are
@@ -4222,6 +4226,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between,
+            ..Default::default()
         };
         let src_schema = Schema {
             protocol: "test".into(),
@@ -4245,6 +4250,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         // Predicate: (== level 2)
@@ -4328,6 +4334,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between,
+            ..Default::default()
         };
         let src_schema = Schema {
             protocol: "test".into(),
@@ -4351,6 +4358,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         // No conditional_survival predicates; node should survive normally
@@ -5088,6 +5096,7 @@ mod tests {
                     outgoing,
                     incoming,
                     between,
+                    ..Default::default()
                 };
 
                 let surviving_verts = schema.vertices.keys().cloned().collect();

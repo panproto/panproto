@@ -40,7 +40,7 @@ use crate::theories;
 /// Returns the UCCA protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "ucca".into(),
         schema_theory: "ThUccaSchema".into(),
         instance_theory: "ThUccaInstance".into(),
@@ -65,8 +65,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         has_coproducts: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for UCCA.

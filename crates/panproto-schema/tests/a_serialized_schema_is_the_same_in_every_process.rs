@@ -101,6 +101,7 @@ fn wide_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

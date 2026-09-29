@@ -117,7 +117,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -220,7 +220,7 @@ mod tests {
             ],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&proto)
             .vertex("p", "object", None::<&str>)

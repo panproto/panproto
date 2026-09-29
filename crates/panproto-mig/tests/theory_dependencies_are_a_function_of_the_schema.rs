@@ -66,6 +66,7 @@ fn schema_with_repeated_kinds() -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 

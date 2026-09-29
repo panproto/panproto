@@ -25,7 +25,7 @@ use crate::theories;
 /// Instance theory: `ThWType + ThMeta`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "atproto".into(),
         schema_theory: "ThATProtoSchema".into(),
         instance_theory: "ThATProtoInstance".into(),
@@ -68,8 +68,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `ATProto` with a theory registry.
@@ -394,6 +396,7 @@ fn retain_file_schema(m: &Schema, owned: &HashSet<Name>, internal: &HashSet<Edge
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -1233,6 +1236,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         monolith.hyper_edges.insert(
             Name::from("fan"),

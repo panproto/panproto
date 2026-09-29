@@ -70,6 +70,7 @@ fn schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

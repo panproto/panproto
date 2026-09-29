@@ -470,7 +470,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let left_chain = ProtolensChain::new(vec![]);
         let right_chain = ProtolensChain::new(vec![]);
@@ -497,7 +497,7 @@ mod tests {
                 "beta".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

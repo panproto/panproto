@@ -584,6 +584,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -657,7 +658,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), "array".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -700,7 +701,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "string".into(), list_vertex_kind.into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("root", "object", None::<&str>)
@@ -884,7 +885,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "field".into(), "long".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("event", "record", Some("Event"))

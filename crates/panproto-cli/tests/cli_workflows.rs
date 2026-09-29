@@ -2211,6 +2211,7 @@ fn make_lift_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 

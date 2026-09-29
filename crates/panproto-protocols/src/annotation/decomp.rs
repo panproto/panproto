@@ -115,7 +115,7 @@ const WORDSENSE_PROPERTIES: &[&str] = &[
 /// Returns the Decomp/UDS protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "decomp".into(),
         schema_theory: "ThDecompSchema".into(),
         instance_theory: "ThDecompInstance".into(),
@@ -156,8 +156,10 @@ pub fn protocol() -> Protocol {
             "property".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Decomp/UDS with a theory registry.

@@ -41,7 +41,7 @@ use crate::theories;
 /// Returns the Concrete protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "concrete".into(),
         schema_theory: "ThConcreteSchema".into(),
         instance_theory: "ThConcreteInstance".into(),
@@ -82,8 +82,10 @@ pub fn protocol() -> Protocol {
             "subkind".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Concrete.

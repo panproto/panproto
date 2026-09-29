@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the ODF protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "odf".into(),
         schema_theory: "ThOdfSchema".into(),
         instance_theory: "ThOdfInstance".into(),
@@ -39,8 +39,10 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec!["style-family".into(), "master-page-name".into()],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for ODF.

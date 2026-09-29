@@ -56,7 +56,7 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec!["maxLength".to_owned(), "format".to_owned()],
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

@@ -35,7 +35,7 @@ fn proto() -> Protocol {
         }],
         obj_kinds: vec!["object".into(), "string".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

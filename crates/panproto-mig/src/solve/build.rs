@@ -427,7 +427,7 @@ pub fn edge_match(
 ///     schema_theory: "ThTest".into(),
 ///     instance_theory: "ThWType".into(),
 ///     obj_kinds: vec!["object".into(), "string".into()],
-///     ..Protocol::default()
+///     ..Default::default()
 /// };
 /// let schema = SchemaBuilder::new(&protocol)
 ///     .vertex("root", "object", None::<&str>)?
@@ -1142,7 +1142,7 @@ mod tests {
                 "union".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

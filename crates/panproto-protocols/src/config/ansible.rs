@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the Ansible protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "ansible".into(),
         schema_theory: "ThAnsibleSchema".into(),
         instance_theory: "ThAnsibleInstance".into(),
@@ -38,8 +38,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Ansible.

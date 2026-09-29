@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the RAML protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "raml".into(),
         schema_theory: "ThRamlSchema".into(),
         instance_theory: "ThRamlInstance".into(),
@@ -49,8 +49,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for RAML.

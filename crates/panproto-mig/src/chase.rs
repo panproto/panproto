@@ -1099,6 +1099,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         let deps = dependencies_from_schema(&schema);
         assert!(deps.is_empty());
@@ -1141,6 +1142,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let deps = dependencies_from_schema(&schema);
@@ -1211,6 +1213,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let deps = dependencies_from_theory(&theory, &schema);
@@ -1286,6 +1289,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let deps = dependencies_from_theory(&theory, &schema);
@@ -1331,6 +1335,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let deps = dependencies_from_theory(&theory, &schema);

@@ -36,7 +36,7 @@ fn default_protocol(name: &str) -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "record".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -505,6 +505,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 

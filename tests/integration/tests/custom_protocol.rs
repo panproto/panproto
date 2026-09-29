@@ -37,7 +37,7 @@ fn config_protocol() -> Protocol {
         ],
         obj_kinds: vec!["root".into(), "section".into(), "key".into()],
         constraint_sorts: vec!["type".into(), "default".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 
@@ -239,6 +239,7 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         outgoing,
         incoming,
         between,
+        ..Default::default()
     };
 
     // Build the instance.
@@ -396,6 +397,7 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         outgoing: out,
         incoming: inc,
         between: btw,
+        ..Default::default()
     };
 
     // Target schema: only database section.
@@ -452,6 +454,7 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         outgoing: tout,
         incoming: tinc,
         between: tbtw,
+        ..Default::default()
     };
 
     // Build migration.
