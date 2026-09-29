@@ -1,0 +1,560 @@
+//! Exact values: decimals keep their scale and compare as numbers,
+//! integers have one representation, temporals keep the offset and the
+//! precision their lexeme wrote, and the expression language compares and
+//! converts them without ever rounding one silently.
+
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
+mod exact {
+    use std::cmp::Ordering;
+
+    use panproto_expr::exact::{
+        BigIntValue, CivilDate, CivilTime, DecimalValue, ExactInteger, Offset, Temporal,
+    };
+    use panproto_expr::{
+        BuiltinOp, ExactKind, ExactParseError, ExprError, FidelityReason, Literal, apply_builtin,
+    };
+    use proptest::prelude::*;
+
+    fn dec(text: &str) -> DecimalValue {
+        DecimalValue::parse(text).unwrap_or_else(|e| panic!("{text}: {e}"))
+    }
+
+    const fn err(kind: ExactKind, reason: FidelityReason) -> ExactParseError {
+        ExactParseError { kind, reason }
+    }
+
+    #[test]
+    fn decimal_lexemes_of_json_sql_and_xsd_read_exactly() {
+        let cases = [
+            ("0", false, "0", 0),
+            ("-0.00", false, "0", -2),
+            ("1.50", false, "150", -2),
+            ("1.5", false, "15", -1),
+            ("+007.25", false, "725", -2),
+            (".5", false, "5", -1),
+            ("5.", false, "5", 0),
+            ("-1e3", true, "1", 3),
+            (
+                "12345678901234567890.123456789",
+                false,
+                "12345678901234567890123456789",
+                -9,
+            ),
+            ("1E-400", false, "1", -400),
+            (
+                "0.1000000000000000055511151231257827",
+                false,
+                "1000000000000000055511151231257827",
+                -34,
+            ),
+        ];
+        for (text, negative, digits, exponent) in cases {
+            let d = dec(text);
+            assert_eq!(
+                (d.negative, d.digits.as_str(), d.exponent),
+                (negative, digits, exponent),
+                "{text}"
+            );
+            assert_eq!(
+                DecimalValue::parse(&d.to_string()),
+                Ok(d.clone()),
+                "{text} re-reads"
+            );
+        }
+        for bad in [
+            "", "-", ".", "1.2.3", "1e", "e5", "abc", "1_000", " 1", "0x10",
+        ] {
+            assert_eq!(
+                DecimalValue::parse(bad),
+                Err(err(ExactKind::Decimal, FidelityReason::NotANumber)),
+                "{bad:?}"
+            );
+        }
+        for non_finite in ["NaN", "-inf", "Infinity", "+INF"] {
+            assert_eq!(
+                DecimalValue::parse(non_finite),
+                Err(err(ExactKind::Decimal, FidelityReason::NonFinite)),
+                "{non_finite}"
+            );
+        }
+        assert_eq!(
+            DecimalValue::parse("1e99999999999"),
+            Err(err(ExactKind::Decimal, FidelityReason::Overflow))
+        );
+        assert_eq!(dec("1.50").scale(), 2);
+        assert_eq!(dec("1e3").scale(), 0);
+        assert_eq!(dec("1.50").minimal_scale(), 1);
+        assert_eq!(dec("1.50").to_string(), "1.50");
+        assert_eq!(dec("0.005").to_string(), "0.005");
+        assert_eq!(dec("-1e3").to_string(), "-1e3");
+        // The invariants hold for every constructor: no leading zero, no
+        // negative zero.
+        assert!(DecimalValue::new(false, "012", 0).is_err());
+        assert!(DecimalValue::new(false, "", 0).is_err());
+        assert!(!DecimalValue::new(true, "0", 4).unwrap().negative);
+    }
+
+    #[test]
+    fn decimal_deserialization_keeps_the_invariants() {
+        let ok: DecimalValue =
+            serde_json::from_str(r#"{"negative":true,"digits":"150","exponent":-2}"#).unwrap();
+        assert_eq!(ok, dec("-1.50"));
+        assert!(
+            serde_json::from_str::<DecimalValue>(
+                r#"{"negative":false,"digits":"015","exponent":0}"#
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn shortest_float_decimals_read_back_as_the_float() {
+        assert_eq!(DecimalValue::from_f64_shortest(0.1), Some(dec("1e-1")));
+        assert_eq!(DecimalValue::from_f64_shortest(-0.0), Some(dec("0")));
+        assert_eq!(DecimalValue::from_f64_shortest(f64::NAN), None);
+        assert_eq!(DecimalValue::from_f64_shortest(f64::INFINITY), None);
+        for x in [0.1, 1.0 / 3.0, 1e300, 5e-324, 123_456.789, -2.5] {
+            let d = DecimalValue::from_f64_shortest(x).unwrap();
+            assert_eq!(d.to_f64().to_bits(), x.to_bits(), "{x}");
+        }
+    }
+
+    proptest! {
+        #[test]
+        fn decimal_parse_keeps_scale_and_compares_numerically(
+            negative in any::<bool>(),
+            int_part in "[0-9]{1,25}",
+            frac_part in "[0-9]{0,25}",
+            trailing in 0_usize..4,
+            other in -1_000_000_i64..1_000_000,
+        ) {
+            let sign = if negative { "-" } else { "" };
+            let plain = if frac_part.is_empty() {
+                format!("{sign}{int_part}")
+            } else {
+                format!("{sign}{int_part}.{frac_part}")
+            };
+            let padded_frac = format!("{frac_part}{}", "0".repeat(trailing));
+            let padded = format!("{sign}{int_part}.{padded_frac}");
+            let a = dec(&plain);
+            let b = dec(&padded);
+            // Invariants.
+            prop_assert!(!a.digits.is_empty());
+            prop_assert!(a.digits == "0" || !a.digits.starts_with('0'));
+            prop_assert!(!(a.is_zero() && a.negative));
+            prop_assert_eq!(i64::from(a.scale()), i64::try_from(frac_part.len()).unwrap());
+            prop_assert_eq!(i64::from(b.scale()), i64::try_from(padded_frac.len()).unwrap());
+            // Trailing zeros change the representation, never the number.
+            prop_assert_eq!(a.cmp_numeric(&b), Ordering::Equal);
+            prop_assert_eq!(a == b, a.scale() == b.scale());
+            // Lexical form reads back to the same representation.
+            prop_assert!(dec(&a.to_string()) == a);
+            // Numeric comparison agrees with comparison of an integer that
+            // fits both f64 and i64 exactly.
+            let c = DecimalValue::from_i64(other);
+            let a_int_only = dec(&format!("{sign}{int_part}"));
+            let expected = if int_part.len() <= 15 {
+                let x: i64 = format!("{sign}{int_part}").parse().unwrap();
+                Some(x.cmp(&other))
+            } else {
+                None
+            };
+            if let Some(expected) = expected {
+                prop_assert_eq!(a_int_only.cmp_numeric(&c), expected);
+            }
+            prop_assert_eq!(a.cmp_numeric(&c), c.cmp_numeric(&a).reverse());
+        }
+    }
+
+    #[test]
+    fn integers_that_fit_i64_are_always_int() {
+        assert_eq!(BigIntValue::parse("0").unwrap(), ExactInteger::Int(0));
+        assert_eq!(BigIntValue::parse("-0").unwrap(), ExactInteger::Int(0));
+        assert_eq!(
+            BigIntValue::parse("-9223372036854775808").unwrap(),
+            ExactInteger::Int(i64::MIN)
+        );
+        assert_eq!(
+            BigIntValue::parse("+0009223372036854775807").unwrap(),
+            ExactInteger::Int(i64::MAX)
+        );
+        assert_eq!(
+            BigIntValue::from_i128(i128::from(i64::MAX)),
+            ExactInteger::Int(i64::MAX)
+        );
+        let ExactInteger::Big(above) = BigIntValue::parse("9223372036854775808").unwrap() else {
+            panic!("i64::MAX + 1 does not fit");
+        };
+        assert_eq!(above.digits, "9223372036854775808");
+        let ExactInteger::Big(below) = BigIntValue::from_i128(i128::from(i64::MIN) - 1) else {
+            panic!("i64::MIN - 1 does not fit");
+        };
+        assert!(below.negative && below.is_well_formed());
+        let ExactInteger::Big(ten_29) =
+            BigIntValue::parse("100000000000000000000000000000").unwrap()
+        else {
+            panic!("10^29 does not fit");
+        };
+        assert_eq!(ten_29.cmp_numeric(&above), Ordering::Greater);
+        assert_eq!(below.cmp_numeric(&above), Ordering::Less);
+        assert_eq!(
+            BigIntValue::from_parts(false, "00042").unwrap(),
+            ExactInteger::Int(42)
+        );
+        assert!(BigIntValue::parse("1.0").is_err());
+        assert!(BigIntValue::parse("").is_err());
+        // Deserialization accepts only a well-formed out-of-range integer.
+        assert!(
+            serde_json::from_str::<BigIntValue>(r#"{"negative":false,"digits":"42"}"#).is_err()
+        );
+        assert!(
+            serde_json::from_str::<BigIntValue>(
+                r#"{"negative":false,"digits":"09223372036854775808"}"#
+            )
+            .is_err()
+        );
+        let big: BigIntValue =
+            serde_json::from_str(r#"{"negative":false,"digits":"9223372036854775808"}"#).unwrap();
+        assert_eq!(big, above);
+        assert_eq!(
+            Literal::integer(BigIntValue::parse("7").unwrap()),
+            Literal::Int(7)
+        );
+    }
+
+    #[test]
+    fn temporal_offsets_and_precision_follow_the_lexeme() {
+        let offset = |text: &str| Temporal::parse(text).unwrap().offset();
+        assert_eq!(offset("2026-09-28T12:34:56Z"), Some(Offset::Utc));
+        assert_eq!(offset("2026-09-28T12:34:56z"), Some(Offset::Utc));
+        assert_eq!(offset("2026-09-28T12:34:56+00:00"), Some(Offset::Fixed(0)));
+        assert_eq!(offset("2026-09-28T12:34:56-00:00"), Some(Offset::Unknown));
+        assert_eq!(offset("2026-09-28T12:34:56"), Some(Offset::Local));
+        assert_eq!(
+            offset("2026-09-28 12:34:56-08:00"),
+            Some(Offset::Fixed(-480))
+        );
+        assert_eq!(offset("12:34:56+05:30"), Some(Offset::Fixed(330)));
+        assert_eq!(offset("2026-09-28"), None);
+
+        // A leap second is accepted.
+        let leap = Temporal::parse("2016-12-31T23:59:60Z").unwrap();
+        let Temporal::DateTime(_, time, _) = leap else {
+            panic!("a date-time")
+        };
+        assert_eq!(time.second, 60);
+
+        // The written precision is kept, trailing zeros included.
+        for (text, nanos, frac_digits) in [
+            ("12:00:00", 0, 0),
+            ("12:00:00.5", 500_000_000, 1),
+            ("12:00:00.500", 500_000_000, 3),
+            ("12:00:00.000000001", 1, 9),
+        ] {
+            let Temporal::Time(t, Offset::Local) = Temporal::parse(text).unwrap() else {
+                panic!("{text} is a local time")
+            };
+            assert_eq!((t.nanos, t.frac_digits), (nanos, frac_digits), "{text}");
+            assert_eq!(Temporal::parse(text).unwrap().to_string(), text);
+        }
+
+        for text in [
+            "2026-09-28T12:34:56.789+05:30",
+            "2026-09-28T12:34:56-00:00",
+            "2026-09-28T12:34:56+00:00",
+            "2026-09-28T00:00:00Z",
+            "-0044-03-15",
+            "12345-01-01",
+            "2024-02-29",
+        ] {
+            let t = Temporal::parse(text).unwrap();
+            assert_eq!(t.to_string(), text);
+            assert_eq!(Temporal::parse(&t.to_string()).unwrap(), t);
+            let json = serde_json::to_string(&t).unwrap();
+            assert_eq!(
+                serde_json::from_str::<Temporal>(&json).unwrap(),
+                t,
+                "{json}"
+            );
+        }
+
+        let invalid = err(ExactKind::Temporal, FidelityReason::InvalidTemporal);
+        for bad in [
+            "2023-02-29",
+            "2026-13-01",
+            "2026-09-31",
+            "24:00:00",
+            "12:60:00",
+            "12:00:61",
+            "12:00",
+            "2026-09-28T12:00:00+24:00",
+            "2026-09-28T12:00:00+0530",
+            "2026-9-28",
+            "2026-09-28X12:00:00",
+            "12:00:00.",
+        ] {
+            assert_eq!(Temporal::parse(bad), Err(invalid.clone()), "{bad}");
+        }
+        assert_eq!(
+            Temporal::parse("12:00:00.1234567891"),
+            Err(err(
+                ExactKind::Temporal,
+                FidelityReason::PrecisionExceeded { max: 9 }
+            ))
+        );
+        // Deserialization checks the fields.
+        assert!(serde_json::from_str::<CivilDate>(r#"{"year":2023,"month":2,"day":29}"#).is_err());
+        assert!(
+            serde_json::from_str::<CivilTime>(
+                r#"{"hour":1,"minute":0,"second":0,"nanos":5,"frac_digits":3}"#
+            )
+            .is_err()
+        );
+        assert!(serde_json::from_str::<Offset>(r#"{"fixed":1440}"#).is_err());
+        assert_eq!(
+            serde_json::from_str::<Offset>(r#"{"fixed":-60}"#).unwrap(),
+            Offset::Fixed(-60)
+        );
+    }
+
+    #[test]
+    fn temporals_compare_in_time_when_comparable() {
+        let t = |s: &str| Temporal::parse(s).unwrap();
+        assert_eq!(
+            t("2026-09-28T12:00:00+05:30").cmp_chronological(&t("2026-09-28T06:30:00Z")),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            t("2026-09-28T12:00:00-00:00").cmp_chronological(&t("2026-09-28T12:00:00Z")),
+            Some(Ordering::Equal)
+        );
+        assert_eq!(
+            t("1969-12-31").cmp_chronological(&t("1970-01-01")),
+            Some(Ordering::Less)
+        );
+        assert_eq!(
+            t("2016-12-31T23:59:60Z").cmp_chronological(&t("2016-12-31T23:59:59.999Z")),
+            Some(Ordering::Greater)
+        );
+        // Local and zoned values, or different forms, do not compare.
+        assert_eq!(
+            t("2026-09-28T12:00:00").cmp_chronological(&t("2026-09-28T12:00:00Z")),
+            None
+        );
+        assert_eq!(t("2026-09-28").cmp_chronological(&t("12:00:00")), None);
+        assert_eq!(CivilDate::new(1970, 1, 1).unwrap().days_since_epoch(), 0);
+        assert_eq!(
+            CivilDate::new(2000, 3, 1).unwrap().days_since_epoch(),
+            11_017
+        );
+    }
+
+    #[test]
+    fn exact_literals_compare_and_convert() {
+        let d = |s: &str| Literal::Decimal(dec(s));
+        let big = Literal::integer(BigIntValue::parse("100000000000000000000").unwrap());
+        let call = |op, args: &[Literal]| apply_builtin(op, args).unwrap();
+
+        // Equality is representation equality.
+        assert_eq!(
+            call(BuiltinOp::Eq, &[d("1.50"), d("1.50")]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Eq, &[d("1.50"), d("1.5")]),
+            Literal::Bool(false)
+        );
+        assert_eq!(
+            call(BuiltinOp::Eq, &[d("1"), Literal::Int(1)]),
+            Literal::Bool(false)
+        );
+        // Ordering is numeric and exact across int, bigint and decimal.
+        assert_eq!(
+            call(BuiltinOp::Lte, &[d("1.50"), d("1.5")]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Gte, &[d("1.50"), d("1.5")]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Lt, &[d("0.1"), d("0.10000000000000000001")]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Lt, &[Literal::Int(i64::MAX), big.clone()]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Gt, &[big, d("99999999999999999999.5")]),
+            Literal::Bool(true)
+        );
+        assert_eq!(
+            call(BuiltinOp::Lt, &[d("-2.5"), Literal::Int(-2)]),
+            Literal::Bool(true)
+        );
+        let when = |s: &str| Literal::Temporal(Temporal::parse(s).unwrap());
+        assert_eq!(
+            call(BuiltinOp::Lt, &[when("2026-01-01"), when("2026-01-02")]),
+            Literal::Bool(true)
+        );
+        // Incomparable pairs are typed errors, never a guess.
+        for pair in [
+            [d("1.5"), Literal::Float(1.5)],
+            [when("2026-01-01"), d("1")],
+            [when("2026-01-01T00:00:00"), when("2026-01-01T00:00:00Z")],
+        ] {
+            assert!(
+                matches!(
+                    apply_builtin(BuiltinOp::Lt, &pair),
+                    Err(ExprError::TypeError { .. })
+                ),
+                "{pair:?}"
+            );
+        }
+
+        exact_literals_convert();
+    }
+
+    /// The conversion half of `exact_literals_compare_and_convert`.
+    fn exact_literals_convert() {
+        let d = |s: &str| Literal::Decimal(dec(s));
+        let big = Literal::integer(BigIntValue::parse("100000000000000000000").unwrap());
+        let when = |s: &str| Literal::Temporal(Temporal::parse(s).unwrap());
+        let call = |op, args: &[Literal]| apply_builtin(op, args).unwrap();
+
+        assert_eq!(
+            call(BuiltinOp::ToString, &[d("1.50")]),
+            Literal::Str("1.50".into())
+        );
+        assert_eq!(
+            call(BuiltinOp::ToString, std::slice::from_ref(&big)),
+            Literal::Str("100000000000000000000".into())
+        );
+        assert_eq!(
+            call(
+                BuiltinOp::ToString,
+                &[when("2026-09-28T12:34:56.789+05:30")]
+            ),
+            Literal::Str("2026-09-28T12:34:56.789+05:30".into())
+        );
+        assert_eq!(
+            call(BuiltinOp::ToString, &[Literal::Int(3)]),
+            Literal::Str("3".into())
+        );
+        assert_eq!(
+            call(
+                BuiltinOp::ParseDecimal,
+                &[Literal::Str("12345678901234567890.123456789".into())]
+            ),
+            d("12345678901234567890.123456789")
+        );
+        assert_eq!(call(BuiltinOp::ParseDecimal, &[Literal::Int(-7)]), d("-7"));
+        assert_eq!(
+            call(BuiltinOp::ParseDecimal, std::slice::from_ref(&big)),
+            d("100000000000000000000")
+        );
+        assert!(matches!(
+            apply_builtin(BuiltinOp::ParseDecimal, &[Literal::Str("1.2.3".into())]),
+            Err(ExprError::ParseError { .. })
+        ));
+        assert!(matches!(
+            apply_builtin(BuiltinOp::ParseDecimal, &[Literal::Float(0.5)]),
+            Err(ExprError::TypeError { .. })
+        ));
+        assert_eq!(
+            call(BuiltinOp::DecimalToFloat, &[d("0.1")]),
+            Literal::Float(0.1)
+        );
+        assert_eq!(
+            call(BuiltinOp::DecimalToFloat, &[big]),
+            Literal::Float(1e20)
+        );
+        assert_eq!(
+            call(BuiltinOp::DecimalToFloat, &[d("1e400")]),
+            Literal::Float(f64::INFINITY)
+        );
+        assert_eq!(
+            call(BuiltinOp::TypeOf, &[d("1")]),
+            Literal::Str("decimal".into())
+        );
+        assert_eq!(BuiltinOp::from_name("to_string"), Some(BuiltinOp::ToString));
+        assert_eq!(
+            BuiltinOp::from_name("parseDecimal"),
+            Some(BuiltinOp::ParseDecimal)
+        );
+        assert_eq!(
+            BuiltinOp::from_name("decimal_to_float"),
+            Some(BuiltinOp::DecimalToFloat)
+        );
+    }
+
+    #[test]
+    fn arithmetic_on_exact_literals_is_a_typed_error() {
+        let decimal = Literal::Decimal(dec("1.5"));
+        let big = Literal::integer(BigIntValue::parse("-100000000000000000000").unwrap());
+        let when = Literal::Temporal(Temporal::parse("2026-09-28").unwrap());
+        for op in [
+            BuiltinOp::Add,
+            BuiltinOp::Sub,
+            BuiltinOp::Mul,
+            BuiltinOp::Div,
+            BuiltinOp::Mod,
+        ] {
+            for (exact, name) in [(&decimal, "decimal"), (&big, "bigint"), (&when, "temporal")] {
+                for args in [
+                    [exact.clone(), Literal::Int(1)],
+                    [Literal::Float(1.0), exact.clone()],
+                ] {
+                    match apply_builtin(op, &args) {
+                        Err(ExprError::ExactArithmetic { op: o, operand }) => {
+                            assert_eq!(o, format!("{op:?}"));
+                            assert_eq!(operand, name);
+                        }
+                        other => panic!("{op:?} on {args:?}: {other:?}"),
+                    }
+                }
+            }
+        }
+        for op in [
+            BuiltinOp::Neg,
+            BuiltinOp::Abs,
+            BuiltinOp::Floor,
+            BuiltinOp::Ceil,
+            BuiltinOp::Round,
+        ] {
+            assert!(matches!(
+                apply_builtin(op, std::slice::from_ref(&decimal)),
+                Err(ExprError::ExactArithmetic { .. })
+            ));
+        }
+        let message = apply_builtin(BuiltinOp::Add, &[decimal, Literal::Int(1)])
+            .unwrap_err()
+            .to_string();
+        assert_eq!(
+            message,
+            "Add is not defined on decimal values; convert them explicitly first"
+        );
+    }
+
+    #[test]
+    fn exact_literals_keep_their_serde_form() {
+        let lit = Literal::Decimal(dec("1.50"));
+        let json = serde_json::to_string(&lit).unwrap();
+        assert_eq!(
+            json,
+            r#"{"Decimal":{"negative":false,"digits":"150","exponent":-2}}"#
+        );
+        assert_eq!(serde_json::from_str::<Literal>(&json).unwrap(), lit);
+        let err_json = serde_json::to_string(&err(
+            ExactKind::Decimal,
+            FidelityReason::PrecisionExceeded { max: 10 },
+        ))
+        .unwrap();
+        assert_eq!(
+            err_json,
+            r#"{"kind":"decimal","reason":{"precision_exceeded":{"max":10}}}"#
+        );
+    }
+}
