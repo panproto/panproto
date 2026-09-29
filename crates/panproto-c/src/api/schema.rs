@@ -243,7 +243,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -270,6 +270,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -356,7 +357,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
 
         // Schema with a vertex of unrecognized kind.
@@ -462,7 +463,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let proto_h = define_protocol_handle(&proto);
 

@@ -251,6 +251,7 @@ pub fn induce<VS: BuildHasher, ES: BuildHasher>(
         outgoing: adjacency.outgoing,
         incoming: adjacency.incoming,
         between: adjacency.between,
+        ..Default::default()
     };
 
     let findings = validate(&apex, protocol);
@@ -619,7 +620,7 @@ mod tests {
     fn protocol() -> Protocol {
         Protocol {
             name: "fixture".to_owned(),
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -1194,7 +1195,7 @@ mod tests {
         let protocol = Protocol {
             name: "strict".to_owned(),
             constraint_sorts: vec!["format".to_owned()],
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&protocol)
             .vertex("root", "object", None)

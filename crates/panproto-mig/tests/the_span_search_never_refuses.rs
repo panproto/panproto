@@ -55,7 +55,7 @@ fn protocol() -> Protocol {
         ],
         obj_kinds: vec!["object".to_owned(), "string".to_owned()],
         constraint_sorts: vec!["maxLength".to_owned()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

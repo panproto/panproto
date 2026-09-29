@@ -84,7 +84,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "value".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -146,6 +146,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
         let h = handle::alloc(Resource::Schema(Arc::new(schema)));
 

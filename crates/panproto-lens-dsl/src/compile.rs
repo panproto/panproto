@@ -621,7 +621,7 @@ mod tests {
                 "integer".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

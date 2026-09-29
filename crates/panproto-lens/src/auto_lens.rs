@@ -2036,7 +2036,7 @@ mod tests {
                 "array".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -2299,7 +2299,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["alpha".into(), "beta".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("x", "alpha", None::<&str>)
@@ -3033,7 +3033,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("r", "record", None::<&str>)
@@ -3243,7 +3243,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         };
         let src = SchemaBuilder::new(&protocol)
             .vertex("r", "record", None::<&str>)

@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the W3C Web Annotation protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "web-annotation".into(),
         schema_theory: "ThWebAnnotationSchema".into(),
         instance_theory: "ThWebAnnotationInstance".into(),
@@ -70,8 +70,10 @@ pub fn protocol() -> Protocol {
             "accessibility".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for W3C Web Annotation.

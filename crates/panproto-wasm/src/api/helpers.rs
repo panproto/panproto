@@ -700,6 +700,7 @@ pub(super) fn build_minimal_schema(compiled: &CompiledMigration) -> panproto_cor
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -773,7 +774,7 @@ pub(super) fn default_protocol(name: &str) -> panproto_core::schema::Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "record".into()],
         constraint_sorts: vec![],
-        ..panproto_core::schema::Protocol::default()
+        ..Default::default()
     }
 }
 

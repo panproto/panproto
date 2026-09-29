@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the `DataFrame` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "dataframe".into(),
         schema_theory: "ThDataFrameSchema".into(),
         instance_theory: "ThDataFrameInstance".into(),
@@ -48,8 +48,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `DataFrame` with a theory registry.

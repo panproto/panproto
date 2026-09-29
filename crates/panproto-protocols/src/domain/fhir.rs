@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the FHIR protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "fhir".into(),
         schema_theory: "ThFhirSchema".into(),
         instance_theory: "ThFhirInstance".into(),
@@ -54,8 +54,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for FHIR.

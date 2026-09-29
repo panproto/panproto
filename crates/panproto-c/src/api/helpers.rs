@@ -274,6 +274,7 @@ pub fn build_minimal_schema(compiled: &CompiledMigration) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -524,7 +525,7 @@ pub fn default_protocol(name: &str) -> schema::Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "record".into()],
         constraint_sorts: vec![],
-        ..schema::Protocol::default()
+        ..Default::default()
     }
 }
 

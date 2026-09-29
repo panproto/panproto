@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the DOCX protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "docx".into(),
         schema_theory: "ThDocxSchema".into(),
         instance_theory: "ThDocxInstance".into(),
@@ -45,8 +45,10 @@ pub fn protocol() -> Protocol {
         ],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for DOCX.

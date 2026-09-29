@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the `DynamoDB` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "dynamodb".into(),
         schema_theory: "ThDynamoDBSchema".into(),
         instance_theory: "ThDynamoDBInstance".into(),
@@ -38,8 +38,10 @@ pub fn protocol() -> Protocol {
             "write-capacity".into(),
         ],
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `DynamoDB` with a theory registry.

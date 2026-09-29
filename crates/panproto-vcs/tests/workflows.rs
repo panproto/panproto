@@ -53,6 +53,7 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 

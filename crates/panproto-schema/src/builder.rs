@@ -403,6 +403,7 @@ impl SchemaBuilder {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         })
     }
 }
@@ -456,7 +457,7 @@ mod tests {
                 "minimum".to_owned(),
                 "maximum".to_owned(),
             ],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

@@ -22,7 +22,7 @@ use crate::theories;
 /// Instance theory: `ThWType`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "graphql".into(),
         schema_theory: "ThGraphQLSchema".into(),
         instance_theory: "ThGraphQLInstance".into(),
@@ -43,8 +43,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for GraphQL with a theory registry.

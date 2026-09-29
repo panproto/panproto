@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the SWIFT MT protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "swift-mt".into(),
         schema_theory: "ThSwiftMtSchema".into(),
         instance_theory: "ThSwiftMtInstance".into(),
@@ -35,8 +35,10 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec!["required".into(), "format".into(), "length".into()],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for SWIFT MT.

@@ -20,7 +20,7 @@ use crate::theories;
 /// Returns the NIF protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "nif".into(),
         schema_theory: "ThNifSchema".into(),
         instance_theory: "ThNifInstance".into(),
@@ -55,8 +55,10 @@ pub fn protocol() -> Protocol {
             "ta-class-ref".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for NIF.

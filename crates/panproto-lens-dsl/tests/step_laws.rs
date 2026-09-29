@@ -51,7 +51,7 @@ fn step_protocol() -> Protocol {
             "integer".into(),
         ],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

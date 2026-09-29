@@ -182,6 +182,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 
@@ -206,7 +207,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["record".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

@@ -221,7 +221,7 @@ mod tests {
                 "float".into(),
             ],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

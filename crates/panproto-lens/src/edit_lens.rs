@@ -1238,6 +1238,7 @@ mod tests {
             has_coercions: false,
             has_mergers: false,
             has_policies: false,
+            ..Default::default()
         }
     }
 

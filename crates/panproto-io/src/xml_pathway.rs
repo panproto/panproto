@@ -423,7 +423,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["document".into(), "element".into(), "text".into()],
             constraint_sorts: vec![],
-            ..panproto_schema::Protocol::default()
+            ..Default::default()
         };
         SchemaBuilder::new(&proto)
             .vertex("doc", "document", None)

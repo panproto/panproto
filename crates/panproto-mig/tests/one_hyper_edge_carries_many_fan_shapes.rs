@@ -64,6 +64,7 @@ fn schema_with_hyper_edge(vertices: &[(&str, &str)], he: &[(&str, &[(&str, &str)
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 

@@ -81,6 +81,7 @@ fn empty_schema(protocol: &str) -> Schema {
         outgoing: HashMap::new(),
         incoming: HashMap::new(),
         between: HashMap::new(),
+        ..Default::default()
     }
 }
 
@@ -96,7 +97,7 @@ fn define_protocol() -> u32 {
         edge_rules: vec![],
         obj_kinds: vec!["object".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     };
     let bytes = slice(&encode(&protocol).unwrap());
     let mut handle: u32 = u32::MAX;

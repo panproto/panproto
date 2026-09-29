@@ -643,7 +643,7 @@ mod tests {
             edge_rules: vec![],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -704,6 +704,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

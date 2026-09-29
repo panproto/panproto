@@ -108,6 +108,7 @@ pub fn hom_schema(source: &Schema, target: &Schema) -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -519,6 +520,7 @@ mod tests {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

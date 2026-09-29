@@ -716,7 +716,7 @@ mod tests {
     fn protocol() -> Protocol {
         Protocol {
             name: "fixture".to_owned(),
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

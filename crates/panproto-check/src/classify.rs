@@ -1013,7 +1013,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".into()],
             constraint_sorts: vec!["maxLength".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 
@@ -1846,6 +1846,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         }
     }
 }

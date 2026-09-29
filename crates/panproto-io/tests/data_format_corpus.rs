@@ -37,7 +37,7 @@ fn generic_schema() -> panproto_schema::Schema {
         name: "fixture".into(),
         schema_theory: "ThfixtureSchema".into(),
         instance_theory: "ThfixtureInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     SchemaBuilder::new(&proto)
         .vertex("root", "object", None)

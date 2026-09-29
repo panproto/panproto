@@ -22,7 +22,7 @@ use crate::theories;
 /// Instance theory: `ThWType`.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "json-schema".into(),
         schema_theory: "ThJsonSchemaSchema".into(),
         instance_theory: "ThJsonSchemaInstance".into(),
@@ -58,8 +58,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_coproducts: true,
         has_recursion: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for JSON Schema with a theory registry.

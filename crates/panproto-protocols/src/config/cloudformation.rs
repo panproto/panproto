@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the `CloudFormation` protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "cloudformation".into(),
         schema_theory: "ThCfnSchema".into(),
         instance_theory: "ThCfnInstance".into(),
@@ -35,8 +35,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for `CloudFormation`.

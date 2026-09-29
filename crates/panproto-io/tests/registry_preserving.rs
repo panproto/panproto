@@ -26,7 +26,7 @@ fn registry_preserving_round_trip_is_byte_equal() {
         name: "demo".into(),
         schema_theory: "ThDemoSchema".into(),
         instance_theory: "ThDemoInstance".into(),
-        ..Protocol::default()
+        ..Default::default()
     };
     let schema = SchemaBuilder::new(&proto)
         .vertex("root", "object", None)
@@ -77,7 +77,7 @@ fn default_registry_wires_preserving_text_format_codecs() {
             name: protocol.into(),
             schema_theory: format!("Th{protocol}Schema"),
             instance_theory: format!("Th{protocol}Instance"),
-            ..Protocol::default()
+            ..Default::default()
         };
         let schema = SchemaBuilder::new(&proto)
             .vertex("root", "object", None)
@@ -131,7 +131,7 @@ fn registry_preserving_falls_back_to_canonical_without_feature() {
         schema_theory: "ThDemoSchema".into(),
         instance_theory: "ThDemoInstance".into(),
         obj_kinds: vec!["object".into(), "string".into()],
-        ..Protocol::default()
+        ..Default::default()
     };
     let schema = SchemaBuilder::new(&proto)
         .vertex("root", "object", None)

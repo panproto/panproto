@@ -4,8 +4,14 @@
 //! particular data format uses, together with well-formedness rules
 //! for edges and the set of recognized vertex/constraint kinds.
 
+use std::collections::BTreeMap;
+
 use panproto_gat::CompositionSpec;
 use serde::{Deserialize, Serialize};
+
+use crate::constraint_semantics::ConstraintSemantics;
+use crate::shape_kind::InstanceShapeKind;
+use crate::value_kinds::ScalarKind;
 
 /// A well-formedness rule for edges of a given kind.
 ///
@@ -79,6 +85,20 @@ pub struct Protocol {
     /// Whether this protocol supports conflict resolution policies (`ThPolicied`).
     #[serde(default)]
     pub has_policies: bool,
+
+    // -- shape and value declarations (all default to empty) --
+    /// The shape of the instances this protocol's codec produces.
+    #[serde(default)]
+    pub syntactic_shape: InstanceShapeKind,
+    /// The shape of this protocol's instances once references are resolved.
+    #[serde(default)]
+    pub semantic_shape: InstanceShapeKind,
+    /// The meaning of each constraint sort, keyed by sort name.
+    #[serde(default)]
+    pub constraint_semantics: BTreeMap<String, ConstraintSemantics>,
+    /// The scalar kind of each scalar vertex kind, keyed by vertex kind.
+    #[serde(default)]
+    pub value_kinds: BTreeMap<String, ScalarKind>,
 }
 
 impl Protocol {

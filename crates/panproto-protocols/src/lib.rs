@@ -56,6 +56,9 @@ pub mod raw_file;
 /// The canonical record of what each protocol supports.
 pub mod registry;
 
+/// Per-protocol semantic declarations attached by every `protocol()`.
+pub mod semantics;
+
 /// A parsed document's size, for charging against an input allowance.
 ///
 /// Serializing to measure would double the cost of every parse, so this

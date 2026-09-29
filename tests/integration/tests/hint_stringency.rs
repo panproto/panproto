@@ -21,7 +21,7 @@ fn generic_protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["record".into(), "string".into(), "boolean".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

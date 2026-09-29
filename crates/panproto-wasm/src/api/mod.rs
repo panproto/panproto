@@ -121,7 +121,7 @@ pub mod test_support {
             schema_theory: "ThGraph".into(),
             instance_theory: "ThWType".into(),
             obj_kinds: vec!["object".into(), "string".into(), "record".into()],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

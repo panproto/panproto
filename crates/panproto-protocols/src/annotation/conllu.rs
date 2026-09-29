@@ -23,7 +23,7 @@ use crate::theories;
 /// Returns the CoNLL-U protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "conllu".into(),
         schema_theory: "ThConlluSchema".into(),
         instance_theory: "ThConlluInstance".into(),
@@ -50,8 +50,10 @@ pub fn protocol() -> Protocol {
             "newdoc".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for CoNLL-U with a theory registry.

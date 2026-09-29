@@ -15,7 +15,7 @@ use crate::theories;
 /// Returns the Redis protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "redis".into(),
         schema_theory: "ThRedisSchema".into(),
         instance_theory: "ThRedisInstance".into(),
@@ -32,8 +32,10 @@ pub fn protocol() -> Protocol {
         constraint_sorts: vec![],
         has_order: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Redis.

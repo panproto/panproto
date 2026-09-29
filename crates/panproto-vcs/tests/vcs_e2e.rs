@@ -46,7 +46,7 @@ fn blog_protocol() -> Protocol {
             "email-address".into(),
         ],
         constraint_sorts: vec!["maxLength".into()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

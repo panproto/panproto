@@ -423,6 +423,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let instance = parse_conllu(&schema, input, "conllu").expect("parse");
@@ -464,6 +465,7 @@ mod tests {
             outgoing: HashMap::new(),
             incoming: HashMap::new(),
             between: HashMap::new(),
+            ..Default::default()
         };
 
         let instance = parse_conllu(&schema, input, "conllu").expect("parse");

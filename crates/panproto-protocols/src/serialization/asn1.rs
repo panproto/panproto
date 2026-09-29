@@ -21,7 +21,7 @@ use crate::theories;
 /// Returns the ASN.1 protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "asn1".into(),
         schema_theory: "ThAsn1Schema".into(),
         instance_theory: "ThAsn1Instance".into(),
@@ -57,8 +57,10 @@ pub fn protocol() -> Protocol {
         has_coproducts: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for ASN.1 with a theory registry.

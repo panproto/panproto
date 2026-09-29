@@ -94,6 +94,7 @@ fn simple_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -241,6 +242,7 @@ fn projection_with_drop_throughput() -> Result<(), Box<dyn std::error::Error>> {
             ("body".into(), "body.text".into()),
             SmallVec::from([edge_text.clone()]),
         )]),
+        ..Default::default()
     };
 
     let compiled = CompiledMigration {

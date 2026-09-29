@@ -191,6 +191,7 @@ fn thread_view_post_schema() -> Schema {
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -426,6 +427,7 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
         outgoing,
         incoming,
         between,
+        ..Default::default()
     };
 
     let compiled = CompiledMigration {
@@ -557,6 +559,7 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
             ("root".into(), "leaf".into()),
             SmallVec::from([edge_root_leaf.clone()]),
         )]),
+        ..Default::default()
     };
 
     let compiled = CompiledMigration {

@@ -707,6 +707,7 @@ fn minimal_schemas_for_migration(
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 

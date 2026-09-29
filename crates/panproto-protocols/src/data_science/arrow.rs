@@ -17,7 +17,7 @@ use crate::theories;
 /// Returns the Arrow protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "arrow".into(),
         schema_theory: "ThArrowSchema".into(),
         instance_theory: "ThArrowInstance".into(),
@@ -68,8 +68,10 @@ pub fn protocol() -> Protocol {
         has_order: true,
         has_recursion: true,
         nominal_identity: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for Arrow with a theory registry.

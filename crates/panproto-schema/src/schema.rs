@@ -11,6 +11,8 @@ use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+use crate::keys::SchemaDeclarations;
+
 /// A schema vertex.
 ///
 /// Each vertex has a unique `id`, a `kind` drawn from the protocol's
@@ -167,7 +169,7 @@ pub struct CoercionSpec {
 ///
 /// Contains both the raw data (vertices, edges, constraints, etc.) and
 /// precomputed adjacency indices for efficient graph traversal.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct Schema {
     /// The protocol this schema belongs to.
     pub protocol: String,
@@ -250,6 +252,15 @@ pub struct Schema {
     /// Edges between a specific `(src, tgt)` pair.
     #[serde(with = "crate::serde_helpers::map_as_vec")]
     pub between: HashMap<(Name, Name), SmallVec<Edge, 2>>,
+
+    // -- declarations --
+    /// The keys and references this schema declares.
+    ///
+    /// Serialized as one optional trailing element, omitted when empty, so
+    /// the named and positional encodings of a schema that declares nothing
+    /// are unchanged.
+    #[serde(default, skip_serializing_if = "SchemaDeclarations::is_empty")]
+    pub declarations: SchemaDeclarations,
 }
 
 impl Schema {

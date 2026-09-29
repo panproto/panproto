@@ -16,7 +16,7 @@ fn protocol() -> Protocol {
         edge_rules: vec![],
         obj_kinds: vec!["record".into(), "integer".into(), "string".into()],
         constraint_sorts: vec![],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

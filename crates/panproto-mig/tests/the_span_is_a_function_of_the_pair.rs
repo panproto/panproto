@@ -41,7 +41,7 @@ fn protocol() -> Protocol {
             tgt_kinds: vec!["string".to_owned()],
         }],
         obj_kinds: vec!["object".to_owned(), "string".to_owned()],
-        ..Protocol::default()
+        ..Default::default()
     }
 }
 

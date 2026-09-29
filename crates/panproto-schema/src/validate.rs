@@ -181,7 +181,7 @@ mod tests {
                 "minLength".to_owned(),
                 "format".to_owned(),
             ],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

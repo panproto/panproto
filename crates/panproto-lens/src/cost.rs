@@ -431,6 +431,7 @@ mod quantale_laws {
             outgoing,
             incoming,
             between,
+            ..Default::default()
         }
     }
 
@@ -443,7 +444,7 @@ mod quantale_laws {
             edge_rules: vec![],
             obj_kinds: vec!["object".into(), "ka".into(), "kb".into()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

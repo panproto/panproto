@@ -42,7 +42,7 @@ use crate::theories;
 /// Returns the PAULA protocol definition.
 #[must_use]
 pub fn protocol() -> Protocol {
-    Protocol {
+    let mut protocol = Protocol {
         name: "paula".into(),
         schema_theory: "ThPaulaSchema".into(),
         instance_theory: "ThPaulaInstance".into(),
@@ -85,8 +85,10 @@ pub fn protocol() -> Protocol {
             "end-time".into(),
         ],
         has_order: true,
-        ..Protocol::default()
-    }
+        ..Default::default()
+    };
+    crate::semantics::attach(&mut protocol);
+    protocol
 }
 
 /// Register the component GATs for PAULA.

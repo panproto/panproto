@@ -277,6 +277,7 @@ fn rebuild_schema(
         outgoing,
         incoming,
         between,
+        ..Default::default()
     }
 }
 
@@ -300,7 +301,7 @@ mod tests {
             }],
             obj_kinds: vec!["object".to_owned(), "string".to_owned(), "ref".to_owned()],
             constraint_sorts: vec![],
-            ..Protocol::default()
+            ..Default::default()
         }
     }
 

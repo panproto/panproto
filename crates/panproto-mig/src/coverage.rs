@@ -213,6 +213,7 @@ mod tests {
             mergers: HashMap::new(),
             defaults: HashMap::new(),
             policies: HashMap::new(),
+            ..Default::default()
         }
     }
 
