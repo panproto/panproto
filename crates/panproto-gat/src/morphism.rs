@@ -770,6 +770,65 @@ fn check_closure_preservation(
     Ok(())
 }
 
+/// How many levels a rewrite sequence may deepen a term beyond the deeper
+/// of the term itself and every rule side before [`normalize_bounded`]
+/// gives up.
+const REWRITE_DEPTH_HEADROOM: usize = 64;
+
+/// The nesting depth of `term`: 1 for a variable or hole, one more than
+/// the deepest subterm otherwise.
+fn term_depth(term: &Term) -> usize {
+    match term {
+        Term::Var(_) | Term::Hole { .. } => 1,
+        Term::App { args, .. } => 1 + args.iter().map(term_depth).max().unwrap_or(0),
+        Term::Case {
+            scrutinee,
+            branches,
+        } => {
+            1 + branches
+                .iter()
+                .map(|b| term_depth(&b.body))
+                .fold(term_depth(scrutinee), usize::max)
+        }
+        Term::Let { bound, body, .. } => 1 + term_depth(bound).max(term_depth(body)),
+    }
+}
+
+/// Normalize `term` by `rules` within `max_steps` rewrite steps, returning
+/// the result and whether the budget ran out, as
+/// [`normalize_with_status`] does, except that rewriting also gives up (as
+/// an exhausted budget) once the term grows deeper than
+/// [`REWRITE_DEPTH_HEADROOM`] levels past its starting depth and every
+/// rule side's depth.
+///
+/// An equation used right to left can grow a term at every step (`x`
+/// rewrites to `h(h(x))`), and normalizing a term thousands of levels deep
+/// recurses as deep, beyond a thread's stack. Since exhaustion is only
+/// ever read as "undecided", giving up early keeps every decision sound.
+pub fn normalize_bounded(
+    term: &Term,
+    rules: &[crate::eq::DirectedEquation],
+    max_steps: usize,
+) -> (Term, bool) {
+    let limit = rules
+        .iter()
+        .map(|r| term_depth(&r.lhs).max(term_depth(&r.rhs)))
+        .fold(term_depth(term), usize::max)
+        + REWRITE_DEPTH_HEADROOM;
+    let mut current = term.clone();
+    for _ in 0..max_steps {
+        let (next, reducible) = normalize_with_status(&current, rules, 1);
+        if !reducible {
+            return (next, false);
+        }
+        current = next;
+        if term_depth(&current) > limit {
+            return (current, true);
+        }
+    }
+    (current, true)
+}
+
 /// Whether a mapped equation's two sides can be shown equal in the codomain.
 enum Derivability {
     /// The two sides normalize to a common form under the codomain's theory.
@@ -792,8 +851,8 @@ fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Deriva
     const BUDGET: usize = 512;
 
     // Tier 1: the codomain's directed equations only.
-    let (lnf, lex) = normalize_with_status(lhs, &codomain.directed_eqs, BUDGET);
-    let (rnf, rex) = normalize_with_status(rhs, &codomain.directed_eqs, BUDGET);
+    let (lnf, lex) = normalize_bounded(lhs, &codomain.directed_eqs, BUDGET);
+    let (rnf, rex) = normalize_bounded(rhs, &codomain.directed_eqs, BUDGET);
     if !lex && !rex && alpha_equivalent(&lnf, &rnf) {
         return Derivability::Derivable;
     }
@@ -801,8 +860,8 @@ fn equation_image_derivable(lhs: &Term, rhs: &Term, codomain: &Theory) -> Deriva
     // Tier 2: congruence closure over every codomain equation, undirected ones
     // oriented in both directions.
     let rules = crate::nat_transform::full_rewrite_rules(codomain);
-    let (lnf2, lex2) = normalize_with_status(lhs, &rules, BUDGET);
-    let (rnf2, rex2) = normalize_with_status(rhs, &rules, BUDGET);
+    let (lnf2, lex2) = normalize_bounded(lhs, &rules, BUDGET);
+    let (rnf2, rex2) = normalize_bounded(rhs, &rules, BUDGET);
     if lex2 || rex2 {
         return Derivability::Unknown;
     }
@@ -2754,6 +2813,38 @@ mod tests {
         assert_eq!(
             seen.into_iter().next(),
             Some(String::from_utf8(bytes).unwrap())
+        );
+    }
+
+    /// An equation used right to left can grow a term without bound
+    /// (`x` rewrites to `h(h(x))`). Checking that `h(h(x)) = h(x)` holds
+    /// in a theory with only `h(h(x)) = x` then gives up as unknown on a
+    /// default thread stack instead of overflowing it.
+    #[test]
+    fn preservation_by_growing_rewrites_is_unknown_on_a_default_stack() {
+        let h = |t: Term| Term::app("h", vec![t]);
+        let theory = |name: &str, eq: Equation| {
+            Theory::new(
+                name,
+                vec![Sort::simple("A")],
+                vec![Operation::unary("h", "a", "A", "A")],
+                vec![eq],
+            )
+        };
+        let domain = theory(
+            "T",
+            Equation::new("e", h(h(Term::var("x"))), h(Term::var("x"))),
+        );
+        let codomain = theory(
+            "Q",
+            Equation::new("k", h(h(Term::var("x"))), Term::var("x")),
+        );
+        let m = TheoryMorphism::identity(&domain);
+        let m = TheoryMorphism::new("m", "T", "Q", m.sort_map, m.op_map);
+        let result = check_morphism(&m, &domain, &codomain);
+        assert!(
+            matches!(result, Err(GatError::EquationPreservationUnknown { .. })),
+            "{result:?}"
         );
     }
 }
