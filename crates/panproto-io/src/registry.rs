@@ -7,11 +7,14 @@
 
 use std::collections::HashMap;
 
-use panproto_inst::{FInstance, WInstance};
+use panproto_inst::{FInstance, GInstance, WInstance};
 use panproto_schema::Schema;
 
 use crate::error::{EmitInstanceError, ParseInstanceError};
-use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
+use crate::traits::{
+    GraphInstanceEmitter, GraphInstanceParser, InstanceEmitter, InstanceParser, NativeRepr,
+    TableInstanceEmitter, TableInstanceParser,
+};
 
 /// A combined parser + emitter for a single protocol.
 ///
@@ -60,6 +63,31 @@ pub trait ProtocolCodec: InstanceParser + InstanceEmitter {
     }
 }
 
+/// The key a codec for `protocol` is filed under.
+///
+/// A name the protocol registry of `panproto-protocols` resolves, by its
+/// canonical name, an alias, or either with `_` for `-`, is filed under
+/// that protocol's canonical name. Any other name is filed with `_`
+/// replaced by `-`, the normalization
+/// [`ProtocolDescriptor::matches`](panproto_protocols::registry::ProtocolDescriptor::matches)
+/// applies, so every spelling it accepts reaches the same codec.
+fn registry_key(protocol: &str) -> String {
+    panproto_protocols::registry::descriptor(protocol)
+        .map_or_else(|| protocol.replace('_', "-"), |d| d.name.to_owned())
+}
+
+/// A combined graph parser and emitter for a single protocol, stored in the
+/// graph table of the [`ProtocolRegistry`].
+pub trait GraphCodec: GraphInstanceParser + GraphInstanceEmitter {}
+
+impl<C: GraphInstanceParser + GraphInstanceEmitter> GraphCodec for C {}
+
+/// A combined table parser and emitter for a single protocol, stored in the
+/// table table of the [`ProtocolRegistry`].
+pub trait TableCodec: TableInstanceParser + TableInstanceEmitter {}
+
+impl<C: TableInstanceParser + TableInstanceEmitter> TableCodec for C {}
+
 // Explicit ProtocolCodec impls for each codec type.
 // The blanket impl was removed so that UnifiedCodec can override the
 // format-preserving methods.
@@ -104,7 +132,31 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
     }
 }
 
-/// Registry mapping protocol names to their instance-level codec.
+/// Registry mapping protocol names to their instance-level codecs.
+///
+/// # Codec tables
+///
+/// The registry keeps three tables. [`register`](Self::register) fills the
+/// main table with one [`ProtocolCodec`] per protocol, which reads the
+/// protocol's syntax into its native tree or table and is reached through
+/// [`parse_wtype`](Self::parse_wtype) and
+/// [`parse_functor`](Self::parse_functor).
+/// [`register_graph`](Self::register_graph) and
+/// [`register_table`](Self::register_table) fill the graph and table
+/// tables, reached through [`parse_graph`](Self::parse_graph),
+/// [`emit_graph`](Self::emit_graph), [`parse_table`](Self::parse_table)
+/// and [`emit_table`](Self::emit_table). A protocol may have a codec in
+/// more than one table: a format with a tree syntax can also have a native
+/// graph reader.
+///
+/// # Names
+///
+/// Codecs are filed under the canonical name of their protocol in
+/// `panproto-protocols`, and every lookup accepts what that registry
+/// accepts: the canonical name, an alias, and either with `_` in place of
+/// `-`. A codec registered as `k8s_crd` is listed as `k8s-crd` and
+/// reached by both spellings, and the `uima` codec is also reached as
+/// `uima-cas`.
 ///
 /// # Format preservation
 ///
@@ -135,6 +187,8 @@ impl ProtocolCodec for crate::unified_codec::UnifiedCodec {
 /// ```
 pub struct ProtocolRegistry {
     codecs: HashMap<String, Box<dyn ProtocolCodec>>,
+    graph_codecs: HashMap<String, Box<dyn GraphCodec>>,
+    table_codecs: HashMap<String, Box<dyn TableCodec>>,
 }
 
 impl ProtocolRegistry {
@@ -143,6 +197,8 @@ impl ProtocolRegistry {
     pub fn new() -> Self {
         Self {
             codecs: HashMap::new(),
+            graph_codecs: HashMap::new(),
+            table_codecs: HashMap::new(),
         }
     }
 
@@ -151,7 +207,7 @@ impl ProtocolRegistry {
     /// If a codec was already registered for this protocol name, it is replaced.
     pub fn register<C: ProtocolCodec + 'static>(&mut self, codec: C) {
         self.codecs.insert(
-            InstanceParser::protocol_name(&codec).to_string(),
+            registry_key(InstanceParser::protocol_name(&codec)),
             Box::new(codec),
         );
     }
@@ -215,16 +271,191 @@ impl ProtocolRegistry {
         }
     }
 
+    /// Register a graph codec for a protocol.
+    ///
+    /// If a graph codec was already registered for this protocol name, it
+    /// is replaced. The main codec of the protocol, if any, is kept.
+    pub fn register_graph<C: GraphCodec + 'static>(&mut self, codec: C) {
+        self.graph_codecs.insert(
+            registry_key(GraphInstanceParser::protocol_name(&codec)),
+            Box::new(codec),
+        );
+    }
+
+    /// Register a table codec for a protocol.
+    ///
+    /// If a table codec was already registered for this protocol name, it
+    /// is replaced. The main codec of the protocol, if any, is kept.
+    pub fn register_table<C: TableCodec + 'static>(&mut self, codec: C) {
+        self.table_codecs.insert(
+            registry_key(TableInstanceParser::protocol_name(&codec)),
+            Box::new(codec),
+        );
+    }
+
     /// Look up the native representation for a protocol.
+    ///
+    /// This is the representation of the protocol's main codec, the one
+    /// [`register`](Self::register) installed. A protocol with no main
+    /// codec reports [`NativeRepr::Graph`] when it has a graph codec and
+    /// otherwise [`NativeRepr::Table`] when it has a table codec.
     ///
     /// # Errors
     ///
     /// Returns [`ParseInstanceError::UnknownProtocol`] if the protocol is not registered.
     pub fn native_repr(&self, protocol: &str) -> Result<NativeRepr, ParseInstanceError> {
-        self.codecs
-            .get(protocol)
-            .map(|c| c.native_repr())
-            .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_string()))
+        let key = registry_key(protocol);
+        if let Some(codec) = self.codecs.get(&key) {
+            return Ok(codec.native_repr());
+        }
+        if self.graph_codecs.contains_key(&key) {
+            return Ok(NativeRepr::Graph);
+        }
+        if self.table_codecs.contains_key(&key) {
+            return Ok(NativeRepr::Table);
+        }
+        Err(ParseInstanceError::UnknownProtocol(protocol.to_string()))
+    }
+
+    /// Whether [`parse_graph`](Self::parse_graph) and
+    /// [`emit_graph`](Self::emit_graph) have a codec for `protocol`.
+    #[must_use]
+    pub fn supports_graph(&self, protocol: &str) -> bool {
+        self.graph_codecs.contains_key(&registry_key(protocol))
+    }
+
+    /// Whether [`parse_table`](Self::parse_table) and
+    /// [`emit_table`](Self::emit_table) have a codec for `protocol`: a
+    /// registered table codec, or a main codec whose native representation
+    /// is [`NativeRepr::Table`].
+    #[must_use]
+    pub fn supports_table(&self, protocol: &str) -> bool {
+        let key = registry_key(protocol);
+        self.table_codecs.contains_key(&key)
+            || self
+                .codecs
+                .get(&key)
+                .is_some_and(|c| c.native_repr() == NativeRepr::Table)
+    }
+
+    /// Parse raw bytes into a graph instance for the named protocol,
+    /// through its registered graph codec.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError::UnknownProtocol`] if no codec of any
+    /// kind is registered for the protocol,
+    /// [`ParseInstanceError::UnsupportedRepresentation`] if the protocol is
+    /// registered without a graph codec, or any parse error from the codec.
+    pub fn parse_graph(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<GInstance, ParseInstanceError> {
+        match self.graph_codecs.get(&registry_key(protocol)) {
+            Some(codec) => codec.parse_graph(schema, input),
+            None => Err(ParseInstanceError::UnsupportedRepresentation {
+                protocol: protocol.to_string(),
+                requested: NativeRepr::Graph,
+                native: self.native_repr(protocol)?,
+            }),
+        }
+    }
+
+    /// Emit a graph instance to raw bytes for the named protocol, through
+    /// its registered graph codec.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError::UnknownProtocol`] if no codec of any
+    /// kind is registered for the protocol,
+    /// [`EmitInstanceError::UnsupportedRepresentation`] if the protocol is
+    /// registered without a graph codec, or any emit error from the codec.
+    pub fn emit_graph(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        instance: &GInstance,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        match self.graph_codecs.get(&registry_key(protocol)) {
+            Some(codec) => codec.emit_graph(schema, instance),
+            None => Err(EmitInstanceError::UnsupportedRepresentation {
+                protocol: protocol.to_string(),
+                requested: NativeRepr::Graph,
+                native: self.emit_native_repr(protocol)?,
+            }),
+        }
+    }
+
+    /// Parse raw bytes into a table instance for the named protocol.
+    ///
+    /// Uses the protocol's registered table codec, or else its main codec
+    /// when that codec's native representation is [`NativeRepr::Table`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ParseInstanceError::UnknownProtocol`] if no codec of any
+    /// kind is registered for the protocol,
+    /// [`ParseInstanceError::UnsupportedRepresentation`] if neither codec
+    /// reads tables, or any parse error from the codec.
+    pub fn parse_table(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        input: &[u8],
+    ) -> Result<FInstance, ParseInstanceError> {
+        if let Some(codec) = self.table_codecs.get(&registry_key(protocol)) {
+            return codec.parse_table(schema, input);
+        }
+        match self.native_repr(protocol)? {
+            NativeRepr::Table if self.codecs.contains_key(&registry_key(protocol)) => {
+                self.parse_functor(protocol, schema, input)
+            }
+            native => Err(ParseInstanceError::UnsupportedRepresentation {
+                protocol: protocol.to_string(),
+                requested: NativeRepr::Table,
+                native,
+            }),
+        }
+    }
+
+    /// Emit a table instance to raw bytes for the named protocol.
+    ///
+    /// Uses the protocol's registered table codec, or else its main codec
+    /// when that codec's native representation is [`NativeRepr::Table`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EmitInstanceError::UnknownProtocol`] if no codec of any
+    /// kind is registered for the protocol,
+    /// [`EmitInstanceError::UnsupportedRepresentation`] if neither codec
+    /// writes tables, or any emit error from the codec.
+    pub fn emit_table(
+        &self,
+        protocol: &str,
+        schema: &Schema,
+        instance: &FInstance,
+    ) -> Result<Vec<u8>, EmitInstanceError> {
+        if let Some(codec) = self.table_codecs.get(&registry_key(protocol)) {
+            return codec.emit_table(schema, instance);
+        }
+        match self.emit_native_repr(protocol)? {
+            NativeRepr::Table if self.codecs.contains_key(&registry_key(protocol)) => {
+                self.emit_functor(protocol, schema, instance)
+            }
+            native => Err(EmitInstanceError::UnsupportedRepresentation {
+                protocol: protocol.to_string(),
+                requested: NativeRepr::Table,
+                native,
+            }),
+        }
+    }
+
+    /// [`native_repr`](Self::native_repr) with the emit error type.
+    fn emit_native_repr(&self, protocol: &str) -> Result<NativeRepr, EmitInstanceError> {
+        self.native_repr(protocol)
+            .map_err(|_| EmitInstanceError::UnknownProtocol(protocol.to_string()))
     }
 
     /// Parse raw bytes into a W-type instance for the named protocol.
@@ -241,7 +472,7 @@ impl ProtocolRegistry {
     ) -> Result<WInstance, ParseInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_string()))?;
         codec.parse_wtype(schema, input)
     }
@@ -260,7 +491,7 @@ impl ProtocolRegistry {
     ) -> Result<FInstance, ParseInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_string()))?;
         codec.parse_functor(schema, input)
     }
@@ -279,7 +510,7 @@ impl ProtocolRegistry {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_string()))?;
         codec.emit_wtype(schema, instance)
     }
@@ -298,26 +529,38 @@ impl ProtocolRegistry {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_string()))?;
         codec.emit_functor(schema, instance)
     }
 
-    /// Returns the number of registered protocols.
+    /// Returns the number of registered protocols, counting a protocol
+    /// with codecs in several tables once.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.codecs.len()
+        self.name_set().len()
     }
 
     /// Returns `true` if no protocols are registered.
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.codecs.is_empty()
+        self.codecs.is_empty() && self.graph_codecs.is_empty() && self.table_codecs.is_empty()
     }
 
-    /// Returns an iterator over registered protocol names.
+    /// Returns the names of the registered protocols in ascending order,
+    /// each once however many tables hold a codec for it.
     pub fn protocol_names(&self) -> impl Iterator<Item = &str> {
-        self.codecs.keys().map(String::as_str)
+        self.name_set().into_iter()
+    }
+
+    /// The names with a codec in any table.
+    fn name_set(&self) -> std::collections::BTreeSet<&str> {
+        self.codecs
+            .keys()
+            .chain(self.graph_codecs.keys())
+            .chain(self.table_codecs.keys())
+            .map(String::as_str)
+            .collect()
     }
 
     /// Parse with format preservation when this build supports it,
@@ -422,7 +665,7 @@ impl ProtocolRegistry {
     ) -> Result<(WInstance, Option<crate::cst_extract::CstComplement>), ParseInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| ParseInstanceError::UnknownProtocol(protocol.to_string()))?;
 
         codec.parse_wtype_preserving(schema, input)
@@ -447,7 +690,7 @@ impl ProtocolRegistry {
     ) -> Result<Vec<u8>, EmitInstanceError> {
         let codec = self
             .codecs
-            .get(protocol)
+            .get(&registry_key(protocol))
             .ok_or_else(|| EmitInstanceError::UnknownProtocol(protocol.to_string()))?;
 
         codec.emit_wtype_preserving(schema, instance, complement)
@@ -557,5 +800,236 @@ mod try_register_tests {
         let codec: Result<JsonCodec, UnifiedCodecError> = Ok(JsonCodec::new("ok"));
         registry.register_optional(codec);
         assert!(registry.protocol_names().any(|n| n == "ok"));
+    }
+}
+
+#[cfg(test)]
+mod shape_table_tests {
+    use std::collections::HashMap;
+
+    use panproto_inst::{FInstance, GInstance, Node, Value};
+    use panproto_schema::{Edge, Schema};
+
+    use super::ProtocolRegistry;
+    use crate::error::{EmitInstanceError, ParseInstanceError};
+    use crate::traits::{
+        GraphInstanceEmitter, GraphInstanceParser, NativeRepr, TableInstanceEmitter,
+        TableInstanceParser,
+    };
+
+    /// An edge list: one `src tgt` pair of node ids per line, every node
+    /// anchored at `node` and every edge the schema edge `link`.
+    struct EdgeListCodec;
+
+    fn link() -> Edge {
+        Edge {
+            src: "node".into(),
+            tgt: "node".into(),
+            kind: "link".into(),
+            name: None,
+        }
+    }
+
+    fn parse_error(message: impl Into<String>) -> ParseInstanceError {
+        ParseInstanceError::Parse {
+            protocol: "edge-list".into(),
+            message: message.into(),
+        }
+    }
+
+    impl GraphInstanceParser for EdgeListCodec {
+        fn protocol_name(&self) -> &'static str {
+            "edge-list"
+        }
+
+        fn parse_graph(
+            &self,
+            _schema: &Schema,
+            input: &[u8],
+        ) -> Result<GInstance, ParseInstanceError> {
+            let text = std::str::from_utf8(input).map_err(|e| parse_error(e.to_string()))?;
+            let mut graph = GInstance::new();
+            for line in text.lines() {
+                let (src, tgt) = line
+                    .split_once(' ')
+                    .ok_or_else(|| parse_error(format!("no pair in {line:?}")))?;
+                let src: u32 = src.parse().map_err(|_| parse_error(src))?;
+                let tgt: u32 = tgt.parse().map_err(|_| parse_error(tgt))?;
+                for id in [src, tgt] {
+                    if graph.node(id).is_none() {
+                        graph
+                            .insert_node(Node::new(id, "node"))
+                            .map_err(|e| parse_error(e.to_string()))?;
+                    }
+                }
+                graph
+                    .add_edge(src, tgt, link())
+                    .map_err(|e| parse_error(e.to_string()))?;
+            }
+            Ok(graph)
+        }
+    }
+
+    impl GraphInstanceEmitter for EdgeListCodec {
+        fn protocol_name(&self) -> &'static str {
+            "edge-list"
+        }
+
+        fn emit_graph(
+            &self,
+            _schema: &Schema,
+            instance: &GInstance,
+        ) -> Result<Vec<u8>, EmitInstanceError> {
+            let lines: Vec<String> = instance
+                .edges_sorted()
+                .map(|(_, edge)| format!("{} {}\n", edge.src, edge.tgt))
+                .collect();
+            Ok(lines.concat().into_bytes())
+        }
+    }
+
+    /// One `name` column of the table `row`, one cell per line.
+    struct NameListCodec;
+
+    impl TableInstanceParser for NameListCodec {
+        fn protocol_name(&self) -> &'static str {
+            "name-list"
+        }
+
+        fn parse_table(
+            &self,
+            _schema: &Schema,
+            input: &[u8],
+        ) -> Result<FInstance, ParseInstanceError> {
+            let text = std::str::from_utf8(input).map_err(|e| ParseInstanceError::Parse {
+                protocol: "name-list".into(),
+                message: e.to_string(),
+            })?;
+            let rows = text
+                .lines()
+                .map(|line| HashMap::from([("name".to_owned(), Value::Str(line.to_owned()))]))
+                .collect();
+            Ok(FInstance::new().with_table("row", rows))
+        }
+    }
+
+    impl TableInstanceEmitter for NameListCodec {
+        fn protocol_name(&self) -> &'static str {
+            "name-list"
+        }
+
+        fn emit_table(
+            &self,
+            _schema: &Schema,
+            instance: &FInstance,
+        ) -> Result<Vec<u8>, EmitInstanceError> {
+            let mut out = String::new();
+            for row in instance.tables.get("row").into_iter().flatten() {
+                match row.get("name") {
+                    Some(Value::Str(name)) => {
+                        out.push_str(name);
+                        out.push('\n');
+                    }
+                    other => {
+                        return Err(EmitInstanceError::Emit {
+                            protocol: "name-list".into(),
+                            message: format!("cell `name` is {other:?}"),
+                        });
+                    }
+                }
+            }
+            Ok(out.into_bytes())
+        }
+    }
+
+    #[test]
+    fn a_registered_graph_codec_parses_and_emits_through_the_registry()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut registry = ProtocolRegistry::new();
+        assert!(!registry.supports_graph("edge-list"));
+        registry.register_graph(EdgeListCodec);
+        assert!(registry.supports_graph("edge-list"));
+        assert!(!registry.supports_table("edge-list"));
+        assert_eq!(registry.native_repr("edge-list")?, NativeRepr::Graph);
+        assert_eq!(registry.protocol_names().collect::<Vec<_>>(), ["edge-list"]);
+
+        let schema = Schema::default();
+        let input = b"1 2\n2 3\n3 1\n";
+        let graph = registry.parse_graph("edge-list", &schema, input)?;
+        assert_eq!(graph.node_count(), 3);
+        assert_eq!(graph.edge_count(), 3);
+        assert_eq!(registry.emit_graph("edge-list", &schema, &graph)?, input);
+        Ok(())
+    }
+
+    #[test]
+    fn a_registered_table_codec_parses_and_emits_through_the_registry()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let mut registry = ProtocolRegistry::new();
+        assert!(!registry.supports_table("name-list"));
+        registry.register_table(NameListCodec);
+        assert!(registry.supports_table("name-list"));
+        assert!(!registry.supports_graph("name-list"));
+        assert_eq!(registry.native_repr("name-list")?, NativeRepr::Table);
+
+        let schema = Schema::default();
+        let input = b"ada\ngrace\n";
+        let table = registry.parse_table("name-list", &schema, input)?;
+        assert_eq!(table.row_count("row"), 2);
+        assert_eq!(registry.emit_table("name-list", &schema, &table)?, input);
+        Ok(())
+    }
+
+    #[test]
+    fn a_tree_protocol_without_a_graph_codec_reports_the_missing_shape() {
+        let registry = crate::default_registry();
+        let schema = Schema::default();
+        assert!(!registry.supports_graph("openapi"));
+        assert!(!registry.supports_table("openapi"));
+        assert!(matches!(
+            registry.parse_graph("openapi", &schema, b"{}"),
+            Err(ParseInstanceError::UnsupportedRepresentation {
+                requested: NativeRepr::Graph,
+                native: NativeRepr::Tree,
+                ..
+            })
+        ));
+        assert!(matches!(
+            registry.emit_table("openapi", &schema, &FInstance::new()),
+            Err(EmitInstanceError::UnsupportedRepresentation {
+                requested: NativeRepr::Table,
+                native: NativeRepr::Tree,
+                ..
+            })
+        ));
+        assert!(matches!(
+            registry.parse_graph("no-such-protocol", &schema, b""),
+            Err(ParseInstanceError::UnknownProtocol(_))
+        ));
+        assert!(matches!(
+            registry.emit_graph("no-such-protocol", &schema, &GInstance::new()),
+            Err(EmitInstanceError::UnknownProtocol(_))
+        ));
+    }
+
+    #[test]
+    fn a_table_native_main_codec_answers_the_table_entries()
+    -> Result<(), Box<dyn std::error::Error>> {
+        let registry = crate::default_registry();
+        assert_eq!(registry.native_repr("redis")?, NativeRepr::Table);
+        assert!(registry.supports_table("redis"));
+        let schema = Schema::default();
+        let input = b"SET k v\n";
+        let via_table = registry.parse_table("redis", &schema, input)?;
+        let via_functor = registry.parse_functor("redis", &schema, input)?;
+        assert_eq!(
+            serde_json::to_value(&via_table)?,
+            serde_json::to_value(&via_functor)?
+        );
+        assert_eq!(
+            registry.emit_table("redis", &schema, &via_table)?,
+            registry.emit_functor("redis", &schema, &via_functor)?
+        );
+        Ok(())
     }
 }

@@ -304,7 +304,7 @@ json_structural!(
 
 fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
     let reg = registry();
-    if reg.native_repr(protocol).expect("known protocol") != NativeRepr::Functor {
+    if reg.native_repr(protocol).expect("known protocol") != NativeRepr::Table {
         return;
     }
     let proto = Protocol {

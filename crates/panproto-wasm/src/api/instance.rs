@@ -54,8 +54,8 @@ pub fn list_io_protocols(registry: u32) -> Result<Vec<u8>, JsError> {
 /// Parse raw format bytes into an instance using a protocol codec.
 ///
 /// The `proto_name` is the protocol name (e.g., `b"atproto"`).
-/// Returns `MessagePack`-encoded instance (W-type or Functor depending
-/// on the protocol's native representation).
+/// Returns the `MessagePack`-encoded instance: a tree, table or graph,
+/// following the protocol's native representation.
 ///
 /// # Errors
 ///
@@ -81,7 +81,7 @@ pub fn parse_instance(
         })?;
 
         match repr {
-            io::NativeRepr::WType | io::NativeRepr::Either => {
+            io::NativeRepr::Tree => {
                 let instance =
                     reg.parse_wtype(name, &schema, input)
                         .map_err(|e| WasmError::ParseFailed {
@@ -91,12 +91,22 @@ pub fn parse_instance(
                     reason: e.to_string(),
                 })
             }
-            io::NativeRepr::Functor => {
-                let instance = reg.parse_functor(name, &schema, input).map_err(|e| {
-                    WasmError::ParseFailed {
-                        reason: e.to_string(),
-                    }
-                })?;
+            io::NativeRepr::Table => {
+                let instance =
+                    reg.parse_table(name, &schema, input)
+                        .map_err(|e| WasmError::ParseFailed {
+                            reason: e.to_string(),
+                        })?;
+                rmp_serde::to_vec_named(&instance).map_err(|e| WasmError::SerializationFailed {
+                    reason: e.to_string(),
+                })
+            }
+            io::NativeRepr::Graph => {
+                let instance =
+                    reg.parse_graph(name, &schema, input)
+                        .map_err(|e| WasmError::ParseFailed {
+                            reason: e.to_string(),
+                        })?;
                 rmp_serde::to_vec_named(&instance).map_err(|e| WasmError::SerializationFailed {
                     reason: e.to_string(),
                 })
@@ -110,7 +120,8 @@ pub fn parse_instance(
 /// Emit an instance to raw format bytes using a protocol codec.
 ///
 /// The `proto_name` is the protocol name. The `instance` is
-/// `MessagePack`-encoded (W-type or Functor).
+/// `MessagePack`-encoded: a tree, table or graph, following the protocol's
+/// native representation.
 ///
 /// # Errors
 ///
@@ -135,7 +146,7 @@ pub fn emit_instance(
         })?;
 
         match repr {
-            io::NativeRepr::WType | io::NativeRepr::Either => {
+            io::NativeRepr::Tree => {
                 let instance: WInstance = rmp_serde::from_slice(instance_bytes).map_err(|e| {
                     WasmError::DeserializationFailed {
                         reason: e.to_string(),
@@ -146,14 +157,26 @@ pub fn emit_instance(
                         reason: e.to_string(),
                     })
             }
-            io::NativeRepr::Functor => {
+            io::NativeRepr::Table => {
                 let instance: inst::FInstance =
                     rmp_serde::from_slice(instance_bytes).map_err(|e| {
                         WasmError::DeserializationFailed {
                             reason: e.to_string(),
                         }
                     })?;
-                reg.emit_functor(name, &schema, &instance)
+                reg.emit_table(name, &schema, &instance)
+                    .map_err(|e| WasmError::EmitFailed {
+                        reason: e.to_string(),
+                    })
+            }
+            io::NativeRepr::Graph => {
+                let instance: inst::GInstance =
+                    rmp_serde::from_slice(instance_bytes).map_err(|e| {
+                        WasmError::DeserializationFailed {
+                            reason: e.to_string(),
+                        }
+                    })?;
+                reg.emit_graph(name, &schema, &instance)
                     .map_err(|e| WasmError::EmitFailed {
                         reason: e.to_string(),
                     })

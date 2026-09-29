@@ -94,16 +94,22 @@ pub fn pp_io_parse_instance(
                 .map_err(|e| FfiError::Operation(format!("native_repr: {e}")))?;
 
             match repr {
-                io::NativeRepr::WType | io::NativeRepr::Either => {
+                io::NativeRepr::Tree => {
                     let instance = reg
                         .parse_wtype(name, &schema, input.as_slice())
                         .map_err(|e| FfiError::Operation(format!("parse_wtype: {e}")))?;
                     crate::canonical::encode(&instance)
                 }
-                io::NativeRepr::Functor => {
+                io::NativeRepr::Table => {
                     let instance = reg
-                        .parse_functor(name, &schema, input.as_slice())
-                        .map_err(|e| FfiError::Operation(format!("parse_functor: {e}")))?;
+                        .parse_table(name, &schema, input.as_slice())
+                        .map_err(|e| FfiError::Operation(format!("parse_table: {e}")))?;
+                    crate::canonical::encode(&instance)
+                }
+                io::NativeRepr::Graph => {
+                    let instance = reg
+                        .parse_graph(name, &schema, input.as_slice())
+                        .map_err(|e| FfiError::Operation(format!("parse_graph: {e}")))?;
                     crate::canonical::encode(&instance)
                 }
             }
@@ -153,7 +159,7 @@ pub fn pp_io_emit_instance(
         })?;
 
         let raw = match repr {
-            io::NativeRepr::WType | io::NativeRepr::Either => {
+            io::NativeRepr::Tree => {
                 let inst_value: inst::WInstance = crate::canonical::decode(instance.as_slice())?;
                 handle::with_resource(registry, |r| {
                     let reg = r.as_io_registry()?;
@@ -161,12 +167,20 @@ pub fn pp_io_emit_instance(
                         .map_err(|e| FfiError::Operation(format!("emit_wtype: {e}")))
                 })?
             }
-            io::NativeRepr::Functor => {
+            io::NativeRepr::Table => {
                 let inst_value: inst::FInstance = crate::canonical::decode(instance.as_slice())?;
                 handle::with_resource(registry, |r| {
                     let reg = r.as_io_registry()?;
-                    reg.emit_functor(name, &schema, &inst_value)
-                        .map_err(|e| FfiError::Operation(format!("emit_functor: {e}")))
+                    reg.emit_table(name, &schema, &inst_value)
+                        .map_err(|e| FfiError::Operation(format!("emit_table: {e}")))
+                })?
+            }
+            io::NativeRepr::Graph => {
+                let inst_value: inst::GInstance = crate::canonical::decode(instance.as_slice())?;
+                handle::with_resource(registry, |r| {
+                    let reg = r.as_io_registry()?;
+                    reg.emit_graph(name, &schema, &inst_value)
+                        .map_err(|e| FfiError::Operation(format!("emit_graph: {e}")))
                 })?
             }
         };

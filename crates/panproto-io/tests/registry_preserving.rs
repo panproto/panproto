@@ -105,7 +105,7 @@ fn default_registry_wires_preserving_text_format_codecs() {
 }
 
 /// The `csv` protocol is likewise wired into the default registry, as a
-/// format-preserving functor codec (`Functor` native representation).
+/// format-preserving table codec (`Table` native representation).
 #[cfg(feature = "tree-sitter")]
 #[test]
 fn default_registry_registers_csv_as_functor() {
@@ -113,7 +113,7 @@ fn default_registry_registers_csv_as_functor() {
     let registry = panproto_io::default_registry();
     assert_eq!(
         registry.native_repr("csv").expect("csv registered"),
-        NativeRepr::Functor,
+        NativeRepr::Table,
         "csv should register as a functor codec"
     );
 }

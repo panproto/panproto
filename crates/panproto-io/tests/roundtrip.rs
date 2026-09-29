@@ -623,7 +623,7 @@ fn all_protocols_report_correct_native_repr() {
     for p in &wtype_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),
-            NativeRepr::WType,
+            NativeRepr::Tree,
             "{p} should be WType"
         );
     }
@@ -633,7 +633,7 @@ fn all_protocols_report_correct_native_repr() {
     for p in &functor_protocols {
         assert_eq!(
             reg.native_repr(p).unwrap(),
-            NativeRepr::Functor,
+            NativeRepr::Table,
             "{p} should be Functor"
         );
     }
