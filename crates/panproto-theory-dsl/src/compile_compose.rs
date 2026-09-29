@@ -6,7 +6,7 @@
 use std::collections::HashMap;
 use std::hash::BuildHasher;
 
-use panproto_gat::{CompositionSpec, CompositionStep, Theory};
+use panproto_gat::{CompositionMode, CompositionSpec, CompositionStep, Theory};
 
 use crate::document::{ColimitStepSpec, CompositionBody, CompositionSpec_};
 use crate::error::TheoryDslError;
@@ -78,6 +78,7 @@ pub fn compile_composition_spec<S: BuildHasher>(
 
     let gat_spec = CompositionSpec {
         result_name: spec.result.clone(),
+        version: 0,
         steps: gat_steps,
     };
 
@@ -97,5 +98,6 @@ fn convert_step(step: &ColimitStepSpec) -> CompositionStep {
         right: step.right.clone(),
         shared_sorts: step.shared_sorts.clone(),
         shared_ops: step.shared_ops.clone(),
+        mode: CompositionMode::Amalgamate,
     }
 }
