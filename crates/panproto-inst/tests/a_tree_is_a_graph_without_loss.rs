@@ -396,8 +396,10 @@ fn from_wtype_refuses_a_dangling_arc() {
     ));
 }
 
+/// A fan-shaped node without a parent edge does not stay an ordinary node:
+/// `unreify_fans` refuses the graph and names the node.
 #[test]
-fn a_malformed_fan_node_is_refused_rather_than_kept_as_an_ordinary_node() {
+fn a_malformed_fan_node_stays_an_ordinary_node() {
     let graph = GInstance::new()
         .with_node(Node::new(0, "sent"))
         .with_node(Node::new(1, "arg").with_shape(NodeShape::HyperEdge))

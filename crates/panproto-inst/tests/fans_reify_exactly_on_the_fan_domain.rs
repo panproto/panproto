@@ -13,7 +13,8 @@ use std::collections::{BTreeMap, HashMap};
 use panproto_gat::Name;
 use panproto_inst::{
     EdgeId, Fan, FanDomain, FanViolation, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
-    InstError, Node, NodeShape, reify_fans, unreify_fans, unreify_fans_with_schema,
+    InstError, Node, NodeShape, reify_fans, reify_fans_owned, unreify_fans, unreify_fans_owned,
+    unreify_fans_with_schema,
 };
 use panproto_schema::{Edge, HyperEdge, Schema};
 use proptest::prelude::*;
@@ -33,6 +34,10 @@ fn parent_edge() -> Edge {
 
 fn label_edge(label: &str) -> Edge {
     fan_edge(HYPER_LABEL_KIND, Some(label))
+}
+
+fn link() -> Edge {
+    fan_edge("link", None)
 }
 
 fn items(n: u32) -> GInstance {
@@ -140,6 +145,42 @@ fn each_fan_violation_is_detected() {
         violation(&unnamed),
         (5, FanViolation::ForeignIncidentEdge { edge: EdgeId(1) })
     );
+}
+
+#[test]
+fn a_graph_reified_and_unreified_allocates_as_before() {
+    let graph = items(2).with_edge(0, 1, link());
+    let fans = vec![Fan::new("rel", 0).with_child("x", 1)];
+    let reified = reify_fans(&graph, &fans, None).unwrap();
+    let (mut rest, back) = unreify_fans(&reified).unwrap();
+    assert_eq!(rest, graph);
+    assert_eq!(back, fans);
+    assert_eq!(rest.add_edge(1, 0, link()).unwrap(), EdgeId(1));
+    let (mut rest, _) = unreify_fans_owned(reified).unwrap();
+    assert_eq!(rest.add_edge(1, 0, link()).unwrap(), EdgeId(1));
+}
+
+#[test]
+fn the_by_value_forms_hand_a_fanless_graph_back_unchanged() {
+    let graph = items(3).with_edge(0, 1, link()).with_edge(1, 2, link());
+    let reified = reify_fans_owned(graph.clone(), &[], None).unwrap();
+    assert!(GInstance::identical(&reified, &graph));
+    let (rest, fans) = unreify_fans_owned(graph.clone()).unwrap();
+    assert!(GInstance::identical(&rest, &graph));
+    assert!(fans.is_empty());
+    // Both keep refusing what the by-reference forms refuse.
+    let malformed = fan_node(items(2), 5).with_edge(5, 0, label_edge("a"));
+    assert!(matches!(
+        unreify_fans_owned(malformed.clone()),
+        Err(InstError::MalformedFan {
+            node: 5,
+            reason: FanViolation::MissingParent
+        })
+    ));
+    assert!(matches!(
+        reify_fans_owned(malformed, &[], None),
+        Err(InstError::MalformedFan { node: 5, .. })
+    ));
 }
 
 #[test]
@@ -297,7 +338,21 @@ proptest! {
                 prop_assert!(FanDomain::contains(&reified));
                 let (rest, back) = unreify_fans(&reified).expect("a reified graph is in the fan domain");
                 prop_assert!(GInstance::identical(&rest, &graph));
-                prop_assert_eq!(back, fans);
+                prop_assert_eq!(&back, &fans);
+                // The graph got back allocates as the original does.
+                if let Some(&n) = graph.nodes().keys().next() {
+                    let (mut ours, mut theirs) = (graph.clone(), rest);
+                    prop_assert_eq!(
+                        ours.add_edge(n, n, link()).ok(),
+                        theirs.add_edge(n, n, link()).ok()
+                    );
+                }
+                // The by-value forms give the same results.
+                let owned = reify_fans_owned(graph.clone(), &fans, None).expect("reifies as by reference");
+                prop_assert!(GInstance::identical(&owned, &reified));
+                let (owned_rest, owned_back) = unreify_fans_owned(owned).expect("unreifies as by reference");
+                prop_assert!(GInstance::identical(&owned_rest, &graph));
+                prop_assert_eq!(owned_back, fans);
             }
             Err(InstError::MalformedFan { .. }) => prop_assert!(has_reserved_vocabulary(&graph)),
             Err(InstError::DanglingEdge { .. }) => {

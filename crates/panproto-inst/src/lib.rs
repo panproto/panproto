@@ -99,8 +99,8 @@ pub use ginstance::{
 };
 pub use ginstance::{
     FanDomain, FanEmbedding, NotTreeReason, TreeEmbedding, TreeShapeReport,
-    canonical_ginstance_bytes, unreify_fans_with_schema, write_edge_record, write_ginstance,
-    write_node_record,
+    canonical_ginstance_bytes, reify_fans_owned, unreify_fans_owned, unreify_fans_with_schema,
+    write_edge_record, write_ginstance, write_node_record,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};

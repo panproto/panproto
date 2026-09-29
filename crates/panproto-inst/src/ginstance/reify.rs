@@ -331,7 +331,8 @@ pub(super) fn reify_into(
     Ok((graph, ids))
 }
 
-/// Add one fan node per fan to a copy of `graph`.
+/// Add one fan node per fan to a copy of `graph` ([`reify_fans_owned`]
+/// takes the graph by value and makes no copy).
 ///
 /// Fan `k` of `fans` gets node id `max_node_id + 1 + k` (`k` from `0` when the
 /// graph has no nodes), so duplicate fans become distinct fan nodes. Edge ids
@@ -374,9 +375,42 @@ pub fn reify_fans(
     if let Some((node, reason)) = reserved_vocabulary(graph) {
         return Err(InstError::MalformedFan { node, reason });
     }
+    reify_checked(graph.clone(), fans, schema)
+}
+
+/// Add one fan node per fan to `graph`, taken by value.
+///
+/// The result is the one [`reify_fans`] gives, laid out the same way. With
+/// no fans, `graph` is checked for reserved vocabulary and handed back as it
+/// is, without a copy.
+///
+/// # Errors
+///
+/// As [`reify_fans`].
+pub fn reify_fans_owned(
+    graph: GInstance,
+    fans: &[Fan],
+    schema: Option<&Schema>,
+) -> Result<GInstance, InstError> {
+    if let Some((node, reason)) = reserved_vocabulary(&graph) {
+        return Err(InstError::MalformedFan { node, reason });
+    }
+    reify_checked(graph, fans, schema)
+}
+
+/// [`reify_fans_owned`] once `graph` is known to hold no reserved
+/// vocabulary.
+fn reify_checked(
+    graph: GInstance,
+    fans: &[Fan],
+    schema: Option<&Schema>,
+) -> Result<GInstance, InstError> {
+    if fans.is_empty() {
+        return Ok(graph);
+    }
     let mut nodes = IdAllocator::from_source(IdRange::FULL, graph.nodes().keys().copied());
     let mut edges = IdAllocator::from_source(IdRange::FULL, graph.edges().keys().map(|e| e.0));
-    reify_into(graph.clone(), fans, schema, &mut nodes, &mut edges).map(|(graph, _)| graph)
+    reify_into(graph, fans, schema, &mut nodes, &mut edges).map(|(graph, _)| graph)
 }
 
 /// The fan a well-formed fan node reifies, with the ids of its edges.
@@ -423,24 +457,24 @@ pub(super) fn fan_nodes(graph: &GInstance) -> Vec<u32> {
     ids
 }
 
-/// Take the fan nodes out of a graph known to be in the fan domain.
-fn take_fans(graph: &GInstance) -> (GInstance, Vec<Fan>) {
-    let ids = fan_nodes(graph);
-    let mut rest = graph.clone();
-    let mut fans = Vec::with_capacity(ids.len());
-    for id in ids {
-        let Some((fan, fan_ids)) = read_fan(graph, id) else {
-            continue;
-        };
+/// Take the fan nodes out of a graph known to be in the fan domain, in
+/// place; a graph without fan nodes comes back untouched.
+fn take_fans(mut graph: GInstance) -> (GInstance, Vec<Fan>) {
+    let read: Vec<(Fan, FanIds)> = fan_nodes(&graph)
+        .into_iter()
+        .filter_map(|id| read_fan(&graph, id))
+        .collect();
+    let mut fans = Vec::with_capacity(read.len());
+    for (fan, fan_ids) in read {
         for edge in std::iter::once(fan_ids.parent_edge).chain(fan_ids.child_edges.into_values()) {
             // The edge is one of this fan node's out-edges, so it is present.
-            let _ = rest.remove_edge(edge);
+            let _ = graph.remove_edge(edge);
         }
         // The fan node has no in-edges and its out-edges are gone.
-        let _ = rest.remove_node(id);
+        let _ = graph.remove_node(fan_ids.node);
         fans.push(fan);
     }
-    (rest, fans)
+    (graph, fans)
 }
 
 /// Take every fan node out of a graph, returning the rest and the fans.
@@ -464,7 +498,8 @@ fn take_fans(graph: &GInstance) -> (GInstance, Vec<Fan>) {
 ///   outside that layout the law holds up to renaming those ids.
 ///
 /// Fan labels are not checked against a schema here; see
-/// [`unreify_fans_with_schema`].
+/// [`unreify_fans_with_schema`]. The rest is a copy of `graph`;
+/// [`unreify_fans_owned`] takes the graph by value and makes none.
 ///
 /// # Errors
 ///
@@ -472,6 +507,18 @@ fn take_fans(graph: &GInstance) -> (GInstance, Vec<Fan>) {
 /// naming the first offending node as [`FanDomain::check`] does.
 pub fn unreify_fans(graph: &GInstance) -> Result<(GInstance, Vec<Fan>), InstError> {
     FanDomain::check(graph)?;
+    Ok(take_fans(graph.clone()))
+}
+
+/// [`unreify_fans`] on a graph taken by value: the fan nodes are taken out in
+/// place, and a graph without fan nodes is checked and handed back as it is,
+/// without a copy.
+///
+/// # Errors
+///
+/// As [`unreify_fans`].
+pub fn unreify_fans_owned(graph: GInstance) -> Result<(GInstance, Vec<Fan>), InstError> {
+    FanDomain::check(&graph)?;
     Ok(take_fans(graph))
 }
 
@@ -488,5 +535,5 @@ pub fn unreify_fans_with_schema(
     schema: &Schema,
 ) -> Result<(GInstance, Vec<Fan>), InstError> {
     FanDomain::check_with_schema(graph, schema)?;
-    Ok(take_fans(graph))
+    Ok(take_fans(graph.clone()))
 }

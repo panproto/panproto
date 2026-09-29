@@ -500,3 +500,89 @@ proptest! {
         }
     }
 }
+
+/// Items 0 and 1 with the arc 0 -> 1 (edge 0) and the fan `rel` from 0 with
+/// child `x` = 1: fan node 2, parent edge 1, child edge 2.
+fn item_pair_with_a_fan() -> GInstance {
+    reify_fans(
+        &items(&[0, 1]).with_edge(0, 1, link()),
+        &[Fan::new("rel", 0).with_child("x", 1)],
+        None,
+    )
+    .expect("reifies")
+}
+
+fn assert_fan_not_representable(graph: &GInstance, node: u32) {
+    assert_eq!(
+        graph.tree_shape(&schema()),
+        TreeShapeReport::NotTree {
+            reason: NotTreeReason::FanNotRepresentable { node }
+        }
+    );
+    for result in [
+        graph.to_wtype(0),
+        graph.to_wtype_with_schema_root(0, "item".into()),
+        graph.try_to_wtype(&schema()),
+    ] {
+        assert!(
+            matches!(
+                result,
+                Err(InstError::NotATree {
+                    reason: NotTreeReason::FanNotRepresentable { node: n }
+                }) if n == node
+            ),
+            "expected fan {node} not representable, got {result:?}"
+        );
+    }
+}
+
+#[test]
+fn every_tree_read_out_refuses_a_fan_that_carries_data() {
+    let plain = item_pair_with_a_fan();
+    assert_eq!(
+        plain.tree_shape(&schema()),
+        TreeShapeReport::Tree { root: 0 }
+    );
+    assert_eq!(plain.to_wtype(0).expect("a tree").fans.len(), 1);
+
+    // A position on the fan node.
+    let mut positioned = plain.clone();
+    positioned.node_mut(2).expect("the fan node").position = Some(3);
+    assert_fan_not_representable(&positioned, 2);
+
+    // A position on a fan edge.
+    let mut edge_positioned = plain.clone();
+    edge_positioned
+        .set_edge_position(EdgeId(2), Some(0))
+        .expect("the child edge");
+    assert_fan_not_representable(&edge_positioned, 2);
+
+    // A fan edge whose label names a kind of node it does not reach.
+    let mut relabelled = plain;
+    relabelled
+        .relabel_edge(
+            EdgeId(2),
+            Edge {
+                src: "rel".into(),
+                tgt: "elsewhere".into(),
+                kind: HYPER_LABEL_KIND.into(),
+                name: Some("x".into()),
+            },
+        )
+        .expect("the child edge");
+    assert_fan_not_representable(&relabelled, 2);
+}
+
+#[test]
+fn a_tree_read_out_takes_its_schema_root_from_the_schema_or_the_root() {
+    // The graph does not hold a tree's schema root, so reading the tree back
+    // takes it from the schema's first entry vertex or, with none, from the
+    // root's anchor.
+    let nodes = HashMap::from([(0, Node::new(0, "item")), (1, Node::new(1, "item"))]);
+    let tree = panproto_inst::WInstance::new(nodes, vec![(0, 1, link())], vec![], 0, "doc".into());
+    let (graph, _) = GInstance::from_wtype_embedded(&tree, None).expect("embeds");
+    let under = |s: &Schema| graph.to_wtype_embedded(s).expect("a tree").0.schema_root;
+    assert_eq!(under(&entry_schema(&["doc"])), Name::from("doc"));
+    assert_eq!(under(&entry_schema(&["other", "doc"])), Name::from("other"));
+    assert_eq!(under(&schema()), Name::from("item"));
+}

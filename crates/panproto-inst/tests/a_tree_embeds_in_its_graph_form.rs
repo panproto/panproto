@@ -292,6 +292,18 @@ proptest! {
     }
 
     #[test]
+    fn a_tree_named_by_its_root_round_trips_under_a_schema_without_entries(tree in arb_tree()) {
+        let mut tree = tree;
+        tree.schema_root = tree.nodes[&tree.root].anchor.clone();
+        let schema = Schema::default();
+        let (graph, embedding) = GInstance::from_wtype_embedded(&tree, Some(&schema))
+            .expect("a valid tree always embeds");
+        let (back, read) = graph.to_wtype_embedded(&schema).expect("the graph form is a tree");
+        prop_assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+        prop_assert_eq!(&read, &embedding);
+    }
+
+    #[test]
     fn from_wtype_is_the_first_projection_of_from_wtype_embedded(tree in arb_tree()) {
         let plain = GInstance::from_wtype(&tree).expect("a valid tree embeds");
         let (embedded, _) = GInstance::from_wtype_embedded(&tree, None).expect("a valid tree embeds");

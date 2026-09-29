@@ -53,8 +53,8 @@ pub use canonical::{
 pub use embedding::{FanEmbedding, TreeEmbedding};
 pub use nodelink::{from_node_link_json, to_node_link_json};
 pub use reify::{
-    FanDomain, HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, unreify_fans,
-    unreify_fans_with_schema,
+    FanDomain, HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, reify_fans_owned, unreify_fans,
+    unreify_fans_owned, unreify_fans_with_schema,
 };
 pub use tree_shape::{NotTreeReason, TreeShapeReport};
 
@@ -145,9 +145,14 @@ pub struct GInstance {
     out_index: HashMap<u32, Vec<EdgeId>>,
     /// In-edges of each node, ascending.
     in_index: HashMap<u32, Vec<EdgeId>>,
-    /// The edge id allocator: its floor is one above every edge id the
-    /// instance has held since it was built or decoded.
+    /// The edge id allocator. Its floor is one above the largest edge id in
+    /// use (0 for none) unless `edge_floor_stale` is set.
     edge_ids: IdAllocator,
+    /// Set once the edge with the largest id is removed: the floor may then
+    /// lie above the largest id left, and is recomputed before the next
+    /// allocation, so that what `add_edge` returns depends on the edges
+    /// present alone.
+    edge_floor_stale: bool,
 }
 
 /// Writes the struct `GInstanceWire { nodes, edges }`, both maps in ascending
@@ -279,6 +284,7 @@ impl TryFrom<GInstanceWireEntries> for GInstance {
             out_index: HashMap::new(),
             in_index: HashMap::new(),
             edge_ids: IdAllocator::new(IdRange::FULL),
+            edge_floor_stale: false,
         };
         let mut edges = wire.edges;
         edges.sort_unstable_by_key(|(id, _)| *id);
@@ -342,6 +348,7 @@ impl GInstance {
             out_index: HashMap::new(),
             in_index: HashMap::new(),
             edge_ids: IdAllocator::new(IdRange::FULL),
+            edge_floor_stale: false,
         }
     }
 
@@ -572,13 +579,24 @@ impl GInstance {
         Ok(())
     }
 
+    /// The edge allocator, its floor first brought back to one above the
+    /// largest edge id in use when the edge that held it was removed.
+    fn edge_allocator(&mut self) -> &mut IdAllocator {
+        if self.edge_floor_stale {
+            self.edge_ids = IdAllocator::from_source(IdRange::FULL, self.edges.keys().map(|e| e.0));
+            self.edge_floor_stale = false;
+        }
+        &mut self.edge_ids
+    }
+
     /// Add an edge under a fresh id and return the id.
     ///
-    /// The id comes from an [`IdAllocator`] over the whole id space whose
-    /// floor is one above every edge id this instance has held since it was
-    /// built or decoded, so allocation takes constant time and never reuses
-    /// the id of a removed edge. On a freshly built or decoded instance the
-    /// id is one above the largest in use.
+    /// The id is one above the largest edge id in use, and 0 when there is
+    /// none, so it depends on the edges present alone: two instances that
+    /// compare equal allocate the same id, whatever edges each once held.
+    /// The id comes from an [`IdAllocator`] over the whole id space, so a
+    /// loop of calls takes constant time per call; removing the edge with the
+    /// largest id costs one scan of the edge ids at the next call.
     ///
     /// # Errors
     ///
@@ -587,12 +605,12 @@ impl GInstance {
     pub fn add_edge(&mut self, src: u32, tgt: u32, edge: Edge) -> Result<EdgeId, InstError> {
         for endpoint in [src, tgt] {
             if !self.nodes.contains_key(&endpoint) {
-                let id = EdgeId(self.edge_ids.floor().unwrap_or(u32::MAX));
+                let id = EdgeId(self.edge_allocator().floor().unwrap_or(u32::MAX));
                 return Err(InstError::DanglingEdge { edge: id, endpoint });
             }
         }
         let id = EdgeId(
-            self.edge_ids
+            self.edge_allocator()
                 .allocate()
                 .map_err(|e| e.whole_state(IdKind::Edge))?,
         );
@@ -607,6 +625,9 @@ impl GInstance {
     /// Returns [`InstError::EdgeNotFound`] if there is no such edge.
     pub fn remove_edge(&mut self, id: EdgeId) -> Result<GEdge, InstError> {
         let edge = self.edges.remove(&id).ok_or(InstError::EdgeNotFound(id))?;
+        if self.edge_ids.floor() == id.0.checked_add(1) {
+            self.edge_floor_stale = true;
+        }
         index_remove(&mut self.out_index, edge.src, id);
         index_remove(&mut self.in_index, edge.tgt, id);
         Ok(edge)
@@ -964,24 +985,55 @@ mod tests {
     }
 
     #[test]
-    fn add_edge_never_reuses_the_id_of_a_removed_edge() {
-        let mut g = people(2).with_edge(0, 1, knows()).with_edge(1, 0, knows());
+    fn add_edge_allocates_from_the_edges_present_alone() {
+        // Removing the largest edge lowers the next id to one above the
+        // largest left; removing a smaller one does not.
+        let mut g = people(2)
+            .with_edge(0, 1, knows())
+            .with_edge(1, 0, knows())
+            .with_edge(0, 0, knows());
         g.remove_edge(EdgeId(1)).unwrap();
-        assert_eq!(g.max_edge_id(), Some(EdgeId(0)));
-        assert_eq!(g.add_edge(0, 0, knows()).unwrap(), EdgeId(2));
-        // A decoded instance starts one above the largest id it holds.
-        let decoded: GInstance = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
-        let mut decoded = decoded;
-        decoded.remove_edge(EdgeId(2)).unwrap();
-        let mut again: GInstance =
-            serde_json::from_str(&serde_json::to_string(&decoded).unwrap()).unwrap();
-        assert_eq!(again.add_edge(0, 1, knows()).unwrap(), EdgeId(1));
+        assert_eq!(g.add_edge(1, 1, knows()).unwrap(), EdgeId(3));
+        g.remove_edge(EdgeId(3)).unwrap();
+        g.remove_edge(EdgeId(2)).unwrap();
+        assert_eq!(g.add_edge(1, 1, knows()).unwrap(), EdgeId(1));
+
+        // Two graphs equal in every observable sense allocate the same id,
+        // whatever their histories: here one of them is a decoded copy.
+        let mut a = people(2).with_edge(0, 1, knows()).with_edge(1, 0, knows());
+        a.remove_edge(EdgeId(1)).unwrap();
+        let mut b: GInstance = serde_json::from_str(&serde_json::to_string(&a).unwrap()).unwrap();
+        assert_eq!(a, b);
+        assert!(GInstance::identical(&a, &b));
+        assert_eq!(a.digest(), b.digest());
+        assert_eq!(a.add_edge(0, 0, knows()).unwrap(), EdgeId(1));
+        assert_eq!(b.add_edge(0, 0, knows()).unwrap(), EdgeId(1));
+
+        // A graph whose every edge is removed allocates from 0 again.
+        let mut c = people(2).with_edge(0, 1, knows());
+        c.remove_edge(EdgeId(0)).unwrap();
+        assert_eq!(c.add_edge(0, 1, knows()).unwrap(), EdgeId(0));
+
         // A failed call allocates nothing.
         assert!(matches!(
-            again.add_edge(0, 9, knows()),
-            Err(InstError::DanglingEdge { endpoint: 9, .. })
+            c.add_edge(0, 9, knows()),
+            Err(InstError::DanglingEdge {
+                edge: EdgeId(1),
+                endpoint: 9
+            })
         ));
-        assert_eq!(again.add_edge(0, 1, knows()).unwrap(), EdgeId(2));
+        assert_eq!(c.add_edge(0, 1, knows()).unwrap(), EdgeId(1));
+    }
+
+    #[test]
+    fn removing_the_edge_u32_max_frees_the_id_space() {
+        let mut g = people(2).with_edge_id(EdgeId(u32::MAX), 0, 1, knows());
+        assert!(matches!(
+            g.add_edge(0, 1, knows()),
+            Err(InstError::EdgeIdsExhausted)
+        ));
+        g.remove_edge(EdgeId(u32::MAX)).unwrap();
+        assert_eq!(g.add_edge(0, 1, knows()).unwrap(), EdgeId(0));
     }
 
     #[test]

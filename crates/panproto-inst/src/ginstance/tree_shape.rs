@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet, VecDeque};
 use std::fmt;
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Schema};
+use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
 
 use super::embedding::{FanEmbedding, TreeEmbedding};
@@ -17,6 +17,7 @@ use super::reify::{self, FanIds, HYPER_PARENT_KIND};
 use super::{EdgeId, GInstance};
 use crate::error::InstError;
 use crate::fan::Fan;
+use crate::segment::{IdAllocator, IdRange};
 use crate::wtype::WInstance;
 
 /// Why a graph instance is not a tree (or a forest of trees).
@@ -138,11 +139,14 @@ impl Fans {
 
 /// Split a graph's fans from its tree part.
 ///
-/// Without a schema only the fan domain is required. With one, each fan must
-/// also be exactly what [`GInstance::from_wtype_embedded`] writes for it:
-/// a fan node with nothing but its anchor and shape, edges without
-/// positions, labelled with the hyper-edge and the anchors they reach, and
-/// the parent edge named by the parent label `schema` declares, or unnamed.
+/// Each fan must be in the fan domain and carry nothing a tree's [`Fan`]
+/// drops: a fan node with nothing but its anchor and shape, and edges
+/// without positions, labelled with the hyper-edge and the anchors they
+/// reach, the child edges named by their labels. With a schema the parent
+/// edge must also be named as [`GInstance::from_wtype_embedded`] writes it
+/// under that schema: by the parent label `schema` declares, or unnamed.
+/// Without one its name is not compared, since the name a schema gives it is
+/// the only one a tree can carry.
 fn split_fans(graph: &GInstance, schema: Option<&Schema>) -> Result<Fans, NotTreeReason> {
     if let Err(InstError::MalformedFan { node, .. }) = reify::FanDomain::check(graph) {
         return Err(NotTreeReason::FanNotRepresentable { node });
@@ -152,9 +156,7 @@ fn split_fans(graph: &GInstance, schema: Option<&Schema>) -> Result<Fans, NotTre
     for id in reify::fan_nodes(graph) {
         let (fan, ids) =
             reify::read_fan(graph, id).ok_or(NotTreeReason::FanNotRepresentable { node: id })?;
-        if let Some(schema) = schema
-            && !fan_is_canonical(graph, schema, &fan, &ids)
-        {
+        if !fan_is_canonical(graph, schema, &fan, &ids) {
             return Err(NotTreeReason::FanNotRepresentable { node: id });
         }
         edges.insert(ids.parent_edge);
@@ -164,8 +166,9 @@ fn split_fans(graph: &GInstance, schema: Option<&Schema>) -> Result<Fans, NotTre
     Ok(Fans { nodes, edges })
 }
 
-/// Whether a fan's node and edges are exactly the ones its tree form writes.
-fn fan_is_canonical(graph: &GInstance, schema: &Schema, fan: &Fan, ids: &FanIds) -> bool {
+/// Whether a fan's node and edges are exactly the ones its tree form writes,
+/// the parent edge's name compared only under a schema.
+fn fan_is_canonical(graph: &GInstance, schema: Option<&Schema>, fan: &Fan, ids: &FanIds) -> bool {
     let Some(node) = graph.node(ids.node) else {
         return false;
     };
@@ -177,23 +180,23 @@ fn fan_is_canonical(graph: &GInstance, schema: &Schema, fan: &Fan, ids: &FanIds)
     if !bare {
         return false;
     }
-    let parent_label = schema
-        .hyper_edges
-        .get(&node.anchor)
-        .map(|h| h.parent_label.clone());
-    let expected = |edge: EdgeId, kind: &str, name: Option<Name>, target: u32| {
+    // `None` for the parent edge without a schema: any name.
+    let parent_label = schema.map(|schema| {
+        schema
+            .hyper_edges
+            .get(&node.anchor)
+            .map(|h| h.parent_label.clone())
+    });
+    let expected = |edge: EdgeId, kind: &str, name: Option<Option<Name>>, target: u32| {
         let (Some(e), Some(reached)) = (graph.edge(edge), graph.node(target)) else {
             return false;
         };
         e.position.is_none()
             && e.tgt == target
-            && e.edge
-                == Edge {
-                    src: node.anchor.clone(),
-                    tgt: reached.anchor.clone(),
-                    kind: Name::from(kind),
-                    name,
-                }
+            && e.edge.src == node.anchor
+            && e.edge.tgt == reached.anchor
+            && e.edge.kind == kind
+            && name.is_none_or(|name| e.edge.name == name)
     };
     expected(ids.parent_edge, HYPER_PARENT_KIND, parent_label, fan.parent)
         && ids.child_edges.iter().all(|(label, &edge)| {
@@ -201,7 +204,7 @@ fn fan_is_canonical(graph: &GInstance, schema: &Schema, fan: &Fan, ids: &FanIds)
                 expected(
                     edge,
                     reify::HYPER_LABEL_KIND,
-                    Some(Name::from(label.as_str())),
+                    Some(Some(Name::from(label.as_str()))),
                     child,
                 )
             })
@@ -445,17 +448,16 @@ fn read_tree(
     )
 }
 
-/// Set an embedding's counters one above the graph's largest node and edge
-/// ids, 0 for none.
+/// Set an embedding's counters to the floors of whole-state allocators over
+/// the graph's node and edge ids: one above the largest, 0 for none.
 fn set_floors(embedding: &mut TreeEmbedding, graph: &GInstance) -> Result<(), InstError> {
-    embedding.next_node = match graph.max_node_id() {
-        None => 0,
-        Some(max) => max.checked_add(1).ok_or(InstError::NodeIdsExhausted)?,
-    };
-    embedding.next_edge = match graph.max_edge_id() {
-        None => 0,
-        Some(EdgeId(max)) => max.checked_add(1).ok_or(InstError::EdgeIdsExhausted)?,
-    };
+    embedding.next_node = IdAllocator::from_source(IdRange::FULL, graph.nodes().keys().copied())
+        .floor()
+        .ok_or(InstError::NodeIdsExhausted)?;
+    embedding.next_edge =
+        IdAllocator::from_source(IdRange::FULL, graph.edges().keys().map(|e| e.0))
+            .floor()
+            .ok_or(InstError::EdgeIdsExhausted)?;
     Ok(())
 }
 
@@ -577,8 +579,12 @@ impl GInstance {
     /// The tree form of a graph that is a tree rooted at `root` plus reified
     /// fans, with `schema_root` as its schema root.
     ///
-    /// The fans must be in [`FanDomain`](crate::FanDomain); their labels are
-    /// not compared with a schema. What remains must be a tree rooted at
+    /// The fans must be in [`FanDomain`](crate::FanDomain) and carry nothing
+    /// a tree's [`Fan`] drops: no data on a fan node, no position on a fan
+    /// edge, and fan edge labels that name the hyper-edge, the anchors they
+    /// reach and, for a child edge, its label. The parent edge's name is not
+    /// compared, since without a schema no name is the expected one. What
+    /// remains must be a tree rooted at
     /// `root`, as [`Self::tree_shape`] decides it. Arcs are emitted in
     /// ascending [`EdgeId`] order and fans in ascending fan-node id.
     ///
@@ -586,8 +592,9 @@ impl GInstance {
     ///
     /// Returns [`InstError::MissingRoot`] when `root` is not a node, and
     /// [`InstError::NotATree`] when the rest is not a tree rooted there:
-    /// [`NotTreeReason::FanNotRepresentable`] for a malformed fan or a root
-    /// that is a fan node, [`NotTreeReason::NoRoot`] when another node is
+    /// [`NotTreeReason::FanNotRepresentable`] for a fan outside the fan
+    /// domain, a fan carrying what a tree's fan drops, or a root that is a
+    /// fan node, [`NotTreeReason::NoRoot`] when another node is
     /// the root or there are several, and otherwise the reason
     /// [`Self::tree_shape`] gives.
     pub fn to_wtype_with_schema_root(

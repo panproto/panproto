@@ -566,20 +566,60 @@ fn encode_graph_msgpack(bencher: Bencher, n: u32) {
     bencher.bench_local(|| rmp_serde::to_vec(divan::black_box(&graph)).expect("encodes"));
 }
 
+/// Reifying no fans into a graph taken by value: the graph is checked for
+/// reserved vocabulary and handed back without a copy. The graph each
+/// iteration consumes is cloned outside the timed region.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn reify_without_fans(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|g| panproto_inst::reify_fans_owned(g, &[], None).expect("reifies"));
+}
+
+/// Reifying no fans into a graph taken by reference: the returned graph is
+/// the one copy a by-reference call must make.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn reify_without_fans_by_reference(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher.bench_local(|| {
+        panproto_inst::reify_fans(divan::black_box(&graph), &[], None).expect("reifies")
+    });
+}
+
+/// Unreifying a graph with no fan nodes, taken by value: the graph is
+/// checked against the fan domain and handed back without a copy.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn unreify_without_fans(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .with_inputs(|| graph.clone())
+        .bench_local_values(|g| panproto_inst::unreify_fans_owned(g).expect("unreifies"));
+}
+
+/// Unreifying a graph with no fan nodes, taken by reference: the returned
+/// rest is the one copy a by-reference call must make.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn unreify_without_fans_by_reference(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    bencher
+        .bench_local(|| panproto_inst::unreify_fans(divan::black_box(&graph)).expect("unreifies"));
+}
+
 /// The graph form of a tree with no fans: nothing is reified, so the graph
 /// is built once and not copied.
 #[divan::bench(args = [1_000, 10_000, 100_000])]
-fn reify_without_fans(bencher: Bencher, n: u32) {
+fn tree_to_graph_without_fans(bencher: Bencher, n: u32) {
     let tree = fanless_tree(n);
     bencher.bench_local(|| {
         panproto_inst::GInstance::from_wtype(divan::black_box(&tree)).expect("a tree embeds")
     });
 }
 
-/// The tree form of a graph with no fan nodes: nothing is unreified, so the
-/// graph is read without being copied first.
+/// The tree form of a graph with no fan nodes: the graph is read in place,
+/// without being copied first.
 #[divan::bench(args = [1_000, 10_000, 100_000])]
-fn unreify_without_fans(bencher: Bencher, n: u32) {
+fn graph_to_tree_without_fans(bencher: Bencher, n: u32) {
     let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
     bencher.bench_local(|| divan::black_box(&graph).to_wtype(0).expect("a tree"));
 }
