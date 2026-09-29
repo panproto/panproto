@@ -35,6 +35,7 @@ pub mod element_ops;
 pub mod error;
 /// Hyperedge fan representation.
 pub mod fan;
+pub mod fan_violation;
 /// Set-valued functor instance representation.
 pub mod functor;
 /// Graph-shaped instance representation.
@@ -70,6 +71,7 @@ pub mod tree_edit;
 pub mod validate;
 /// Value types and field presence.
 pub mod value;
+pub mod view_ref;
 pub mod wtype;
 
 // Re-exports for convenience.
@@ -85,6 +87,7 @@ pub use edit_error::EditError;
 pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use fan::Fan;
+pub use fan_violation::FanViolation;
 pub use functor::{FInstance, functor_extend, functor_restrict};
 pub use ginstance::{
     EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json,
@@ -115,6 +118,7 @@ pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
 pub use validate::{validate_attributes, validate_wtype};
 pub use value::{FieldPresence, Value};
+pub use view_ref::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
 pub use wtype::{
     CaseBranch, CompiledMigration, FanResolver, FanShape, FieldTransform, HyperResolverEntry,
     HyperResolverTable, TermAssignment, TermBranch, TermScope, TransformContext, WInstance,
