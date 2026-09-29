@@ -23,6 +23,9 @@
 //! [`reify_fans`] adds fan nodes to a graph that holds no reserved
 //! vocabulary, and [`unreify_fans`] takes them out of a graph in
 //! [`FanDomain`]; see [`unreify_fans`] for the laws relating the two.
+//! [`reify_fans_owned`] and [`unreify_fans_owned`] take the graph by value
+//! and are the entry points that do not copy it; the by-reference forms
+//! return a new graph and so copy it.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
@@ -331,8 +334,11 @@ pub(super) fn reify_into(
     Ok((graph, ids))
 }
 
-/// Add one fan node per fan to a copy of `graph` ([`reify_fans_owned`]
-/// takes the graph by value and makes no copy).
+/// Add one fan node per fan to a copy of `graph`.
+///
+/// This form borrows `graph` and so returns a copy of it;
+/// [`reify_fans_owned`] takes the graph by value and is the entry point that
+/// does not copy it.
 ///
 /// Fan `k` of `fans` gets node id `max_node_id + 1 + k` (`k` from `0` when the
 /// graph has no nodes), so duplicate fans become distinct fan nodes. Edge ids
@@ -378,11 +384,12 @@ pub fn reify_fans(
     reify_checked(graph.clone(), fans, schema)
 }
 
-/// Add one fan node per fan to `graph`, taken by value.
+/// Add one fan node per fan to `graph`, taken by value, without copying it.
 ///
-/// The result is the one [`reify_fans`] gives, laid out the same way. With
-/// no fans, `graph` is checked for reserved vocabulary and handed back as it
-/// is, without a copy.
+/// This is the no-copy entry point for reification: the fan nodes and their
+/// edges are added to `graph` in place, and with no fans `graph` is checked
+/// for reserved vocabulary and handed back as it is. The result is the one
+/// [`reify_fans`] gives, laid out the same way.
 ///
 /// # Errors
 ///
@@ -480,26 +487,28 @@ fn take_fans(mut graph: GInstance) -> (GInstance, Vec<Fan>) {
 /// Take every fan node out of a graph, returning the rest and the fans.
 ///
 /// Fans are listed in ascending fan-node id, which is the order
-/// [`reify_fans`] allocates them in. The two functions satisfy two laws,
-/// checked by property tests with generators that include fan-shaped nodes
-/// and nested reification:
+/// [`reify_fans`] allocates them in. The two functions satisfy three laws,
+/// checked by property tests with generators that include fan-shaped nodes,
+/// nested reification and fans carrying data:
 ///
-/// - `unreify_fans(&reify_fans(g, fans, None)?)` is `(g, fans)` for every `g`
+/// - `unreify_fans(&reify_fans(g, fans, s)?)` is `(g, fans)` for every `g`
 ///   without reserved vocabulary, duplicate fans included;
-/// - `reify_fans(&rest, &fans, None)` is `h` for every `h` in [`FanDomain`]
-///   whose fan nodes and fan edges are laid out as [`reify_fans`] lays them
-///   out, where `(rest, fans) = unreify_fans(h)`: fan node `k` (ascending) is
-///   `max(non-fan node id) + 1 + k`, the fan edges follow every other edge
-///   id, fan by fan with the parent edge first and the children in ascending
-///   label order, each fan node carries only its anchor and shape, and each
-///   fan edge carries the label [`reify_fans`] writes and no position. A fan
-///   is a relation between its participants, so its node and edge ids and
-///   those labels are a presentation that `unreify_fans` does not keep;
-///   outside that layout the law holds up to renaming those ids.
+/// - on the image of [`reify_fans`], reification inverts unreification
+///   exactly: for every `h = reify_fans(g, fans, s)?`, with
+///   `(rest, fans2) = unreify_fans(&h)?`, `reify_fans(&rest, &fans2, s)` is
+///   `h` under the same schema `s`;
+/// - for a general `h` in [`FanDomain`], `reify_fans(&rest, &fans2, None)`
+///   agrees with `h` up to renaming fan node ids and fan edge ids and
+///   resetting fan data to the defaults [`reify_fans`] writes: each fan node
+///   carries only its id, anchor and shape, and each fan edge only its ends,
+///   no position and the label [`reify_fans`] writes. A fan is a relation
+///   between its participants, so those ids and that data are a
+///   presentation `unreify_fans` does not keep.
 ///
 /// Fan labels are not checked against a schema here; see
-/// [`unreify_fans_with_schema`]. The rest is a copy of `graph`;
-/// [`unreify_fans_owned`] takes the graph by value and makes none.
+/// [`unreify_fans_with_schema`]. This form borrows `graph` and so returns a
+/// copy of the rest; [`unreify_fans_owned`] takes the graph by value and is
+/// the entry point that does not copy it.
 ///
 /// # Errors
 ///
@@ -510,9 +519,12 @@ pub fn unreify_fans(graph: &GInstance) -> Result<(GInstance, Vec<Fan>), InstErro
     Ok(take_fans(graph.clone()))
 }
 
-/// [`unreify_fans`] on a graph taken by value: the fan nodes are taken out in
-/// place, and a graph without fan nodes is checked and handed back as it is,
-/// without a copy.
+/// [`unreify_fans`] on a graph taken by value, without copying it.
+///
+/// This is the no-copy entry point for unreification: the fan nodes and
+/// their edges are taken out of `graph` in place, and a graph without fan
+/// nodes is checked against [`FanDomain`] and handed back as it is. The
+/// result is the one [`unreify_fans`] gives, and the same laws hold.
 ///
 /// # Errors
 ///

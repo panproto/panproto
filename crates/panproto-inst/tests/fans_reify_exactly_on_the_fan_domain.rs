@@ -183,6 +183,37 @@ fn the_by_value_forms_hand_a_fanless_graph_back_unchanged() {
     ));
 }
 
+/// Where a graph keeps its node and edge storage: a graph moved without a
+/// copy keeps both at the same addresses, a copy gets new ones.
+fn storage(graph: &GInstance) -> (*const Node, *const GEdge) {
+    (
+        std::ptr::from_ref(graph.node(0).expect("node 0")),
+        std::ptr::from_ref(graph.edge(EdgeId(0)).expect("edge 0")),
+    )
+}
+
+#[test]
+fn the_by_value_forms_do_not_copy_a_fanless_graph() {
+    let graph = items(3).with_edge(0, 1, link()).with_edge(1, 2, link());
+    let before = storage(&graph);
+    let reified = reify_fans_owned(graph, &[], None).unwrap();
+    assert_eq!(
+        storage(&reified),
+        before,
+        "reify_fans_owned copied the graph"
+    );
+    let (rest, fans) = unreify_fans_owned(reified).unwrap();
+    assert!(fans.is_empty());
+    assert_eq!(
+        storage(&rest),
+        before,
+        "unreify_fans_owned copied the graph"
+    );
+    // The by-reference forms return a copy, whose storage is elsewhere.
+    assert_ne!(storage(&reify_fans(&rest, &[], None).unwrap()), before);
+    assert_ne!(storage(&unreify_fans(&rest).unwrap().0), before);
+}
+
 #[test]
 fn unreify_rejects_a_malformed_fan() {
     let g = fan_node(items(1), 3).with_edge(3, 0, label_edge("only_a_label"));
@@ -375,7 +406,10 @@ fn distinct_ids(below: u32, count: usize) -> impl Strategy<Value = Vec<u32>> {
 
 /// A graph in the fan domain with fan node ids and fan edge ids chosen
 /// freely: an ordinary graph, then fans over its nodes whose nodes and edges
-/// take shuffled ids from a pool above and below the ordinary ones.
+/// take shuffled ids from a pool above and below the ordinary ones. Unless
+/// `bare`, a fan node may carry a position and a discriminator, and its
+/// edges a position and, on the parent edge, a name, none of which a fan
+/// keeps.
 fn arb_fan_domain() -> impl Strategy<Value = GInstance> {
     (1u32..6)
         .prop_flat_map(|n| {
@@ -389,10 +423,20 @@ fn arb_fan_domain() -> impl Strategy<Value = GInstance> {
                 distinct_ids(40, 4),
                 distinct_ids(80, 16),
                 any::<bool>(),
+                any::<bool>(),
+                prop::collection::vec(
+                    (
+                        prop::option::of(0u32..4),
+                        prop::option::of("[a-b]"),
+                        prop::option::of("[a-b]"),
+                        prop::option::of(0u32..4),
+                    ),
+                    4,
+                ),
             )
         })
         .prop_map(
-            |(n, edges, fans, fan_node_pool, fan_edge_pool, canonical)| {
+            |(n, edges, fans, fan_node_pool, fan_edge_pool, canonical, bare, data)| {
                 // Ordinary nodes take ids 100.., ordinary edges 200.., so the
                 // pools (below 100) never collide with them.
                 let mut graph = GInstance::new();
@@ -408,14 +452,24 @@ fn arb_fan_domain() -> impl Strategy<Value = GInstance> {
                 let base_nodes = 100 + n;
                 let base_edges = graph.max_edge_id().map_or(0, |EdgeId(m)| m + 1);
                 let mut next_edge = 0usize;
-                for (k, (parent, children)) in fans.into_iter().enumerate() {
+                for (k, (parent_node, children)) in fans.into_iter().enumerate() {
                     let node = if canonical {
                         base_nodes + u32::try_from(k).expect("small")
                     } else {
                         fan_node_pool[k]
                     };
-                    graph = fan_node(graph, node);
-                    let mut targets = vec![(100 + parent, parent_edge())];
+                    let (node_position, discriminator, parent_name, edge_position) = if bare {
+                        (None, None, None, None)
+                    } else {
+                        data[k].clone()
+                    };
+                    let mut fan = Node::new(node, "rel").with_shape(NodeShape::HyperEdge);
+                    fan.position = node_position;
+                    fan.discriminator = discriminator.map(|d| Name::from(d.as_str()));
+                    graph = graph.with_node(fan);
+                    let mut parent = parent_edge();
+                    parent.name = parent_name.map(|p| Name::from(p.as_str()));
+                    let mut targets = vec![(100 + parent_node, parent)];
                     targets.extend(children.into_iter().map(|(l, c)| (100 + c, label_edge(&l))));
                     for (target, label) in targets {
                         let id = if canonical {
@@ -424,9 +478,9 @@ fn arb_fan_domain() -> impl Strategy<Value = GInstance> {
                             EdgeId(fan_edge_pool[next_edge])
                         };
                         next_edge += 1;
-                        graph
-                            .insert_edge(id, GEdge::new(node, target, label))
-                            .expect("ends exist");
+                        let mut edge = GEdge::new(node, target, label);
+                        edge.position = edge_position;
+                        graph.insert_edge(id, edge).expect("ends exist");
                     }
                 }
                 graph
@@ -495,16 +549,97 @@ fn reify_layout(graph: &GInstance) -> GInstance {
     renamed
 }
 
+/// `graph` with each fan node's data reset to the defaults `reify_fans`
+/// writes: the node carries only its id, its anchor and the fan shape, and
+/// each fan edge only its ends and the label `reify_fans` writes without a
+/// schema (the parent edge unnamed, a child edge named by its label), with
+/// no position.
+fn reset_fan_data(graph: &GInstance) -> GInstance {
+    let mut reset = GInstance::new();
+    for node in graph.nodes().values() {
+        reset = reset.with_node(if node.shape == NodeShape::HyperEdge {
+            Node::new(node.id, node.anchor.clone()).with_shape(NodeShape::HyperEdge)
+        } else {
+            node.clone()
+        });
+    }
+    for (id, edge) in graph.edges_sorted() {
+        let mut edge = edge.clone();
+        let src = graph.node(edge.src).expect("an end");
+        if src.shape == NodeShape::HyperEdge {
+            edge.edge.src = src.anchor.clone();
+            edge.edge.tgt = graph.node(edge.tgt).expect("an end").anchor.clone();
+            if edge.edge.kind == HYPER_PARENT_KIND {
+                edge.edge.name = None;
+            }
+            edge.position = None;
+        }
+        reset.insert_edge(id, edge).expect("the same ends");
+    }
+    reset
+}
+
+/// A schema that declares the hyper-edge `rel`, so `reify_fans` names each
+/// fan's parent edge by its parent label.
+fn rel_schema() -> Schema {
+    let mut schema = Schema::default();
+    schema.hyper_edges.insert(
+        "rel".into(),
+        HyperEdge {
+            id: "rel".into(),
+            kind: "relation".into(),
+            signature: HashMap::from([
+                ("a".into(), "item".into()),
+                ("b".into(), "item".into()),
+                ("c".into(), "item".into()),
+            ]),
+            parent_label: "head".into(),
+        },
+    );
+    schema
+}
+
 proptest! {
+    /// On the image of `reify_fans`, unreifying then reifying is the
+    /// identity, exactly: `h == reify_fans(unreify_fans(h))` for every
+    /// `h = reify_fans(g, fans, schema)`, under the same schema.
+    #[test]
+    fn reify_inverts_unreify_on_the_fan_domain_image(
+        (graph, fans) in arb_adversarial(),
+        with_schema in any::<bool>(),
+    ) {
+        let schema = with_schema.then(rel_schema);
+        let Ok(h) = reify_fans(&graph, &fans, schema.as_ref()) else {
+            return Ok(());
+        };
+        let (rest, back) = unreify_fans(&h).expect("a reified graph is in the fan domain");
+        // Unreifying inverts reifying under a schema too.
+        prop_assert!(GInstance::identical(&rest, &graph));
+        prop_assert_eq!(&back, &fans);
+        let again = reify_fans(&rest, &back, schema.as_ref()).expect("the rest reifies");
+        prop_assert_eq!(&again, &h);
+        prop_assert!(GInstance::identical(&again, &h));
+        // The by-value forms give the same graph, without copying.
+        let (owned_rest, owned_back) = unreify_fans_owned(h.clone()).expect("unreifies");
+        let owned = reify_fans_owned(owned_rest, &owned_back, schema.as_ref()).expect("reifies");
+        prop_assert!(GInstance::identical(&owned, &h));
+    }
+
+    /// For a general `h` in the fan domain, unreifying then reifying agrees
+    /// with `h` up to renaming fan node and fan edge ids and resetting fan
+    /// data to the defaults `reify_fans` writes; exactly when `h` is already
+    /// laid out and bare.
     #[test]
     fn reify_inverts_unreify_on_the_fan_domain(h in arb_fan_domain()) {
         prop_assert!(FanDomain::contains(&h));
         let (rest, fans) = unreify_fans(&h).expect("in the fan domain");
         let again = reify_fans(&rest, &fans, None).expect("the rest holds no reserved vocabulary");
-        let laid_out = reify_layout(&h);
-        prop_assert!(GInstance::identical(&again, &laid_out));
-        if GInstance::identical(&laid_out, &h) {
-            // Laid out as reify_fans lays fans out, the law holds exactly.
+        let normal = reset_fan_data(&reify_layout(&h));
+        prop_assert!(GInstance::identical(&again, &normal));
+        prop_assert_eq!(&again, &normal);
+        if GInstance::identical(&normal, &h) {
+            // Laid out as reify_fans lays fans out, with fan data at its
+            // defaults, the law holds exactly.
             prop_assert!(GInstance::identical(&again, &h));
         }
     }
