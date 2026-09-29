@@ -49,10 +49,24 @@ pub trait ElementOps {
     /// Given `S ⊆ F(v)` and edge kind `e: v → w`, computes the direct
     /// image `F(e)(S) = {y ∈ F(w) | ∃x ∈ S, (x,y) ∈ F(e)}`.
     ///
-    /// Tree-shaped instances yield targets in arc order, element by element.
-    /// Graph-shaped instances yield one target per matching edge, in
-    /// ascending [`EdgeId`] order, so a target reached by two
-    /// parallel edges appears twice. Table-shaped instances deduplicate.
+    /// Tree- and graph-shaped instances count paths: a source listed `k`
+    /// times in `elements` contributes each of its targets `k` times, so a
+    /// target reached along two paths appears twice and each copy is followed
+    /// again by a further step. Tree-shaped instances yield targets element by
+    /// element, each element's in arc order. Graph-shaped instances yield
+    /// them in ascending [`EdgeId`] order, one per matching edge and
+    /// occurrence of its source, so a target reached by two parallel edges
+    /// appears twice. Table-shaped instances deduplicate targets and yield
+    /// them by foreign key in ascending schema-edge order, each key's pairs
+    /// in stored order.
+    ///
+    /// Because paths are counted, composing pushforwards over a graph yields
+    /// one entry per walk, and the number of walks can grow exponentially in
+    /// the number of steps: `2k` steps through a chain of `k` diamonds list
+    /// its last node `2^k` times. A tree has one path to each node, so its
+    /// composed pushforwards never exceed its node count. A query's path
+    /// navigation ([`execute_elements`](crate::execute_elements)) keeps each
+    /// target once per step, so its cost stays linear in the path's length.
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32>;
 
     /// Stalk projection: observable data at element `x`.
@@ -181,15 +195,21 @@ impl ElementOps for GInstance {
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
-        let sources: rustc_hash::FxHashSet<u32> = elements.iter().copied().collect();
+        // How often each source is listed: every listing is a path that
+        // continues along each matching out-edge.
+        let mut sources: rustc_hash::FxHashMap<u32, usize> = rustc_hash::FxHashMap::default();
+        for &node in elements {
+            *sources.entry(node).or_default() += 1;
+        }
         let mut ids: Vec<EdgeId> = sources
-            .iter()
+            .keys()
             .flat_map(|&node| self.out_edges(node).iter().copied())
             .filter(|id| self.edge(*id).is_some_and(|e| e.edge.kind == *edge_kind))
             .collect();
         ids.sort_unstable();
         ids.into_iter()
-            .filter_map(|id| self.edge(id).map(|e| e.tgt))
+            .filter_map(|id| self.edge(id))
+            .flat_map(|e| std::iter::repeat_n(e.tgt, sources.get(&e.src).copied().unwrap_or(0)))
             .collect()
     }
 
@@ -368,10 +388,13 @@ impl ElementOps for FInstance {
         let mut result = Vec::new();
         let mut seen = rustc_hash::FxHashSet::default();
 
-        for (edge, pairs) in &self.foreign_keys {
-            if edge.kind != *edge_kind {
-                continue;
-            }
+        let mut keys: Vec<_> = self
+            .foreign_keys
+            .iter()
+            .filter(|(edge, _)| edge.kind == *edge_kind)
+            .collect();
+        keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        for (edge, pairs) in keys {
             let Some(src_ord) = names
                 .binary_search(&&*edge.src)
                 .ok()

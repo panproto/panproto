@@ -8,13 +8,18 @@
 //! processes and compares the bytes. Run a child directly with
 //! `PP_GRAPH_BYTES_DUMP` set to the fixture's name to see one process's
 //! answer.
+//!
+//! The processes share one binary, so they cannot see a difference that
+//! comes from how the binary was built. The JSON tests at the end cover
+//! that: a node's fields must be written in declaration order whether or not
+//! `serde_json`'s `preserve_order` feature is part of the build.
 
 #![allow(
     clippy::expect_used,
     reason = "a fixture that will not build is a defect in this file"
 )]
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::process::Command;
 
@@ -157,4 +162,98 @@ fn the_fixture_still_round_trips() {
         usize::try_from(WIDTH).expect("small") + 1
     );
     assert_eq!(back.edges_between(3, 3), vec![EdgeId(78), EdgeId(99)]);
+}
+
+/// The JSON text of node `id` inside a graph's JSON encoding.
+fn node_text_in_json(graph: &GInstance, id: u32) -> String {
+    let text = serde_json::to_string(graph).expect("the graph serializes");
+    let start = text
+        .find(&format!("\"{id}\":{{\"id\":{id},"))
+        .expect("the node is written with its id first")
+        + format!("\"{id}\":").len();
+    let mut depth = 0_usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, c) in text[start..].char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' if in_string => escaped = true,
+            '"' => in_string = !in_string,
+            '{' if !in_string => depth += 1,
+            '}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    return text[start..=start + offset].to_owned();
+                }
+            }
+            _ => {}
+        }
+    }
+    panic!("the node's object is closed")
+}
+
+#[test]
+fn a_node_in_a_graphs_json_is_written_as_the_node_writes_itself() {
+    let mut node = Node::new(7, "item");
+    node.discriminator = Some("kind".into());
+    node.position = Some(2);
+    node.extra_fields.insert(
+        "blob".into(),
+        Value::Blob {
+            ref_: "r".into(),
+            mime: "m".into(),
+            size: 1,
+        },
+    );
+    node.annotations.insert(
+        "opaque".into(),
+        Value::Opaque {
+            type_: "t".into(),
+            fields: HashMap::from([("x".to_owned(), Value::Float(0.5))]),
+        },
+    );
+    let graph = GInstance::new()
+        .with_node(node.clone())
+        .with_value(7, Value::Int(3));
+    let node = graph.node(7).expect("the node exists").clone();
+    assert_eq!(
+        node_text_in_json(&graph, 7),
+        serde_json::to_string(&node).expect("the node serializes"),
+        "a node inside a graph must keep its fields in declaration order"
+    );
+}
+
+#[test]
+fn a_non_finite_float_leaves_a_nodes_field_order_alone() {
+    let mut node = Node::new(0, "n");
+    node.annotations.insert(
+        "o".into(),
+        Value::Opaque {
+            type_: "t".into(),
+            fields: HashMap::from([
+                (
+                    "b".to_owned(),
+                    Value::Blob {
+                        ref_: "r".into(),
+                        mime: "m".into(),
+                        size: 1,
+                    },
+                ),
+                ("x".to_owned(), Value::Float(f64::INFINITY)),
+            ]),
+        },
+    );
+    let graph = GInstance::new()
+        .with_node(node)
+        .with_value(0, Value::Float(f64::NAN));
+    assert_eq!(
+        node_text_in_json(&graph, 0),
+        concat!(
+            r#"{"id":0,"anchor":"n","value":{"Present":{"Float":"NaN"}},"#,
+            r#""discriminator":null,"extra_fields":{},"position":null,"#,
+            r#""shape":{"kind":"plain"},"annotations":{"o":{"Opaque":{"type_":"t","#,
+            r#""fields":{"b":{"Blob":{"ref_":"r","mime":"m","size":1}},"#,
+            r#""x":{"Float":"Infinity"}}}}}}"#,
+        )
+    );
 }

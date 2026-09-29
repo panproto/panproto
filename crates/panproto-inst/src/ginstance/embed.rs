@@ -29,13 +29,23 @@ impl GInstance {
     /// unnamed; [`Self::from_wtype_with_schema`] names it by the hyper-edge's
     /// parent label.
     ///
-    /// [`Self::to_wtype`] inverts this.
+    /// [`Self::to_wtype_with_schema_root`] inverts this, and so does
+    /// [`Self::to_wtype`] when the tree's schema root is its root node's
+    /// anchor.
+    ///
+    /// A node other than the root that, in the graph form, has the form of a
+    /// fan node (see [`unreify_fans`](crate::unreify_fans)) could not be told
+    /// apart from a reified fan, so the way back would read it as one. Such a
+    /// node has no incoming arc, which no non-root node of a tree lacks, and
+    /// the input is refused rather than laid out ambiguously.
     ///
     /// # Errors
     ///
     /// Returns [`InstError::DanglingEdge`] when an arc or a fan names a node
-    /// the tree does not hold, and [`InstError::EdgeIdsExhausted`] or
-    /// [`InstError::NodeIdsExhausted`] when the ids do not fit in `u32`.
+    /// the tree does not hold, [`InstError::NotATree`] when a node other than
+    /// the root has the form of a fan node, and
+    /// [`InstError::EdgeIdsExhausted`] or [`InstError::NodeIdsExhausted`]
+    /// when the ids do not fit in `u32`.
     pub fn from_wtype(tree: &WInstance) -> Result<Self, InstError> {
         embed_tree(tree, None)
     }
@@ -51,23 +61,54 @@ impl GInstance {
     }
 
     /// The tree form of a graph that is a tree rooted at `root` plus reified
-    /// fans.
+    /// fans, with the root node's anchor as its schema root.
     ///
-    /// Fan nodes are taken out first (see
+    /// A graph does not record a schema root, so this names the root node's
+    /// anchor there. It inverts [`Self::from_wtype`] exactly on every tree
+    /// whose schema root is its root node's anchor;
+    /// [`Self::to_wtype_with_schema_root`] inverts it on every tree.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::to_wtype_with_schema_root`].
+    pub fn to_wtype(&self, root: u32) -> Result<WInstance, InstError> {
+        let anchor = self
+            .node(root)
+            .ok_or(InstError::MissingRoot)?
+            .anchor
+            .clone();
+        self.to_wtype_with_schema_root(root, anchor)
+    }
+
+    /// The tree form of a graph that is a tree rooted at `root` plus reified
+    /// fans, with `schema_root` as its schema root.
+    ///
+    /// Fan nodes other than `root` are taken out first (see
     /// [`unreify_fans`](crate::unreify_fans)) and become the tree's fans in
-    /// ascending fan-node id. What remains must be a tree: `root` has no
-    /// incoming edge, every other node has exactly one and is reachable from
-    /// `root`, and no edge carries a position, since a tree orders children by
-    /// arc order alone. Arcs are emitted in ascending [`EdgeId`] order and the
-    /// schema root is the root node's anchor.
+    /// ascending fan-node id; `root` stays the root whatever its shape. What
+    /// remains must be a tree: `root` has no incoming edge, every other node
+    /// has exactly one and is reachable from `root`, and no edge carries a
+    /// position, since a tree orders children by arc order alone. Arcs are
+    /// emitted in ascending [`EdgeId`] order.
+    ///
+    /// For every tree `t` that [`Self::from_wtype`] accepts,
+    /// `from_wtype(&t)?.to_wtype_with_schema_root(t.root, t.schema_root.clone())`
+    /// is `t` when every node of `t` is reachable from its root, and is
+    /// [`InstError::NotATree`] otherwise; it is never a different tree.
     ///
     /// # Errors
     ///
     /// Returns [`InstError::MissingRoot`] when `root` is not a node and
     /// [`InstError::NotATree`] when the rest is not a tree rooted there.
-    pub fn to_wtype(&self, root: u32) -> Result<WInstance, InstError> {
-        let (rest, fans) = reify::unreify_fans(self);
-        let root_node = rest.node(root).ok_or(InstError::MissingRoot)?;
+    pub fn to_wtype_with_schema_root(
+        &self,
+        root: u32,
+        schema_root: Name,
+    ) -> Result<WInstance, InstError> {
+        let (rest, fans) = reify::unreify_fans_keeping(self, Some(root));
+        if rest.node(root).is_none() {
+            return Err(InstError::MissingRoot);
+        }
         if let Some(edge) = rest.in_edges(root).first() {
             return Err(InstError::NotATree {
                 node: root,
@@ -110,7 +151,6 @@ impl GInstance {
             }
             arcs.push((edge.src, edge.tgt, edge.edge.clone()));
         }
-        let schema_root = root_node.anchor.clone();
         Ok(WInstance::new(
             rest.nodes().clone(),
             arcs,
@@ -204,5 +244,24 @@ fn embed_tree(tree: &WInstance, schema: Option<&Schema>) -> Result<GInstance, In
         let id = EdgeId(u32::try_from(index).map_err(|_| InstError::EdgeIdsExhausted)?);
         graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
     }
-    reify::reify_fans(&graph, &tree.fans, schema)
+    let graph = reify::reify_fans(&graph, &tree.fans, schema)?;
+    let mut tree_ids: Vec<u32> = tree.nodes.keys().copied().collect();
+    tree_ids.sort_unstable();
+    for id in tree_ids {
+        if id == tree.root {
+            continue;
+        }
+        if graph
+            .node(id)
+            .is_some_and(|node| reify::fan_of(&graph, node).is_some())
+        {
+            return Err(InstError::NotATree {
+                node: id,
+                detail: "a node other than the root has the form of a fan node, so its graph \
+                         form would read back as a fan"
+                    .to_owned(),
+            });
+        }
+    }
+    Ok(graph)
 }
