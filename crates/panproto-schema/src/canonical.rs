@@ -11,7 +11,8 @@
 //! ## The two rules that make it total
 //!
 //! 1. **Every map is sorted before it is written.** [`Schema`] stores fifteen
-//!    `HashMap`s, whose iteration order is a function of the hash seed. Each
+//!    `HashMap`s, whose iteration order is a function of the hash seed, and
+//!    the two `BTreeMap`s of its declarations. Each
 //!    is written in ascending key order, using [`Name`]'s lexicographic
 //!    [`Ord`] and [`Edge`]'s derived lexicographic `Ord` on
 //!    `(src, tgt, kind, name)`.
@@ -30,9 +31,11 @@
 //!
 //! ## What it covers, and how that differs from the VCS content hash
 //!
-//! [`canonical_bytes`] covers **all twenty-one** [`Schema`] fields, `entries`
-//! included. `panproto_vcs::hash::CanonicalSchema` covers seventeen: it omits
-//! `entries` and the three derived adjacency indices. The consequence is the
+//! [`canonical_bytes`] covers **all twenty-two** [`Schema`] fields, `entries`
+//! included, and writes the last of them, `declarations`, as two fields: the
+//! `keys` map, then the `references` map. `panproto_vcs::hash::CanonicalSchema`
+//! covers eighteen: it omits `entries` and the three derived adjacency
+//! indices. The consequence is the
 //! one that matters in practice: two schemas that differ only in their
 //! *pointing* receive the **same** VCS object id and **different**
 //! `canonical_bytes`.
@@ -76,6 +79,10 @@ use panproto_expr::{Expr, Literal, Pattern};
 use panproto_gat::Name;
 use smallvec::SmallVec;
 
+use crate::keys::{
+    Cardinality, Key, KeyPart, KeyRole, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource,
+    RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+};
 use crate::schema::{
     CoercionSpec, Constraint, Edge, HyperEdge, Schema, UsageMode, Variant, Vertex,
 };
@@ -83,7 +90,7 @@ use crate::schema::{
 /// Encode a schema as a total, deterministic byte string.
 ///
 /// Equal schemas always produce equal bytes, in any process and under any
-/// hash seed. Schemas that differ in any of their twenty-one fields produce
+/// hash seed. Schemas that differ in any of their twenty-two fields produce
 /// different bytes, `entries` included: see the module documentation for how
 /// that differs from the VCS content hash, which excludes the pointing.
 ///
@@ -118,6 +125,7 @@ pub fn canonical_bytes(schema: &Schema) -> Vec<u8> {
     push_annotations(&mut out, schema);
     push_enrichment(&mut out, schema);
     push_indices(&mut out, schema);
+    push_declarations(&mut out, &schema.declarations);
     out.into_bytes()
 }
 
@@ -125,7 +133,7 @@ pub fn canonical_bytes(schema: &Schema) -> Vec<u8> {
 ///
 /// This is the content identity of a schema, and in particular of a span's
 /// apex: two apices with the same digest are the same schema, and two apices
-/// that differ in any of the twenty-one fields have different digests.
+/// that differ in any of the twenty-two fields have different digests.
 ///
 /// # Examples
 ///
@@ -314,6 +322,158 @@ fn push_indices(out: &mut CanonicalWriter, schema: &Schema) {
         out.name(src);
         out.name(tgt);
         push_edges(out, bucket.as_slice());
+    }
+}
+
+/// Fields 22 and 23: the declared keys, then the declared references.
+///
+/// Both maps are written in ascending key order and each vertex's keys in
+/// ascending key id order. Every field of [`Key`], [`KeyPart`], [`Reference`]
+/// and [`RefSource`] is written in declaration order, and every sum behind a
+/// one-byte discriminant in declaration order of its variants.
+fn push_declarations(out: &mut CanonicalWriter, declarations: &SchemaDeclarations) {
+    // 22. keys, keyed by vertex id
+    out.len(declarations.keys.len());
+    for (vertex, keys) in &declarations.keys {
+        out.name(vertex);
+        let mut sorted: Vec<&Key> = keys.iter().collect();
+        sorted.sort_by(|left, right| left.id.cmp(&right.id));
+        out.len(sorted.len());
+        for key in sorted {
+            push_key(out, key);
+        }
+    }
+
+    // 23. references, keyed by reference id
+    out.len(declarations.references.len());
+    for (id, reference) in &declarations.references {
+        out.name(id);
+        push_reference(out, reference);
+    }
+}
+
+/// Write a key: id, parts, role, scope.
+fn push_key(out: &mut CanonicalWriter, key: &Key) {
+    out.name(&key.id);
+    out.len(key.parts.len());
+    for part in &key.parts {
+        match part {
+            KeyPart::Path(path) => {
+                out.tag(0);
+                push_edges(out, path);
+            }
+            KeyPart::Position { within } => {
+                out.tag(1);
+                out.edge(within);
+            }
+        }
+    }
+    out.tag(match key.role {
+        KeyRole::Primary => 0,
+        KeyRole::Unique => 1,
+        KeyRole::Identifier => 2,
+    });
+    match &key.scope {
+        KeyScope::Document => out.tag(0),
+        KeyScope::Global => out.tag(1),
+        KeyScope::Within(ancestor) => {
+            out.tag(2);
+            out.name(ancestor);
+        }
+    }
+}
+
+/// Write a reference, field by field in declaration order.
+fn push_reference(out: &mut CanonicalWriter, reference: &Reference) {
+    out.name(&reference.id);
+    out.name(&reference.holder);
+    push_ref_source(out, &reference.source);
+    out.name(&reference.target_vertex);
+    out.opt_name(reference.target_key.as_ref());
+    match &reference.edge {
+        None => out.tag(0),
+        Some(edge) => {
+            out.tag(1);
+            out.edge(edge);
+        }
+    }
+    out.tag(match reference.cardinality {
+        Cardinality::One => 0,
+        Cardinality::Many => 1,
+    });
+    out.bool(reference.nullable);
+    out.tag(match reference.on_unresolved {
+        OnUnresolved::Error => 0,
+        OnUnresolved::Complement => 1,
+    });
+    out.tag(match reference.mode {
+        ResolveMode::AddEdge => 0,
+        ResolveMode::Redirect => 1,
+    });
+}
+
+/// Write a reference source behind its discriminant.
+fn push_ref_source(out: &mut CanonicalWriter, source: &RefSource) {
+    match source {
+        RefSource::KeyValue { parts } => {
+            out.tag(0);
+            out.len(parts.len());
+            for path in parts {
+                push_edges(out, path);
+            }
+        }
+        RefSource::Path { field, syntax } => {
+            out.tag(1);
+            push_edges(out, field);
+            match syntax {
+                PathSyntax::JsonPointer => out.tag(0),
+                PathSyntax::XPath => out.tag(1),
+                PathSyntax::Uri { base } => {
+                    out.tag(2);
+                    match base {
+                        None => out.tag(0),
+                        Some(base) => {
+                            out.tag(1);
+                            push_edges(out, base);
+                        }
+                    }
+                }
+                PathSyntax::IdRef => out.tag(3),
+            }
+        }
+        RefSource::Standoff {
+            text,
+            start,
+            end,
+            unit,
+            end_inclusive,
+        } => {
+            out.tag(2);
+            match text {
+                RefTextSource::Local(path) => {
+                    out.tag(0);
+                    push_edges(out, path);
+                }
+                RefTextSource::External(path) => {
+                    out.tag(1);
+                    push_edges(out, path);
+                }
+            }
+            push_edges(out, start);
+            push_edges(out, end);
+            out.tag(match unit {
+                OffsetUnit::Byte => 0,
+                OffsetUnit::Utf8Char => 1,
+                OffsetUnit::Utf16 => 2,
+                OffsetUnit::Token => 3,
+            });
+            out.bool(*end_inclusive);
+        }
+        RefSource::Variable { field, binder_key } => {
+            out.tag(3);
+            push_edges(out, field);
+            out.name(binder_key);
+        }
     }
 }
 
@@ -1164,11 +1324,11 @@ mod tests {
         assert_eq!(hex(&canonical_bytes(&expressive)), PINNED_EXPRESSIVE_DIGEST);
     }
 
-    const PINNED_FIXTURE_LEN: usize = 1213;
+    const PINNED_FIXTURE_LEN: usize = 1229;
     const PINNED_FIXTURE_DIGEST: &str =
-        "63bf72046a3a2714478e6f7cd7eec8a67a2fe90a7c710540e2240a43ae00a1ef";
+        "546b6e7e984e9843ac0c17365da761a19c11996daeacb6ee202ce5939f2ae41b";
     const PINNED_EXPRESSIVE_DIGEST: &str =
-        "11e163d4cbeb3f6376eead2f18e9cdddbc5b0788649ffea6369db307f2350353";
+        "8cbe7db62436b2a9dd582c9702916f025921800514aee8e544fab7c9be319975";
 
     #[test]
     fn induced_apices_that_agree_encode_alike() {
