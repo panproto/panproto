@@ -61,7 +61,7 @@ pub use compose::{
     InapplicableReason, NotRepresentableReason, Provenance, SortMismatch, SymKind, SymRef,
     TheoryDiagram, compose,
 };
-pub use composition::{CompositionSpec, CompositionStep, recompose};
+pub use composition::{CompositionSpec, CompositionStep, RecipeEdge, RecipeOpImage, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use enrichment::{
