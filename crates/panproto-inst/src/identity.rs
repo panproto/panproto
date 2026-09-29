@@ -17,8 +17,23 @@
 //! |-------------------------------|----------------------------------------------|
 //! | [`SCHEMA_CONTEXT`]            | [`panproto_schema::canonical_bytes`]         |
 //! | [`LENS_CONTEXT`]              | both schema digests, then [`canonical_compiled_bytes`] |
-//! | [`GRAPH_INSTANCE_CONTEXT`]    | the canonical bytes of a graph instance      |
-//! | [`VCS_GRAPH_DATASET_CONTEXT`], [`VCS_GRAPH_COMPLEMENT_CONTEXT`], [`VCS_GRAPH_EDIT_LOG_CONTEXT`] | VCS objects |
+//! | [`GRAPH_INSTANCE_CONTEXT`], [`TABLE_INSTANCE_CONTEXT`], [`TREE_INSTANCE_CONTEXT`] | the canonical bytes of an instance of each shape |
+//! | [`VCS_GRAPH_DATASET_CONTEXT`], [`VCS_GRAPH_COMPLEMENT_CONTEXT`], [`VCS_GRAPH_EDIT_LOG_CONTEXT`], [`VCS_TABLE_DATASET_CONTEXT`], [`VCS_TABLE_COMPLEMENT_CONTEXT`], [`VCS_TABLE_EDIT_LOG_CONTEXT`] | VCS objects |
+//! | [`GRAPH_DELTA_CONTEXT`], [`TABLE_DELTA_CONTEXT`], [`TREE_EDIT_CONTEXT`] | normalized edits |
+//! | [`VALIDATION_PLAN_CONTEXT`], [`VALIDATION_REPORT_CONTEXT`] | validation plans and reports |
+//! | [`SEGMENT_CONTEXT`], [`SEGMENT_COMPLEMENT_CONTEXT`], [`SEGMENT_CROSS_CONTEXT`], [`SEGMENT_TASK_CONTEXT`], [`MANIFEST_LEAF_CONTEXT`], [`MANIFEST_NODE_CONTEXT`], [`MANIFEST_CONTEXT`], [`RUN_JOURNAL_CONTEXT`] | segmented execution |
+//! | [`RESOLUTION_CONTEXT`]        | a resolution's protocol, kind and schemas    |
+//!
+//! Every context is a constant string: no id, count or range ever appears
+//! in one, so a context names a kind of object and never an object.
+//!
+//! # Canonical sinks
+//!
+//! Canonical bytes are written through a [`CanonicalSink`]: either a
+//! [`CanonicalWriter`] that collects them, or a [`DigestHasher`] that hashes
+//! them as they arrive, so a digest over a long record stream needs no
+//! buffer. [`CanonicalSink::value`] is the one encoding of an instance
+//! [`Value`]; every canonical instance encoding writes values through it.
 //!
 //! A context string names the version of its encoding. Any change to
 //! `canonical_bytes`, to [`canonical_compiled_bytes`], or to an envelope
@@ -50,8 +65,9 @@ use std::collections::HashMap;
 use std::fmt;
 use std::str::FromStr;
 
+use panproto_expr::{Expr, Literal, Pattern};
 use panproto_gat::{CoercionClass, Name};
-use panproto_schema::{CanonicalWriter, Schema};
+use panproto_schema::{CanonicalWriter, Edge, InstanceShapeKind, Schema};
 use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
@@ -95,6 +111,90 @@ pub const TREE_COMPLEMENT_FORMAT_VERSION: u16 = 1;
 /// The version of the graph ([`ComplementShape::Graph`]) complement format.
 pub const GRAPH_COMPLEMENT_FORMAT_VERSION: u16 = 1;
 
+/// The version of the table ([`ComplementShape::Functor`]) complement
+/// format.
+pub const FUNCTOR_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the resolution ([`ComplementShape::Resolution`])
+/// complement format.
+pub const RESOLUTION_COMPLEMENT_FORMAT_VERSION: u16 = 1;
+
+/// The blake3 key-derivation context for a table instance's content digest.
+pub const TABLE_INSTANCE_CONTEXT: &str = "panproto 2026-09 table instance v1";
+
+/// The blake3 key-derivation context for a VCS table data set object.
+pub const VCS_TABLE_DATASET_CONTEXT: &str = "panproto 2026-09 vcs table_dataset v1";
+
+/// The blake3 key-derivation context for a VCS table complement object.
+pub const VCS_TABLE_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 vcs table_complement v1";
+
+/// The blake3 key-derivation context for a VCS table edit log object.
+pub const VCS_TABLE_EDIT_LOG_CONTEXT: &str = "panproto 2026-09 vcs table_editlog v1";
+
+/// The blake3 key-derivation context for a tree instance's content digest.
+///
+/// Its input is a function of the tree alone: a header of the node, arc and
+/// fan counts, node records in ascending id, arc records in arc order and fan
+/// records in their canonical record order. No edge id of a graph embedding
+/// appears in it, so two equal trees have one digest whatever their
+/// embeddings.
+pub const TREE_INSTANCE_CONTEXT: &str = "panproto 2026-09 tree instance v1";
+
+/// The blake3 key-derivation context for a normalized graph delta.
+pub const GRAPH_DELTA_CONTEXT: &str = "panproto 2026-09 graph delta v1";
+
+/// The blake3 key-derivation context for a normalized table delta.
+pub const TABLE_DELTA_CONTEXT: &str = "panproto 2026-09 table delta v1";
+
+/// The blake3 key-derivation context for a normalized tree edit.
+pub const TREE_EDIT_CONTEXT: &str = "panproto 2026-09 tree edit v1";
+
+/// The blake3 key-derivation context for a compiled validation plan.
+pub const VALIDATION_PLAN_CONTEXT: &str = "panproto 2026-09 validation plan v1";
+
+/// The blake3 key-derivation context for a validation report.
+pub const VALIDATION_REPORT_CONTEXT: &str = "panproto 2026-09 validation report v1";
+
+/// The blake3 key-derivation context for the canonical bytes of one
+/// instance segment.
+pub const SEGMENT_CONTEXT: &str = "panproto 2026-09 instance segment v1";
+
+/// The blake3 key-derivation context for the canonical bytes of one
+/// complement segment.
+pub const SEGMENT_COMPLEMENT_CONTEXT: &str = "panproto 2026-09 complement segment v1";
+
+/// The blake3 key-derivation context for the references that cross from one
+/// segment into another.
+pub const SEGMENT_CROSS_CONTEXT: &str = "panproto 2026-09 segment cross references v1";
+
+/// The blake3 key-derivation context for the artifact of one segmented task.
+pub const SEGMENT_TASK_CONTEXT: &str = "panproto 2026-09 segment task artifact v1";
+
+/// The blake3 key-derivation context for a leaf of a segment manifest's
+/// Merkle tree.
+pub const MANIFEST_LEAF_CONTEXT: &str = "panproto 2026-09 segment manifest leaf v1";
+
+/// The blake3 key-derivation context for an inner node of a segment
+/// manifest's Merkle tree.
+pub const MANIFEST_NODE_CONTEXT: &str = "panproto 2026-09 segment manifest node v1";
+
+/// The blake3 key-derivation context for a whole segment manifest.
+pub const MANIFEST_CONTEXT: &str = "panproto 2026-09 segment manifest v1";
+
+/// The blake3 key-derivation context for a segmented run's journal.
+pub const RUN_JOURNAL_CONTEXT: &str = "panproto 2026-09 segment run journal v1";
+
+/// The version of the canonical segment layout.
+pub const SEGMENT_FORMAT_VERSION: u16 = 1;
+
+/// The version of the segment manifest layout.
+pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
+
+/// The blake3 key-derivation context for a resolution's identity: the
+/// protocol, the resolution kind and the syntactic and semantic schema
+/// digests.
+pub const RESOLUTION_CONTEXT: &str = "panproto 2026-09 resolution identity v1";
+
 // ---------------------------------------------------------------------------
 // Digest.
 // ---------------------------------------------------------------------------
@@ -120,6 +220,48 @@ impl Digest {
     #[must_use]
     pub fn to_hex(&self) -> String {
         self.to_string()
+    }
+
+    /// A streaming hasher under a blake3 key-derivation `context`.
+    ///
+    /// Feeding it bytes and finalizing gives the digest
+    /// [`derive`](Self::derive) gives for the same bytes at once, so a
+    /// digest over a long stream of records needs no buffer. The context is
+    /// `'static` because a context names a kind of object and is always one
+    /// of this module's constants, never a string built at run time.
+    ///
+    /// ```
+    /// use panproto_inst::identity::{Digest, GRAPH_INSTANCE_CONTEXT};
+    ///
+    /// let mut h = Digest::hasher(GRAPH_INSTANCE_CONTEXT);
+    /// h.update(b"ab");
+    /// h.update(b"c");
+    /// assert_eq!(h.finalize(), Digest::derive(GRAPH_INSTANCE_CONTEXT, b"abc"));
+    /// ```
+    #[must_use]
+    pub fn hasher(context: &'static str) -> DigestHasher {
+        DigestHasher(blake3::Hasher::new_derive_key(context))
+    }
+}
+
+/// A streaming blake3 key derivation, made by [`Digest::hasher`].
+///
+/// It is a [`CanonicalSink`], so canonical records can be written straight
+/// into it.
+#[derive(Clone, Debug)]
+pub struct DigestHasher(blake3::Hasher);
+
+impl DigestHasher {
+    /// Feed `bytes` to the hasher.
+    pub fn update(&mut self, bytes: &[u8]) {
+        self.0.update(bytes);
+    }
+
+    /// The digest of every byte fed so far. The hasher is left as it was,
+    /// so more bytes may follow.
+    #[must_use]
+    pub fn finalize(&self) -> Digest {
+        Digest(*self.0.finalize().as_bytes())
     }
 }
 
@@ -216,6 +358,247 @@ impl<'de> Deserialize<'de> for Digest {
         }
 
         deserializer.deserialize_any(DigestVisitor)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Canonical sinks.
+// ---------------------------------------------------------------------------
+
+/// A destination for canonical bytes.
+///
+/// One method is required, [`write`](Self::write), an unprefixed append.
+/// Every encoder is a default method over it and writes exactly the bytes
+/// the method of the same name on [`CanonicalWriter`] writes: integers
+/// little-endian, floats as their IEEE-754 bit pattern, every
+/// variable-length run behind a `u64` length, every sum behind a one-byte
+/// discriminant. [`value`](Self::value) adds the encoding of an instance
+/// [`Value`], which `panproto-schema` cannot see.
+///
+/// [`CanonicalWriter`] collects the bytes and [`DigestHasher`] hashes them
+/// as they arrive, so one record encoder serves both a byte string and a
+/// streaming digest.
+///
+/// ```
+/// use panproto_inst::Value;
+/// use panproto_inst::identity::{CanonicalSink, Digest, GRAPH_INSTANCE_CONTEXT};
+/// use panproto_schema::CanonicalWriter;
+///
+/// fn record<S: CanonicalSink + ?Sized>(sink: &mut S) {
+///     sink.u32(7);
+///     sink.value(&Value::Str("x".into()));
+/// }
+///
+/// let mut bytes = CanonicalWriter::new();
+/// record(&mut bytes);
+/// let mut hasher = Digest::hasher(GRAPH_INSTANCE_CONTEXT);
+/// record(&mut hasher);
+/// assert_eq!(
+///     hasher.finalize(),
+///     Digest::derive(GRAPH_INSTANCE_CONTEXT, bytes.as_bytes())
+/// );
+/// ```
+pub trait CanonicalSink {
+    /// Append `bytes` as they are, with no length prefix.
+    fn write(&mut self, bytes: &[u8]);
+
+    /// Write a length (or count) as eight little-endian bytes.
+    fn len(&mut self, len: usize) {
+        let wide = u64::try_from(len).unwrap_or(u64::MAX);
+        self.write(&wide.to_le_bytes());
+    }
+
+    /// Write a one-byte discriminant.
+    fn tag(&mut self, tag: u8) {
+        self.write(&[tag]);
+    }
+
+    /// Write a boolean as one byte, `0` or `1`.
+    fn bool(&mut self, value: bool) {
+        self.write(&[u8::from(value)]);
+    }
+
+    /// Write a `u32` as four little-endian bytes.
+    fn u32(&mut self, value: u32) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write a `u64` as eight little-endian bytes.
+    fn u64(&mut self, value: u64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write an `i64` as eight little-endian bytes.
+    fn i64(&mut self, value: i64) {
+        self.write(&value.to_le_bytes());
+    }
+
+    /// Write an `f64` as the eight little-endian bytes of its bit pattern.
+    fn f64(&mut self, value: f64) {
+        self.write(&value.to_bits().to_le_bytes());
+    }
+
+    /// Write a length-prefixed byte string.
+    fn bytes(&mut self, bytes: &[u8]) {
+        self.len(bytes.len());
+        self.write(bytes);
+    }
+
+    /// Write a length-prefixed UTF-8 string.
+    fn str(&mut self, value: &str) {
+        self.bytes(value.as_bytes());
+    }
+
+    /// Write a length-prefixed [`Name`].
+    fn name(&mut self, name: &Name) {
+        self.str(name.as_ref());
+    }
+
+    /// Write an optional [`Name`] as a presence byte followed by the name.
+    fn opt_name(&mut self, name: Option<&Name>) {
+        match name {
+            None => self.tag(0),
+            Some(value) => {
+                self.tag(1);
+                self.name(value);
+            }
+        }
+    }
+
+    /// Write a schema edge: source, target, kind, optional label.
+    fn edge(&mut self, edge: &Edge) {
+        self.name(&edge.src);
+        self.name(&edge.tgt);
+        self.name(&edge.kind);
+        self.opt_name(edge.name.as_ref());
+    }
+
+    /// Write an expression, discriminant first, as
+    /// [`CanonicalWriter::expr`] does.
+    fn expr(&mut self, expr: &Expr) {
+        let mut w = CanonicalWriter::new();
+        w.expr(expr);
+        self.write(w.as_bytes());
+    }
+
+    /// Write an expression literal, discriminant first, as
+    /// [`CanonicalWriter::literal`] does.
+    fn literal(&mut self, literal: &Literal) {
+        let mut w = CanonicalWriter::new();
+        w.literal(literal);
+        self.write(w.as_bytes());
+    }
+
+    /// Write a match pattern, discriminant first, as
+    /// [`CanonicalWriter::pattern`] does.
+    fn pattern(&mut self, pattern: &Pattern) {
+        let mut w = CanonicalWriter::new();
+        w.pattern(pattern);
+        self.write(w.as_bytes());
+    }
+
+    /// Write an instance [`Value`]: a one-byte tag, then its payload.
+    ///
+    /// | tag | variant       | payload                                   |
+    /// |-----|---------------|-------------------------------------------|
+    /// | 0   | `Bool`        | one byte                                  |
+    /// | 1   | `Int`         | `i64`                                     |
+    /// | 2   | `Float`       | `f64` bits                                |
+    /// | 3   | `Str`         | string                                    |
+    /// | 4   | `Bytes`       | byte string                               |
+    /// | 5   | `CidLink`     | string                                    |
+    /// | 6   | `Blob`        | `ref_`, `mime` strings, `size` as `u64`   |
+    /// | 7   | `Token`       | string                                    |
+    /// | 8   | `Null`        | nothing                                   |
+    /// | 9   | `Opaque`      | `type_` string, then the field map        |
+    /// | 10  | `Unknown`     | the field map                             |
+    /// | 11  | `List`        | count, then each item                     |
+    /// | 12  | `LabeledNull` | `u64`                                     |
+    ///
+    /// A field map is its entry count, then each key and value in ascending
+    /// key order. This is the only encoding of a value in canonical
+    /// instance bytes.
+    fn value(&mut self, value: &Value) {
+        match value {
+            Value::Bool(b) => {
+                self.tag(0);
+                self.bool(*b);
+            }
+            Value::Int(i) => {
+                self.tag(1);
+                self.i64(*i);
+            }
+            Value::Float(f) => {
+                self.tag(2);
+                self.f64(*f);
+            }
+            Value::Str(s) => {
+                self.tag(3);
+                self.str(s);
+            }
+            Value::Bytes(b) => {
+                self.tag(4);
+                self.bytes(b);
+            }
+            Value::CidLink(s) => {
+                self.tag(5);
+                self.str(s);
+            }
+            Value::Blob { ref_, mime, size } => {
+                self.tag(6);
+                self.str(ref_);
+                self.str(mime);
+                self.u64(*size);
+            }
+            Value::Token(s) => {
+                self.tag(7);
+                self.str(s);
+            }
+            Value::Null => self.tag(8),
+            Value::Opaque { type_, fields } => {
+                self.tag(9);
+                self.str(type_);
+                sink_value_map(self, fields);
+            }
+            Value::Unknown(fields) => {
+                self.tag(10);
+                sink_value_map(self, fields);
+            }
+            Value::List(items) => {
+                self.tag(11);
+                self.len(items.len());
+                for item in items {
+                    self.value(item);
+                }
+            }
+            Value::LabeledNull(id) => {
+                self.tag(12);
+                self.u64(*id);
+            }
+        }
+    }
+}
+
+/// Write a string-keyed map of values into `sink`: its entry count, then
+/// each key and value in ascending key order.
+fn sink_value_map<W: CanonicalSink + ?Sized, S>(sink: &mut W, map: &HashMap<String, Value, S>) {
+    let entries = sorted(map);
+    sink.len(entries.len());
+    for (key, value) in entries {
+        sink.str(key);
+        sink.value(value);
+    }
+}
+
+impl CanonicalSink for CanonicalWriter {
+    fn write(&mut self, bytes: &[u8]) {
+        self.raw(bytes);
+    }
+}
+
+impl CanonicalSink for DigestHasher {
+    fn write(&mut self, bytes: &[u8]) {
+        self.update(bytes);
     }
 }
 
@@ -428,75 +811,15 @@ fn write_rename_map(w: &mut CanonicalWriter, map: &HashMap<String, Option<String
     }
 }
 
-/// Write a [`Value`], discriminant first.
-pub fn write_value(w: &mut CanonicalWriter, value: &Value) {
-    match value {
-        Value::Bool(b) => {
-            w.tag(0);
-            w.bool(*b);
-        }
-        Value::Int(i) => {
-            w.tag(1);
-            w.i64(*i);
-        }
-        Value::Float(f) => {
-            w.tag(2);
-            w.f64(*f);
-        }
-        Value::Str(s) => {
-            w.tag(3);
-            w.str(s);
-        }
-        Value::Bytes(b) => {
-            w.tag(4);
-            w.bytes(b);
-        }
-        Value::CidLink(s) => {
-            w.tag(5);
-            w.str(s);
-        }
-        Value::Blob { ref_, mime, size } => {
-            w.tag(6);
-            w.str(ref_);
-            w.str(mime);
-            w.u64(*size);
-        }
-        Value::Token(s) => {
-            w.tag(7);
-            w.str(s);
-        }
-        Value::Null => w.tag(8),
-        Value::Opaque { type_, fields } => {
-            w.tag(9);
-            w.str(type_);
-            write_value_map(w, fields);
-        }
-        Value::Unknown(fields) => {
-            w.tag(10);
-            write_value_map(w, fields);
-        }
-        Value::List(items) => {
-            w.tag(11);
-            w.len(items.len());
-            for item in items {
-                write_value(w, item);
-            }
-        }
-        Value::LabeledNull(id) => {
-            w.tag(12);
-            w.u64(*id);
-        }
-    }
+/// Write a [`Value`], discriminant first: [`CanonicalSink::value`].
+pub fn write_value<W: CanonicalSink + ?Sized>(w: &mut W, value: &Value) {
+    w.value(value);
 }
 
-/// Write a string-keyed map of values in ascending key order.
-pub fn write_value_map<S>(w: &mut CanonicalWriter, map: &HashMap<String, Value, S>) {
-    let entries = sorted(map);
-    w.len(entries.len());
-    for (key, value) in entries {
-        w.str(key);
-        write_value(w, value);
-    }
+/// Write a string-keyed map of values in ascending key order, each value by
+/// [`CanonicalSink::value`].
+pub fn write_value_map<W: CanonicalSink + ?Sized, S>(w: &mut W, map: &HashMap<String, Value, S>) {
+    sink_value_map(w, map);
 }
 
 /// Write a [`FieldPresence`], discriminant first.
@@ -669,7 +992,11 @@ pub fn write_term_branch(w: &mut CanonicalWriter, branch: &TermBranch) {
 // Complement formats and the envelope.
 // ---------------------------------------------------------------------------
 
-/// The shape of instance a complement belongs to.
+/// The kind of complement: the shape of instance it belongs to, or a
+/// resolution.
+///
+/// Serialized by the lowercase names `"wtype"`, `"functor"`, `"graph"` and
+/// `"resolution"`, the names complements, the VCS and the CLI already use.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ComplementShape {
@@ -678,9 +1005,18 @@ pub enum ComplementShape {
     WType,
     /// A graph ([`GInstance`](crate::GInstance)) complement.
     Graph,
+    /// A table ([`FInstance`](crate::FInstance)) complement.
+    Functor,
+    /// The complement of a resolution, which turns a format's syntactic
+    /// instance into its semantic one by resolving the references the
+    /// schema declares.
+    Resolution,
 }
 
 impl ComplementShape {
+    /// Every complement kind, in declaration order.
+    pub const ALL: [Self; 4] = [Self::WType, Self::Graph, Self::Functor, Self::Resolution];
+
     /// The current format of this shape's complement.
     #[must_use]
     pub const fn current_format(self) -> ComplementFormat {
@@ -689,17 +1025,52 @@ impl ComplementShape {
             version: match self {
                 Self::WType => TREE_COMPLEMENT_FORMAT_VERSION,
                 Self::Graph => GRAPH_COMPLEMENT_FORMAT_VERSION,
+                Self::Functor => FUNCTOR_COMPLEMENT_FORMAT_VERSION,
+                Self::Resolution => RESOLUTION_COMPLEMENT_FORMAT_VERSION,
             },
         }
     }
 
-    /// The other shape.
+    /// The instance shape a complement of this kind belongs to, or `None`
+    /// for a resolution, whose syntactic and semantic instances may each be
+    /// of any shape.
+    ///
+    /// ```
+    /// use panproto_inst::{ComplementShape, InstanceShapeKind};
+    ///
+    /// assert_eq!(ComplementShape::Functor.instance_shape(), Some(InstanceShapeKind::Table));
+    /// assert_eq!(ComplementShape::Resolution.instance_shape(), None);
+    /// ```
     #[must_use]
-    pub const fn other(self) -> Self {
+    pub const fn instance_shape(self) -> Option<InstanceShapeKind> {
         match self {
-            Self::WType => Self::Graph,
-            Self::Graph => Self::WType,
+            Self::WType => Some(InstanceShapeKind::Tree),
+            Self::Functor => Some(InstanceShapeKind::Table),
+            Self::Graph => Some(InstanceShapeKind::Graph),
+            Self::Resolution => None,
         }
+    }
+}
+
+/// The instance shape a complement belongs to: `WType` is a tree, `Functor`
+/// a table and `Graph` a graph. A resolution complement belongs to no one
+/// instance shape, so converting [`ComplementShape::Resolution`] fails and
+/// gives it back.
+///
+/// ```
+/// use panproto_inst::{ComplementShape, InstanceShapeKind};
+///
+/// assert_eq!(InstanceShapeKind::try_from(ComplementShape::WType), Ok(InstanceShapeKind::Tree));
+/// assert_eq!(
+///     InstanceShapeKind::try_from(ComplementShape::Resolution),
+///     Err(ComplementShape::Resolution)
+/// );
+/// ```
+impl TryFrom<ComplementShape> for InstanceShapeKind {
+    type Error = ComplementShape;
+
+    fn try_from(shape: ComplementShape) -> Result<Self, Self::Error> {
+        shape.instance_shape().ok_or(shape)
     }
 }
 
@@ -708,6 +1079,8 @@ impl fmt::Display for ComplementShape {
         f.write_str(match self {
             Self::WType => "wtype",
             Self::Graph => "graph",
+            Self::Functor => "functor",
+            Self::Resolution => "resolution",
         })
     }
 }
@@ -1381,7 +1754,8 @@ pub enum Encoding {
     Json,
 }
 
-/// A decoded complement of either shape.
+/// A decoded complement, of whichever [`ComplementShape`] this build has a
+/// complement type for.
 #[derive(Clone, Debug)]
 pub enum AnyComplement {
     /// A tree complement.
@@ -1453,7 +1827,7 @@ fn decode_shape(
         ComplementShape::WType => Some(
             decode_as::<Complement>(bytes, encoding).map(|c| AnyComplement::WType(Box::new(c))),
         ),
-        ComplementShape::Graph => None,
+        ComplementShape::Graph | ComplementShape::Functor | ComplementShape::Resolution => None,
     }
 }
 
@@ -1472,7 +1846,7 @@ fn decode_shape_seq(
                 .map(|c| AnyComplement::WType(Box::new(c)))
                 .collect()
         })),
-        ComplementShape::Graph => None,
+        ComplementShape::Graph | ComplementShape::Functor | ComplementShape::Resolution => None,
     }
 }
 
@@ -1522,40 +1896,50 @@ fn decode_checked<T>(
         return Err(IdentityError::UnsupportedEnvelopeVersion { found });
     }
 
-    let other = expected.other();
-    match decode(bytes, encoding, other) {
-        Some(Ok(decoded)) => {
-            let found = complements(&decoded)
-                .first()
-                .map_or_else(|| other.current_format(), |c| declared_format(c, other));
-            Err(IdentityError::Mismatch {
-                field: IdentityField::Format,
-                expected: expected.current_format().to_string(),
-                found: found.to_string(),
-            })
+    // The bytes are not a complement of the expected shape. If they are one
+    // of another shape, that is a format mismatch naming the first such
+    // shape in declaration order; otherwise every attempt failed.
+    let mut reasons = vec![reason(expected, first)];
+    for other in ComplementShape::ALL {
+        if other == expected {
+            continue;
         }
-        second => {
-            if let Some(found) = refused() {
-                return Err(IdentityError::UnsupportedEnvelopeVersion { found });
+        match decode(bytes, encoding, other) {
+            Some(Ok(decoded)) => {
+                let found = complements(&decoded)
+                    .first()
+                    .map_or_else(|| other.current_format(), |c| declared_format(c, other));
+                return Err(IdentityError::Mismatch {
+                    field: IdentityField::Format,
+                    expected: expected.current_format().to_string(),
+                    found: found.to_string(),
+                });
             }
-            let reason = |shape: ComplementShape, r: Option<Result<T, String>>| match r {
-                Some(Err(e)) => format!("as {shape}: {e}"),
-                Some(Ok(_)) => format!("as {shape}: decoded"),
-                None => format!("as {shape}: this build has no {shape} complement type"),
-            };
-            Err(IdentityError::Undecodable(format!(
-                "{}; {}",
-                reason(expected, first),
-                reason(other, second)
-            )))
+            attempt => {
+                if let Some(found) = refused() {
+                    return Err(IdentityError::UnsupportedEnvelopeVersion { found });
+                }
+                reasons.push(reason(other, attempt));
+            }
         }
+    }
+    Err(IdentityError::Undecodable(reasons.join("; ")))
+}
+
+/// Why a decode attempt as `shape` did not give a complement of that shape.
+fn reason<T>(shape: ComplementShape, attempt: Option<Result<T, String>>) -> String {
+    match attempt {
+        Some(Err(e)) => format!("as {shape}: {e}"),
+        Some(Ok(_)) => format!("as {shape}: decoded"),
+        None => format!("as {shape}: this build has no {shape} complement type"),
     }
 }
 
 /// Decode a complement read from outside the process.
 ///
 /// Decodes `bytes` as a complement of the `expected` shape. If that fails
-/// and the bytes decode as the other shape instead, the error is a
+/// and the bytes decode as a complement of another shape in
+/// [`ComplementShape::ALL`] instead, the error is a
 /// [`IdentityError::Mismatch`] on [`IdentityField::Format`]. A decoded
 /// complement whose envelope names a different format is refused the same
 /// way. An envelope whose layout version this build does not read gives
@@ -1568,8 +1952,9 @@ fn decode_checked<T>(
 ///
 /// # Errors
 ///
-/// As above, or [`IdentityError::Undecodable`] when the bytes decode as
-/// neither shape.
+/// As above, or [`IdentityError::Undecodable`] when the bytes decode as a
+/// complement of no shape in [`ComplementShape::ALL`]; its message gives
+/// the reason for each shape tried.
 pub fn decode_complement(
     bytes: &[u8],
     encoding: Encoding,
@@ -1842,6 +2227,26 @@ mod tests {
         for _ in 0..50 {
             assert_eq!(canonical_compiled_bytes(&rich_migration()), baseline);
         }
+    }
+
+    /// The compiled encoding of a migration that reaches every field and
+    /// several value tags, pinned by its blake3 hash and its lens digest, so
+    /// that a change to how values or compiled fields are written shows up
+    /// here before it reaches a stored complement.
+    #[test]
+    fn the_compiled_encoding_is_pinned() {
+        let bytes = canonical_compiled_bytes(&rich_migration());
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            "d874316e8b8bf7b408ea4bfea5d55b459a9ae058b0a2bebab723e875ce0539f5",
+            "canonical_compiled_bytes moved"
+        );
+        let s = schema(None);
+        assert_eq!(
+            lens_digest(&s, &s, &rich_migration()).to_hex(),
+            "70d26a739774b1328e34ea05a8459b605d35e346a326097119454185b019f6fc",
+            "lens_digest moved"
+        );
     }
 
     type Edit = fn(&mut CompiledMigration);

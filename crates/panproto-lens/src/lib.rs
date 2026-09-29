@@ -82,6 +82,7 @@ pub use identity::ComplementIdentity;
 pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
 pub use lens_graph::LensGraph;
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
+pub use panproto_inst::{ErrorDetail, PutDomainError};
 pub use protolens::{
     ComplementConstructor, FleetResult, Protolens, ProtolensChain, SchemaConstraint,
     apply_to_fleet, combinators, elementary, horizontal_compose as protolens_horizontal,

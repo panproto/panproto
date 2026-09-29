@@ -464,6 +464,27 @@ impl CanonicalWriter {
         self.0
     }
 
+    /// Append `bytes` as they are, with no length prefix.
+    ///
+    /// The inherent encoders of this type write to the buffer directly and do
+    /// not go through this method. It exists for encoders outside this crate,
+    /// which cannot reach the private buffer: the `CanonicalSink`
+    /// implementation for `CanonicalWriter` in panproto-inst appends through
+    /// it, as does any caller that encodes a type of its own and writes its
+    /// bytes here.
+    ///
+    /// ```
+    /// use panproto_schema::CanonicalWriter;
+    ///
+    /// let mut w = CanonicalWriter::new();
+    /// w.raw(&[1, 2]);
+    /// w.tag(3);
+    /// assert_eq!(w.into_bytes(), [1, 2, 3]);
+    /// ```
+    pub fn raw(&mut self, bytes: &[u8]) {
+        self.0.extend_from_slice(bytes);
+    }
+
     /// Write a length (or count) as eight little-endian bytes.
     pub fn len(&mut self, len: usize) {
         let wide = u64::try_from(len).unwrap_or(u64::MAX);
