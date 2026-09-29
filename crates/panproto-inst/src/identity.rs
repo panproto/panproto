@@ -514,6 +514,9 @@ pub trait CanonicalSink {
     /// | 10  | `Unknown`     | the field map                             |
     /// | 11  | `List`        | count, then each item                     |
     /// | 12  | `LabeledNull` | `u64`                                     |
+    /// | 13  | `Decimal`     | `DecimalValue::canonical_bytes`           |
+    /// | 14  | `BigInt`      | `BigIntValue::canonical_bytes`            |
+    /// | 15  | `Temporal`    | `Temporal::canonical_bytes`               |
     ///
     /// A field map is its entry count, then each key and value in ascending
     /// key order. This is the only encoding of a value in canonical
@@ -574,6 +577,18 @@ pub trait CanonicalSink {
             Value::LabeledNull(id) => {
                 self.tag(12);
                 self.u64(*id);
+            }
+            Value::Decimal(d) => {
+                self.tag(13);
+                self.write(&d.canonical_bytes());
+            }
+            Value::BigInt(b) => {
+                self.tag(14);
+                self.write(&b.canonical_bytes());
+            }
+            Value::Temporal(t) => {
+                self.tag(15);
+                self.write(&t.canonical_bytes());
             }
         }
     }

@@ -87,7 +87,12 @@ const fn literal_type(lit: &Literal) -> ExprType {
         Literal::Float(_) => ExprType::Float,
         Literal::Str(_) => ExprType::Str,
         Literal::Bool(_) => ExprType::Bool,
-        Literal::Null | Literal::Bytes(_) | Literal::Closure { .. } => ExprType::Any,
+        Literal::Null
+        | Literal::Bytes(_)
+        | Literal::Closure { .. }
+        | Literal::Decimal(_)
+        | Literal::BigInt(_)
+        | Literal::Temporal(_) => ExprType::Any,
         Literal::List(_) => ExprType::List,
         Literal::Record(_) => ExprType::Record,
     }
