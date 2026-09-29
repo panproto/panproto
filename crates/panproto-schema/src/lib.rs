@@ -42,17 +42,17 @@ pub use abstract_schema::{
 };
 pub use builder::SchemaBuilder;
 pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
-pub use colimit::{SchemaOverlap, schema_pushout};
+pub use colimit::{SchemaOverlap, schema_pushout, schema_pushout_with_report};
 pub use constraint_semantics::{
     ConstraintSemantics, ConstraintValue, ConstraintValueError, ConstraintValueReason, LengthUnit,
     ValueParameter,
 };
 pub use equivalence::{edge_multiset, kind_multiset};
 pub use error::{SchemaError, ValidationError};
-pub use induce::{induce, induce_on_vertices};
+pub use induce::{induce, induce_on_vertices, induce_with_report};
 pub use keys::{
-    Cardinality, Key, KeyPart, KeyRole, KeyScope, OffsetUnit, OnUnresolved, PathSyntax, RefSource,
-    RefTextSource, Reference, ResolveMode, SchemaDeclarations,
+    Cardinality, DeclarationReport, Key, KeyPart, KeyRefError, KeyRole, KeyScope, OffsetUnit,
+    OnUnresolved, PathSyntax, RefSource, RefTextSource, Reference, ResolveMode, SchemaDeclarations,
 };
 pub use morphism::SchemaMorphism;
 pub use normalize::normalize;
