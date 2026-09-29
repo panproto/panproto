@@ -23,6 +23,7 @@
 
 pub mod alg_struct;
 mod check_model;
+pub mod check_status;
 mod colimit;
 pub mod composition;
 mod enrichment;
@@ -49,6 +50,7 @@ pub use check_model::{
     CheckModelOptions, EquationViolation, Incompleteness, VerificationReport, VerificationStatus,
     check_model, check_model_with_options, verify_model,
 };
+pub use check_status::CheckStatus;
 pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
 pub use composition::{CompositionSpec, CompositionStep, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
