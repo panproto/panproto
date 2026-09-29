@@ -33,6 +33,7 @@ pub mod edit_error;
 pub mod element_ops;
 /// Error types for instance operations.
 pub mod error;
+pub mod error_detail;
 /// Hyperedge fan representation.
 pub mod fan;
 pub mod fan_violation;
@@ -86,6 +87,7 @@ pub use contraction::{ContractionRecord, ContractionTracker};
 pub use edit_error::EditError;
 pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
+pub use error_detail::{ErrorDetail, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
 pub use functor::{FInstance, functor_extend, functor_restrict};
@@ -94,6 +96,7 @@ pub use ginstance::{
     graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
+pub use identity::{CanonicalSink, DigestHasher};
 pub use identity::{
     ComplementShape, Digest, IdentityEnvelope, IdentityError, IdentityPolicy, IdentityStatus,
 };

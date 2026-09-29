@@ -1,0 +1,190 @@
+//! Structured error details shared by every shape and every binding.
+//!
+//! An error crosses the language bindings as a message and an
+//! [`ErrorDetail`]: a serde value a host decodes into its own types, so no
+//! binding ever parses a message. [`PutDomainError`] is the one type of the
+//! reasons a view lies outside the domain of `put`, for trees, tables and
+//! graphs alike, so that a dispatched call reports the error its graph form
+//! would report.
+//!
+//! Both types live here rather than in `panproto-lens` because errors this
+//! crate defines project onto them, and this crate cannot depend on
+//! `panproto-lens`, which re-exports both.
+
+use panproto_gat::Name;
+use serde::{Deserialize, Serialize};
+
+use crate::fan_violation::FanViolation;
+use crate::identity::{IdentityField, LegacyRejectReason};
+use crate::value::Value;
+use crate::view_ref::ViewRef;
+
+/// Why a view is outside the domain of `put`.
+///
+/// One enum serves all three shapes: an element is named by a [`ViewRef`]
+/// of the view's own shape. Serialized externally tagged in `snake_case`,
+/// for instance `{"id_collision": {"elem": {"node": 3}}}`. The variants are
+/// declared in the primary order in which a report of several errors lists
+/// them ([`variant_index`](Self::variant_index)).
+///
+/// ```
+/// use panproto_inst::{PutDomainError, ViewRef};
+///
+/// let e = PutDomainError::SynthesizedEdited { elem: ViewRef::Node(4) };
+/// assert_eq!(
+///     serde_json::to_string(&e).unwrap(),
+///     r#"{"synthesized_edited":{"elem":{"node":4}}}"#,
+/// );
+/// assert_eq!(e.variant_index(), 1);
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum PutDomainError {
+    /// A view element reuses the id of a source element it does not denote.
+    #[error("view element {elem:?} collides with the id of another source element")]
+    IdCollision {
+        /// The colliding view element.
+        elem: ViewRef,
+    },
+    /// A view element that `get` synthesized was edited.
+    #[error("view element {elem:?} was synthesized by get and cannot be edited")]
+    SynthesizedEdited {
+        /// The edited synthesized element.
+        elem: ViewRef,
+    },
+    /// A view edge was inserted where the lens contracts a path of the
+    /// source, so no source path can carry it.
+    #[error("view element {elem:?} would be a new contracted pair")]
+    ContractedEdgeInserted {
+        /// The inserted edge.
+        elem: ViewRef,
+    },
+    /// A view edge has no source edge or path it can be written back to.
+    #[error("view element {elem:?} has no representation in the source")]
+    UnrepresentableViewEdge {
+        /// The unrepresentable edge.
+        elem: ViewRef,
+    },
+    /// A view node could be written back under more than one source anchor.
+    #[error("view element {elem:?} has several possible source anchors: {candidates:?}")]
+    AmbiguousReverseAnchor {
+        /// The ambiguous element.
+        elem: ViewRef,
+        /// The candidate source anchors, ascending.
+        candidates: Vec<Name>,
+    },
+    /// Writing the view element back would give a source element whose
+    /// survival predicate is false, so `get` would drop it again.
+    #[error("view element {elem:?} would not survive get")]
+    SurvivalPredicateFails {
+        /// The element.
+        elem: ViewRef,
+    },
+    /// A field the lens computes from other fields was edited in the view.
+    #[error("derived field {field} of view element {elem:?} was edited")]
+    DerivedCellEdited {
+        /// The element holding the field.
+        elem: ViewRef,
+        /// The derived field.
+        field: String,
+    },
+    /// A field was edited whose transform has no inverse to write it back.
+    #[error("field {field} of view element {elem:?} was edited but its transform has no inverse")]
+    TransformNotInvertible {
+        /// The element holding the field.
+        elem: ViewRef,
+        /// The field.
+        field: String,
+    },
+    /// Writing the view back would give two rows or nodes of one table the
+    /// same key.
+    #[error("rows {elems:?} of {table} share the key {key:?}")]
+    DuplicateKey {
+        /// The table (or vertex) whose key repeats.
+        table: Name,
+        /// The repeated key, one `(column, value)` pair per key part.
+        key: Vec<(String, Value)>,
+        /// The restored rows or nodes sharing the key, ascending.
+        elems: Vec<ViewRef>,
+    },
+    /// Writing the view back would leave a required field without a value.
+    #[error("view element {elem:?} lacks the required field {field}")]
+    MissingRequiredCell {
+        /// The element.
+        elem: ViewRef,
+        /// The required field.
+        field: String,
+    },
+    /// A view node meant as a hyper-edge fan is malformed.
+    #[error("fan node {node} is malformed: {reason}")]
+    MalformedFan {
+        /// The fan node.
+        node: u32,
+        /// What is wrong with it.
+        reason: FanViolation,
+    },
+}
+
+impl PutDomainError {
+    /// The position of this error's variant in declaration order, the
+    /// primary key of the order in which a report lists several errors.
+    #[must_use]
+    pub const fn variant_index(&self) -> u8 {
+        match self {
+            Self::IdCollision { .. } => 0,
+            Self::SynthesizedEdited { .. } => 1,
+            Self::ContractedEdgeInserted { .. } => 2,
+            Self::UnrepresentableViewEdge { .. } => 3,
+            Self::AmbiguousReverseAnchor { .. } => 4,
+            Self::SurvivalPredicateFails { .. } => 5,
+            Self::DerivedCellEdited { .. } => 6,
+            Self::TransformNotInvertible { .. } => 7,
+            Self::DuplicateKey { .. } => 8,
+            Self::MissingRequiredCell { .. } => 9,
+            Self::MalformedFan { .. } => 10,
+        }
+    }
+}
+
+/// The structured detail of an error, as every binding receives it.
+///
+/// Serialized externally tagged in `snake_case`, for instance
+/// `{"unbound_complement": {}}`. A host decodes this value and never the
+/// error's message.
+///
+/// ```
+/// use panproto_inst::ErrorDetail;
+///
+/// assert_eq!(
+///     serde_json::to_string(&ErrorDetail::UnboundComplement {}).unwrap(),
+///     r#"{"unbound_complement":{}}"#,
+/// );
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ErrorDetail {
+    /// A complement's identity envelope differs from the lens's.
+    IdentityMismatch {
+        /// The first differing envelope field.
+        field: IdentityField,
+        /// The lens's value: a digest as hex, a format as `shape/version`.
+        expected: String,
+        /// The complement's value, rendered the same way.
+        found: String,
+    },
+    /// A legacy complement, which carries only a schema fingerprint, was
+    /// refused.
+    LegacyRejected {
+        /// Why it was refused.
+        reason: LegacyRejectReason,
+        /// The complement's legacy fingerprint.
+        fingerprint: u64,
+    },
+    /// A complement carries data but nothing that binds it to a lens.
+    UnboundComplement {},
+    /// A view is outside the domain of `put`.
+    PutDomain {
+        /// Why.
+        error: PutDomainError,
+    },
+}
