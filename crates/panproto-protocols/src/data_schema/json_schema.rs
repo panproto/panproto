@@ -93,24 +93,39 @@ pub fn parse_json_schema(json: &serde_json::Value) -> Result<Schema, ProtocolErr
 /// The vertex-id prefix for a document, and the `$id` other documents
 /// address it by.
 ///
-/// A document's identity is its `$id` (or, in a draft-04 document
-/// without one, its `id`), which is what a cross-document `$ref` names.
-/// An empty fragment is no part of it: `http://x.test/s#`, as draft-06
-/// and draft-07 documents write it, is `http://x.test/s`, so a ref
-/// `http://x.test/s#/definitions/a` is a pointer into it. A document
-/// without an identity is addressed as `root` when it is alone and
-/// `doc{i}` otherwise, so ids stay unique and a single-document parse
-/// keeps the `root:` prefix it has always had.
+/// A document's identity is its `$id` or, in a document of draft-04 or
+/// earlier without one, its `id`, which is what a cross-document `$ref`
+/// names. Only those drafts have an `id` keyword: in a document that
+/// declares a later `$schema`, `id` is an unknown keyword, and a
+/// document that declares none is read as the drafts that had one.
+///
+/// An empty fragment is no part of the identity: `http://x.test/s#`, as
+/// draft-06 and draft-07 documents write it, is `http://x.test/s`, so a
+/// ref `http://x.test/s#/definitions/a` is a pointer into it. An
+/// identity that is nothing but an empty fragment (`#`), or empty,
+/// names no document, so the document has none. A document without an
+/// identity is addressed as `root` when it is alone and `doc{i}`
+/// otherwise, so ids stay unique and a single-document parse keeps the
+/// `root:` prefix it has always had.
 fn document_identity(
     json: &serde_json::Value,
     index: usize,
     count: usize,
 ) -> (String, Option<&str>) {
+    let has_id_keyword = json
+        .get("$schema")
+        .and_then(serde_json::Value::as_str)
+        .is_none_or(|dialect| dialect.contains("draft-04") || dialect.contains("draft-03"));
     let declared = json
         .get("$id")
         .and_then(serde_json::Value::as_str)
-        .or_else(|| json.get("id").and_then(serde_json::Value::as_str))
-        .map(|id| id.strip_suffix('#').unwrap_or(id));
+        .or_else(|| {
+            json.get("id")
+                .and_then(serde_json::Value::as_str)
+                .filter(|_| has_id_keyword)
+        })
+        .map(|id| id.strip_suffix('#').unwrap_or(id))
+        .filter(|id| !id.is_empty());
     let prefix = match declared {
         Some(id) => id.to_owned(),
         None if count == 1 => "root".to_owned(),
@@ -762,13 +777,33 @@ fn kind_to_json_type(kind: &str) -> &'static str {
 ///
 /// Returns [`ProtocolError::Emit`] if the schema cannot be serialized.
 pub fn emit_json_schema(schema: &Schema) -> Result<serde_json::Value, ProtocolError> {
-    // The root vertex is "root".
-    let root = schema
-        .vertices
-        .get("root")
+    let root = document_root(schema)
+        .and_then(|id| schema.vertices.get(id))
         .ok_or_else(|| ProtocolError::Emit("no root vertex found".into()))?;
 
     emit_json_schema_vertex(schema, root)
+}
+
+/// The vertex of a parsed document's root schema.
+///
+/// That is `root` for a document without an identity. A document with
+/// one names its root by it, so the root is the first entry that is not
+/// a definition: the parse declares each named definition
+/// (`<identity>:$defs/<name>` or `<identity>:definitions/<name>`) as an
+/// entry, and the root, whose id is the identity, after them.
+fn document_root(schema: &Schema) -> Option<&str> {
+    if schema.vertices.contains_key("root") {
+        return Some("root");
+    }
+    let entries = &schema.entries;
+    entries.iter().map(AsRef::as_ref).find(|entry: &&str| {
+        !entries.iter().any(|root| {
+            entry
+                .strip_prefix(root.as_ref() as &str)
+                .and_then(|rest| rest.strip_prefix(':'))
+                .is_some_and(|rest| rest.starts_with("$defs/") || rest.starts_with("definitions/"))
+        })
+    })
 }
 
 /// Emit a single vertex as a JSON Schema value.

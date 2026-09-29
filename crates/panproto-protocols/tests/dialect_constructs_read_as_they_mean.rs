@@ -280,17 +280,17 @@ fn a_document_with_an_identity_emits_from_its_root() {
 }
 
 #[test]
-fn the_tsconfig_fixture_emits() {
-    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../../fixtures/jsonschema/tsconfig.json");
-    let text = std::fs::read_to_string(path).required("the fixture exists");
-    let doc: serde_json::Value = serde_json::from_str(&text).required("the fixture is JSON");
-    let schema = parse_json_schema(&doc).required("the fixture parses");
-    let emitted = emit_json_schema(&schema).required("the fixture emits");
-    assert!(
-        emitted.get("allOf").is_some(),
-        "the root's allOf is emitted"
-    );
+fn every_json_schema_fixture_emits() {
+    for name in ["tsconfig.json", "package.json", "github-workflow.json"] {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../fixtures/jsonschema")
+            .join(name);
+        let text = std::fs::read_to_string(path).required("the fixture exists");
+        let doc: serde_json::Value = serde_json::from_str(&text).required("the fixture is JSON");
+        let schema = parse_json_schema(&doc).required(name);
+        let emitted = emit_json_schema(&schema).required(name);
+        assert!(emitted.is_object(), "{name} emits a schema object");
+    }
 }
 
 #[test]

@@ -130,10 +130,10 @@ pub fn parse_ddl(ddl: &str) -> Result<Schema, ProtocolError> {
 /// removes: each `DROP TABLE` removes the latest declaration of each
 /// table it names that no earlier `DROP TABLE` removed.
 ///
-/// Names compare as [`name_key`]s, so an unquoted name matches in any
-/// case. A name that matches no declaration exactly matches one that
-/// differs only in qualification: `t` drops `public.t`, and `public.t`
-/// drops `t`, but `a.t` does not drop `b.t`.
+/// Names compare as [`name_key`]s, so an unquoted or bracket-quoted
+/// name matches in any case. A name that matches no declaration exactly
+/// matches one that differs only in qualification: `t` drops
+/// `public.t`, and `public.t` drops `t`, but `a.t` does not drop `b.t`.
 fn dropped_creates(statements: &[String]) -> std::collections::HashSet<usize> {
     let mut live: Vec<(Vec<String>, usize)> = Vec::new();
     let mut dropped = std::collections::HashSet::new();
@@ -165,14 +165,13 @@ fn dropped_creates(statements: &[String]) -> std::collections::HashSet<usize> {
 }
 
 /// A name as [`read_name_parts`] reads it, as a key two spellings of one
-/// name share: each unquoted part is folded to lowercase, since an
-/// unquoted SQL identifier is case-insensitive, and each quoted part is
-/// kept as written.
+/// name share: each case-insensitive part is folded to lowercase and
+/// each case-sensitive part is kept as written.
 fn name_key(parts: Vec<(String, bool)>) -> Vec<String> {
     parts
         .into_iter()
-        .map(|(part, quoted)| {
-            if quoted {
+        .map(|(part, case_sensitive)| {
+            if case_sensitive {
                 part
             } else {
                 part.to_ascii_lowercase()
@@ -221,8 +220,13 @@ fn read_name(text: &str) -> Option<(String, &str)> {
 }
 
 /// The parts of the (possibly schema-qualified) identifier at the start
-/// of `text`, each unquoted with whether it was quoted, and the text
-/// after it. See [`read_name`].
+/// of `text`, each unquoted with whether it compares case-sensitively,
+/// and the text after it. See [`read_name`].
+///
+/// A double-quoted or backquoted part is case-sensitive, as `PostgreSQL`
+/// and `MySQL` read it. An unquoted part is not, and neither is a
+/// bracket-quoted one: SQLite and T-SQL, the dialects that bracket
+/// identifiers, compare them without regard to case.
 fn read_name_parts(text: &str) -> Option<(Vec<(String, bool)>, &str)> {
     let mut rest = text.trim_start();
     let mut parts: Vec<(String, bool)> = Vec::new();
@@ -231,7 +235,7 @@ fn read_name_parts(text: &str) -> Option<(Vec<(String, bool)>, &str)> {
         let (part, after) = match bytes.first() {
             Some(b'[') => {
                 let end = skip_bracketed(bytes, 0)?;
-                ((rest[1..end - 1].replace("]]", "]"), true), &rest[end..])
+                ((rest[1..end - 1].replace("]]", "]"), false), &rest[end..])
             }
             Some(&q @ (b'"' | b'`')) => {
                 let end = skip_quoted(bytes, 0, q);
@@ -387,9 +391,10 @@ impl Catalog {
         };
         let mut bounds = 0;
         let mut keyword = false;
-        for word in
-            std::iter::once(*first).chain(rest.iter().copied().take_while(|w| !ends_column_type(w)))
-        {
+        let type_words = (0..rest.len())
+            .find(|&i| ends_column_type(rest[i], rest.get(i + 1).copied()))
+            .unwrap_or(rest.len());
+        for word in std::iter::once(*first).chain(rest[..type_words].iter().copied()) {
             let (head, count) = array_bounds(word);
             bounds += count;
             keyword |= head.eq_ignore_ascii_case("ARRAY");
@@ -576,13 +581,14 @@ fn sql_string_literal(value: &str) -> String {
     format!("'{}'", value.replace('\'', "''"))
 }
 
-/// Whether `word`, after a column's first type word, ends the type: a
-/// constraint, a string literal, or a clause that follows the type
-/// (`COMMENT`, `CHARACTER SET`, `ON UPDATE`, `AS (...)`, ...).
+/// Whether `word`, after a column's first type word, begins a clause
+/// that follows the type (`COMMENT`, `CHARSET`, `ON UPDATE`, `AS (...)`,
+/// ...). `CHARACTER`, which is also a word of a type (`NATIONAL
+/// CHARACTER VARYING`), begins one only as `CHARACTER SET`, which
+/// [`ends_column_type`] reads with the word after it.
 fn is_type_clause_word(word: &str) -> bool {
     [
         "COMMENT",
-        "CHARACTER",
         "CHARSET",
         "ON",
         "AS",
@@ -600,10 +606,14 @@ fn is_type_clause_word(word: &str) -> bool {
     .any(|k| first_word(word).eq_ignore_ascii_case(k))
 }
 
-/// Whether `word`, after a column's first type word, is past the type.
-fn ends_column_type(word: &str) -> bool {
+/// Whether `word`, after a column's first type word and followed by
+/// `next`, is past the type: a constraint, a string literal, a clause
+/// word, or the `CHARACTER` of `CHARACTER SET`.
+fn ends_column_type(word: &str, next: Option<&str>) -> bool {
     is_constraint_word(word)
         || is_type_clause_word(word)
+        || first_word(word).eq_ignore_ascii_case("CHARACTER")
+            && next.is_some_and(|n| first_word(n).eq_ignore_ascii_case("SET"))
         || word.starts_with('\'')
         || word.starts_with(['E', 'e']) && word[1..].starts_with('\'')
 }
@@ -1314,15 +1324,31 @@ fn sql_type_to_kind(sql_type: &str) -> String {
     }
 }
 
-/// Extract a DEFAULT value from a constraint string.
+/// Extract a DEFAULT value from a constraint string: the expression
+/// after `DEFAULT` up to the first whitespace or comma outside
+/// parentheses, brackets and quoted text, so `ARRAY[1, 2]`,
+/// `nextval('s')` and `'a b'` are read whole.
 fn extract_default(constraint_str: &str) -> Option<String> {
     let idx = find_keyword_end(constraint_str, "DEFAULT")?;
     let rest = constraint_str[idx..].trim();
-    // Take the first token as the default value.
-    let end = rest
-        .find(|c: char| c.is_whitespace() || c == ',')
-        .unwrap_or(rest.len());
-    let val = rest[..end].trim().to_string();
+    let bytes = rest.as_bytes();
+    let mut depth = 0usize;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'(' | b'[' => depth += 1,
+            b')' | b']' => depth = depth.saturating_sub(1),
+            q @ (b'\'' | b'"' | b'`') => {
+                i = skip_quoted(bytes, i, q);
+                continue;
+            }
+            b',' if depth == 0 => break,
+            b if depth == 0 && b.is_ascii_whitespace() => break,
+            _ => {}
+        }
+        i += 1;
+    }
+    let val = rest[..i.min(rest.len())].trim().to_string();
     if val.is_empty() { None } else { Some(val) }
 }
 
@@ -1338,6 +1364,23 @@ fn extract_constraint_columns(constraint_str: &str) -> Option<Vec<String>> {
 fn extract_constraint_columns_at(stmt: &str, keyword: &str) -> Option<Vec<String>> {
     let idx = find_keyword_end(stmt, keyword)?;
     extract_constraint_columns(&stmt[idx..])
+}
+
+/// `name` as it is written in DDL: as is when it is a plain identifier
+/// (a letter or `_`, then letters, digits, `_` and `$`), and otherwise
+/// double-quoted, with `""` for a `"`, so a re-parse reads the same
+/// name.
+fn quoted_identifier(name: &str) -> std::borrow::Cow<'_, str> {
+    let plain = name
+        .bytes()
+        .next()
+        .is_some_and(|b| b.is_ascii_alphabetic() || b == b'_' || b >= 0x80)
+        && name.bytes().all(is_ident_byte);
+    if plain {
+        std::borrow::Cow::Borrowed(name)
+    } else {
+        std::borrow::Cow::Owned(format!("\"{}\"", name.replace('"', "\"\"")))
+    }
 }
 
 /// Map a vertex kind back to a SQL type name.
@@ -1458,6 +1501,7 @@ pub fn emit_ddl(schema: &Schema) -> Result<String, ProtocolError> {
             }
 
             let comma = if i + 1 < col_count { "," } else { "" };
+            let col_name = quoted_identifier(col_name);
             let _ = writeln!(body, "  {col_name} {sql_type}{constraints_str}{comma}");
         }
 
