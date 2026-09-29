@@ -29,6 +29,7 @@
 mod embed;
 mod nodelink;
 mod reify;
+mod table_embed;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
