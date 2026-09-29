@@ -2330,6 +2330,9 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
                 .collect(),
         ),
         panproto_expr::Literal::Null | panproto_expr::Literal::Closure { .. } => Value::Null,
+        panproto_expr::Literal::Decimal(d) => Value::Decimal(d.clone()),
+        panproto_expr::Literal::BigInt(b) => Value::BigInt(b.clone()),
+        panproto_expr::Literal::Temporal(t) => Value::Temporal(t.clone()),
     }
 }
 

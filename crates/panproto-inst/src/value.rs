@@ -2,11 +2,29 @@
 //!
 //! [`Value`] represents the leaf data in an instance tree, while
 //! [`FieldPresence`] distinguishes between present, null, and absent
-//! fields in the W-type model.
+//! fields in the W-type model. The exact scalar types a [`Value`] can hold
+//! (decimals, integers outside `i64`, dates and times) are defined in
+//! [`panproto_expr::exact`] and re-exported here, and [`coerce`](crate::value::coerce::coerce) reads a
+//! lexeme into a [`Value`] under the scalar kind a schema declares for it,
+//! reporting a [`ValueFidelityError`] whenever the kind cannot hold the
+//! lexeme exactly.
 
+pub mod coerce;
+mod serde_forms;
+
+use std::cmp::Ordering;
 use std::collections::HashMap;
 
+use panproto_gat::Name;
+use panproto_schema::{CanonicalWriter, ScalarKind};
 use serde::{Deserialize, Serialize};
+
+pub use panproto_expr::exact::{
+    BigIntValue, CivilDate, CivilTime, DecimalValue, ExactInteger, Offset, Temporal,
+};
+pub use panproto_expr::{ExactKind, ExactParseError, FidelityReason};
+
+use crate::identity::CanonicalSink;
 
 /// Field presence in a W-type instance node.
 ///
@@ -62,7 +80,9 @@ impl FieldPresence {
 ///
 /// - **Primitive atoms** ([`Self::Bool`], [`Self::Int`], [`Self::Float`],
 ///   [`Self::Str`], [`Self::Bytes`], [`Self::CidLink`], [`Self::Blob`],
-///   [`Self::Token`], [`Self::Null`]) — generators of the ADT.
+///   [`Self::Token`], [`Self::Null`], and the exact scalars
+///   [`Self::Decimal`], [`Self::BigInt`], [`Self::Temporal`]) — generators
+///   of the ADT.
 /// - **Records** ([`Self::Opaque`], [`Self::Unknown`]) — finite products
 ///   indexed by string field names (heterogeneous, unordered).
 /// - **Lists** ([`Self::List`]) — the free monoid / list object, an
@@ -73,6 +93,18 @@ impl FieldPresence {
 /// The `Unknown` and `List` variants together give the enum closure
 /// under the two fundamental JSON constructors (object and array) so
 /// that values with no schema anchor still round-trip losslessly.
+///
+/// # Serialized form
+///
+/// Variants serialize externally tagged in declaration order, and new
+/// variants are only ever appended, so the variant index of each is fixed.
+/// Two payloads depend on the format. In a human-readable format (JSON,
+/// and the Python and JavaScript object models) a non-finite
+/// [`Self::Float`] is the string `"NaN"`, `"Infinity"` or `"-Infinity"`,
+/// since JSON has no literal for it; msgpack and CBOR keep the native
+/// float. [`Self::Bytes`] is written as a byte string (a msgpack bin, a
+/// CBOR byte string, an integer array in JSON) and read from either a byte
+/// string or an integer sequence.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum Value {
     /// Boolean value.
@@ -80,11 +112,11 @@ pub enum Value {
     /// 64-bit signed integer.
     Int(i64),
     /// 64-bit floating-point number.
-    Float(f64),
+    Float(#[serde(with = "serde_forms::float")] f64),
     /// UTF-8 string.
     Str(String),
     /// Raw bytes.
-    Bytes(Vec<u8>),
+    Bytes(#[serde(with = "serde_forms::bytes")] Vec<u8>),
     /// A content-identifier link (CID).
     CidLink(String),
     /// A blob reference.
@@ -126,6 +158,15 @@ pub enum Value {
     /// a labeled null with another value (a constant or another null).
     /// Distinct from [`Self::Null`], which is a concrete (SQL-style) null.
     LabeledNull(u64),
+    /// An exact decimal number, keeping the scale it was written with.
+    Decimal(DecimalValue),
+    /// An integer outside the range of `i64`. An integer inside it is
+    /// always [`Self::Int`]; build integers through [`Self::integer`] or
+    /// [`Self::parse_integer`] to keep that so.
+    BigInt(BigIntValue),
+    /// A date, time of day, or date-time, with the offset it was written
+    /// with.
+    Temporal(Temporal),
 }
 
 impl Value {
@@ -146,7 +187,54 @@ impl Value {
             Self::Unknown(_) => "unknown",
             Self::List(_) => "list",
             Self::LabeledNull(_) => "labeled-null",
+            Self::Decimal(_) => "decimal",
+            Self::BigInt(_) => "bigint",
+            Self::Temporal(_) => "temporal",
         }
+    }
+
+    /// The value of an exact integer in its one representation:
+    /// [`Self::Int`] when it fits `i64`, else [`Self::BigInt`].
+    #[must_use]
+    pub fn integer(value: ExactInteger) -> Self {
+        match value {
+            ExactInteger::Int(n) => Self::Int(n),
+            ExactInteger::Big(b) => Self::BigInt(b),
+        }
+    }
+
+    /// Read an integer lexeme (an optional sign and ASCII digits) into its
+    /// one representation.
+    ///
+    /// # Errors
+    ///
+    /// [`FidelityReason::NotANumber`] when `text` is not an integer lexeme.
+    pub fn parse_integer(text: &str) -> Result<Self, ExactParseError> {
+        BigIntValue::parse(text).map(Self::integer)
+    }
+
+    /// The canonical bytes of this value: what
+    /// [`CanonicalSink::value`] writes for it.
+    #[must_use]
+    pub fn canonical_bytes(&self) -> Vec<u8> {
+        let mut writer = CanonicalWriter::new();
+        writer.value(self);
+        writer.into_bytes()
+    }
+
+    /// The total order of values by their canonical bytes
+    /// ([`Self::canonical_bytes`], compared lexicographically).
+    ///
+    /// Values of different variants order by their tags; values of one
+    /// variant by their payload bytes. The order is total and the same in
+    /// every process, so it can key a sort that must be reproducible; it is
+    /// not a numeric order (use [`DecimalValue::cmp_numeric`] for that).
+    #[must_use]
+    pub fn canonical_cmp(&self, other: &Self) -> Ordering {
+        if std::ptr::eq(self, other) {
+            return Ordering::Equal;
+        }
+        self.canonical_bytes().cmp(&other.canonical_bytes())
     }
 
     /// Returns the identity of this value if it is a labeled null.
@@ -162,6 +250,109 @@ impl Value {
     #[must_use]
     pub const fn is_labeled_null(&self) -> bool {
         matches!(self, Self::LabeledNull(_))
+    }
+}
+
+impl From<ExactInteger> for Value {
+    fn from(value: ExactInteger) -> Self {
+        Self::integer(value)
+    }
+}
+
+/// Where in a document a value was read.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct ValueSite {
+    /// The schema vertex the value belongs to.
+    pub vertex: Name,
+    /// The byte offset of the lexeme in the source, when the codec knows
+    /// it.
+    pub byte_offset: Option<u64>,
+}
+
+impl ValueSite {
+    /// The site of a value at `vertex`, at `byte_offset` when known.
+    #[must_use]
+    pub fn new(vertex: impl Into<Name>, byte_offset: Option<u64>) -> Self {
+        Self {
+            vertex: vertex.into(),
+            byte_offset,
+        }
+    }
+
+    /// A site not yet known: an empty vertex name and no offset. A codec
+    /// replaces it with [`ValueFidelityError::at`].
+    #[must_use]
+    pub fn unknown() -> Self {
+        Self::new("", None)
+    }
+}
+
+impl std::fmt::Display for ValueSite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "vertex {:?}", self.vertex.as_ref())?;
+        if let Some(offset) = self.byte_offset {
+            write!(f, " (byte {offset})")?;
+        }
+        Ok(())
+    }
+}
+
+/// A lexeme the declared scalar kind of its vertex cannot hold exactly.
+///
+/// Built by [`coerce`](coerce::coerce), or from an [`ExactParseError`] by
+/// `From`, which leaves the site unknown, the lexeme empty and the target
+/// the kind the parser was reading; the codec then fills them in with
+/// [`at`](Self::at), [`with_lexeme`](Self::with_lexeme) and
+/// [`with_target`](Self::with_target).
+#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize, thiserror::Error)]
+#[error("{lexeme:?} at {site} cannot be held exactly as {target:?}: {reason}")]
+pub struct ValueFidelityError {
+    /// Where the lexeme was read.
+    pub site: ValueSite,
+    /// The lexeme as the source wrote it.
+    pub lexeme: String,
+    /// The scalar kind it was read as.
+    pub target: ScalarKind,
+    /// Why the kind cannot hold it.
+    pub reason: FidelityReason,
+}
+
+impl ValueFidelityError {
+    /// The error with its site set to `site`.
+    #[must_use]
+    pub fn at(mut self, site: ValueSite) -> Self {
+        self.site = site;
+        self
+    }
+
+    /// The error with its lexeme set to `lexeme`.
+    #[must_use]
+    pub fn with_lexeme(mut self, lexeme: impl Into<String>) -> Self {
+        self.lexeme = lexeme.into();
+        self
+    }
+
+    /// The error with its target kind set to `target`.
+    #[must_use]
+    pub const fn with_target(mut self, target: ScalarKind) -> Self {
+        self.target = target;
+        self
+    }
+}
+
+impl From<ExactParseError> for ValueFidelityError {
+    fn from(error: ExactParseError) -> Self {
+        let target = match error.kind {
+            ExactKind::Decimal => ScalarKind::Decimal,
+            ExactKind::BigInt => ScalarKind::BigInt,
+            ExactKind::Temporal => ScalarKind::DateTime,
+        };
+        Self {
+            site: ValueSite::unknown(),
+            lexeme: String::new(),
+            target,
+            reason: error.reason,
+        }
     }
 }
 

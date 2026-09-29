@@ -419,6 +419,13 @@ fn value_to_json(val: &Value) -> serde_json::Value {
         // chase; render it with its identity so it stays distinguishable
         // from a concrete null.
         Value::LabeledNull(id) => json!({ "$labeledNull": id }),
+        // A JSON number in `serde_json::Value` is an `i64`, `u64` or
+        // `f64`, which cannot hold every exact value, so the exact values
+        // are written as their lexical form: the decimal with its scale,
+        // the integer's digits, the date or time in RFC 3339.
+        Value::Decimal(d) => json!(d.to_string()),
+        Value::BigInt(b) => json!(b.to_string()),
+        Value::Temporal(t) => json!(t.to_string()),
     }
 }
 

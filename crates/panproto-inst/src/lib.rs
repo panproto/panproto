@@ -123,6 +123,7 @@ pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
 pub use validate::{validate_attributes, validate_wtype};
+pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};
 pub use view_ref::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
 pub use wtype::{
