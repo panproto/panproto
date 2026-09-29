@@ -1844,6 +1844,26 @@ mod tests {
         }
     }
 
+    /// The compiled encoding of a migration that reaches every field and
+    /// several value tags, pinned by its blake3 hash and its lens digest, so
+    /// that a change to how values or compiled fields are written shows up
+    /// here before it reaches a stored complement.
+    #[test]
+    fn the_compiled_encoding_is_pinned() {
+        let bytes = canonical_compiled_bytes(&rich_migration());
+        assert_eq!(
+            blake3::hash(&bytes).to_hex().to_string(),
+            "d874316e8b8bf7b408ea4bfea5d55b459a9ae058b0a2bebab723e875ce0539f5",
+            "canonical_compiled_bytes moved"
+        );
+        let s = schema(None);
+        assert_eq!(
+            lens_digest(&s, &s, &rich_migration()).to_hex(),
+            "70d26a739774b1328e34ea05a8459b605d35e346a326097119454185b019f6fc",
+            "lens_digest moved"
+        );
+    }
+
     type Edit = fn(&mut CompiledMigration);
 
     #[test]
