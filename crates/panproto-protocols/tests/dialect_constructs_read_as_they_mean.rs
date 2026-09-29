@@ -257,6 +257,125 @@ fn boolean_items_keep_their_meaning() {
     assert_eq!(emitted["additionalItems"], json!(false), "{emitted}");
 }
 
+#[test]
+fn a_document_with_an_identity_emits_from_its_root() {
+    for doc in [
+        json!({
+            "$schema": "http://json-schema.org/draft-04/schema#",
+            "id": "http://x.test/d4",
+            "type": "object",
+            "properties": { "p": { "type": "string" } }
+        }),
+        json!({
+            "$id": "http://x.test/d7",
+            "type": "object",
+            "properties": { "p": { "type": "string" } }
+        }),
+    ] {
+        let schema = parse_json_schema(&doc).required("schema parses");
+        let emitted = emit_json_schema(&schema).required("a document with an identity emits");
+        assert_eq!(emitted["type"], "object", "{emitted}");
+        assert_eq!(emitted["properties"]["p"]["type"], "string", "{emitted}");
+    }
+}
+
+#[test]
+fn the_tsconfig_fixture_emits() {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../fixtures/jsonschema/tsconfig.json");
+    let text = std::fs::read_to_string(path).required("the fixture exists");
+    let doc: serde_json::Value = serde_json::from_str(&text).required("the fixture is JSON");
+    let schema = parse_json_schema(&doc).required("the fixture parses");
+    let emitted = emit_json_schema(&schema).required("the fixture emits");
+    assert!(
+        emitted.get("allOf").is_some(),
+        "the root's allOf is emitted"
+    );
+}
+
+#[test]
+fn an_id_outside_draft_04_is_not_the_document_identity() {
+    let schema = parse_json_schema(&json!({
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "id": "whatever",
+        "type": "object",
+        "properties": { "p": { "type": "string" } }
+    }))
+    .required("schema parses");
+    assert!(schema.has_vertex("root"), "a 2020-12 `id` is no keyword");
+    assert!(schema.has_vertex("root.p"));
+}
+
+#[test]
+fn an_identity_that_is_only_a_fragment_leaves_the_document_unnamed() {
+    for doc in [
+        json!({ "$id": "#", "type": "object", "properties": { "p": { "type": "string" } } }),
+        json!({ "id": "#", "type": "object", "properties": { "p": { "type": "string" } } }),
+        json!({ "$id": "", "type": "object", "properties": { "p": { "type": "string" } } }),
+    ] {
+        let schema = parse_json_schema(&doc).required("schema parses");
+        assert!(schema.has_vertex("root"), "{doc}: the root is `root`");
+        assert!(
+            schema.has_vertex("root.p"),
+            "{doc}: its property is `root.p`"
+        );
+        let emitted = emit_json_schema(&schema).required("the document emits");
+        assert_eq!(emitted["properties"]["p"]["type"], "string", "{emitted}");
+    }
+}
+
+#[test]
+fn an_array_of_a_multi_word_character_type_is_an_array() {
+    let schema = parse_ddl("CREATE TABLE t (c NATIONAL CHARACTER VARYING(5)[], d CHARACTER(3)[]);")
+        .required("DDL parses");
+    assert_eq!(kind(&schema, "t.c"), "array");
+    assert_eq!(kind(&schema, "t.c:items"), "string");
+    assert_eq!(kind(&schema, "t.d"), "array");
+}
+
+#[test]
+fn an_array_default_and_an_odd_column_name_survive_emit_and_reparse() {
+    let ddl = "CREATE TABLE t (id INT, f INT[] DEFAULT ARRAY[1, 2], \
+               g TEXT CHECK (g IN ('[a]')), [h]]x] INT, s TEXT DEFAULT 'a b');";
+    let first = parse_ddl(ddl).required("first parse");
+    assert_eq!(
+        constraint(&first, "t.f", "DEFAULT").as_deref(),
+        Some("ARRAY[1, 2]")
+    );
+    assert_eq!(
+        constraint(&first, "t.s", "DEFAULT").as_deref(),
+        Some("'a b'")
+    );
+    assert!(first.has_vertex("t.h]x"));
+    let emitted = emit_ddl(&first).required("emit");
+    let second = parse_ddl(&emitted).required("re-parse");
+    for column in ["t.id", "t.f", "t.g", "t.h]x", "t.s"] {
+        assert!(second.has_vertex(column), "{column} survives: {emitted}");
+    }
+    assert_eq!(
+        constraint(&second, "t.f", "DEFAULT"),
+        constraint(&first, "t.f", "DEFAULT"),
+        "{emitted}"
+    );
+    assert_eq!(
+        constraint(&second, "t.s", "DEFAULT"),
+        constraint(&first, "t.s", "DEFAULT"),
+        "{emitted}"
+    );
+}
+
+#[test]
+fn a_drop_removes_a_bracket_quoted_create_in_any_case() {
+    let schema =
+        parse_ddl("CREATE TABLE [Foo] (id INT); DROP TABLE foo; CREATE TABLE keep (id INT);")
+            .required("DDL parses");
+    assert!(
+        !schema.has_vertex("Foo"),
+        "brackets compare without regard to case"
+    );
+    assert!(schema.has_vertex("keep"));
+}
+
 /// An option a test requires to be `Some`.
 trait RequiredSome<T> {
     /// The value, or a panic naming `what`.
