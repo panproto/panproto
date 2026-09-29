@@ -96,7 +96,7 @@ const RIGHT: &str = "right";
 /// Compute the pushout (colimit) of a span `t1 <- shared -> t2`.
 ///
 /// This is the amalgamation compatibility mode: it builds the span
-/// [`TheoryDiagram::span`] and runs [`crate::compose`] with
+/// [`TheoryDiagram::span`] and runs [`crate::compose()`] with
 /// [`CompositionMode::Amalgamate`], so beyond what `i1` and `i2` identify,
 /// same-name sorts and operations (and same-name equations, directed
 /// equations and policies of equal content) of the two sides are
