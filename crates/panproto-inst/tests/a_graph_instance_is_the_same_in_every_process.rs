@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, HashMap};
 use std::fmt::Write as _;
 use std::process::Command;
 
-use panproto_inst::{EdgeId, GInstance, Node, Value, to_node_link_json};
+use panproto_inst::{EdgeId, GInstance, Node, Value, canonical_ginstance_bytes, to_node_link_json};
 use panproto_schema::Edge;
 
 /// How many separate processes each answer is compared across.
@@ -86,6 +86,8 @@ fn dump(fixture: &str) -> String {
         "msgpack_named" => hex(&rmp_serde::to_vec_named(&graph).expect("the fixture serializes")),
         "json" => serde_json::to_string(&graph).expect("the fixture serializes"),
         "node_link" => to_node_link_json(&graph).to_string(),
+        "digest" => graph.digest().to_hex(),
+        "canonical" => hex(&canonical_ginstance_bytes(&graph)),
         other => panic!("no fixture named {other}"),
     }
 }
@@ -149,6 +151,16 @@ fn a_graph_encodes_to_json_the_same_whatever_the_hash_seed() {
 #[test]
 fn a_graph_encodes_to_node_link_json_the_same_whatever_the_hash_seed() {
     assert_one_encoding("node_link");
+}
+
+#[test]
+fn a_graph_digest_is_the_same_whatever_the_hash_seed() {
+    assert_one_encoding("digest");
+}
+
+#[test]
+fn canonical_graph_bytes_are_the_same_whatever_the_hash_seed() {
+    assert_one_encoding("canonical");
 }
 
 #[test]

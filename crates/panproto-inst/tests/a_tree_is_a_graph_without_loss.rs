@@ -17,9 +17,9 @@ use std::collections::HashMap;
 
 use panproto_gat::Name;
 use panproto_inst::{
-    EdgeId, FInstance, Fan, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND,
-    InstError, Node, NodeShape, Value, WInstance, from_node_link_json, reify_fans,
-    to_node_link_json, unreify_fans,
+    EdgeId, FInstance, Fan, FanViolation, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND,
+    HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, Value, WInstance,
+    from_node_link_json, reify_fans, to_node_link_json, unreify_fans,
 };
 use panproto_schema::{Edge, HyperEdge, Protocol, SchemaBuilder};
 use proptest::prelude::*;
@@ -170,7 +170,7 @@ proptest! {
     #[test]
     fn unreify_inverts_reify_on_a_trees_graph_form(tree in arb_tree()) {
         let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
-        let (rest, fans) = unreify_fans(&graph);
+        let (rest, fans) = unreify_fans(&graph).expect("a tree's graph form is in the fan domain");
         prop_assert_eq!(&fans, &tree.fans, "fans come back in order, duplicates kept");
         prop_assert_eq!(rest.node_count(), tree.nodes.len());
         prop_assert_eq!(rest.edge_count(), tree.arcs.len());
@@ -268,6 +268,26 @@ fn from_wtype_lays_out_ids_as_documented() {
     let theme = graph.edge(EdgeId(4)).expect("the second child");
     assert_eq!(theme.edge.name.as_deref(), Some("theme"));
     assert_eq!(theme.tgt, 4);
+
+    // The embedding records the same layout.
+    let (embedded, embedding) =
+        GInstance::from_wtype_embedded(&sentence(), None).expect("a tree embeds");
+    assert!(GInstance::identical(&embedded, &graph));
+    assert_eq!(
+        embedding.arcs,
+        std::collections::BTreeMap::from([(4, EdgeId(0)), (1, EdgeId(1))])
+    );
+    assert_eq!(embedding.fans.len(), 1);
+    assert_eq!(embedding.fans[0].node, 5);
+    assert_eq!(embedding.fans[0].parent_edge, EdgeId(2));
+    assert_eq!(
+        embedding.fans[0].child_edges,
+        std::collections::BTreeMap::from([
+            ("agent".to_owned(), EdgeId(3)),
+            ("theme".to_owned(), EdgeId(4)),
+        ])
+    );
+    assert_eq!((embedding.next_node, embedding.next_edge), (6, 5));
 }
 
 #[test]
@@ -317,7 +337,9 @@ fn to_wtype_refuses_what_is_not_a_tree() {
         .with_edge(1, 2, knows.clone());
     assert!(matches!(
         two_parents.to_wtype(0),
-        Err(InstError::NotATree { node: 1, .. })
+        Err(InstError::NotATree {
+            reason: NotTreeReason::MultipleParents { node: 2, .. }
+        })
     ));
 
     let cycle = people(3)
@@ -326,16 +348,20 @@ fn to_wtype_refuses_what_is_not_a_tree() {
         .with_edge(2, 1, knows.clone());
     assert!(matches!(
         cycle.to_wtype(0),
-        Err(InstError::NotATree { node: 1, .. })
+        Err(InstError::NotATree {
+            reason: NotTreeReason::MultipleParents { node: 1, .. }
+        })
     ));
 
     let detached = people(3)
         .with_edge(0, 1, knows.clone())
         .with_edge(2, 2, knows.clone());
-    assert!(matches!(
-        detached.to_wtype(0),
-        Err(InstError::NotATree { node: 2, .. })
-    ));
+    match detached.to_wtype(0) {
+        Err(InstError::NotATree {
+            reason: NotTreeReason::Cycle { witness },
+        }) => assert_eq!(witness, vec![EdgeId(1)], "the self-loop is the cycle"),
+        other => panic!("expected a cycle, got {other:?}"),
+    }
 
     let mut positioned = people(2).with_edge(0, 1, knows);
     positioned
@@ -343,7 +369,9 @@ fn to_wtype_refuses_what_is_not_a_tree() {
         .expect("the edge exists");
     assert!(matches!(
         positioned.to_wtype(0),
-        Err(InstError::NotATree { node: 0, .. })
+        Err(InstError::NotATree {
+            reason: NotTreeReason::PositionedEdge { edge: EdgeId(0) }
+        })
     ));
 
     assert!(matches!(people(1).to_wtype(7), Err(InstError::MissingRoot)));
@@ -369,7 +397,7 @@ fn from_wtype_refuses_a_dangling_arc() {
 }
 
 #[test]
-fn a_malformed_fan_node_stays_an_ordinary_node() {
+fn a_malformed_fan_node_is_refused_rather_than_kept_as_an_ordinary_node() {
     let graph = GInstance::new()
         .with_node(Node::new(0, "sent"))
         .with_node(Node::new(1, "arg").with_shape(NodeShape::HyperEdge))
@@ -383,9 +411,13 @@ fn a_malformed_fan_node_stays_an_ordinary_node() {
                 name: Some("only_a_label".into()),
             },
         );
-    let (rest, fans) = unreify_fans(&graph);
-    assert!(fans.is_empty(), "no hyper_parent edge, so not a fan node");
-    assert!(GInstance::identical(&rest, &graph));
+    assert!(matches!(
+        unreify_fans(&graph),
+        Err(InstError::MalformedFan {
+            node: 1,
+            reason: FanViolation::MissingParent
+        })
+    ));
 }
 
 #[test]
@@ -501,9 +533,10 @@ fn a_schema_root_other_than_the_root_anchor_comes_back() {
 }
 
 #[test]
-fn a_root_shaped_like_a_fan_node_stays_the_root() {
+fn a_root_of_the_fan_shape_is_reserved_vocabulary() {
     // The root has the fan-node shape and a single `hyper_parent` out-edge,
-    // so on shape alone it reads as a fan node. It is the root all the same.
+    // so on shape alone it reads as a fan node. The fan shape and kinds are
+    // reserved for fans, so the tree is refused.
     let root = Node::new(0, "doc").with_shape(NodeShape::HyperEdge);
     let nodes = HashMap::from([(0, root), (1, Node::new(1, "para"))]);
     let arc = Edge {
@@ -513,13 +546,17 @@ fn a_root_shaped_like_a_fan_node_stays_the_root() {
         name: None,
     };
     let tree = WInstance::new(nodes, vec![(0, 1, arc)], vec![], 0, "doc".into());
-    let graph = GInstance::from_wtype(&tree).expect("a tree has a graph form");
-    let back = graph.to_wtype(0).expect("the graph form is a tree");
-    assert_eq!(tree_bytes(&back), tree_bytes(&tree));
+    assert!(matches!(
+        GInstance::from_wtype(&tree),
+        Err(InstError::MalformedFan {
+            node: 0,
+            reason: FanViolation::ReservedKindOutsideFan { edge: EdgeId(0) }
+        })
+    ));
 }
 
 #[test]
-fn from_wtype_refuses_a_node_its_graph_form_would_read_as_a_fan() {
+fn from_wtype_refuses_reserved_vocabulary_its_graph_form_would_read_as_a_fan() {
     // Node 1 has no incoming arc and the form of a fan node: the fan-node
     // shape, one `hyper_parent` out-arc and a named `hyper_label` out-arc.
     // Its graph form is the graph form of the one-node tree with a fan, so
@@ -561,7 +598,10 @@ fn from_wtype_refuses_a_node_its_graph_form_would_read_as_a_fan() {
     );
     assert!(matches!(
         GInstance::from_wtype(&orphan),
-        Err(InstError::NotATree { node: 1, .. })
+        Err(InstError::MalformedFan {
+            node: 1,
+            reason: FanViolation::ReservedKindOutsideFan { .. }
+        })
     ));
 }
 

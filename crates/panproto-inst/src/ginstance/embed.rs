@@ -1,164 +1,22 @@
 //! Trees as graph instances.
 //!
-//! [`GInstance::from_wtype`] and [`GInstance::to_wtype`] move a tree into a
-//! graph and back without loss.
+//! [`GInstance::from_wtype_embedded`] lays a tree out as a graph and records
+//! the correspondence as a [`TreeEmbedding`]; the way back is in the
+//! `tree_shape` module.
 
-use std::collections::VecDeque;
-
-use panproto_gat::Name;
 use panproto_schema::Schema;
 
-use super::{EdgeId, GEdge, GInstance, reify};
+use super::embedding::{FanEmbedding, TreeEmbedding};
+use super::reify;
+use super::{EdgeId, GEdge, GInstance};
+use crate::NotTreeReason;
 use crate::error::InstError;
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::wtype::WInstance;
 
-impl GInstance {
-    /// The graph form of a tree.
-    ///
-    /// Node ids are preserved. Arc `i`, in `WInstance::arcs` order, becomes
-    /// the edge `EdgeId(i)` with no position, so the tree's child order is the
-    /// edge order. Each fan is reified as a fan node (see
-    /// [`reify_fans`](crate::reify_fans)): fan `k`, in `WInstance::fans` order
-    /// and duplicates included, gets node id `max_node_id + 1 + k`, and its
-    /// edges follow every arc edge, the parent edge first and then the
-    /// children in ascending label order. Without a schema the parent edge is
-    /// unnamed; [`Self::from_wtype_with_schema`] names it by the hyper-edge's
-    /// parent label.
-    ///
-    /// [`Self::to_wtype_with_schema_root`] inverts this, and so does
-    /// [`Self::to_wtype`] when the tree's schema root is its root node's
-    /// anchor.
-    ///
-    /// A node other than the root that, in the graph form, has the form of a
-    /// fan node (see [`unreify_fans`](crate::unreify_fans)) could not be told
-    /// apart from a reified fan, so the way back would read it as one. Such a
-    /// node has no incoming arc, which no non-root node of a tree lacks, and
-    /// the input is refused rather than laid out ambiguously.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InstError::DanglingEdge`] when an arc or a fan names a node
-    /// the tree does not hold, [`InstError::NotATree`] when a node other than
-    /// the root has the form of a fan node, and
-    /// [`InstError::EdgeIdsExhausted`] or [`InstError::NodeIdsExhausted`]
-    /// when the ids do not fit in `u32`.
-    pub fn from_wtype(tree: &WInstance) -> Result<Self, InstError> {
-        embed_tree(tree, None)
-    }
-
-    /// [`Self::from_wtype`], naming each fan's parent edge by the parent label
-    /// `schema` declares for its hyper-edge.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::from_wtype`].
-    pub fn from_wtype_with_schema(tree: &WInstance, schema: &Schema) -> Result<Self, InstError> {
-        embed_tree(tree, Some(schema))
-    }
-
-    /// The tree form of a graph that is a tree rooted at `root` plus reified
-    /// fans, with the root node's anchor as its schema root.
-    ///
-    /// A graph does not record a schema root, so this names the root node's
-    /// anchor there. It inverts [`Self::from_wtype`] exactly on every tree
-    /// whose schema root is its root node's anchor;
-    /// [`Self::to_wtype_with_schema_root`] inverts it on every tree.
-    ///
-    /// # Errors
-    ///
-    /// As [`Self::to_wtype_with_schema_root`].
-    pub fn to_wtype(&self, root: u32) -> Result<WInstance, InstError> {
-        let anchor = self
-            .node(root)
-            .ok_or(InstError::MissingRoot)?
-            .anchor
-            .clone();
-        self.to_wtype_with_schema_root(root, anchor)
-    }
-
-    /// The tree form of a graph that is a tree rooted at `root` plus reified
-    /// fans, with `schema_root` as its schema root.
-    ///
-    /// Fan nodes other than `root` are taken out first (see
-    /// [`unreify_fans`](crate::unreify_fans)) and become the tree's fans in
-    /// ascending fan-node id; `root` stays the root whatever its shape. What
-    /// remains must be a tree: `root` has no incoming edge, every other node
-    /// has exactly one and is reachable from `root`, and no edge carries a
-    /// position, since a tree orders children by arc order alone. Arcs are
-    /// emitted in ascending [`EdgeId`] order.
-    ///
-    /// For every tree `t` that [`Self::from_wtype`] accepts,
-    /// `from_wtype(&t)?.to_wtype_with_schema_root(t.root, t.schema_root.clone())`
-    /// is `t` when every node of `t` is reachable from its root, and is
-    /// [`InstError::NotATree`] otherwise; it is never a different tree.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`InstError::MissingRoot`] when `root` is not a node and
-    /// [`InstError::NotATree`] when the rest is not a tree rooted there.
-    pub fn to_wtype_with_schema_root(
-        &self,
-        root: u32,
-        schema_root: Name,
-    ) -> Result<WInstance, InstError> {
-        let (rest, fans) = reify::unreify_fans_keeping(self, Some(root));
-        if rest.node(root).is_none() {
-            return Err(InstError::MissingRoot);
-        }
-        if let Some(edge) = rest.in_edges(root).first() {
-            return Err(InstError::NotATree {
-                node: root,
-                detail: format!("the root has incoming edge {edge}"),
-            });
-        }
-        let mut node_ids: Vec<u32> = rest.nodes().keys().copied().collect();
-        node_ids.sort_unstable();
-        for &id in &node_ids {
-            let incoming = rest.in_edges(id);
-            if id != root && incoming.len() != 1 {
-                return Err(InstError::NotATree {
-                    node: id,
-                    detail: format!("{} incoming edges where a tree has one", incoming.len()),
-                });
-            }
-        }
-        let mut seen = std::collections::HashSet::from([root]);
-        let mut queue = VecDeque::from([root]);
-        while let Some(node) = queue.pop_front() {
-            for child in rest.successors(node) {
-                if seen.insert(child) {
-                    queue.push_back(child);
-                }
-            }
-        }
-        if let Some(&unreached) = node_ids.iter().find(|id| !seen.contains(id)) {
-            return Err(InstError::NotATree {
-                node: unreached,
-                detail: "unreachable from the root".to_owned(),
-            });
-        }
-        let mut arcs = Vec::with_capacity(rest.edge_count());
-        for (id, edge) in rest.edges_sorted() {
-            if edge.position.is_some() {
-                return Err(InstError::NotATree {
-                    node: edge.src,
-                    detail: format!("edge {id} carries a position"),
-                });
-            }
-            arcs.push((edge.src, edge.tgt, edge.edge.clone()));
-        }
-        Ok(WInstance::new(
-            rest.nodes().clone(),
-            arcs,
-            fans,
-            root,
-            schema_root,
-        ))
-    }
-}
-
-/// Lay a tree out as a graph, reifying its fans.
-fn embed_tree(tree: &WInstance, schema: Option<&Schema>) -> Result<GInstance, InstError> {
+/// Insert a tree's nodes into an empty graph, checking that each is filed
+/// under its own id, and refuse reserved vocabulary among them.
+fn tree_nodes(tree: &WInstance) -> Result<GInstance, InstError> {
     let mut graph = GInstance::new();
     let mut ids: Vec<u32> = tree.nodes.keys().copied().collect();
     ids.sort_unstable();
@@ -172,28 +30,175 @@ fn embed_tree(tree: &WInstance, schema: Option<&Schema>) -> Result<GInstance, In
         }
         graph.insert_node(node.clone())?;
     }
-    for (index, (src, tgt, edge)) in tree.arcs.iter().enumerate() {
-        let id = EdgeId(u32::try_from(index).map_err(|_| InstError::EdgeIdsExhausted)?);
-        graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
-    }
-    let graph = reify::reify_fans(&graph, &tree.fans, schema)?;
-    let mut tree_ids: Vec<u32> = tree.nodes.keys().copied().collect();
-    tree_ids.sort_unstable();
-    for id in tree_ids {
-        if id == tree.root {
-            continue;
-        }
-        if graph
-            .node(id)
-            .is_some_and(|node| reify::fan_of(&graph, node).is_some())
-        {
-            return Err(InstError::NotATree {
-                node: id,
-                detail: "a node other than the root has the form of a fan node, so its graph \
-                         form would read back as a fan"
-                    .to_owned(),
-            });
-        }
-    }
     Ok(graph)
+}
+
+/// Refuse a tree whose graph form would hold reserved fan vocabulary
+/// outside its fans: a node of the fan shape, or an arc of a reserved kind.
+fn refuse_reserved(graph: &GInstance) -> Result<(), InstError> {
+    match reify::reserved_vocabulary(graph) {
+        Some((node, reason)) => Err(InstError::MalformedFan { node, reason }),
+        None => Ok(()),
+    }
+}
+
+/// Refuse a second arc into one child: the embedding records one arc per
+/// child.
+fn refuse_second_parent(
+    embedding: &TreeEmbedding,
+    child: u32,
+    id: EdgeId,
+) -> Result<(), InstError> {
+    match embedding.arcs.get(&child) {
+        Some(&first) => Err(InstError::NotATree {
+            reason: NotTreeReason::MultipleParents {
+                node: child,
+                edges: vec![first, id],
+            },
+        }),
+        None => Ok(()),
+    }
+}
+
+impl GInstance {
+    /// The graph form of a tree, with the embedding relating the two.
+    ///
+    /// Node ids are preserved. Arc `i`, in `WInstance::arcs` order, becomes
+    /// the edge `EdgeId(i)` with no position, so the tree's child order is the
+    /// edge order. Each fan is reified as a fan node (see
+    /// [`reify_fans`](crate::reify_fans)): fan `k`, in `WInstance::fans` order
+    /// and duplicates included, gets node id `max_node_id + 1 + k`, and its
+    /// edges follow every arc edge, the parent edge first and then the
+    /// children in ascending label order. The parent edge is named by the
+    /// parent label `schema` declares for the fan's hyper-edge, and is
+    /// unnamed without a schema or a declaration. Ids are drawn from one
+    /// [`IdAllocator`] per kind over the whole id space, whose floors, after
+    /// this initial allocation, are the embedding's `next_node` and
+    /// `next_edge`: `next_node` is one above every tree node and fan node
+    /// id, the floor of the graph.
+    ///
+    /// Reserved fan vocabulary is invalid in a tree, so for a valid tree this
+    /// fails only when the ids run out.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::NodeIdMismatch`] when a node is filed under
+    /// another id, [`InstError::DanglingEdge`] when an arc or a fan names a
+    /// node the tree does not hold, [`InstError::NotATree`] with
+    /// [`NotTreeReason::MultipleParents`] when two arcs enter one child,
+    /// [`InstError::MalformedFan`] when a node has the fan shape or an arc
+    /// has a reserved fan kind, and [`InstError::NodeIdsExhausted`] or
+    /// [`InstError::EdgeIdsExhausted`] when the ids, and the counters one
+    /// above them, do not fit in `u32`.
+    pub fn from_wtype_embedded(
+        tree: &WInstance,
+        schema: Option<&Schema>,
+    ) -> Result<(Self, TreeEmbedding), InstError> {
+        let mut graph = tree_nodes(tree)?;
+        let mut edges = IdAllocator::new(IdRange::FULL);
+        let mut arc_ids = Vec::with_capacity(tree.arcs.len());
+        for (src, tgt, edge) in &tree.arcs {
+            let id = EdgeId(edges.allocate().map_err(|e| e.whole_state(IdKind::Edge))?);
+            graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
+            arc_ids.push((*tgt, id));
+        }
+        refuse_reserved(&graph)?;
+        let mut embedding = TreeEmbedding::default();
+        for (child, id) in arc_ids {
+            refuse_second_parent(&embedding, child, id)?;
+            embedding.arcs.insert(child, id);
+        }
+        let mut nodes = IdAllocator::from_source(IdRange::FULL, tree.nodes.keys().copied());
+        let (graph, fans) = reify::reify_into(graph, &tree.fans, schema, &mut nodes, &mut edges)?;
+        embedding.fans = fans.into_iter().map(FanEmbedding::from).collect();
+        embedding.next_node = nodes.floor().ok_or(InstError::NodeIdsExhausted)?;
+        embedding.next_edge = edges.floor().ok_or(InstError::EdgeIdsExhausted)?;
+        Ok((graph, embedding))
+    }
+
+    /// The graph form of a tree: the first projection of
+    /// [`Self::from_wtype_embedded`] without a schema.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_wtype_embedded`].
+    pub fn from_wtype(tree: &WInstance) -> Result<Self, InstError> {
+        Self::from_wtype_embedded(tree, None).map(|(graph, _)| graph)
+    }
+
+    /// [`Self::from_wtype`], naming each fan's parent edge by the parent label
+    /// `schema` declares for its hyper-edge.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::from_wtype_embedded`].
+    pub fn from_wtype_with_schema(tree: &WInstance, schema: &Schema) -> Result<Self, InstError> {
+        Self::from_wtype_embedded(tree, Some(schema)).map(|(graph, _)| graph)
+    }
+
+    /// The graph form of a tree under a given embedding: arcs take the edge
+    /// ids `embedding.arcs` records and fans the ids `embedding.fans`
+    /// records, in `WInstance::fans` order.
+    ///
+    /// This is the graph a tree edit leads to when the embedding follows the
+    /// edit (see [`TreeEmbedding::apply_edit`]), and for the embedding
+    /// [`Self::from_wtype_embedded`] returns it is that function's graph.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DanglingArc`] when an arc's child has no
+    /// recorded edge, [`InstError::NotATree`] with
+    /// [`NotTreeReason::FanNotRepresentable`] when the embedding records a
+    /// different number of fans or a fan with other labels, and otherwise
+    /// the errors of [`Self::from_wtype_embedded`], including
+    /// [`InstError::DuplicateEdge`] or [`InstError::DuplicateNode`] when the
+    /// embedding reuses an id.
+    pub fn from_wtype_under(
+        tree: &WInstance,
+        embedding: &TreeEmbedding,
+        schema: Option<&Schema>,
+    ) -> Result<Self, InstError> {
+        let mut graph = tree_nodes(tree)?;
+        for (src, tgt, edge) in &tree.arcs {
+            let id = *embedding.arcs.get(tgt).ok_or(InstError::DanglingArc {
+                src: *src,
+                tgt: *tgt,
+            })?;
+            graph.insert_edge(id, GEdge::new(*src, *tgt, edge.clone()))?;
+        }
+        refuse_reserved(&graph)?;
+        let unfit = |node: u32| InstError::NotATree {
+            reason: NotTreeReason::FanNotRepresentable { node },
+        };
+        if embedding.fans.len() != tree.fans.len() {
+            let node = embedding
+                .fans
+                .get(tree.fans.len())
+                .map_or_else(|| embedding.next_node, |f| f.node);
+            return Err(unfit(node));
+        }
+        let tree_ids = graph
+            .nodes()
+            .keys()
+            .copied()
+            .collect::<std::collections::HashSet<_>>();
+        for (fan, ids) in tree.fans.iter().zip(&embedding.fans) {
+            let labels_match = fan.children.len() == ids.child_edges.len()
+                && fan.children.keys().all(|l| ids.child_edges.contains_key(l));
+            if !labels_match {
+                return Err(unfit(ids.node));
+            }
+            let mut edge_ids =
+                std::iter::once(ids.parent_edge).chain(ids.child_edges.values().copied());
+            reify::insert_fan(
+                &mut graph,
+                fan,
+                schema,
+                ids.node,
+                &mut || edge_ids.next().ok_or(InstError::EdgeIdsExhausted),
+                &|target| tree_ids.contains(&target),
+            )?;
+        }
+        Ok(graph)
+    }
 }

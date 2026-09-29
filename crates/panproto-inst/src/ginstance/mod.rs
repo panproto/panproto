@@ -4,7 +4,8 @@
 //! of nodes and identified edges with no distinguished root, cycles, self-loops
 //! and parallel edges allowed. Both [`WInstance`](crate::WInstance) (trees) and
 //! [`FInstance`](crate::FInstance) (tables) embed into it; see
-//! [`GInstance::from_wtype`] and [`GInstance::from_finstance`].
+//! [`GInstance::from_wtype_embedded`] and [`GInstance::from_finstance`], and
+//! [`GInstance::tree_shape`] for the way back to a tree.
 //!
 //! This is the natural instance theory for knowledge graphs (RDF, OWL,
 //! JSON-LD), property graphs (Neo4j), and dependency graphs.
@@ -26,10 +27,13 @@
 //! the adjacency indices consistent with the edge table, and every edge's
 //! endpoints exist.
 
+mod canonical;
 mod embed;
+mod embedding;
 mod nodelink;
 mod reify;
 mod table_embed;
+mod tree_shape;
 
 use std::collections::{BTreeMap, HashMap};
 use std::fmt;
@@ -39,11 +43,20 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::{InstError, RestrictError};
 use crate::metadata::Node;
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::{FieldPresence, Value};
 use crate::wtype::CompiledMigration;
 
+pub use canonical::{
+    canonical_ginstance_bytes, write_edge_record, write_ginstance, write_node_record,
+};
+pub use embedding::{FanEmbedding, TreeEmbedding};
 pub use nodelink::{from_node_link_json, to_node_link_json};
-pub use reify::{HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, unreify_fans};
+pub use reify::{
+    FanDomain, HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, unreify_fans,
+    unreify_fans_with_schema,
+};
+pub use tree_shape::{NotTreeReason, TreeShapeReport};
 
 /// Identifier of an edge in a [`GInstance`].
 ///
@@ -132,6 +145,9 @@ pub struct GInstance {
     out_index: HashMap<u32, Vec<EdgeId>>,
     /// In-edges of each node, ascending.
     in_index: HashMap<u32, Vec<EdgeId>>,
+    /// The edge id allocator: its floor is one above every edge id the
+    /// instance has held since it was built or decoded.
+    edge_ids: IdAllocator,
 }
 
 /// Writes the struct `GInstanceWire { nodes, edges }`, both maps in ascending
@@ -262,6 +278,7 @@ impl TryFrom<GInstanceWireEntries> for GInstance {
             edges: HashMap::with_capacity(wire.edges.len()),
             out_index: HashMap::new(),
             in_index: HashMap::new(),
+            edge_ids: IdAllocator::new(IdRange::FULL),
         };
         let mut edges = wire.edges;
         edges.sort_unstable_by_key(|(id, _)| *id);
@@ -324,6 +341,7 @@ impl GInstance {
             edges: HashMap::new(),
             out_index: HashMap::new(),
             in_index: HashMap::new(),
+            edge_ids: IdAllocator::new(IdRange::FULL),
         }
     }
 
@@ -336,7 +354,8 @@ impl GInstance {
         self
     }
 
-    /// Add an edge from `src` to `tgt` under the next free [`EdgeId`].
+    /// Add an edge from `src` to `tgt` under the next free [`EdgeId`], as
+    /// [`Self::add_edge`] allocates it.
     ///
     /// # Panics
     ///
@@ -549,20 +568,34 @@ impl GInstance {
         index_insert(&mut self.out_index, edge.src, id);
         index_insert(&mut self.in_index, edge.tgt, id);
         self.edges.insert(id, edge);
+        self.edge_ids.observe(id.0);
         Ok(())
     }
 
-    /// Add an edge under the next free id, one above the largest in use.
+    /// Add an edge under a fresh id and return the id.
+    ///
+    /// The id comes from an [`IdAllocator`] over the whole id space whose
+    /// floor is one above every edge id this instance has held since it was
+    /// built or decoded, so allocation takes constant time and never reuses
+    /// the id of a removed edge. On a freshly built or decoded instance the
+    /// id is one above the largest in use.
     ///
     /// # Errors
     ///
     /// Returns [`InstError::DanglingEdge`] if an endpoint is not a node and
-    /// [`InstError::EdgeIdsExhausted`] if `u32::MAX` is already in use.
+    /// [`InstError::EdgeIdsExhausted`] if the id `u32::MAX` has been used.
     pub fn add_edge(&mut self, src: u32, tgt: u32, edge: Edge) -> Result<EdgeId, InstError> {
-        let id = match self.max_edge_id() {
-            None => EdgeId(0),
-            Some(EdgeId(max)) => EdgeId(max.checked_add(1).ok_or(InstError::EdgeIdsExhausted)?),
-        };
+        for endpoint in [src, tgt] {
+            if !self.nodes.contains_key(&endpoint) {
+                let id = EdgeId(self.edge_ids.floor().unwrap_or(u32::MAX));
+                return Err(InstError::DanglingEdge { edge: id, endpoint });
+            }
+        }
+        let id = EdgeId(
+            self.edge_ids
+                .allocate()
+                .map_err(|e| e.whole_state(IdKind::Edge))?,
+        );
         self.insert_edge(id, GEdge::new(src, tgt, edge))?;
         Ok(id)
     }
@@ -651,6 +684,17 @@ impl GInstance {
 
     /// Whether two instances have the same nodes and the same edges under the
     /// same ids, treating two `NaN` floats as equal.
+    ///
+    /// This is equality of presentations, not the equivalence the lens laws
+    /// use. Law equivalence is the identity on ids that come from the source
+    /// and matching by synthesized key on synthesized objects; no graph law
+    /// is stated up to isomorphism or bisimulation. Isomorphism would forget
+    /// which view element corresponds to which source element, which is
+    /// exactly what `put` needs (inferred); deciding it for graphs with
+    /// unlabelled nodes is also GI-complete in the worst case (Hogan 2017,
+    /// Thm 3.3, stated, for RDF graphs with blank nodes). Bisimulation would
+    /// identify parallel edges, which a graph instance keeps apart (Hidaka et
+    /// al. 2013, stated; Asada et al. 2013, stated).
     #[must_use]
     pub fn identical(a: &Self, b: &Self) -> bool {
         a.edges == b.edges && nodes_identical(&a.nodes, &b.nodes)
@@ -659,6 +703,13 @@ impl GInstance {
     /// Whether two instances have the same nodes (by id, `NaN`-tolerant) and
     /// the same multiset of edges `(src, tgt, edge, position)`, whatever ids
     /// the edges carry.
+    ///
+    /// Like [`Self::identical`], this is not the law equivalence: it forgets
+    /// edge identity, which is the source correspondence of an edge, while
+    /// still counting parallel edges (which bisimulation would merge; Hidaka
+    /// et al. 2013, stated; Asada et al. 2013, stated) and without searching
+    /// for a node isomorphism (GI-complete in the worst case; Hogan 2017,
+    /// Thm 3.3, stated).
     #[must_use]
     pub fn equivalent_modulo_edge_ids(a: &Self, b: &Self) -> bool {
         if a.edges.len() != b.edges.len() || !nodes_identical(&a.nodes, &b.nodes) {
@@ -834,6 +885,7 @@ fn carry_edges(instance: &GInstance, migration: &CompiledMigration, result: &mut
         };
         index_insert(&mut result.out_index, edge.src, id);
         index_insert(&mut result.in_index, edge.tgt, id);
+        result.edge_ids.observe(id.0);
         result.edges.insert(
             id,
             GEdge {
@@ -909,6 +961,36 @@ mod tests {
         let mut g = people(2).with_edge_id(EdgeId(7), 0, 1, knows());
         assert_eq!(g.add_edge(1, 0, knows()).unwrap(), EdgeId(8));
         assert_eq!(g.max_edge_id(), Some(EdgeId(8)));
+    }
+
+    #[test]
+    fn add_edge_never_reuses_the_id_of_a_removed_edge() {
+        let mut g = people(2).with_edge(0, 1, knows()).with_edge(1, 0, knows());
+        g.remove_edge(EdgeId(1)).unwrap();
+        assert_eq!(g.max_edge_id(), Some(EdgeId(0)));
+        assert_eq!(g.add_edge(0, 0, knows()).unwrap(), EdgeId(2));
+        // A decoded instance starts one above the largest id it holds.
+        let decoded: GInstance = serde_json::from_str(&serde_json::to_string(&g).unwrap()).unwrap();
+        let mut decoded = decoded;
+        decoded.remove_edge(EdgeId(2)).unwrap();
+        let mut again: GInstance =
+            serde_json::from_str(&serde_json::to_string(&decoded).unwrap()).unwrap();
+        assert_eq!(again.add_edge(0, 1, knows()).unwrap(), EdgeId(1));
+        // A failed call allocates nothing.
+        assert!(matches!(
+            again.add_edge(0, 9, knows()),
+            Err(InstError::DanglingEdge { endpoint: 9, .. })
+        ));
+        assert_eq!(again.add_edge(0, 1, knows()).unwrap(), EdgeId(2));
+    }
+
+    #[test]
+    fn a_restricted_graph_allocates_above_the_edges_it_kept() {
+        let g = people(2).with_edge_id(EdgeId(6), 0, 1, knows());
+        let schema = empty_schema();
+        let mut restricted = graph_restrict(&g, &schema, &schema, &migration(&["person"], &[]))
+            .expect("graph_restrict should succeed");
+        assert_eq!(restricted.add_edge(1, 0, knows()).unwrap(), EdgeId(7));
     }
 
     #[test]

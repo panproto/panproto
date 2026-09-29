@@ -583,3 +583,12 @@ fn unreify_without_fans(bencher: Bencher, n: u32) {
     let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
     bencher.bench_local(|| divan::black_box(&graph).to_wtype(0).expect("a tree"));
 }
+
+/// Deciding the tree shape of a tree-shaped graph, over growing inputs: the
+/// time grows linearly with the number of nodes and edges.
+#[divan::bench(args = [1_000, 10_000, 100_000])]
+fn tree_shape_linear(bencher: Bencher, n: u32) {
+    let graph = panproto_inst::GInstance::from_wtype(&fanless_tree(n)).expect("a tree embeds");
+    let schema = Schema::default();
+    bencher.bench_local(|| divan::black_box(&graph).tree_shape(&schema));
+}
