@@ -8,7 +8,8 @@
 //! Every row carries a [`RowId`] that is unique across the whole instance,
 //! not per table, so a row is addressed by its id alone and keeps that id
 //! when an operation moves it to another table. Foreign keys are sets of
-//! `(source row, target row)` pairs, stored sorted. There is no positional
+//! `(source row, target row)` pairs, stored sorted and indexed by both ends,
+//! so the pairs at one row are read without a scan. There is no positional
 //! row reference anywhere: a row's place in a table is its id, and a table
 //! enumerates its rows in ascending id.
 //!
@@ -26,7 +27,7 @@
 //! runs the other way, from a `T`-instance to an `S`-instance, and lives in
 //! [`crate::adjunction::f_delta`] with the rest of the adjunction.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_schema::{CanonicalWriter, Edge};
@@ -44,6 +45,57 @@ pub type Row = HashMap<String, Value>;
 
 /// A foreign-key pair together with the schema edge it belongs to.
 pub type ForeignKeyPair = (Edge, RowId, RowId);
+
+/// The pairs of a foreign key: a set of `(source row, target row)`.
+pub type PairSet = BTreeSet<(RowId, RowId)>;
+
+/// The pairs of an edge that has none.
+static NO_PAIRS: PairSet = BTreeSet::new();
+
+/// The pairs of one foreign key, held by source and again by target, each
+/// ascending, so that the pairs at either end of a row are one range read
+/// and adding or removing a pair costs logarithmic time.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct ForeignKey {
+    /// The pairs `(src, tgt)`, ascending.
+    pairs: PairSet,
+    /// The same pairs as `(tgt, src)`, ascending.
+    by_target: PairSet,
+}
+
+impl ForeignKey {
+    /// Add a pair; returns whether it was absent.
+    fn insert(&mut self, src: RowId, tgt: RowId) -> bool {
+        let added = self.pairs.insert((src, tgt));
+        if added {
+            self.by_target.insert((tgt, src));
+        }
+        added
+    }
+
+    /// Remove a pair; returns whether it was present.
+    fn remove(&mut self, src: RowId, tgt: RowId) -> bool {
+        let removed = self.pairs.remove(&(src, tgt));
+        if removed {
+            self.by_target.remove(&(tgt, src));
+        }
+        removed
+    }
+
+    /// The targets of the pairs whose source is `src`, ascending.
+    fn targets(&self, src: RowId) -> impl DoubleEndedIterator<Item = RowId> + '_ {
+        self.pairs
+            .range((src, RowId(0))..=(src, RowId(u32::MAX)))
+            .map(|&(_, tgt)| tgt)
+    }
+
+    /// The sources of the pairs whose target is `tgt`, ascending.
+    fn sources(&self, tgt: RowId) -> impl DoubleEndedIterator<Item = RowId> + '_ {
+        self.by_target
+            .range((tgt, RowId(0))..=(tgt, RowId(u32::MAX)))
+            .map(|&(_, src)| src)
+    }
+}
 
 /// One table of an [`FInstance`]: its rows, by [`RowId`].
 ///
@@ -101,7 +153,10 @@ impl Table {
 /// Tables are keyed by schema vertex; each row has a [`RowId`] unique across
 /// the whole instance; each foreign key is keyed by its schema edge and holds
 /// a sorted set of `(source row, target row)` pairs, the source row in the
-/// edge's source table and the target row in its target table. A vertex
+/// edge's source table and the target row in its target table. Each set is
+/// also indexed by target, so the pairs at a row are found in time
+/// logarithmic in the pairs, and removing or moving a row reads only its
+/// own pairs. A vertex
 /// with no rows sends the functor to the empty set, so the instance holds a
 /// table only while it has a row: an empty table and an absent one are the
 /// same instance, with the same wire form, canonical bytes and graph form.
@@ -129,14 +184,15 @@ impl Table {
 /// tables.insert_row("post", RowId(1), HashMap::new())?;
 /// tables.insert_foreign_key(author.clone(), RowId(1), RowId(0))?;
 /// assert_eq!(tables.table_of(RowId(1)).map(AsRef::as_ref), Some("post"));
-/// assert_eq!(tables.pairs(&author), &[(RowId(1), RowId(0))]);
+/// assert!(tables.pairs(&author).iter().eq(&[(RowId(1), RowId(0))]));
 /// assert_eq!(tables.fresh_row_id()?, RowId(2));
 /// # Ok::<(), panproto_inst::InstError>(())
 /// ```
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct FInstance {
     tables: HashMap<Name, Table>,
-    foreign_keys: HashMap<Edge, Vec<(RowId, RowId)>>,
+    /// The pairs of each foreign key with at least one pair.
+    foreign_keys: HashMap<Edge, ForeignKey>,
     /// The table of each row, ordered by id so that the largest id in use is
     /// read in logarithmic time, however rows are added or removed.
     row_table: BTreeMap<RowId, Name>,
@@ -286,7 +342,7 @@ impl FInstance {
     /// Returns the number of foreign-key pairs in the whole instance.
     #[must_use]
     pub fn pair_count(&self) -> usize {
-        self.foreign_keys.values().map(Vec::len).sum()
+        self.foreign_keys.values().map(|fk| fk.pairs.len()).sum()
     }
 
     /// The table names, ascending.
@@ -421,9 +477,13 @@ impl FInstance {
     /// Returns the row's table, its cells and the removed pairs (ascending),
     /// or `None` when no row has this id. A table whose last row is removed
     /// is no longer listed.
+    ///
+    /// Reads only the pairs incident to the row, so its cost is logarithmic
+    /// in the instance's rows and pairs, linear in its own pairs, and linear
+    /// in the foreign keys that have a pair.
     pub fn remove_row(&mut self, id: RowId) -> Option<(Name, Row, Vec<ForeignKeyPair>)> {
-        let (table, row) = self.take_row(id)?;
         let incident = self.incident_pairs(id);
+        let (table, row) = self.take_row(id)?;
         for (edge, src, tgt) in &incident {
             self.remove_foreign_key(edge, *src, *tgt);
         }
@@ -482,18 +542,16 @@ impl FInstance {
         if let Some(row) = dangling {
             return Err(InstError::DanglingForeignKey { edge, row });
         }
-        let pairs = self.foreign_keys.entry(edge.clone()).or_default();
-        match pairs.binary_search(&(src, tgt)) {
-            Ok(_) => Err(InstError::DuplicateForeignKey { edge, src, tgt }),
-            Err(at) => {
-                pairs.insert(at, (src, tgt));
-                Ok(())
-            }
+        if self.contains_pair(&edge, src, tgt) {
+            return Err(InstError::DuplicateForeignKey { edge, src, tgt });
         }
+        self.foreign_keys.entry(edge).or_default().insert(src, tgt);
+        Ok(())
     }
 
     /// Add every pair of `pairs` to the foreign key of `edge`, in time
-    /// `O(n log n)` in the pairs whatever their order.
+    /// `O(n log (n + p))` in the `n` pairs given and the `p` present,
+    /// whatever their order.
     ///
     /// # Errors
     ///
@@ -520,27 +578,19 @@ impl FInstance {
                 tgt: pair.1,
             });
         }
+        if let Some(&(src, tgt)) = pairs
+            .iter()
+            .find(|(src, tgt)| self.contains_pair(&edge, *src, *tgt))
+        {
+            return Err(InstError::DuplicateForeignKey { edge, src, tgt });
+        }
         if pairs.is_empty() {
             return Ok(());
         }
-        let existing = self.foreign_keys.remove(&edge).unwrap_or_default();
-        let mut merged = Vec::with_capacity(existing.len() + pairs.len());
-        let (mut old, mut new) = (existing.iter().peekable(), pairs.iter().peekable());
-        loop {
-            let next = match (old.peek(), new.peek()) {
-                (Some(a), Some(b)) if a == b => {
-                    let (src, tgt) = **a;
-                    self.foreign_keys.insert(edge.clone(), existing.clone());
-                    return Err(InstError::DuplicateForeignKey { edge, src, tgt });
-                }
-                (Some(a), Some(b)) if a < b => old.next(),
-                (Some(_) | None, Some(_)) => new.next(),
-                (Some(_), None) => old.next(),
-                (None, None) => break,
-            };
-            merged.extend(next.copied());
+        let key = self.foreign_keys.entry(edge).or_default();
+        for (src, tgt) in pairs {
+            key.insert(src, tgt);
         }
-        self.foreign_keys.insert(edge, merged);
         Ok(())
     }
 
@@ -548,14 +598,7 @@ impl FInstance {
     /// endpoint tables; a pair already present is left as it is. Returns
     /// whether the pair was added.
     pub(crate) fn place_pair(&mut self, edge: Edge, src: RowId, tgt: RowId) -> bool {
-        let pairs = self.foreign_keys.entry(edge).or_default();
-        match pairs.binary_search(&(src, tgt)) {
-            Ok(_) => false,
-            Err(at) => {
-                pairs.insert(at, (src, tgt));
-                true
-            }
-        }
+        self.foreign_keys.entry(edge).or_default().insert(src, tgt)
     }
 
     /// Whether `(src, tgt)` would join the endpoint tables of `edge`.
@@ -566,14 +609,13 @@ impl FInstance {
     /// Remove the pair `(src, tgt)` from the foreign key of `edge`. Returns
     /// whether it was present.
     pub fn remove_foreign_key(&mut self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
-        let Some(pairs) = self.foreign_keys.get_mut(edge) else {
+        let Some(key) = self.foreign_keys.get_mut(edge) else {
             return false;
         };
-        let Ok(at) = pairs.binary_search(&(src, tgt)) else {
+        if !key.remove(src, tgt) {
             return false;
-        };
-        pairs.remove(at);
-        if pairs.is_empty() {
+        }
+        if key.pairs.is_empty() {
             self.foreign_keys.remove(edge);
         }
         true
@@ -584,25 +626,55 @@ impl FInstance {
     pub fn contains_pair(&self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
         self.foreign_keys
             .get(edge)
-            .is_some_and(|pairs| pairs.binary_search(&(src, tgt)).is_ok())
+            .is_some_and(|key| key.pairs.contains(&(src, tgt)))
     }
 
-    /// The pairs of the foreign key of `edge`, ascending; empty when the
-    /// edge has none.
+    /// The pairs of the foreign key of `edge`, a set iterating in ascending
+    /// order; empty when the edge has none.
     #[must_use]
-    pub fn pairs(&self, edge: &Edge) -> &[(RowId, RowId)] {
-        self.foreign_keys.get(edge).map_or(&[], Vec::as_slice)
+    pub fn pairs(&self, edge: &Edge) -> &PairSet {
+        self.foreign_keys
+            .get(edge)
+            .map_or(&NO_PAIRS, |key| &key.pairs)
+    }
+
+    /// The targets of the pairs of `edge` whose source is `src`, ascending,
+    /// read in time logarithmic in the edge's pairs.
+    #[must_use]
+    pub fn targets_of(
+        &self,
+        edge: &Edge,
+        src: RowId,
+    ) -> impl DoubleEndedIterator<Item = RowId> + '_ {
+        self.foreign_keys
+            .get(edge)
+            .into_iter()
+            .flat_map(move |key| key.targets(src))
+    }
+
+    /// The sources of the pairs of `edge` whose target is `tgt`, ascending,
+    /// read in time logarithmic in the edge's pairs.
+    #[must_use]
+    pub fn sources_of(
+        &self,
+        edge: &Edge,
+        tgt: RowId,
+    ) -> impl DoubleEndedIterator<Item = RowId> + '_ {
+        self.foreign_keys
+            .get(edge)
+            .into_iter()
+            .flat_map(move |key| key.sources(tgt))
     }
 
     /// The foreign keys with their pairs, in ascending edge order. An edge
     /// without pairs is not listed.
     #[must_use]
-    pub fn foreign_keys(&self) -> Vec<(&Edge, &[(RowId, RowId)])> {
-        let mut keys: Vec<(&Edge, &[(RowId, RowId)])> = self
+    pub fn foreign_keys(&self) -> Vec<(&Edge, &PairSet)> {
+        let mut keys: Vec<(&Edge, &PairSet)> = self
             .foreign_keys
             .iter()
-            .filter(|(_, pairs)| !pairs.is_empty())
-            .map(|(edge, pairs)| (edge, pairs.as_slice()))
+            .filter(|(_, key)| !key.pairs.is_empty())
+            .map(|(edge, key)| (edge, &key.pairs))
             .collect();
         keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
         keys
@@ -618,20 +690,28 @@ impl FInstance {
     }
 
     /// The foreign-key pairs with the given row at either end, in ascending
-    /// `(edge, src, tgt)`.
+    /// `(edge, src, tgt)`; empty when no row has this id.
+    ///
+    /// A pair joins its edge's endpoint tables, so only the foreign keys
+    /// leaving or entering the row's table are read, each by one range of
+    /// its source or target index: the cost is linear in the foreign keys
+    /// with a pair and in the row's own pairs, and logarithmic in the rest.
     #[must_use]
     pub fn incident_pairs(&self, id: RowId) -> Vec<ForeignKeyPair> {
-        let mut incident: Vec<ForeignKeyPair> = self
-            .foreign_keys
-            .iter()
-            .flat_map(|(edge, pairs)| {
-                pairs
-                    .iter()
-                    .filter(move |(s, t)| *s == id || *t == id)
-                    .map(move |&(s, t)| (edge.clone(), s, t))
-            })
-            .collect();
+        let Some(table) = self.row_table.get(&id) else {
+            return Vec::new();
+        };
+        let mut incident: Vec<ForeignKeyPair> = Vec::new();
+        for (edge, key) in &self.foreign_keys {
+            if edge.src == *table {
+                incident.extend(key.targets(id).map(|tgt| (edge.clone(), id, tgt)));
+            }
+            if edge.tgt == *table {
+                incident.extend(key.sources(id).map(|src| (edge.clone(), src, id)));
+            }
+        }
         incident.sort_unstable();
+        incident.dedup();
         incident
     }
 
@@ -696,7 +776,7 @@ pub enum KeyLookupError {
 struct WireOut<'a> {
     tables: BTreeMap<&'a Name, BTreeMap<RowId, BTreeMap<&'a String, &'a Value>>>,
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
-    foreign_keys: BTreeMap<&'a Edge, &'a Vec<(RowId, RowId)>>,
+    foreign_keys: BTreeMap<&'a Edge, &'a PairSet>,
 }
 
 /// The wire form of an [`FInstance`], owned for decoding.
@@ -761,11 +841,7 @@ impl Serialize for FInstance {
                 (name, rows)
             })
             .collect();
-        let foreign_keys = self
-            .foreign_keys
-            .iter()
-            .filter(|(_, pairs)| !pairs.is_empty())
-            .collect();
+        let foreign_keys = self.foreign_keys().into_iter().collect();
         WireOut {
             tables,
             foreign_keys,
@@ -1207,7 +1283,10 @@ mod tests {
             4,
             "the merged table is the disjoint union"
         );
-        assert_eq!(restricted.pairs(&merged_edge), &[(RowId(1), RowId(2))]);
+        assert_eq!(
+            restricted.pairs(&merged_edge),
+            &std::collections::BTreeSet::from([(RowId(1), RowId(2))])
+        );
         assert_eq!(
             restricted.row(RowId(1)).and_then(|r| r.get("n")),
             Some(&Value::Str("a1".into()))
@@ -1242,7 +1321,7 @@ mod tests {
         let first = build();
         assert_eq!(
             first.pairs(&fk("t", "t")),
-            &[(RowId(0), RowId(1)), (RowId(2), RowId(3))],
+            &std::collections::BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(3))]),
             "both source edges contribute their own pairs",
         );
         for _ in 0..16 {

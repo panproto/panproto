@@ -491,7 +491,7 @@ pub fn wtype_pi(
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::collections::HashSet;
+    use std::collections::{BTreeSet, HashSet};
 
     use panproto_schema::Vertex;
     use smallvec::smallvec;
@@ -794,7 +794,10 @@ mod tests {
 
         // The product rows are fresh, from 5 up: (a0, c2) is 5 and (a1, c2)
         // is 6. `other` is a one-component fibre and keeps its ids.
-        assert_eq!(result.pairs(&new_edge), &[(RowId(6), RowId(3))]);
+        assert_eq!(
+            result.pairs(&new_edge),
+            &BTreeSet::from([(RowId(6), RowId(3))])
+        );
     }
 
     #[test]
@@ -865,7 +868,10 @@ mod tests {
 
         // m1's product rows are 6 = (a0, a2_2) and 7 = (a1, a2_2); m2's are
         // 8 = (b3, b2_5) and 9 = (b4, b2_5).
-        assert_eq!(result.pairs(&new_edge), &[(RowId(6), RowId(9))]);
+        assert_eq!(
+            result.pairs(&new_edge),
+            &BTreeSet::from([(RowId(6), RowId(9))])
+        );
     }
 
     // --- wtype_pi tests ---
@@ -1086,7 +1092,7 @@ mod tests {
         };
 
         let first = build();
-        let pairs = first.pairs(&self_edge("t")).to_vec();
+        let pairs = first.pairs(&self_edge("t")).clone();
         // `a` holds rows 0 and 1, `b` rows 2 and 3. Fiber components are
         // ordered by name, so the product rows are 4 = (a0, b2), 5 = (a0, b3),
         // 6 = (a1, b2), 7 = (a1, b3). The `a` edge (0, 1) fans out to every
@@ -1095,7 +1101,7 @@ mod tests {
         let r = |a: u32, b: u32| (RowId(a), RowId(b));
         assert_eq!(
             pairs,
-            vec![
+            BTreeSet::from([
                 r(4, 6),
                 r(4, 7),
                 r(5, 4),
@@ -1103,7 +1109,7 @@ mod tests {
                 r(5, 7),
                 r(7, 4),
                 r(7, 6)
-            ],
+            ]),
             "both source edges contribute their fanned-out product pairs",
         );
 
@@ -1224,7 +1230,7 @@ mod tests {
         let r = |a: u32, b: u32| (RowId(a), RowId(b));
         assert_eq!(
             result.pairs(&loop_edge),
-            &[r(4, 5), r(4, 7), r(5, 5), r(5, 7)]
+            &BTreeSet::from([r(4, 5), r(4, 7), r(5, 5), r(5, 7)])
         );
     }
 
