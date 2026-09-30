@@ -72,10 +72,15 @@ pub struct Complement {
     /// values.
     #[serde(default, with = "panproto_schema::serde_helpers::sorted_nested_map")]
     pub original_extra_fields: HashMap<u32, HashMap<String, Value>>,
-    /// Exact edge used for every arc in the view, keyed by
-    /// `(parent_id, child_id)`. This makes the backward direction
-    /// deterministic when the source schema has parallel edges between the
-    /// same vertex pair, ensuring the cartesian lift is unique.
+    /// The source edge of every source arc between two nodes the view keeps
+    /// whose edge the view does not determine, keyed by
+    /// `(parent_id, child_id)`: the view holds no arc between the two, or
+    /// the label of the view arc is not the image of exactly this one
+    /// source edge between the endpoints' source anchors (for instance two
+    /// parallel edges the edge map merges). Any other arc is not recorded,
+    /// since the backward direction reads its edge off the view label and
+    /// the source schema; recording only these keeps the cartesian lift
+    /// unique without counting derivable data as residue.
     #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
     pub arc_edges: HashMap<(u32, u32), Edge>,
     /// The source instance's arcs in order, as `(parent_id, child_id)`.
@@ -129,7 +134,9 @@ pub struct Complement {
     /// of a source node, even one the view deleted.
     ///
     /// 0 on a complement written before the floor was recorded, which then
-    /// derives its floor from the ids it and the view hold.
+    /// derives its floor from the ids it and the view hold. `u32::MAX` when
+    /// the source's floor does not fit in a `u32` (it holds the id
+    /// `u32::MAX`); no fresh id is allocated against it.
     #[serde(default)]
     pub id_floor: u32,
     /// The key of every node `get` synthesized, by view node id.
@@ -371,10 +378,17 @@ pub fn tree_id_floor(tree: &WInstance) -> Result<u32, InstError> {
 /// Deterministic, and correct for a single writer: two writers allocating
 /// against the same view may draw the same id.
 ///
+/// The id `u32::MAX` is never returned: the floor that would follow it does
+/// not fit in a `u32`, so, as
+/// [`TreeEmbedding::allocate_node`](crate::TreeEmbedding::allocate_node)
+/// does for the tree's graph form, allocation reports exhaustion there. A
+/// complement whose source holds that id records the floor `u32::MAX`, and
+/// every allocation against it fails.
+///
 /// # Errors
 ///
 /// Returns [`InstError::NodeIdsExhausted`] when no id at or above the floor
-/// is free.
+/// and below `u32::MAX` is free.
 pub fn fresh_view_node_id(view: &WInstance, complement: &Complement) -> Result<u32, InstError> {
     let allocator = IdAllocator::from_floor(IdRange::FULL, complement.id_floor);
     let reserved = complement.dropped_nodes.keys().copied();
@@ -411,7 +425,12 @@ pub fn fresh_view_node_id(view: &WInstance, complement: &Complement) -> Result<u
     } else {
         allocator.fresh(taken)
     };
-    result.map_err(|e| e.whole_state(IdKind::Node))
+    match result.map_err(|e| e.whole_state(IdKind::Node))? {
+        // The floor after `u32::MAX` cannot be stored, so, as for the
+        // counters of the tree's graph form, that id is never handed out.
+        u32::MAX => Err(InstError::NodeIdsExhausted),
+        id => Ok(id),
+    }
 }
 
 impl IdentityCarrier for Complement {
