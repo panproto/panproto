@@ -339,8 +339,7 @@ pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
 /// Schema: `colimit(ThSimpleGraph, ThConstraint)`.
 /// Instance: `ThFlat`.
 ///
-/// Used by: `Protobuf`, `Avro`, `Thrift`, `Cap'n Proto`, `FlatBuffers`,
-/// `ASN.1`, `Bond`, `Redis`, `HCL`.
+/// Used by: `Protobuf`, `Avro`, `FlatBuffers`, `ASN.1`, `Bond`, `Redis`.
 ///
 /// # Panics
 ///
@@ -876,25 +875,70 @@ pub fn th_interface() -> Theory {
 }
 
 /// `ThFunctor`: set-valued functor instance (relational data).
+///
+/// Sorts: `Table`, `Row`, `ForeignKey`, and the schema sorts `Vertex`,
+/// `Edge`.
+/// Ops: `table_vertex`, `row_table`, `fk_src`, `fk_tgt`, `fk_edge`, and the
+/// schema projections `src`, `tgt`.
+///
+/// A table is anchored at a schema vertex and a foreign key at the schema
+/// edge it instantiates; the schema sorts and projections are declared here
+/// so the two coherence axioms can be stated: a foreign key runs between
+/// rows of the tables anchored at its schema edge's endpoints.
+///
+/// ```text
+/// fk_src_anchor : src(fk_edge(k)) = table_vertex(row_table(fk_src(k)))
+/// fk_tgt_anchor : tgt(fk_edge(k)) = table_vertex(row_table(fk_tgt(k)))
+/// ```
+///
+/// Composed with a table schema theory, which has vertices but no edges,
+/// only `Vertex` is shared; `Edge`, `src` and `tgt` stay the instance
+/// theory's own.
 #[must_use]
 pub fn th_functor() -> Theory {
+    let anchored = |proj: &str, end: &str| {
+        (
+            Term::app(proj, vec![Term::app("fk_edge", vec![Term::var("k")])]),
+            Term::app(
+                "table_vertex",
+                vec![Term::app(
+                    "row_table",
+                    vec![Term::app(end, vec![Term::var("k")])],
+                )],
+            ),
+        )
+    };
+    let (src_lhs, src_rhs) = anchored("src", "fk_src");
+    let (tgt_lhs, tgt_rhs) = anchored("tgt", "fk_tgt");
     Theory::new(
         "ThFunctor",
         vec![
             Sort::simple("Table"),
             Sort::simple("Row"),
             Sort::simple("ForeignKey"),
+            Sort::simple("Vertex"),
+            Sort::simple("Edge"),
         ],
         vec![
             Operation::unary("table_vertex", "t", "Table", "Vertex"),
             Operation::new("fk_src", vec![("fk".into(), "ForeignKey".into())], "Row"),
             Operation::new("fk_tgt", vec![("fk".into(), "ForeignKey".into())], "Row"),
+            Operation::unary("row_table", "r", "Row", "Table"),
+            Operation::unary("fk_edge", "fk", "ForeignKey", "Edge"),
+            Operation::unary("src", "e", "Edge", "Vertex"),
+            Operation::unary("tgt", "e", "Edge", "Vertex"),
         ],
-        vec![],
+        vec![
+            Equation::new("fk_src_anchor", src_lhs, src_rhs),
+            Equation::new("fk_tgt_anchor", tgt_lhs, tgt_rhs),
+        ],
     )
 }
 
 /// `ThFlat`: flat instance theory (key-value data).
+///
+/// Sorts: `Node`, `Field`, `Value`, and the schema sort `Vertex` that a
+/// node is anchored at.
 #[must_use]
 pub fn th_flat() -> Theory {
     Theory::new(
@@ -903,6 +947,7 @@ pub fn th_flat() -> Theory {
             Sort::simple("Node"),
             Sort::simple("Field"),
             Sort::simple("Value"),
+            Sort::simple("Vertex"),
         ],
         vec![
             Operation::unary("field_node", "f", "Field", "Node"),
@@ -914,8 +959,36 @@ pub fn th_flat() -> Theory {
 }
 
 /// `ThGraphInstance`: graph-shaped instance data (most general form).
+///
+/// Sorts: `IVertex`, `IEdge`, `Value`, the schema sorts `Vertex`, `Edge`,
+/// and the fan incidence sorts `FanNode`, `FanPort`, `HyperEdge`, `Label`.
+/// Ops: `i_src`, `i_tgt`, `iv_anchor`, `ie_anchor`, `iv_value`, the schema
+/// projections `src`, `tgt`, and the fan incidence operations
+/// `fan_anchor`, `fan_parent`, `port_fan`, `port_label`, `port_target`.
+///
+/// An instance edge is anchored at the schema edge it instantiates, and its
+/// endpoints at that schema edge's endpoints:
+///
+/// ```text
+/// ie_src_anchor : src(ie_anchor(e)) = iv_anchor(i_src(e))
+/// ie_tgt_anchor : tgt(ie_anchor(e)) = iv_anchor(i_tgt(e))
+/// ```
+///
+/// An n-ary relation (a fan) is not an instance edge. A fan node is
+/// anchored at a hyper-edge name and has a parent instance vertex; each of
+/// its ports carries a signature label and reaches one participant. No
+/// equation relates a hyper-edge name or a label to a schema vertex, so
+/// fan incidence is never read as an edge between vertices.
 #[must_use]
 pub fn th_graph_instance() -> Theory {
+    let anchored = |proj: &str, end: &str| {
+        (
+            Term::app(proj, vec![Term::app("ie_anchor", vec![Term::var("e")])]),
+            Term::app("iv_anchor", vec![Term::app(end, vec![Term::var("e")])]),
+        )
+    };
+    let (src_lhs, src_rhs) = anchored("src", "i_src");
+    let (tgt_lhs, tgt_rhs) = anchored("tgt", "i_tgt");
     Theory::new(
         "ThGraphInstance",
         vec![
@@ -924,6 +997,10 @@ pub fn th_graph_instance() -> Theory {
             Sort::simple("Value"),
             Sort::simple("Vertex"),
             Sort::simple("Edge"),
+            Sort::simple("FanNode"),
+            Sort::simple("FanPort"),
+            Sort::simple("HyperEdge"),
+            Sort::simple("Label"),
         ],
         vec![
             Operation::unary("i_src", "e", "IEdge", "IVertex"),
@@ -931,8 +1008,18 @@ pub fn th_graph_instance() -> Theory {
             Operation::unary("iv_anchor", "v", "IVertex", "Vertex"),
             Operation::unary("ie_anchor", "e", "IEdge", "Edge"),
             Operation::unary("iv_value", "v", "IVertex", "Value"),
+            Operation::unary("src", "e", "Edge", "Vertex"),
+            Operation::unary("tgt", "e", "Edge", "Vertex"),
+            Operation::unary("fan_anchor", "f", "FanNode", "HyperEdge"),
+            Operation::unary("fan_parent", "f", "FanNode", "IVertex"),
+            Operation::unary("port_fan", "p", "FanPort", "FanNode"),
+            Operation::unary("port_label", "p", "FanPort", "Label"),
+            Operation::unary("port_target", "p", "FanPort", "IVertex"),
         ],
-        vec![],
+        vec![
+            Equation::new("ie_src_anchor", src_lhs, src_rhs),
+            Equation::new("ie_tgt_anchor", tgt_lhs, tgt_rhs),
+        ],
     )
 }
 
