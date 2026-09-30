@@ -650,6 +650,182 @@ fn registration_does_not_depend_on_the_order_of_its_diagram() {
     }
 }
 
+/// A block restating part of `ThWType` under other names: its equation
+/// `echo_src_anchor` and directed equation `echo_settle` are
+/// `ThWType.arc_src_anchor` and `ThWType`'s `settle` with the variable
+/// renamed, and it declares a conflict policy of its own. Every sort and
+/// operation it declares is shared with `ThWType`.
+fn wtype_echo() -> Theory {
+    use panproto_gat::{Equation, Operation, Sort, Term};
+    let sorts = ["Node", "Arc", "Vertex", "Edge"];
+    Theory::full(
+        "ThWTypeEcho",
+        vec![],
+        sorts.iter().map(|s| Sort::simple(*s)).collect(),
+        vec![
+            Operation::unary("anchor", "n", "Node", "Vertex"),
+            Operation::unary("arc_src", "a", "Arc", "Node"),
+            Operation::unary("arc_edge", "a", "Arc", "Edge"),
+            Operation::unary("src", "e", "Edge", "Vertex"),
+        ],
+        vec![Equation::new(
+            "echo_src_anchor",
+            Term::app("anchor", vec![Term::app("arc_src", vec![Term::var("b")])]),
+            Term::app("src", vec![Term::app("arc_edge", vec![Term::var("b")])]),
+        )],
+        vec![settle("echo_settle", "b")],
+        vec![policy(
+            "echo_policy",
+            panproto_gat::ConflictStrategy::KeepRight,
+        )],
+    )
+}
+
+/// The directed equation `anchor(arc_src(x)) ~> src(arc_edge(x))` named
+/// `name` over the variable `var`.
+fn settle(name: &str, var: &str) -> panproto_gat::DirectedEquation {
+    use panproto_gat::Term;
+    panproto_gat::DirectedEquation {
+        name: name.into(),
+        lhs: Term::app("anchor", vec![Term::app("arc_src", vec![Term::var(var)])]),
+        rhs: Term::app("src", vec![Term::app("arc_edge", vec![Term::var(var)])]),
+        impl_term: panproto_expr::Expr::Var(var.into()),
+        inverse: None,
+        source_kind: None,
+        target_kind: None,
+        coercion_class: panproto_gat::CoercionClass::Iso,
+    }
+}
+
+/// A string conflict policy named `name`.
+fn policy(name: &str, strategy: panproto_gat::ConflictStrategy) -> panproto_gat::ConflictPolicy {
+    panproto_gat::ConflictPolicy {
+        name: name.into(),
+        value_kind: panproto_gat::ValueKind::Str,
+        strategy,
+    }
+}
+
+/// `ThWType` with the directed equation `settle` and a conflict policy,
+/// beside [`wtype_echo`], every symbol of which is shared.
+fn wtype_with_echo_diagram() -> RegistrationDiagram {
+    let mut wtype = th_wtype();
+    wtype.directed_eqs.push(settle("settle", "a"));
+    wtype.policies.push(policy(
+        "wtype_policy",
+        panproto_gat::ConflictStrategy::KeepLeft,
+    ));
+    let wtype = Theory::full(
+        wtype.name.clone(),
+        wtype.extends.clone(),
+        wtype.sorts.clone(),
+        wtype.ops.clone(),
+        wtype.eqs.clone(),
+        wtype.directed_eqs.clone(),
+        wtype.policies.clone(),
+    );
+    let echo = wtype_echo();
+    let shared = Theory::new("ThEchoShared", echo.sorts.clone(), echo.ops.clone(), vec![]);
+    RegistrationDiagram {
+        blocks: vec![wtype, echo],
+        shared: vec![(shared, vec!["ThWType".into(), "ThWTypeEcho".into()])],
+    }
+}
+
+/// The image of `name` in `node` under the composition's provenance, which
+/// must be an element of the result.
+fn image_of(composition: &Composition, kind: SymKind, node: &str, name: &str) -> String {
+    let source = SymRef::new(node, name);
+    let image = composition
+        .provenance
+        .image(kind, &source)
+        .unwrap_or_else(|| panic!("{kind} {source} has no image"))
+        .to_string();
+    let theory = &composition.theory;
+    let present = match kind {
+        SymKind::Eq => theory.eqs.iter().any(|e| *e.name == *image),
+        SymKind::DirectedEq => theory.directed_eqs.iter().any(|e| *e.name == *image),
+        SymKind::Policy => theory.policies.iter().any(|p| *p.name == *image),
+        SymKind::Sort => theory.has_sort(&image),
+        SymKind::Op => theory.has_op(&image),
+    };
+    assert!(present, "{kind} {source} -> {image} is not in the result");
+    image
+}
+
+/// Replay `diagram`'s recipe against a registry of its blocks.
+fn replay(diagram: &RegistrationDiagram, name: &str) -> Theory {
+    let registry: HashMap<String, Theory> = diagram
+        .blocks
+        .iter()
+        .map(|b| (b.name.to_string(), b.clone()))
+        .collect();
+    recompose(&diagram.recipe(name), &registry).unwrap()
+}
+
+#[test]
+fn registration_merges_alpha_equivalent_equations_and_keeps_both_provenances() {
+    let diagram = wtype_with_echo_diagram();
+    let composition = diagram.compose("echoed").unwrap();
+    assert_status_clause(&composition, "echoed");
+    let theory = &composition.theory;
+    let reference = th_wtype().find_eq("arc_src_anchor").cloned().unwrap();
+    let matching: Vec<&str> = theory
+        .eqs
+        .iter()
+        .filter(|e| {
+            panproto_gat::alpha_equivalent_equation(&e.lhs, &e.rhs, &reference.lhs, &reference.rhs)
+        })
+        .map(|e| &*e.name)
+        .collect();
+    assert_eq!(matching.len(), 1, "one axiom, found {matching:?}");
+    assert_eq!(
+        image_of(&composition, SymKind::Eq, "ThWType", "arc_src_anchor"),
+        matching[0]
+    );
+    assert_eq!(
+        image_of(&composition, SymKind::Eq, "ThWTypeEcho", "echo_src_anchor"),
+        matching[0]
+    );
+    // The other equation of ThWType is kept apart.
+    assert_eq!(theory.eqs.len(), 2, "{:?}", theory.eqs);
+    assert_eq!(replay(&diagram, "echoed"), *theory);
+}
+
+#[test]
+fn registration_carries_directed_equations_and_policies_with_provenance() {
+    let diagram = wtype_with_echo_diagram();
+    let composition = diagram.compose("echoed").unwrap();
+    let theory = &composition.theory;
+    let settle = image_of(&composition, SymKind::DirectedEq, "ThWType", "settle");
+    let echo_settle = image_of(
+        &composition,
+        SymKind::DirectedEq,
+        "ThWTypeEcho",
+        "echo_settle",
+    );
+    for image in [&settle, &echo_settle] {
+        let translated = theory
+            .directed_eqs
+            .iter()
+            .find(|d| *d.name == **image)
+            .unwrap();
+        // The result's symbols are the blocks' own names, so each
+        // translated side is alpha-equivalent to the source's.
+        let source = self::settle("settle", "a");
+        assert!(panproto_gat::alpha_equivalent(&translated.lhs, &source.lhs));
+        assert!(panproto_gat::alpha_equivalent(&translated.rhs, &source.rhs));
+    }
+    let policies: BTreeSet<String> = [
+        image_of(&composition, SymKind::Policy, "ThWType", "wtype_policy"),
+        image_of(&composition, SymKind::Policy, "ThWTypeEcho", "echo_policy"),
+    ]
+    .into();
+    assert_eq!(policies.len(), 2, "{policies:?}");
+    assert_eq!(theory.policies.len(), 2, "{:?}", theory.policies);
+    assert_eq!(replay(&diagram, "echoed"), *theory);
+}
+
 /// The committed theory composition corpus.
 fn corpus_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/theory_composition")
@@ -772,14 +948,16 @@ fn a_built_in_protocol_whose_recipe_is_not_recorded_panics() {
     attach_recipes(&mut protocol);
 }
 
-/// `compose` gives the same serialized composition in every process.
+/// `compose` gives the same composition bytes in every process.
 ///
 /// Hash maps are seeded per process, so a composition whose theory,
 /// inclusions, provenance or report depended on a map's iteration order
-/// would serialize differently from one process to the next. This runs
-/// the same composition in 32 child processes and compares the bytes.
+/// would encode differently from one process to the next. This runs the
+/// same composition in 32 child processes and compares its
+/// `canonical_composition_bytes` and its serialized form.
 mod cross_process {
     use std::collections::{BTreeSet, HashMap};
+    use std::fmt::Write as _;
     use std::sync::Arc;
 
     use panproto_gat::{
@@ -787,6 +965,7 @@ mod cross_process {
         DiagramNode, Equation, OpAssignment, Operation, Sort, Term, Theory, TheoryDiagram,
         TheoryMorphism, compose,
     };
+    use panproto_schema::canonical_composition_bytes;
 
     const CHILD: &str = "PP_GAT_COMPOSE_BYTES_CHILD";
     const PROCESSES: usize = 32;
@@ -843,9 +1022,9 @@ mod cross_process {
         TheoryMorphism::new(format!("into_{tgt}"), "Apex", tgt, sorts, ops)
     }
 
-    /// The composition's serialized bytes: a span whose unshared halves clash
-    /// by name and are freshened apart.
-    fn bytes() -> Vec<u8> {
+    /// The composition's canonical bytes in hex, then its serialized form:
+    /// a span whose unshared halves clash by name and are freshened apart.
+    fn bytes() -> String {
         let diagram = TheoryDiagram {
             nodes: vec![
                 DiagramNode {
@@ -882,12 +1061,19 @@ mod cross_process {
         };
         let composition = compose(&diagram, &opts).expect("the span composes");
         assert!(!composition.report.freshened.is_empty());
-        serde_json::to_vec(&composition).unwrap()
+        let mut canonical = String::new();
+        for b in canonical_composition_bytes(&composition) {
+            write!(canonical, "{b:02x}").unwrap();
+        }
+        format!(
+            "{canonical} {}",
+            serde_json::to_string(&composition).unwrap()
+        )
     }
 
     #[test]
     fn compose_bytes_are_identical_across_processes() {
-        let bytes = String::from_utf8(bytes()).unwrap();
+        let bytes = bytes();
         if std::env::var_os(CHILD).is_some() {
             println!("BYTES:{bytes}");
             return;
