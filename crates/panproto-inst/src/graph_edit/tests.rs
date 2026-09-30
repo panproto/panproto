@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::error::Error;
 
 use panproto_schema::Edge;
+use serde_json::json;
 
 use super::*;
 use crate::edit_error::EditError;
@@ -1369,20 +1370,26 @@ fn diff_turns_an_endpoint_change_into_a_replacement() -> TestResult {
 // The edit surface
 // ---------------------------------------------------------------------------
 
-/// The wire prefixes of the node variants.
-fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
-    vec![
-        (GraphEdit::Identity, r#""Identity""#),
+/// The whole wire form of each node variant. Payload types (`Node`,
+/// `GEdge`, `Edge`, `NodeMeta`, `Value`) enter through their own serde
+/// form, so every `GraphEdit` tag and field name is pinned exactly and no
+/// field may be skipped.
+fn node_wire_cases(e: &GEdge) -> Result<Vec<(GraphEdit, serde_json::Value)>, serde_json::Error> {
+    let node = serde_json::to_value(person(3))?;
+    let edge = serde_json::to_value(e)?;
+    let meta = serde_json::to_value(NodeMeta::default())?;
+    Ok(vec![
+        (GraphEdit::Identity, json!("Identity")),
         (
             GraphEdit::AddNode { node: person(3) },
-            r#"{"AddNode":{"node":{"#,
+            json!({ "AddNode": { "node": node } }),
         ),
         (
             GraphEdit::RemoveNode {
                 node: person(3),
                 incident: vec![(EdgeId(1), e.clone())],
             },
-            r#"{"RemoveNode":{"node":{"#,
+            json!({ "RemoveNode": { "node": node, "incident": [[1, edge]] } }),
         ),
         (
             GraphEdit::SetValue {
@@ -1390,7 +1397,7 @@ fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: None,
                 new: Some(FieldPresence::Null),
             },
-            r#"{"SetValue":{"node":1,"old":null,"new":"Null"}}"#,
+            json!({ "SetValue": { "node": 1, "old": null, "new": "Null" } }),
         ),
         (
             GraphEdit::SetField {
@@ -1399,7 +1406,7 @@ fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: None,
                 new: Value::Int(2),
             },
-            r#"{"SetField":{"node":1,"field":"f","old":null,"new":{"Int":2}}}"#,
+            json!({ "SetField": { "node": 1, "field": "f", "old": null, "new": { "Int": 2 } } }),
         ),
         (
             GraphEdit::RemoveField {
@@ -1407,7 +1414,7 @@ fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 field: "f".into(),
                 old: Value::Int(2),
             },
-            r#"{"RemoveField":{"node":1,"field":"f","old":{"Int":2}}}"#,
+            json!({ "RemoveField": { "node": 1, "field": "f", "old": { "Int": 2 } } }),
         ),
         (
             GraphEdit::SetNodeMeta {
@@ -1415,7 +1422,7 @@ fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: NodeMeta::default(),
                 new: NodeMeta::default(),
             },
-            r#"{"SetNodeMeta":{"node":1,"old":{"discriminator":null,"position":null,"shape":{"kind":"plain"},"annotations":{}},"new":"#,
+            json!({ "SetNodeMeta": { "node": 1, "old": meta, "new": meta } }),
         ),
         (
             GraphEdit::RelabelNode {
@@ -1423,27 +1430,32 @@ fn node_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old_anchor: "a".into(),
                 new_anchor: "b".into(),
             },
-            r#"{"RelabelNode":{"node":1,"old_anchor":"a","new_anchor":"b"}}"#,
+            json!({ "RelabelNode": { "node": 1, "old_anchor": "a", "new_anchor": "b" } }),
         ),
-    ]
+    ])
 }
 
-/// The wire prefixes of the edge, batch and delta variants.
-fn edge_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
-    vec![
+/// The whole wire form of each edge, batch and delta variant.
+fn edge_wire_cases(e: &GEdge) -> Result<Vec<(GraphEdit, serde_json::Value)>, serde_json::Error> {
+    let edge = serde_json::to_value(e)?;
+    let (a, b) = (
+        serde_json::to_value(label("a"))?,
+        serde_json::to_value(label("b"))?,
+    );
+    Ok(vec![
         (
             GraphEdit::AddEdge {
                 id: EdgeId(2),
                 edge: e.clone(),
             },
-            r#"{"AddEdge":{"id":2,"edge":{"src":0,"tgt":1,"edge":{"#,
+            json!({ "AddEdge": { "id": 2, "edge": edge } }),
         ),
         (
             GraphEdit::RemoveEdge {
                 id: EdgeId(2),
                 edge: e.clone(),
             },
-            r#"{"RemoveEdge":{"id":2,"edge":{"#,
+            json!({ "RemoveEdge": { "id": 2, "edge": edge } }),
         ),
         (
             GraphEdit::Reconnect {
@@ -1451,7 +1463,7 @@ fn edge_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: (0, 1),
                 new: (1, 0),
             },
-            r#"{"Reconnect":{"id":2,"old":[0,1],"new":[1,0]}}"#,
+            json!({ "Reconnect": { "id": 2, "old": [0, 1], "new": [1, 0] } }),
         ),
         (
             GraphEdit::RelabelEdge {
@@ -1459,7 +1471,7 @@ fn edge_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: label("a"),
                 new: label("b"),
             },
-            r#"{"RelabelEdge":{"id":2,"old":{"#,
+            json!({ "RelabelEdge": { "id": 2, "old": a, "new": b } }),
         ),
         (
             GraphEdit::SetEdgePosition {
@@ -1467,31 +1479,30 @@ fn edge_wire_cases(e: &GEdge) -> Vec<(GraphEdit, &'static str)> {
                 old: None,
                 new: Some(1),
             },
-            r#"{"SetEdgePosition":{"id":2,"old":null,"new":1}}"#,
+            json!({ "SetEdgePosition": { "id": 2, "old": null, "new": 1 } }),
         ),
         (
             GraphEdit::Batch(vec![GraphEdit::Identity]),
-            r#"{"Batch":["Identity"]}"#,
+            json!({ "Batch": ["Identity"] }),
         ),
         (
             GraphEdit::Delta(GraphDelta::identity()),
-            r#"{"Delta":{"del_nodes":{},"del_edges":{},"add_nodes":{},"add_edges":{},"attrs":[]}}"#,
+            json!({ "Delta": {
+                "del_nodes": {}, "del_edges": {}, "add_nodes": {}, "add_edges": {}, "attrs": []
+            } }),
         ),
-    ]
+    ])
 }
 
 #[test]
 fn graph_edit_wire_names_are_exact() -> TestResult {
     let e = GEdge::new(0, 1, label("knows"));
-    let mut cases = node_wire_cases(&e);
-    cases.extend(edge_wire_cases(&e));
+    let mut cases = node_wire_cases(&e)?;
+    cases.extend(edge_wire_cases(&e)?);
     assert_eq!(cases.len(), 15);
-    for (edit, prefix) in cases {
+    for (edit, expected) in cases {
+        assert_eq!(serde_json::to_value(&edit)?, expected);
         let json = serde_json::to_string(&edit)?;
-        assert!(
-            json.starts_with(prefix),
-            "{json} does not start with {prefix}"
-        );
         let back: GraphEdit = serde_json::from_str(&json)?;
         assert_eq!(serde_json::to_string(&back)?, json);
     }
