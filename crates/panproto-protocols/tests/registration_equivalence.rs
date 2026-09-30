@@ -22,11 +22,11 @@ use panproto_gat::{
 use panproto_protocols::registry::descriptors;
 use panproto_protocols::semantics::shapes;
 use panproto_protocols::theories::{
-    RegistrationDiagram, constrained_hypergraph_diagram, constrained_multigraph_diagram,
-    constrained_simple_graph_diagram, hypergraph_functor_specs, registered_composition,
-    registered_recipe, th_constraint, th_flat, th_functor, th_graph, th_graph_instance,
-    th_hypergraph, th_interface, th_meta, th_multi, th_simple_graph, th_wtype, typed_graph_diagram,
-    wtype_meta_diagram,
+    RegistrationDiagram, attach_recipes, constrained_hypergraph_diagram,
+    constrained_multigraph_diagram, constrained_simple_graph_diagram, hypergraph_functor_specs,
+    registered_composition, registered_recipe, th_constraint, th_flat, th_functor, th_graph,
+    th_graph_instance, th_hypergraph, th_interface, th_meta, th_multi, th_simple_graph, th_wtype,
+    typed_graph_diagram, wtype_meta_diagram,
 };
 use panproto_schema::InstanceShapeKind::{self, Graph, Table, Tree};
 use panproto_schema::canonical_theory_bytes;
@@ -708,4 +708,17 @@ fn theory_composition_fixtures_recompose_to_their_bytes_and_digests() {
             );
         }
     }
+}
+
+#[test]
+#[should_panic(expected = "records no recipe")]
+fn a_built_in_protocol_whose_recipe_is_not_recorded_panics() {
+    // A built-in protocol whose schema theory registration never records:
+    // leaving its recipes unset would hide the mismatch.
+    let sql = descriptors().iter().find(|d| d.name == "sql").unwrap();
+    let mut protocol = (sql.protocol)();
+    protocol.schema_theory = "ThNeverRegistered".into();
+    protocol.schema_composition = None;
+    protocol.instance_composition = None;
+    attach_recipes(&mut protocol);
 }
