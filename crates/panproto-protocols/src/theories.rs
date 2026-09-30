@@ -939,6 +939,333 @@ pub fn th_graph_instance() -> Theory {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use panproto_gat::{
+        CheckOutcome, ClashPolicy, ComposeOptions, Composition, CompositionCheckKind,
+        CompositionMode, DEFAULT_VERIFY_BUDGET, Term, TheoryDiagram, compose, typecheck_signature,
+        typecheck_theory,
+    };
+
+    /// The interface a tree or graph instance theory shares with its schema
+    /// theory: the schema's vertices, edges and edge endpoints.
+    fn vertex_edge_interface() -> Theory {
+        Theory::new(
+            "Interface",
+            vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+            vec![
+                Operation::unary("src", "e", "Edge", "Vertex"),
+                Operation::unary("tgt", "e", "Edge", "Vertex"),
+            ],
+            vec![],
+        )
+    }
+
+    /// The interface a table or flat instance theory shares with its schema
+    /// theory: the schema's vertices only.
+    fn vertex_interface() -> Theory {
+        Theory::new("Interface", vec![Sort::simple("Vertex")], vec![], vec![])
+    }
+
+    type Register = fn(&mut HashMap<String, Theory>, &str, &str);
+
+    /// The schema theory a registration helper registers under
+    /// `{tag}Schema`. Each helper gets its own tag, since a theory name
+    /// stands for one composition in a process.
+    fn schema_of(register: Register, tag: &str) -> Theory {
+        let mut registry = HashMap::new();
+        let name = format!("{tag}Schema");
+        register(&mut registry, &name, &format!("{tag}Instance"));
+        registry
+            .remove(&name)
+            .expect("the helper registers its schema theory")
+    }
+
+    /// The instance theory a registration helper registers under
+    /// `{tag}Instance`.
+    fn instance_of(register: Register, tag: &str) -> Theory {
+        let mut registry = HashMap::new();
+        let name = format!("{tag}Instance");
+        register(&mut registry, &format!("{tag}Schema"), &name);
+        registry
+            .remove(&name)
+            .expect("the helper registers its instance theory")
+    }
+
+    /// `compose` of `instance` with `schema` over `interface`, identifying
+    /// exactly the interface and refusing any other shared name.
+    fn compose_over(interface: Theory, schema: &Theory, instance: &Theory) -> Composition {
+        let diagram = TheoryDiagram::by_name(
+            ("Interface", interface),
+            ("Schema", schema.clone()),
+            ("Instance", instance.clone()),
+        )
+        .unwrap_or_else(|e| {
+            panic!(
+                "{} over the interface into {}: {e}",
+                instance.name, schema.name
+            )
+        });
+        let opts = ComposeOptions {
+            mode: CompositionMode::ExplicitIdentity,
+            result_name: "SchemaAndInstance".into(),
+            clash: ClashPolicy::Reject,
+            rewrite_budget: DEFAULT_VERIFY_BUDGET,
+        };
+        compose(&diagram, &opts)
+            .unwrap_or_else(|e| panic!("{} with {}: {e}", instance.name, schema.name))
+    }
+
+    /// Every inclusion of `composition` is a morphism and the identity is
+    /// its universal mediator, each recorded as `Passed`, and no check of it
+    /// is inapplicable.
+    fn assert_total(composition: &Composition, what: &str) {
+        for check in [
+            CompositionCheckKind::InclusionIsMorphism,
+            CompositionCheckKind::UniversalIdentity,
+        ] {
+            let records: Vec<_> = composition.report.records(check).collect();
+            assert!(!records.is_empty(), "{what}: no {check:?} record");
+            for record in records {
+                assert_eq!(
+                    record.outcome,
+                    CheckOutcome::Passed,
+                    "{what}: {check:?} on {:?}",
+                    record.subject
+                );
+            }
+        }
+        let inapplicable: Vec<_> = composition
+            .report
+            .checks
+            .iter()
+            .filter(|r| matches!(r.outcome, CheckOutcome::Inapplicable { .. }))
+            .collect();
+        assert!(inapplicable.is_empty(), "{what}: {inapplicable:?}");
+    }
+
+    /// A building block typechecks on its own, signature and body.
+    fn assert_typechecks(theory: &Theory) {
+        assert_eq!(
+            typecheck_signature(theory),
+            Ok(()),
+            "{}: signature",
+            theory.name
+        );
+        assert!(
+            typecheck_theory(theory).is_ok(),
+            "{}: {:?}",
+            theory.name,
+            typecheck_theory(theory)
+        );
+    }
+
+    #[test]
+    fn every_real_building_block_typechecks_standalone() {
+        for theory in [
+            th_graph(),
+            th_constraint(),
+            th_multi(),
+            th_wtype(),
+            th_meta(),
+            th_simple_graph(),
+            th_hypergraph(),
+            th_interface(),
+            th_functor(),
+            th_flat(),
+            th_graph_instance(),
+        ] {
+            assert_typechecks(&theory);
+        }
+    }
+
+    #[test]
+    fn th_graph_instance_typechecks_and_composes_with_every_graph_schema_theory() {
+        let theory = th_graph_instance();
+        assert_typechecks(&theory);
+        let names: Vec<&str> = theory.eqs.iter().map(|e| &*e.name).collect();
+        assert_eq!(names, vec!["ie_src_anchor", "ie_tgt_anchor"]);
+        // src(ie_anchor(e)) = iv_anchor(i_src(e)), and likewise for tgt.
+        let anchored = |proj: &str, end: &str| {
+            (
+                Term::app(proj, vec![Term::app("ie_anchor", vec![Term::var("e")])]),
+                Term::app("iv_anchor", vec![Term::app(end, vec![Term::var("e")])]),
+            )
+        };
+        assert_eq!(
+            (theory.eqs[0].lhs.clone(), theory.eqs[0].rhs.clone()),
+            anchored("src", "i_src")
+        );
+        assert_eq!(
+            (theory.eqs[1].lhs.clone(), theory.eqs[1].rhs.clone()),
+            anchored("tgt", "i_tgt")
+        );
+        let schema = schema_of(register_constrained_graph_instance, "Q6Graph");
+        assert_total(
+            &compose_over(vertex_edge_interface(), &schema, &theory),
+            "ThGraphInstance with the constrained multigraph",
+        );
+    }
+
+    #[test]
+    fn fan_ports_are_not_related_to_vertices() {
+        let theory = th_graph_instance();
+        assert_typechecks(&theory);
+        // Fan incidence is its own sort pair, anchored at hyper-edge names
+        // and signature labels.
+        for sort in ["FanNode", "FanPort", "HyperEdge", "Label"] {
+            assert!(theory.has_sort(sort), "{sort} is declared");
+        }
+        let output = |op: &str| {
+            theory
+                .find_op(op)
+                .map(|o| o.output.head().to_string())
+                .unwrap_or_else(|| panic!("{op} is declared"))
+        };
+        assert_eq!(output("fan_anchor"), "HyperEdge");
+        assert_eq!(output("port_label"), "Label");
+        assert_eq!(output("port_fan"), "FanNode");
+        // No operation reaches a schema vertex or edge from the fan sorts,
+        // and no equation mentions a fan operation, so nothing equates a
+        // hyper-edge name with a vertex.
+        let fan_sorts = ["FanNode", "FanPort", "HyperEdge", "Label"];
+        for op in &theory.ops {
+            let from_fan = op
+                .inputs
+                .iter()
+                .any(|(_, sort, _)| fan_sorts.contains(&sort.head().as_ref()));
+            let to_schema = ["Vertex", "Edge"].contains(&op.output.head().as_ref());
+            assert!(
+                !(from_fan && to_schema),
+                "{} relates a fan to the schema",
+                op.name
+            );
+        }
+        let fan_ops: Vec<&str> = theory
+            .ops
+            .iter()
+            .filter(|op| {
+                op.inputs
+                    .iter()
+                    .any(|(_, sort, _)| fan_sorts.contains(&sort.head().as_ref()))
+            })
+            .map(|op| &*op.name)
+            .collect();
+        assert!(!fan_ops.is_empty());
+        for eq in &theory.eqs {
+            let text = format!("{:?} {:?}", eq.lhs, eq.rhs);
+            for op in &fan_ops {
+                assert!(
+                    !text.contains(&format!("\"{op}\"")),
+                    "{} mentions {op}",
+                    eq.name
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn th_functor_typechecks_and_composes_with_every_table_schema_theory() {
+        let theory = th_functor();
+        assert_typechecks(&theory);
+        for sort in ["Table", "Row", "ForeignKey", "Vertex", "Edge"] {
+            assert!(theory.has_sort(sort), "{sort} is declared");
+        }
+        for op in [
+            "table_vertex",
+            "fk_src",
+            "fk_tgt",
+            "src",
+            "tgt",
+            "row_table",
+            "fk_edge",
+        ] {
+            assert!(theory.has_op(op), "{op} is declared");
+        }
+        let names: Vec<&str> = theory.eqs.iter().map(|e| &*e.name).collect();
+        assert_eq!(names, vec!["fk_src_anchor", "fk_tgt_anchor"]);
+        let anchored = |proj: &str, end: &str| {
+            (
+                Term::app(proj, vec![Term::app("fk_edge", vec![Term::var("k")])]),
+                Term::app(
+                    "table_vertex",
+                    vec![Term::app(
+                        "row_table",
+                        vec![Term::app(end, vec![Term::var("k")])],
+                    )],
+                ),
+            )
+        };
+        assert_eq!(
+            (theory.eqs[0].lhs.clone(), theory.eqs[0].rhs.clone()),
+            anchored("src", "fk_src")
+        );
+        assert_eq!(
+            (theory.eqs[1].lhs.clone(), theory.eqs[1].rhs.clone()),
+            anchored("tgt", "fk_tgt")
+        );
+        let schema = schema_of(register_hypergraph_functor, "Q6Table");
+        assert_total(
+            &compose_over(vertex_interface(), &schema, &theory),
+            "ThFunctor with the constrained hypergraph",
+        );
+    }
+
+    #[test]
+    fn th_flat_typechecks_and_composes_with_its_schema_theory() {
+        let theory = th_flat();
+        assert_typechecks(&theory);
+        assert!(theory.has_sort("Vertex"));
+        let schema = schema_of(register_simple_graph_flat, "Q6Flat");
+        assert_total(
+            &compose_over(vertex_interface(), &schema, &theory),
+            "ThFlat with the constrained simple graph",
+        );
+    }
+
+    #[test]
+    fn standalone_total_theories_pass_inclusion_and_universal_checks() {
+        let tree: [(&str, Register); 3] = [
+            ("TotalA", register_constrained_multigraph_wtype),
+            ("TotalD", register_typed_graph_wtype),
+            ("TotalE", register_multigraph_wtype_meta),
+        ];
+        for (tag, register) in tree {
+            assert_total(
+                &compose_over(
+                    vertex_edge_interface(),
+                    &schema_of(register, tag),
+                    &instance_of(register, tag),
+                ),
+                tag,
+            );
+        }
+        let graph: Register = register_constrained_graph_instance;
+        assert_total(
+            &compose_over(
+                vertex_edge_interface(),
+                &schema_of(graph, "TotalF"),
+                &instance_of(graph, "TotalF"),
+            ),
+            "TotalF",
+        );
+        let table: Register = register_hypergraph_functor;
+        assert_total(
+            &compose_over(
+                vertex_interface(),
+                &schema_of(table, "TotalB"),
+                &instance_of(table, "TotalB"),
+            ),
+            "TotalB",
+        );
+        let flat: Register = register_simple_graph_flat;
+        assert_total(
+            &compose_over(
+                vertex_interface(),
+                &schema_of(flat, "TotalC"),
+                &instance_of(flat, "TotalC"),
+            ),
+            "TotalC",
+        );
+    }
 
     /// The W-type instance theory states the arc/anchor coherence axioms and
     /// declares every sort and projection they mention, so it typechecks on
