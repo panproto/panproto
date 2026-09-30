@@ -4,7 +4,10 @@
 //! implementations in `panproto-inst`, passing the compiled
 //! migration's precomputed tables.
 
-use panproto_inst::{CompiledMigration, FInstance, WInstance};
+use std::collections::BTreeMap;
+
+use panproto_gat::Name;
+use panproto_inst::{CompiledMigration, FInstance, FInstanceHom, WInstance};
 use panproto_schema::Schema;
 
 use crate::error::LiftError;
@@ -118,13 +121,38 @@ pub fn lift_functor_sigma(
     dependencies: &[crate::chase::Dependency],
     budget: crate::chase::ChaseBudget,
 ) -> Result<FInstance, LiftError> {
+    lift_functor_sigma_with_hom(compiled, instance, dependencies, budget).map(|(result, _)| result)
+}
+
+/// [`lift_functor_sigma`], with the row map of the chase that creates rows.
+///
+/// `Sigma_F` ([`panproto_inst::functor_extend`]) keeps every row's id and
+/// creates no row; the chase then adds rows and keeps every extended row.
+/// The returned [`FInstanceHom`] is the chase's homomorphism
+/// ([`crate::chase::chase_with_hom`]) from the extension `Sigma_F(instance)`
+/// into the result: its row map sends every row, which is a row of
+/// `instance` under the same id, to itself, its null map records what the
+/// equalities forced on each labeled null, and the result's rows outside
+/// its image are the ones the chase created, in firing order. With no
+/// dependencies the map is the identity on the extension.
+///
+/// # Errors
+///
+/// As [`lift_functor_sigma`].
+pub fn lift_functor_sigma_with_hom(
+    compiled: &CompiledMigration,
+    instance: &FInstance,
+    dependencies: &[crate::chase::Dependency],
+    budget: crate::chase::ChaseBudget,
+) -> Result<(FInstance, FInstanceHom), LiftError> {
     let extended = panproto_inst::functor_extend(instance, compiled)?;
     if dependencies.is_empty() {
-        return Ok(extended);
+        let identity = FInstanceHom::identity(&extended);
+        return Ok((extended, identity));
     }
-    match crate::chase::chase(&extended, dependencies, budget)? {
-        crate::chase::ChaseOutcome::Saturated(result) => Ok(result),
-        crate::chase::ChaseOutcome::NonTermination => Err(LiftError::ChaseBudgetExhausted {
+    match crate::chase::chase_with_hom(&extended, dependencies, budget)? {
+        (crate::chase::ChaseOutcome::Saturated(result), hom) => Ok((result, hom)),
+        (crate::chase::ChaseOutcome::NonTermination, _) => Err(LiftError::ChaseBudgetExhausted {
             max_iterations: budget.max_iterations,
             max_nulls: budget.max_nulls,
         }),
@@ -149,8 +177,33 @@ pub fn lift_functor_pi(
     instance: &FInstance,
     max_product_size: usize,
 ) -> Result<FInstance, LiftError> {
-    let result =
-        panproto_inst::functor_pi(instance, src_schema, tgt_schema, compiled, max_product_size)?;
+    lift_functor_pi_with_hom(compiled, src_schema, tgt_schema, instance, max_product_size)
+        .map(|(result, _)| result)
+}
+
+/// [`lift_functor_pi`], with the projections of the rows `Pi_F` creates.
+///
+/// Delegates to [`panproto_inst::functor_pi_with_hom`]: the returned map
+/// sends each source vertex of a fibre to the projection of its target's
+/// rows onto that vertex's rows, as an [`FInstanceHom`] into `instance`.
+///
+/// # Errors
+///
+/// As [`lift_functor_pi`].
+pub fn lift_functor_pi_with_hom(
+    compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    instance: &FInstance,
+    max_product_size: usize,
+) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), LiftError> {
+    let result = panproto_inst::functor_pi_with_hom(
+        instance,
+        src_schema,
+        tgt_schema,
+        compiled,
+        max_product_size,
+    )?;
     Ok(result)
 }
 
@@ -759,5 +812,94 @@ mod tests {
             "the spent budget must be named, got {err:?}",
         );
         assert!(err.is_retryable(), "a spent budget invites a retry");
+    }
+
+    /// Every lift that creates rows returns the row map of the step that
+    /// creates them. The `Sigma` lift's chase adds rows to the extension
+    /// and keeps every extended row's id, so its map sends each row of
+    /// `Sigma_F(I)` to itself, and the rows outside its image are the ones
+    /// the chase created, in firing order. The `Pi` lift returns the
+    /// projection of each product row onto each fibre component.
+    #[test]
+    fn row_creating_lifts_return_their_row_maps() {
+        use crate::chase::{Atom, AtomTerm, ChaseBudget, Dependency};
+        use panproto_inst::{FInstance, RowId};
+
+        let named = |v: &str| HashMap::from([("a".to_owned(), Value::Str(v.into()))]);
+        let instance = FInstance::new()
+            .with_table("t", vec![named("x"), named("y")])
+            .unwrap();
+        let mut compiled = CompiledMigration::default();
+        compiled.surviving_verts.insert("u".into());
+        compiled.vertex_remap.insert("t".into(), "u".into());
+        let copy = Dependency::Tgd {
+            body: vec![Atom::new("u", [("a", AtomTerm::Var("v".into()))])],
+            head: vec![Atom::new("w", [("b", AtomTerm::Var("v".into()))])],
+        };
+        let budget = ChaseBudget::new(10, 10);
+
+        let extended = panproto_inst::functor_extend(&instance, &compiled).unwrap();
+        let (result, hom) =
+            lift_functor_sigma_with_hom(&compiled, &instance, std::slice::from_ref(&copy), budget)
+                .unwrap();
+        assert_eq!(
+            result,
+            lift_functor_sigma(&compiled, &instance, &[copy], budget).unwrap()
+        );
+        let checked = hom.check(&extended, &result);
+        assert!(
+            checked.is_ok(),
+            "the chase map is a homomorphism out of the extension: {checked:?}"
+        );
+        assert_eq!(
+            hom.row_map,
+            [(RowId(0), RowId(0)), (RowId(1), RowId(1))].into()
+        );
+        let created: Vec<RowId> = result
+            .row_ids()
+            .into_iter()
+            .filter(|id| !hom.row_map.values().any(|image| image == id))
+            .collect();
+        assert_eq!(created, vec![RowId(2), RowId(3)]);
+        assert_eq!(result.table_of(RowId(2)).map(AsRef::as_ref), Some("w"));
+        assert_eq!(
+            result.row(RowId(2)).and_then(|r| r.get("b")),
+            Some(&Value::Str("x".into()))
+        );
+        assert_eq!(
+            result.row(RowId(3)).and_then(|r| r.get("b")),
+            Some(&Value::Str("y".into()))
+        );
+
+        let (alone, identity) =
+            lift_functor_sigma_with_hom(&compiled, &instance, &[], budget).unwrap();
+        assert_eq!(alone, extended);
+        assert_eq!(identity, panproto_inst::FInstanceHom::identity(&extended));
+
+        // Pi over a fibre of two vertices creates product rows.
+        let factors = FInstance::new()
+            .with_table("a", vec![named("p"), named("q")])
+            .and_then(|f| f.with_table("b", vec![HashMap::from([("c".to_owned(), Value::Int(3))])]))
+            .unwrap();
+        let mut product = CompiledMigration::default();
+        product.surviving_verts.insert("t".into());
+        product.vertex_remap.insert("a".into(), "t".into());
+        product.vertex_remap.insert("b".into(), "t".into());
+        let schema = Schema::default();
+        let (pi, projections) =
+            lift_functor_pi_with_hom(&product, &schema, &schema, &factors, 16).unwrap();
+        assert_eq!(
+            pi,
+            lift_functor_pi(&product, &schema, &schema, &factors, 16).unwrap()
+        );
+        assert_eq!(pi.row_ids(), vec![RowId(3), RowId(4)]);
+        assert_eq!(
+            projections[&panproto_gat::Name::from("a")].row_map,
+            [(RowId(3), RowId(0)), (RowId(4), RowId(1))].into()
+        );
+        assert_eq!(
+            projections[&panproto_gat::Name::from("b")].row_map,
+            [(RowId(3), RowId(2)), (RowId(4), RowId(2))].into()
+        );
     }
 }
