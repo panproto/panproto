@@ -76,6 +76,7 @@ pub mod validate;
 pub mod value;
 pub mod view_ref;
 pub mod wtype;
+pub mod wtype_check;
 
 // Re-exports for convenience.
 pub use acset::AcsetOps;
