@@ -116,7 +116,7 @@ pub fn composition_digest(composition: &Composition) -> [u8; 32] {
 // ─── theories ──────────────────────────────────────────────────────
 
 /// The elements of `items` in ascending order of the name `key` gives.
-fn by_name<'a, T>(items: &'a [T], key: impl Fn(&T) -> &str) -> Vec<&'a T> {
+fn by_name<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
     let mut sorted: Vec<&T> = items.iter().collect();
     sorted.sort_by(|a, b| key(a).cmp(key(b)));
     sorted
@@ -605,7 +605,13 @@ mod tests {
     use super::*;
 
     fn hex(bytes: &[u8]) -> String {
-        bytes.iter().map(|b| format!("{b:02x}")).collect()
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            out.push(char::from(DIGITS[usize::from(b >> 4)]));
+            out.push(char::from(DIGITS[usize::from(b & 0xf)]));
+        }
+        out
     }
 
     fn graph() -> Theory {
@@ -720,8 +726,8 @@ mod tests {
             theory_digest(&theory),
             blake3::derive_key(THEORY_CONTEXT, &canonical_theory_bytes(&theory))
         );
-        let composition =
-            compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts()).expect("the diagram composes");
+        let composition = compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         assert_eq!(
             composition_digest(&composition),
             blake3::derive_key(
@@ -735,8 +741,8 @@ mod tests {
     /// theory or composition identity and must bump its context string.
     #[test]
     fn theory_and_composition_digests_are_pinned() {
-        let composition =
-            compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts()).expect("the diagram composes");
+        let composition = compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         assert_eq!(
             hex(&theory_digest(&constraint())),
             "78b885aada86cdec2a622b25723885bfc4f2a8ccc14fce8fc297b1784ec190b1",
@@ -789,23 +795,23 @@ mod tests {
 
     #[test]
     fn composition_bytes_are_order_independent() {
-        let reference =
-            compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts()).expect("the diagram composes");
+        let reference = compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         let bytes = canonical_composition_bytes(&reference);
         // The same diagram rebuilt, so every morphism's hash maps are new.
-        let again =
-            compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts()).expect("the diagram composes");
+        let again = compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         assert_eq!(canonical_composition_bytes(&again), bytes);
         // Edges in another order.
-        let edges =
-            compose(&diagram(&[0, 1, 2, 3], &[2, 0, 1]), &opts()).expect("the diagram composes");
+        let edges = compose(&diagram(&[0, 1, 2, 3], &[2, 0, 1]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         assert_eq!(canonical_composition_bytes(&edges), bytes);
         // Nodes in another order: only the inclusions follow the node
         // order, so putting them back in the reference order restores the
         // reference bytes.
         let order = [3, 1, 0, 2];
-        let mut permuted =
-            compose(&diagram(&order, &[1, 2, 0]), &opts()).expect("the diagram composes");
+        let mut permuted = compose(&diagram(&order, &[1, 2, 0]), &opts())
+            .unwrap_or_else(|e| panic!("the diagram composes: {e}"));
         assert_ne!(canonical_composition_bytes(&permuted), bytes);
         let mut inclusions = vec![None; 4];
         for (position, &node) in order.iter().enumerate() {
@@ -813,12 +819,13 @@ mod tests {
         }
         permuted.inclusions = inclusions
             .into_iter()
-            .map(|i| i.expect("every node has an inclusion"))
+            .map(|i| i.unwrap_or_else(|| panic!("every node has an inclusion")))
             .collect();
         assert_eq!(canonical_composition_bytes(&permuted), bytes);
         // A serde round trip keeps the bytes.
-        let json = serde_json::to_string(&reference).expect("encodes");
-        let decoded: Composition = serde_json::from_str(&json).expect("decodes");
+        let json = serde_json::to_string(&reference).unwrap_or_else(|e| panic!("encodes: {e}"));
+        let decoded: Composition =
+            serde_json::from_str(&json).unwrap_or_else(|e| panic!("decodes: {e}"));
         assert_eq!(canonical_composition_bytes(&decoded), bytes);
     }
 }

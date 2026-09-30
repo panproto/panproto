@@ -1219,12 +1219,13 @@ mod tests {
             vec![],
         );
         let mut registry: HashMap<String, Theory> = HashMap::new();
-        let error = register_diagrams(
+        let Err(error) = register_diagrams(
             &mut registry,
             &theories::constrained_multigraph_diagram(),
             &node_only,
-        )
-        .expect_err("a clash of Value is refused");
+        ) else {
+            panic!("a clash of Value is refused");
+        };
         let ProtocolError::TheoryRegistration { stage, source } = error else {
             panic!("expected TheoryRegistration, got {error:?}");
         };
@@ -1248,9 +1249,10 @@ mod tests {
         );
         assert!(registry.is_empty(), "{:?}", registry.keys());
 
-        register_theories(&mut registry).expect("the declared span registers");
+        register_theories(&mut registry)
+            .unwrap_or_else(|e| panic!("the declared span registers: {e}"));
         let instance = theories::registered_composition(INSTANCE_THEORY)
-            .expect("the instance composition is recorded");
+            .unwrap_or_else(|| panic!("the instance composition is recorded"));
         assert!(instance.report.name_clash_free);
     }
 

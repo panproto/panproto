@@ -567,7 +567,15 @@ fn theory_composition_fixtures_recompose_to_their_bytes_and_digests() {
     for group in ["tree", "table", "flat", "graph"] {
         assert!(groups.contains(group), "no {group} group fixture");
     }
-    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    let hex = |bytes: &[u8]| -> String {
+        const DIGITS: &[u8; 16] = b"0123456789abcdef";
+        let mut out = String::with_capacity(bytes.len() * 2);
+        for b in bytes {
+            out.push(char::from(DIGITS[usize::from(b >> 4)]));
+            out.push(char::from(DIGITS[usize::from(b & 0xf)]));
+        }
+        out
+    };
     for (name, digest) in &golden.digests {
         let read = |ext: &str| std::fs::read(dir.join(format!("{name}.{ext}"))).unwrap();
         let decoded: [Fixture; 3] = [

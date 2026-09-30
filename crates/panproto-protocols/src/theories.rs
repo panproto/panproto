@@ -269,7 +269,7 @@ impl RegistrationDiagram {
         edges
     }
 
-    /// The diagram [`compose`] runs.
+    /// The diagram [`compose()`] runs.
     #[must_use]
     pub fn diagram(&self) -> TheoryDiagram {
         TheoryDiagram {
@@ -352,7 +352,7 @@ impl RegistrationDiagram {
     ///
     /// # Errors
     ///
-    /// The [`CompositionError`] of [`compose`].
+    /// The [`CompositionError`] of [`compose()`].
     pub fn compose(&self, result_name: &str) -> Result<Composition, CompositionError> {
         compose(&self.diagram(), &Self::options(result_name))
     }
@@ -477,7 +477,9 @@ fn registered() -> &'static Mutex<BTreeMap<String, Registered>> {
 }
 
 /// The [`Composition`] a registration helper built for the theory it
-/// registered as `theory_name`: the composed theory, the inclusion of each
+/// registered as `theory_name`.
+///
+/// The composition holds the composed theory, the inclusion of each
 /// building block, the provenance of every symbol and the composition
 /// report.
 ///
@@ -1080,7 +1082,7 @@ mod tests {
         register(&mut registry, &name, &format!("{tag}Instance"));
         registry
             .remove(&name)
-            .expect("the helper registers its schema theory")
+            .unwrap_or_else(|| panic!("the helper registers its schema theory"))
     }
 
     /// The instance theory a registration helper registers under
@@ -1091,7 +1093,7 @@ mod tests {
         register(&mut registry, &format!("{tag}Schema"), &name);
         registry
             .remove(&name)
-            .expect("the helper registers its instance theory")
+            .unwrap_or_else(|| panic!("the helper registers its instance theory"))
     }
 
     /// `compose` of `instance` with `schema` over `interface`, identifying
@@ -1219,10 +1221,10 @@ mod tests {
             assert!(theory.has_sort(sort), "{sort} is declared");
         }
         let output = |op: &str| {
-            theory
-                .find_op(op)
-                .map(|o| o.output.head().to_string())
-                .unwrap_or_else(|| panic!("{op} is declared"))
+            theory.find_op(op).map_or_else(
+                || panic!("{op} is declared"),
+                |o| o.output.head().to_string(),
+            )
         };
         assert_eq!(output("fan_anchor"), "HyperEdge");
         assert_eq!(output("port_label"), "Label");

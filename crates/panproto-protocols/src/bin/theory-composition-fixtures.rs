@@ -1,7 +1,7 @@
 //! Regenerate the frozen theory composition corpus.
 //!
 //! Each fixture is one diagram, the options it is composed with, and the
-//! [`Composition`] that [`compose`] returns, written three times: as named
+//! [`Composition`] that [`compose()`] returns, written three times: as named
 //! `MessagePack` (`<name>.named.msgpack`), as CBOR (`<name>.cbor`) and as
 //! JSON (`<name>.json`). `golden.json` records each composition's
 //! [`composition_digest`] in hex under the context it is derived with.
@@ -93,8 +93,11 @@ fn schema_and_instance(interface: Theory, schema: Theory, instance: Theory) -> R
     }
 }
 
+/// One fixture's name, diagram and options.
+type Entry = (&'static str, TheoryDiagram, ComposeOptions);
+
 /// Every fixture: its name, diagram and options.
-fn corpus() -> Result<Vec<(&'static str, TheoryDiagram, ComposeOptions)>, Box<dyn Error>> {
+fn corpus() -> Result<Vec<Entry>, Box<dyn Error>> {
     let registration = |name: &'static str, diagram: RegistrationDiagram| {
         (name, diagram.diagram(), RegistrationDiagram::options(name))
     };
@@ -191,7 +194,13 @@ fn corpus() -> Result<Vec<(&'static str, TheoryDiagram, ComposeOptions)>, Box<dy
 }
 
 fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
+    const DIGITS: &[u8; 16] = b"0123456789abcdef";
+    let mut out = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        out.push(char::from(DIGITS[usize::from(b >> 4)]));
+        out.push(char::from(DIGITS[usize::from(b & 0xf)]));
+    }
+    out
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
