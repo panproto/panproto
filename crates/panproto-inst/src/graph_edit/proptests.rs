@@ -370,6 +370,121 @@ fn independence_law(s: &GInstance, a: &GraphDelta, b: &GraphDelta) -> Result<(),
     Ok(())
 }
 
+/// What applying an [`ApplyCase`]'s delta to its state must do.
+enum Expect {
+    /// Nothing is required of the outcome.
+    Unknown,
+    /// It applies, with this result.
+    Applies(Box<GInstance>),
+    /// It fails the fan-domain check, the last check of
+    /// [`GraphDelta::apply`], after mutating the state.
+    FailsFan,
+}
+
+/// A delta, a state to apply it to, and what applying it must do.
+struct ApplyCase {
+    delta: GraphDelta,
+    state: GInstance,
+    expect: Expect,
+}
+
+impl std::fmt::Debug for ApplyCase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let expect = match &self.expect {
+            Expect::Unknown => "unknown",
+            Expect::Applies(_) => "applies",
+            Expect::FailsFan => "fails the fan check",
+        };
+        f.debug_struct("ApplyCase")
+            .field("delta", &self.delta)
+            .field("state", &self.state)
+            .field("expect", &expect)
+            .finish()
+    }
+}
+
+/// The cases of the apply and check properties: a delta between two
+/// unrelated graphs applied to a third (it usually fails a check of the
+/// input), the same delta applied to its own source (it applies), and a
+/// delta from a graph with fans to a mutation of it applied to that graph,
+/// which fails exactly when the mutation leaves the fan domain.
+fn apply_cases() -> impl Strategy<Value = Vec<ApplyCase>> {
+    (
+        arb_graph(),
+        arb_graph(),
+        arb_graph(),
+        arb_fan_graph(),
+        arb_fan_ops(),
+    )
+        .prop_map(|(a, b, c, s, ops)| {
+            let d = GraphDelta::diff(&a, &b);
+            let t = mutate(&s, &ops);
+            let fan = if FanDomain::contains(&t) {
+                Expect::Applies(Box::new(t.clone()))
+            } else {
+                Expect::FailsFan
+            };
+            vec![
+                ApplyCase {
+                    delta: d.clone(),
+                    state: c,
+                    expect: Expect::Unknown,
+                },
+                ApplyCase {
+                    delta: d,
+                    state: a,
+                    expect: Expect::Applies(Box::new(b)),
+                },
+                ApplyCase {
+                    delta: GraphDelta::diff(&s, &t),
+                    state: s,
+                    expect: fan,
+                },
+            ]
+        })
+}
+
+/// Three deltas drawn from a pool that makes composable triples likely: two
+/// consecutive deltas of one chain, their inverses (so that adds and
+/// deletes cancel), a second delta from the chain's start, and a delta
+/// between two unrelated graphs.
+fn composable_triple_candidates() -> impl Strategy<Value = (GraphDelta, GraphDelta, GraphDelta)> {
+    (
+        arb_graph(),
+        arb_ops(),
+        arb_ops(),
+        arb_ops(),
+        arb_graph(),
+        arb_graph(),
+        [0usize..6, 0usize..6, 0usize..6],
+    )
+        .prop_map(|(g, o1, o2, o3, x, y, picks)| {
+            let g1 = mutate(&g, &o1);
+            let g2 = mutate(&g1, &o2);
+            let first = GraphDelta::diff(&g, &g1);
+            let second = GraphDelta::diff(&g1, &g2);
+            let pool = [
+                first.invert(),
+                second.invert(),
+                first,
+                second,
+                GraphDelta::diff(&g, &mutate(&g, &o3)),
+                GraphDelta::diff(&x, &y),
+            ];
+            let [i, j, k] = picks;
+            (pool[i].clone(), pool[j].clone(), pool[k].clone())
+        })
+}
+
+/// Whether two instances allocate the same id to the next added edge.
+fn allocates_alike(x: &GInstance, y: &GInstance) -> bool {
+    let Some(&n) = x.nodes().keys().min() else {
+        return y.nodes().is_empty();
+    };
+    let (mut x, mut y) = (x.clone(), y.clone());
+    x.add_edge(n, n, label(0)).ok() == y.add_edge(n, n, label(0)).ok()
+}
+
 /// 256 cases, and no failure-persistence file: a shrunk failure is kept as a
 /// named unit test in this module instead, so running the properties writes
 /// nothing outside the source tree's test modules.
@@ -414,22 +529,43 @@ proptest! {
     }
 
     #[test]
-    fn a_failing_graph_delta_leaves_the_instance_unchanged(a in arb_graph(), b in arb_graph(), c in arb_graph()) {
-        // A delta between two unrelated graphs usually does not apply to a
-        // third; whenever it fails, the third is unchanged.
-        let d = GraphDelta::diff(&a, &b);
-        let mut target = c.clone();
-        if d.apply(&mut target).is_err() {
-            prop_assert!(GInstance::identical(&target, &c));
+    fn a_failing_graph_delta_leaves_the_instance_unchanged(cases in apply_cases()) {
+        for case in cases {
+            let mut target = case.state.clone();
+            match (case.delta.apply(&mut target), &case.expect) {
+                (Err(err), expect) => {
+                    prop_assert!(GInstance::identical(&target, &case.state), "{}", err);
+                    prop_assert!(allocates_alike(&target, &case.state), "{}", err);
+                    if matches!(expect, Expect::FailsFan) {
+                        prop_assert!(matches!(err, EditError::MalformedFan { .. }), "{}", err);
+                    } else {
+                        prop_assert!(matches!(expect, Expect::Unknown), "{}", err);
+                    }
+                }
+                (Ok(()), Expect::Applies(result)) => {
+                    prop_assert!(GInstance::identical(&target, result));
+                }
+                (Ok(()), Expect::Unknown) => {}
+                (Ok(()), Expect::FailsFan) => {
+                    return Err(fail("a delta to a graph outside the fan domain applied"));
+                }
+            }
         }
     }
 
     #[test]
-    fn check_agrees_with_apply(a in arb_graph(), b in arb_graph(), c in arb_graph()) {
-        for (d, s) in [(GraphDelta::diff(&a, &b), c), (GraphDelta::diff(&a, &b), a.clone())] {
-            let mut target = s.clone();
-            prop_assert_eq!(d.check(&s), d.apply(&mut target));
-            prop_assert!(GInstance::identical(&s, &s));
+    fn check_agrees_with_apply(cases in apply_cases()) {
+        for case in cases {
+            let mut target = case.state.clone();
+            let applied = case.delta.apply(&mut target);
+            prop_assert_eq!(case.delta.check(&case.state), applied.clone());
+            match (applied, &case.expect) {
+                (Err(_), _) => prop_assert!(GInstance::identical(&target, &case.state)),
+                (Ok(()), Expect::Applies(result)) => {
+                    prop_assert!(GInstance::identical(&target, result));
+                }
+                (Ok(()), _) => {}
+            }
         }
     }
 
@@ -470,6 +606,22 @@ proptest! {
         let z = GraphDelta::diff(&x, &y);
         if let (Ok(l), Ok(r)) = (a.compose(&z).and_then(|az| az.compose(&c)), z.compose(&c).and_then(|zc| a.compose(&zc))) {
             prop_assert_eq!(l, r);
+        }
+    }
+
+    #[test]
+    fn graph_delta_compose_is_associative_on_composable_triples(
+        triple in composable_triple_candidates(),
+    ) {
+        let (a, b, c) = triple;
+        if let (Ok(ab), Ok(bc)) = (a.compose(&b), b.compose(&c)) {
+            match (ab.compose(&c), a.compose(&bc)) {
+                (Ok(left), Ok(right)) => prop_assert_eq!(left, right),
+                (Err(_), Err(_)) => {}
+                (left, right) => {
+                    return Err(fail(format!("one bracketing only is defined: {left:?} vs {right:?}")));
+                }
+            }
         }
     }
 
@@ -619,6 +771,69 @@ fn the_independence_generator_covers_both_outcomes() -> Result<(), TestCaseError
     }
     prop_assert!(independent >= 50, "only {} independent pairs", independent);
     prop_assert!(dependent >= 50, "only {} dependent pairs", dependent);
+    Ok(())
+}
+
+/// The apply and check properties are exercised on every outcome: deltas
+/// that fail a check of the input, deltas that apply, and deltas that fail
+/// the fan-domain check after mutating the state, which [`GraphDelta::apply`]
+/// then rolls back.
+#[test]
+fn the_apply_cases_cover_every_outcome() -> Result<(), TestCaseError> {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = apply_cases();
+    let (mut applied, mut local, mut fan) = (0, 0, 0);
+    for _ in 0..512 {
+        for case in strategy.new_tree(&mut runner).map_err(fail)?.current() {
+            match case.delta.apply(&mut case.state.clone()) {
+                Ok(()) if !case.delta.is_identity() => applied += 1,
+                Ok(()) => {}
+                Err(EditError::MalformedFan { .. }) => fan += 1,
+                Err(_) => local += 1,
+            }
+        }
+    }
+    let counts = format!(
+        "{applied} applied, {local} failed a check of the input, {fan} left the fan domain"
+    );
+    prop_assert!(applied >= 50, "{}", counts);
+    prop_assert!(local >= 50, "{}", counts);
+    prop_assert!(fan >= 50, "{}", counts);
+    Ok(())
+}
+
+/// The associativity property on composable triples is exercised: the
+/// generator yields composable triples of non-identity deltas, among them
+/// triples where a composite of two neighbours absorbs an added element (an
+/// add cancelled by a later delete, or followed by a replacement).
+#[test]
+fn the_composable_triple_generator_covers_cancellation() -> Result<(), TestCaseError> {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = composable_triple_candidates();
+    let (mut composable, mut cancelling) = (0, 0);
+    for _ in 0..1024 {
+        let (a, b, c) = strategy.new_tree(&mut runner).map_err(fail)?.current();
+        if a.is_identity() || b.is_identity() || c.is_identity() {
+            continue;
+        }
+        if let (Ok(ab), Ok(bc)) = (a.compose(&b), b.compose(&c)) {
+            composable += 1;
+            let added = |d: &GraphDelta| d.add_nodes().len() + d.add_edges().len();
+            if added(&ab) < added(&a) + added(&b) || added(&bc) < added(&b) + added(&c) {
+                cancelling += 1;
+            }
+        }
+    }
+    let counts =
+        format!("{composable} composable triples, {cancelling} absorbing an added element");
+    prop_assert!(composable >= 100, "{}", counts);
+    prop_assert!(cancelling >= 20, "{}", counts);
     Ok(())
 }
 
