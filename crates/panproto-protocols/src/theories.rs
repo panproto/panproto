@@ -529,22 +529,41 @@ pub fn registered_recipe(theory_name: &str) -> Option<CompositionSpec> {
 /// a theory's recipe is not recorded yet, the protocol's own theories are
 /// registered into a scratch registry first, and registration is
 /// deterministic, so the recipes are the same either way. A protocol that
-/// is not a built-in descriptor, or whose theories are not composed by
-/// these helpers, keeps the fields it was given.
+/// is not a built-in descriptor keeps the fields it was given.
+///
+/// # Panics
+///
+/// Panics if `protocol` is a built-in descriptor whose theories fail to
+/// register, or whose registration records no recipe for its schema or
+/// instance theory: both are defects in the static registration
+/// configuration, like a failing registration helper.
 pub fn attach_recipes(protocol: &mut Protocol) {
     let lookup = |protocol: &Protocol| {
         registered_recipe(&protocol.schema_theory).zip(registered_recipe(&protocol.instance_theory))
     };
-    let recipes = lookup(protocol).or_else(|| {
-        let descriptor = crate::registry::descriptor(&protocol.name)?;
-        let mut scratch = HashMap::new();
-        (descriptor.register_theories)(&mut scratch).ok()?;
-        lookup(protocol)
-    });
-    if let Some((schema, instance)) = recipes {
-        protocol.schema_composition = Some(schema);
-        protocol.instance_composition = Some(instance);
-    }
+    let recipes = match lookup(protocol) {
+        Some(recipes) => recipes,
+        None => {
+            let Some(descriptor) = crate::registry::descriptor(&protocol.name) else {
+                return;
+            };
+            let mut scratch = HashMap::new();
+            if let Err(err) = (descriptor.register_theories)(&mut scratch) {
+                panic!(
+                    "the theories of built-in protocol {} fail to register: {err}",
+                    protocol.name
+                );
+            }
+            lookup(protocol).unwrap_or_else(|| {
+                panic!(
+                    "registering built-in protocol {} records no recipe for {} and {}",
+                    protocol.name, protocol.schema_theory, protocol.instance_theory
+                )
+            })
+        }
+    };
+    protocol.schema_composition = Some(recipes.0);
+    protocol.instance_composition = Some(recipes.1);
 }
 
 /// Record the composition registered as `name`. The first registration of
