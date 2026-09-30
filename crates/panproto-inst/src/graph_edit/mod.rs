@@ -26,7 +26,7 @@
 //! to a reversible double-pushout step (Harmer and Oshurko 2020, Def 2.1 and
 //! Rem 2.2, stated).
 //!
-//! [`canonical_graph_delta_bytes`](crate::graph_edit::canonical_graph_delta_bytes) writes the normalized delta through a
+//! [`canonical_graph_delta_bytes`] writes the normalized delta through a
 //! [`CanonicalSink`](crate::CanonicalSink); its digest under
 //! [`GRAPH_DELTA_CONTEXT`](crate::identity::GRAPH_DELTA_CONTEXT) is
 //! [`GraphDelta::digest`].

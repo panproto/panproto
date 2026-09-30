@@ -41,7 +41,6 @@ pub mod fan_violation;
 pub mod functor;
 /// Graph-shaped instance representation.
 pub mod ginstance;
-/// Edits of graph instances: canonical deltas and the edit surface.
 pub mod graph_edit;
 /// Internal hom schema construction and evaluation.
 pub mod hom;
