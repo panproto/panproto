@@ -26,6 +26,13 @@ pub type ComposedContractionKeys = (
     Vec<(Name, Name)>,
 );
 
+/// A contraction key: a pair of anchors.
+type Key = (Name, Name);
+
+/// The entries of `m1` that land on each translated key, with the `m1` key
+/// each came from.
+type Images<'a, V> = HashMap<Key, Vec<(&'a Key, V)>>;
+
 /// Carry a vertex of `m2`'s source space into its target space.
 ///
 /// `None` when `m2` drops it. `m2.surviving_verts` is keyed in `m2`'s target
@@ -61,8 +68,12 @@ pub fn translate_edge(m2: &CompiledMigration, e: &Edge) -> Option<Edge> {
 /// `m2.surviving_edges`.
 /// An entry that fails either test is left out, and its `m1` key is
 /// reported in the third component (ascending, one per key even when both
-/// maps hold it). `m2`'s own entries are then added unchanged, and on a key
-/// both define `m2`'s wins.
+/// maps hold it). When `m2` merges the endpoints of several `m1` keys, their
+/// entries land on one translated key: entries that agree keep that one
+/// entry, and entries that disagree give the composite no entry there, so
+/// every `m1` key that landed on it is reported as dropped. The result is
+/// thus independent of the maps' iteration order. `m2`'s own entries are
+/// then added unchanged, and on a key both define `m2`'s wins.
 ///
 /// ```
 /// use std::collections::{HashMap, HashSet};
@@ -104,17 +115,21 @@ pub fn compose_contraction_keys(
 
     let mut dropped: Vec<(Name, Name)> = Vec::new();
 
-    let mut resolver: HashMap<(Name, Name), Edge> = HashMap::new();
+    let mut resolver_images: Images<'_, Edge> = HashMap::new();
     for (key, edge) in &m1.resolver {
         match translate_key(key).zip(translate_edge(m2, edge)) {
             Some((translated, mapped)) => {
-                resolver.insert(translated, mapped);
+                resolver_images
+                    .entry(translated)
+                    .or_default()
+                    .push((key, mapped));
             }
             None => dropped.push(key.clone()),
         }
     }
+    let mut resolver = keep_agreeing(resolver_images, &mut dropped);
 
-    let mut expansion_path: HashMap<(Name, Name), Vec<Name>> = HashMap::new();
+    let mut path_images: Images<'_, Vec<Name>> = HashMap::new();
     for (key, intermediates) in &m1.expansion_path {
         let translated_mids: Option<Vec<Name>> = intermediates
             .iter()
@@ -122,11 +137,12 @@ pub fn compose_contraction_keys(
             .collect();
         match translate_key(key).zip(translated_mids) {
             Some((translated, mids)) => {
-                expansion_path.insert(translated, mids);
+                path_images.entry(translated).or_default().push((key, mids));
             }
             None => dropped.push(key.clone()),
         }
     }
+    let mut expansion_path = keep_agreeing(path_images, &mut dropped);
 
     for (key, edge) in &m2.resolver {
         resolver.insert(key.clone(), edge.clone());
@@ -138,6 +154,22 @@ pub fn compose_contraction_keys(
     dropped.sort();
     dropped.dedup();
     (resolver, expansion_path, dropped)
+}
+
+/// The translated entries whose `m1` preimages all agree, one per
+/// translated key. The `m1` keys behind a translated key whose preimages
+/// disagree are pushed onto `dropped`.
+fn keep_agreeing<V: PartialEq>(images: Images<'_, V>, dropped: &mut Vec<Key>) -> HashMap<Key, V> {
+    let mut kept = HashMap::with_capacity(images.len());
+    for (translated, mut preimages) in images {
+        let agree = preimages.windows(2).all(|pair| pair[0].1 == pair[1].1);
+        if agree && let Some((_, value)) = preimages.pop() {
+            kept.insert(translated, value);
+        } else {
+            dropped.extend(preimages.into_iter().map(|(key, _)| key.clone()));
+        }
+    }
+    kept
 }
 
 #[cfg(test)]
@@ -225,6 +257,69 @@ mod tests {
         assert_eq!(resolver[&key("r", "leaf")], edge("r", "item"));
         assert_eq!(paths[&key("r", "c")], vec![Name::from("m2")]);
         assert!(dropped.is_empty());
+    }
+
+    fn named(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            name: Some(name.into()),
+            ..edge(src, tgt)
+        }
+    }
+
+    /// `m1` resolves `(r, a)` to `x` and `(r, b)` to `y`; `m2` merges `a`
+    /// and `b` into `c`, carrying each edge to `r -> c` under its own
+    /// label, or under one label when `one_label` is set.
+    fn merging_pair(one_label: bool) -> (CompiledMigration, CompiledMigration) {
+        let m1 = CompiledMigration {
+            surviving_verts: names(&["r", "a", "b"]),
+            resolver: HashMap::from([
+                (key("r", "a"), named("r", "a", "x")),
+                (key("r", "b"), named("r", "b", "y")),
+            ]),
+            expansion_path: HashMap::from([
+                (key("r", "a"), vec!["a".into()]),
+                (key("r", "b"), vec!["b".into()]),
+            ]),
+            ..CompiledMigration::default()
+        };
+        let y_image = if one_label { "x" } else { "y" };
+        let m2 = CompiledMigration {
+            surviving_verts: names(&["r", "c"]),
+            surviving_edges: HashSet::from([named("r", "c", "x"), named("r", "c", y_image)]),
+            vertex_remap: HashMap::from([("a".into(), "c".into()), ("b".into(), "c".into())]),
+            edge_remap: HashMap::from([
+                (named("r", "a", "x"), named("r", "c", "x")),
+                (named("r", "b", "y"), named("r", "c", y_image)),
+            ]),
+            ..CompiledMigration::default()
+        };
+        (m1, m2)
+    }
+
+    /// Two `m1` keys that `m2` merges onto one key with different edges
+    /// give no single composite entry: both are reported as dropped, and
+    /// the outcome does not depend on the map's iteration order.
+    #[test]
+    fn merged_keys_that_disagree_are_dropped_deterministically() {
+        let mut outcomes = HashSet::new();
+        for _ in 0..64 {
+            let (m1, m2) = merging_pair(false);
+            let (resolver, _, dropped) = compose_contraction_keys(&m1, &m2);
+            outcomes.insert(format!("{resolver:?} {dropped:?}"));
+            assert!(!resolver.contains_key(&key("r", "c")), "{resolver:?}");
+            assert_eq!(dropped, vec![key("r", "a"), key("r", "b")]);
+        }
+        assert_eq!(outcomes.len(), 1, "{outcomes:?}");
+    }
+
+    /// Merged keys whose entries agree keep the one entry they share.
+    #[test]
+    fn merged_keys_that_agree_keep_their_shared_entry() {
+        let (m1, m2) = merging_pair(true);
+        let (resolver, paths, dropped) = compose_contraction_keys(&m1, &m2);
+        assert_eq!(resolver[&key("r", "c")], named("r", "c", "x"));
+        assert_eq!(paths[&key("r", "c")], vec![Name::from("c")]);
+        assert!(dropped.is_empty(), "{dropped:?}");
     }
 
     #[test]
