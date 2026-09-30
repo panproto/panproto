@@ -35,7 +35,7 @@ use crate::wtype::{
 ///
 /// Elements are uniformly addressed by `u32` IDs. For [`WInstance`] and
 /// [`GInstance`], these are node IDs. For [`FInstance`], they are row ids
-/// (the number inside a [`RowId`](crate::RowId)), which are unique across the whole
+/// (the number inside a [`RowId`]), which are unique across the whole
 /// instance, so a table of any size is addressed without an encoding.
 pub trait ElementOps {
     /// Fiber selection: all elements over schema vertex `v`.
