@@ -425,31 +425,80 @@ fn a_protocol_carries_its_recipes_without_earlier_registration() {
     assert_eq!(sql.instance_composition, Some(instance));
 }
 
+/// The environment variable naming the one protocol a child process of
+/// [`every_theory_registration_inserts_has_its_composition`] checks.
+const ONLY_PROTOCOL: &str = "PANPROTO_PROTOCOLS_ONLY_PROTOCOL";
+
+/// Every theory a protocol's registration inserts has a recorded
+/// composition and recipe.
+///
+/// The record is process-wide, so a building block that one protocol's
+/// registration fails to record would be found anyway once another
+/// protocol in the same process recorded it. Each protocol is therefore
+/// checked in a child process of its own, where its registration is the
+/// first.
 #[test]
 fn every_theory_registration_inserts_has_its_composition() {
-    for descriptor in descriptors() {
-        let (_, registry) = register(descriptor.name);
-        for (theory_name, theory) in &registry {
-            let composition = registered_composition(theory_name)
-                .unwrap_or_else(|| panic!("{}: {theory_name} has no composition", descriptor.name));
-            assert_eq!(
-                canonical_theory_bytes(&composition.theory),
-                canonical_theory_bytes(theory),
-                "{}: {theory_name}",
-                descriptor.name
-            );
-            assert_status_clause(&composition, theory_name);
-            let recipe = registered_recipe(theory_name)
-                .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
-            let replayed = recompose(&recipe, &registry)
-                .unwrap_or_else(|e| panic!("{}: {theory_name}: {e}", descriptor.name));
-            assert_eq!(
-                canonical_theory_bytes(&replayed),
-                canonical_theory_bytes(theory),
-                "{}: {theory_name}",
-                descriptor.name
+    let Some(only) = std::env::var_os(ONLY_PROTOCOL) else {
+        for descriptor in descriptors() {
+            let output = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "every_theory_registration_inserts_has_its_composition",
+                    "--test-threads=1",
+                ])
+                .env(ONLY_PROTOCOL, descriptor.name)
+                .output()
+                .unwrap();
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            assert!(
+                output.status.success() && stdout.contains("test result: ok. 1 passed"),
+                "{}: the child process failed: {}\n{stdout}\n{}",
+                descriptor.name,
+                output.status,
+                String::from_utf8_lossy(&output.stderr)
             );
         }
+        return;
+    };
+    let only = only.into_string().unwrap();
+    let descriptor = descriptors()
+        .iter()
+        .find(|d| d.name == only)
+        .unwrap_or_else(|| panic!("{only} is not a registered protocol"));
+    assert!(
+        [
+            "ThGraph",
+            "ThHypergraph",
+            "ThSimpleGraph",
+            "ThWType",
+            "ThMeta"
+        ]
+        .iter()
+        .all(|name| registered_composition(name).is_none()),
+        "the child process registered theories before {only}"
+    );
+    let (_, registry) = register(descriptor.name);
+    for (theory_name, theory) in &registry {
+        let composition = registered_composition(theory_name)
+            .unwrap_or_else(|| panic!("{}: {theory_name} has no composition", descriptor.name));
+        assert_eq!(
+            canonical_theory_bytes(&composition.theory),
+            canonical_theory_bytes(theory),
+            "{}: {theory_name}",
+            descriptor.name
+        );
+        assert_status_clause(&composition, theory_name);
+        let recipe = registered_recipe(theory_name)
+            .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
+        let replayed = recompose(&recipe, &registry)
+            .unwrap_or_else(|e| panic!("{}: {theory_name}: {e}", descriptor.name));
+        assert_eq!(
+            canonical_theory_bytes(&replayed),
+            canonical_theory_bytes(theory),
+            "{}: {theory_name}",
+            descriptor.name
+        );
     }
 }
 
