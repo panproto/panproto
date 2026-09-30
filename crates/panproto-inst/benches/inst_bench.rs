@@ -441,7 +441,9 @@ fn functor_restrict_n_tables(bencher: Bencher, n: usize) {
                 row
             })
             .collect();
-        inst = inst.with_table(format!("t{i}"), rows);
+        inst = inst
+            .with_table(format!("t{i}"), rows)
+            .expect("the ids are fresh");
     }
 
     // Identity migration keeping all tables
@@ -477,7 +479,9 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
                 row
             })
             .collect();
-        inst = inst.with_table(format!("t{i}"), rows);
+        inst = inst
+            .with_table(format!("t{i}"), rows)
+            .expect("the ids are fresh");
     }
 
     // Identity migration (no remap, all survive)

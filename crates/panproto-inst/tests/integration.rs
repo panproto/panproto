@@ -15,8 +15,9 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, FInstance, Fan, FieldPresence, Node, Value, WInstance, anchor_surviving,
-    functor_restrict, parse_json, reconstruct_fans, to_json, validate_wtype, wtype_restrict,
+    CompiledMigration, FInstance, Fan, FieldPresence, Node, RowId, Value, WInstance,
+    anchor_surviving, functor_restrict, parse_json, reconstruct_fans, to_json, validate_wtype,
+    wtype_restrict,
 };
 use panproto_schema::{Edge, HyperEdge, Schema, Vertex};
 use smallvec::smallvec;
@@ -658,7 +659,7 @@ fn test_fan_reconstruction_4_to_3() {
 // Test 4: Set-valued functor: two tables with FK -> restrict drops one table
 // ---------------------------------------------------------------------------
 #[test]
-fn test_functor_restrict_drops_a_non_surviving_table() {
+fn test_functor_restrict_drops_a_non_surviving_table() -> Result<(), Box<dyn std::error::Error>> {
     let mut users_rows = vec![];
     let mut row1 = HashMap::new();
     row1.insert("id".to_string(), Value::Int(1));
@@ -684,10 +685,11 @@ fn test_functor_restrict_drops_a_non_surviving_table() {
         name: Some("author".into()),
     };
 
+    // Users are rows 0 and 1, the post row 2, authored by user 0.
     let inst = FInstance::new()
-        .with_table("users", users_rows)
-        .with_table("posts", posts_rows)
-        .with_foreign_key(fk_edge, vec![(0, 0)]);
+        .with_table("users", users_rows)?
+        .with_table("posts", posts_rows)?
+        .with_foreign_key(fk_edge, [(RowId(2), RowId(0))])?;
 
     assert_eq!(inst.table_count(), 2);
     assert_eq!(inst.row_count("users"), 2);
@@ -713,21 +715,21 @@ fn test_functor_restrict_drops_a_non_surviving_table() {
 
     // Verify: only "users" table survives
     assert_eq!(restricted.table_count(), 1, "should have 1 table");
+    assert!(restricted.has_table("users"), "users table should survive");
     assert!(
-        restricted.tables.contains_key("users"),
-        "users table should survive"
-    );
-    assert!(
-        !restricted.tables.contains_key("posts"),
+        !restricted.has_table("posts"),
         "posts table should be dropped"
     );
 
     // Verify: foreign keys dropped (since posts is gone)
-    assert!(
-        restricted.foreign_keys.is_empty(),
+    assert_eq!(
+        restricted.pair_count(),
+        0,
         "foreign keys should be empty after dropping posts"
     );
 
-    // Verify: users data preserved
+    // Verify: users data preserved, under their own row ids
     assert_eq!(restricted.row_count("users"), 2, "users should have 2 rows");
+    assert_eq!(restricted.row_ids(), vec![RowId(0), RowId(1)]);
+    Ok(())
 }

@@ -1,8 +1,16 @@
 //! Set-valued functor instance representation.
 //!
 //! An [`FInstance`] represents relational (tabular) data as a set-valued
-//! functor: each schema vertex maps to a table (set of rows), and each
-//! edge maps to a foreign-key relationship.
+//! functor: each schema vertex maps to a table (a set of rows), and each
+//! foreign-key edge maps to a relation between the rows of its endpoint
+//! tables.
+//!
+//! Every row carries a [`RowId`] that is unique across the whole instance,
+//! not per table, so a row is addressed by its id alone and keeps that id
+//! when an operation moves it to another table. Foreign keys are sets of
+//! `(source row, target row)` pairs, stored sorted. There is no positional
+//! row reference anywhere: a row's place in a table is its id, and a table
+//! enumerates its rows in ascending id.
 //!
 //! Both migration operations here carry an `S`-instance forward along a
 //! migration `F: S -> T`, and they differ in what they do with the structure
@@ -12,62 +20,248 @@
 //! foreign keys across. [`functor_extend`] keeps everything: a vertex the
 //! migration says nothing about travels under its own name, merged rows are
 //! padded to a common column set, and every surviving vertex gets a table even
-//! when no rows reach it.
+//! when no rows reach it. Both keep every row's id.
 //!
 //! Neither is precomposition. Both take the coproduct over a fibre when the
 //! vertex map merges two vertices, which is what `Sigma_F` does. `Delta_F`
 //! runs the other way, from a `T`-instance to an `S`-instance, and lives in
 //! [`crate::adjunction::f_delta`] with the rest of the adjunction.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
-use panproto_schema::Edge;
-use serde::{Deserialize, Serialize};
+use panproto_schema::{CanonicalWriter, Edge};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use crate::error::RestrictError;
+use crate::error::{InstError, RestrictError};
+use crate::identity::{CanonicalSink, Digest, TABLE_INSTANCE_CONTEXT, write_value_map};
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::Value;
+use crate::view_ref::RowId;
 use crate::wtype::CompiledMigration;
+
+/// A row: its cells, by column name.
+pub type Row = HashMap<String, Value>;
+
+/// A foreign-key pair together with the schema edge it belongs to.
+pub type ForeignKeyPair = (Edge, RowId, RowId);
+
+/// One table of an [`FInstance`]: its rows, by [`RowId`].
+///
+/// A table enumerates its rows in ascending id; nothing about a row depends
+/// on the order in which it was inserted.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Table {
+    rows: HashMap<RowId, Row>,
+}
+
+impl Table {
+    /// The number of rows.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.rows.len()
+    }
+
+    /// Whether the table has no rows.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.rows.is_empty()
+    }
+
+    /// The row with this id, if the table holds it.
+    #[must_use]
+    pub fn get(&self, id: RowId) -> Option<&Row> {
+        self.rows.get(&id)
+    }
+
+    /// Whether the table holds a row with this id.
+    #[must_use]
+    pub fn contains(&self, id: RowId) -> bool {
+        self.rows.contains_key(&id)
+    }
+
+    /// The ids of the rows, ascending.
+    #[must_use]
+    pub fn ids(&self) -> Vec<RowId> {
+        let mut ids: Vec<RowId> = self.rows.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The rows with their ids, in ascending id.
+    #[must_use]
+    pub fn rows(&self) -> Vec<(RowId, &Row)> {
+        let mut rows: Vec<(RowId, &Row)> = self.rows.iter().map(|(id, row)| (*id, row)).collect();
+        rows.sort_unstable_by_key(|(id, _)| *id);
+        rows
+    }
+}
 
 /// A set-valued functor instance (relational data).
 ///
-/// Tables map schema vertex IDs to rows (each row is a map of column
-/// names to values). Foreign keys map schema edges to pairs of
-/// (source row index, target row index).
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Tables are keyed by schema vertex; each row has a [`RowId`] unique across
+/// the whole instance; each foreign key is keyed by its schema edge and holds
+/// a sorted set of `(source row, target row)` pairs, the source row in the
+/// edge's source table and the target row in its target table. The fields
+/// are private so that these invariants hold for every value: the
+/// constructors and the decoder check them, and a private index from row to
+/// table is rebuilt whenever an instance is decoded.
+///
+/// Serialized through a wire form with sorted maps (tables by name, rows by
+/// id, cells by column, foreign keys as a list in ascending edge order), so
+/// the bytes of one instance are the same in every process. Decoding fails
+/// with [`InstError::DuplicateRowId`] when an id appears in two tables, with
+/// [`InstError::DanglingForeignKey`] when a pair names a row its edge's
+/// endpoint table does not hold, and with [`InstError::DuplicateForeignKey`]
+/// when a pair is listed twice.
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use panproto_inst::{FInstance, RowId, Value};
+/// use panproto_schema::Edge;
+///
+/// let author = Edge { src: "post".into(), tgt: "user".into(), kind: "fk".into(), name: None };
+/// let mut tables = FInstance::new();
+/// tables.insert_row("user", RowId(0), HashMap::from([("name".to_owned(), Value::Str("ada".into()))]))?;
+/// tables.insert_row("post", RowId(1), HashMap::new())?;
+/// tables.insert_foreign_key(author.clone(), RowId(1), RowId(0))?;
+/// assert_eq!(tables.table_of(RowId(1)).map(AsRef::as_ref), Some("post"));
+/// assert_eq!(tables.pairs(&author), &[(RowId(1), RowId(0))]);
+/// assert_eq!(tables.fresh_row_id()?, RowId(2));
+/// # Ok::<(), panproto_inst::InstError>(())
+/// ```
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FInstance {
-    /// Tables: vertex ID to rows. Each row is a column-name to value map.
-    pub tables: HashMap<String, Vec<HashMap<String, Value>>>,
-    /// Foreign keys: edge to row-index pairs.
-    pub foreign_keys: HashMap<Edge, Vec<(usize, usize)>>,
+    tables: HashMap<Name, Table>,
+    foreign_keys: HashMap<Edge, Vec<(RowId, RowId)>>,
+    row_table: HashMap<RowId, Name>,
+}
+
+/// The allocator of fresh row ids above every id in `ids`: its floor is
+/// `max(ids) + 1`, and `0` when `ids` is empty.
+pub(crate) fn row_allocator(ids: impl IntoIterator<Item = RowId>) -> IdAllocator {
+    IdAllocator::from_source(IdRange::FULL, ids.into_iter().map(|id| id.0))
+}
+
+/// Draw one fresh row id from `allocator`.
+///
+/// # Errors
+///
+/// Returns [`InstError::NodeIdsExhausted`] when no row id is free above the
+/// floor (rows are the nodes of a table's graph form).
+pub(crate) fn allocate_row(allocator: &mut IdAllocator) -> Result<RowId, InstError> {
+    allocator
+        .allocate()
+        .map(RowId)
+        .map_err(|e| e.whole_state(IdKind::Node))
 }
 
 impl FInstance {
     /// Create a new empty functor instance.
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            tables: HashMap::new(),
-            foreign_keys: HashMap::new(),
-        }
+        Self::default()
     }
 
-    /// Add a table for the given vertex.
-    #[must_use]
+    /// Build an instance from its tables and foreign keys, checking every
+    /// invariant; this is also the decoder's path.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DuplicateRowId`] when one id appears in two
+    /// tables (or twice in one), [`InstError::DanglingForeignKey`] when a pair
+    /// names a row its edge's endpoint table does not hold, and
+    /// [`InstError::DuplicateForeignKey`] when a pair is listed twice.
+    pub fn from_parts(
+        tables: impl IntoIterator<Item = (Name, Vec<(RowId, Row)>)>,
+        foreign_keys: impl IntoIterator<Item = (Edge, Vec<(RowId, RowId)>)>,
+    ) -> Result<Self, InstError> {
+        let mut holders: BTreeMap<RowId, Vec<Name>> = BTreeMap::new();
+        let mut staged: Vec<(Name, Vec<(RowId, Row)>)> = Vec::new();
+        for (name, rows) in tables {
+            for (id, _) in &rows {
+                holders.entry(*id).or_default().push(name.clone());
+            }
+            staged.push((name, rows));
+        }
+        if let Some((row, mut tables)) = holders.into_iter().find(|(_, t)| t.len() > 1) {
+            tables.sort_unstable();
+            return Err(InstError::DuplicateRowId { row, tables });
+        }
+        let mut instance = Self::new();
+        for (name, rows) in staged {
+            instance.add_table(name.clone());
+            for (id, row) in rows {
+                instance.place_row(name.clone(), id, row);
+            }
+        }
+        let mut keys: Vec<(Edge, Vec<(RowId, RowId)>)> = foreign_keys.into_iter().collect();
+        keys.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+        for (edge, pairs) in keys {
+            for (src, tgt) in pairs {
+                instance.insert_foreign_key(edge.clone(), src, tgt)?;
+            }
+        }
+        Ok(instance)
+    }
+
+    /// Add a table of fresh rows for the given vertex, numbering the rows
+    /// from the least id above every row already in the instance, in the
+    /// order given.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::NodeIdsExhausted`] when the ids run out.
     pub fn with_table(
         mut self,
-        vertex_id: impl Into<String>,
-        rows: Vec<HashMap<String, Value>>,
-    ) -> Self {
-        self.tables.insert(vertex_id.into(), rows);
-        self
+        vertex: impl Into<Name>,
+        rows: impl IntoIterator<Item = Row>,
+    ) -> Result<Self, InstError> {
+        let vertex = vertex.into();
+        self.add_table(vertex.clone());
+        for row in rows {
+            self.push_row(vertex.clone(), row)?;
+        }
+        Ok(self)
     }
 
-    /// Add a foreign key for the given edge.
-    #[must_use]
-    pub fn with_foreign_key(mut self, edge: Edge, pairs: Vec<(usize, usize)>) -> Self {
-        self.foreign_keys.insert(edge, pairs);
-        self
+    /// Add rows with the given ids to the given vertex's table.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DuplicateRowId`] when an id is already in use.
+    pub fn with_rows(
+        mut self,
+        vertex: impl Into<Name>,
+        rows: impl IntoIterator<Item = (RowId, Row)>,
+    ) -> Result<Self, InstError> {
+        let vertex = vertex.into();
+        self.add_table(vertex.clone());
+        for (id, row) in rows {
+            self.insert_row(vertex.clone(), id, row)?;
+        }
+        Ok(self)
+    }
+
+    /// Add the given pairs to the foreign key of `edge`.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::insert_foreign_key`].
+    pub fn with_foreign_key(
+        mut self,
+        edge: Edge,
+        pairs: impl IntoIterator<Item = (RowId, RowId)>,
+    ) -> Result<Self, InstError> {
+        let pairs: Vec<(RowId, RowId)> = pairs.into_iter().collect();
+        if let Some((&(src, tgt), rest)) = pairs.split_last() {
+            for &(s, t) in rest {
+                self.insert_foreign_key(edge.clone(), s, t)?;
+            }
+            self.insert_foreign_key(edge, src, tgt)?;
+        }
+        Ok(self)
     }
 
     /// Returns the number of tables.
@@ -78,31 +272,566 @@ impl FInstance {
 
     /// Returns the number of rows in a specific table.
     #[must_use]
-    pub fn row_count(&self, vertex_id: &str) -> usize {
-        self.tables.get(vertex_id).map_or(0, Vec::len)
+    pub fn row_count(&self, vertex: &str) -> usize {
+        self.tables.get(vertex).map_or(0, Table::len)
+    }
+
+    /// Returns the number of rows in the whole instance.
+    #[must_use]
+    pub fn total_row_count(&self) -> usize {
+        self.row_table.len()
+    }
+
+    /// Returns the number of foreign-key pairs in the whole instance.
+    #[must_use]
+    pub fn pair_count(&self) -> usize {
+        self.foreign_keys.values().map(Vec::len).sum()
+    }
+
+    /// The table names, ascending.
+    #[must_use]
+    pub fn table_names(&self) -> Vec<&Name> {
+        let mut names: Vec<&Name> = self.tables.keys().collect();
+        names.sort_unstable();
+        names
+    }
+
+    /// The tables with their names, in ascending name order.
+    #[must_use]
+    pub fn tables(&self) -> Vec<(&Name, &Table)> {
+        let mut tables: Vec<(&Name, &Table)> = self.tables.iter().collect();
+        tables.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        tables
+    }
+
+    /// The table of the given vertex, if the instance has one.
+    #[must_use]
+    pub fn table(&self, vertex: &str) -> Option<&Table> {
+        self.tables.get(vertex)
+    }
+
+    /// Whether the instance has a table (possibly empty) for the vertex.
+    #[must_use]
+    pub fn has_table(&self, vertex: &str) -> bool {
+        self.tables.contains_key(vertex)
+    }
+
+    /// The rows of the given vertex's table with their ids, in ascending id;
+    /// empty when there is no such table.
+    #[must_use]
+    pub fn rows(&self, vertex: &str) -> Vec<(RowId, &Row)> {
+        self.tables.get(vertex).map_or_else(Vec::new, Table::rows)
+    }
+
+    /// The row with this id, in whichever table holds it.
+    #[must_use]
+    pub fn row(&self, id: RowId) -> Option<&Row> {
+        let table = self.row_table.get(&id)?;
+        self.tables.get(table)?.get(id)
+    }
+
+    /// The row with this id, mutably.
+    pub fn row_mut(&mut self, id: RowId) -> Option<&mut Row> {
+        let table = self.row_table.get(&id)?;
+        self.tables.get_mut(table)?.rows.get_mut(&id)
+    }
+
+    /// The table holding the row with this id.
+    #[must_use]
+    pub fn table_of(&self, id: RowId) -> Option<&Name> {
+        self.row_table.get(&id)
+    }
+
+    /// Every row id of the instance, ascending.
+    #[must_use]
+    pub fn row_ids(&self) -> Vec<RowId> {
+        let mut ids: Vec<RowId> = self.row_table.keys().copied().collect();
+        ids.sort_unstable();
+        ids
+    }
+
+    /// The largest row id in use, if any.
+    #[must_use]
+    pub fn max_row_id(&self) -> Option<RowId> {
+        self.row_table.keys().copied().max()
+    }
+
+    /// The least row id above every row id in use: `max + 1`, and `0` for an
+    /// instance without rows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::NodeIdsExhausted`] when the largest id in use is
+    /// `u32::MAX`.
+    pub fn fresh_row_id(&self) -> Result<RowId, InstError> {
+        allocate_row(&mut row_allocator(self.row_table.keys().copied()))
+    }
+
+    /// Ensure the vertex has a table, empty when it had none. Returns whether
+    /// a table was created.
+    pub fn add_table(&mut self, vertex: impl Into<Name>) -> bool {
+        let vertex = vertex.into();
+        if self.tables.contains_key(&vertex) {
+            return false;
+        }
+        self.tables.insert(vertex, Table::default());
+        true
+    }
+
+    /// Insert a row with the given id into the given vertex's table.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DuplicateRowId`] when the id is already in use,
+    /// naming every table involved.
+    pub fn insert_row(
+        &mut self,
+        vertex: impl Into<Name>,
+        id: RowId,
+        row: Row,
+    ) -> Result<(), InstError> {
+        let vertex = vertex.into();
+        if let Some(existing) = self.row_table.get(&id) {
+            let mut tables = vec![existing.clone(), vertex];
+            tables.sort_unstable();
+            return Err(InstError::DuplicateRowId { row: id, tables });
+        }
+        self.place_row(vertex, id, row);
+        Ok(())
+    }
+
+    /// Insert a row under a fresh id (`max + 1`) and return the id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::NodeIdsExhausted`] when the ids run out.
+    pub fn push_row(&mut self, vertex: impl Into<Name>, row: Row) -> Result<RowId, InstError> {
+        let id = self.fresh_row_id()?;
+        self.place_row(vertex.into(), id, row);
+        Ok(id)
+    }
+
+    /// Insert a row whose id the caller knows to be unused.
+    pub(crate) fn place_row(&mut self, vertex: Name, id: RowId, row: Row) {
+        self.row_table.insert(id, vertex.clone());
+        self.tables.entry(vertex).or_default().rows.insert(id, row);
+    }
+
+    /// Remove a row together with every foreign-key pair incident to it.
+    /// Returns the row's table, its cells and the removed pairs (ascending),
+    /// or `None` when no row has this id.
+    pub fn remove_row(&mut self, id: RowId) -> Option<(Name, Row, Vec<ForeignKeyPair>)> {
+        let table = self.row_table.remove(&id)?;
+        let row = self.tables.get_mut(&table)?.rows.remove(&id)?;
+        let incident = self.incident_pairs(id);
+        for (edge, src, tgt) in &incident {
+            self.remove_foreign_key(edge, *src, *tgt);
+        }
+        Some((table, row, incident))
+    }
+
+    /// Move a row to another table, keeping its id and cells, and return the
+    /// table it left.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::NodeNotFound`] with the id when no row has it
+    /// (rows are the nodes of a table's graph form), and
+    /// [`InstError::DanglingForeignKey`] naming the first incident
+    /// pair when the row takes part in a foreign key, since the pair would no
+    /// longer join its edge's endpoint tables.
+    pub fn move_row(&mut self, id: RowId, vertex: impl Into<Name>) -> Result<Name, InstError> {
+        let vertex = vertex.into();
+        let old = self
+            .row_table
+            .get(&id)
+            .cloned()
+            .ok_or(InstError::NodeNotFound(id.0))?;
+        if old == vertex {
+            return Ok(old);
+        }
+        if let Some((edge, _, _)) = self.incident_pairs(id).into_iter().next() {
+            return Err(InstError::DanglingForeignKey { edge, row: id });
+        }
+        let row = self
+            .tables
+            .get_mut(&old)
+            .and_then(|t| t.rows.remove(&id))
+            .ok_or(InstError::NodeNotFound(id.0))?;
+        self.place_row(vertex, id, row);
+        Ok(old)
     }
 }
 
-impl Default for FInstance {
-    fn default() -> Self {
-        Self::new()
+impl FInstance {
+    /// Add the pair `(src, tgt)` to the foreign key of `edge`, keeping the
+    /// pair list sorted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DanglingForeignKey`] when `src` is not a row of
+    /// `edge.src`'s table or `tgt` is not a row of `edge.tgt`'s table, and
+    /// [`InstError::DuplicateForeignKey`] when the pair is already present
+    /// (a foreign key is a set of pairs).
+    pub fn insert_foreign_key(
+        &mut self,
+        edge: Edge,
+        src: RowId,
+        tgt: RowId,
+    ) -> Result<(), InstError> {
+        let dangling = [(src, &edge.src), (tgt, &edge.tgt)]
+            .into_iter()
+            .find(|(row, table)| self.row_table.get(row) != Some(*table))
+            .map(|(row, _)| row);
+        if let Some(row) = dangling {
+            return Err(InstError::DanglingForeignKey { edge, row });
+        }
+        let pairs = self.foreign_keys.entry(edge.clone()).or_default();
+        match pairs.binary_search(&(src, tgt)) {
+            Ok(_) => Err(InstError::DuplicateForeignKey { edge, src, tgt }),
+            Err(at) => {
+                pairs.insert(at, (src, tgt));
+                Ok(())
+            }
+        }
     }
+
+    /// Add a pair whose endpoints the caller knows to be rows of the edge's
+    /// endpoint tables; a pair already present is left as it is. Returns
+    /// whether the pair was added.
+    pub(crate) fn place_pair(&mut self, edge: Edge, src: RowId, tgt: RowId) -> bool {
+        let pairs = self.foreign_keys.entry(edge).or_default();
+        match pairs.binary_search(&(src, tgt)) {
+            Ok(_) => false,
+            Err(at) => {
+                pairs.insert(at, (src, tgt));
+                true
+            }
+        }
+    }
+
+    /// Whether `(src, tgt)` would join the endpoint tables of `edge`.
+    pub(crate) fn joins(&self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
+        self.row_table.get(&src) == Some(&edge.src) && self.row_table.get(&tgt) == Some(&edge.tgt)
+    }
+
+    /// Remove the pair `(src, tgt)` from the foreign key of `edge`. Returns
+    /// whether it was present.
+    pub fn remove_foreign_key(&mut self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
+        let Some(pairs) = self.foreign_keys.get_mut(edge) else {
+            return false;
+        };
+        let Ok(at) = pairs.binary_search(&(src, tgt)) else {
+            return false;
+        };
+        pairs.remove(at);
+        if pairs.is_empty() {
+            self.foreign_keys.remove(edge);
+        }
+        true
+    }
+
+    /// Whether the foreign key of `edge` holds `(src, tgt)`.
+    #[must_use]
+    pub fn contains_pair(&self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
+        self.foreign_keys
+            .get(edge)
+            .is_some_and(|pairs| pairs.binary_search(&(src, tgt)).is_ok())
+    }
+
+    /// The pairs of the foreign key of `edge`, ascending; empty when the
+    /// edge has none.
+    #[must_use]
+    pub fn pairs(&self, edge: &Edge) -> &[(RowId, RowId)] {
+        self.foreign_keys.get(edge).map_or(&[], Vec::as_slice)
+    }
+
+    /// The foreign keys with their pairs, in ascending edge order. An edge
+    /// without pairs is not listed.
+    #[must_use]
+    pub fn foreign_keys(&self) -> Vec<(&Edge, &[(RowId, RowId)])> {
+        let mut keys: Vec<(&Edge, &[(RowId, RowId)])> = self
+            .foreign_keys
+            .iter()
+            .filter(|(_, pairs)| !pairs.is_empty())
+            .map(|(edge, pairs)| (edge, pairs.as_slice()))
+            .collect();
+        keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        keys
+    }
+
+    /// Every foreign-key pair with its edge, in ascending `(edge, src, tgt)`.
+    #[must_use]
+    pub fn all_pairs(&self) -> Vec<ForeignKeyPair> {
+        self.foreign_keys()
+            .into_iter()
+            .flat_map(|(edge, pairs)| pairs.iter().map(move |&(s, t)| (edge.clone(), s, t)))
+            .collect()
+    }
+
+    /// The foreign-key pairs with the given row at either end, in ascending
+    /// `(edge, src, tgt)`.
+    #[must_use]
+    pub fn incident_pairs(&self, id: RowId) -> Vec<ForeignKeyPair> {
+        let mut incident: Vec<ForeignKeyPair> = self
+            .foreign_keys
+            .iter()
+            .flat_map(|(edge, pairs)| {
+                pairs
+                    .iter()
+                    .filter(move |(s, t)| *s == id || *t == id)
+                    .map(move |&(s, t)| (edge.clone(), s, t))
+            })
+            .collect();
+        incident.sort_unstable();
+        incident
+    }
+
+    /// The single row of `vertex`'s table whose cells agree with every
+    /// `(column, value)` of `key`.
+    ///
+    /// A key is data: this is a lookup helper, and every operation addresses
+    /// rows by [`RowId`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`KeyLookupError::TableNotFound`] when there is no such table,
+    /// [`KeyLookupError::Missing`] when no row matches and
+    /// [`KeyLookupError::Duplicate`] (with every matching id, ascending) when
+    /// more than one does.
+    pub fn find_row_by_key(
+        &self,
+        vertex: &str,
+        key: &[(&str, &Value)],
+    ) -> Result<RowId, KeyLookupError> {
+        let table = self
+            .tables
+            .get(vertex)
+            .ok_or_else(|| KeyLookupError::TableNotFound(Name::from(vertex)))?;
+        let matches: Vec<RowId> = table
+            .rows()
+            .into_iter()
+            .filter(|(_, row)| key.iter().all(|(col, val)| row.get(*col) == Some(*val)))
+            .map(|(id, _)| id)
+            .collect();
+        match matches.as_slice() {
+            [] => Err(KeyLookupError::Missing {
+                table: Name::from(vertex),
+            }),
+            [id] => Ok(*id),
+            _ => Err(KeyLookupError::Duplicate {
+                table: Name::from(vertex),
+                rows: matches,
+            }),
+        }
+    }
+}
+
+/// Why a key lookup ([`FInstance::find_row_by_key`]) found no single row.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum KeyLookupError {
+    /// The instance has no table for the vertex.
+    #[error("no table `{0}`")]
+    TableNotFound(Name),
+    /// No row of the table carries the key.
+    #[error("no row of table `{table}` carries the key")]
+    Missing {
+        /// The table searched.
+        table: Name,
+    },
+    /// More than one row of the table carries the key.
+    #[error("rows {rows:?} of table `{table}` all carry the key")]
+    Duplicate {
+        /// The table searched.
+        table: Name,
+        /// Every row carrying the key, ascending.
+        rows: Vec<RowId>,
+    },
+}
+
+/// The wire form of an [`FInstance`], borrowed for encoding.
+#[derive(Serialize)]
+struct WireOut<'a> {
+    tables: BTreeMap<&'a Name, BTreeMap<RowId, BTreeMap<&'a String, &'a Value>>>,
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    foreign_keys: BTreeMap<&'a Edge, &'a Vec<(RowId, RowId)>>,
+}
+
+/// The wire form of an [`FInstance`], owned for decoding.
+#[derive(Deserialize)]
+struct WireIn {
+    tables: BTreeMap<Name, BTreeMap<RowId, BTreeMap<String, Value>>>,
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    foreign_keys: BTreeMap<Edge, Vec<(RowId, RowId)>>,
+}
+
+impl Serialize for FInstance {
+    fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        let tables = self
+            .tables
+            .iter()
+            .map(|(name, table)| {
+                let rows = table
+                    .rows
+                    .iter()
+                    .map(|(id, row)| (*id, row.iter().collect()))
+                    .collect();
+                (name, rows)
+            })
+            .collect();
+        let foreign_keys = self
+            .foreign_keys
+            .iter()
+            .filter(|(_, pairs)| !pairs.is_empty())
+            .collect();
+        WireOut {
+            tables,
+            foreign_keys,
+        }
+        .serialize(serializer)
+    }
+}
+
+impl<'de> Deserialize<'de> for FInstance {
+    fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let wire = WireIn::deserialize(deserializer)?;
+        Self::from_parts(
+            wire.tables.into_iter().map(|(name, rows)| {
+                let rows = rows
+                    .into_iter()
+                    .map(|(id, cells)| (id, cells.into_iter().collect()))
+                    .collect();
+                (name, rows)
+            }),
+            wire.foreign_keys,
+        )
+        .map_err(serde::de::Error::custom)
+    }
+}
+
+/// Write the record of one row: its id, its table and its cells in ascending
+/// column order. See [`canonical_finstance_bytes`] for the layout.
+pub fn write_row_record<S: CanonicalSink + ?Sized>(
+    sink: &mut S,
+    id: RowId,
+    table: &Name,
+    row: &Row,
+) {
+    sink.u32(id.0);
+    sink.name(table);
+    write_value_map(sink, row);
+}
+
+/// Write the record of one foreign-key pair: its edge, then its source and
+/// target rows. See [`canonical_finstance_bytes`] for the layout.
+pub fn write_pair_record<S: CanonicalSink + ?Sized>(
+    sink: &mut S,
+    edge: &Edge,
+    src: RowId,
+    tgt: RowId,
+) {
+    sink.edge(edge);
+    sink.u32(src.0);
+    sink.u32(tgt.0);
+}
+
+/// Write a table instance's canonical bytes into `sink`: the header, then
+/// every row record in ascending [`RowId`], then every pair record in
+/// ascending `(edge, src, tgt)`.
+pub fn write_finstance<S: CanonicalSink + ?Sized>(sink: &mut S, instance: &FInstance) {
+    sink.len(instance.total_row_count());
+    sink.len(instance.pair_count());
+    for id in instance.row_ids() {
+        if let (Some(table), Some(row)) = (instance.table_of(id), instance.row(id)) {
+            write_row_record(sink, id, table, row);
+        }
+    }
+    for (edge, pairs) in instance.foreign_keys() {
+        for &(src, tgt) in pairs {
+            write_pair_record(sink, edge, src, tgt);
+        }
+    }
+}
+
+/// The canonical bytes of a table instance, as [`write_finstance`] writes
+/// them.
+///
+/// The bytes are a header and then self-contained records:
+///
+/// ```text
+/// header = row_count: u64, pair_count: u64
+/// row    = id: u32, table, cells            (ascending RowId)
+/// pair   = edge, src: u32, tgt: u32         (ascending (edge, src, tgt))
+/// ```
+///
+/// Every field is written through a [`CanonicalSink`] with the sink's own
+/// encoders: integers little-endian, names length-prefixed, cells as their
+/// count and then each `(column, value)` in ascending column order with the
+/// value by [`CanonicalSink::value`], an edge as source, target, kind and
+/// optional name. No record refers to a position: a row is named by its id,
+/// which the instance carries as data, so the digest can be computed by
+/// streaming the records into a [`DigestHasher`](crate::DigestHasher). A
+/// table without rows writes nothing: the bytes are those of the rows and
+/// pairs.
+#[must_use]
+pub fn canonical_finstance_bytes(instance: &FInstance) -> Vec<u8> {
+    let mut writer = CanonicalWriter::new();
+    write_finstance(&mut writer, instance);
+    writer.into_bytes()
+}
+
+impl FInstance {
+    /// The digest of this table instance: its canonical bytes
+    /// ([`canonical_finstance_bytes`]) under [`TABLE_INSTANCE_CONTEXT`],
+    /// computed by streaming the records into the hasher.
+    ///
+    /// ```
+    /// use panproto_inst::identity::{Digest, TABLE_INSTANCE_CONTEXT};
+    /// use panproto_inst::{FInstance, canonical_finstance_bytes};
+    ///
+    /// let tables = FInstance::new().with_table("item", [Default::default()])?;
+    /// assert_eq!(
+    ///     tables.digest(),
+    ///     Digest::derive(TABLE_INSTANCE_CONTEXT, &canonical_finstance_bytes(&tables)),
+    /// );
+    /// # Ok::<(), panproto_inst::InstError>(())
+    /// ```
+    #[must_use]
+    pub fn digest(&self) -> Digest {
+        let mut hasher = Digest::hasher(TABLE_INSTANCE_CONTEXT);
+        write_finstance(&mut hasher, self);
+        hasher.finalize()
+    }
+}
+
+/// The edge a source edge travels to under a migration: its remap when the
+/// migration names one, itself when it survives, and `None` otherwise.
+fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
+    migration.edge_remap.get(edge).cloned().or_else(|| {
+        migration
+            .surviving_edges
+            .contains(edge)
+            .then(|| edge.clone())
+    })
 }
 
 /// Carry a set-valued functor instance forward along a migration, keeping
 /// the fragment that survives.
 ///
 /// Each surviving target vertex takes the rows of every source vertex the
-/// migration sends to it, concatenated in source-name order and rewritten by
-/// that vertex's op-to-term assignments; a target no source reaches keeps a
-/// same-named source table when the instance has one. Foreign keys travel for
-/// the edges the migration remaps between surviving vertices and for those it
-/// lets survive, with row indices offset into the block each source table
-/// occupies in the concatenation.
+/// migration sends to it, each row keeping its [`RowId`] and rewritten by
+/// its source vertex's op-to-term assignments; a target no source reaches
+/// keeps a same-named source table when the instance has one. Foreign keys
+/// travel for the edges the migration remaps between surviving vertices and
+/// for those it lets survive: a pair survives exactly when both of its rows
+/// landed in the carried edge's endpoint tables. Pairs from source edges the
+/// migration identifies are unioned (a foreign key is a set).
 ///
 /// This is a pushforward, not precomposition: over a vertex map that merges
-/// two vertices it returns the fibre's coproduct, which is `Sigma_F`'s answer.
-/// For `Delta_F` see [`crate::adjunction::f_delta`].
+/// two vertices it returns the fibre's disjoint union, which is `Sigma_F`'s
+/// answer; the row ids keep the union disjoint without any renumbering. For
+/// `Delta_F` see [`crate::adjunction::f_delta`].
 ///
 /// # Errors
 ///
@@ -112,211 +841,122 @@ pub fn functor_restrict(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
-    let mut new_tables = HashMap::new();
-    let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
-    // Position of each source vertex's row block inside the concatenated
-    // target table, so foreign-key row indices survive the merge.
-    let mut row_offsets: HashMap<&str, usize> = HashMap::new();
-
-    // For each surviving vertex, pull the table from the source.
-    // vertex_remap maps src -> tgt, so invert to find all sources.
-    // When multiple source vertices map to the same target, their tables are
-    // concatenated in source-name order so the result does not depend on hash
-    // iteration order.
+    let mut out = FInstance::new();
     let mut targets: Vec<&Name> = migration.surviving_verts.iter().collect();
     targets.sort_unstable();
     for tgt_vertex in targets {
-        let mut src_vertices: Vec<&str> = migration
+        let mut sources: Vec<&Name> = migration
             .vertex_remap
             .iter()
             .filter(|(_, v)| *v == tgt_vertex)
-            .map(|(k, _)| &**k)
+            .map(|(k, _)| k)
             .collect();
-        src_vertices.sort_unstable();
-
-        let sources = if src_vertices.is_empty() {
-            vec![&**tgt_vertex]
-        } else {
-            src_vertices
-        };
-
-        let mut combined_rows = Vec::new();
+        sources.sort_unstable();
+        if sources.is_empty() {
+            sources.push(tgt_vertex);
+        }
         for src_vertex in sources {
-            row_offsets.insert(src_vertex, combined_rows.len());
-            if let Some(rows) = instance.tables.get(src_vertex) {
-                // The migration acts on values by substitution: each carried
-                // row is rewritten by the source vertex's op-to-term
-                // assignments.
-                let assignments = migration.op_term_assignments.get(src_vertex);
-                for row in rows {
-                    let mut new_row = row.clone();
-                    if let Some(assignments) = assignments {
-                        crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
-                    }
-                    combined_rows.push(new_row);
-                }
-            }
-        }
-        if !combined_rows.is_empty() {
-            new_tables.insert(tgt_vertex.to_string(), combined_rows);
-        }
-    }
-
-    // Remap foreign keys for surviving edges, offsetting each pair into the
-    // block its source and target rows occupy after concatenation. Source
-    // edges are visited in sorted order and edges colliding under
-    // `edge_remap` have their pair sets unioned rather than overwritten.
-    let mut src_edges: Vec<&Edge> = instance.foreign_keys.keys().collect();
-    src_edges.sort_unstable();
-    for edge in src_edges {
-        let Some(pairs) = instance.foreign_keys.get(edge) else {
-            continue;
-        };
-        let new_edge = if let Some(new_edge) = migration.edge_remap.get(edge) {
-            if !migration.surviving_verts.contains(&new_edge.src)
-                || !migration.surviving_verts.contains(&new_edge.tgt)
-            {
+            let Some(table) = instance.tables.get(src_vertex) else {
                 continue;
-            }
-            new_edge.clone()
-        } else if migration.surviving_edges.contains(edge) {
-            edge.clone()
-        } else {
-            continue;
-        };
-
-        let src_offset = row_offsets.get(&*edge.src).copied().unwrap_or(0);
-        let tgt_offset = row_offsets.get(&*edge.tgt).copied().unwrap_or(0);
-        let entry = new_fks.entry(new_edge).or_default();
-        for (s, t) in pairs {
-            let remapped = (s + src_offset, t + tgt_offset);
-            if !entry.contains(&remapped) {
-                entry.push(remapped);
+            };
+            let assignments = migration.op_term_assignments.get(src_vertex);
+            for (id, row) in table.rows() {
+                let mut new_row = row.clone();
+                if let Some(assignments) = assignments {
+                    crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
+                }
+                out.place_row(tgt_vertex.clone(), id, new_row);
             }
         }
     }
 
-    Ok(FInstance {
-        tables: new_tables,
-        foreign_keys: new_fks,
-    })
+    for (edge, pairs) in instance.foreign_keys() {
+        let Some(new_edge) = carried_edge(migration, edge) else {
+            continue;
+        };
+        if !migration.surviving_verts.contains(&new_edge.src)
+            || !migration.surviving_verts.contains(&new_edge.tgt)
+        {
+            continue;
+        }
+        for &(s, t) in pairs {
+            if out.joins(&new_edge, s, t) {
+                out.place_pair(new_edge.clone(), s, t);
+            }
+        }
+    }
+
+    Ok(out)
 }
 
 /// The extend operation for set-valued functor instances (`Sigma_F`).
 ///
 /// This is the left Kan extension: given an instance of the source schema
 /// and a migration mapping (source -> target), produce an instance of the
-/// target schema by copying tables forward and initializing unmapped tables
-/// as empty.
+/// target schema by moving every table to its image (a vertex the migration
+/// does not remap keeps its name) and initializing every surviving target
+/// vertex's table, empty when no rows reach it. Rows keep their [`RowId`]s,
+/// so the coproduct over a merging fibre is a disjoint union with no
+/// renumbering, and the operation creates no rows. Within each target table
+/// the rows are padded to the union of their columns with [`Value::Null`].
+/// Foreign keys travel along remapped and surviving edges; a pair is kept
+/// when its rows lie in the carried edge's endpoint tables.
 ///
 /// # Errors
 ///
-/// Returns `RestrictError` if the migration references inconsistent mappings.
+/// Returns `RestrictError` if a row's op-to-term assignment fails to
+/// evaluate.
 pub fn functor_extend(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
-    let mut new_tables = HashMap::new();
-    let mut new_fks: HashMap<Edge, Vec<(usize, usize)>> = HashMap::new();
-
-    // Copy tables from source to their mapped names in the target.
-    // vertex_remap maps src -> tgt. When multiple source vertices map
-    // to the same target (many-to-one), compute the coproduct: disjoint
-    // union of rows with original column names (they share the same
-    // schema vertex, so columns should match). Row indices in FK pairs
-    // are offset by the cumulative row count to remain valid after
-    // concatenation. Missing columns across source tables are filled
-    // with Value::Null.
-
-    // First pass: collect rows per target vertex and track row offsets
-    // per source vertex for FK index offsetting. Source vertices are visited
-    // in name order so the concatenation, and the offsets derived from it, do
-    // not depend on hash iteration order.
-    let mut row_offsets: HashMap<String, usize> = HashMap::with_capacity(instance.tables.len());
-    let mut src_vertices: Vec<&String> = instance.tables.keys().collect();
-    src_vertices.sort_unstable();
-    for src_vertex in src_vertices {
-        let Some(rows) = instance.tables.get(src_vertex) else {
-            continue;
-        };
+    let mut out = FInstance::new();
+    for (src_vertex, table) in instance.tables() {
         let tgt_vertex = migration
             .vertex_remap
-            .get(src_vertex.as_str())
-            .map_or_else(|| src_vertex.clone(), std::string::ToString::to_string);
-        let entry = new_tables.entry(tgt_vertex).or_insert_with(Vec::new);
-        let offset = entry.len();
-        row_offsets.insert(src_vertex.clone(), offset);
-        // Sigma acts on values by substitution: each forwarded row is
-        // rewritten by the source vertex's op-to-term assignments before
-        // the tables are concatenated.
-        let assignments = migration.op_term_assignments.get(src_vertex.as_str());
-        for row in rows {
+            .get(src_vertex)
+            .cloned()
+            .unwrap_or_else(|| src_vertex.clone());
+        out.add_table(tgt_vertex.clone());
+        let assignments = migration.op_term_assignments.get(src_vertex);
+        for (id, row) in table.rows() {
             let mut new_row = row.clone();
             if let Some(assignments) = assignments {
                 crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
             }
-            entry.push(new_row);
+            out.place_row(tgt_vertex.clone(), id, new_row);
         }
     }
 
-    // Second pass: union column sets within each target table and fill
-    // missing values with Value::Null.
-    for rows in new_tables.values_mut() {
-        // Collect the union of all column names across rows.
-        let all_columns: std::collections::HashSet<String> =
-            rows.iter().flat_map(|row| row.keys().cloned()).collect();
-        // Fill missing columns with null.
-        for row in rows.iter_mut() {
-            for col in &all_columns {
-                row.entry(col.clone()).or_insert(Value::Null);
+    for table in out.tables.values_mut() {
+        let columns: std::collections::BTreeSet<String> = table
+            .rows
+            .values()
+            .flat_map(|row| row.keys().cloned())
+            .collect();
+        for row in table.rows.values_mut() {
+            for column in &columns {
+                row.entry(column.clone()).or_insert(Value::Null);
             }
         }
     }
 
-    // Initialize tables that exist in surviving_verts but were not
-    // populated by the source instance.
     for tgt_vertex in &migration.surviving_verts {
-        new_tables
-            .entry(tgt_vertex.to_string())
-            .or_insert_with(Vec::new);
+        out.add_table(tgt_vertex.clone());
     }
 
-    // Remap foreign keys, offsetting row indices by the cumulative row
-    // count so they remain valid after concatenation.
-    let mut src_edges: Vec<&Edge> = instance.foreign_keys.keys().collect();
-    src_edges.sort_unstable();
-    for edge in src_edges {
-        let Some(pairs) = instance.foreign_keys.get(edge) else {
+    for (edge, pairs) in instance.foreign_keys() {
+        let Some(new_edge) = carried_edge(migration, edge) else {
             continue;
         };
-        let resolved_edge = migration.edge_remap.get(edge).map_or_else(
-            || {
-                if migration.surviving_edges.contains(edge) {
-                    Some(edge.clone())
-                } else {
-                    None
-                }
-            },
-            |new_edge| Some(new_edge.clone()),
-        );
-
-        if let Some(new_edge) = resolved_edge {
-            let src_offset = row_offsets.get(&*edge.src).copied().unwrap_or(0);
-            let tgt_offset = row_offsets.get(&*edge.tgt).copied().unwrap_or(0);
-            let entry: &mut Vec<(usize, usize)> = new_fks.entry(new_edge).or_default();
-            for (s, t) in pairs {
-                let remapped = (s + src_offset, t + tgt_offset);
-                if !entry.contains(&remapped) {
-                    entry.push(remapped);
-                }
+        for &(s, t) in pairs {
+            if out.joins(&new_edge, s, t) {
+                out.place_pair(new_edge.clone(), s, t);
             }
         }
     }
 
-    Ok(FInstance {
-        tables: new_tables,
-        foreign_keys: new_fks,
-    })
+    Ok(out)
 }
 
 #[cfg(test)]
@@ -346,7 +986,7 @@ mod tests {
         )
     }
 
-    fn person_row() -> HashMap<String, Value> {
+    fn person_row() -> Row {
         let mut row = HashMap::new();
         row.insert("first".to_string(), Value::Str("Ada".into()));
         row.insert("last".to_string(), Value::Str("Lovelace".into()));
@@ -369,41 +1009,55 @@ mod tests {
         migration
     }
 
+    fn cell(column: &str, value: &str) -> Row {
+        HashMap::from([(column.to_owned(), Value::Str(value.into()))])
+    }
+
+    fn fk(src: &str, tgt: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: Some("link".into()),
+        }
+    }
+
     #[test]
     fn sigma_acts_by_substitution() {
         // Sigma (left Kan extension) computes the migrated `full` column by
         // substituting each source row's `first`/`last` values into the term.
-        let inst = FInstance::new().with_table("person", vec![person_row()]);
+        let inst = FInstance::new()
+            .with_table("person", vec![person_row()])
+            .unwrap();
         let extended = functor_extend(&inst, &computed_full_migration())
             .expect("functor_extend should succeed");
-        let rows = extended.tables.get("person").expect("person table present");
+        let rows = extended.rows("person");
         assert_eq!(rows.len(), 1);
         assert_eq!(
-            rows[0].get("full"),
+            rows[0].1.get("full"),
             Some(&Value::Str("Ada Lovelace".into())),
             "Sigma must compute the derived column by substitution",
         );
         // Source columns pass through unchanged.
-        assert_eq!(rows[0].get("first"), Some(&Value::Str("Ada".into())));
+        assert_eq!(rows[0].1.get("first"), Some(&Value::Str("Ada".into())));
     }
 
     #[test]
     fn computed_column_migration_e2e() {
         // The surviving-fragment form acts on values by substitution too: the
         // migrated `person` rows gain the computed `full` column end-to-end.
-        let inst = FInstance::new().with_table("person", vec![person_row()]);
+        let inst = FInstance::new()
+            .with_table("person", vec![person_row()])
+            .unwrap();
         let restricted = functor_restrict(&inst, &computed_full_migration())
             .expect("functor_restrict should succeed");
-        let rows = restricted
-            .tables
-            .get("person")
-            .expect("person table present");
+        let rows = restricted.rows("person");
         assert_eq!(rows.len(), 1);
         assert_eq!(
-            rows[0].get("full"),
+            rows[0].1.get("full"),
             Some(&Value::Str("Ada Lovelace".into()))
         );
-        assert_eq!(rows[0].get("last"), Some(&Value::Str("Lovelace".into())));
+        assert_eq!(rows[0].1.get("last"), Some(&Value::Str("Lovelace".into())));
     }
 
     #[test]
@@ -414,10 +1068,9 @@ mod tests {
 
     #[test]
     fn functor_with_tables() {
-        let mut row = HashMap::new();
-        row.insert("name".to_string(), Value::Str("Alice".into()));
-
-        let inst = FInstance::new().with_table("users", vec![row]);
+        let inst = FInstance::new()
+            .with_table("users", vec![cell("name", "Alice")])
+            .unwrap();
         assert_eq!(inst.table_count(), 1);
         assert_eq!(inst.row_count("users"), 1);
         assert_eq!(inst.row_count("posts"), 0);
@@ -425,73 +1078,37 @@ mod tests {
 
     #[test]
     fn functor_restrict_drops_table() {
-        let mut users_row = HashMap::new();
-        users_row.insert("name".to_string(), Value::Str("Alice".into()));
-
-        let mut posts_row = HashMap::new();
-        posts_row.insert("title".to_string(), Value::Str("Hello".into()));
-
-        let fk_edge = Edge {
-            src: "posts".into(),
-            tgt: "users".into(),
-            kind: "fk".into(),
-            name: Some("author".into()),
-        };
-
         let inst = FInstance::new()
-            .with_table("users", vec![users_row])
-            .with_table("posts", vec![posts_row])
-            .with_foreign_key(fk_edge, vec![(0, 0)]);
+            .with_table("users", vec![cell("name", "Alice")])
+            .and_then(|f| f.with_table("posts", vec![cell("title", "Hello")]))
+            .and_then(|f| f.with_foreign_key(fk("posts", "users"), [(RowId(1), RowId(0))]))
+            .unwrap();
 
         // Migration that only keeps "users"
         let migration = CompiledMigration {
-            surviving_verts: HashSet::from([panproto_gat::Name::from("users")]),
-            surviving_edges: HashSet::new(),
-            vertex_remap: HashMap::new(),
-            edge_remap: HashMap::new(),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
+            surviving_verts: HashSet::from([Name::from("users")]),
+            ..CompiledMigration::default()
         };
 
-        let result = functor_restrict(&inst, &migration);
-        assert!(result.is_ok());
-        let restricted = result.unwrap_or_else(|_| FInstance::new());
+        let restricted = functor_restrict(&inst, &migration).unwrap();
         assert_eq!(restricted.table_count(), 1);
-        assert!(restricted.tables.contains_key("users"));
-        assert!(!restricted.tables.contains_key("posts"));
-        assert!(restricted.foreign_keys.is_empty());
+        assert!(restricted.has_table("users"));
+        assert!(!restricted.has_table("posts"));
+        assert_eq!(restricted.pair_count(), 0);
     }
-    /// Two source tables merged into one target: FK row indices must be
-    /// offset by each source block's position in the concatenation.
+
+    /// Two source tables merged into one target: rows keep their ids, so
+    /// each foreign-key pair still names the rows it came from.
     #[test]
-    fn functor_restrict_offsets_merged_foreign_keys() {
-        fn row(k: &str, v: &str) -> HashMap<String, Value> {
-            let mut r = HashMap::new();
-            r.insert(k.to_string(), Value::Str(v.into()));
-            r
-        }
-
-        let edge = Edge {
-            src: "a".into(),
-            tgt: "b".into(),
-            kind: "fk".into(),
-            name: Some("link".into()),
-        };
-        let merged_edge = Edge {
-            src: "t".into(),
-            tgt: "t".into(),
-            kind: "fk".into(),
-            name: Some("link".into()),
-        };
-
+    fn functor_restrict_keeps_the_row_ids_of_merged_foreign_keys() {
+        let edge = fk("a", "b");
+        let merged_edge = fk("t", "t");
+        // `a` holds rows 0 and 1, `b` rows 2 and 3; a1 references b0.
         let inst = FInstance::new()
-            .with_table("a", vec![row("n", "a0"), row("n", "a1")])
-            .with_table("b", vec![row("n", "b0"), row("n", "b1")])
-            .with_foreign_key(edge.clone(), vec![(1, 0)]);
+            .with_table("a", vec![cell("n", "a0"), cell("n", "a1")])
+            .and_then(|f| f.with_table("b", vec![cell("n", "b0"), cell("n", "b1")]))
+            .and_then(|f| f.with_foreign_key(edge.clone(), [(RowId(1), RowId(2))]))
+            .unwrap();
 
         let mut migration = CompiledMigration::default();
         migration.surviving_verts.insert("t".into());
@@ -499,25 +1116,20 @@ mod tests {
         migration.vertex_remap.insert("b".into(), "t".into());
         migration.edge_remap.insert(edge, merged_edge.clone());
 
-        let restricted =
-            functor_restrict(&inst, &migration).expect("functor_restrict should succeed");
-        let rows = restricted.tables.get("t").expect("merged table present");
-        assert_eq!(rows.len(), 4, "merged table concatenates both sources");
-
-        let pairs = restricted
-            .foreign_keys
-            .get(&merged_edge)
-            .expect("merged edge present");
-        let (s, t) = pairs[0];
+        let restricted = functor_restrict(&inst, &migration).unwrap();
         assert_eq!(
-            rows[s].get("n"),
-            Some(&Value::Str("a1".into())),
-            "FK source index must still address the `a` row it came from",
+            restricted.row_count("t"),
+            4,
+            "the merged table is the disjoint union"
+        );
+        assert_eq!(restricted.pairs(&merged_edge), &[(RowId(1), RowId(2))]);
+        assert_eq!(
+            restricted.row(RowId(1)).and_then(|r| r.get("n")),
+            Some(&Value::Str("a1".into()))
         );
         assert_eq!(
-            rows[t].get("n"),
-            Some(&Value::Str("b0".into())),
-            "FK target index must be offset into the `b` block",
+            restricted.row(RowId(2)).and_then(|r| r.get("n")),
+            Some(&Value::Str("b0".into()))
         );
     }
 
@@ -526,78 +1138,55 @@ mod tests {
     /// of hash iteration order.
     #[test]
     fn functor_restrict_unions_collided_edges_deterministically() {
-        fn row(v: &str) -> HashMap<String, Value> {
-            let mut r = HashMap::new();
-            r.insert("n".to_string(), Value::Str(v.into()));
-            r
-        }
-        fn self_edge(v: &str) -> Edge {
-            Edge {
-                src: v.into(),
-                tgt: v.into(),
-                kind: "fk".into(),
-                name: Some("link".into()),
-            }
-        }
-
         let build = || {
             let inst = FInstance::new()
-                .with_table("a", vec![row("a0"), row("a1")])
-                .with_table("b", vec![row("b0"), row("b1")])
-                .with_foreign_key(self_edge("a"), vec![(0, 1)])
-                .with_foreign_key(self_edge("b"), vec![(0, 1)]);
+                .with_table("a", vec![cell("n", "a0"), cell("n", "a1")])
+                .and_then(|f| f.with_table("b", vec![cell("n", "b0"), cell("n", "b1")]))
+                .and_then(|f| f.with_foreign_key(fk("a", "a"), [(RowId(0), RowId(1))]))
+                .and_then(|f| f.with_foreign_key(fk("b", "b"), [(RowId(2), RowId(3))]))
+                .unwrap();
             let mut migration = CompiledMigration::default();
             migration.surviving_verts.insert("t".into());
             migration.vertex_remap.insert("a".into(), "t".into());
             migration.vertex_remap.insert("b".into(), "t".into());
-            migration.edge_remap.insert(self_edge("a"), self_edge("t"));
-            migration.edge_remap.insert(self_edge("b"), self_edge("t"));
-            functor_restrict(&inst, &migration).expect("functor_restrict should succeed")
+            migration.edge_remap.insert(fk("a", "a"), fk("t", "t"));
+            migration.edge_remap.insert(fk("b", "b"), fk("t", "t"));
+            functor_restrict(&inst, &migration).unwrap()
         };
 
         let first = build();
-        let pairs = first
-            .foreign_keys
-            .get(&self_edge("t"))
-            .expect("merged edge present");
         assert_eq!(
-            pairs,
-            &vec![(0, 1), (2, 3)],
-            "both source edges contribute their own offset pairs",
+            first.pairs(&fk("t", "t")),
+            &[(RowId(0), RowId(1)), (RowId(2), RowId(3))],
+            "both source edges contribute their own pairs",
         );
-
         for _ in 0..16 {
-            let again = build();
             assert_eq!(
-                again.tables.get("t"),
-                first.tables.get("t"),
-                "merged table order must not depend on hash iteration order",
-            );
-            assert_eq!(
-                again.foreign_keys.get(&self_edge("t")),
-                first.foreign_keys.get(&self_edge("t")),
-                "merged foreign keys must not depend on hash iteration order",
+                build(),
+                first,
+                "the result must not depend on hash iteration order"
             );
         }
     }
 
     /// A migration merging `a` and `b` onto `t`.
     fn merging_migration() -> CompiledMigration {
-        let mut vertex_remap = HashMap::new();
-        vertex_remap.insert(Name::from("a"), Name::from("t"));
-        vertex_remap.insert(Name::from("b"), Name::from("t"));
-        CompiledMigration {
+        let mut migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("t")]),
-            surviving_edges: HashSet::new(),
-            vertex_remap,
-            edge_remap: HashMap::new(),
-            resolver: HashMap::new(),
-            hyper_resolver: HashMap::new(),
-            field_transforms: HashMap::new(),
-            conditional_survival: HashMap::new(),
-            op_term_assignments: HashMap::new(),
-            expansion_path: HashMap::new(),
-        }
+            ..CompiledMigration::default()
+        };
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("b"), Name::from("t"));
+        migration
+    }
+
+    /// A row carrying a single integer under `v`.
+    fn numbered(value: i64) -> Row {
+        HashMap::from([("v".to_owned(), Value::Int(value))])
     }
 
     /// What the direction of `functor_restrict` actually is, since its name
@@ -611,41 +1200,369 @@ mod tests {
         let m = merging_migration();
         let x = FInstance::new()
             .with_table("a", vec![numbered(1), numbered(2)])
-            .with_table("b", vec![numbered(3)]);
+            .and_then(|f| f.with_table("b", vec![numbered(3)]))
+            .unwrap();
 
         let restricted = functor_restrict(&x, &m).expect("restrict");
-        assert_eq!(
-            restricted.row_count("t"),
-            3,
-            "the merged fibre's rows are concatenated in the target",
-        );
-        assert_eq!(
-            restricted.table_count(),
-            1,
-            "the result is indexed by the target's vertices",
-        );
+        assert_eq!(restricted.row_count("t"), 3);
+        assert_eq!(restricted.table_count(), 1);
 
         let pushed = crate::adjunction::f_sigma(&x, &m).expect("sigma");
         assert_eq!(
-            restricted.row_count("t"),
-            pushed.row_count("t"),
-            "restrict agrees with Sigma_F on the surviving fragment",
+            restricted, pushed,
+            "restrict agrees with Sigma_F on the surviving fragment"
         );
 
-        let precomposed = crate::adjunction::f_delta(&x, &m);
+        let precomposed = crate::adjunction::f_delta(&x, &m).expect("delta");
+        assert_eq!(precomposed.table_count(), 2);
+        assert!(!precomposed.has_table("t"));
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
+mod representation_tests {
+    use super::*;
+    use crate::identity::DigestHasher;
+
+    fn fk(src: &str, tgt: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: None,
+        }
+    }
+
+    fn named(value: &str) -> Row {
+        HashMap::from([("name".to_owned(), Value::Str(value.into()))])
+    }
+
+    /// Users 5 and 2, posts 9 and 7; post 9 by user 5, post 7 by users 2 and 5.
+    fn sample() -> FInstance {
+        FInstance::new()
+            .with_rows("user", [(RowId(5), named("ada")), (RowId(2), named("bob"))])
+            .and_then(|f| f.with_rows("post", [(RowId(9), named("p")), (RowId(7), named("q"))]))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    fk("post", "user"),
+                    [
+                        (RowId(9), RowId(5)),
+                        (RowId(7), RowId(5)),
+                        (RowId(7), RowId(2)),
+                    ],
+                )
+            })
+            .unwrap()
+    }
+
+    #[test]
+    fn a_row_id_in_two_tables_is_refused_on_decode() {
+        let json = r#"{"tables":{"post":{"3":{}},"user":{"3":{}}},"foreign_keys":[]}"#;
+        let err = serde_json::from_str::<FInstance>(json).expect_err("row 3 is in two tables");
+        assert!(err.to_string().contains("row 3 appears in tables"), "{err}");
+        let err = FInstance::from_parts(
+            [
+                (Name::from("user"), vec![(RowId(3), Row::new())]),
+                (Name::from("post"), vec![(RowId(3), Row::new())]),
+            ],
+            [],
+        )
+        .expect_err("row 3 is in two tables");
+        assert!(matches!(
+            err,
+            InstError::DuplicateRowId { row: RowId(3), ref tables }
+                if tables == &[Name::from("post"), Name::from("user")]
+        ));
+        let mut f = sample();
+        assert!(matches!(
+            f.insert_row("post", RowId(5), Row::new()),
+            Err(InstError::DuplicateRowId { row: RowId(5), .. })
+        ));
+    }
+
+    #[test]
+    fn a_foreign_key_to_a_missing_row_is_refused_on_decode() {
+        let json = r#"{"tables":{"post":{"1":{}},"user":{"0":{}}},
+            "foreign_keys":[[{"src":"post","tgt":"user","kind":"fk","name":null},[[1,4]]]]}"#;
+        let err = serde_json::from_str::<FInstance>(json).expect_err("row 4 does not exist");
+        assert!(err.to_string().contains("names row 4"), "{err}");
+        let mut f = sample();
+        // Row 9 exists but is a post, not a user.
+        assert!(matches!(
+            f.insert_foreign_key(fk("post", "user"), RowId(7), RowId(9)),
+            Err(InstError::DanglingForeignKey { row: RowId(9), .. })
+        ));
+    }
+
+    #[test]
+    fn a_duplicate_foreign_key_pair_is_refused() {
+        let mut f = sample();
+        assert!(matches!(
+            f.insert_foreign_key(fk("post", "user"), RowId(9), RowId(5)),
+            Err(InstError::DuplicateForeignKey {
+                src: RowId(9),
+                tgt: RowId(5),
+                ..
+            })
+        ));
+        let json = r#"{"tables":{"post":{"1":{}},"user":{"0":{}}},
+            "foreign_keys":[[{"src":"post","tgt":"user","kind":"fk","name":null},[[1,0],[1,0]]]]}"#;
+        let err = serde_json::from_str::<FInstance>(json).expect_err("the pair is listed twice");
+        assert!(err.to_string().contains("twice"), "{err}");
+    }
+
+    #[test]
+    fn foreign_key_pairs_are_kept_sorted() {
+        let f = sample();
         assert_eq!(
-            precomposed.table_count(),
-            2,
-            "precomposition is indexed by the source's vertices instead",
+            f.pairs(&fk("post", "user")),
+            &[
+                (RowId(7), RowId(2)),
+                (RowId(7), RowId(5)),
+                (RowId(9), RowId(5))
+            ]
         );
-        assert!(
-            !precomposed.tables.contains_key("t"),
-            "precomposition returns an S-instance, which has no table at `t`",
+        assert_eq!(f.incident_pairs(RowId(5)).len(), 2);
+    }
+
+    #[test]
+    fn a_decoded_table_instance_rebuilds_its_row_index() {
+        let f = sample();
+        let json = serde_json::to_string(&f).unwrap();
+        let back: FInstance = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, f);
+        assert_eq!(back.table_of(RowId(7)).map(AsRef::as_ref), Some("post"));
+        assert_eq!(back.table_of(RowId(2)).map(AsRef::as_ref), Some("user"));
+        assert_eq!(back.row(RowId(2)), Some(&named("bob")));
+        let packed = rmp_serde::to_vec(&f).unwrap();
+        let back: FInstance = rmp_serde::from_slice(&packed).unwrap();
+        assert_eq!(back, f);
+        assert_eq!(back.table_of(RowId(9)).map(AsRef::as_ref), Some("post"));
+    }
+
+    #[test]
+    fn rows_iterate_in_row_id_order() {
+        let f = sample();
+        let ids: Vec<RowId> = f.rows("user").into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec![RowId(2), RowId(5)]);
+        assert_eq!(f.table("post").unwrap().ids(), vec![RowId(7), RowId(9)]);
+        assert_eq!(f.row_ids(), vec![RowId(2), RowId(5), RowId(7), RowId(9)]);
+    }
+
+    #[test]
+    fn fresh_row_ids_start_above_the_largest_input_row() {
+        let mut f = sample();
+        assert_eq!(f.fresh_row_id().unwrap(), RowId(10));
+        assert_eq!(f.push_row("user", named("cy")).unwrap(), RowId(10));
+        assert_eq!(f.push_row("user", named("di")).unwrap(), RowId(11));
+    }
+
+    #[test]
+    fn an_empty_input_allocates_row_zero() {
+        assert_eq!(FInstance::new().fresh_row_id().unwrap(), RowId(0));
+        let f = FInstance::new()
+            .with_table("t", [Row::new(), Row::new()])
+            .unwrap();
+        assert_eq!(f.row_ids(), vec![RowId(0), RowId(1)]);
+    }
+
+    #[test]
+    fn row_id_exhaustion_is_an_error() {
+        let mut f = FInstance::new()
+            .with_rows("t", [(RowId(u32::MAX), Row::new())])
+            .unwrap();
+        assert!(matches!(f.fresh_row_id(), Err(InstError::NodeIdsExhausted)));
+        assert!(matches!(
+            f.push_row("t", Row::new()),
+            Err(InstError::NodeIdsExhausted)
+        ));
+        assert_eq!(f.total_row_count(), 1, "a failed allocation adds no row");
+    }
+
+    #[test]
+    fn key_lookup_reports_a_missing_key() {
+        let f = sample();
+        let ada = Value::Str("ada".into());
+        assert_eq!(f.find_row_by_key("user", &[("name", &ada)]), Ok(RowId(5)));
+        let zed = Value::Str("zed".into());
+        assert_eq!(
+            f.find_row_by_key("user", &[("name", &zed)]),
+            Err(KeyLookupError::Missing {
+                table: Name::from("user")
+            })
+        );
+        assert_eq!(
+            f.find_row_by_key("group", &[("name", &zed)]),
+            Err(KeyLookupError::TableNotFound(Name::from("group")))
         );
     }
 
-    /// A row carrying a single integer under `v`.
-    fn numbered(value: i64) -> HashMap<String, Value> {
-        HashMap::from([("v".to_owned(), Value::Int(value))])
+    #[test]
+    fn key_lookup_reports_a_duplicate_key() {
+        let mut f = sample();
+        f.insert_row("user", RowId(30), named("ada")).unwrap();
+        let ada = Value::Str("ada".into());
+        assert_eq!(
+            f.find_row_by_key("user", &[("name", &ada)]),
+            Err(KeyLookupError::Duplicate {
+                table: Name::from("user"),
+                rows: vec![RowId(5), RowId(30)],
+            })
+        );
+    }
+
+    /// The bytes the layout documents, written field by field.
+    fn expected_bytes(f: &FInstance) -> Vec<u8> {
+        let mut w = CanonicalWriter::new();
+        w.len(4);
+        w.len(3);
+        for (id, table, name) in [
+            (2, "user", "bob"),
+            (5, "user", "ada"),
+            (7, "post", "q"),
+            (9, "post", "p"),
+        ] {
+            w.u32(id);
+            w.name(&Name::from(table));
+            w.len(1);
+            w.str("name");
+            w.value(&Value::Str(name.into()));
+        }
+        for (s, t) in [(7, 2), (7, 5), (9, 5)] {
+            w.edge(&fk("post", "user"));
+            w.u32(s);
+            w.u32(t);
+        }
+        assert_eq!(f.total_row_count(), 4);
+        w.into_bytes()
+    }
+
+    #[test]
+    fn canonical_finstance_bytes_follow_the_record_layout() {
+        let f = sample();
+        assert_eq!(canonical_finstance_bytes(&f), expected_bytes(&f));
+    }
+
+    #[test]
+    fn finstance_bytes_are_record_sequential() {
+        // The bytes are the header followed by each record written on its
+        // own, rows ascending by id and then pairs ascending by (edge, src,
+        // tgt): no record depends on another.
+        let f = sample();
+        let mut w = CanonicalWriter::new();
+        w.len(f.total_row_count());
+        w.len(f.pair_count());
+        for id in [RowId(2), RowId(5), RowId(7), RowId(9)] {
+            let mut one = CanonicalWriter::new();
+            write_row_record(&mut one, id, f.table_of(id).unwrap(), f.row(id).unwrap());
+            w.write(&one.into_bytes());
+        }
+        for (edge, s, t) in f.all_pairs() {
+            let mut one = CanonicalWriter::new();
+            write_pair_record(&mut one, &edge, s, t);
+            w.write(&one.into_bytes());
+        }
+        assert_eq!(canonical_finstance_bytes(&f), w.into_bytes());
+        // Built in another order, the instance has the same bytes.
+        let reordered = FInstance::new()
+            .with_rows("post", [(RowId(7), named("q")), (RowId(9), named("p"))])
+            .and_then(|g| g.with_rows("user", [(RowId(2), named("bob")), (RowId(5), named("ada"))]))
+            .and_then(|g| {
+                g.with_foreign_key(
+                    fk("post", "user"),
+                    [
+                        (RowId(9), RowId(5)),
+                        (RowId(7), RowId(2)),
+                        (RowId(7), RowId(5)),
+                    ],
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            canonical_finstance_bytes(&reordered),
+            canonical_finstance_bytes(&f)
+        );
+    }
+
+    #[test]
+    fn a_streamed_table_digest_equals_the_digest_of_its_bytes() {
+        let f = sample();
+        let mut hasher: DigestHasher = Digest::hasher(TABLE_INSTANCE_CONTEXT);
+        write_finstance(&mut hasher, &f);
+        assert_eq!(hasher.finalize(), f.digest());
+        assert_eq!(
+            f.digest(),
+            Digest::derive(TABLE_INSTANCE_CONTEXT, &canonical_finstance_bytes(&f))
+        );
+    }
+
+    #[test]
+    fn table_digest_uses_the_table_instance_context() {
+        let f = sample();
+        let bytes = canonical_finstance_bytes(&f);
+        assert_eq!(f.digest(), Digest::derive(TABLE_INSTANCE_CONTEXT, &bytes));
+        assert_ne!(
+            f.digest(),
+            Digest::derive(crate::identity::GRAPH_INSTANCE_CONTEXT, &bytes)
+        );
+    }
+
+    #[test]
+    fn functor_extend_keeps_row_ids_and_creates_no_rows() {
+        let f = sample();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("member".into());
+        migration
+            .vertex_remap
+            .insert("user".into(), "member".into());
+        let extended = functor_extend(&f, &migration).unwrap();
+        assert_eq!(extended.row_ids(), f.row_ids());
+        assert_eq!(
+            extended.table("member").unwrap().ids(),
+            vec![RowId(2), RowId(5)]
+        );
+        assert_eq!(
+            extended.table("post").unwrap().ids(),
+            vec![RowId(7), RowId(9)]
+        );
+    }
+
+    /// Extension fills each target table from its fibre by padding cells,
+    /// never by adding rows: over a merge of two tables with different
+    /// columns, the merged table holds exactly the source rows under their
+    /// own ids, each padded with `Null` to the union of the columns, and a
+    /// surviving target no row reaches gets an empty table.
+    #[test]
+    fn functor_extend_allocates_fills_by_target_table() {
+        let f = FInstance::new()
+            .with_rows("b", [(RowId(4), named("x"))])
+            .and_then(|f| {
+                f.with_rows(
+                    "a",
+                    [(RowId(1), HashMap::from([("n".to_owned(), Value::Int(1))]))],
+                )
+            })
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("t".into());
+        migration.surviving_verts.insert("empty".into());
+        migration.vertex_remap.insert("a".into(), "t".into());
+        migration.vertex_remap.insert("b".into(), "t".into());
+        let extended = functor_extend(&f, &migration).unwrap();
+        assert_eq!(extended.row_ids(), vec![RowId(1), RowId(4)]);
+        assert_eq!(extended.table("t").unwrap().ids(), vec![RowId(1), RowId(4)]);
+        assert_eq!(
+            extended.row(RowId(1)).unwrap().get("name"),
+            Some(&Value::Null)
+        );
+        assert_eq!(extended.row(RowId(4)).unwrap().get("n"), Some(&Value::Null));
+        assert!(extended.has_table("empty"));
+        assert_eq!(extended.row_count("empty"), 0);
+        assert_eq!(
+            extended.fresh_row_id().unwrap(),
+            f.fresh_row_id().unwrap(),
+            "no id was drawn"
+        );
     }
 }

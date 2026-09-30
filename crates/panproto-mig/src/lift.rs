@@ -688,10 +688,12 @@ mod tests {
         use panproto_inst::FInstance;
 
         let compiled = CompiledMigration::default();
-        let instance = FInstance::new().with_table(
-            "t",
-            vec![HashMap::from([("a".to_owned(), Value::Str("x".into()))])],
-        );
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![HashMap::from([("a".to_owned(), Value::Str("x".into()))])],
+            )
+            .unwrap();
 
         // An EGD equating the column's constant with a different
         // constant can never hold, at any budget.

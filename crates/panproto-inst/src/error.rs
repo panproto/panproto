@@ -3,10 +3,12 @@
 use std::fmt;
 
 use panproto_gat::Name;
+use panproto_schema::Edge;
 
 use crate::fan_violation::FanViolation;
-use crate::ginstance::{EdgeId, NotTreeReason};
+use crate::ginstance::{EdgeId, NotTableReason, NotTreeReason};
 use crate::value::ValueFidelityError;
+use crate::view_ref::RowId;
 
 /// Errors from instance construction or manipulation.
 #[derive(Debug, thiserror::Error)]
@@ -92,15 +94,49 @@ pub enum InstError {
         reason: NotTreeReason,
     },
 
-    /// A foreign-key pair names a row its table does not have.
-    #[error("foreign key {edge_kind} names row {row} of table `{table}`, which does not exist")]
+    /// A graph instance is not the graph form of a table instance, so it has
+    /// no table form.
+    #[error("not a table: {reason}")]
+    NotATable {
+        /// Why the graph is not a table.
+        reason: NotTableReason,
+    },
+
+    /// A foreign-key pair names a row that is not in the endpoint table of
+    /// its edge.
+    #[error("foreign key {edge:?} names row {}, which its endpoint table does not hold", .row.0)]
     DanglingForeignKey {
-        /// The kind of the foreign-key edge.
-        edge_kind: String,
-        /// The table.
-        table: String,
-        /// The missing row index.
-        row: usize,
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The row the edge's endpoint table does not hold.
+        row: RowId,
+    },
+
+    /// A row id appears in more than one table of a table instance.
+    #[error("row {} appears in tables {tables:?}", .row.0)]
+    DuplicateRowId {
+        /// The row id.
+        row: RowId,
+        /// The tables holding it, ascending.
+        tables: Vec<Name>,
+    },
+
+    /// A foreign-key pair is listed twice (a foreign key is a set of pairs).
+    #[error("foreign key {edge:?} lists the pair ({}, {}) twice", .src.0, .tgt.0)]
+    DuplicateForeignKey {
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The source row.
+        src: RowId,
+        /// The target row.
+        tgt: RowId,
+    },
+
+    /// A row map sends a row to a row of another table.
+    #[error("row {} is mapped into a table other than its own", .row.0)]
+    HomTableMismatch {
+        /// The domain row.
+        row: RowId,
     },
 
     /// A node-link document does not have the node-link shape.
@@ -189,6 +225,11 @@ pub enum RestrictError {
         /// The offending source node ID.
         node_id: u32,
     },
+
+    /// An operation that creates rows found no row id free above the
+    /// largest in use.
+    #[error("no row id is free above the largest in use")]
+    RowIdsExhausted,
 
     /// Two source vertices in a right Kan extension (`Pi_F`) fiber contribute
     /// the same column with conflicting values, so the product-row attribute

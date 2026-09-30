@@ -881,7 +881,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
     // --- FInstance ---
     let mut row = HashMap::new();
     row.insert("field1".to_string(), Value::Str("Alice".into()));
-    let f = FInstance::new().with_table("person", vec![row]);
+    let f = FInstance::new().with_table("person", vec![row])?;
     assert_eq!(AcsetOps::element_count(&f), 1);
     assert_eq!(AcsetOps::shape_name(&f), "functor");
 

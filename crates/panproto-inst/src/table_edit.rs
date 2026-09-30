@@ -1,61 +1,128 @@
 //! Edit algebra for functor instances (model of `ThEditableStructure`).
 //!
 //! A [`TableEdit`] is an element of the edit monoid for relational
-//! (table-shaped) instances. The monoid operations are
-//! [`TableEdit::identity`], [`TableEdit::compose`], and
+//! (table-shaped) instances. Every edit names the rows it touches by
+//! [`RowId`] and carries what it expects to find there (compare and set), so
+//! applying it checks the instance before changing anything, and every edit
+//! has an inverse ([`TableEdit::invert`]) built from its own payload. The
+//! monoid operations are [`TableEdit::identity`], [`TableEdit::compose`], and
 //! [`TableEdit::apply`] (the partial monoid action on [`FInstance`]).
 
-use std::collections::HashMap;
-
+use panproto_gat::Name;
+use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use crate::edit_error::EditError;
-use crate::functor::FInstance;
+use crate::error::InstError;
+use crate::functor::{FInstance, ForeignKeyPair, Row};
 use crate::value::Value;
+use crate::view_ref::RowId;
 
 /// A model of `ThEditableStructure` for functor instances.
 ///
-/// Each variant is a primitive relational mutation: inserting or
-/// deleting rows, or updating individual cells.
-#[derive(Clone, Debug, Serialize, Deserialize)]
+/// Serialized externally tagged, each variant's fields by name, every field
+/// always written; a row's cells in ascending column order.
+///
+/// ```
+/// use std::collections::HashMap;
+///
+/// use panproto_inst::{FInstance, RowId, TableEdit, Value};
+///
+/// let mut tables = FInstance::new();
+/// let insert = TableEdit::InsertRow {
+///     table: "user".into(),
+///     id: RowId(0),
+///     row: HashMap::from([("name".to_owned(), Value::Str("ada".into()))]),
+/// };
+/// insert.apply(&mut tables)?;
+/// let rename = TableEdit::UpdateCell {
+///     table: "user".into(),
+///     id: RowId(0),
+///     column: "name".into(),
+///     old: Some(Value::Str("ada".into())),
+///     new: Some(Value::Str("grace".into())),
+/// };
+/// rename.apply(&mut tables)?;
+/// rename.invert().apply(&mut tables)?;
+/// insert.invert().apply(&mut tables)?;
+/// assert_eq!(tables.total_row_count(), 0);
+/// # Ok::<(), panproto_inst::EditError>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum TableEdit {
     /// The monoid identity: no change.
     Identity,
 
-    /// Insert a row into a table.
+    /// Insert a row under an unused id.
     InsertRow {
-        /// Table name (schema vertex ID).
-        table: String,
-        /// The row data (column name to value).
-        row: HashMap<String, Value>,
+        /// The table (schema vertex).
+        table: Name,
+        /// The new row's id.
+        id: RowId,
+        /// The row's cells.
+        #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
+        row: Row,
     },
 
-    /// Delete a row from a table by key column value.
+    /// Delete a row together with the foreign-key pairs incident to it.
     DeleteRow {
-        /// Table name.
-        table: String,
-        /// The key value identifying the row to delete.
-        key: Value,
-        /// The key column name.
-        key_column: String,
+        /// The table the row is expected in.
+        table: Name,
+        /// The row.
+        id: RowId,
+        /// The cells the row is expected to hold.
+        #[serde(with = "panproto_schema::serde_helpers::sorted_map")]
+        row: Row,
+        /// Every foreign-key pair incident to the row, in ascending order.
+        incident_fks: Vec<ForeignKeyPair>,
     },
 
-    /// Update a single cell in a table.
+    /// Change one cell: `old: None` adds it, `new: None` removes it.
     UpdateCell {
-        /// Table name.
-        table: String,
-        /// Key value identifying the row.
-        key: Value,
-        /// Key column name.
-        key_column: String,
-        /// Column to update.
+        /// The table the row is expected in.
+        table: Name,
+        /// The row.
+        id: RowId,
+        /// The column.
         column: String,
-        /// New value.
-        value: Value,
+        /// The cell's expected value, `None` when it is expected absent.
+        old: Option<Value>,
+        /// The cell's new value, `None` to remove it.
+        new: Option<Value>,
     },
 
-    /// A sequence of edits applied in order.
-    Sequence(Vec<Self>),
+    /// Move a row to another table, keeping its id and cells.
+    MoveRow {
+        /// The row.
+        id: RowId,
+        /// The table the row is expected in.
+        old_table: Name,
+        /// The table it moves to.
+        new_table: Name,
+    },
+
+    /// Add a pair to a foreign key.
+    AddForeignKey {
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The source row.
+        src: RowId,
+        /// The target row.
+        tgt: RowId,
+    },
+
+    /// Remove a pair from a foreign key.
+    RemoveForeignKey {
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The source row.
+        src: RowId,
+        /// The target row.
+        tgt: RowId,
+    },
+
+    /// A sequence of edits applied in order, all or nothing.
+    Batch(Vec<Self>),
 }
 
 impl TableEdit {
@@ -65,9 +132,9 @@ impl TableEdit {
         Self::Identity
     }
 
-    /// Monoid multiplication: compose two edits into a sequence.
+    /// Monoid multiplication: `self` then `other`, as one batch.
     ///
-    /// Nested sequences are flattened and identity elements are elided.
+    /// Nested batches are flattened and identity elements are elided.
     #[must_use]
     pub fn compose(self, other: Self) -> Self {
         let mut steps = Vec::new();
@@ -76,7 +143,7 @@ impl TableEdit {
         match steps.len() {
             0 => Self::Identity,
             1 => steps.into_iter().next().unwrap_or(Self::Identity),
-            _ => Self::Sequence(steps),
+            _ => Self::Batch(steps),
         }
     }
 
@@ -85,86 +152,230 @@ impl TableEdit {
     pub fn is_identity(&self) -> bool {
         match self {
             Self::Identity => true,
-            Self::Sequence(steps) => steps.iter().all(Self::is_identity),
+            Self::Batch(steps) => steps.iter().all(Self::is_identity),
             _ => false,
         }
     }
 
-    /// Apply this edit to a functor instance, mutating it in place.
+    /// The edit that undoes this one, built from its compare-and-set payload.
+    ///
+    /// Applying an edit and then its inverse to an instance the edit applies
+    /// to gives back that instance. The inverse of a `DeleteRow` re-inserts
+    /// the row and then its incident pairs in ascending order.
+    #[must_use]
+    pub fn invert(&self) -> Self {
+        match self {
+            Self::Identity => Self::Identity,
+            Self::InsertRow { table, id, row } => Self::DeleteRow {
+                table: table.clone(),
+                id: *id,
+                row: row.clone(),
+                incident_fks: Vec::new(),
+            },
+            Self::DeleteRow {
+                table,
+                id,
+                row,
+                incident_fks,
+            } => {
+                let mut steps = vec![Self::InsertRow {
+                    table: table.clone(),
+                    id: *id,
+                    row: row.clone(),
+                }];
+                steps.extend(
+                    incident_fks
+                        .iter()
+                        .map(|(edge, src, tgt)| Self::AddForeignKey {
+                            edge: edge.clone(),
+                            src: *src,
+                            tgt: *tgt,
+                        }),
+                );
+                Self::Batch(steps)
+            }
+            Self::UpdateCell {
+                table,
+                id,
+                column,
+                old,
+                new,
+            } => Self::UpdateCell {
+                table: table.clone(),
+                id: *id,
+                column: column.clone(),
+                old: new.clone(),
+                new: old.clone(),
+            },
+            Self::MoveRow {
+                id,
+                old_table,
+                new_table,
+            } => Self::MoveRow {
+                id: *id,
+                old_table: new_table.clone(),
+                new_table: old_table.clone(),
+            },
+            Self::AddForeignKey { edge, src, tgt } => Self::RemoveForeignKey {
+                edge: edge.clone(),
+                src: *src,
+                tgt: *tgt,
+            },
+            Self::RemoveForeignKey { edge, src, tgt } => Self::AddForeignKey {
+                edge: edge.clone(),
+                src: *src,
+                tgt: *tgt,
+            },
+            Self::Batch(steps) => Self::Batch(steps.iter().rev().map(Self::invert).collect()),
+        }
+    }
+
+    /// Apply this edit to a functor instance.
+    ///
+    /// Every expectation the edit carries is checked against the instance
+    /// before it changes; on error the instance is unchanged (a batch is
+    /// applied to a copy and committed only when every step succeeds).
     ///
     /// # Errors
     ///
-    /// Returns [`EditError`] if the edit cannot be applied.
+    /// - [`EditError::DuplicateNodeId`]: an inserted row's id is in use.
+    /// - [`EditError::RowNotFound`]: the named row does not exist.
+    /// - [`EditError::AnchorMismatch`]: the row is in another table than the
+    ///   edit expects.
+    /// - [`EditError::ApplyFailed`]: a stale expectation (the row's cells, a
+    ///   cell's old value, or the incident pairs of a deleted row differ from
+    ///   the instance), a pair to add is present or does not join its edge's
+    ///   endpoint tables, a pair to remove is absent, or a row to move takes
+    ///   part in a foreign key.
     pub fn apply(&self, instance: &mut FInstance) -> Result<(), EditError> {
         match self {
             Self::Identity => Ok(()),
-
-            Self::InsertRow { table, row } => {
+            Self::InsertRow { table, id, row } => {
+                if instance.table_of(*id).is_some() {
+                    return Err(EditError::DuplicateNodeId(id.0));
+                }
                 instance
-                    .tables
-                    .entry(table.clone())
-                    .or_default()
-                    .push(row.clone());
-                Ok(())
+                    .insert_row(table.clone(), *id, row.clone())
+                    .map_err(inst_error)
             }
-
             Self::DeleteRow {
                 table,
-                key,
-                key_column,
+                id,
+                row,
+                incident_fks,
             } => {
-                let rows = instance
-                    .tables
-                    .get_mut(table.as_str())
-                    .ok_or_else(|| EditError::TableNotFound(table.clone()))?;
-                let before = rows.len();
-                rows.retain(|row| row.get(key_column.as_str()) != Some(key));
-                if rows.len() == before {
-                    return Err(EditError::RowNotFound {
-                        table: table.clone(),
-                        key: format!("{key:?}"),
-                    });
+                expect_row(instance, table, *id)?;
+                if instance.row(*id) != Some(row) {
+                    return Err(EditError::ApplyFailed(format!(
+                        "row {} does not hold the cells the deletion expects",
+                        id.0
+                    )));
                 }
+                if instance.incident_pairs(*id) != *incident_fks {
+                    return Err(EditError::ApplyFailed(format!(
+                        "row {} does not take part in exactly the foreign-key pairs the deletion lists",
+                        id.0
+                    )));
+                }
+                instance.remove_row(*id);
                 Ok(())
             }
-
             Self::UpdateCell {
                 table,
-                key,
-                key_column,
+                id,
                 column,
-                value,
+                old,
+                new,
             } => {
-                let rows = instance
-                    .tables
-                    .get_mut(table.as_str())
-                    .ok_or_else(|| EditError::TableNotFound(table.clone()))?;
-                let row = rows
-                    .iter_mut()
-                    .find(|r| r.get(key_column.as_str()) == Some(key))
-                    .ok_or_else(|| EditError::RowNotFound {
-                        table: table.clone(),
-                        key: format!("{key:?}"),
-                    })?;
-                row.insert(column.clone(), value.clone());
+                expect_row(instance, table, *id)?;
+                let cells = instance
+                    .row_mut(*id)
+                    .ok_or_else(|| row_not_found(table, *id))?;
+                if cells.get(column) != old.as_ref() {
+                    return Err(EditError::ApplyFailed(format!(
+                        "cell `{column}` of row {} does not hold the value the update expects",
+                        id.0
+                    )));
+                }
+                match new {
+                    Some(value) => {
+                        cells.insert(column.clone(), value.clone());
+                    }
+                    None => {
+                        cells.remove(column);
+                    }
+                }
                 Ok(())
             }
-
-            Self::Sequence(steps) => {
-                for step in steps {
-                    step.apply(instance)?;
+            Self::MoveRow {
+                id,
+                old_table,
+                new_table,
+            } => {
+                expect_row(instance, old_table, *id)?;
+                instance
+                    .move_row(*id, new_table.clone())
+                    .map(|_| ())
+                    .map_err(inst_error)
+            }
+            Self::AddForeignKey { edge, src, tgt } => instance
+                .insert_foreign_key(edge.clone(), *src, *tgt)
+                .map_err(inst_error),
+            Self::RemoveForeignKey { edge, src, tgt } => {
+                if instance.remove_foreign_key(edge, *src, *tgt) {
+                    Ok(())
+                } else {
+                    Err(EditError::ApplyFailed(format!(
+                        "foreign key {edge:?} has no pair ({}, {})",
+                        src.0, tgt.0
+                    )))
                 }
+            }
+            Self::Batch(steps) => {
+                let mut staged = instance.clone();
+                for step in steps {
+                    step.apply(&mut staged)?;
+                }
+                *instance = staged;
                 Ok(())
             }
         }
     }
 }
 
-/// Flatten nested sequences and strip identities.
+fn row_not_found(table: &Name, id: RowId) -> EditError {
+    EditError::RowNotFound {
+        table: table.to_string(),
+        key: format!("row {}", id.0),
+    }
+}
+
+/// Check that row `id` exists and sits in `table`.
+fn expect_row(instance: &FInstance, table: &Name, id: RowId) -> Result<(), EditError> {
+    match instance.table_of(id) {
+        None => Err(row_not_found(table, id)),
+        Some(actual) if actual != table => Err(EditError::AnchorMismatch {
+            node_id: id.0,
+            expected: table.to_string(),
+            actual: actual.to_string(),
+        }),
+        Some(_) => Ok(()),
+    }
+}
+
+/// An instance error met while applying an edit, as an edit error.
+fn inst_error(error: InstError) -> EditError {
+    match error {
+        InstError::DuplicateRowId { row, .. } => EditError::DuplicateNodeId(row.0),
+        other => EditError::ApplyFailed(other.to_string()),
+    }
+}
+
+/// Flatten nested batches and strip identities.
 fn flatten_into(out: &mut Vec<TableEdit>, edit: TableEdit) {
     match edit {
         TableEdit::Identity => {}
-        TableEdit::Sequence(steps) => {
+        TableEdit::Batch(steps) => {
             for step in steps {
                 flatten_into(out, step);
             }
@@ -174,133 +385,346 @@ fn flatten_into(out: &mut Vec<TableEdit>, edit: TableEdit) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
+#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use std::collections::HashMap;
 
-    use crate::functor::FInstance;
-    use crate::value::Value;
+    use proptest::prelude::*;
 
-    use super::TableEdit;
+    use super::*;
 
+    fn fk() -> Edge {
+        Edge {
+            src: "post".into(),
+            tgt: "user".into(),
+            kind: "fk".into(),
+            name: None,
+        }
+    }
+
+    fn named(value: &str) -> Row {
+        HashMap::from([("name".to_owned(), Value::Str(value.into()))])
+    }
+
+    /// Users 0 (alice) and 1 (bob), post 2 by alice.
     fn sample_instance() -> FInstance {
-        let mut row1 = HashMap::new();
-        row1.insert("id".into(), Value::Int(1));
-        row1.insert("name".into(), Value::Str("alice".into()));
-
-        let mut row2 = HashMap::new();
-        row2.insert("id".into(), Value::Int(2));
-        row2.insert("name".into(), Value::Str("bob".into()));
-
-        FInstance::new().with_table("users", vec![row1, row2])
+        FInstance::new()
+            .with_table("user", vec![named("alice"), named("bob")])
+            .and_then(|f| f.with_table("post", vec![named("hello")]))
+            .and_then(|f| f.with_foreign_key(fk(), [(RowId(2), RowId(0))]))
+            .unwrap()
     }
 
     #[test]
     fn identity_is_noop() {
         let mut inst = sample_instance();
         TableEdit::identity().apply(&mut inst).unwrap();
-        assert_eq!(inst.row_count("users"), 2);
+        assert_eq!(inst, sample_instance());
     }
 
     #[test]
-    fn insert_row() {
+    fn insert_row_refuses_an_id_in_use() {
         let mut inst = sample_instance();
-        let mut row = HashMap::new();
-        row.insert("id".into(), Value::Int(3));
-        row.insert("name".into(), Value::Str("charlie".into()));
-
         let edit = TableEdit::InsertRow {
-            table: "users".into(),
-            row,
+            table: "user".into(),
+            id: RowId(2),
+            row: named("carol"),
         };
-        edit.apply(&mut inst).unwrap();
-        assert_eq!(inst.row_count("users"), 3);
+        assert!(matches!(
+            edit.apply(&mut inst),
+            Err(EditError::DuplicateNodeId(2))
+        ));
+        assert_eq!(inst, sample_instance(), "a refused edit changes nothing");
     }
 
     #[test]
-    fn delete_row() {
+    fn delete_row_takes_its_incident_pairs() {
         let mut inst = sample_instance();
         let edit = TableEdit::DeleteRow {
-            table: "users".into(),
-            key: Value::Int(1),
-            key_column: "id".into(),
+            table: "user".into(),
+            id: RowId(0),
+            row: named("alice"),
+            incident_fks: vec![(fk(), RowId(2), RowId(0))],
         };
         edit.apply(&mut inst).unwrap();
-        assert_eq!(inst.row_count("users"), 1);
+        assert_eq!(inst.row_count("user"), 1);
+        assert_eq!(inst.pair_count(), 0);
+        edit.invert().apply(&mut inst).unwrap();
+        assert_eq!(inst, sample_instance());
     }
 
     #[test]
-    fn update_cell() {
+    fn delete_row_with_a_stale_incident_set_is_refused() {
         let mut inst = sample_instance();
-        let edit = TableEdit::UpdateCell {
-            table: "users".into(),
-            key: Value::Int(1),
-            key_column: "id".into(),
+        let stale = TableEdit::DeleteRow {
+            table: "user".into(),
+            id: RowId(0),
+            row: named("alice"),
+            incident_fks: Vec::new(),
+        };
+        assert!(matches!(
+            stale.apply(&mut inst),
+            Err(EditError::ApplyFailed(_))
+        ));
+        let wrong_cells = TableEdit::DeleteRow {
+            table: "user".into(),
+            id: RowId(0),
+            row: named("alicia"),
+            incident_fks: vec![(fk(), RowId(2), RowId(0))],
+        };
+        assert!(matches!(
+            wrong_cells.apply(&mut inst),
+            Err(EditError::ApplyFailed(_))
+        ));
+        let wrong_table = TableEdit::DeleteRow {
+            table: "post".into(),
+            id: RowId(0),
+            row: named("alice"),
+            incident_fks: vec![(fk(), RowId(2), RowId(0))],
+        };
+        assert!(matches!(
+            wrong_table.apply(&mut inst),
+            Err(EditError::AnchorMismatch { node_id: 0, .. })
+        ));
+        assert_eq!(inst, sample_instance());
+    }
+
+    #[test]
+    fn update_cell_adds_and_removes_by_option() {
+        let mut inst = sample_instance();
+        let add = TableEdit::UpdateCell {
+            table: "user".into(),
+            id: RowId(1),
+            column: "age".into(),
+            old: None,
+            new: Some(Value::Int(40)),
+        };
+        add.apply(&mut inst).unwrap();
+        assert_eq!(
+            inst.row(RowId(1)).unwrap().get("age"),
+            Some(&Value::Int(40))
+        );
+        // Adding again is stale: the cell is no longer absent.
+        assert!(matches!(
+            add.apply(&mut inst),
+            Err(EditError::ApplyFailed(_))
+        ));
+        let remove = TableEdit::UpdateCell {
+            table: "user".into(),
+            id: RowId(1),
             column: "name".into(),
-            value: Value::Str("alicia".into()),
+            old: Some(Value::Str("bob".into())),
+            new: None,
         };
-        edit.apply(&mut inst).unwrap();
-        let rows = &inst.tables["users"];
-        let row = rows
-            .iter()
-            .find(|r| r.get("id") == Some(&Value::Int(1)))
-            .unwrap();
-        assert_eq!(row.get("name"), Some(&Value::Str("alicia".into())));
+        remove.apply(&mut inst).unwrap();
+        assert!(!inst.row(RowId(1)).unwrap().contains_key("name"));
+        remove.invert().apply(&mut inst).unwrap();
+        add.invert().apply(&mut inst).unwrap();
+        assert_eq!(inst, sample_instance());
     }
 
     #[test]
-    fn insert_then_delete_is_identity() {
+    fn a_failing_batch_changes_nothing() {
         let mut inst = sample_instance();
-        let original_count = inst.row_count("users");
+        let batch = TableEdit::Batch(vec![
+            TableEdit::InsertRow {
+                table: "user".into(),
+                id: RowId(9),
+                row: named("dan"),
+            },
+            TableEdit::RemoveForeignKey {
+                edge: fk(),
+                src: RowId(2),
+                tgt: RowId(1),
+            },
+        ]);
+        assert!(batch.apply(&mut inst).is_err());
+        assert_eq!(inst, sample_instance());
+    }
 
-        let mut row = HashMap::new();
-        row.insert("id".into(), Value::Int(99));
-        row.insert("name".into(), Value::Str("temp".into()));
+    #[test]
+    fn table_edit_variants_serialize_with_contract_names() {
+        let edits = vec![
+            TableEdit::Identity,
+            TableEdit::InsertRow {
+                table: "user".into(),
+                id: RowId(3),
+                row: HashMap::from([
+                    ("b".to_owned(), Value::Int(2)),
+                    ("a".to_owned(), Value::Int(1)),
+                ]),
+            },
+            TableEdit::DeleteRow {
+                table: "user".into(),
+                id: RowId(0),
+                row: named("alice"),
+                incident_fks: vec![(fk(), RowId(2), RowId(0))],
+            },
+            TableEdit::UpdateCell {
+                table: "user".into(),
+                id: RowId(1),
+                column: "name".into(),
+                old: None,
+                new: None,
+            },
+            TableEdit::MoveRow {
+                id: RowId(1),
+                old_table: "user".into(),
+                new_table: "admin".into(),
+            },
+            TableEdit::AddForeignKey {
+                edge: fk(),
+                src: RowId(2),
+                tgt: RowId(1),
+            },
+            TableEdit::RemoveForeignKey {
+                edge: fk(),
+                src: RowId(2),
+                tgt: RowId(0),
+            },
+            TableEdit::Batch(vec![TableEdit::Identity]),
+        ];
+        let json = serde_json::to_value(&edits).unwrap();
+        let fk_json = serde_json::json!({"src": "post", "tgt": "user", "kind": "fk", "name": null});
+        assert_eq!(
+            json,
+            serde_json::json!([
+                "Identity",
+                {"InsertRow": {"table": "user", "id": 3, "row": {"a": {"Int": 1}, "b": {"Int": 2}}}},
+                {"DeleteRow": {"table": "user", "id": 0, "row": {"name": {"Str": "alice"}},
+                    "incident_fks": [[fk_json, 2, 0]]}},
+                {"UpdateCell": {"table": "user", "id": 1, "column": "name", "old": null, "new": null}},
+                {"MoveRow": {"id": 1, "old_table": "user", "new_table": "admin"}},
+                {"AddForeignKey": {"edge": fk_json, "src": 2, "tgt": 1}},
+                {"RemoveForeignKey": {"edge": fk_json, "src": 2, "tgt": 0}},
+                {"Batch": ["Identity"]},
+            ])
+        );
+        let back: Vec<TableEdit> = serde_json::from_value(json).unwrap();
+        assert_eq!(back, edits);
+    }
 
-        let edit = TableEdit::InsertRow {
-            table: "users".into(),
-            row,
+    /// One step of a generated edit script, resolved against the state it
+    /// applies to.
+    #[derive(Clone, Debug)]
+    enum Intent {
+        Insert(u8),
+        Delete(u8),
+        Update(u8, Option<i64>),
+        Move(u8),
+        Link(u8, u8),
+        Unlink(u8),
+    }
+
+    fn intent() -> impl Strategy<Value = Intent> {
+        prop_oneof![
+            any::<u8>().prop_map(Intent::Insert),
+            any::<u8>().prop_map(Intent::Delete),
+            (any::<u8>(), proptest::option::of(-3_i64..3)).prop_map(|(r, v)| Intent::Update(r, v)),
+            any::<u8>().prop_map(Intent::Move),
+            (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Intent::Link(a, b)),
+            any::<u8>().prop_map(Intent::Unlink),
+        ]
+    }
+
+    fn pick<T: Clone>(items: &[T], at: u8) -> Option<T> {
+        (!items.is_empty()).then(|| items[usize::from(at) % items.len()].clone())
+    }
+
+    /// The concrete edit an intent names in `state`, when there is one.
+    fn resolve(state: &FInstance, intent: &Intent) -> Option<TableEdit> {
+        let rows = state.row_ids();
+        match intent {
+            Intent::Insert(t) => Some(TableEdit::InsertRow {
+                table: if t % 2 == 0 {
+                    "user".into()
+                } else {
+                    "post".into()
+                },
+                id: state.fresh_row_id().ok()?,
+                row: HashMap::from([("n".to_owned(), Value::Int(i64::from(*t)))]),
+            }),
+            Intent::Delete(r) => {
+                let id = pick(&rows, *r)?;
+                Some(TableEdit::DeleteRow {
+                    table: state.table_of(id)?.clone(),
+                    id,
+                    row: state.row(id)?.clone(),
+                    incident_fks: state.incident_pairs(id),
+                })
+            }
+            Intent::Update(r, value) => {
+                let id = pick(&rows, *r)?;
+                Some(TableEdit::UpdateCell {
+                    table: state.table_of(id)?.clone(),
+                    id,
+                    column: "n".into(),
+                    old: state.row(id)?.get("n").cloned(),
+                    new: value.map(Value::Int),
+                })
+            }
+            Intent::Move(r) => {
+                let free: Vec<RowId> = rows
+                    .into_iter()
+                    .filter(|id| state.incident_pairs(*id).is_empty())
+                    .collect();
+                let id = pick(&free, *r)?;
+                let old_table = state.table_of(id)?.clone();
+                let new_table = if old_table.as_ref() == "user" {
+                    "post"
+                } else {
+                    "user"
+                };
+                Some(TableEdit::MoveRow {
+                    id,
+                    old_table,
+                    new_table: new_table.into(),
+                })
+            }
+            Intent::Link(a, b) => {
+                let posts = state.table("post")?.ids();
+                let users = state.table("user")?.ids();
+                let (src, tgt) = (pick(&posts, *a)?, pick(&users, *b)?);
+                (!state.contains_pair(&fk(), src, tgt)).then(|| TableEdit::AddForeignKey {
+                    edge: fk(),
+                    src,
+                    tgt,
+                })
+            }
+            Intent::Unlink(p) => {
+                let (edge, src, tgt) = pick(&state.all_pairs(), *p)?;
+                Some(TableEdit::RemoveForeignKey { edge, src, tgt })
+            }
         }
-        .compose(TableEdit::DeleteRow {
-            table: "users".into(),
-            key: Value::Int(99),
-            key_column: "id".into(),
-        });
-        edit.apply(&mut inst).unwrap();
-        assert_eq!(inst.row_count("users"), original_count);
     }
 
-    #[test]
-    fn delete_from_nonexistent_table_fails() {
-        let mut inst = sample_instance();
-        let edit = TableEdit::DeleteRow {
-            table: "nonexistent".into(),
-            key: Value::Int(1),
-            key_column: "id".into(),
-        };
-        assert!(edit.apply(&mut inst).is_err());
-    }
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
 
-    #[test]
-    fn monoid_identity_law() {
-        let mut inst1 = sample_instance();
-        let mut inst2 = sample_instance();
-
-        let mut row = HashMap::new();
-        row.insert("id".into(), Value::Int(5));
-        row.insert("name".into(), Value::Str("eve".into()));
-
-        let edit = TableEdit::InsertRow {
-            table: "users".into(),
-            row: row.clone(),
-        };
-
-        TableEdit::identity()
-            .compose(edit.clone())
-            .apply(&mut inst1)
-            .unwrap();
-        edit.apply(&mut inst2).unwrap();
-
-        assert_eq!(inst1.row_count("users"), inst2.row_count("users"));
+        #[test]
+        fn a_table_edit_then_its_inverse_is_the_identity(
+            intents in proptest::collection::vec(intent(), 0..24)
+        ) {
+            let start = sample_instance();
+            let mut state = start.clone();
+            let mut applied = Vec::new();
+            for intent in &intents {
+                let Some(edit) = resolve(&state, intent) else { continue };
+                let before = state.clone();
+                edit.apply(&mut state).expect("a resolved edit applies");
+                // Each step is undone by its own inverse.
+                let mut undone = state.clone();
+                edit.invert().apply(&mut undone).expect("the inverse applies");
+                prop_assert_eq!(&undone, &before);
+                applied.push(edit);
+            }
+            // The whole script, as one batch, is undone by its inverse.
+            let script = TableEdit::Batch(applied);
+            let mut replay = start.clone();
+            script.apply(&mut replay).expect("the script applies");
+            prop_assert_eq!(&replay, &state);
+            script.invert().apply(&mut replay).expect("the inverse script applies");
+            prop_assert_eq!(&replay, &start);
+        }
     }
 }

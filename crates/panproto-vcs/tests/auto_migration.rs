@@ -286,8 +286,9 @@ fn sigma_then_chase_workflow() {
     );
 
     // Create a functor instance with one user row
-    let instance =
-        FInstance::new().with_table("user", vec![row("name", Value::Str("Alice".into()))]);
+    let instance = FInstance::new()
+        .with_table("user", vec![row("name", Value::Str("Alice".into()))])
+        .unwrap();
 
     // Build migration: user -> user (identity), no edge mapping yet
     let mig = Migration {
@@ -342,7 +343,8 @@ fn pi_functor_product_workflow() {
 
     let instance = FInstance::new()
         .with_table("table_a", rows_a)
-        .with_table("table_b", rows_b);
+        .and_then(|f| f.with_table("table_b", rows_b))
+        .unwrap();
 
     // Migration: table_a -> merged, table_b -> merged
     let mut vertex_remap = HashMap::new();
@@ -373,8 +375,8 @@ fn pi_functor_product_workflow() {
     );
 
     // Each row should have both x and y columns
-    let rows = result.tables.get("merged").unwrap();
-    for r in rows {
+    let rows = result.rows("merged");
+    for (_, r) in rows {
         assert!(r.contains_key("x"), "product row should have x column");
         assert!(r.contains_key("y"), "product row should have y column");
     }

@@ -242,8 +242,11 @@ fn edit_first_data_cell(
     new_value: &str,
 ) -> Vec<u8> {
     let (mut instance, complement) = codec.parse(input).expect("parse");
-    let rows = instance.tables.get_mut(table).expect("table");
-    rows[0].insert(col.to_string(), Value::Str(new_value.to_string()));
+    let first = instance.table(table).expect("table").ids()[0];
+    instance
+        .row_mut(first)
+        .expect("the first row")
+        .insert(col.to_string(), Value::Str(new_value.to_string()));
     codec.emit(&instance, &complement).expect("emit")
 }
 
@@ -361,12 +364,12 @@ fn amr_edit_rewrites_one_cell() {
     let (mut instance, complement) = codec
         .parse_functor_preserving(&schema, input)
         .expect("parse");
-    let rows = instance
-        .tables
-        .get_mut("amr_graph")
-        .expect("amr_graph table");
+    let second = instance.table("amr_graph").expect("amr_graph table").ids()[1];
     // Change the second data row's concept (want-01 -> like-01).
-    rows[1].insert("concept".into(), Value::Str("like-01".into()));
+    instance
+        .row_mut(second)
+        .expect("the second row")
+        .insert("concept".into(), Value::Str("like-01".into()));
     let out = codec
         .emit_functor_preserving(&schema, &instance, &complement)
         .expect("emit");

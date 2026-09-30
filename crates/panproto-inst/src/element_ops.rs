@@ -26,6 +26,7 @@ use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GInstance};
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
+use crate::view_ref::RowId;
 use crate::wtype::{
     WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
 };
@@ -33,9 +34,9 @@ use crate::wtype::{
 /// Operations on the category of elements `∫F` of an instance presheaf.
 ///
 /// Elements are uniformly addressed by `u32` IDs. For [`WInstance`] and
-/// [`GInstance`], these are node IDs. For [`FInstance`], these encode
-/// `(table_ordinal, row_index)` pairs via a faithful bijection (see
-/// [`encode_finstance_id`] / [`decode_finstance_id`]).
+/// [`GInstance`], these are node IDs. For [`FInstance`], they are row ids
+/// (the number inside a [`RowId`](crate::RowId)), which are unique across the whole
+/// instance, so a table of any size is addressed without an encoding.
 pub trait ElementOps {
     /// Fiber selection: all elements over schema vertex `v`.
     ///
@@ -304,140 +305,51 @@ fn collect_graph_scalar_children(instance: &GInstance, node_id: u32) -> HashMap<
 // FInstance implementation
 // ---------------------------------------------------------------------------
 
-/// Encode an [`FInstance`] element as a `u32` ID.
-///
-/// [`FInstance`] elements are `(table, row)` pairs. We encode them as
-/// `(table_ordinal << 16) | row_index`, where `table_ordinal` is the
-/// index of the table name in lexicographic order. This bijection is
-/// faithful when each table has fewer than 2^16 rows.
-#[must_use]
-pub const fn encode_finstance_id(table_ordinal: u16, row_index: u16) -> u32 {
-    (table_ordinal as u32) << 16 | row_index as u32
-}
-
-/// Decode an [`FInstance`] element ID to `(table_ordinal, row_index)`.
-#[must_use]
-pub const fn decode_finstance_id(id: u32) -> (u16, u16) {
-    #[allow(clippy::cast_possible_truncation)]
-    ((id >> 16) as u16, id as u16)
-}
-
 impl FInstance {
-    /// Sorted table names for deterministic ordinal assignment.
-    fn sorted_table_names(&self) -> Vec<&str> {
-        let mut names: Vec<&str> = self.tables.keys().map(String::as_str).collect();
-        names.sort_unstable();
-        names
+    /// Resolve an element id to its row's table and id.
+    fn resolve_element(&self, element_id: u32) -> Option<(&Name, RowId)> {
+        let id = RowId(element_id);
+        self.table_of(id).map(|table| (table, id))
     }
 
-    /// Find the ordinal for a table name.
-    fn table_ordinal(&self, table_name: &str) -> Option<u16> {
-        let names = self.sorted_table_names();
-        names
-            .binary_search(&table_name)
-            .ok()
-            .and_then(|i| u16::try_from(i).ok())
-    }
-
-    /// Build the ordinal-to-table-name mapping (sorted).
-    ///
-    /// Returns `&str` references into `self.tables` keys, ordered by
-    /// lexicographic sort. This avoids repeated sorting in hot paths.
-    fn ordinal_map(&self) -> Vec<&str> {
-        self.sorted_table_names()
-    }
-
-    /// Resolve a synthetic element ID to `(table_name, row_index)`.
-    ///
-    /// The returned `&str` borrows from `self.tables` keys.
-    fn resolve_element(&self, element_id: u32) -> Option<(&str, usize)> {
-        let (table_ord, row_idx) = decode_finstance_id(element_id);
-        let names = self.sorted_table_names();
-        let table_name = *names.get(usize::from(table_ord))?;
-        let rows = self.tables.get(table_name)?;
-        let row = usize::from(row_idx);
-        if row < rows.len() {
-            Some((table_name, row))
-        } else {
-            None
-        }
+    /// The number of foreign-key pairs whose source is this row.
+    fn out_pair_count(&self, row: RowId) -> usize {
+        self.foreign_keys()
+            .into_iter()
+            .flat_map(|(_, pairs)| pairs.iter())
+            .filter(|(src, _)| *src == row)
+            .count()
     }
 }
 
 impl ElementOps for FInstance {
     fn fiber(&self, vertex: &Name) -> Vec<u32> {
-        let vertex_str: &str = vertex.as_ref();
-        let Some(rows) = self.tables.get(vertex_str) else {
-            return Vec::new();
-        };
-        let Some(table_ord) = self.table_ordinal(vertex_str) else {
-            return Vec::new();
-        };
-        (0..rows.len())
-            .filter_map(|i| {
-                u16::try_from(i)
-                    .ok()
-                    .map(|ri| encode_finstance_id(table_ord, ri))
-            })
-            .collect()
+        self.table(vertex.as_ref())
+            .map_or_else(Vec::new, |t| t.ids().into_iter().map(|id| id.0).collect())
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
         let element_set: rustc_hash::FxHashSet<u32> = elements.iter().copied().collect();
-        let names = self.ordinal_map();
         let mut result = Vec::new();
         let mut seen = rustc_hash::FxHashSet::default();
-
-        let mut keys: Vec<_> = self
-            .foreign_keys
-            .iter()
-            .filter(|(edge, _)| edge.kind == *edge_kind)
-            .collect();
-        keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        for (edge, pairs) in keys {
-            let Some(src_ord) = names
-                .binary_search(&&*edge.src)
-                .ok()
-                .and_then(|i| u16::try_from(i).ok())
-            else {
+        for (edge, pairs) in self.foreign_keys() {
+            if edge.kind != *edge_kind {
                 continue;
-            };
-            let Some(tgt_ord) = names
-                .binary_search(&&*edge.tgt)
-                .ok()
-                .and_then(|i| u16::try_from(i).ok())
-            else {
-                continue;
-            };
-
-            for &(src_row, tgt_row) in pairs {
-                let Ok(src_row_u16) = u16::try_from(src_row) else {
-                    continue;
-                };
-                let Ok(tgt_row_u16) = u16::try_from(tgt_row) else {
-                    continue;
-                };
-                let src_id = encode_finstance_id(src_ord, src_row_u16);
-                if element_set.contains(&src_id) {
-                    let tgt_id = encode_finstance_id(tgt_ord, tgt_row_u16);
-                    if seen.insert(tgt_id) {
-                        result.push(tgt_id);
-                    }
+            }
+            for &(src, tgt) in pairs {
+                if element_set.contains(&src.0) && seen.insert(tgt.0) {
+                    result.push(tgt.0);
                 }
             }
         }
-
         result
     }
 
     fn stalk(&self, element_id: u32) -> panproto_expr::Env {
-        let Some((table_name, row_idx)) = self.resolve_element(element_id) else {
+        let Some((table_name, row_id)) = self.resolve_element(element_id) else {
             return panproto_expr::Env::new();
         };
-        let Some(rows) = self.tables.get(table_name) else {
-            return panproto_expr::Env::new();
-        };
-        let Some(row) = rows.get(row_idx) else {
+        let Some(row) = self.row(row_id) else {
             return panproto_expr::Env::new();
         };
 
@@ -446,21 +358,15 @@ impl ElementOps for FInstance {
         let mut env = crate::wtype::build_env_from_extra_fields(row);
 
         // Metadata
-        env = env.extend(Arc::from("_anchor"), Literal::Str(table_name.into()));
+        env = env.extend(
+            Arc::from("_anchor"),
+            Literal::Str(table_name.as_ref().into()),
+        );
         env = env.extend(Arc::from("_id"), Literal::Int(i64::from(element_id)));
 
         // FK out-degree
-        let fk_count = self
-            .foreign_keys
-            .iter()
-            .filter(|(edge, _)| edge.src.as_ref() == table_name)
-            .flat_map(|(_, pairs)| pairs.iter())
-            .filter(|(src_row, _)| *src_row == row_idx)
-            .count();
-        #[allow(clippy::cast_possible_wrap)]
-        {
-            env = env.extend(Arc::from("_edge_count"), Literal::Int(fk_count as i64));
-        }
+        let fk_count = i64::try_from(self.out_pair_count(row_id)).unwrap_or(i64::MAX);
+        env = env.extend(Arc::from("_edge_count"), Literal::Int(fk_count));
 
         env
     }
@@ -475,19 +381,11 @@ impl ElementOps for FInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some((table_name, row_idx)) = self.resolve_element(element_id) else {
-            return HashMap::new();
-        };
-        self.tables
-            .get(table_name)
-            .and_then(|rows| rows.get(row_idx))
-            .cloned()
-            .unwrap_or_default()
+        self.row(RowId(element_id)).cloned().unwrap_or_default()
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
-        self.resolve_element(element_id)
-            .map(|(table_name, _)| Name::from(table_name))
+        self.table_of(RowId(element_id)).cloned()
     }
 
     fn element_value(&self, _element_id: u32) -> Option<FieldPresence> {
@@ -725,25 +623,21 @@ fn finstance_row_to_literal(row: &HashMap<String, Value>) -> Literal {
 
 /// The rows a table-instance element reaches along foreign keys of `kind`
 /// (every kind when `None`): keys in ascending schema-edge order, pairs in
-/// stored order.
+/// ascending order.
 fn finstance_targets<'a>(
     instance: &'a FInstance,
-    src_table: &str,
-    src_row: usize,
+    src_row: RowId,
     kind: Option<&Name>,
 ) -> Vec<&'a HashMap<String, Value>> {
-    let mut keys: Vec<_> = instance
-        .foreign_keys
-        .iter()
-        .filter(|(edge, _)| edge.src.as_ref() == src_table && kind.is_none_or(|k| edge.kind == *k))
-        .collect();
-    keys.sort_unstable_by(|a, b| a.0.cmp(b.0));
-    keys.into_iter()
-        .flat_map(|(edge, pairs)| {
+    instance
+        .foreign_keys()
+        .into_iter()
+        .filter(|(edge, _)| kind.is_none_or(|k| edge.kind == *k))
+        .flat_map(|(_, pairs)| {
             pairs
                 .iter()
                 .filter(move |(s, _)| *s == src_row)
-                .filter_map(move |&(_, t)| instance.tables.get(&*edge.tgt).and_then(|r| r.get(t)))
+                .filter_map(move |&(_, t)| instance.row(t))
         })
         .collect()
 }
@@ -762,9 +656,7 @@ fn finstance_graph_builtin(
             let edge_name = edge_kind_arg(&args[1])?;
             let rows = instance
                 .resolve_element(element_id)
-                .map(|(src_table, src_row)| {
-                    finstance_targets(instance, src_table, src_row, Some(&edge_name))
-                })
+                .map(|(_, src_row)| finstance_targets(instance, src_row, Some(&edge_name)))
                 .unwrap_or_default();
             Ok(if op == BuiltinOp::Edge {
                 rows.first()
@@ -775,11 +667,11 @@ fn finstance_graph_builtin(
         }
         BuiltinOp::Children => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            let Some((src_table, src_row)) = instance.resolve_element(element_id) else {
+            let Some((_, src_row)) = instance.resolve_element(element_id) else {
                 return Ok(Literal::List(Vec::new()));
             };
             Ok(Literal::List(
-                finstance_targets(instance, src_table, src_row, None)
+                finstance_targets(instance, src_row, None)
                     .into_iter()
                     .map(finstance_row_to_literal)
                     .collect(),
@@ -796,40 +688,31 @@ fn finstance_graph_builtin(
                     })?;
             let edge_name = Name::from(edge_kind);
 
-            let Some((src_table, src_row)) = instance.resolve_element(element_id) else {
+            let Some((_, src_row)) = instance.resolve_element(element_id) else {
                 return Ok(Literal::Bool(false));
             };
 
-            let found = instance.foreign_keys.iter().any(|(edge, pairs)| {
-                edge.kind == edge_name
-                    && edge.src.as_ref() == src_table
-                    && pairs.iter().any(|(s, _)| *s == src_row)
+            let found = instance.foreign_keys().into_iter().any(|(edge, pairs)| {
+                edge.kind == edge_name && pairs.iter().any(|(s, _)| *s == src_row)
             });
             Ok(Literal::Bool(found))
         }
         BuiltinOp::EdgeCount => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            let Some((src_table, src_row)) = instance.resolve_element(element_id) else {
+            let Some((_, src_row)) = instance.resolve_element(element_id) else {
                 return Ok(Literal::Int(0));
             };
-
-            let count: usize = instance
-                .foreign_keys
-                .iter()
-                .filter(|(edge, _)| edge.src.as_ref() == src_table)
-                .flat_map(|(_, pairs)| pairs.iter())
-                .filter(|(s, _)| *s == src_row)
-                .count();
-            #[allow(clippy::cast_possible_wrap)]
-            Ok(Literal::Int(count as i64))
+            Ok(Literal::Int(
+                i64::try_from(instance.out_pair_count(src_row)).unwrap_or(i64::MAX),
+            ))
         }
         BuiltinOp::Anchor => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            instance
+            Ok(instance
                 .resolve_element(element_id)
-                .map_or(Ok(Literal::Null), |(table_name, _)| {
-                    Ok(Literal::Str(table_name.into()))
-                })
+                .map_or(Literal::Null, |(table_name, _)| {
+                    Literal::Str(table_name.as_ref().into())
+                }))
         }
         _ => Ok(Literal::Null),
     }
@@ -1206,10 +1089,12 @@ mod tests {
             name: Some("author".into()),
         };
 
+        // Users are rows 0 and 1, the post row 2, authored by user 0.
         FInstance::new()
             .with_table("users", vec![alice, bob])
-            .with_table("posts", vec![post1])
-            .with_foreign_key(fk, vec![(0, 0)]) // post 0 authored by user 0
+            .and_then(|f| f.with_table("posts", vec![post1]))
+            .and_then(|f| f.with_foreign_key(fk, [(RowId(2), RowId(0))]))
+            .unwrap()
     }
 
     #[test]
@@ -1267,11 +1152,129 @@ mod tests {
     }
 
     #[test]
-    fn finstance_round_trip_encoding() {
-        let id = encode_finstance_id(3, 42);
-        let (table_ord, row_idx) = decode_finstance_id(id);
-        assert_eq!(table_ord, 3);
-        assert_eq!(row_idx, 42);
+    fn table_element_ids_are_row_ids() {
+        let f = FInstance::new()
+            .with_rows(
+                "users",
+                [(RowId(70_000), HashMap::new()), (RowId(3), HashMap::new())],
+            )
+            .and_then(|f| f.with_rows("posts", [(RowId(9), HashMap::new())]))
+            .unwrap();
+        assert_eq!(f.fiber(&Name::from("users")), vec![3, 70_000]);
+        assert_eq!(f.fiber(&Name::from("posts")), vec![9]);
+        assert_eq!(f.sort(70_000), Some(Name::from("users")));
+        assert_eq!(f.sort(4), None);
+        let env = f.stalk(70_000);
+        assert_eq!(
+            panproto_expr::eval(
+                &panproto_expr::Expr::Var("_id".into()),
+                &env,
+                &panproto_expr::EvalConfig::default()
+            )
+            .unwrap(),
+            Literal::Int(70_000)
+        );
+    }
+
+    #[test]
+    fn a_table_with_more_than_65536_rows_queries_correctly() {
+        const ROWS: u32 = 65_600;
+        let fk = SchemaEdge {
+            src: "item".into(),
+            tgt: "item".into(),
+            kind: "next".into(),
+            name: None,
+        };
+        let mut f = FInstance::new();
+        for i in 0..ROWS {
+            f.insert_row(
+                "item",
+                RowId(i),
+                HashMap::from([("n".to_owned(), Value::Int(i64::from(i)))]),
+            )
+            .unwrap();
+        }
+        f.insert_foreign_key(fk, RowId(65_590), RowId(65_599))
+            .unwrap();
+        let items = f.fiber(&Name::from("item"));
+        assert_eq!(items.len(), usize::try_from(ROWS).unwrap());
+        assert_eq!(items.last(), Some(&(ROWS - 1)));
+        // Rows past the 16-bit boundary keep their own cells and edges.
+        assert_eq!(f.attributes(65_599).get("n"), Some(&Value::Int(65_599)));
+        assert_eq!(f.pushforward(&[65_590], &Name::from("next")), vec![65_599]);
+        assert_eq!(
+            f.pushforward(&[65_590 - 65_536], &Name::from("next")),
+            Vec::<u32>::new()
+        );
+
+        let query = crate::query::InstanceQuery {
+            anchor: Name::from("item"),
+            predicate: Some(panproto_expr::Expr::Builtin(
+                BuiltinOp::Gte,
+                vec![
+                    panproto_expr::Expr::Var("n".into()),
+                    panproto_expr::Expr::Lit(Literal::Int(65_598)),
+                ],
+            )),
+            group_by: None,
+            project: None,
+            limit: None,
+            path: Vec::new(),
+        };
+        let schema = panproto_schema::Schema::default();
+        let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema)
+            .into_iter()
+            .map(|m| m.node_id)
+            .collect();
+        assert_eq!(found, vec![65_598, 65_599]);
+    }
+
+    #[test]
+    fn the_table_query_square_against_from_finstance_is_identical() {
+        let f = make_finstance_with_fk();
+        let (g, _) = GInstance::from_finstance(&f).unwrap();
+        let schema = panproto_schema::Schema::default();
+        let queries = [
+            crate::query::InstanceQuery {
+                anchor: Name::from("users"),
+                predicate: Some(panproto_expr::Expr::Builtin(
+                    BuiltinOp::Gt,
+                    vec![
+                        panproto_expr::Expr::Var("age".into()),
+                        panproto_expr::Expr::Lit(Literal::Int(20)),
+                    ],
+                )),
+                group_by: None,
+                project: Some(vec!["name".into()]),
+                limit: None,
+                path: Vec::new(),
+            },
+            crate::query::InstanceQuery {
+                anchor: Name::from("posts"),
+                predicate: None,
+                group_by: None,
+                project: None,
+                limit: Some(1),
+                path: vec![Name::from("author")],
+            },
+        ];
+        for query in &queries {
+            let on_table = crate::query::execute_functor(query, &f, &schema);
+            let on_graph = crate::query::execute_graph(query, &g, &schema);
+            let key = |m: &crate::query::QueryMatch| {
+                let mut fields: Vec<(String, Value)> = m
+                    .fields
+                    .iter()
+                    .map(|(k, v)| (k.clone(), v.clone()))
+                    .collect();
+                fields.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+                (m.node_id, m.anchor.clone(), m.value.clone(), fields)
+            };
+            let on_table: Vec<_> = on_table.iter().map(key).collect();
+            let on_graph: Vec<_> = on_graph.iter().map(key).collect();
+            assert!(!on_table.is_empty());
+            assert_eq!(on_table, on_graph, "query {query:?}");
+        }
     }
 
     #[test]

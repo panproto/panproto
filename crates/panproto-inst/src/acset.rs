@@ -274,7 +274,9 @@ mod tests {
     fn two_node_finstance() -> FInstance {
         let mut row = HashMap::new();
         row.insert("name".to_string(), Value::Str("Alice".into()));
-        FInstance::new().with_table("users", vec![row])
+        let mut f = FInstance::new();
+        f.place_row(Name::from("users"), crate::RowId(0), row);
+        f
     }
 
     fn alice() -> FieldPresence {

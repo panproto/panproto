@@ -905,11 +905,16 @@ mod shape_table_tests {
                 protocol: "name-list".into(),
                 message: e.to_string(),
             })?;
-            let rows = text
+            let rows: Vec<HashMap<String, Value>> = text
                 .lines()
                 .map(|line| HashMap::from([("name".to_owned(), Value::Str(line.to_owned()))]))
                 .collect();
-            Ok(FInstance::new().with_table("row", rows))
+            FInstance::new()
+                .with_table("row", rows)
+                .map_err(|e| ParseInstanceError::Parse {
+                    protocol: "name-list".into(),
+                    message: e.to_string(),
+                })
         }
     }
 
@@ -924,7 +929,7 @@ mod shape_table_tests {
             instance: &FInstance,
         ) -> Result<Vec<u8>, EmitInstanceError> {
             let mut out = String::new();
-            for row in instance.tables.get("row").into_iter().flatten() {
+            for (_, row) in instance.rows("row") {
                 match row.get("name") {
                     Some(Value::Str(name)) => {
                         out.push_str(name);

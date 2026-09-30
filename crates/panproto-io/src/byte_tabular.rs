@@ -141,7 +141,12 @@ impl ByteTabularCodec {
             });
         }
 
-        let instance = FInstance::new().with_table(&self.table_vertex, rows);
+        let instance = FInstance::new()
+            .with_table(self.table_vertex.as_str(), rows)
+            .map_err(|e| ParseInstanceError::Parse {
+                protocol: self.protocol.clone(),
+                message: e.to_string(),
+            })?;
         let complement = ByteTabularComplement {
             lines: records,
             delimiter: self.delimiter,
@@ -167,14 +172,13 @@ impl ByteTabularCodec {
         instance: &FInstance,
         complement: &ByteTabularComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        let rows =
-            instance
-                .tables
-                .get(&self.table_vertex)
-                .ok_or_else(|| EmitInstanceError::Emit {
-                    protocol: self.protocol.clone(),
-                    message: format!("table '{}' not found in instance", self.table_vertex),
-                })?;
+        let rows = instance
+            .table(&self.table_vertex)
+            .ok_or_else(|| EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: format!("table '{}' not found in instance", self.table_vertex),
+            })?
+            .rows();
 
         let mut output = Vec::with_capacity(complement.lines.len() * 16);
         let mut data_idx = 0usize;
@@ -186,8 +190,8 @@ impl ByteTabularCodec {
                 continue;
             }
 
-            // Pair this data line with the next instance row (positional).
-            let row = rows.get(data_idx);
+            // Pair this data line with the next instance row in row-id order.
+            let row = rows.get(data_idx).map(|(_, r)| *r);
             data_idx += 1;
 
             let updated = row.and_then(|r| splice_line(line, r, complement.delimiter));
@@ -365,16 +369,15 @@ impl InstanceEmitter for ByteTabularCodec {
         // delimited file from the positional cells. This is the non-preserving
         // fallback used by the generic `InstanceEmitter` seam; the byte-faithful
         // path is `emit` with a complement.
-        let rows =
-            instance
-                .tables
-                .get(&self.table_vertex)
-                .ok_or_else(|| EmitInstanceError::Emit {
-                    protocol: self.protocol.clone(),
-                    message: format!("table '{}' not found in instance", self.table_vertex),
-                })?;
+        let rows = instance
+            .table(&self.table_vertex)
+            .ok_or_else(|| EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: format!("table '{}' not found in instance", self.table_vertex),
+            })?
+            .rows();
         let mut output = Vec::new();
-        for row in rows {
+        for (_, row) in rows {
             let mut i = 0usize;
             loop {
                 let key = format!("{COL_PREFIX}{i}");
@@ -433,7 +436,7 @@ mod tests {
         let c = ByteTabularCodec::new("p", "t", b' ', Some(b'#'));
         let (inst, comp) = c.parse(input).unwrap();
         // Only the two data lines surface as rows.
-        assert_eq!(inst.tables.get("t").unwrap().len(), 2);
+        assert_eq!(inst.row_count("t"), 2);
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, input);
     }
@@ -444,8 +447,10 @@ mod tests {
         let c = codec();
         let (mut inst, comp) = c.parse(input).unwrap();
         // Edit the value of the first record's col_1 (user:1001 -> user:2002).
-        let rows = inst.tables.get_mut("entries").unwrap();
-        rows[0].insert("col_1".into(), Value::Str("user:2002".into()));
+        let first = inst.table("entries").unwrap().ids()[0];
+        inst.row_mut(first)
+            .unwrap()
+            .insert("col_1".into(), Value::Str("user:2002".into()));
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, b"key user:2002\nname Alice Chen\n");
     }
@@ -459,9 +464,9 @@ mod tests {
         let (inst, comp) = c.parse(input).unwrap();
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, input);
-        let rows = inst.tables.get("segments").unwrap();
+        let rows = inst.rows("segments");
         assert_eq!(
-            rows[0].get("col_1"),
+            rows[0].1.get("col_1"),
             Some(&Value::Bytes(b"caf\xe9".to_vec()))
         );
     }
@@ -471,8 +476,10 @@ mod tests {
         let input = b"ISA*caf\xe9*00\n";
         let c = ByteTabularCodec::new("edi", "segments", b'*', None);
         let (mut inst, comp) = c.parse(input).unwrap();
-        let rows = inst.tables.get_mut("segments").unwrap();
-        rows[0].insert("col_1".into(), Value::Str("cafe".into()));
+        let first = inst.table("segments").unwrap().ids()[0];
+        inst.row_mut(first)
+            .unwrap()
+            .insert("col_1".into(), Value::Str("cafe".into()));
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, b"ISA*cafe*00\n");
     }
