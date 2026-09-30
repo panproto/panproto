@@ -14,13 +14,15 @@
 //! the equality witnesses that compare instances when a migration square is
 //! checked for commutativity.
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
+use panproto_schema::Edge;
 
 use crate::error::InstError;
 use crate::fan::Fan;
 use crate::functor::FInstance;
+use crate::value::Value;
 use crate::view_ref::RowId;
 use crate::wtype::WInstance;
 
@@ -303,28 +305,104 @@ impl WInstanceHom {
     }
 }
 
-/// A homomorphism between two set-valued functor instances of the same schema.
+/// A homomorphism between two set-valued functor instances, possibly of
+/// different schemas.
 ///
 /// One row map sends each [`RowId`] of the domain to a [`RowId`] of the
 /// codomain. Row ids are unique across a whole instance, so one map serves
-/// every table; a well-formed map sends each row into the codomain table of
-/// the same name, preserves every row's cells and preserves foreign keys.
+/// every table. The map travels along a map of schemas: `table_map` names
+/// the image table of each domain table it renames, `edge_map` the image
+/// foreign key of each domain edge it sends elsewhere, and `null_map` the
+/// value each labeled null of the domain takes in the codomain. An
+/// unlisted table maps to the codomain table of its own name, an unlisted
+/// edge to the edge of its own kind and name between the images of its
+/// endpoints, and an unlisted null to itself, so a map between instances of
+/// one schema lists nothing but rows.
+///
+/// A well-formed map sends each row into the image table of its own table,
+/// sends its cells (labeled nulls replaced along `null_map`) to the image
+/// row's cells and sends each foreign-key pair to a pair of the image edge.
 /// [`check`](Self::check) verifies all of this.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct FInstanceHom {
     /// The image of each domain row.
     pub row_map: BTreeMap<RowId, RowId>,
+    /// The image table of each domain table the map renames.
+    pub table_map: BTreeMap<Name, Name>,
+    /// The image foreign key of each domain edge the map does not send to
+    /// the edge of its own kind and name between its endpoints' images.
+    pub edge_map: BTreeMap<Edge, Edge>,
+    /// The value each labeled null of the domain takes in the codomain.
+    pub null_map: BTreeMap<u64, Value>,
 }
 
 impl FInstanceHom {
-    /// Build a homomorphism from an explicit row map.
+    /// Build a homomorphism between instances of one schema from an explicit
+    /// row map.
     #[must_use]
     pub const fn new(row_map: BTreeMap<RowId, RowId>) -> Self {
-        Self { row_map }
+        Self {
+            row_map,
+            table_map: BTreeMap::new(),
+            edge_map: BTreeMap::new(),
+            null_map: BTreeMap::new(),
+        }
     }
 
-    /// Build a homomorphism from a row map, checking that every mapped row
-    /// lands in the codomain table of its own table's name.
+    /// The same homomorphism travelling along `table_map` (entries sending a
+    /// table to itself are dropped). The listed edges keep their images; an
+    /// unlisted edge follows the new table map.
+    #[must_use]
+    pub fn with_table_map(mut self, table_map: BTreeMap<Name, Name>) -> Self {
+        let listed = std::mem::take(&mut self.edge_map);
+        self.table_map = table_map.into_iter().filter(|(a, b)| a != b).collect();
+        self.with_edge_map(listed)
+    }
+
+    /// The same homomorphism sending edges along `edge_map`, replacing the
+    /// edge map it had (entries agreeing with the default image under the
+    /// table map are dropped).
+    #[must_use]
+    pub fn with_edge_map(mut self, edge_map: BTreeMap<Edge, Edge>) -> Self {
+        self.edge_map.clear();
+        let kept = edge_map
+            .into_iter()
+            .filter(|(edge, image)| &self.image_edge(edge) != image)
+            .collect();
+        self.edge_map = kept;
+        self
+    }
+
+    /// The domain tables this map sends to `table`, those it lists and
+    /// `table` itself when unlisted, ascending.
+    fn table_preimages(&self, table: &Name) -> Vec<Name> {
+        let mut preimages: Vec<Name> = self
+            .table_map
+            .iter()
+            .filter(|(_, image)| *image == table)
+            .map(|(source, _)| source.clone())
+            .collect();
+        if !self.table_map.contains_key(table) {
+            preimages.push(table.clone());
+        }
+        preimages.sort_unstable();
+        preimages
+    }
+
+    /// The same homomorphism replacing labeled nulls along `null_map`
+    /// (entries sending a null to itself are dropped).
+    #[must_use]
+    pub fn with_null_map(mut self, null_map: BTreeMap<u64, Value>) -> Self {
+        self.null_map = null_map
+            .into_iter()
+            .filter(|(null, value)| *value != Value::LabeledNull(*null))
+            .collect();
+        self
+    }
+
+    /// Build a homomorphism between instances of one schema from a row map,
+    /// checking that every mapped row lands in the codomain table of its own
+    /// table's name.
     ///
     /// # Errors
     ///
@@ -336,13 +414,60 @@ impl FInstanceHom {
         dom: &FInstance,
         cod: &FInstance,
     ) -> Result<Self, InstError> {
-        let hom = Self { row_map };
+        Self::from_row_map_along(row_map, BTreeMap::new(), dom, cod)
+    }
+
+    /// Build a homomorphism from a row map travelling along `table_map`,
+    /// checking that every mapped row lands in the image table of its own
+    /// table.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::HomTableMismatch`] naming the least row that is
+    /// not a domain row, has no image in the codomain, or lands outside the
+    /// image of its table.
+    pub fn from_row_map_along(
+        row_map: BTreeMap<RowId, RowId>,
+        table_map: BTreeMap<Name, Name>,
+        dom: &FInstance,
+        cod: &FInstance,
+    ) -> Result<Self, InstError> {
+        let hom = Self::new(row_map).with_table_map(table_map);
         hom.check_tables(dom, cod)?;
         Ok(hom)
     }
 
-    /// Check that every mapped row lands in the codomain table of its own
-    /// table's name, read through each instance's row index.
+    /// The codomain table a domain table maps into.
+    #[must_use]
+    pub fn image_table<'a>(&'a self, table: &'a Name) -> &'a Name {
+        self.table_map.get(table).unwrap_or(table)
+    }
+
+    /// The codomain foreign key a domain edge maps to: its `edge_map` entry,
+    /// else the edge of its own kind and name between the images of its
+    /// endpoints.
+    #[must_use]
+    pub fn image_edge(&self, edge: &Edge) -> Edge {
+        self.edge_map.get(edge).cloned().unwrap_or_else(|| Edge {
+            src: self.image_table(&edge.src).clone(),
+            tgt: self.image_table(&edge.tgt).clone(),
+            kind: edge.kind.clone(),
+            name: edge.name.clone(),
+        })
+    }
+
+    /// The codomain value of a domain cell: a labeled null listed in
+    /// `null_map` takes its entry; every other value is itself.
+    #[must_use]
+    pub fn image_value<'a>(&'a self, value: &'a Value) -> &'a Value {
+        match value {
+            Value::LabeledNull(null) => self.null_map.get(null).unwrap_or(value),
+            _ => value,
+        }
+    }
+
+    /// Check that every mapped row lands in the image table of its own
+    /// table, read through each instance's row index.
     ///
     /// # Errors
     ///
@@ -351,7 +476,7 @@ impl FInstanceHom {
     pub fn check_tables(&self, dom: &FInstance, cod: &FInstance) -> Result<(), InstError> {
         for (&row, &image) in &self.row_map {
             match (dom.table_of(row), cod.table_of(image)) {
-                (Some(a), Some(b)) if a == b => {}
+                (Some(a), Some(b)) if self.image_table(a) == b => {}
                 _ => return Err(InstError::HomTableMismatch { row }),
             }
         }
@@ -361,9 +486,7 @@ impl FInstanceHom {
     /// The identity homomorphism on `instance` (each row maps to itself).
     #[must_use]
     pub fn identity(instance: &FInstance) -> Self {
-        Self {
-            row_map: instance.row_ids().into_iter().map(|id| (id, id)).collect(),
-        }
+        Self::new(instance.row_ids().into_iter().map(|id| (id, id)).collect())
     }
 
     /// The image of a row, if the map has one.
@@ -376,33 +499,41 @@ impl FInstanceHom {
     /// relational structure.
     ///
     /// Checks totality (every domain row has an image), table membership
-    /// (the image is a codomain row of the same table), attribute
-    /// preservation (the image row carries the same cells) and foreign-key
-    /// naturality (each domain pair maps to a codomain pair).
+    /// (the image is a codomain row of the image of its table), attribute
+    /// preservation (the image row carries the domain row's cells, each
+    /// labeled null replaced along `null_map`) and foreign-key naturality
+    /// (each domain pair maps to a pair of the image edge).
     ///
     /// # Errors
     ///
     /// Returns the first [`HomError`] encountered, rows taken in ascending id.
     pub fn check(&self, dom: &FInstance, cod: &FInstance) -> Result<(), HomError> {
         for row in dom.row_ids() {
-            let table = dom
-                .table_of(row)
-                .map(ToString::to_string)
-                .unwrap_or_default();
+            let table = dom.table_of(row).cloned().unwrap_or_default();
             let image = self.image(row).ok_or_else(|| HomError::RowMapMalformed {
-                table: table.clone(),
+                table: table.to_string(),
                 detail: format!("row {} has no image", row.0),
             })?;
-            if cod.table_of(image).map(AsRef::as_ref) != Some(table.as_str()) {
+            let image_table = self.image_table(&table);
+            if cod.table_of(image) != Some(image_table) {
                 return Err(HomError::RowMapMalformed {
-                    table,
+                    table: table.to_string(),
                     detail: format!(
-                        "row {} maps to row {}, which is not a codomain row of this table",
+                        "row {} maps to row {}, which is not a row of the image table {image_table}",
                         row.0, image.0
                     ),
                 });
             }
-            if dom.row(row) != cod.row(image) {
+            let preserved = match (dom.row(row), cod.row(image)) {
+                (Some(cells), Some(image_cells)) => {
+                    cells.len() == image_cells.len()
+                        && cells.iter().all(|(column, value)| {
+                            image_cells.get(column) == Some(self.image_value(value))
+                        })
+                }
+                _ => false,
+            };
+            if !preserved {
                 return Err(HomError::AttributeMismatch {
                     src: row.0,
                     tgt: image.0,
@@ -411,13 +542,14 @@ impl FInstanceHom {
         }
 
         for (edge, pairs) in dom.foreign_keys() {
+            let image_edge = self.image_edge(edge);
             for &(s, t) in pairs {
                 let (Some(ms), Some(mt)) = (self.image(s), self.image(t)) else {
                     continue;
                 };
-                if !cod.contains_pair(edge, ms, mt) {
+                if !cod.contains_pair(&image_edge, ms, mt) {
                     return Err(HomError::ForeignKeyNotPreserved {
-                        edge: format!("{}->{}", edge.src, edge.tgt),
+                        edge: format!("{}->{}", image_edge.src, image_edge.tgt),
                         mapped_src: ms.0,
                         mapped_tgt: mt.0,
                     });
@@ -429,7 +561,8 @@ impl FInstanceHom {
     }
 
     /// Compose two homomorphisms: `self` from `A` to `B` followed by `other`
-    /// from `B` to `C`.
+    /// from `B` to `C`. The row, table, edge and null maps compose
+    /// pointwise.
     ///
     /// # Errors
     ///
@@ -449,12 +582,59 @@ impl FInstanceHom {
                 })?;
             row_map.insert(row, image);
         }
-        Ok(Self { row_map })
+        let table_map = self
+            .table_map
+            .keys()
+            .chain(other.table_map.keys())
+            .map(|table| {
+                let image = other.image_table(self.image_table(table)).clone();
+                (table.clone(), image)
+            })
+            .collect();
+        // An edge the first map does not list goes to its default image `d`;
+        // when the second map lists `d`, every such preimage of `d` must be
+        // listed in the composite, since its default there differs.
+        let mut edges: BTreeSet<Edge> = self.edge_map.keys().cloned().collect();
+        edges.extend(other.edge_map.keys().cloned());
+        for image in other.edge_map.keys() {
+            for src in self.table_preimages(&image.src) {
+                for tgt in self.table_preimages(&image.tgt) {
+                    let edge = Edge {
+                        src: src.clone(),
+                        tgt,
+                        kind: image.kind.clone(),
+                        name: image.name.clone(),
+                    };
+                    if !self.edge_map.contains_key(&edge) {
+                        edges.insert(edge);
+                    }
+                }
+            }
+        }
+        let edge_map = edges
+            .into_iter()
+            .map(|edge| {
+                let image = other.image_edge(&self.image_edge(&edge));
+                (edge, image)
+            })
+            .collect();
+        let null_map = self
+            .null_map
+            .keys()
+            .chain(other.null_map.keys())
+            .map(|&null| {
+                let own = Value::LabeledNull(null);
+                (null, other.image_value(self.image_value(&own)).clone())
+            })
+            .collect();
+        let composed = Self::new(row_map).with_table_map(table_map);
+        Ok(composed.with_edge_map(edge_map).with_null_map(null_map))
     }
 
     /// Returns `true` iff this homomorphism from `dom` to `cod` is an
-    /// isomorphism: the row map is a bijection onto the codomain's rows and
-    /// the inverse preserves foreign keys.
+    /// isomorphism: the row map is a bijection onto the codomain's rows,
+    /// the table, edge and null maps are invertible, and the inverse is a
+    /// homomorphism from `cod` to `dom`.
     #[must_use]
     pub fn is_isomorphism(&self, dom: &FInstance, cod: &FInstance) -> bool {
         if self.check(dom, cod).is_err() {
@@ -463,14 +643,51 @@ impl FInstanceHom {
         if self.row_map.len() != cod.total_row_count() {
             return false;
         }
-        let mut inverse = BTreeMap::new();
-        for (&row, &image) in &self.row_map {
-            if inverse.insert(image, row).is_some() {
+        let Some(row_map) = invert(self.row_map.iter().map(|(a, b)| (*a, *b))) else {
+            return false;
+        };
+        let Some(table_map) = invert(
+            dom.table_names()
+                .into_iter()
+                .map(|table| (table.clone(), self.image_table(table).clone())),
+        ) else {
+            return false;
+        };
+        let Some(edge_map) = invert(
+            dom.foreign_keys()
+                .into_iter()
+                .map(|(edge, _)| (edge.clone(), self.image_edge(edge))),
+        ) else {
+            return false;
+        };
+        let mut null_map = BTreeMap::new();
+        for (&null, value) in &self.null_map {
+            let Value::LabeledNull(image) = value else {
+                return false;
+            };
+            if null_map.insert(*image, Value::LabeledNull(null)).is_some() {
                 return false;
             }
         }
-        Self { row_map: inverse }.check(cod, dom).is_ok()
+        Self::new(row_map)
+            .with_table_map(table_map)
+            .with_edge_map(edge_map)
+            .with_null_map(null_map)
+            .check(cod, dom)
+            .is_ok()
     }
+}
+
+/// The inverse of a finite map given as its graph, or `None` when two
+/// arguments share an image.
+fn invert<K: Ord, V: Ord>(graph: impl IntoIterator<Item = (K, V)>) -> Option<BTreeMap<V, K>> {
+    let mut inverse = BTreeMap::new();
+    for (argument, image) in graph {
+        if inverse.insert(image, argument).is_some() {
+            return None;
+        }
+    }
+    Some(inverse)
 }
 
 #[cfg(test)]
@@ -701,5 +918,139 @@ mod tests {
             .check(&inst, &altered)
             .expect_err("differing row must fail check");
         assert!(matches!(err, HomError::AttributeMismatch { src: 0, .. }));
+    }
+
+    fn fk(src: &str, tgt: &str, name: Option<&str>) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: name.map(Into::into),
+        }
+    }
+
+    /// One row per table and one foreign-key pair along `key`.
+    fn linked(key: &Edge, src_row: u32, tgt_row: u32, cell: Value) -> FInstance {
+        let cells = HashMap::from([("v".to_owned(), cell)]);
+        FInstance::new()
+            .with_rows(key.src.clone(), [(RowId(src_row), cells.clone())])
+            .and_then(|f| f.with_rows(key.tgt.clone(), [(RowId(tgt_row), cells)]))
+            .and_then(|f| f.with_foreign_key(key.clone(), [(RowId(src_row), RowId(tgt_row))]))
+            .expect("the fixture is well formed")
+    }
+
+    #[test]
+    fn a_composite_lists_the_edges_a_renaming_sends_into_the_second_edge_map() {
+        // A over `s -> s2`, B over `t -> t2` (the default image of A's key
+        // under the table renaming), C over `t -> t2` under another name.
+        let a = linked(&fk("s", "s2", None), 0, 1, Value::Int(1));
+        let b = linked(&fk("t", "t2", None), 10, 11, Value::Int(1));
+        let c = linked(&fk("t", "t2", Some("renamed")), 20, 21, Value::Int(1));
+        let first = FInstanceHom::new(BTreeMap::from([
+            (RowId(0), RowId(10)),
+            (RowId(1), RowId(11)),
+        ]))
+        .with_table_map(BTreeMap::from([
+            (Name::from("s"), Name::from("t")),
+            (Name::from("s2"), Name::from("t2")),
+        ]));
+        let second = FInstanceHom::new(BTreeMap::from([
+            (RowId(10), RowId(20)),
+            (RowId(11), RowId(21)),
+        ]))
+        .with_edge_map(BTreeMap::from([(
+            fk("t", "t2", None),
+            fk("t", "t2", Some("renamed")),
+        )]));
+        first.check(&a, &b).expect("the renaming is a homomorphism");
+        second
+            .check(&b, &c)
+            .expect("the edge renaming is a homomorphism");
+        let composite = first.compose(&second).expect("the row maps compose");
+        assert_eq!(
+            composite.image_edge(&fk("s", "s2", None)),
+            fk("t", "t2", Some("renamed"))
+        );
+        composite
+            .check(&a, &c)
+            .expect("the composite sends A's key to C's renamed key");
+        assert!(composite.is_isomorphism(&a, &c));
+    }
+
+    #[test]
+    fn setting_the_table_map_keeps_the_listed_edge_images() {
+        let key = fk("s", "s2", None);
+        let target = fk("u", "u2", Some("k"));
+        let hom = FInstanceHom::new(BTreeMap::new())
+            .with_edge_map(BTreeMap::from([(key.clone(), target.clone())]))
+            .with_table_map(BTreeMap::from([
+                (Name::from("s"), Name::from("u")),
+                (Name::from("s2"), Name::from("u2")),
+            ]));
+        assert_eq!(hom.image_edge(&key), target);
+        // An entry that the new table map makes the default is dropped.
+        let default = FInstanceHom::new(BTreeMap::new())
+            .with_edge_map(BTreeMap::from([(key.clone(), fk("u", "u2", None))]))
+            .with_table_map(BTreeMap::from([
+                (Name::from("s"), Name::from("u")),
+                (Name::from("s2"), Name::from("u2")),
+            ]));
+        assert!(default.edge_map.is_empty());
+        assert_eq!(default.image_edge(&key), fk("u", "u2", None));
+    }
+
+    #[test]
+    fn a_row_map_along_a_renaming_checks_the_image_table() {
+        let a = linked(&fk("s", "s2", None), 0, 1, Value::Int(1));
+        let b = linked(&fk("t", "t2", None), 10, 11, Value::Int(1));
+        let rows = BTreeMap::from([(RowId(0), RowId(10)), (RowId(1), RowId(11))]);
+        let renaming = BTreeMap::from([
+            (Name::from("s"), Name::from("t")),
+            (Name::from("s2"), Name::from("t2")),
+        ]);
+        // Without the renaming, the rows land in tables of other names.
+        assert!(matches!(
+            FInstanceHom::from_row_map(rows.clone(), &a, &b),
+            Err(InstError::HomTableMismatch { row: RowId(0) })
+        ));
+        let hom = FInstanceHom::from_row_map_along(rows, renaming.clone(), &a, &b)
+            .expect("each row lands in the image of its table");
+        hom.check(&a, &b).expect("the renaming is a homomorphism");
+        // Crossing the renamed tables is refused.
+        let crossed = BTreeMap::from([(RowId(0), RowId(11)), (RowId(1), RowId(10))]);
+        assert!(matches!(
+            FInstanceHom::from_row_map_along(crossed, renaming, &a, &b),
+            Err(InstError::HomTableMismatch { row: RowId(0) })
+        ));
+    }
+
+    #[test]
+    fn a_null_map_replaces_labeled_nulls_in_the_image() {
+        let key = fk("t", "t2", None);
+        let open = linked(&key, 0, 1, Value::LabeledNull(3));
+        let closed = linked(&key, 0, 1, Value::Str("x".into()));
+        let identity = FInstanceHom::identity(&open);
+        assert!(matches!(
+            identity.check(&open, &closed),
+            Err(HomError::AttributeMismatch { src: 0, tgt: 0 })
+        ));
+        let forced = identity
+            .clone()
+            .with_null_map(BTreeMap::from([(3, Value::Str("x".into()))]));
+        forced
+            .check(&open, &closed)
+            .expect("the null reads as the value forced on it");
+        assert!(
+            !forced.is_isomorphism(&open, &closed),
+            "a null sent to a constant has no inverse"
+        );
+        // Renaming one null to another is invertible.
+        let renamed = linked(&key, 0, 1, Value::LabeledNull(4));
+        let rename = identity.with_null_map(BTreeMap::from([(3, Value::LabeledNull(4))]));
+        assert!(rename.is_isomorphism(&open, &renamed));
+        // A null sent to itself is dropped from the map.
+        let trivial = FInstanceHom::new(BTreeMap::new())
+            .with_null_map(BTreeMap::from([(3, Value::LabeledNull(3))]));
+        assert!(trivial.null_map.is_empty());
     }
 }

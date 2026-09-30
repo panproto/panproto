@@ -434,7 +434,8 @@ pub fn f_delta(y: &FInstance, migration: &CompiledMigration) -> Result<FInstance
 /// row keeps its id, so over an injective fibre every row keeps its id; every
 /// later copy takes a fresh id, allocated from the least id above every row
 /// of `y`. The returned [`FInstanceHom`] sends each row of the result to the
-/// row of `y` it copies.
+/// row of `y` it copies, along `F`: its table map sends each source vertex
+/// `s` to `F(s)` and its edge map each source edge `e` to `F(e)`.
 ///
 /// The source vertices are the whole domain of `F` — the vertices the
 /// migration remaps together with those it lets survive under their own name
@@ -481,7 +482,24 @@ pub fn f_delta_with_hom(
         }
     }
 
-    Ok((delta, FInstanceHom::new(to_original)))
+    let table_map = source_vertices(migration)
+        .into_iter()
+        .map(|source| {
+            let target = map_vertex(migration, &source);
+            (source, target)
+        })
+        .collect();
+    let edge_map = source_edges(migration)
+        .into_iter()
+        .map(|source| {
+            let target = map_edge(migration, &source);
+            (source, target)
+        })
+        .collect();
+    let hom = FInstanceHom::new(to_original)
+        .with_table_map(table_map)
+        .with_edge_map(edge_map);
+    Ok((delta, hom))
 }
 
 /// Where each row of `Y` is copied in `Delta_F Y`: `(source vertex, row of
@@ -542,7 +560,7 @@ pub fn f_counit(
     migration: &CompiledMigration,
 ) -> Result<FInstanceHom, AdjunctionError> {
     let (_, to_original) = f_delta_with_hom(y, migration)?;
-    Ok(to_original)
+    Ok(FInstanceHom::new(to_original.row_map))
 }
 
 /// Transpose `Hom_T(Sigma_F X, Y) -> Hom_S(X, Delta_F Y)`, sending a
@@ -1078,6 +1096,76 @@ mod tests {
     }
 
     #[test]
+    fn a_cross_schema_row_map_lands_in_the_image_table() {
+        let m = merge_migration();
+        let y = FInstance::new()
+            .with_table("t", vec![row(5), row(6)])
+            .and_then(|f| f.with_table("u", vec![row(7)]))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    edge("t", "u", "e"),
+                    [(RowId(0), RowId(2)), (RowId(1), RowId(2))],
+                )
+            })
+            .unwrap();
+        // Delta's row map sends the copies at `a`, `b` and `c` into the
+        // tables `t` and `u` of `y`, the images of their own tables.
+        let (delta, to_original) = f_delta_with_hom(&y, &m).unwrap();
+        to_original
+            .check_tables(&delta, &y)
+            .expect("each copy lands in the image of its own table");
+        to_original
+            .check(&delta, &y)
+            .expect("Delta's row map is a homomorphism along F");
+        FInstanceHom::from_row_map_along(
+            to_original.row_map.clone(),
+            to_original.table_map.clone(),
+            &delta,
+            &y,
+        )
+        .expect("the same map decodes along F");
+
+        // A copy at `a` sent to the row of `u` lands outside `F(a) = t`.
+        let wrong_copy = delta.rows(&Name::from("a"))[0].0;
+        let mut wrong = to_original.row_map.clone();
+        wrong.insert(wrong_copy, RowId(2));
+        let err =
+            FInstanceHom::from_row_map_along(wrong, to_original.table_map.clone(), &delta, &y)
+                .expect_err("a row outside its image table is refused");
+        assert!(matches!(err, InstError::HomTableMismatch { row } if row == wrong_copy));
+
+        // Pi's projections send the rows of `t` into `a` and `b`.
+        let x = FInstance::new()
+            .with_table("a", vec![row(1)])
+            .and_then(|f| f.with_table("b", vec![row(1)]))
+            .unwrap();
+        let mut pi_migration = CompiledMigration::default();
+        pi_migration.surviving_verts.insert(Name::from("t"));
+        for source in ["a", "b"] {
+            pi_migration
+                .vertex_remap
+                .insert(Name::from(source), Name::from("t"));
+        }
+        let (pi, projections) = crate::pi::functor_pi_with_hom(
+            &x,
+            &Schema::default(),
+            &Schema::default(),
+            &pi_migration,
+            16,
+        )
+        .unwrap();
+        for source in ["a", "b"] {
+            let projection = &projections[&Name::from(source)];
+            projection
+                .check_tables(&pi, &x)
+                .expect("a projection lands in its own fibre vertex");
+            projection
+                .check(&pi, &x)
+                .expect("a projection whose components agree is a homomorphism");
+        }
+    }
+
+    #[test]
     fn every_row_creating_operation_returns_its_row_map() {
         let m = merge_migration();
         let y = FInstance::new()
@@ -1105,8 +1193,9 @@ mod tests {
                 to_original.image(t).unwrap()
             ));
         }
-        // The counit is that row map.
-        assert_eq!(f_counit(&y, &m).unwrap(), to_original);
+        // The counit is that row map, read on Sigma(Delta Y), whose tables
+        // already sit at the targets.
+        assert_eq!(f_counit(&y, &m).unwrap().row_map, to_original.row_map);
 
         // Pi creates product rows: its projections send every row to the
         // component it drew from each fibre vertex.

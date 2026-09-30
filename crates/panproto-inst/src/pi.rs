@@ -79,8 +79,9 @@ pub fn functor_pi(
 /// `e`'s source to every result row drawing `j` from its target, the largest
 /// relation the projections respect.
 ///
-/// The returned map sends each source vertex of a fibre to the projection of
-/// its target's rows onto that vertex's rows, as an [`FInstanceHom`] row map.
+/// The returned map sends each source vertex `s` of a fibre to the
+/// projection of its target's rows onto the rows of `s`, as an
+/// [`FInstanceHom`] whose table map sends the target table `F(s)` to `s`.
 ///
 /// # Errors
 ///
@@ -133,6 +134,21 @@ pub fn functor_pi_with_hom(
         }
         provenance.insert(tgt_vertex.clone(), placed);
     }
+    let fibre_of: HashMap<&Name, &Name> = fiber_map
+        .iter()
+        .flat_map(|(tgt, fibre)| fibre.iter().map(move |src| (src, tgt)))
+        .collect();
+    let projections = projections
+        .into_iter()
+        .map(|(src, hom)| {
+            let table_map = fibre_of
+                .get(&src)
+                .map(|&tgt| (tgt.clone(), src.clone()))
+                .into_iter()
+                .collect();
+            (src, hom.with_table_map(table_map))
+        })
+        .collect();
 
     for (edge, pairs) in instance.foreign_keys() {
         let Some(new_edge) = carried_edge(migration, edge).cloned() else {
