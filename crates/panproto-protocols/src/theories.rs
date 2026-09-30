@@ -38,7 +38,8 @@
 //! colimits.
 
 use panproto_gat::{
-    CompositionSpec, CompositionStep, Equation, Operation, Sort, SortParam, Term, Theory,
+    CompositionMode, CompositionSpec, CompositionStep, Equation, Operation, Sort, SortParam, Term,
+    Theory,
 };
 
 // ═══════════════════════════════════════════════════════════════════
@@ -598,23 +599,27 @@ pub fn constrained_multigraph_wtype_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![
             CompositionStep::Colimit {
                 left: "ThGraph".to_owned(),
                 right: "ThConstraint".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
             CompositionStep::Colimit {
                 left: "step_0".to_owned(),
                 right: "ThMulti".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
         ],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Base("ThWType".to_owned())],
     };
     (schema_spec, instance_spec)
@@ -631,15 +636,18 @@ pub fn hypergraph_functor_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Colimit {
             left: "ThHypergraph".to_owned(),
             right: "ThConstraint".to_owned(),
             shared_sorts: vec!["Vertex".to_owned()],
             shared_ops: vec![],
+            mode: CompositionMode::Amalgamate,
         }],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Base("ThFunctor".to_owned())],
     };
     (schema_spec, instance_spec)
@@ -656,15 +664,18 @@ pub fn simple_graph_flat_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Colimit {
             left: "ThSimpleGraph".to_owned(),
             right: "ThConstraint".to_owned(),
             shared_sorts: vec!["Vertex".to_owned()],
             shared_ops: vec![],
+            mode: CompositionMode::Amalgamate,
         }],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Base("ThFlat".to_owned())],
     };
     (schema_spec, instance_spec)
@@ -681,29 +692,34 @@ pub fn typed_graph_wtype_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![
             CompositionStep::Colimit {
                 left: "ThGraph".to_owned(),
                 right: "ThConstraint".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
             CompositionStep::Colimit {
                 left: "step_0".to_owned(),
                 right: "ThMulti".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
             CompositionStep::Colimit {
                 left: "step_1".to_owned(),
                 right: "ThInterface".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
         ],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Base("ThWType".to_owned())],
     };
     (schema_spec, instance_spec)
@@ -720,28 +736,33 @@ pub fn multigraph_wtype_meta_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![
             CompositionStep::Colimit {
                 left: "ThGraph".to_owned(),
                 right: "ThConstraint".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
             CompositionStep::Colimit {
                 left: "step_0".to_owned(),
                 right: "ThMulti".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
         ],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Colimit {
             left: "ThWType".to_owned(),
             right: "ThMeta".to_owned(),
             shared_sorts: vec!["Node".to_owned(), "Value".to_owned()],
             shared_ops: vec![],
+            mode: CompositionMode::Amalgamate,
         }],
     };
     (schema_spec, instance_spec)
@@ -758,23 +779,27 @@ pub fn constrained_graph_instance_specs(
 ) -> (CompositionSpec, CompositionSpec) {
     let schema_spec = CompositionSpec {
         result_name: schema_name.to_owned(),
+        version: 0,
         steps: vec![
             CompositionStep::Colimit {
                 left: "ThGraph".to_owned(),
                 right: "ThConstraint".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
             CompositionStep::Colimit {
                 left: "step_0".to_owned(),
                 right: "ThMulti".to_owned(),
                 shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
                 shared_ops: vec![],
+                mode: CompositionMode::Amalgamate,
             },
         ],
     };
     let instance_spec = CompositionSpec {
         result_name: instance_name.to_owned(),
+        version: 0,
         steps: vec![CompositionStep::Base("ThGraphInstance".to_owned())],
     };
     (schema_spec, instance_spec)

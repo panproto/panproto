@@ -25,6 +25,7 @@ pub mod alg_struct;
 mod check_model;
 pub mod check_status;
 mod colimit;
+pub mod compose;
 pub mod composition;
 mod enrichment;
 mod eq;
@@ -41,6 +42,7 @@ mod quotient;
 pub mod refinement;
 pub mod rewriting;
 mod schema_functor;
+pub mod serde_helpers;
 mod sort;
 mod theory;
 mod typecheck;
@@ -52,7 +54,14 @@ pub use check_model::{
 };
 pub use check_status::CheckStatus;
 pub use colimit::{ColimitResult, colimit, colimit_by_name, pushout_by_name};
-pub use composition::{CompositionSpec, CompositionStep, recompose};
+pub use compose::{
+    AddedEquation, CheckOutcome, CheckRecord, CheckSubject, ClashPolicy, ComposeOptions,
+    Composition, CompositionCheckKind, CompositionError, CompositionIncomplete, CompositionMode,
+    CompositionReport, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode, Freshening,
+    InapplicableReason, NotRepresentableReason, Provenance, SortMismatch, SymKind, SymRef,
+    TheoryDiagram, compose,
+};
+pub use composition::{CompositionSpec, CompositionStep, RecipeEdge, RecipeOpImage, recompose};
 pub use factorize::{Factorization, factorize, validate_factorization};
 
 pub use enrichment::{
@@ -83,9 +92,9 @@ pub use sort::{
 };
 pub use theory::{ConflictPolicy, ConflictStrategy, Theory, resolve_theory, th_editable_structure};
 pub use typecheck::{
-    HoleReport, SortScheme, VarContext, check_term, infer_var_sorts, typecheck_equation,
-    typecheck_equation_modulo_rewrites, typecheck_term, typecheck_term_with_holes,
-    typecheck_theory,
+    HoleReport, SignatureDefect, SignatureSite, SortScheme, VarContext, check_term,
+    infer_var_sorts, typecheck_equation, typecheck_equation_modulo_rewrites, typecheck_signature,
+    typecheck_term, typecheck_term_with_holes, typecheck_theory,
 };
 
 pub use alg_struct::{AlgStruct, StructField, StructParam};
