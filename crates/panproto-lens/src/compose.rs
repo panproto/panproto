@@ -30,14 +30,72 @@ use crate::error::LensError;
 /// Returns `LensError::CompositionMismatch` if the schemas don't align.
 pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
     check_boundary(l1, l2)?;
+    fuse(l1, l2)
+}
 
-    let compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
-
+/// The fused lens of `l1` then `l2`, whose schemas are known to meet.
+///
+/// Its edge map sends every source edge whose endpoints survive both lenses
+/// to the edge the two lenses give its arcs in sequence, so that an edge
+/// either lens maps implicitly (same kind and label across remapped
+/// endpoints) is carried through the other lens's explicit map.
+fn fuse(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
+    let mut compiled =
+        compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
+    compiled.edge_remap = l1
+        .src_schema
+        .edges
+        .keys()
+        .filter_map(|edge| sequential_edge_image(l1, l2, edge).map(|image| (edge.clone(), image)))
+        .collect();
     Ok(Lens {
         compiled,
         src_schema: l1.src_schema.clone(),
         tgt_schema: l2.tgt_schema.clone(),
     })
+}
+
+/// The edge `get` through `lens` gives a direct arc along the source edge
+/// `edge` when both its endpoints survive, or `None` when it drops the arc.
+///
+/// This is the direct-arc rule of the tree restrict: the explicit edge map,
+/// else the target edge of the same kind and label between the remapped
+/// endpoints, else the resolver's entry for the remapped endpoints when the
+/// source has no parallel edge.
+fn direct_edge_image(lens: &Lens, edge: &Edge) -> Option<Edge> {
+    if !crate::asymmetric::vertex_survives(lens, &edge.src)
+        || !crate::asymmetric::vertex_survives(lens, &edge.tgt)
+    {
+        return None;
+    }
+    if let Some(mapped) = lens.compiled.edge_remap.get(edge) {
+        return Some(mapped.clone());
+    }
+    let remap = |v: &Name| lens.compiled.vertex_remap.get(v).unwrap_or(v).clone();
+    let (src, tgt) = (remap(&edge.src), remap(&edge.tgt));
+    if let Some(carried) = lens
+        .tgt_schema
+        .edges_between(src.as_str(), tgt.as_str())
+        .iter()
+        .find(|candidate| candidate.kind == edge.kind && candidate.name == edge.name)
+    {
+        return Some(carried.clone());
+    }
+    if lens
+        .src_schema
+        .edges_between(edge.src.as_str(), edge.tgt.as_str())
+        .len()
+        == 1
+    {
+        return lens.compiled.resolver.get(&(src, tgt)).cloned();
+    }
+    None
+}
+
+/// The edge `l1` then `l2` give a direct arc along the source edge `edge`,
+/// or `None` when either lens drops it.
+fn sequential_edge_image(l1: &Lens, l2: &Lens, edge: &Edge) -> Option<Edge> {
+    direct_edge_image(l1, edge).and_then(|middle| direct_edge_image(l2, &middle))
 }
 
 /// Check that `l1`'s target schema is `l2`'s source schema: the same
@@ -103,30 +161,34 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 /// Two lenses are fused into one [`Lens`] only when the fusion is known to
 /// behave as running them in sequence: neither lens contracts a path, their
 /// compiled migrations compose, every explicit edge image of the composite
-/// joins the images of its endpoints, and the composite contracts nothing
-/// either. Queries of this kind compose because their pushforward is
+/// joins the images of its endpoints, the composite gives every direct arc
+/// the edge the pair gives it in sequence (dropping the arcs the pair
+/// drops), and the composite neither contracts a path nor expands an arc
+/// into synthesized nodes. Queries of this kind compose because their pushforward is
 /// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1,
 /// proof sketch; stated), and the endpoint check on edge images is that
 /// restriction here (inferred). Any other pair is kept as the two lenses run
 /// one after the other.
 #[derive(Debug)]
 pub enum TreeComposite {
-    /// The pair fused into one lens (boxed, as a lens is large).
-    Compiled(Box<Lens>),
-    /// The pair run in sequence (boxed, as it holds two lenses).
-    Sequential(Box<SequentialTreeLens>),
+    /// The pair fused into one lens.
+    Compiled(Lens),
+    /// The pair run in sequence.
+    Sequential(SequentialTreeLens),
 }
 
 /// Two tree lenses run in sequence: `get` runs `first` then `second`, and
 /// `put` writes back through `second` then `first`.
 ///
-/// Its complement is the pair of the two stages' complements.
+/// Its complement is the pair of the two stages' complements. The second
+/// stage is boxed so that this struct is about the size of one [`Lens`],
+/// which keeps the two variants of [`TreeComposite`] of equal size.
 #[derive(Debug)]
 pub struct SequentialTreeLens {
     /// The lens applied to the source.
     pub first: Lens,
     /// The lens applied to the view of `first`.
-    pub second: Lens,
+    pub second: Box<Lens>,
 }
 
 impl SequentialTreeLens {
@@ -172,28 +234,37 @@ impl SequentialTreeLens {
 pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
     check_boundary(l1, l2)?;
     let sequential = || {
-        TreeComposite::Sequential(Box::new(SequentialTreeLens {
+        TreeComposite::Sequential(SequentialTreeLens {
             first: duplicate(l1),
-            second: duplicate(l2),
-        }))
+            second: Box::new(duplicate(l2)),
+        })
     };
     if !contraction_free(l1) || !contraction_free(l2) {
         return Ok(sequential());
     }
-    let Ok(compiled) =
-        compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))
-    else {
+    let Ok(composite) = fuse(l1, l2) else {
         return Ok(sequential());
     };
-    let composite = Lens {
-        compiled,
-        src_schema: l1.src_schema.clone(),
-        tgt_schema: l2.tgt_schema.clone(),
-    };
-    if !edge_images_coherent(&composite) || !contraction_free(&composite) {
+    if !contraction_free(&composite)
+        || !composite.compiled.expansion_path.is_empty()
+        || !edge_images_coherent(&composite)
+        || !direct_images_agree(l1, l2, &composite)
+    {
         return Ok(sequential());
     }
-    Ok(TreeComposite::Compiled(Box::new(composite)))
+    Ok(TreeComposite::Compiled(composite))
+}
+
+/// Whether the fused lens gives every direct arc the edge the pair gives it
+/// in sequence. The fused edge map records every edge the pair keeps; an
+/// edge the pair drops must also be dropped by the fused lens, which a
+/// migration cannot state when the target has an edge of the same kind and
+/// label between the endpoints' images.
+fn direct_images_agree(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
+    l1.src_schema
+        .edges
+        .keys()
+        .all(|edge| direct_edge_image(composite, edge) == sequential_edge_image(l1, l2, edge))
 }
 
 /// A copy of `lens`.

@@ -1158,6 +1158,188 @@ mod composition_rule {
         );
     }
 
+    /// The schema `r -> anchor`, with the edges `label` and, when `both`
+    /// is set, `other`.
+    fn leaf_schema(anchor: &str, both: bool) -> Schema {
+        let mut edges = vec![prop("r", anchor, "label")];
+        if both {
+            edges.push(prop("r", anchor, "other"));
+        }
+        schema(&[("r", "object"), (anchor, "string")], &edges)
+    }
+
+    /// A contraction-free step out of `leaf_schema(anchor, both)`: `0` the
+    /// identity, `1` a rename of the leaf vertex, `2` a swap of the two
+    /// edge labels, `3` a drop of the `other` edge (the last two only when
+    /// both edges exist). With `explicit` unset, the edge map leaves out
+    /// every edge whose kind and label carry over unchanged, which the
+    /// migration then maps implicitly. Returns the lens and its target's
+    /// `(anchor, both)`.
+    fn step(
+        anchor: &'static str,
+        both: bool,
+        kind: u8,
+        explicit: bool,
+    ) -> (Lens, &'static str, bool) {
+        let src = leaf_schema(anchor, both);
+        let renamed = if anchor == "leaf" { "item" } else { "leaf" };
+        let labels: &[&str] = if both {
+            &["label", "other"]
+        } else {
+            &["label"]
+        };
+        let (to, keep_both, edges): (&'static str, bool, Vec<(Edge, Edge)>) = match kind {
+            1 => (
+                renamed,
+                both,
+                labels
+                    .iter()
+                    .map(|l| (prop("r", anchor, l), prop("r", renamed, l)))
+                    .collect(),
+            ),
+            2 if both => (
+                anchor,
+                true,
+                vec![
+                    (prop("r", anchor, "label"), prop("r", anchor, "other")),
+                    (prop("r", anchor, "other"), prop("r", anchor, "label")),
+                ],
+            ),
+            3 if both => (
+                anchor,
+                false,
+                vec![(prop("r", anchor, "label"), prop("r", anchor, "label"))],
+            ),
+            _ => (
+                anchor,
+                both,
+                labels
+                    .iter()
+                    .map(|l| (prop("r", anchor, l), prop("r", anchor, l)))
+                    .collect(),
+            ),
+        };
+        let edges = edges
+            .into_iter()
+            .filter(|(s, t)| explicit || s.name != t.name)
+            .collect();
+        let m = migration(&[("r", "r"), (anchor, to)], edges, vec![]);
+        (lens(src, leaf_schema(to, keep_both), &m), to, keep_both)
+    }
+
+    /// `r(0)` with one leaf per value, alternating the `label` and `other`
+    /// edges.
+    fn two_label_source(values: &[String]) -> WInstance {
+        let mut nodes = HashMap::from([(0, Node::new(0, "r"))]);
+        let mut arcs = Vec::new();
+        for (i, value) in values.iter().enumerate() {
+            let id = u32::try_from(i).unwrap() + 1;
+            nodes.insert(id, leaf(id, value));
+            let name = if i % 2 == 0 { "label" } else { "other" };
+            arcs.push((0, id, prop("r", "leaf", name)));
+        }
+        WInstance::new(nodes, arcs, vec![], 0, "r".into())
+    }
+
+    /// A first lens that maps its edges implicitly (an empty edge map)
+    /// followed by one that swaps the two labels: the fused lens must swap
+    /// them too, as the pair in sequence does.
+    #[test]
+    fn a_fused_composite_keeps_the_second_lens_edge_renames() {
+        let (first, mid, both) = step("leaf", true, 0, false);
+        let (second, _, _) = step(mid, both, 2, true);
+        let source = two_label_source(&["a".into(), "b".into()]);
+        let sequential = SequentialTreeLens {
+            first,
+            second: Box::new(second),
+        };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        let fused = panproto_lens::compose(&sequential.first, &sequential.second).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        assert_eq!(shape(&view), shape(&seq_view));
+        assert!(matches!(
+            panproto_lens::compose_tree(&sequential.first, &sequential.second).unwrap(),
+            TreeComposite::Compiled(_)
+        ));
+    }
+
+    /// A first lens that renames the `label` edge to `other` followed by one
+    /// that drops `other`: the target still has a `label` edge, which the
+    /// fused lens would carry the arc to, so the pair is not fused.
+    #[test]
+    fn a_pair_dropping_a_renamed_edge_is_kept_in_sequence() {
+        let (first, mid, both) = step("leaf", true, 2, true);
+        let (second, _, _) = step(mid, both, 3, true);
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        assert!(
+            matches!(composite, TreeComposite::Sequential(_)),
+            "{composite:?}"
+        );
+        // The fused lens would keep the `label` arc the pair drops.
+        let source = two_label_source(&["a".into(), "b".into()]);
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let sequential = SequentialTreeLens {
+            first,
+            second: Box::new(second),
+        };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        assert_eq!(
+            seq_view.arcs.len(),
+            1,
+            "the pair keeps only the `other` arc"
+        );
+        assert_ne!(shape(&view), shape(&seq_view));
+    }
+
+    proptest! {
+        /// Over generated pairs of contraction-free steps (identities,
+        /// renames, label swaps and edge drops), the rule fuses exactly the
+        /// pairs one migration can state, and the fused lens is
+        /// observationally the pair in sequence: the same
+        /// view, the same source written back for the view and an edit of
+        /// it, and the same view again after that write.
+        #[test]
+        fn generated_contraction_free_pairs_fuse_and_agree(
+            k1 in 0u8..4,
+            k2 in 0u8..4,
+            e1 in any::<bool>(),
+            e2 in any::<bool>(),
+            values in prop::collection::vec("[a-z]{0,3}", 0..6),
+        ) {
+            let (first, mid, both) = step("leaf", true, k1, e1);
+            let (second, _, _) = step(mid, both, k2, e2);
+            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+            // A swap followed by a drop of `other` drops the arcs the source
+            // holds under `label`, which the target could still carry as
+            // `label`: no single migration states that, so it stays in
+            // sequence. Every other pair is fused.
+            let unfusable = k1 == 2 && k2 == 3;
+            let fused = match composite {
+                TreeComposite::Compiled(fused) if !unfusable => fused,
+                TreeComposite::Sequential(_) if unfusable => return Ok(()),
+                other => {
+                    return Err(TestCaseError::fail(format!(
+                        "steps {k1} then {k2} composed to {other:?}"
+                    )));
+                }
+            };
+            let source = two_label_source(&values);
+            let sequential = SequentialTreeLens { first, second: Box::new(second) };
+            agree(&fused, &sequential, &source)?;
+
+            let (view, c) = panproto_lens::get(&fused, &source).unwrap();
+            let (_, seq_c) = sequential.get(&source).unwrap();
+            let edit = edited(&view);
+            let written = panproto_lens::put(&fused, &edit, &c).unwrap();
+            let seq_written = sequential.put(&edit, &seq_c).unwrap();
+            let (again, _) = panproto_lens::get(&fused, &written).unwrap();
+            let (seq_again, _) = sequential.get(&seq_written).unwrap();
+            prop_assert_eq!(shape(&again), shape(&seq_again), "views after a put differ");
+            prop_assert_eq!(shape(&again), shape(&edit), "PutGet through the fused lens");
+        }
+    }
+
     proptest! {
         /// The fused composite of a contracting pair behaves as the pair in
         /// sequence, on the sources the pair's schema admits.
@@ -1165,7 +1347,7 @@ mod composition_rule {
         fn tree_compiled_composite_matches_sequential(source in arb_source(), pick in 0usize..2) {
             let (first, second) = contracting_pairs().swap_remove(pick);
             let fused = panproto_lens::compose(&first, &second).unwrap();
-            agree(&fused, &SequentialTreeLens { first, second }, &source)?;
+            agree(&fused, &SequentialTreeLens { first, second: Box::new(second) }, &source)?;
         }
 
         /// Whenever the rule fuses a pair, the fused lens is observationally
@@ -1186,7 +1368,7 @@ mod composition_rule {
                 arcs.push((0, id, prop("r", "leaf", name)));
             }
             let source = WInstance::new(nodes, arcs, vec![], 0, "r".into());
-            agree(&fused, &SequentialTreeLens { first, second }, &source)?;
+            agree(&fused, &SequentialTreeLens { first, second: Box::new(second) }, &source)?;
         }
     }
 }
