@@ -491,3 +491,104 @@ fn registration_does_not_depend_on_the_order_of_its_diagram() {
         assert_eq!(canonical_theory_bytes(&theory), bytes, "{name}");
     }
 }
+
+/// The committed theory composition corpus.
+fn corpus_dir() -> std::path::PathBuf {
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/theory_composition")
+}
+
+/// The files of a directory, by name, with their bytes.
+fn files(dir: &std::path::Path) -> std::collections::BTreeMap<String, Vec<u8>> {
+    std::fs::read_dir(dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| {
+            let entry = entry.unwrap();
+            (
+                entry.file_name().to_string_lossy().into_owned(),
+                std::fs::read(entry.path()).unwrap(),
+            )
+        })
+        .collect()
+}
+
+#[test]
+fn theory_composition_fixtures_match_the_generator() {
+    let out = std::env::temp_dir().join(format!(
+        "panproto-theory-composition-{}",
+        std::process::id()
+    ));
+    let status = std::process::Command::new(env!("CARGO_BIN_EXE_theory-composition-fixtures"))
+        .arg(&out)
+        .status()
+        .unwrap();
+    assert!(status.success(), "the generator failed: {status}");
+    let generated = files(&out);
+    std::fs::remove_dir_all(&out).unwrap();
+    let committed = files(&corpus_dir());
+    assert_eq!(
+        generated.keys().collect::<Vec<_>>(),
+        committed.keys().collect::<Vec<_>>(),
+        "regenerate with `cargo run -p panproto-protocols --bin theory-composition-fixtures`"
+    );
+    for (name, bytes) in &generated {
+        assert!(
+            committed[name] == *bytes,
+            "{name} differs from the generator's output; regenerate with \
+             `cargo run -p panproto-protocols --bin theory-composition-fixtures`"
+        );
+    }
+}
+
+/// One corpus fixture as decoded.
+#[derive(serde::Deserialize)]
+struct Fixture {
+    diagram: panproto_gat::TheoryDiagram,
+    options: panproto_gat::ComposeOptions,
+    composition: Composition,
+}
+
+#[derive(serde::Deserialize)]
+struct Golden {
+    context: String,
+    digests: std::collections::BTreeMap<String, String>,
+}
+
+#[test]
+fn theory_composition_fixtures_recompose_to_their_bytes_and_digests() {
+    let dir = corpus_dir();
+    let golden: Golden =
+        serde_json::from_slice(&std::fs::read(dir.join("golden.json")).unwrap()).unwrap();
+    assert_eq!(golden.context, panproto_schema::COMPOSITION_CONTEXT);
+    let groups: BTreeSet<&str> = golden
+        .digests
+        .keys()
+        .filter_map(|name| name.split('_').next())
+        .collect();
+    for group in ["tree", "table", "flat", "graph"] {
+        assert!(groups.contains(group), "no {group} group fixture");
+    }
+    let hex = |bytes: &[u8]| -> String { bytes.iter().map(|b| format!("{b:02x}")).collect() };
+    for (name, digest) in &golden.digests {
+        let read = |ext: &str| std::fs::read(dir.join(format!("{name}.{ext}"))).unwrap();
+        let decoded: [Fixture; 3] = [
+            rmp_serde::from_slice(&read("named.msgpack")).unwrap(),
+            ciborium::from_reader(read("cbor").as_slice()).unwrap(),
+            serde_json::from_slice(&read("json")).unwrap(),
+        ];
+        for fixture in decoded {
+            let recomputed = panproto_gat::compose(&fixture.diagram, &fixture.options)
+                .unwrap_or_else(|e| panic!("{name}: {e}"));
+            let bytes = panproto_schema::canonical_composition_bytes(&recomputed);
+            assert_eq!(
+                panproto_schema::canonical_composition_bytes(&fixture.composition),
+                bytes,
+                "{name}"
+            );
+            assert_eq!(
+                hex(&panproto_schema::composition_digest(&recomputed)),
+                *digest,
+                "{name}"
+            );
+        }
+    }
+}

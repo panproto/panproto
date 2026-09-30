@@ -1,0 +1,20 @@
+{
+  "context": "panproto 2026-09 theory composition v1",
+  "digests": {
+    "flat_instance_flat": "16714d928174c57c83f7b40254bdf159d40e9812940c1dd9b21d81fef1fa204e",
+    "flat_schema_and_instance": "66eddc3be9704c0fca9c9d9beea5657b55ea491d2edc1bcb59c2628bb8621b63",
+    "flat_schema_constrained_simple_graph": "40d3a180c753010b46f4b29ab2ccb58a4d2ebb33e4fd85b46b06ef101d47edf7",
+    "freshened_edges": "ae7ec014c1d00aefd2821761db6fe4b25b00a836c452fb51864fb0ea251367b9",
+    "graph_instance_graph_instance": "f6d0847a2fb6dd326b8ee617b40724313d8170b892783e906b2f47e3c0b783fe",
+    "graph_schema_and_instance": "170996b3955a017c3d9949c83aa8f358eac06247a13b0f24ec50efe649de45af",
+    "table_instance_functor": "7316d140d7cfd85b1d9078c5b6195a77a5a3da1beca6faf2b259ec919cdba456",
+    "table_schema_and_instance": "f85705d9c881321dff0e4d7b8a01215e5989cf04de04a739eb51e1f445186be6",
+    "table_schema_constrained_hypergraph": "f2f1e15e8bcfe5ef50562526a83bf9491512ca2bc6f293e83f2ed5e14f76861e",
+    "tree_instance_wtype": "906b90c902adbf77e81efcc8651080e02b0a19bd77657216ad445c30460c7467",
+    "tree_instance_wtype_meta": "bddf151b5645802f8cf835e4d3c6a154f4b9e2422fb410bd6c04d74ec3f82216",
+    "tree_schema_and_instance": "d35b9b8cf4f903bae4ce4696313a54c1fc5ca18f6f37477be7fd77fcf8b5b265",
+    "tree_schema_and_instance_with_metadata": "93d2ae3f751d441ab08b3aa0ac66b1db3699543df1dfda6851f56c723bc213c1",
+    "tree_schema_constrained_multigraph": "4392859826694df5e6cd9dafcc08acf08094559e9f5e9763c747ec6850bfc113",
+    "tree_schema_typed_graph": "6856804a1792afc4b61bd0e249306e0278601c01fbb3430319e54009cb66801b"
+  }
+}

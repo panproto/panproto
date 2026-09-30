@@ -19,6 +19,10 @@ thiserror = { workspace = true }
 rustc-hash = { workspace = true }
 blake3 = { workspace = true }
 smallvec = { workspace = true }
+# The frozen theory composition corpus is written in named MessagePack and
+# CBOR by the `theory-composition-fixtures` binary.
+rmp-serde = { workspace = true }
+ciborium = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
