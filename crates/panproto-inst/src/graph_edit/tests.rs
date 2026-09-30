@@ -9,7 +9,7 @@ use super::*;
 use crate::edit_error::EditError;
 use crate::error_detail::ErrorDetail;
 use crate::fan_violation::FanViolation;
-use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_PARENT_KIND};
+use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
 use crate::metadata::{Node, NodeShape};
 use crate::value::{FieldPresence, Value};
 use crate::view_ref::RowId;
@@ -917,7 +917,9 @@ fn independence_reports_anchor_use() -> TestResult {
             user: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(1) }),
         }]
     );
-    // A label change between vertex types the anchors never name is independent.
+    // A label change meets the anchor change even between vertex types the
+    // anchors never name: edge 1 (1 -> 2) is incident to node 2, which only
+    // the state shows.
     let other_types = Edge {
         src: "city".into(),
         tgt: "city".into(),
@@ -932,7 +934,183 @@ fn independence_reports_anchor_use() -> TestResult {
             ..other_types
         }),
     )?;
-    assert!(anchor.independence(&unrelated).is_empty());
+    assert_eq!(
+        anchor.independence(&unrelated),
+        vec![EditConflict::AnchorUse {
+            node: 2,
+            user: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(1) }),
+        }]
+    );
+    Ok(())
+}
+
+/// Nodes 0 and 1 anchored `person` and edge 3 from 0 to 1 whose label's
+/// vertex types (`thing`) are neither anchor a re-anchoring of node 0 names:
+/// the label is not coherent with the anchors, which a `GInstance` allows.
+fn incoherent_edge() -> GInstance {
+    let thing = Edge {
+        src: "thing".into(),
+        tgt: "thing".into(),
+        kind: "rel".into(),
+        name: None,
+    };
+    GInstance::new()
+        .with_node(person(0))
+        .with_node(person(1))
+        .with_edge_id(EdgeId(3), 0, 1, thing)
+}
+
+#[test]
+fn anchor_use_meets_a_label_change_of_an_incident_edge_whatever_its_types() -> TestResult {
+    let g = incoherent_edge();
+    let a = GraphEdit::relabel_node(&g, 0, "agent")?.to_delta()?;
+    let q = Edge {
+        src: "q".into(),
+        tgt: "q".into(),
+        kind: "rel".into(),
+        name: None,
+    };
+    let b = GraphEdit::relabel_edge(&g, EdgeId(3), q)?.to_delta()?;
+    let want = EditConflict::AnchorUse {
+        node: 0,
+        user: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(3) }),
+    };
+    assert!(
+        a.independence(&b).contains(&want),
+        "{:?}",
+        a.independence(&b)
+    );
+    assert!(b.independence(&a).contains(&want));
+    assert!(a.merge(&b).is_err());
+    Ok(())
+}
+
+/// Nodes 0 and 1 anchored `person` and fan node 5 (`arg`) whose parent edge
+/// 0 goes to node 0: a graph in the fan domain.
+fn one_fan() -> GInstance {
+    let parent = Edge {
+        src: "arg".into(),
+        tgt: "person".into(),
+        kind: HYPER_PARENT_KIND.into(),
+        name: None,
+    };
+    GInstance::new()
+        .with_node(person(0))
+        .with_node(person(1))
+        .with_node(Node::new(5, "arg").with_shape(NodeShape::HyperEdge))
+        .with_edge_id(EdgeId(0), 5, 0, parent)
+}
+
+fn fan_label(name: &str) -> Edge {
+    Edge {
+        src: "arg".into(),
+        tgt: "person".into(),
+        kind: HYPER_LABEL_KIND.into(),
+        name: Some(name.into()),
+    }
+}
+
+#[test]
+fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
+    let s = one_fan();
+    let a = GraphDelta::identity().with_added_edge(EdgeId(10), GEdge::new(5, 1, fan_label("x")));
+    let b = GraphDelta::identity().with_added_edge(EdgeId(11), GEdge::new(5, 0, fan_label("x")));
+    a.check(&s)?;
+    b.check(&s)?;
+    // One after the other they break the fan domain.
+    let mut ab = s.clone();
+    a.apply(&mut ab)?;
+    assert!(matches!(
+        b.apply(&mut ab),
+        Err(EditError::MalformedFan {
+            node: 5,
+            reason: FanViolation::DuplicateLabel { .. }
+        })
+    ));
+    assert_eq!(
+        a.independence(&b),
+        vec![EditConflict::FanUse {
+            first: ElemRef::Edge(EdgeId(10)),
+            second: ElemRef::Edge(EdgeId(11)),
+        }]
+    );
+    assert_eq!(a.independence(&b), b.independence(&a));
+    assert!(a.merge(&b).is_err());
+    // Two different labels are still reported: the check is on the
+    // representation, which does not see the labels already present.
+    let c = GraphDelta::identity().with_added_edge(EdgeId(11), GEdge::new(5, 0, fan_label("y")));
+    assert!(!a.independence(&c).is_empty());
+    // An edge change away from any fan node is not a fan conflict, even at
+    // the target of a reserved edge.
+    let d = GraphDelta::identity().with_added_edge(EdgeId(12), GEdge::new(0, 1, label("knows")));
+    assert!(a.independence(&d).is_empty());
+    // A shape change to the fan shape meets any edge change at the node.
+    let mut meta = NodeMeta::of(&person(1));
+    meta.shape = NodeShape::HyperEdge;
+    let e = GraphEdit::set_node_meta(&s, 1, meta)?.to_delta()?;
+    assert_eq!(
+        a.independence(&e),
+        vec![EditConflict::FanUse {
+            first: ElemRef::Edge(EdgeId(10)),
+            second: ElemRef::Attr(AttrKey::Meta { node: 1 }),
+        }]
+    );
+    // A label change to or from a reserved kind meets every fan change.
+    let rename = GraphEdit::relabel_edge(&s, EdgeId(0), fan_label("x"))?.to_delta()?;
+    assert_eq!(
+        rename.independence(&a),
+        vec![EditConflict::FanUse {
+            first: ElemRef::Edge(EdgeId(10)),
+            second: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(0) }),
+        }]
+    );
+    assert!(
+        !EditConflict::FanUse {
+            first: ElemRef::Edge(EdgeId(10)),
+            second: ElemRef::Edge(EdgeId(11)),
+        }
+        .is_benign(&a, &b)
+    );
+    Ok(())
+}
+
+#[test]
+fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
+    let g = triangle();
+    let reconnect = GraphEdit::reconnect(&g, EdgeId(1), 0, 0)?;
+    let inverse = reconnect.invert()?;
+    let mut h = g.clone();
+    reconnect.apply(&mut h)?;
+    assert_eq!(edge_of(&h, 1)?.src, 0);
+    inverse.apply(&mut h)?;
+    assert!(GInstance::identical(&h, &g));
+    // A batch mixing a delta step and reconnects inverts step by step.
+    let batch = GraphEdit::Batch(vec![
+        GraphEdit::AddEdge {
+            id: EdgeId(7),
+            edge: GEdge::new(1, 2, label("likes")),
+        },
+        GraphEdit::Reconnect {
+            id: EdgeId(7),
+            old: (1, 2),
+            new: (0, 2),
+        },
+        GraphEdit::Reconnect {
+            id: EdgeId(7),
+            old: (0, 2),
+            new: (0, 1),
+        },
+    ]);
+    let inverse = batch.invert()?;
+    let mut h = g.clone();
+    batch.apply(&mut h)?;
+    let seven = edge_of(&h, 7)?;
+    assert_eq!((seven.src, seven.tgt), (0, 1));
+    inverse.apply(&mut h)?;
+    assert!(GInstance::identical(&h, &g));
+    // An edit that lowers without the instance still inverts to a delta.
+    let relabel = GraphEdit::relabel_node(&g, 1, "agent")?;
+    assert!(matches!(relabel.invert()?, GraphEdit::Delta(_)));
     Ok(())
 }
 
@@ -1771,7 +1949,24 @@ fn graph_delta_golden_bytes_follow_the_layout() -> TestResult {
     want.u32(3).u32(5).u32(5).label("loop").byte(1).u32(2);
     want.byte(3).u32(0);
     want.byte(3).text("a").byte(3).text("b");
-    assert_eq!(canonical_graph_delta_bytes(&delta), want.0);
+    let mut writer = panproto_schema::CanonicalWriter::new();
+    canonical_graph_delta_bytes(&delta, &mut writer);
+    assert_eq!(writer.into_bytes(), want.0);
+    Ok(())
+}
+
+#[test]
+fn canonical_graph_delta_bytes_writes_through_the_callers_sink() -> TestResult {
+    let delta = pinned_delta()?;
+    let mut writer = panproto_schema::CanonicalWriter::new();
+    canonical_graph_delta_bytes(&delta, &mut writer);
+    let mut hasher = crate::identity::Digest::hasher(crate::identity::GRAPH_DELTA_CONTEXT);
+    canonical_graph_delta_bytes(&delta, &mut hasher);
+    assert_eq!(hasher.finalize(), delta.digest());
+    assert_eq!(
+        crate::identity::Digest::derive(crate::identity::GRAPH_DELTA_CONTEXT, writer.as_bytes()),
+        delta.digest()
+    );
     Ok(())
 }
 

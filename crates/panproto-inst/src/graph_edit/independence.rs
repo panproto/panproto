@@ -1,12 +1,14 @@
 //! Independence and merge of two deltas of one state.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
 use super::canonical::{same_edge, same_node, same_val};
 use super::compose::ElemRef;
 use super::delta::{AttrKey, AttrVal, GraphDelta};
+use crate::ginstance::{HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::metadata::NodeShape;
 
 /// One way in which two deltas of the same state interfere.
 ///
@@ -56,6 +58,23 @@ pub enum EditConflict {
         /// The edge, or the label entry, of the other delta.
         user: ElemRef,
     },
+    /// Both deltas change the fan structure at one node: each adds, deletes
+    /// or replaces an edge incident to it, or changes its shape to or from
+    /// the fan shape, and at least one of the two changes is a shape change
+    /// or an edge of a reserved kind leaving the node. Together such changes can leave
+    /// the fan domain although each alone does not (two `hyper_label` edges
+    /// with one name, say). A label change to or from a reserved kind meets
+    /// every such change of the other delta, since the edge's endpoints are
+    /// state.
+    #[error("both deltas change the fan structure, through {first:?} and {second:?}")]
+    FanUse {
+        /// The lesser of the two changed elements (an edge, or a `Meta` or
+        /// `EdgeLabel` entry), so the conflict does not depend on which
+        /// delta is `self`.
+        first: ElemRef,
+        /// The greater of the two changed elements.
+        second: ElemRef,
+    },
 }
 
 impl EditConflict {
@@ -85,7 +104,7 @@ impl EditConflict {
                 b.attrs().get(key).map(|c| &c.new),
                 same_val,
             ),
-            Self::DeleteUse { .. } | Self::AnchorUse { .. } => false,
+            Self::DeleteUse { .. } | Self::AnchorUse { .. } | Self::FanUse { .. } => false,
         }
     }
 }
@@ -139,8 +158,12 @@ fn delete_use(deleter: &GraphDelta, user: &GraphDelta, out: &mut BTreeSet<EditCo
 }
 
 /// The ways in which `anchorer`'s anchor changes meet `user`'s edges.
+///
+/// Whether a kept edge is incident to the re-anchored node is state, which
+/// the representation does not hold, so every label change of `user` meets
+/// every anchor change of `anchorer`.
 fn anchor_use(anchorer: &GraphDelta, user: &GraphDelta, out: &mut BTreeSet<EditConflict>) {
-    for (key, change) in anchorer.attrs() {
+    for key in anchorer.attrs().keys() {
         let AttrKey::Anchor { node } = key else {
             continue;
         };
@@ -152,23 +175,113 @@ fn anchor_use(anchorer: &GraphDelta, user: &GraphDelta, out: &mut BTreeSet<EditC
                 });
             }
         }
-        let anchors: Vec<&AttrVal> = vec![&change.old, &change.new];
-        for (label_key, label_change) in user.attrs() {
-            let AttrKey::EdgeLabel { .. } = label_key else {
-                continue;
-            };
-            let touches = [&label_change.old, &label_change.new].into_iter().any(|label| {
-                let AttrVal::Label(label) = label else { return false };
-                anchors.iter().any(|anchor| {
-                    matches!(anchor, AttrVal::Anchor(name) if *name == label.src || *name == label.tgt)
-                })
-            });
-            if touches {
+        for label_key in user.attrs().keys() {
+            if matches!(label_key, AttrKey::EdgeLabel { .. }) {
                 out.insert(EditConflict::AnchorUse {
                     node: *node,
                     user: ElemRef::Attr(label_key.clone()),
                 });
             }
+        }
+    }
+}
+
+/// Whether an attribution value is a label of a reserved fan kind.
+fn reserved_label(value: &AttrVal) -> bool {
+    matches!(value, AttrVal::Label(e) if e.kind == HYPER_PARENT_KIND || e.kind == HYPER_LABEL_KIND)
+}
+
+/// Whether an attribution value is metadata with the fan shape.
+fn fan_shape(value: &AttrVal) -> bool {
+    matches!(value, AttrVal::Meta(meta) if meta.shape == NodeShape::HyperEdge)
+}
+
+/// The changes a delta makes to the fan structure.
+#[derive(Default)]
+struct FanTouches {
+    /// Per node, each changed element incident to it and whether the change
+    /// is a shape change or a reserved-kind edge leaving the node.
+    at: BTreeMap<u32, Vec<(ElemRef, bool)>>,
+    /// Label changes to or from a reserved kind, whose endpoints are state.
+    anywhere: Vec<ElemRef>,
+}
+
+impl FanTouches {
+    fn of(delta: &GraphDelta) -> Self {
+        let mut touches = Self::default();
+        for (id, edge) in delta.del_edges().iter().chain(delta.add_edges()) {
+            let reserved =
+                edge.edge.kind == HYPER_PARENT_KIND || edge.edge.kind == HYPER_LABEL_KIND;
+            // A fan is the source of its reserved edges; at the target the
+            // edge is one more in-edge, which matters only to a fan there.
+            for (node, reserved) in [(edge.src, reserved), (edge.tgt, false)] {
+                touches
+                    .at
+                    .entry(node)
+                    .or_default()
+                    .push((ElemRef::Edge(*id), reserved));
+            }
+        }
+        for (key, change) in delta.attrs() {
+            match key {
+                AttrKey::Meta { node } if fan_shape(&change.old) != fan_shape(&change.new) => {
+                    touches
+                        .at
+                        .entry(*node)
+                        .or_default()
+                        .push((ElemRef::Attr(key.clone()), true));
+                }
+                AttrKey::EdgeLabel { .. }
+                    if reserved_label(&change.old) || reserved_label(&change.new) =>
+                {
+                    touches.anywhere.push(ElemRef::Attr(key.clone()));
+                }
+                _ => {}
+            }
+        }
+        touches
+    }
+
+    /// Every changed element, at any node.
+    fn all(&self) -> impl Iterator<Item = &ElemRef> {
+        self.at
+            .values()
+            .flatten()
+            .map(|(elem, _)| elem)
+            .chain(&self.anywhere)
+    }
+}
+
+/// The fan conflicts between `a` and `b`.
+fn fan_use(a: &GraphDelta, b: &GraphDelta, out: &mut BTreeSet<EditConflict>) {
+    let (x, y) = (FanTouches::of(a), FanTouches::of(b));
+    let mut pair = |p: &ElemRef, q: &ElemRef| {
+        let (first, second) = if p <= q { (p, q) } else { (q, p) };
+        out.insert(EditConflict::FanUse {
+            first: first.clone(),
+            second: second.clone(),
+        });
+    };
+    for (node, mine) in &x.at {
+        let Some(theirs) = y.at.get(node) else {
+            continue;
+        };
+        for (p, p_reserved) in mine {
+            for (q, q_reserved) in theirs {
+                if *p_reserved || *q_reserved {
+                    pair(p, q);
+                }
+            }
+        }
+    }
+    for p in &x.anywhere {
+        for q in y.all() {
+            pair(p, q);
+        }
+    }
+    for q in &y.anywhere {
+        for p in x.at.values().flatten().map(|(elem, _)| elem) {
+            pair(p, q);
         }
     }
 }
@@ -180,11 +293,12 @@ impl GraphDelta {
     /// after the other in either order, or applying [`Self::merge`], gives
     /// the same result.
     ///
-    /// Conflicts are found on the representation, without the state.
-    /// Whether a kept edge is incident to a re-anchored node is state, so a
-    /// label change is taken to meet an anchor change when either label's
-    /// source or target vertex is the node's old or new anchor: the vertex
-    /// types an incident edge coherent with the node's anchor would carry.
+    /// Conflicts are found on the representation, without the state, so
+    /// where the answer depends on the state they over-approximate: a label
+    /// change meets every anchor change ([`EditConflict::AnchorUse`]), since
+    /// whether the edge is incident to the node is state, and a label
+    /// change to or from a reserved fan kind meets every fan change of the
+    /// other delta ([`EditConflict::FanUse`]).
     #[must_use]
     pub fn independence(&self, other: &Self) -> Vec<EditConflict> {
         let mut out = BTreeSet::new();
@@ -235,6 +349,7 @@ impl GraphDelta {
         delete_use(other, self, &mut out);
         anchor_use(self, other, &mut out);
         anchor_use(other, self, &mut out);
+        fan_use(self, other, &mut out);
         out.into_iter().collect()
     }
 

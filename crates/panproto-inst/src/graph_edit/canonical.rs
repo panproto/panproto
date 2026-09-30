@@ -147,9 +147,34 @@ pub fn write_attr_change<S: CanonicalSink + ?Sized>(sink: &mut S, change: &AttrC
     write_attr_val(sink, &change.new);
 }
 
-/// Write a graph delta's canonical bytes into `sink`; see
-/// [`canonical_graph_delta_bytes`] for the layout.
-pub fn write_graph_delta<S: CanonicalSink + ?Sized>(sink: &mut S, delta: &GraphDelta) {
+/// Write the canonical bytes of a graph delta, which is always in normal
+/// form, into `sink`.
+///
+/// ```text
+/// header    = del_nodes, del_edges, add_nodes, add_edges, attrs   (counts, u64 each)
+/// del_nodes = node record                  (ascending id)
+/// del_edges = edge record                  (ascending EdgeId)
+/// add_nodes = node record                  (ascending id)
+/// add_edges = edge record                  (ascending EdgeId)
+/// attrs     = key, old value, new value    (ascending key)
+/// ```
+///
+/// Node and edge records are those of the canonical bytes of a graph
+/// instance ([`canonical_ginstance_bytes`](crate::canonical_ginstance_bytes)),
+/// keys are written by [`write_attr_key`] and values by [`write_attr_val`],
+/// every value through [`CanonicalSink::value`]. No record refers to a
+/// position in the byte string, so the digest can be streamed.
+///
+/// ```
+/// use panproto_inst::graph_edit::{GraphDelta, canonical_graph_delta_bytes};
+/// use panproto_schema::CanonicalWriter;
+///
+/// let mut writer = CanonicalWriter::new();
+/// canonical_graph_delta_bytes(&GraphDelta::identity(), &mut writer);
+/// // Five zero counts.
+/// assert_eq!(writer.into_bytes(), vec![0u8; 40]);
+/// ```
+pub fn canonical_graph_delta_bytes<S: CanonicalSink + ?Sized>(delta: &GraphDelta, sink: &mut S) {
     sink.len(delta.del_nodes().len());
     sink.len(delta.del_edges().len());
     sink.len(delta.add_nodes().len());
@@ -173,33 +198,10 @@ pub fn write_graph_delta<S: CanonicalSink + ?Sized>(sink: &mut S, delta: &GraphD
     }
 }
 
-/// The canonical bytes of a graph delta, which is always in normal form.
-///
-/// ```text
-/// header    = del_nodes, del_edges, add_nodes, add_edges, attrs   (counts, u64 each)
-/// del_nodes = node record                  (ascending id)
-/// del_edges = edge record                  (ascending EdgeId)
-/// add_nodes = node record                  (ascending id)
-/// add_edges = edge record                  (ascending EdgeId)
-/// attrs     = key, old value, new value    (ascending key)
-/// ```
-///
-/// Node and edge records are those of the canonical bytes of a graph
-/// instance ([`canonical_ginstance_bytes`](crate::canonical_ginstance_bytes)),
-/// keys are written by [`write_attr_key`] and values by [`write_attr_val`],
-/// every value through [`CanonicalSink::value`]. No record refers to a
-/// position in the byte string, so the digest can be streamed.
-///
-/// ```
-/// use panproto_inst::graph_edit::{GraphDelta, canonical_graph_delta_bytes};
-///
-/// // Five zero counts.
-/// assert_eq!(canonical_graph_delta_bytes(&GraphDelta::identity()), vec![0u8; 40]);
-/// ```
-#[must_use]
-pub fn canonical_graph_delta_bytes(delta: &GraphDelta) -> Vec<u8> {
+/// The canonical bytes of a graph delta, in a buffer.
+pub(super) fn graph_delta_bytes(delta: &GraphDelta) -> Vec<u8> {
     let mut writer = CanonicalWriter::new();
-    write_graph_delta(&mut writer, delta);
+    canonical_graph_delta_bytes(delta, &mut writer);
     writer.into_bytes()
 }
 
@@ -211,17 +213,17 @@ impl GraphDelta {
     /// ```
     /// use panproto_inst::graph_edit::{GraphDelta, canonical_graph_delta_bytes};
     /// use panproto_inst::identity::{Digest, GRAPH_DELTA_CONTEXT};
+    /// use panproto_schema::CanonicalWriter;
     ///
     /// let delta = GraphDelta::identity();
-    /// assert_eq!(
-    ///     delta.digest(),
-    ///     Digest::derive(GRAPH_DELTA_CONTEXT, &canonical_graph_delta_bytes(&delta)),
-    /// );
+    /// let mut writer = CanonicalWriter::new();
+    /// canonical_graph_delta_bytes(&delta, &mut writer);
+    /// assert_eq!(delta.digest(), Digest::derive(GRAPH_DELTA_CONTEXT, writer.as_bytes()));
     /// ```
     #[must_use]
     pub fn digest(&self) -> Digest {
         let mut hasher = Digest::hasher(GRAPH_DELTA_CONTEXT);
-        write_graph_delta(&mut hasher, self);
+        canonical_graph_delta_bytes(self, &mut hasher);
         hasher.finalize()
     }
 }

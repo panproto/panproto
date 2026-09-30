@@ -46,7 +46,6 @@ mod tests;
 
 pub use canonical::{
     canonical_graph_delta_bytes, write_attr_change, write_attr_key, write_attr_val,
-    write_graph_delta,
 };
 pub use compose::{ComposeError, ElemRef};
 pub use delta::{

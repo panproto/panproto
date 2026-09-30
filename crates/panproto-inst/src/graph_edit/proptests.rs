@@ -6,8 +6,9 @@ use proptest::test_runner::TestCaseError;
 use panproto_schema::Edge;
 
 use super::*;
-use crate::ginstance::{EdgeId, GEdge, GInstance};
-use crate::metadata::Node;
+use crate::edit_error::EditError;
+use crate::ginstance::{EdgeId, FanDomain, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::metadata::{Node, NodeShape};
 use crate::value::{FieldPresence, Value};
 
 const ANCHORS: [&str; 2] = ["a", "b"];
@@ -94,6 +95,80 @@ fn arb_graph() -> impl Strategy<Value = GInstance> {
         .prop_map(|(nodes, edges)| graph_from(&nodes, &edges))
 }
 
+const FAN_LABELS: [&str; 3] = ["x", "y", "z"];
+
+/// A reserved-kind label: `hyper_parent` when `name` is `None`, else
+/// `hyper_label` with that name.
+fn fan_edge(name: Option<&str>) -> Edge {
+    Edge {
+        src: "f".into(),
+        tgt: "a".into(),
+        kind: if name.is_some() {
+            HYPER_LABEL_KIND
+        } else {
+            HYPER_PARENT_KIND
+        }
+        .into(),
+        name: name.map(Into::into),
+    }
+}
+
+/// One fan's generated data: its parent's index into the regular nodes, and
+/// for each of [`FAN_LABELS`] the index of the labelled child, if any.
+type FanSpec = (usize, [Option<usize>; 3]);
+
+/// A graph in the fan domain: [`arb_graph`]'s regular nodes (at least one)
+/// and edges, plus up to two fan nodes 20 and 21 (shape `HyperEdge`, anchor
+/// `f`), each with one `hyper_parent` edge (id 20 or 21) to a regular node
+/// and `hyper_label` edges with distinct names (ids 24 up) to regular nodes.
+fn arb_fan_graph() -> impl Strategy<Value = GInstance> {
+    (
+        prop::collection::btree_map(0u32..6, node_spec(), 1..6),
+        prop::collection::vec(edge_spec(), 0..6),
+        prop::collection::vec(
+            (
+                0usize..8,
+                [
+                    prop::option::of(0usize..8),
+                    prop::option::of(0usize..8),
+                    prop::option::of(0usize..8),
+                ],
+            ),
+            0..3,
+        ),
+    )
+        .prop_map(|(nodes, edges, fans): (_, _, Vec<FanSpec>)| {
+            let mut graph = graph_from(&nodes, &edges);
+            let ids: Vec<u32> = nodes.keys().copied().collect();
+            let mut next = 24u32;
+            for (f, (parent, children)) in (0u32..).zip(fans) {
+                let fan = 20 + f;
+                graph = graph
+                    .with_node(Node::new(fan, "f").with_shape(NodeShape::HyperEdge))
+                    .with_edge_id(EdgeId(fan), fan, ids[parent % ids.len()], fan_edge(None));
+                for (name, child) in FAN_LABELS.iter().zip(children) {
+                    if let Some(child) = child {
+                        graph = graph.with_edge_id(
+                            EdgeId(next),
+                            fan,
+                            ids[child % ids.len()],
+                            fan_edge(Some(name)),
+                        );
+                        next += 1;
+                    }
+                }
+            }
+            graph
+        })
+}
+
+/// Mutations weighted towards the fan operations 10 to 13 of [`mutate`],
+/// so that two deltas often change one fan.
+fn arb_fan_ops() -> impl Strategy<Value = Vec<Op>> {
+    let code = prop_oneof![4 => 10u8..11, 2 => 11u8..14, 1 => Just(9u8), 3 => 0u8..9];
+    prop::collection::vec((code, 0usize..16, 0usize..16, 0usize..2, 0i64..3), 0..4)
+}
+
 /// One mutation of a graph: an operation code and its parameters.
 type Op = (u8, usize, usize, usize, i64);
 
@@ -172,6 +247,62 @@ fn mutate(graph: &GInstance, ops: &[Op]) -> GInstance {
                     n.position = Some(u32::try_from(v).unwrap_or(0));
                 }
             }
+            10 => {
+                // A labelled edge from a node of the fan shape.
+                let fans: Vec<u32> = nodes
+                    .iter()
+                    .copied()
+                    .filter(|n| g.node(*n).is_some_and(|n| n.shape == NodeShape::HyperEdge))
+                    .collect();
+                let plain: Vec<u32> = nodes
+                    .iter()
+                    .copied()
+                    .filter(|n| !fans.contains(n))
+                    .collect();
+                if !fans.is_empty() && !plain.is_empty() {
+                    let id = 40 + u32::try_from(j % 4).unwrap_or(0);
+                    let name = FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3];
+                    let _ = g.insert_edge(
+                        EdgeId(id),
+                        GEdge::new(
+                            fans[i % fans.len()],
+                            plain[j % plain.len()],
+                            fan_edge(Some(name)),
+                        ),
+                    );
+                }
+            }
+            11 => {
+                if let Some(n) = node.and_then(|n| g.node_mut(n)) {
+                    n.shape = if n.shape == NodeShape::HyperEdge {
+                        NodeShape::default()
+                    } else {
+                        NodeShape::HyperEdge
+                    };
+                }
+            }
+            12 => {
+                // Rename a reserved-kind edge's label, or make it a parent edge.
+                let reserved: Vec<EdgeId> = edges
+                    .iter()
+                    .copied()
+                    .filter(|e| {
+                        g.edge(*e).is_some_and(|e| {
+                            e.edge.kind == HYPER_LABEL_KIND || e.edge.kind == HYPER_PARENT_KIND
+                        })
+                    })
+                    .collect();
+                if !reserved.is_empty() {
+                    let name = (k == 0).then(|| FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3]);
+                    let _ = g.relabel_edge(reserved[j % reserved.len()], fan_edge(name));
+                }
+            }
+            13 => {
+                if let (Some(s), Some(t)) = (node, other) {
+                    let id = 44 + u32::try_from(j % 4).unwrap_or(0);
+                    let _ = g.insert_edge(EdgeId(id), GEdge::new(s, t, fan_edge(None)));
+                }
+            }
             _ => {
                 if let Some(e) = edge {
                     let _ = g.remove_edge(e);
@@ -200,6 +331,28 @@ fn is_normal(delta: &GraphDelta) -> bool {
         };
         !structural && !key.is_table() && change.old != change.new
     })
+}
+
+/// The independence law at `s`: when `a` and `b` are independent, applying
+/// one after the other in either order, and applying their merge, succeed
+/// and agree under `identical`; otherwise the conflicts do not depend on the
+/// argument order.
+fn independence_law(s: &GInstance, a: &GraphDelta, b: &GraphDelta) -> Result<(), TestCaseError> {
+    if a.independence(b).is_empty() {
+        let mut ab = s.clone();
+        a.apply(&mut ab).map_err(fail)?;
+        b.apply(&mut ab).map_err(fail)?;
+        let mut ba = s.clone();
+        b.apply(&mut ba).map_err(fail)?;
+        a.apply(&mut ba).map_err(fail)?;
+        let mut merged = s.clone();
+        a.merge(b).map_err(fail)?.apply(&mut merged).map_err(fail)?;
+        prop_assert!(GInstance::identical(&ab, &ba));
+        prop_assert!(GInstance::identical(&ab, &merged));
+    } else {
+        prop_assert_eq!(a.independence(b), b.independence(a));
+    }
+    Ok(())
 }
 
 proptest! {
@@ -336,19 +489,17 @@ proptest! {
     fn independent_graph_deltas_commute_and_merge(s in arb_graph(), o1 in arb_ops(), o2 in arb_ops()) {
         let a = GraphDelta::diff(&s, &mutate(&s, &o1));
         let b = GraphDelta::diff(&s, &mutate(&s, &o2));
-        if a.independence(&b).is_empty() {
-            let mut ab = s.clone();
-            a.apply(&mut ab).map_err(fail)?;
-            b.apply(&mut ab).map_err(fail)?;
-            let mut ba = s.clone();
-            b.apply(&mut ba).map_err(fail)?;
-            a.apply(&mut ba).map_err(fail)?;
-            let mut merged = s;
-            a.merge(&b).map_err(fail)?.apply(&mut merged).map_err(fail)?;
-            prop_assert!(GInstance::identical(&ab, &ba));
-            prop_assert!(GInstance::identical(&ab, &merged));
-        } else {
-            prop_assert_eq!(a.independence(&b), b.independence(&a));
+        independence_law(&s, &a, &b)?;
+    }
+
+    #[test]
+    fn independent_graph_deltas_commute_and_merge_around_fans(s in arb_fan_graph(), o1 in arb_fan_ops(), o2 in arb_fan_ops()) {
+        prop_assert!(FanDomain::contains(&s));
+        let (t1, t2) = (mutate(&s, &o1), mutate(&s, &o2));
+        // The law is over deltas that apply to `s`: both targets must be in
+        // the fan domain.
+        if FanDomain::contains(&t1) && FanDomain::contains(&t2) {
+            independence_law(&s, &GraphDelta::diff(&s, &t1), &GraphDelta::diff(&s, &t2))?;
         }
     }
 
@@ -420,5 +571,53 @@ fn the_independence_generator_covers_both_outcomes() -> Result<(), TestCaseError
     }
     prop_assert!(independent >= 50, "only {} independent pairs", independent);
     prop_assert!(dependent >= 50, "only {} dependent pairs", dependent);
+    Ok(())
+}
+
+/// The fan law is exercised: among pairs of non-identity deltas that each
+/// apply to a graph with fans, the generator yields independent pairs,
+/// pairs whose only conflicts concern fans, and pairs where applying one
+/// after the other leaves the fan domain.
+#[test]
+fn the_fan_independence_generator_covers_fan_conflicts() -> Result<(), TestCaseError> {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = (arb_fan_graph(), arb_fan_ops(), arb_fan_ops());
+    let (mut independent, mut fan_only, mut broken) = (0, 0, 0);
+    for _ in 0..4096 {
+        let (s, o1, o2) = strategy.new_tree(&mut runner).map_err(fail)?.current();
+        let (t1, t2) = (mutate(&s, &o1), mutate(&s, &o2));
+        if !FanDomain::contains(&t1) || !FanDomain::contains(&t2) {
+            continue;
+        }
+        let a = GraphDelta::diff(&s, &t1);
+        let b = GraphDelta::diff(&s, &t2);
+        if a.is_identity() || b.is_identity() {
+            continue;
+        }
+        let conflicts = a.independence(&b);
+        if conflicts.is_empty() {
+            independent += 1;
+        } else if conflicts
+            .iter()
+            .all(|c| matches!(c, EditConflict::FanUse { .. }))
+        {
+            fan_only += 1;
+        }
+        let mut ab = s.clone();
+        if a.apply(&mut ab).is_ok()
+            && matches!(b.apply(&mut ab), Err(EditError::MalformedFan { .. }))
+        {
+            broken += 1;
+        }
+    }
+    let counts = format!(
+        "{independent} independent, {fan_only} with fan conflicts alone, {broken} leave the fan domain"
+    );
+    prop_assert!(independent >= 50, "{}", counts);
+    prop_assert!(fan_only >= 20, "{}", counts);
+    prop_assert!(broken >= 5, "{}", counts);
     Ok(())
 }

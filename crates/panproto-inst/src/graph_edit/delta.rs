@@ -6,7 +6,7 @@ use panproto_gat::Name;
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
-use super::canonical::{canonical_graph_delta_bytes, same_edge, same_node, same_val};
+use super::canonical::{graph_delta_bytes, same_edge, same_node, same_val};
 use super::compose::ElemRef;
 use crate::ginstance::{EdgeId, GEdge};
 use crate::metadata::{Node, NodeShape};
@@ -239,7 +239,7 @@ pub struct GraphDeltaParts {
 ///
 /// Every constructor, decoding included, goes through
 /// [`GraphDelta::normalize`]. Equality is equality of the canonical bytes
-/// ([`canonical_graph_delta_bytes`]), so two deltas are equal exactly when
+/// ([`canonical_graph_delta_bytes`](super::canonical_graph_delta_bytes)), so two deltas are equal exactly when
 /// they have the same representation, a `NaN` float equal to itself.
 ///
 /// ```
@@ -270,7 +270,7 @@ pub struct GraphDelta {
 
 impl PartialEq for GraphDelta {
     fn eq(&self, other: &Self) -> bool {
-        canonical_graph_delta_bytes(self) == canonical_graph_delta_bytes(other)
+        graph_delta_bytes(self) == graph_delta_bytes(other)
     }
 }
 
