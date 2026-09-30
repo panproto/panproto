@@ -293,6 +293,13 @@ impl GInstance {
     /// that order, which the returned [`TableEmbedding`] records. This is
     /// [`Self::from_finstance_along`] from the empty embedding.
     ///
+    /// Rows correspond one to one with nodes and pairs with edge ids for
+    /// every table instance. The way back ([`Self::try_to_finstance`]) holds
+    /// exactly when every cell is flat: a cell may hold a list or a nested
+    /// record, which the node keeps as a field, but a node field holding one
+    /// is not a flat cell ([`NotTableReason::NestedCell`]), so the graph form
+    /// of such a table is not table-shaped and does not read back.
+    ///
     /// # Errors
     ///
     /// Returns [`InstError::EdgeIdsExhausted`] when the pairs outnumber the
@@ -476,7 +483,10 @@ impl GInstance {
     /// accepts, with the embedding that relates the two. Node ids become row
     /// ids and each edge's id is recorded for its pair; `next_edge` is the
     /// least edge id above every edge of the graph, saturated at `u32::MAX`
-    /// (see [`TableEmbedding::next_edge`]).
+    /// (see [`TableEmbedding::next_edge`]). On the graph form of a table
+    /// instance whose cells are all flat this returns that table and its
+    /// initial embedding; a table with a list or record cell has a graph form
+    /// this refuses (see [`Self::from_finstance`]).
     ///
     /// # Errors
     ///

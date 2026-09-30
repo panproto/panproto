@@ -16,11 +16,12 @@
 //! This trait follows the [`AcsetOps`](crate::AcsetOps) naming convention
 //! and is implemented for all three instance shapes.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::sync::Arc;
 
 use panproto_expr::{BuiltinOp, Literal};
 use panproto_gat::Name;
+use panproto_schema::Edge as SchemaEdge;
 
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GInstance};
@@ -57,9 +58,11 @@ pub trait ElementOps {
     /// element, each element's in arc order. Graph-shaped instances yield
     /// them in ascending [`EdgeId`] order, one per matching edge and
     /// occurrence of its source, so a target reached by two parallel edges
-    /// appears twice. Table-shaped instances deduplicate targets and yield
-    /// them by foreign key in ascending schema-edge order, each key's pairs
-    /// in stored order.
+    /// appears twice. Table-shaped instances read as their graph form
+    /// ([`GInstance::from_finstance`]), whose edge ids ascend with
+    /// `(edge, src, tgt)`: they yield one target per matching pair and
+    /// occurrence of its source, pairs in ascending `(edge, src, tgt)`, so a
+    /// table and its graph form have the same pushforward.
     ///
     /// Because paths are counted, composing pushforwards over a graph yields
     /// one entry per walk, and the number of walks can grow exponentially in
@@ -312,13 +315,28 @@ impl FInstance {
         self.table_of(id).map(|table| (table, id))
     }
 
-    /// The number of foreign-key pairs whose source is this row.
-    fn out_pair_count(&self, row: RowId) -> usize {
+    /// The foreign keys leaving this row's table, in ascending edge order,
+    /// with the targets of this row's pairs of each, ascending: the row's
+    /// out-edges in its graph form, in ascending edge id. Empty when no row
+    /// has this id.
+    fn out_pairs(&self, row: RowId) -> Vec<(&SchemaEdge, Vec<RowId>)> {
+        let Some(table) = self.table_of(row) else {
+            return Vec::new();
+        };
         self.foreign_keys()
             .into_iter()
-            .flat_map(|(_, pairs)| pairs.iter())
-            .filter(|(src, _)| *src == row)
-            .count()
+            .filter(|(edge, _)| edge.src == *table)
+            .map(|(edge, _)| (edge, self.targets_of(edge, row).collect::<Vec<_>>()))
+            .filter(|(_, targets)| !targets.is_empty())
+            .collect()
+    }
+
+    /// The number of foreign-key pairs whose source is this row.
+    fn out_pair_count(&self, row: RowId) -> usize {
+        self.out_pairs(row)
+            .iter()
+            .map(|(_, targets)| targets.len())
+            .sum()
     }
 }
 
@@ -329,16 +347,23 @@ impl ElementOps for FInstance {
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
-        let element_set: rustc_hash::FxHashSet<u32> = elements.iter().copied().collect();
+        // How often each source is listed: every listing is a path that
+        // continues along each matching pair, as in the graph form.
+        let mut sources: BTreeMap<RowId, usize> = BTreeMap::new();
+        for &element in elements {
+            *sources.entry(RowId(element)).or_default() += 1;
+        }
         let mut result = Vec::new();
-        let mut seen = rustc_hash::FxHashSet::default();
-        for (edge, pairs) in self.foreign_keys() {
+        for (edge, _) in self.foreign_keys() {
             if edge.kind != *edge_kind {
                 continue;
             }
-            for &(src, tgt) in pairs {
-                if element_set.contains(&src.0) && seen.insert(tgt.0) {
-                    result.push(tgt.0);
+            for (&src, &count) in &sources {
+                if self.table_of(src) != Some(&edge.src) {
+                    continue;
+                }
+                for tgt in self.targets_of(edge, src) {
+                    result.extend(std::iter::repeat_n(tgt.0, count));
                 }
             }
         }
@@ -353,9 +378,10 @@ impl ElementOps for FInstance {
             return panproto_expr::Env::new();
         };
 
-        // FInstance has no structural children; the stalk is just
-        // the column values (the fiber F(v) is a flat set of records).
-        let mut env = crate::wtype::build_env_from_extra_fields(row);
+        // FInstance has no structural children; the stalk is the column
+        // values and the row as `self`, as for the row's node in the graph
+        // form (whose targets carry no value).
+        let mut env = build_env_with_children(row, &HashMap::new());
 
         // Metadata
         env = env.extend(
@@ -608,37 +634,36 @@ fn ginstance_graph_builtin(
     }
 }
 
-/// Convert an [`FInstance`] row to a [`Literal::Record`].
-///
-/// Fields are listed in ascending column name.
-fn finstance_row_to_literal(row: &HashMap<String, Value>) -> Literal {
-    let mut columns: Vec<(&String, &Value)> = row.iter().collect();
-    columns.sort_unstable_by(|a, b| a.0.cmp(b.0));
-    let fields: Vec<(Arc<str>, Literal)> = columns
-        .into_iter()
-        .map(|(k, v)| (Arc::from(k.as_str()), value_to_expr_literal(v)))
-        .collect();
+/// A table row as a [`Literal::Record`], as its node in the graph form
+/// reads ([`node_to_literal`]): `_id` and `_anchor`, then the cells in
+/// ascending column name.
+fn finstance_row_to_literal(instance: &FInstance, id: RowId) -> Literal {
+    let mut fields: Vec<(Arc<str>, Literal)> =
+        vec![(Arc::from("_id"), Literal::Int(i64::from(id.0)))];
+    if let Some(table) = instance.table_of(id) {
+        fields.push((Arc::from("_anchor"), Literal::Str(table.as_ref().into())));
+    }
+    if let Some(row) = instance.row(id) {
+        let mut columns: Vec<(&String, &Value)> = row.iter().collect();
+        columns.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        fields.extend(
+            columns
+                .into_iter()
+                .map(|(k, v)| (Arc::from(k.as_str()), value_to_expr_literal(v))),
+        );
+    }
     Literal::Record(fields)
 }
 
 /// The rows a table-instance element reaches along foreign keys of `kind`
-/// (every kind when `None`): keys in ascending schema-edge order, pairs in
-/// ascending order.
-fn finstance_targets<'a>(
-    instance: &'a FInstance,
-    src_row: RowId,
-    kind: Option<&Name>,
-) -> Vec<&'a HashMap<String, Value>> {
+/// (every kind when `None`), as its node's out-edges in the graph form:
+/// keys in ascending schema-edge order, each key's targets ascending.
+fn finstance_targets(instance: &FInstance, src_row: RowId, kind: Option<&Name>) -> Vec<RowId> {
     instance
-        .foreign_keys()
+        .out_pairs(src_row)
         .into_iter()
         .filter(|(edge, _)| kind.is_none_or(|k| edge.kind == *k))
-        .flat_map(|(_, pairs)| {
-            pairs
-                .iter()
-                .filter(move |(s, _)| *s == src_row)
-                .filter_map(move |&(_, t)| instance.row(t))
-        })
+        .flat_map(|(_, targets)| targets)
         .collect()
 }
 
@@ -654,48 +679,34 @@ fn finstance_graph_builtin(
         BuiltinOp::Edge | BuiltinOp::Edges => {
             let element_id = resolve_node_ref(&args[0], context)?;
             let edge_name = edge_kind_arg(&args[1])?;
-            let rows = instance
-                .resolve_element(element_id)
-                .map(|(_, src_row)| finstance_targets(instance, src_row, Some(&edge_name)))
-                .unwrap_or_default();
+            let rows = finstance_targets(instance, RowId(element_id), Some(&edge_name));
             Ok(if op == BuiltinOp::Edge {
-                rows.first()
-                    .map_or(Literal::Null, |row| finstance_row_to_literal(row))
+                rows.first().map_or(Literal::Null, |row| {
+                    finstance_row_to_literal(instance, *row)
+                })
             } else {
-                Literal::List(rows.into_iter().map(finstance_row_to_literal).collect())
+                Literal::List(
+                    rows.into_iter()
+                        .map(|row| finstance_row_to_literal(instance, row))
+                        .collect(),
+                )
             })
         }
         BuiltinOp::Children => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            let Some((_, src_row)) = instance.resolve_element(element_id) else {
-                return Ok(Literal::List(Vec::new()));
-            };
             Ok(Literal::List(
-                finstance_targets(instance, src_row, None)
+                finstance_targets(instance, RowId(element_id), None)
                     .into_iter()
-                    .map(finstance_row_to_literal)
+                    .map(|row| finstance_row_to_literal(instance, row))
                     .collect(),
             ))
         }
         BuiltinOp::HasEdge => {
             let element_id = resolve_node_ref(&args[0], context)?;
-            let edge_kind =
-                args[1]
-                    .as_str()
-                    .ok_or_else(|| panproto_expr::ExprError::TypeError {
-                        expected: "string".into(),
-                        got: args[1].type_name().into(),
-                    })?;
-            let edge_name = Name::from(edge_kind);
-
-            let Some((_, src_row)) = instance.resolve_element(element_id) else {
-                return Ok(Literal::Bool(false));
-            };
-
-            let found = instance.foreign_keys().into_iter().any(|(edge, pairs)| {
-                edge.kind == edge_name && pairs.iter().any(|(s, _)| *s == src_row)
-            });
-            Ok(Literal::Bool(found))
+            let edge_name = edge_kind_arg(&args[1])?;
+            Ok(Literal::Bool(
+                !finstance_targets(instance, RowId(element_id), Some(&edge_name)).is_empty(),
+            ))
         }
         BuiltinOp::EdgeCount => {
             let element_id = resolve_node_ref(&args[0], context)?;
@@ -1002,10 +1013,12 @@ mod tests {
         assert_eq!(
             authors[0],
             Literal::Record(vec![
+                ("_id".into(), Literal::Int(0)),
+                ("_anchor".into(), Literal::Str("users".into())),
                 ("age".into(), Literal::Int(30)),
                 ("name".into(), Literal::Str("Alice".into())),
             ]),
-            "row fields are listed in ascending column name"
+            "a row reads as its node: id, anchor, then cells in ascending column name"
         );
     }
 

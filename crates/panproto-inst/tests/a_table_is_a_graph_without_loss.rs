@@ -595,3 +595,208 @@ proptest! {
 }
 
 type ForeignKeyPairOf = panproto_inst::ForeignKeyPair;
+
+fn post_edge(tgt: &str, kind: &str, name: &str) -> Edge {
+    Edge {
+        src: "post".into(),
+        tgt: tgt.into(),
+        kind: kind.into(),
+        name: Some(name.into()),
+    }
+}
+
+/// A table instance over `user` and `post` with arbitrary distinct row ids,
+/// string and integer cells, and arbitrary pairs of three foreign keys, two
+/// of which (`author` and `editor`) share the kind `fk`.
+fn arb_linked_tables() -> impl Strategy<Value = FInstance> {
+    (
+        proptest::collection::btree_set(0_u32..48, 0..14),
+        proptest::collection::vec(any::<bool>(), 14),
+        proptest::collection::vec((0_u8..3, any::<u8>(), any::<u8>()), 0..24),
+    )
+        .prop_map(|(ids, is_post, links)| {
+            let mut f = FInstance::new();
+            for (k, id) in ids.iter().enumerate() {
+                let table = if is_post[k] { "post" } else { "user" };
+                let mut row = cell(i64::from(*id));
+                row.insert("s".to_owned(), Value::Str(format!("r{id}")));
+                f.insert_row(table, RowId(*id), row).unwrap();
+            }
+            let ids_of = |f: &FInstance, t: &str| {
+                f.table(t)
+                    .map(panproto_inst::Table::ids)
+                    .unwrap_or_default()
+            };
+            let (posts, users) = (ids_of(&f, "post"), ids_of(&f, "user"));
+            for (which, a, b) in links {
+                let (edge, targets) = match which {
+                    0 => (post_edge("user", "fk", "author"), &users),
+                    1 => (post_edge("user", "fk", "editor"), &users),
+                    _ => (post_edge("post", "reply", "reply"), &posts),
+                };
+                if posts.is_empty() || targets.is_empty() {
+                    continue;
+                }
+                let src = posts[usize::from(a) % posts.len()];
+                let tgt = targets[usize::from(b) % targets.len()];
+                if !f.contains_pair(&edge, src, tgt) {
+                    f.insert_foreign_key(edge, src, tgt).unwrap();
+                }
+            }
+            f
+        })
+}
+
+/// An expression environment as its bindings in ascending name.
+fn bindings(env: &panproto_expr::Env) -> Vec<(String, panproto_expr::Literal)> {
+    let mut all: Vec<(String, panproto_expr::Literal)> = env
+        .iter()
+        .map(|(name, value)| (name.to_string(), value.clone()))
+        .collect();
+    all.sort_by(|a, b| a.0.cmp(&b.0));
+    all
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// Row ids are node ids, so every element operation reads the same on a
+    /// table and on its graph form: fibres, pushforwards (which count paths
+    /// on both), stalks, attributes, sorts, values and graph builtins.
+    #[test]
+    fn element_operations_agree_on_a_table_and_its_graph_form(
+        f in arb_linked_tables(),
+        elements in proptest::collection::vec(0_u32..50, 0..12),
+    ) {
+        use panproto_expr::{BuiltinOp, Literal};
+        use panproto_inst::ElementOps;
+
+        let (graph, _) = GInstance::from_finstance(&f).unwrap();
+        for vertex in ["user", "post", "none"] {
+            let vertex = Name::from(vertex);
+            prop_assert_eq!(f.fiber(&vertex), graph.fiber(&vertex));
+        }
+        for kind in ["fk", "reply", "none"] {
+            let kind = Name::from(kind);
+            prop_assert_eq!(
+                f.pushforward(&elements, &kind),
+                graph.pushforward(&elements, &kind),
+                "pushforward along {} of {:?}", kind, elements
+            );
+        }
+        for id in 0_u32..50 {
+            prop_assert_eq!(f.sort(id), graph.sort(id));
+            prop_assert_eq!(f.element_value(id), graph.element_value(id));
+            prop_assert_eq!(f.attributes(id), graph.attributes(id));
+            prop_assert_eq!(bindings(&f.stalk(id)), bindings(&graph.stalk(id)), "stalk of {}", id);
+            let node = Literal::Int(i64::from(id));
+            for kind in ["fk", "reply", "none"] {
+                let with_kind = [node.clone(), Literal::Str(kind.into())];
+                for op in [BuiltinOp::Edge, BuiltinOp::Edges, BuiltinOp::HasEdge] {
+                    prop_assert_eq!(
+                        f.eval_graph_builtin(op, &with_kind, None).unwrap(),
+                        graph.eval_graph_builtin(op, &with_kind, None).unwrap(),
+                        "{:?} of {} along {}", op, id, kind
+                    );
+                }
+            }
+            for op in [BuiltinOp::Children, BuiltinOp::EdgeCount, BuiltinOp::Anchor] {
+                prop_assert_eq!(
+                    f.eval_graph_builtin(op, std::slice::from_ref(&node), None).unwrap(),
+                    graph.eval_graph_builtin(op, std::slice::from_ref(&node), None).unwrap(),
+                    "{:?} of {}", op, id
+                );
+            }
+        }
+    }
+}
+
+/// The two paths from post 1 to user 0 (along `author` and along `editor`,
+/// both of kind `fk`) each reach it, on the table as on its graph form, and a
+/// source listed twice is followed twice.
+#[test]
+fn a_table_pushforward_counts_paths_as_its_graph_form_does() {
+    use panproto_inst::ElementOps;
+
+    let f = FInstance::new()
+        .with_rows("user", [(RowId(0), cell(0))])
+        .and_then(|f| f.with_rows("post", [(RowId(1), cell(1)), (RowId(2), cell(2))]))
+        .and_then(|f| {
+            f.with_foreign_key(
+                post_edge("user", "fk", "author"),
+                [(RowId(1), RowId(0)), (RowId(2), RowId(0))],
+            )
+        })
+        .and_then(|f| f.with_foreign_key(post_edge("user", "fk", "editor"), [(RowId(1), RowId(0))]))
+        .unwrap();
+    let (graph, _) = GInstance::from_finstance(&f).unwrap();
+    let kind = Name::from("fk");
+    assert_eq!(f.pushforward(&[1, 2], &kind), vec![0, 0, 0]);
+    assert_eq!(f.pushforward(&[2, 2], &kind), vec![0, 0]);
+    assert_eq!(
+        f.pushforward(&[1, 2], &kind),
+        graph.pushforward(&[1, 2], &kind)
+    );
+    assert_eq!(
+        f.pushforward(&[2, 2], &kind),
+        graph.pushforward(&[2, 2], &kind)
+    );
+}
+
+/// A table over `user` whose rows may hold, besides the flat cell `n`, a
+/// list cell `tags` and a nested record cell `meta`.
+fn arb_tables_with_nested_cells() -> impl Strategy<Value = FInstance> {
+    proptest::collection::btree_map(0_u32..32, (any::<bool>(), any::<bool>()), 0..10).prop_map(
+        |rows| {
+            let mut f = FInstance::new();
+            for (id, (list, record)) in rows {
+                let mut row = cell(i64::from(id));
+                if list {
+                    row.insert("tags".to_owned(), Value::List(vec![Value::Int(1)]));
+                }
+                if record {
+                    row.insert(
+                        "meta".to_owned(),
+                        Value::Unknown(HashMap::from([("k".to_owned(), Value::Int(2))])),
+                    );
+                }
+                f.insert_row("user", RowId(id), row).unwrap();
+            }
+            f
+        },
+    )
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(256))]
+
+    /// A cell may hold a list or a nested record, and the graph form keeps
+    /// it as a node field, so rows still correspond one to one with nodes.
+    /// But a node field holding one is not a flat cell, so such a graph is
+    /// not table-shaped: the round trip back to the table holds exactly when
+    /// every cell is flat, and otherwise fails naming the least row holding
+    /// a nested cell and its least such column.
+    #[test]
+    fn the_table_round_trip_holds_exactly_on_flat_cells(f in arb_tables_with_nested_cells()) {
+        let (graph, _) = GInstance::from_finstance(&f).unwrap();
+        let nodes: BTreeSet<u32> = graph.nodes().keys().copied().collect();
+        let rows: BTreeSet<u32> = f.row_ids().into_iter().map(|r| r.0).collect();
+        prop_assert_eq!(nodes, rows);
+        let nested = f.row_ids().into_iter().find_map(|id| {
+            let row = f.row(id)?;
+            ["meta", "tags"]
+                .into_iter()
+                .find(|column| row.contains_key(*column))
+                .map(|column| (id.0, column.to_owned()))
+        });
+        match (graph.try_to_finstance(&Schema::default()), nested) {
+            (Ok((back, _)), None) => prop_assert_eq!(back, f),
+            (Err(InstError::NotATable { reason }), Some((node, field))) => {
+                prop_assert_eq!(reason, NotTableReason::NestedCell { node, field });
+            }
+            (other, expected) => {
+                prop_assert!(false, "read back {:?}, expected a nested cell at {:?}", other.map(|_| ()), expected);
+            }
+        }
+    }
+}
