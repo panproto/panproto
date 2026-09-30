@@ -70,6 +70,7 @@ pub use complement_type::{
     complement_spec_at,
 };
 pub use compose::compose;
+pub use compose::{SequentialTreeLens, TreeComposite, compose_tree};
 pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
 pub use derived::{DerivedFiber, DerivedMap, collect_derived_fields};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};

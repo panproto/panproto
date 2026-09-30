@@ -8,8 +8,8 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_expr::Expr;
 use panproto_gat::Name;
-use panproto_inst::CompiledMigration;
 use panproto_inst::contraction_keys::{compose_contraction_keys, translate_edge, translate_vertex};
+use panproto_inst::{CompiledMigration, Complement, WInstance};
 use panproto_mig::{OnMissing, compose_relabeling};
 use panproto_schema::Edge;
 
@@ -20,10 +20,29 @@ use crate::error::LensError;
 ///
 /// The target schema of `l1` must be compatible with the source schema of `l2`.
 ///
+/// This fuses the two compiled migrations whatever the pair; the fused lens
+/// behaves as the two run in sequence only under the conditions stated on
+/// [`TreeComposite`]. [`compose_tree`] applies the composition rule and
+/// falls back to [`SequentialTreeLens`] when they fail.
+///
 /// # Errors
 ///
 /// Returns `LensError::CompositionMismatch` if the schemas don't align.
 pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
+    check_boundary(l1, l2)?;
+
+    let compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
+
+    Ok(Lens {
+        compiled,
+        src_schema: l1.src_schema.clone(),
+        tgt_schema: l2.tgt_schema.clone(),
+    })
+}
+
+/// Check that `l1`'s target schema is `l2`'s source schema: the same
+/// protocol and the same vertex, edge and hyper-edge sets.
+fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
     // Verify compatibility: l1's target should match l2's source
     if l1.tgt_schema.vertex_count() != l2.src_schema.vertex_count()
         || l1.tgt_schema.protocol != l2.src_schema.protocol
@@ -75,13 +94,165 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
     {
         return Err(LensError::CompositionMismatch);
     }
+    Ok(())
+}
 
-    let compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
+/// A composite of two tree lenses, by the composition rule shared by every
+/// instance shape.
+///
+/// Two lenses are fused into one [`Lens`] only when the fusion is known to
+/// behave as running them in sequence: neither lens contracts a path, their
+/// compiled migrations compose, every explicit edge image of the composite
+/// joins the images of its endpoints, and the composite contracts nothing
+/// either. Queries of this kind compose because their pushforward is
+/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1,
+/// proof sketch; stated), and the endpoint check on edge images is that
+/// restriction here (inferred). Any other pair is kept as the two lenses run
+/// one after the other.
+#[derive(Debug)]
+pub enum TreeComposite {
+    /// The pair fused into one lens (boxed, as a lens is large).
+    Compiled(Box<Lens>),
+    /// The pair run in sequence (boxed, as it holds two lenses).
+    Sequential(Box<SequentialTreeLens>),
+}
 
-    Ok(Lens {
+/// Two tree lenses run in sequence: `get` runs `first` then `second`, and
+/// `put` writes back through `second` then `first`.
+///
+/// Its complement is the pair of the two stages' complements.
+#[derive(Debug)]
+pub struct SequentialTreeLens {
+    /// The lens applied to the source.
+    pub first: Lens,
+    /// The lens applied to the view of `first`.
+    pub second: Lens,
+}
+
+impl SequentialTreeLens {
+    /// The view of `source` through both stages, with the complement of
+    /// each stage.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`crate::get`] reports for either stage.
+    pub fn get(
+        &self,
+        source: &WInstance,
+    ) -> Result<(WInstance, (Complement, Complement)), LensError> {
+        let (middle, c1) = crate::asymmetric::get(&self.first, source)?;
+        let (view, c2) = crate::asymmetric::get(&self.second, &middle)?;
+        Ok((view, (c1, c2)))
+    }
+
+    /// Write `view` back through both stages against the complements
+    /// [`get`](Self::get) returned.
+    ///
+    /// # Errors
+    ///
+    /// Whatever [`crate::put`] reports for either stage.
+    pub fn put(
+        &self,
+        view: &WInstance,
+        complement: &(Complement, Complement),
+    ) -> Result<WInstance, LensError> {
+        let middle = crate::asymmetric::put(&self.second, view, &complement.1)?;
+        crate::asymmetric::put(&self.first, &middle, &complement.0)
+    }
+}
+
+/// Compose two tree lenses by the composition rule: a fused
+/// [`TreeComposite::Compiled`] lens when the pair meets the conditions
+/// stated on [`TreeComposite`], and [`TreeComposite::Sequential`] otherwise.
+///
+/// # Errors
+///
+/// Returns [`LensError::CompositionMismatch`] when the target schema of
+/// `l1` is not the source schema of `l2`.
+pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
+    check_boundary(l1, l2)?;
+    let sequential = || {
+        TreeComposite::Sequential(Box::new(SequentialTreeLens {
+            first: duplicate(l1),
+            second: duplicate(l2),
+        }))
+    };
+    if !contraction_free(l1) || !contraction_free(l2) {
+        return Ok(sequential());
+    }
+    let Ok(compiled) =
+        compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))
+    else {
+        return Ok(sequential());
+    };
+    let composite = Lens {
         compiled,
         src_schema: l1.src_schema.clone(),
         tgt_schema: l2.tgt_schema.clone(),
+    };
+    if !edge_images_coherent(&composite) || !contraction_free(&composite) {
+        return Ok(sequential());
+    }
+    Ok(TreeComposite::Compiled(Box::new(composite)))
+}
+
+/// A copy of `lens`.
+fn duplicate(lens: &Lens) -> Lens {
+    Lens {
+        compiled: lens.compiled.clone(),
+        src_schema: lens.src_schema.clone(),
+        tgt_schema: lens.tgt_schema.clone(),
+    }
+}
+
+/// Whether `get` through `lens` contracts no path: no surviving source
+/// vertex reaches another (or itself) in the source schema through a
+/// vertex some of whose nodes are dropped, that is a vertex that does not
+/// survive or survives only under a predicate.
+fn contraction_free(lens: &Lens) -> bool {
+    let schema = &lens.src_schema;
+    let endpoint = |v: &Name| crate::asymmetric::vertex_survives(lens, v);
+    let interior = |v: &Name| {
+        !crate::asymmetric::vertex_survives(lens, v)
+            || lens.compiled.conditional_survival.contains_key(v)
+    };
+    for a in schema.vertices.keys().filter(|v| endpoint(v)) {
+        let mut seen: HashSet<&Name> = HashSet::new();
+        let mut frontier: Vec<&Name> = schema
+            .outgoing_edges(a)
+            .iter()
+            .map(|e| &e.tgt)
+            .filter(|v| interior(v))
+            .collect();
+        while let Some(x) = frontier.pop() {
+            if !seen.insert(x) {
+                continue;
+            }
+            for e in schema.outgoing_edges(x) {
+                if endpoint(&e.tgt) {
+                    return false;
+                }
+                if interior(&e.tgt) {
+                    frontier.push(&e.tgt);
+                }
+            }
+        }
+    }
+    true
+}
+
+/// Whether every explicit edge image of `lens` whose source endpoints
+/// survive joins the images of those endpoints and is an edge of the
+/// target schema.
+fn edge_images_coherent(lens: &Lens) -> bool {
+    let image_of = |v: &Name| lens.compiled.vertex_remap.get(v).unwrap_or(v).clone();
+    lens.compiled.edge_remap.iter().all(|(source, image)| {
+        let survives = crate::asymmetric::vertex_survives(lens, &source.src)
+            && crate::asymmetric::vertex_survives(lens, &source.tgt);
+        !survives
+            || (image.src == image_of(&source.src)
+                && image.tgt == image_of(&source.tgt)
+                && lens.tgt_schema.edges.contains_key(image))
     })
 }
 
