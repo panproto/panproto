@@ -1,166 +1,493 @@
-//! Protocol theory registration routes through the checked colimit
-//! [`panproto_gat::pushout_by_name`], which builds identity inclusion
-//! morphisms and runs the cocone check that the name-based `colimit_by_name`
-//! path does not.
+//! Protocol theory registration composes each theory as one diagram with
+//! explicit identity and gives the theory the 0.74 amalgamated
+//! construction gave.
 //!
-//! These tests assert that, for every `register_*` function, the theory
-//! produced through the checked path has the same sort, op, equation, and
-//! directed-equation sets as the `colimit_by_name` output. That they pass at
-//! all also confirms the cocone check succeeds for every registered protocol
-//! theory (registration would panic otherwise).
-//!
-//! The reference oracle `colimit_by_name` is used only here in test code,
-//! never on the production registration path (see the acceptance grep over
-//! `crates/panproto-protocols/src`).
+//! For every registered protocol the schema theory's canonical bytes equal
+//! those of the 0.74 construction (a chain of pushouts by name), and the
+//! instance theory's equal those of the 0.74 construction over the closed
+//! instance building blocks. The protocols whose instance theory the shape
+//! declarations re-declare are held to their declared shapes instead, and
+//! protocols registered after 0.74 to their declarations. Every
+//! registration report is free of name clashes, passes, and has no failed,
+//! inapplicable or incomplete check.
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
-use panproto_gat::{Sort, Theory, colimit_by_name};
-use panproto_protocols::theories::{
-    register_constrained_graph_instance, register_constrained_multigraph_wtype,
-    register_hypergraph_functor, register_multigraph_wtype_meta, register_simple_graph_flat,
-    register_typed_graph_wtype, th_constraint, th_graph, th_hypergraph, th_interface, th_meta,
-    th_multi, th_simple_graph, th_wtype,
+use panproto_gat::{
+    CheckOutcome, CheckStatus, ClashPolicy, Composition, CompositionMode, CompositionStep, SymKind,
+    SymRef, Theory, pushout_by_name, recompose,
 };
+use panproto_protocols::registry::descriptors;
+use panproto_protocols::semantics::shapes;
+use panproto_protocols::theories::{
+    RegistrationDiagram, constrained_hypergraph_diagram, constrained_multigraph_diagram,
+    constrained_simple_graph_diagram, registered_composition, registered_recipe, th_constraint,
+    th_flat, th_functor, th_graph, th_graph_instance, th_hypergraph, th_interface, th_meta,
+    th_multi, th_simple_graph, th_wtype, typed_graph_diagram, wtype_meta_diagram,
+};
+use panproto_schema::InstanceShapeKind::{self, Graph, Table, Tree};
+use panproto_schema::canonical_theory_bytes;
 
-/// The full structural content of a theory: one Debug string per sort / op
-/// / equation / directed equation, each list sorted so the comparison is
-/// order-independent (a *set* comparison). Debug captures signatures and
-/// closures, not just names, so a drift in an op's inputs or a sort's
-/// parameters would be caught.
-fn structural_sets(t: &Theory) -> (Vec<String>, Vec<String>, Vec<String>, Vec<String>) {
-    let mut sorts: Vec<String> = t.sorts.iter().map(|s| format!("{s:?}")).collect();
-    let mut ops: Vec<String> = t.ops.iter().map(|o| format!("{o:?}")).collect();
-    let mut eqs: Vec<String> = t.eqs.iter().map(|e| format!("{e:?}")).collect();
-    let mut deqs: Vec<String> = t.directed_eqs.iter().map(|d| format!("{d:?}")).collect();
-    sorts.sort();
-    ops.sort();
-    eqs.sort();
-    deqs.sort();
-    (sorts, ops, eqs, deqs)
+/// The registration group a 0.74 protocol used.
+#[derive(Clone, Copy, Debug)]
+enum Group {
+    /// Constrained multigraph and W-type.
+    A,
+    /// Hypergraph and functor.
+    B,
+    /// Simple graph and flat.
+    C,
+    /// Typed graph and W-type.
+    D,
+    /// Constrained multigraph, W-type and metadata.
+    E,
+    /// Constrained multigraph and graph instance.
+    F,
+    /// `ATProto`'s own pair: the constrained multigraph, and W-type and
+    /// metadata over `Node` alone.
+    Atproto,
 }
 
-fn shared_vertex() -> Theory {
-    Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![])
-}
+/// Every protocol registered in 0.74 with the group it registered through.
+const ZERO_74: &[(&str, Group)] = &[
+    ("amr", Group::D),
+    ("ansible", Group::A),
+    ("arrow", Group::B),
+    ("asn1", Group::C),
+    ("asyncapi", Group::A),
+    ("atproto", Group::Atproto),
+    ("avro", Group::C),
+    ("bead", Group::A),
+    ("bond", Group::C),
+    ("brat", Group::A),
+    ("bson", Group::A),
+    ("cassandra", Group::B),
+    ("cddl", Group::A),
+    ("cloudformation", Group::A),
+    ("concrete", Group::A),
+    ("conllu", Group::B),
+    ("dataframe", Group::B),
+    ("decomp", Group::A),
+    ("docx", Group::E),
+    ("dynamodb", Group::B),
+    ("edi-x12", Group::B),
+    ("elan", Group::E),
+    ("fhir", Group::A),
+    ("flatbuffers", Group::C),
+    ("folia", Group::E),
+    ("fovea", Group::D),
+    ("geojson", Group::A),
+    ("graphql", Group::D),
+    ("iso-space", Group::A),
+    ("json-schema", Group::A),
+    ("jsonapi", Group::A),
+    ("k8s-crd", Group::A),
+    ("laf-graf", Group::A),
+    ("mongodb", Group::A),
+    ("msgpack-schema", Group::A),
+    ("naf", Group::B),
+    ("neo4j", Group::F),
+    ("nif", Group::A),
+    ("odf", Group::E),
+    ("openapi", Group::A),
+    ("parquet", Group::B),
+    ("paula", Group::A),
+    ("protobuf", Group::C),
+    ("raml", Group::A),
+    ("redis", Group::C),
+    ("rss-atom", Group::A),
+    ("sql", Group::B),
+    ("swift-mt", Group::B),
+    ("tei", Group::E),
+    ("timeml", Group::A),
+    ("ucca", Group::D),
+    ("uima", Group::D),
+    ("vcard-ical", Group::A),
+    ("web-annotation", Group::A),
+];
 
-fn shared_ve() -> Theory {
+/// The protocols whose instance theory the shape declarations re-declare,
+/// with their declared syntactic and semantic shapes. Their registration
+/// is held to the declaration, not to the 0.74 bytes.
+const REDECLARED: &[(&str, InstanceShapeKind, InstanceShapeKind)] = &[
+    ("naf", Tree, Graph),
+    ("cassandra", Tree, Table),
+    ("dynamodb", Tree, Table),
+    ("neo4j", Tree, Graph),
+    ("avro", Tree, Tree),
+    ("protobuf", Tree, Tree),
+    ("flatbuffers", Tree, Tree),
+    ("asn1", Tree, Tree),
+    ("bond", Tree, Tree),
+    ("redis", Table, Table),
+];
+
+/// Protocols with no 0.74 registration to compare against.
+const NEW_IN_0_75: &[&str] = &[
+    "amr-triples",
+    "csv",
+    "tsv",
+    "yaml",
+    "toml",
+    "ntriples",
+    "nquads",
+    "turtle",
+    "jsonld",
+    "edgelist",
+];
+
+fn shared(name: &str, sorts: &[&str]) -> Theory {
     Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+        name,
+        sorts
+            .iter()
+            .map(|s| panproto_gat::Sort::simple(*s))
+            .collect(),
         vec![],
         vec![],
     )
 }
 
-/// `colimit(colimit(ThGraph, ThConstraint), ThMulti)` via the legacy
-/// name-based path, shared by Groups A, E, and F.
-fn expected_constrained_multigraph() -> Theory {
-    let gc = colimit_by_name(&th_graph(), &th_constraint(), &shared_vertex()).unwrap();
-    colimit_by_name(&gc, &th_multi(), &shared_ve()).unwrap()
+fn pushout(t1: &Theory, t2: &Theory, over: &Theory) -> Theory {
+    pushout_by_name(t1, t2, over).unwrap().theory
 }
 
-#[test]
-fn group_a_constrained_multigraph_wtype() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_constrained_multigraph_wtype(&mut registry, "SchemaA", "InstA");
-    let registered = registry.get("SchemaA").expect("SchemaA registered");
-    assert_eq!(
-        structural_sets(registered),
-        structural_sets(&expected_constrained_multigraph())
+/// `ThGraph + ThConstraint + ThMulti` as 0.74 built it.
+fn constrained_multigraph_0_74() -> Theory {
+    let gc = pushout(
+        &th_graph(),
+        &th_constraint(),
+        &shared("ThVertex", &["Vertex"]),
     );
+    pushout(
+        &gc,
+        &th_multi(),
+        &shared("ThVertexEdge", &["Vertex", "Edge"]),
+    )
+}
+
+/// The 0.74 construction of a group's schema and instance theories, over
+/// the closed instance building blocks.
+fn reference(group: Group) -> (Theory, Theory) {
+    match group {
+        Group::A => (constrained_multigraph_0_74(), th_wtype()),
+        Group::B => (
+            pushout(
+                &th_hypergraph(),
+                &th_constraint(),
+                &shared("ThVertex", &["Vertex"]),
+            ),
+            th_functor(),
+        ),
+        Group::C => (
+            pushout(
+                &th_simple_graph(),
+                &th_constraint(),
+                &shared("ThVertex", &["Vertex"]),
+            ),
+            th_flat(),
+        ),
+        Group::D => (
+            pushout(
+                &constrained_multigraph_0_74(),
+                &th_interface(),
+                &shared("ThVertex2", &["Vertex"]),
+            ),
+            th_wtype(),
+        ),
+        Group::E => (
+            constrained_multigraph_0_74(),
+            pushout(
+                &th_wtype(),
+                &th_meta(),
+                &shared("ThNodeValue", &["Node", "Value"]),
+            ),
+        ),
+        Group::F => (constrained_multigraph_0_74(), th_graph_instance()),
+        Group::Atproto => (
+            constrained_multigraph_0_74(),
+            pushout(&th_wtype(), &th_meta(), &shared("ThNode", &["Node"])),
+        ),
+    }
+}
+
+/// Canonical bytes of `theory` under the name `name`.
+fn bytes_as(theory: &Theory, name: &str) -> Vec<u8> {
+    let mut named = theory.clone();
+    named.name = name.into();
+    canonical_theory_bytes(&named)
+}
+
+/// A registration report is clash free, passes, and has no failed,
+/// inapplicable or incomplete check.
+fn assert_status_clause(composition: &Composition, what: &str) {
+    let report = &composition.report;
+    assert!(report.name_clash_free, "{what}: name clash");
+    assert_eq!(report.status, CheckStatus::Passed, "{what}");
+    for record in &report.checks {
+        assert!(
+            matches!(
+                record.outcome,
+                CheckOutcome::Passed | CheckOutcome::PassedByEquation { .. }
+            ),
+            "{what}: {record:?}"
+        );
+    }
+}
+
+/// Register one protocol's theories into a fresh registry.
+fn register(name: &str) -> (panproto_schema::Protocol, HashMap<String, Theory>) {
+    let descriptor = descriptors()
+        .iter()
+        .find(|d| d.name == name)
+        .unwrap_or_else(|| panic!("{name} is registered"));
+    let mut registry = HashMap::new();
+    (descriptor.register_theories)(&mut registry).unwrap();
+    ((descriptor.protocol)(), registry)
 }
 
 #[test]
-fn group_b_hypergraph_functor() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_hypergraph_functor(&mut registry, "SchemaB", "InstB");
-    let registered = registry.get("SchemaB").expect("SchemaB registered");
-    let expected = colimit_by_name(&th_hypergraph(), &th_constraint(), &shared_vertex()).unwrap();
-    assert_eq!(structural_sets(registered), structural_sets(&expected));
+fn registration_equivalence() {
+    let zero_74: HashMap<&str, Group> = ZERO_74.iter().copied().collect();
+    for descriptor in descriptors() {
+        let name = descriptor.name;
+        let (protocol, registry) = register(name);
+        let schema = &registry[&protocol.schema_theory];
+        let instance = &registry[&protocol.instance_theory];
+        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
+            let composition = registered_composition(theory_name)
+                .unwrap_or_else(|| panic!("{name}: {theory_name} has no composition"));
+            assert_status_clause(&composition, &format!("{name}: {theory_name}"));
+        }
+
+        if let Some((_, syntactic, semantic)) = REDECLARED
+            .iter()
+            .find(|(redeclared, ..)| *redeclared == name)
+        {
+            let row =
+                shapes::declared(name).unwrap_or_else(|| panic!("{name} declares its shapes"));
+            assert_eq!(
+                (row.syntactic, row.semantic),
+                (*syntactic, *semantic),
+                "{name}"
+            );
+            assert_eq!(protocol.syntactic_shape, *syntactic, "{name}");
+            assert_eq!(protocol.semantic_shape, *semantic, "{name}");
+        } else if let Some(group) = zero_74.get(name) {
+            let (schema_ref, instance_ref) = reference(*group);
+            assert_eq!(
+                canonical_theory_bytes(schema),
+                bytes_as(&schema_ref, &protocol.schema_theory),
+                "{name}: schema theory"
+            );
+            assert_eq!(
+                canonical_theory_bytes(instance),
+                bytes_as(&instance_ref, &protocol.instance_theory),
+                "{name}: instance theory"
+            );
+        } else {
+            assert!(
+                NEW_IN_0_75.contains(&name),
+                "{name} is neither a 0.74 protocol nor listed as new in 0.75"
+            );
+            assert!(
+                shapes::declared(name).is_some(),
+                "{name} declares its shapes"
+            );
+        }
+    }
 }
 
 #[test]
-fn group_c_simple_graph_flat() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_simple_graph_flat(&mut registry, "SchemaC", "InstC");
-    let registered = registry.get("SchemaC").expect("SchemaC registered");
-    let expected = colimit_by_name(&th_simple_graph(), &th_constraint(), &shared_vertex()).unwrap();
-    assert_eq!(structural_sets(registered), structural_sets(&expected));
+fn every_registered_protocol_records_a_diagram_step() {
+    for descriptor in descriptors() {
+        let (protocol, _) = register(descriptor.name);
+        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
+            let recipe = registered_recipe(theory_name)
+                .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
+            assert_eq!(recipe.result_name, *theory_name);
+            assert_eq!(recipe.version, 1, "{theory_name}");
+            assert!(
+                matches!(
+                    recipe.steps.as_slice(),
+                    [CompositionStep::Diagram {
+                        mode: CompositionMode::ExplicitIdentity,
+                        clash: ClashPolicy::Reject,
+                        ..
+                    }]
+                ),
+                "{theory_name}: {:?}",
+                recipe.steps
+            );
+        }
+    }
 }
 
 #[test]
-fn group_d_typed_graph_wtype() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_typed_graph_wtype(&mut registry, "SchemaD", "InstD");
-    let registered = registry.get("SchemaD").expect("SchemaD registered");
+fn recompose_of_every_registration_spec_reproduces_its_theory() {
+    for descriptor in descriptors() {
+        let (protocol, registry) = register(descriptor.name);
+        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
+            let recipe = registered_recipe(theory_name).unwrap();
+            let json = serde_json::to_string(&recipe).unwrap();
+            let stored: panproto_gat::CompositionSpec = serde_json::from_str(&json).unwrap();
+            let replayed =
+                recompose(&stored, &registry).unwrap_or_else(|e| panic!("{theory_name}: {e}"));
+            assert_eq!(
+                canonical_theory_bytes(&replayed),
+                canonical_theory_bytes(&registry[theory_name.as_str()]),
+                "{theory_name}"
+            );
+        }
+    }
+}
 
-    let gc = colimit_by_name(&th_graph(), &th_constraint(), &shared_vertex()).unwrap();
-    let gcm = colimit_by_name(&gc, &th_multi(), &shared_ve()).unwrap();
-    let shared_vertex_only = Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let expected = colimit_by_name(&gcm, &th_interface(), &shared_vertex_only).unwrap();
-    assert_eq!(structural_sets(registered), structural_sets(&expected));
+/// Every registration diagram of the six groups and `ATProto`, with the
+/// helper-independent name of its result.
+fn all_diagrams() -> Vec<(&'static str, RegistrationDiagram)> {
+    vec![
+        ("constrained_multigraph", constrained_multigraph_diagram()),
+        ("typed_graph", typed_graph_diagram()),
+        ("constrained_hypergraph", constrained_hypergraph_diagram()),
+        (
+            "constrained_simple_graph",
+            constrained_simple_graph_diagram(),
+        ),
+        ("wtype_meta_node_value", wtype_meta_diagram("ThNodeValue")),
+        ("wtype_meta_node", wtype_meta_diagram("ThNode")),
+        ("wtype", RegistrationDiagram::single(th_wtype())),
+        ("functor", RegistrationDiagram::single(th_functor())),
+        ("flat", RegistrationDiagram::single(th_flat())),
+        (
+            "graph_instance",
+            RegistrationDiagram::single(th_graph_instance()),
+        ),
+    ]
 }
 
 #[test]
-fn group_e_multigraph_wtype_meta() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_multigraph_wtype_meta(&mut registry, "SchemaE", "InstE");
-
-    // Schema theory matches the constrained-multigraph reconstruction.
-    let schema = registry.get("SchemaE").expect("SchemaE registered");
-    assert_eq!(
-        structural_sets(schema),
-        structural_sets(&expected_constrained_multigraph())
-    );
-
-    // Instance theory is itself a colimit: colimit(ThWType, ThMeta).
-    let inst = registry.get("InstE").expect("InstE registered");
-    let shared_node_value = Theory::new(
-        "ThNodeValue",
-        vec![Sort::simple("Node"), Sort::simple("Value")],
-        vec![],
-        vec![],
-    );
-    let expected_inst = colimit_by_name(&th_wtype(), &th_meta(), &shared_node_value).unwrap();
-    assert_eq!(structural_sets(inst), structural_sets(&expected_inst));
+fn every_registered_theory_has_its_composition() {
+    let mut groups_seen: BTreeSet<String> = BTreeSet::new();
+    for descriptor in descriptors() {
+        let (protocol, registry) = register(descriptor.name);
+        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
+            let composition = registered_composition(theory_name).unwrap();
+            assert_eq!(
+                composition.theory,
+                registry[theory_name.as_str()],
+                "{theory_name}"
+            );
+            let recipe = registered_recipe(theory_name).unwrap();
+            let [CompositionStep::Diagram { nodes, inline, .. }] = recipe.steps.as_slice() else {
+                panic!("{theory_name}: {:?}", recipe.steps);
+            };
+            assert_eq!(composition.inclusions.len(), nodes.len(), "{theory_name}");
+            for (inclusion, node) in composition.inclusions.iter().zip(nodes) {
+                assert_eq!(&*inclusion.domain, node.as_str(), "{theory_name}");
+                assert_eq!(&*inclusion.codomain, theory_name.as_str());
+            }
+            let blocks: Vec<&String> = nodes
+                .iter()
+                .filter(|n| !inline.iter().any(|t| &*t.name == n.as_str()))
+                .collect();
+            groups_seen.insert(format!("{blocks:?}"));
+        }
+    }
+    // The six groups and ATProto use these block sets between them.
+    let expected: BTreeSet<String> = [
+        vec!["ThGraph", "ThConstraint", "ThMulti"],
+        vec!["ThGraph", "ThConstraint", "ThMulti", "ThInterface"],
+        vec!["ThHypergraph", "ThConstraint"],
+        vec!["ThSimpleGraph", "ThConstraint"],
+        vec!["ThWType", "ThMeta"],
+        vec!["ThWType"],
+        vec!["ThFunctor"],
+        vec!["ThFlat"],
+        vec!["ThGraphInstance"],
+    ]
+    .into_iter()
+    .map(|v| format!("{v:?}"))
+    .collect();
+    assert_eq!(groups_seen, expected);
 }
 
 #[test]
-fn group_f_constrained_graph_instance() {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    register_constrained_graph_instance(&mut registry, "SchemaF", "InstF");
-    let registered = registry.get("SchemaF").expect("SchemaF registered");
-    assert_eq!(
-        structural_sets(registered),
-        structural_sets(&expected_constrained_multigraph())
-    );
+fn registration_provenance_is_total_for_every_source_element() {
+    for (name, diagram) in all_diagrams() {
+        let composition = diagram.compose(name).unwrap();
+        let graph = diagram.diagram();
+        for node in &graph.nodes {
+            let theory = &node.theory;
+            let elements = [
+                (
+                    SymKind::Sort,
+                    theory
+                        .sorts
+                        .iter()
+                        .map(|s| s.name.clone())
+                        .collect::<Vec<_>>(),
+                ),
+                (
+                    SymKind::Op,
+                    theory.ops.iter().map(|o| o.name.clone()).collect(),
+                ),
+                (
+                    SymKind::Eq,
+                    theory.eqs.iter().map(|e| e.name.clone()).collect(),
+                ),
+                (
+                    SymKind::DirectedEq,
+                    theory.directed_eqs.iter().map(|e| e.name.clone()).collect(),
+                ),
+                (
+                    SymKind::Policy,
+                    theory.policies.iter().map(|p| p.name.clone()).collect(),
+                ),
+            ];
+            for (kind, names) in elements {
+                for element in names {
+                    let source = SymRef::new(node.label.clone(), element);
+                    let image = composition
+                        .provenance
+                        .image(kind, &source)
+                        .unwrap_or_else(|| panic!("{name}: {kind} {source} has no image"));
+                    let present = match kind {
+                        SymKind::Sort => composition.theory.has_sort(image),
+                        SymKind::Op => composition.theory.has_op(image),
+                        SymKind::Eq => composition.theory.eqs.iter().any(|e| e.name == *image),
+                        SymKind::DirectedEq => composition
+                            .theory
+                            .directed_eqs
+                            .iter()
+                            .any(|e| e.name == *image),
+                        SymKind::Policy => {
+                            composition.theory.policies.iter().any(|p| p.name == *image)
+                        }
+                    };
+                    assert!(
+                        present,
+                        "{name}: {kind} {source} -> {image} is not in the result"
+                    );
+                }
+            }
+        }
+    }
 }
 
 #[test]
-fn atproto_register_theories_schema_and_instance() -> Result<(), Box<dyn std::error::Error>> {
-    let mut registry: HashMap<String, Theory> = HashMap::new();
-    panproto_protocols::atproto::register_theories(&mut registry)?;
-
-    // Schema: colimit(colimit(ThGraph, ThConstraint), ThMulti).
-    let schema = registry
-        .get("ThATProtoSchema")
-        .expect("ThATProtoSchema registered");
-    assert_eq!(
-        structural_sets(schema),
-        structural_sets(&expected_constrained_multigraph())
-    );
-
-    // Instance: colimit(ThWType, ThMeta) over shared Node (atproto uses a
-    // Node-only shared theory, distinct from Group E's Node+Value).
-    let shared_node = Theory::new("ThNode", vec![Sort::simple("Node")], vec![], vec![]);
-    let expected_inst = colimit_by_name(&th_wtype(), &th_meta(), &shared_node).unwrap();
-    let inst = registry
-        .get("ThATProtoInstance")
-        .expect("ThATProtoInstance registered");
-    assert_eq!(structural_sets(inst), structural_sets(&expected_inst));
-
-    Ok(())
+fn registration_does_not_depend_on_the_order_of_its_diagram() {
+    for (name, diagram) in all_diagrams() {
+        let bytes = canonical_theory_bytes(&diagram.compose(name).unwrap().theory);
+        let mut reversed = diagram.clone();
+        reversed.blocks.reverse();
+        reversed.shared.reverse();
+        for (_, targets) in &mut reversed.shared {
+            targets.reverse();
+        }
+        let theory = reversed.compose(name).unwrap().theory;
+        assert_eq!(&*theory.name, name);
+        assert_eq!(canonical_theory_bytes(&theory), bytes, "{name}");
+    }
 }

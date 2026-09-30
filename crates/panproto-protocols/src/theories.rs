@@ -184,12 +184,353 @@ pub fn th_meta() -> Theory {
 }
 
 // ═══════════════════════════════════════════════════════════════════
-// Theory group registration helpers
+// Registration diagrams
 // ═══════════════════════════════════════════════════════════════════
 
-use panproto_gat::pushout_by_name;
-use panproto_gat::validate_rewrite_system;
-use std::collections::HashMap;
+use panproto_gat::{
+    ClashPolicy, ComposeOptions, Composition, CompositionError, DEFAULT_VERIFY_BUDGET, DiagramEdge,
+    DiagramNode, OpAssignment, RecipeEdge, RecipeOpImage, TheoryDiagram, TheoryMorphism, compose,
+    validate_rewrite_system,
+};
+use panproto_schema::canonical_composition_bytes;
+use std::collections::{BTreeMap, HashMap};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+
+/// One registration diagram: building blocks and the shared theories whose
+/// identity-on-names legs say which of their symbols are one symbol.
+///
+/// Registration composes a group as one diagram with
+/// [`CompositionMode::ExplicitIdentity`] and [`ClashPolicy::Reject`]: only
+/// what a shared theory lists is identified, and any other name two blocks
+/// both declare is refused rather than glued. The shared theories are built
+/// here and never inserted into a registry, so the recipe carries them
+/// inline.
+#[derive(Clone, Debug)]
+pub struct RegistrationDiagram {
+    /// The building blocks, each labelled by its theory name.
+    pub blocks: Vec<Theory>,
+    /// Each shared theory with the labels of the blocks it maps into; the
+    /// leg into a block sends every sort and operation to the same-name
+    /// one.
+    pub shared: Vec<(Theory, Vec<Arc<str>>)>,
+}
+
+impl RegistrationDiagram {
+    /// A diagram of one building block and nothing shared.
+    #[must_use]
+    pub fn single(block: Theory) -> Self {
+        Self {
+            blocks: vec![block],
+            shared: Vec::new(),
+        }
+    }
+
+    /// The node labels in diagram order: the blocks, then the shared
+    /// theories.
+    fn labels(&self) -> Vec<Arc<str>> {
+        self.blocks
+            .iter()
+            .chain(self.shared.iter().map(|(apex, _)| apex))
+            .map(|t| Arc::clone(&t.name))
+            .collect()
+    }
+
+    /// The edges, each an identity-on-names leg from a shared theory into
+    /// a block, named as [`panproto_gat::recompose`] names the legs it
+    /// replays.
+    fn edges(&self) -> Vec<DiagramEdge> {
+        let mut edges = Vec::new();
+        for (apex, targets) in &self.shared {
+            for target in targets {
+                let codomain = self
+                    .blocks
+                    .iter()
+                    .find(|b| b.name == *target)
+                    .map_or_else(|| Arc::clone(target), |b| Arc::clone(&b.name));
+                edges.push(DiagramEdge {
+                    src: Arc::clone(&apex.name),
+                    tgt: Arc::clone(target),
+                    morphism: TheoryMorphism::new(
+                        format!("{}_to_{target}", apex.name),
+                        Arc::clone(&apex.name),
+                        codomain,
+                        apex.sorts
+                            .iter()
+                            .map(|s| (Arc::clone(&s.name), Arc::clone(&s.name)))
+                            .collect::<HashMap<_, _>>(),
+                        apex.ops
+                            .iter()
+                            .map(|o| (Arc::clone(&o.name), OpAssignment::Op(Arc::clone(&o.name))))
+                            .collect::<HashMap<_, _>>(),
+                    ),
+                });
+            }
+        }
+        edges
+    }
+
+    /// The diagram [`compose`] runs.
+    #[must_use]
+    pub fn diagram(&self) -> TheoryDiagram {
+        TheoryDiagram {
+            nodes: self
+                .blocks
+                .iter()
+                .chain(self.shared.iter().map(|(apex, _)| apex))
+                .map(|t| DiagramNode {
+                    label: Arc::clone(&t.name),
+                    theory: t.clone(),
+                })
+                .collect(),
+            edges: self.edges(),
+        }
+    }
+
+    /// The options registration composes with.
+    #[must_use]
+    pub fn options(result_name: &str) -> ComposeOptions {
+        ComposeOptions {
+            mode: CompositionMode::ExplicitIdentity,
+            result_name: Arc::from(result_name),
+            clash: ClashPolicy::Reject,
+            rewrite_budget: DEFAULT_VERIFY_BUDGET,
+        }
+    }
+
+    /// The recipe that replays this diagram through
+    /// [`panproto_gat::recompose`] against a registry holding the blocks.
+    #[must_use]
+    pub fn recipe(&self, result_name: &str) -> CompositionSpec {
+        let edges = self
+            .edges()
+            .into_iter()
+            .map(|edge| {
+                let mut sorts: Vec<(String, String)> = edge
+                    .morphism
+                    .sort_map
+                    .iter()
+                    .map(|(a, b)| (a.to_string(), b.to_string()))
+                    .collect();
+                sorts.sort();
+                let mut ops: Vec<(String, RecipeOpImage)> = edge
+                    .morphism
+                    .op_map
+                    .iter()
+                    .map(|(a, image)| {
+                        let image = match image {
+                            OpAssignment::Op(b) => RecipeOpImage::Op(b.to_string()),
+                            OpAssignment::Term(t) => RecipeOpImage::Term(t.clone()),
+                        };
+                        (a.to_string(), image)
+                    })
+                    .collect();
+                ops.sort_by(|a, b| a.0.cmp(&b.0));
+                RecipeEdge {
+                    src: edge.src.to_string(),
+                    tgt: edge.tgt.to_string(),
+                    sorts,
+                    ops,
+                }
+            })
+            .collect();
+        let options = Self::options(result_name);
+        CompositionSpec::new(
+            result_name,
+            vec![CompositionStep::Diagram {
+                nodes: self.labels().iter().map(ToString::to_string).collect(),
+                edges,
+                mode: options.mode,
+                clash: options.clash,
+                rewrite_budget: options.rewrite_budget,
+                inline: self.shared.iter().map(|(apex, _)| apex.clone()).collect(),
+            }],
+        )
+    }
+
+    /// Compose the diagram under the registration options, naming the
+    /// result `result_name`.
+    ///
+    /// # Errors
+    ///
+    /// The [`CompositionError`] of [`compose`].
+    pub fn compose(&self, result_name: &str) -> Result<Composition, CompositionError> {
+        compose(&self.diagram(), &Self::options(result_name))
+    }
+
+    /// Insert every building block into `registry` under its name, keeping
+    /// a block already there.
+    fn register_blocks<S: ::std::hash::BuildHasher>(
+        &self,
+        registry: &mut HashMap<String, Theory, S>,
+    ) {
+        for block in &self.blocks {
+            registry
+                .entry(block.name.to_string())
+                .or_insert_with(|| block.clone());
+        }
+    }
+}
+
+/// A shared theory named `name` with the given simple sorts and no
+/// operations.
+fn shared_sorts(name: &str, sorts: &[&str]) -> Theory {
+    Theory::new(
+        name,
+        sorts.iter().map(|s| Sort::simple(*s)).collect(),
+        vec![],
+        vec![],
+    )
+}
+
+fn labels(names: &[&str]) -> Vec<Arc<str>> {
+    names.iter().map(|n| Arc::from(*n)).collect()
+}
+
+/// The constrained multigraph schema: `ThGraph`, `ThConstraint` and
+/// `ThMulti`, with `Vertex` shared by all three (through `ThVertex` and
+/// `ThVertexEdge`) and `Edge` shared by `ThGraph` and `ThMulti`.
+#[must_use]
+pub fn constrained_multigraph_diagram() -> RegistrationDiagram {
+    RegistrationDiagram {
+        blocks: vec![th_graph(), th_constraint(), th_multi()],
+        shared: vec![
+            (
+                shared_sorts("ThVertex", &["Vertex"]),
+                labels(&["ThGraph", "ThConstraint"]),
+            ),
+            (
+                shared_sorts("ThVertexEdge", &["Vertex", "Edge"]),
+                labels(&["ThGraph", "ThMulti"]),
+            ),
+        ],
+    }
+}
+
+/// The typed graph schema: the constrained multigraph with `ThInterface`,
+/// whose `Vertex` is shared through `ThVertex2`.
+#[must_use]
+pub fn typed_graph_diagram() -> RegistrationDiagram {
+    let mut diagram = constrained_multigraph_diagram();
+    diagram.blocks.push(th_interface());
+    diagram.shared.push((
+        shared_sorts("ThVertex2", &["Vertex"]),
+        labels(&["ThGraph", "ThInterface"]),
+    ));
+    diagram
+}
+
+/// The constrained hypergraph schema: `ThHypergraph` and `ThConstraint`
+/// sharing `Vertex`.
+#[must_use]
+pub fn constrained_hypergraph_diagram() -> RegistrationDiagram {
+    RegistrationDiagram {
+        blocks: vec![th_hypergraph(), th_constraint()],
+        shared: vec![(
+            shared_sorts("ThVertex", &["Vertex"]),
+            labels(&["ThHypergraph", "ThConstraint"]),
+        )],
+    }
+}
+
+/// The constrained simple graph schema: `ThSimpleGraph` and `ThConstraint`
+/// sharing `Vertex`.
+#[must_use]
+pub fn constrained_simple_graph_diagram() -> RegistrationDiagram {
+    RegistrationDiagram {
+        blocks: vec![th_simple_graph(), th_constraint()],
+        shared: vec![(
+            shared_sorts("ThVertex", &["Vertex"]),
+            labels(&["ThSimpleGraph", "ThConstraint"]),
+        )],
+    }
+}
+
+/// The W-type instance with metadata: `ThWType` and `ThMeta` sharing
+/// `Node` and `Value` through a shared theory named `shared_name`.
+#[must_use]
+pub fn wtype_meta_diagram(shared_name: &str) -> RegistrationDiagram {
+    RegistrationDiagram {
+        blocks: vec![th_wtype(), th_meta()],
+        shared: vec![(
+            shared_sorts(shared_name, &["Node", "Value"]),
+            labels(&["ThWType", "ThMeta"]),
+        )],
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Registered compositions
+// ═══════════════════════════════════════════════════════════════════
+
+/// A registered theory's composition and the recipe that replays it.
+#[derive(Clone)]
+struct Registered {
+    composition: Composition,
+    recipe: CompositionSpec,
+}
+
+/// Every composition the registration helpers have built in this process,
+/// by the name it was registered under.
+fn registered() -> &'static Mutex<BTreeMap<String, Registered>> {
+    static REGISTERED: OnceLock<Mutex<BTreeMap<String, Registered>>> = OnceLock::new();
+    REGISTERED.get_or_init(|| Mutex::new(BTreeMap::new()))
+}
+
+/// The [`Composition`] a registration helper built for the theory it
+/// registered as `theory_name`: the composed theory, the inclusion of each
+/// building block, the provenance of every symbol and the composition
+/// report.
+///
+/// This covers the schema and instance theory of every protocol whose
+/// theories were registered in this process, through the helpers of this
+/// module or [`crate::atproto::register_theories`]. The registry itself
+/// stays a map from names to theories; this is kept beside it.
+#[must_use]
+pub fn registered_composition(theory_name: &str) -> Option<Composition> {
+    registered()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(theory_name)
+        .map(|r| r.composition.clone())
+}
+
+/// The recipe that replays the composition registered as `theory_name`:
+/// one [`CompositionStep::Diagram`] step whose nodes name the building
+/// blocks and carry the shared theories inline.
+#[must_use]
+pub fn registered_recipe(theory_name: &str) -> Option<CompositionSpec> {
+    registered()
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .get(theory_name)
+        .map(|r| r.recipe.clone())
+}
+
+/// Record the composition registered as `name`. The first registration of
+/// a name is kept.
+///
+/// # Panics
+///
+/// Panics if `name` was registered before with a composition whose
+/// canonical bytes differ: one theory name stands for one composition.
+pub(crate) fn record(name: &str, composition: &Composition, recipe: CompositionSpec) {
+    let mut map = registered().lock().unwrap_or_else(PoisonError::into_inner);
+    if let Some(existing) = map.get(name) {
+        assert!(
+            canonical_composition_bytes(&existing.composition)
+                == canonical_composition_bytes(composition),
+            "theory `{name}` is registered twice with different compositions"
+        );
+        return;
+    }
+    map.insert(
+        name.to_owned(),
+        Registered {
+            composition: composition.clone(),
+            recipe,
+        },
+    );
+}
 
 /// Gate a to-be-registered theory on the soundness of its directed rewrite
 /// system (local confluence and LPO termination under operation-declaration
@@ -198,8 +539,7 @@ use std::collections::HashMap;
 ///
 /// The theories this gate sees are assembled from the building blocks in
 /// this module, not supplied by a caller, so a failure is a defect in
-/// those blocks rather than bad input. It is reported the same way the
-/// colimits above report theirs.
+/// those blocks rather than bad input.
 ///
 /// # Panics
 ///
@@ -208,7 +548,7 @@ use std::collections::HashMap;
 /// theory's equality judgment by running its rewrite system, so
 /// registering one that is not provably sound would leave every schema
 /// built on the theory resting on an unsound judgment.
-fn gate_rewrite_system(theory: &Theory) {
+pub(crate) fn gate_rewrite_system(theory: &Theory) {
     let report = validate_rewrite_system(theory).unwrap_or_else(|e| {
         panic!(
             "theory `{}`: rewrite-system soundness could not be decided: {e}",
@@ -224,9 +564,36 @@ fn gate_rewrite_system(theory: &Theory) {
     );
 }
 
+/// Compose `diagram` as the theory `name`, gate it, record it, and insert
+/// it and its building blocks into `registry`.
+///
+/// # Panics
+///
+/// Panics if the composition fails, if the result's rewrite system is not
+/// sound, or if `name` was recorded before with another composition. The
+/// diagrams are static configuration, so a panic here is a defect in the
+/// building blocks, not a runtime input error.
+fn register_diagram<S: ::std::hash::BuildHasher>(
+    registry: &mut HashMap<String, Theory, S>,
+    name: &str,
+    diagram: &RegistrationDiagram,
+) {
+    diagram.register_blocks(registry);
+    let composition = diagram
+        .compose(name)
+        .unwrap_or_else(|e| panic!("composing `{name}` failed: {e}"));
+    gate_rewrite_system(&composition.theory);
+    record(name, &composition, diagram.recipe(name));
+    registry.insert(name.to_owned(), composition.theory);
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Theory group registration helpers
+// ═══════════════════════════════════════════════════════════════════
+
 /// Register a **constrained multigraph + W-type** theory pair (Group A).
 ///
-/// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
+/// Schema: [`constrained_multigraph_diagram`].
 /// Instance: `ThWType`.
 ///
 /// Used by: `ATProto`, `JSON Schema`, `OpenAPI`, `AsyncAPI`, `RAML`, `JSON:API`,
@@ -236,61 +603,26 @@ fn gate_rewrite_system(theory: &Theory) {
 ///
 /// # Panics
 ///
-/// Panics if the underlying colimits over the building-block theories
-/// fail. This is a static, build-time configuration; a panic here
-/// indicates a panproto-internal bug in the building-block theories,
-/// not a runtime input error.
+/// Panics if a composition over the building-block theories fails. This is
+/// a static, build-time configuration; a panic here indicates a
+/// panproto-internal bug in the building-block theories, not a runtime
+/// input error.
 pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let g = th_graph();
-    let c = th_constraint();
-    let m = th_multi();
-    let w = th_wtype();
-
-    registry
-        .entry("ThGraph".into())
-        .or_insert_with(|| g.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThMulti".into())
-        .or_insert_with(|| m.clone());
-    registry
-        .entry("ThWType".into())
-        .or_insert_with(|| w.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
-        .theory;
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
+    register_diagram(registry, schema_name, &constrained_multigraph_diagram());
+    register_diagram(
+        registry,
+        instance_name,
+        &RegistrationDiagram::single(th_wtype()),
     );
-    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
-        .unwrap_or_else(|e| {
-            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-        })
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let mut inst = w;
-    inst.name = instance_name.into();
-    gate_rewrite_system(&inst);
-    registry.insert(instance_name.into(), inst);
 }
 
 /// Register a **hypergraph + functor** theory pair (Group B).
 ///
-/// Schema: `colimit(ThHypergraph, ThConstraint)`.
+/// Schema: [`constrained_hypergraph_diagram`].
 /// Instance: `ThFunctor`.
 ///
 /// Used by: SQL, Cassandra, `DynamoDB`, Parquet, Arrow, `DataFrame`,
@@ -298,92 +630,48 @@ pub fn register_constrained_multigraph_wtype<S: ::std::hash::BuildHasher>(
 ///
 /// # Panics
 ///
-/// Panics if the colimit construction over the building-block
-/// theories fails (a panproto-internal bug, not a runtime input
-/// error).
+/// Panics if a composition over the building-block theories fails (a
+/// panproto-internal bug, not a runtime input error).
 pub fn register_hypergraph_functor<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let h = th_hypergraph();
-    let c = th_constraint();
-    let f = th_functor();
-
-    registry
-        .entry("ThHypergraph".into())
-        .or_insert_with(|| h.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThFunctor".into())
-        .or_insert_with(|| f.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory = pushout_by_name(&h, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThHypergraph + ThConstraint over ThVertex failed: {e}"))
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let mut inst = f;
-    inst.name = instance_name.into();
-    gate_rewrite_system(&inst);
-    registry.insert(instance_name.into(), inst);
+    register_diagram(registry, schema_name, &constrained_hypergraph_diagram());
+    register_diagram(
+        registry,
+        instance_name,
+        &RegistrationDiagram::single(th_functor()),
+    );
 }
 
 /// Register a **simple graph + flat** theory pair (Group C).
 ///
-/// Schema: `colimit(ThSimpleGraph, ThConstraint)`.
+/// Schema: [`constrained_simple_graph_diagram`].
 /// Instance: `ThFlat`.
 ///
 /// Used by: `Protobuf`, `Avro`, `FlatBuffers`, `ASN.1`, `Bond`, `Redis`.
 ///
 /// # Panics
 ///
-/// Panics if the colimit construction over the building-block
-/// theories fails (a panproto-internal bug, not a runtime input
-/// error).
+/// Panics if a composition over the building-block theories fails (a
+/// panproto-internal bug, not a runtime input error).
 pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let sg = th_simple_graph();
-    let c = th_constraint();
-    let fl = th_flat();
-
-    registry
-        .entry("ThSimpleGraph".into())
-        .or_insert_with(|| sg.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThFlat".into())
-        .or_insert_with(|| fl.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory = pushout_by_name(&sg, &c, &shared_vertex)
-        .unwrap_or_else(|e| {
-            panic!("colimit ThSimpleGraph + ThConstraint over ThVertex failed: {e}")
-        })
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let mut inst = fl;
-    inst.name = instance_name.into();
-    gate_rewrite_system(&inst);
-    registry.insert(instance_name.into(), inst);
+    register_diagram(registry, schema_name, &constrained_simple_graph_diagram());
+    register_diagram(
+        registry,
+        instance_name,
+        &RegistrationDiagram::single(th_flat()),
+    );
 }
 
 /// Register a **typed graph + W-type** theory pair with interfaces (Group D).
 ///
-/// Schema: `colimit(ThGraph, ThConstraint, ThMulti, ThInterface)`.
+/// Schema: [`typed_graph_diagram`].
 /// Instance: `ThWType`.
 ///
 /// Used by: GraphQL, TypeScript, Python, Rust Serde, Java, Go,
@@ -391,140 +679,44 @@ pub fn register_simple_graph_flat<S: ::std::hash::BuildHasher>(
 ///
 /// # Panics
 ///
-/// Panics if the colimit construction over the building-block
-/// theories fails (a panproto-internal bug, not a runtime input
-/// error).
+/// Panics if a composition over the building-block theories fails (a
+/// panproto-internal bug, not a runtime input error).
 pub fn register_typed_graph_wtype<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let g = th_graph();
-    let c = th_constraint();
-    let m = th_multi();
-    let iface = th_interface();
-    let w = th_wtype();
-
-    registry
-        .entry("ThGraph".into())
-        .or_insert_with(|| g.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThMulti".into())
-        .or_insert_with(|| m.clone());
-    registry
-        .entry("ThInterface".into())
-        .or_insert_with(|| iface.clone());
-    registry
-        .entry("ThWType".into())
-        .or_insert_with(|| w.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
-        .theory;
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
+    register_diagram(registry, schema_name, &typed_graph_diagram());
+    register_diagram(
+        registry,
+        instance_name,
+        &RegistrationDiagram::single(th_wtype()),
     );
-    let gcm = pushout_by_name(&gc, &m, &shared_ve)
-        .unwrap_or_else(|e| {
-            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-        })
-        .theory;
-    let shared_vertex_only = Theory::new("ThVertex2", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let mut schema_theory = pushout_by_name(&gcm, &iface, &shared_vertex_only)
-        .unwrap_or_else(|e| panic!("colimit (...+ThMulti) + ThInterface over ThVertex failed: {e}"))
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let mut inst = w;
-    inst.name = instance_name.into();
-    gate_rewrite_system(&inst);
-    registry.insert(instance_name.into(), inst);
 }
 
 /// Register a **constrained multigraph + W-type + metadata** theory pair (Group E).
 ///
-/// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
-/// Instance: `colimit(ThWType, ThMeta)`.
+/// Schema: [`constrained_multigraph_diagram`].
+/// Instance: [`wtype_meta_diagram`] over `ThNodeValue`.
 ///
 /// Used by: XML/XSD, HTML, CSS, DOCX, ODF.
 ///
 /// # Panics
 ///
-/// Panics if the colimit construction over the building-block
-/// theories fails (a panproto-internal bug, not a runtime input
-/// error).
+/// Panics if a composition over the building-block theories fails (a
+/// panproto-internal bug, not a runtime input error).
 pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let g = th_graph();
-    let c = th_constraint();
-    let m = th_multi();
-    let w = th_wtype();
-    let meta = th_meta();
-
-    registry
-        .entry("ThGraph".into())
-        .or_insert_with(|| g.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThMulti".into())
-        .or_insert_with(|| m.clone());
-    registry
-        .entry("ThWType".into())
-        .or_insert_with(|| w.clone());
-    registry
-        .entry("ThMeta".into())
-        .or_insert_with(|| meta.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
-        .theory;
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
-    );
-    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
-        .unwrap_or_else(|e| {
-            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-        })
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let shared_node_value = Theory::new(
-        "ThNodeValue",
-        vec![Sort::simple("Node"), Sort::simple("Value")],
-        vec![],
-        vec![],
-    );
-    let mut inst_theory = pushout_by_name(&w, &meta, &shared_node_value)
-        .unwrap_or_else(|e| panic!("colimit ThWType + ThMeta over ThNodeValue failed: {e}"))
-        .theory;
-    inst_theory.name = instance_name.into();
-    gate_rewrite_system(&inst_theory);
-    registry.insert(instance_name.into(), inst_theory);
+    register_diagram(registry, schema_name, &constrained_multigraph_diagram());
+    register_diagram(registry, instance_name, &wtype_meta_diagram("ThNodeValue"));
 }
 
 /// Register a **constrained multigraph + graph instance** theory pair (Group F).
 ///
-/// Schema: `colimit(ThGraph, ThConstraint, ThMulti)`.
+/// Schema: [`constrained_multigraph_diagram`].
 /// Instance: `ThGraphInstance`.
 ///
 /// Used by: Neo4j, and future graph-native protocols (RDF, OWL,
@@ -532,276 +724,101 @@ pub fn register_multigraph_wtype_meta<S: ::std::hash::BuildHasher>(
 ///
 /// # Panics
 ///
-/// Panics if the colimit construction over the building-block
-/// theories fails (a panproto-internal bug, not a runtime input
-/// error).
+/// Panics if a composition over the building-block theories fails (a
+/// panproto-internal bug, not a runtime input error).
 pub fn register_constrained_graph_instance<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
     schema_name: &str,
     instance_name: &str,
 ) {
-    let g = th_graph();
-    let c = th_constraint();
-    let m = th_multi();
-    let gi = th_graph_instance();
-
-    registry
-        .entry("ThGraph".into())
-        .or_insert_with(|| g.clone());
-    registry
-        .entry("ThConstraint".into())
-        .or_insert_with(|| c.clone());
-    registry
-        .entry("ThMulti".into())
-        .or_insert_with(|| m.clone());
-    registry
-        .entry("ThGraphInstance".into())
-        .or_insert_with(|| gi.clone());
-
-    let shared_vertex = Theory::new("ThVertex", vec![Sort::simple("Vertex")], vec![], vec![]);
-    let gc = pushout_by_name(&g, &c, &shared_vertex)
-        .unwrap_or_else(|e| panic!("colimit ThGraph + ThConstraint over ThVertex failed: {e}"))
-        .theory;
-    let shared_ve = Theory::new(
-        "ThVertexEdge",
-        vec![Sort::simple("Vertex"), Sort::simple("Edge")],
-        vec![],
-        vec![],
+    register_diagram(registry, schema_name, &constrained_multigraph_diagram());
+    register_diagram(
+        registry,
+        instance_name,
+        &RegistrationDiagram::single(th_graph_instance()),
     );
-    let mut schema_theory = pushout_by_name(&gc, &m, &shared_ve)
-        .unwrap_or_else(|e| {
-            panic!("colimit (ThGraph+ThConstraint) + ThMulti over ThVertexEdge failed: {e}")
-        })
-        .theory;
-    schema_theory.name = schema_name.into();
-    gate_rewrite_system(&schema_theory);
-    registry.insert(schema_name.into(), schema_theory);
-
-    let mut inst = gi;
-    inst.name = instance_name.into();
-    gate_rewrite_system(&inst);
-    registry.insert(instance_name.into(), inst);
 }
 
 // ═══════════════════════════════════════════════════════════════════
 // Composition specs (declarative recipes for each group)
 // ═══════════════════════════════════════════════════════════════════
 
-/// Composition specs for Group A (constrained multigraph + W-type).
-///
-/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
-/// Instance: `ThWType`.
+/// Composition specs for Group A (constrained multigraph + W-type): the
+/// recipes [`register_constrained_multigraph_wtype`] records.
 #[must_use]
 pub fn constrained_multigraph_wtype_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![
-            CompositionStep::Colimit {
-                left: "ThGraph".to_owned(),
-                right: "ThConstraint".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-            CompositionStep::Colimit {
-                left: "step_0".to_owned(),
-                right: "ThMulti".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-        ],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Base("ThWType".to_owned())],
-    };
-    (schema_spec, instance_spec)
+    (
+        constrained_multigraph_diagram().recipe(schema_name),
+        RegistrationDiagram::single(th_wtype()).recipe(instance_name),
+    )
 }
 
-/// Composition specs for Group B (hypergraph + functor).
-///
-/// Schema: `colimit(ThHypergraph, ThConstraint; Vertex)`.
-/// Instance: `ThFunctor`.
+/// Composition specs for Group B (hypergraph + functor): the recipes
+/// [`register_hypergraph_functor`] records.
 #[must_use]
 pub fn hypergraph_functor_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Colimit {
-            left: "ThHypergraph".to_owned(),
-            right: "ThConstraint".to_owned(),
-            shared_sorts: vec!["Vertex".to_owned()],
-            shared_ops: vec![],
-            mode: CompositionMode::Amalgamate,
-        }],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Base("ThFunctor".to_owned())],
-    };
-    (schema_spec, instance_spec)
+    (
+        constrained_hypergraph_diagram().recipe(schema_name),
+        RegistrationDiagram::single(th_functor()).recipe(instance_name),
+    )
 }
 
-/// Composition specs for Group C (simple graph + flat).
-///
-/// Schema: `colimit(ThSimpleGraph, ThConstraint; Vertex)`.
-/// Instance: `ThFlat`.
+/// Composition specs for Group C (simple graph + flat): the recipes
+/// [`register_simple_graph_flat`] records.
 #[must_use]
 pub fn simple_graph_flat_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Colimit {
-            left: "ThSimpleGraph".to_owned(),
-            right: "ThConstraint".to_owned(),
-            shared_sorts: vec!["Vertex".to_owned()],
-            shared_ops: vec![],
-            mode: CompositionMode::Amalgamate,
-        }],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Base("ThFlat".to_owned())],
-    };
-    (schema_spec, instance_spec)
+    (
+        constrained_simple_graph_diagram().recipe(schema_name),
+        RegistrationDiagram::single(th_flat()).recipe(instance_name),
+    )
 }
 
-/// Composition specs for Group D (typed graph + W-type with interfaces).
-///
-/// Schema: `colimit(colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge), ThInterface; Vertex)`.
-/// Instance: `ThWType`.
+/// Composition specs for Group D (typed graph + W-type with interfaces):
+/// the recipes [`register_typed_graph_wtype`] records.
 #[must_use]
 pub fn typed_graph_wtype_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![
-            CompositionStep::Colimit {
-                left: "ThGraph".to_owned(),
-                right: "ThConstraint".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-            CompositionStep::Colimit {
-                left: "step_0".to_owned(),
-                right: "ThMulti".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-            CompositionStep::Colimit {
-                left: "step_1".to_owned(),
-                right: "ThInterface".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-        ],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Base("ThWType".to_owned())],
-    };
-    (schema_spec, instance_spec)
+    (
+        typed_graph_diagram().recipe(schema_name),
+        RegistrationDiagram::single(th_wtype()).recipe(instance_name),
+    )
 }
 
-/// Composition specs for Group E (constrained multigraph + W-type + metadata).
-///
-/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
-/// Instance: `colimit(ThWType, ThMeta; Node)`.
+/// Composition specs for Group E (constrained multigraph + W-type +
+/// metadata): the recipes [`register_multigraph_wtype_meta`] records.
 #[must_use]
 pub fn multigraph_wtype_meta_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![
-            CompositionStep::Colimit {
-                left: "ThGraph".to_owned(),
-                right: "ThConstraint".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-            CompositionStep::Colimit {
-                left: "step_0".to_owned(),
-                right: "ThMulti".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-        ],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Colimit {
-            left: "ThWType".to_owned(),
-            right: "ThMeta".to_owned(),
-            shared_sorts: vec!["Node".to_owned(), "Value".to_owned()],
-            shared_ops: vec![],
-            mode: CompositionMode::Amalgamate,
-        }],
-    };
-    (schema_spec, instance_spec)
+    (
+        constrained_multigraph_diagram().recipe(schema_name),
+        wtype_meta_diagram("ThNodeValue").recipe(instance_name),
+    )
 }
 
-/// Composition specs for Group F (constrained multigraph + graph instance).
-///
-/// Schema: `colimit(colimit(ThGraph, ThConstraint; Vertex), ThMulti; Vertex, Edge)`.
-/// Instance: `ThGraphInstance`.
+/// Composition specs for Group F (constrained multigraph + graph
+/// instance): the recipes [`register_constrained_graph_instance`] records.
 #[must_use]
 pub fn constrained_graph_instance_specs(
     schema_name: &str,
     instance_name: &str,
 ) -> (CompositionSpec, CompositionSpec) {
-    let schema_spec = CompositionSpec {
-        result_name: schema_name.to_owned(),
-        version: 0,
-        steps: vec![
-            CompositionStep::Colimit {
-                left: "ThGraph".to_owned(),
-                right: "ThConstraint".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-            CompositionStep::Colimit {
-                left: "step_0".to_owned(),
-                right: "ThMulti".to_owned(),
-                shared_sorts: vec!["Vertex".to_owned(), "Edge".to_owned()],
-                shared_ops: vec![],
-                mode: CompositionMode::Amalgamate,
-            },
-        ],
-    };
-    let instance_spec = CompositionSpec {
-        result_name: instance_name.to_owned(),
-        version: 0,
-        steps: vec![CompositionStep::Base("ThGraphInstance".to_owned())],
-    };
-    (schema_spec, instance_spec)
+    (
+        constrained_multigraph_diagram().recipe(schema_name),
+        RegistrationDiagram::single(th_graph_instance()).recipe(instance_name),
+    )
 }
 
 // ═══════════════════════════════════════════════════════════════════
