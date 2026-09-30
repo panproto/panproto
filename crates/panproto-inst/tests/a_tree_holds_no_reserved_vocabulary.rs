@@ -176,7 +176,10 @@ fn entry_schema(root: &Name) -> Schema {
 /// A tree over up to eight nodes whose node shapes and arc kinds are drawn
 /// from a pool that includes the reserved fan vocabulary, with fans over its
 /// nodes.
-fn arb_candidate() -> impl Strategy<Value = (Vec<Node>, Vec<(u32, u32, Edge)>, Vec<Fan>)> {
+/// The parts of a candidate tree: its nodes, arcs and fans.
+type Candidate = (Vec<Node>, Vec<(u32, u32, Edge)>, Vec<Fan>);
+
+fn arb_candidate() -> impl Strategy<Value = Candidate> {
     (1usize..8)
         .prop_flat_map(|n| {
             let shapes = prop::collection::vec(

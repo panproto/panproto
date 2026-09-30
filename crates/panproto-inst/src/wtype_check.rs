@@ -29,7 +29,9 @@ pub fn is_reserved_edge_kind(kind: &str) -> bool {
 }
 
 /// Every place a tree holds reserved fan vocabulary, ascending in
-/// [`ViewRef`] order: each node of shape [`NodeShape::HyperEdge`]
+/// [`ViewRef`] order.
+///
+/// That is each node of shape [`NodeShape::HyperEdge`]
 /// (`ViewRef::Node`), then each arc whose edge kind is [`HYPER_PARENT_KIND`]
 /// or [`HYPER_LABEL_KIND`] (`ViewRef::Arc`).
 ///
@@ -77,10 +79,10 @@ pub fn reserved_vocabulary(tree: &WInstance) -> Vec<ViewRef> {
 /// Returns [`InstError::ReservedVocabulary`] naming the least offending
 /// element in [`ViewRef`] order (a node before any arc).
 pub fn check_reserved_vocabulary(tree: &WInstance) -> Result<(), InstError> {
-    match reserved_vocabulary(tree).into_iter().next() {
-        Some(at) => Err(InstError::ReservedVocabulary { at }),
-        None => Ok(()),
-    }
+    reserved_vocabulary(tree)
+        .into_iter()
+        .next()
+        .map_or(Ok(()), |at| Err(InstError::ReservedVocabulary { at }))
 }
 
 impl WInstance {

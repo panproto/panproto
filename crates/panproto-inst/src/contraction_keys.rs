@@ -26,9 +26,10 @@ pub type ComposedContractionKeys = (
     Vec<(Name, Name)>,
 );
 
-/// Carry a vertex of `m2`'s source space into its target space, or `None`
-/// when `m2` drops it. `m2.surviving_verts` is keyed in `m2`'s target space
-/// (the image of its vertex map), so the translated vertex is tested.
+/// Carry a vertex of `m2`'s source space into its target space.
+///
+/// `None` when `m2` drops it. `m2.surviving_verts` is keyed in `m2`'s target
+/// space (the image of its vertex map), so the translated vertex is tested.
 #[must_use]
 pub fn translate_vertex(m2: &CompiledMigration, v: &Name) -> Option<Name> {
     let translated = m2.vertex_remap.get(v).unwrap_or(v);
