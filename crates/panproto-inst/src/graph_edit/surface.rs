@@ -427,36 +427,18 @@ impl GraphEdit {
         }
     }
 
-    /// The inverse edit: `Delta(to_delta()?.invert())` whenever the edit
-    /// lowers without the instance.
+    /// The inverse edit: `Delta(to_delta()?.invert())`.
     ///
     /// An edit that needs the instance to lower (a `Reconnect`, or a `Batch`
-    /// holding one) inverts step by step instead: a `Reconnect` moves the
-    /// edge from `new` back to `old`, and a `Batch` is the inverses of its
-    /// steps in reverse order. Applying the edit and then its inverse
-    /// restores the instance either way.
+    /// holding one) has no stateless inverse; invert its lowering against
+    /// the instance instead,
+    /// `GraphEdit::Delta(edit.to_delta_in(instance)?.invert())`.
     ///
     /// # Errors
     ///
-    /// As [`Self::to_delta`], except [`ComposeError::NeedsState`].
+    /// As [`Self::to_delta`].
     pub fn invert(&self) -> Result<Self, ComposeError> {
-        match (self.to_delta(), self) {
-            (Ok(delta), _) => Ok(Self::Delta(delta.invert())),
-            (Err(ComposeError::NeedsState { .. }), Self::Reconnect { id, old, new }) => {
-                Ok(Self::Reconnect {
-                    id: *id,
-                    old: *new,
-                    new: *old,
-                })
-            }
-            (Err(ComposeError::NeedsState { .. }), Self::Batch(steps)) => steps
-                .iter()
-                .rev()
-                .map(Self::invert)
-                .collect::<Result<Vec<_>, _>>()
-                .map(Self::Batch),
-            (Err(err), _) => Err(err),
-        }
+        Ok(Self::Delta(self.to_delta()?.invert()))
     }
 
     // -----------------------------------------------------------------------

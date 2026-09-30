@@ -1078,13 +1078,21 @@ fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
 fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
     let g = triangle();
     let reconnect = GraphEdit::reconnect(&g, EdgeId(1), 0, 0)?;
-    let inverse = reconnect.invert()?;
+    // Without the instance a reconnect has no inverse.
+    assert!(matches!(
+        reconnect.invert(),
+        Err(ComposeError::NeedsState {
+            elem: ElemRef::Edge(EdgeId(1))
+        })
+    ));
+    let inverse = GraphEdit::Delta(reconnect.to_delta_in(&g)?.invert());
     let mut h = g.clone();
     reconnect.apply(&mut h)?;
     assert_eq!(edge_of(&h, 1)?.src, 0);
     inverse.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
-    // A batch mixing a delta step and reconnects inverts step by step.
+    // A batch mixing a delta step and reconnects inverts through its
+    // lowering against the instance.
     let batch = GraphEdit::Batch(vec![
         GraphEdit::AddEdge {
             id: EdgeId(7),
@@ -1101,16 +1109,48 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
             new: (0, 1),
         },
     ]);
-    let inverse = batch.invert()?;
+    let inverse = GraphEdit::Delta(batch.to_delta_in(&g)?.invert());
     let mut h = g.clone();
     batch.apply(&mut h)?;
     let seven = edge_of(&h, 7)?;
     assert_eq!((seven.src, seven.tgt), (0, 1));
     inverse.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
-    // An edit that lowers without the instance still inverts to a delta.
+    // An edit that lowers without the instance inverts to a delta.
     let relabel = GraphEdit::relabel_node(&g, 1, "agent")?;
     assert!(matches!(relabel.invert()?, GraphEdit::Delta(_)));
+    Ok(())
+}
+
+#[test]
+fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() -> TestResult {
+    let add = GraphEdit::AddEdge {
+        id: EdgeId(7),
+        edge: GEdge::new(1, 2, label("likes")),
+    };
+    let reconnect = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        old: (1, 2),
+        new: (0, 2),
+    };
+    // Two adds of one id do not compose; the reconnect does not lower
+    // without the instance. Either order must invert as `to_delta` lowers.
+    let orders = [
+        vec![reconnect.clone(), add.clone(), add.clone()],
+        vec![add.clone(), add.clone(), reconnect.clone()],
+        vec![reconnect.clone()],
+    ];
+    for steps in orders {
+        let batch = GraphEdit::Batch(steps);
+        let expected = batch.to_delta().map(|d| GraphEdit::Delta(d.invert()));
+        let agrees = match (batch.invert(), expected) {
+            (Ok(GraphEdit::Delta(got)), Ok(GraphEdit::Delta(want))) => got == want,
+            (Err(got), Err(want)) => got == want,
+            _ => false,
+        };
+        assert!(agrees, "{batch:?}");
+        assert!(batch.invert().is_err(), "{batch:?}");
+    }
     Ok(())
 }
 
