@@ -479,6 +479,130 @@ mod strict_put {
         let back = panproto_lens::put(&lens, &view, &complement).unwrap();
         assert_eq!(back.nodes[&0].extra_fields["n"], Value::Int(6));
     }
+
+    /// `double = n + n` on `r`, with no inverse.
+    fn doubling(lens: &mut Lens) {
+        lens.compiled.field_transforms.insert(
+            "r".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "double".into(),
+                expr: Expr::Builtin(BuiltinOp::Add, vec![var("n"), var("n")]),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            }],
+        );
+    }
+
+    /// A survival predicate failing on one node does not hide an edited
+    /// computed field on another: both are reported.
+    #[test]
+    fn check_put_domain_reports_a_failed_predicate_and_an_edited_derived_cell() {
+        let mut lens = plain_lens();
+        lens.compiled.conditional_survival.insert(
+            "c".into(),
+            Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![var("level"), Expr::Lit(Literal::Int(2))],
+            ),
+        );
+        doubling(&mut lens);
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        let view = edited(&view, 1, "level", Value::Int(3));
+        let view = edited(&view, 0, "double", Value::Int(10));
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Err(vec![
+                PutDomainError::SurvivalPredicateFails {
+                    elem: ViewRef::Node(1),
+                },
+                PutDomainError::DerivedCellEdited {
+                    elem: ViewRef::Node(0),
+                    field: "double".into(),
+                },
+            ])
+        );
+    }
+
+    /// A structural violation does not hide the value violations of the
+    /// nodes put can still restore: an arc under a label no source edge
+    /// carries and an edited computed field are both reported, and `put`
+    /// returns the first.
+    #[test]
+    fn check_put_domain_reports_structural_and_value_violations_together() {
+        let mut lens = plain_lens();
+        doubling(&mut lens);
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        let mut view = edited(&view, 0, "double", Value::Int(10));
+        view.nodes.insert(5, Node::new(5, "c"));
+        view.arcs.push((0, 5, prop("r", "c", "stray")));
+        let view = WInstance::new(view.nodes, view.arcs, vec![], 0, "r".into());
+        let unrepresentable = PutDomainError::UnrepresentableViewEdge {
+            elem: ViewRef::Arc {
+                parent: 0,
+                child: 5,
+            },
+        };
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Err(vec![
+                unrepresentable.clone(),
+                PutDomainError::DerivedCellEdited {
+                    elem: ViewRef::Node(0),
+                    field: "double".into(),
+                },
+            ])
+        );
+        let put = panproto_lens::put(&lens, &view, &complement);
+        assert!(
+            matches!(&put, Err(LensError::PutDomain(first)) if *first == unrepresentable),
+            "{put:?}"
+        );
+    }
+
+    /// An id collision, which stops the reassembly `put` makes, does not
+    /// hide an edited computed field on another node.
+    #[test]
+    fn check_put_domain_reports_an_id_collision_and_an_edited_derived_cell() {
+        let src = schema(
+            &[("r", "object"), ("c", "object"), ("d", "object")],
+            &[prop("r", "c", "c"), prop("r", "d", "d")],
+        );
+        let tgt = schema(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")]);
+        let m = migration(
+            &[("r", "r"), ("c", "c")],
+            vec![(prop("r", "c", "c"), prop("r", "c", "c"))],
+            vec![],
+        );
+        let mut lens = lens(src, tgt, &m);
+        doubling(&mut lens);
+        let mut r = Node::new(0, "r");
+        r.extra_fields.insert("n".into(), Value::Int(1));
+        let source = WInstance::new(
+            HashMap::from([(0, r), (1, Node::new(1, "c")), (2, Node::new(2, "d"))]),
+            vec![(0, 1, prop("r", "c", "c")), (0, 2, prop("r", "d", "d"))],
+            vec![],
+            0,
+            "r".into(),
+        );
+        let (view, complement) = panproto_lens::get(&lens, &source).unwrap();
+        assert!(complement.dropped_nodes.contains_key(&2));
+        let mut view = edited(&view, 0, "double", Value::Int(10));
+        view.nodes.insert(2, Node::new(2, "c"));
+        view.arcs.push((0, 2, prop("r", "c", "c")));
+        let view = WInstance::new(view.nodes, view.arcs, vec![], 0, "r".into());
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Err(vec![
+                PutDomainError::IdCollision {
+                    elem: ViewRef::Node(2),
+                },
+                PutDomainError::DerivedCellEdited {
+                    elem: ViewRef::Node(0),
+                    field: "double".into(),
+                },
+            ])
+        );
+    }
 }
 
 /// What a tree complement counts as residue: the information in the source
@@ -700,6 +824,69 @@ mod fresh_ids {
             back.nodes[&fresh].value,
             Some(FieldPresence::Present(Value::Str("new".into())))
         );
+    }
+
+    /// `r(0) -> leaf(top)`.
+    fn leaf_at(top: u32) -> (Lens, WInstance) {
+        let (lens, _) = two_leaves();
+        let source = WInstance::new(
+            HashMap::from([(0, Node::new(0, "r")), (top, leaf(top, "a"))]),
+            vec![(0, top, prop("r", "leaf", "leaf"))],
+            vec![],
+            0,
+            "r".into(),
+        );
+        (lens, source)
+    }
+
+    /// The fresh id for a view of `r(0) -> leaf(top)` that deletes the leaf,
+    /// and whether the source's graph form can allocate one more node.
+    fn fresh_after_deleting(top: u32) -> (Result<u32, panproto_inst::InstError>, bool) {
+        let (lens, source) = leaf_at(top);
+        let (view, complement) = panproto_lens::get(&lens, &source).unwrap();
+        let edited = WInstance::new(
+            HashMap::from([(0, view.nodes[&0].clone())]),
+            vec![],
+            vec![],
+            0,
+            "r".into(),
+        );
+        // A source whose graph form cannot be built for want of ids can
+        // allocate none.
+        let graph_allocates = panproto_inst::GInstance::from_wtype_embedded(&source, None)
+            .is_ok_and(|(_, mut embedding)| embedding.allocate_node().is_ok());
+        (fresh_view_node_id(&edited, &complement), graph_allocates)
+    }
+
+    /// A source holding the largest node id leaves no fresh id: allocation
+    /// reports exhaustion rather than handing out the deleted id.
+    #[test]
+    fn a_source_holding_the_largest_id_leaves_no_fresh_id() {
+        let (fresh, graph_allocates) = fresh_after_deleting(u32::MAX);
+        assert!(
+            matches!(fresh, Err(panproto_inst::InstError::NodeIdsExhausted)),
+            "{fresh:?}"
+        );
+        assert!(!graph_allocates);
+    }
+
+    /// Near the top of the id space the tree floor allocates exactly as the
+    /// source's graph form does: no id when the graph form has none left,
+    /// the floor otherwise.
+    #[test]
+    fn fresh_ids_near_the_top_follow_the_graph_form() {
+        for top in [u32::MAX - 2, u32::MAX - 1] {
+            let (fresh, graph_allocates) = fresh_after_deleting(top);
+            assert_eq!(fresh.is_ok(), graph_allocates, "top {top}: {fresh:?}");
+            if let Ok(id) = fresh {
+                assert_eq!(id, top + 1);
+            } else {
+                assert!(
+                    matches!(fresh, Err(panproto_inst::InstError::NodeIdsExhausted)),
+                    "{fresh:?}"
+                );
+            }
+        }
     }
 }
 

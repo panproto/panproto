@@ -599,8 +599,9 @@ pub(crate) fn get_with_identity(
         // field is populated only by the restrict pipeline.
         contracted_into: HashMap::new(),
         original_anchors,
-        // A source whose ids run out has no floor below `u32::MAX`; its
-        // fresh allocations then fail on the ids the view holds.
+        // A source holding the id `u32::MAX` has a floor above every `u32`;
+        // it records `u32::MAX`, against which `fresh_view_node_id` reports
+        // exhaustion.
         id_floor: panproto_inst::complement::tree_id_floor(instance).unwrap_or(u32::MAX),
         synthesized_keys: std::collections::BTreeMap::new(),
         identity: None,
@@ -721,7 +722,13 @@ pub(crate) fn put_with_identity(
 ///   or a computed field), or one written by a transform with no inverse.
 ///
 /// All violations are reported, ordered by variant (the declaration order
-/// of [`PutDomainError`]) and then by the element's [`ViewRef`]. Put is
+/// of [`PutDomainError`]) and then by the element's [`ViewRef`]. The value
+/// checks run on every view node whose restoration a structural violation
+/// leaves determined, so a structural violation elsewhere in the view hides
+/// none of them: a view node colliding with a dropped node is checked as
+/// the view holds it, and only a node with no single source anchor, or
+/// under an arc with no single source edge, is left out together with the
+/// view subtree below it, since `put` has nothing to restore it as. Put is
 /// total on views for which this returns `Ok`.
 ///
 /// # Errors
@@ -735,12 +742,88 @@ pub fn check_put_domain(
     complement: &Complement,
 ) -> Result<(), Vec<PutDomainError>> {
     let mut found = structural_violations(lens, view, complement);
-    if found.is_empty()
-        && let Ok(source) = reassemble(lens, view, complement)
-    {
-        found = value_violations(lens, view, complement, &source);
+    let restorable = if found.is_empty() {
+        None
+    } else {
+        Some(restorable_part(view, complement, &found))
+    };
+    let (view, complement) = restorable
+        .as_ref()
+        .map_or((view, complement), |(view, complement)| (view, complement));
+    if let Ok(source) = reassemble(lens, view, complement) {
+        found.extend(value_violations(lens, view, complement, &source));
     }
+    let found = in_report_order(found);
     if found.is_empty() { Ok(()) } else { Err(found) }
+}
+
+/// The part of `view` and `complement` that `put` can still restore given
+/// the structural violations `found`: the view without every node that
+/// has no single source anchor or sits under an arc with no single source
+/// edge (and without the view subtree below each), and the complement
+/// without the dropped nodes a view node collides with, so that the view
+/// node is restored in their place.
+fn restorable_part(
+    view: &WInstance,
+    complement: &Complement,
+    found: &[PutDomainError],
+) -> (WInstance, Complement) {
+    let mut complement = complement.clone();
+    let mut unrestorable: Vec<u32> = Vec::new();
+    for violation in found {
+        match violation {
+            PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            } => {
+                complement.dropped_nodes.remove(id);
+            }
+            PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
+                ..
+            } => unrestorable.push(*id),
+            PutDomainError::ContractedEdgeInserted {
+                elem: ViewRef::Arc { child, .. },
+            }
+            | PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Arc { child, .. },
+            } => unrestorable.push(*child),
+            _ => {}
+        }
+    }
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for (parent, child, _) in &view.arcs {
+        children.entry(*parent).or_default().push(*child);
+    }
+    let mut removed: HashSet<u32> = HashSet::new();
+    while let Some(id) = unrestorable.pop() {
+        if id != view.root && removed.insert(id) {
+            unrestorable.extend(children.get(&id).into_iter().flatten().copied());
+        }
+    }
+    let nodes = view
+        .nodes
+        .iter()
+        .filter(|(id, _)| !removed.contains(*id))
+        .map(|(id, node)| (*id, node.clone()))
+        .collect();
+    let arcs = view
+        .arcs
+        .iter()
+        .filter(|(parent, child, _)| !removed.contains(parent) && !removed.contains(child))
+        .cloned()
+        .collect();
+    let fans = view
+        .fans
+        .iter()
+        .filter(|fan| {
+            !removed.contains(&fan.parent) && fan.children.values().all(|c| !removed.contains(c))
+        })
+        .cloned()
+        .collect();
+    (
+        WInstance::new(nodes, arcs, fans, view.root, view.schema_root.clone()),
+        complement,
+    )
 }
 
 /// Sort violations into report order and drop repeats.
@@ -864,10 +947,13 @@ fn produced_by_get(
 }
 
 /// The violations found by writing the view back and running the forward
-/// direction again on the result: a restored node whose survival predicate
-/// is false, and a computed field whose recomputed value is not the value
-/// the view holds.
+/// direction again on the result: every restored node whose survival
+/// predicate is false, and every computed field whose recomputed value is
+/// not the value the view holds.
 ///
+/// The forward transforms are recomputed with the survival predicates
+/// lifted, so a node whose predicate fails is still checked on its fields
+/// and its failure hides no derived-cell edit, on it or on any other node.
 /// A lens with no field transforms and no survival predicates has none, and
 /// is not run again.
 fn value_violations(
@@ -903,13 +989,23 @@ fn value_violations(
             }
         }
     }
-    if !found.is_empty() {
+    if compiled.field_transforms.is_empty() {
         return in_report_order(found);
     }
 
-    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, compiled)
+    let unconditional;
+    let forward = if compiled.conditional_survival.is_empty() {
+        compiled
+    } else {
+        unconditional = panproto_inst::CompiledMigration {
+            conditional_survival: HashMap::new(),
+            ..compiled.clone()
+        };
+        &unconditional
+    };
+    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, forward)
     else {
-        return Vec::new();
+        return in_report_order(found);
     };
     for (&id, view_node) in &view.nodes {
         if complement.synthesized_nodes.contains(&id) {
