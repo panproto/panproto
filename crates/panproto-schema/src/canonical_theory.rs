@@ -793,6 +793,81 @@ mod tests {
         assert_ne!(canonical_theory_bytes(&ab), canonical_theory_bytes(&a));
     }
 
+    /// Two elements of one kind that share a name, as `Theory::full`
+    /// accepts them, listed in either order.
+    fn same_name_pairs(reversed: bool) -> Theory {
+        fn pair<T>(reversed: bool, a: T, b: T) -> Vec<T> {
+            if reversed { vec![b, a] } else { vec![a, b] }
+        }
+        let directed = |lhs: &str, rhs: &str| DirectedEquation {
+            name: "d".into(),
+            lhs: Term::app("f", vec![Term::var(lhs)]),
+            rhs: Term::var(rhs),
+            impl_term: panproto_expr::Expr::Var("x".into()),
+            inverse: None,
+            source_kind: None,
+            target_kind: None,
+            coercion_class: CoercionClass::Iso,
+        };
+        let policy = |strategy| ConflictPolicy {
+            name: "p".into(),
+            value_kind: panproto_gat::ValueKind::Str,
+            strategy,
+        };
+        Theory::full(
+            "T",
+            vec![],
+            pair(
+                reversed,
+                Sort::simple("V"),
+                Sort::dependent("V", vec![SortParam::new("v", "W")]),
+            ),
+            pair(
+                reversed,
+                Operation::unary("f", "x", "V", "W"),
+                Operation::unary("f", "x", "W", "V"),
+            ),
+            pair(
+                reversed,
+                Equation::new("e", Term::var("x"), Term::var("y")),
+                Equation::new("e", Term::var("y"), Term::var("x")),
+            ),
+            pair(reversed, directed("x", "x"), directed("y", "y")),
+            pair(
+                reversed,
+                policy(ConflictStrategy::KeepLeft),
+                policy(ConflictStrategy::KeepRight),
+            ),
+        )
+    }
+
+    #[test]
+    fn theory_bytes_order_same_name_elements_by_their_content() {
+        let forward = same_name_pairs(false);
+        let backward = same_name_pairs(true);
+        for (kind, len) in [
+            ("sorts", forward.sorts.len()),
+            ("ops", forward.ops.len()),
+            ("eqs", forward.eqs.len()),
+            ("directed_eqs", forward.directed_eqs.len()),
+            ("policies", forward.policies.len()),
+        ] {
+            assert_eq!(len, 2, "the theory keeps both {kind}");
+        }
+        assert_eq!(
+            hex(&canonical_theory_bytes(&forward)),
+            hex(&canonical_theory_bytes(&backward))
+        );
+        // Each pair still differs by content: dropping either element of
+        // any pair changes the bytes.
+        let mut fewer = forward.clone();
+        fewer.eqs.pop();
+        assert_ne!(
+            canonical_theory_bytes(&forward),
+            canonical_theory_bytes(&fewer)
+        );
+    }
+
     #[test]
     fn composition_bytes_are_order_independent() {
         let reference = compose(&diagram(&[0, 1, 2, 3], &[0, 1, 2]), &opts())
