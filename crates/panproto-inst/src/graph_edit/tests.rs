@@ -985,6 +985,34 @@ fn anchor_use_meets_a_label_change_of_an_incident_edge_whatever_its_types() -> T
     Ok(())
 }
 
+/// Without the state, a label change cannot be told incident or not, so it
+/// meets an anchor change even when the edge avoids the re-anchored node:
+/// here edge 9 runs 2 -> 3 and node 0 is re-anchored, both application
+/// orders agree, and the pair is still reported dependent.
+#[test]
+fn anchor_use_meets_a_label_change_of_an_edge_away_from_the_node() -> TestResult {
+    let g = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(2, "a"))
+        .with_node(Node::new(3, "a"))
+        .with_edge_id(EdgeId(9), 2, 3, label("k"));
+    let a = GraphEdit::relabel_node(&g, 0, "b")?.to_delta()?;
+    let b = GraphEdit::relabel_edge(&g, EdgeId(9), label("l"))?.to_delta()?;
+    let (mut ab, mut ba) = (g.clone(), g);
+    a.apply(&mut ab)?;
+    b.apply(&mut ab)?;
+    b.apply(&mut ba)?;
+    a.apply(&mut ba)?;
+    assert!(GInstance::identical(&ab, &ba));
+    let want = EditConflict::AnchorUse {
+        node: 0,
+        user: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(9) }),
+    };
+    assert_eq!(a.independence(&b), vec![want.clone()]);
+    assert_eq!(a.merge(&b), Err(want));
+    Ok(())
+}
+
 /// Nodes 0 and 1 anchored `person` and fan node 5 (`arg`) whose parent edge
 /// 0 goes to node 0: a graph in the fan domain.
 fn one_fan() -> GInstance {
@@ -2161,4 +2189,31 @@ fn attr_encoders_cover_every_variant() {
         })
         .collect();
     assert_eq!(tags, (0..6).collect::<Vec<u8>>());
+}
+
+/// Outside composable triples, the case table defines one bracketing and
+/// not the other: an attribution change of node 4 cannot be followed by an
+/// add of node 4, yet that add followed by its delete cancels; and a delete
+/// of node 4 cannot be followed by an attribution change of it, yet an add
+/// followed by that delete cancels first.
+#[test]
+fn compose_is_associative_only_on_composable_triples() -> TestResult {
+    let attr = anchor_change(4, "o", "x")?;
+    let add = GraphDelta::identity().with_added_node(Node::new(4, "q"));
+    let del = GraphDelta::identity().with_deleted_node(Node::new(4, "q"));
+    assert_eq!(
+        attr.compose(&add),
+        Err(ComposeError::Mismatch {
+            elem: ElemRef::Node(4)
+        })
+    );
+    assert_eq!(attr.compose(&add.compose(&del)?)?, attr);
+    assert_eq!(add.compose(&del)?.compose(&attr)?, attr);
+    assert_eq!(
+        del.compose(&attr),
+        Err(ComposeError::Mismatch {
+            elem: ElemRef::Node(4)
+        })
+    );
+    Ok(())
 }

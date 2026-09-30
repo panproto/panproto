@@ -314,6 +314,18 @@ impl GraphDelta {
     /// delete with a later add of the same id is a replacement, never the
     /// identity; an add followed by a delete of the same payload cancels.
     ///
+    /// [`GraphDelta::identity`] is a unit on both sides. Composition is
+    /// associative on composable triples: when `a.compose(&b)` and
+    /// `b.compose(&c)` are both defined, the two bracketings of `a`, `b`,
+    /// `c` are both defined or both undefined, and equal when defined. On
+    /// other triples one bracketing can be defined without the other, since
+    /// the cancelling cell meets a mismatching one. With `add` and `del` an
+    /// add and a delete of one node, and `attr` a change of that node's
+    /// anchor, `attr.compose(&add)` is a mismatch while
+    /// `attr.compose(&add.compose(&del)?)` is `attr`; and
+    /// `add.compose(&del)?.compose(&attr)` is `attr` while `del.compose(&attr)`
+    /// is a mismatch.
+    ///
     /// # Errors
     ///
     /// Returns [`ComposeError::Mismatch`] naming the first element, in the

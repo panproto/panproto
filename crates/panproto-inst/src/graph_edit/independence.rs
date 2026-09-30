@@ -78,14 +78,47 @@ pub enum EditConflict {
 }
 
 impl EditConflict {
-    /// Whether both deltas `a` and `b` (between which the conflict was found)
-    /// do the same thing to the element: a `DeleteDelete` with equal deleted
-    /// payloads, an `UpdateUpdate` with equal `new` values, or an `AddAdd`
-    /// with equal added payloads. Every other conflict is not benign.
+    /// Whether the conflict is benign: a `DeleteDelete` whose two deleted
+    /// payloads are equal, an `UpdateUpdate` whose two `new` values are
+    /// equal, or an `AddAdd` whose two added payloads are equal. `a` and `b`
+    /// are the two deltas the conflict was found between, in either order.
+    /// Every other conflict is not benign.
+    ///
+    /// Only the part the variant names is compared. A replacement deletes
+    /// too, so a delete and a replacement of one node with equal deleted
+    /// payloads give a benign `DeleteDelete`, although one delta leaves the
+    /// node deleted and the other adds a new node under its id; the pair
+    /// also has the conflict `DeleteUse` on that node, which is not benign.
     ///
     /// A benign conflict still makes the deltas dependent: applying one
     /// after the other fails, since the second finds its element already
     /// deleted, added or changed.
+    ///
+    /// ```
+    /// use panproto_inst::graph_edit::{EditConflict, ElemRef, GraphDelta, GraphDeltaParts};
+    /// use panproto_inst::metadata::Node;
+    ///
+    /// let old = Node::new(0, "a");
+    /// let mut delete = GraphDeltaParts::default();
+    /// delete.del_nodes.insert(0, old.clone());
+    /// let mut replace = delete.clone();
+    /// replace.add_nodes.insert(0, Node::new(0, "z"));
+    /// let (a, b) = (
+    ///     GraphDelta::normalize(delete).unwrap(),
+    ///     GraphDelta::normalize(replace).unwrap(),
+    /// );
+    /// let conflicts = a.independence(&b);
+    /// let node = ElemRef::Node(0);
+    /// assert_eq!(
+    ///     conflicts,
+    ///     vec![
+    ///         EditConflict::DeleteDelete { elem: node.clone() },
+    ///         EditConflict::DeleteUse { deleted: node.clone(), user: node },
+    ///     ],
+    /// );
+    /// assert!(conflicts[0].is_benign(&a, &b));
+    /// assert!(!conflicts[1].is_benign(&a, &b));
+    /// ```
     #[must_use]
     pub fn is_benign(&self, a: &GraphDelta, b: &GraphDelta) -> bool {
         match self {
