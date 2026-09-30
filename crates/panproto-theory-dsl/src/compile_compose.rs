@@ -556,6 +556,129 @@ mod tests {
         assert_eq!((theory, spec), (composed.theory, composed.spec));
     }
 
+    /// A one-step composition of `left` and `right` sharing `Vertex` and the
+    /// given operations, in `mode`, with the given sort identifications.
+    fn one_step(
+        left: &str,
+        right: &str,
+        shared_ops: &[&str],
+        mode: &str,
+        identify: &[(&str, &str)],
+    ) -> CompositionBody {
+        let identify: Vec<String> = identify
+            .iter()
+            .map(|(l, r)| format!(r#"{{"kind": "sort", "left": "{l}", "right": "{r}"}}"#))
+            .collect();
+        let shared_ops: Vec<String> = shared_ops.iter().map(|o| format!("\"{o}\"")).collect();
+        body(&format!(
+            r#"{{
+                "id": "test.sides",
+                "description": "a step over the given sides",
+                "compose": {{
+                    "result": "R",
+                    "steps": [{{
+                        "left": "{left}",
+                        "right": "{right}",
+                        "shared_sorts": ["Vertex"],
+                        "shared_ops": [{}],
+                        "mode": "{mode}",
+                        "identify": [{}]
+                    }}]
+                }}
+            }}"#,
+            shared_ops.join(", "),
+            identify.join(", "),
+        ))
+    }
+
+    /// Compile `body` over `local` and check that its recipe replays to its
+    /// theory against `registry`.
+    fn compile_and_replay(
+        body: &CompositionBody,
+        local: &HashMap<String, Theory>,
+        registry: &HashMap<String, Theory>,
+    ) -> Result<Theory, TheoryDslError> {
+        let composed = compile_composition_with_report(body, &builtin_resolver(), local)?;
+        let replayed = recompose(&composed.spec, registry)
+            .unwrap_or_else(|e| panic!("the recipe replays: {e}"));
+        assert_eq!(replayed, composed.theory);
+        Ok(composed.theory)
+    }
+
+    #[test]
+    fn dsl_identify_step_accepts_a_side_that_is_not_a_node_label() {
+        let mut graph = builtin_resolver()("ThGraph").unwrap_or_else(|| panic!("ThGraph"));
+        graph.name = "my.Graph".into();
+        let local: HashMap<String, Theory> = [("my.Graph".to_owned(), graph.clone())].into();
+        let mut with_local = registry(&["ThHypergraph"]);
+        with_local.insert("my.Graph".into(), graph);
+        for mode in ["amalgamate", "explicit_identity"] {
+            let reference = compile_and_replay(
+                &one_step(
+                    "ThGraph",
+                    "ThHypergraph",
+                    &[],
+                    mode,
+                    &[("Edge", "HyperEdge")],
+                ),
+                &HashMap::new(),
+                &registry(&["ThGraph", "ThHypergraph"]),
+            )
+            .unwrap_or_else(|e| panic!("{mode}: ThGraph composes: {e}"));
+            let theory = compile_and_replay(
+                &one_step(
+                    "my.Graph",
+                    "ThHypergraph",
+                    &[],
+                    mode,
+                    &[("Edge", "HyperEdge")],
+                ),
+                &local,
+                &with_local,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: my.Graph composes: {e}"));
+            assert_eq!(theory, reference, "{mode}");
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_composes_a_theory_with_itself() {
+        let graph = registry(&["ThGraph"]);
+        for (mode, shared_ops) in [
+            ("amalgamate", &[][..]),
+            ("explicit_identity", &["src", "tgt"][..]),
+        ] {
+            let without = compile_and_replay(
+                &one_step("ThGraph", "ThGraph", shared_ops, mode, &[]),
+                &HashMap::new(),
+                &graph,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: the step without identify composes: {e}"));
+            let with = compile_and_replay(
+                &one_step("ThGraph", "ThGraph", shared_ops, mode, &[("Edge", "Edge")]),
+                &HashMap::new(),
+                &graph,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: the step with identify composes: {e}"));
+            let names = |t: &Theory| {
+                let mut sorts: Vec<String> = t.sorts.iter().map(|s| s.name.to_string()).collect();
+                let mut ops: Vec<String> = t.ops.iter().map(|o| o.name.to_string()).collect();
+                sorts.sort();
+                ops.sort();
+                (sorts, ops)
+            };
+            assert_eq!(names(&with), names(&without), "{mode}");
+            assert_eq!(
+                names(&with),
+                (
+                    vec!["Edge".to_owned(), "Vertex".to_owned()],
+                    vec!["src".to_owned(), "tgt".to_owned()]
+                ),
+                "{mode}"
+            );
+        }
+    }
+
     #[test]
     fn dsl_compose_in_explicit_mode_refuses_an_unshared_name() {
         let body = body(
