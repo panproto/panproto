@@ -78,7 +78,7 @@ pub use edit_error::EditLensError;
 pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
-pub use error::{IdKind, LawViolation, LensError};
+pub use error::{LawViolation, LensError};
 pub use identity::ComplementIdentity;
 pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
 pub use lens_graph::LensGraph;
@@ -130,15 +130,20 @@ impl Lens {
     /// terminal and a source is determined by its view alone.
     ///
     /// A lens with complement decomposes its source as `S ≅ V × C`. It is
-    /// invertible on the nose exactly when `C ≅ 1`, since `S ≅ V × 1 ≅ V`.
-    /// Three things must hold for that, and each corresponds to one way the
+    /// invertible on the nose exactly when `C ≅ 1`, since `S ≅ V × 1 ≅ V`,
+    /// that is when every complement `get` produces has trivial residue
+    /// ([`Complement::residue_is_trivial`](panproto_inst::Complement::residue_is_trivial)).
+    /// Survival is read as `get` reads it, through the vertex remap, so an
+    /// injective rename is not a drop. The conditions, each one way the
     /// complement acquires residue:
     ///
-    /// 1. Every source vertex survives, so no node's data is set aside.
-    /// 2. Every source edge survives, up to renaming. A renamed edge is
-    ///    recorded in `edge_remap` and appears in `surviving_edges` under
-    ///    both spellings, so relabeling costs nothing.
-    /// 3. Every value-level transform is invertible, i.e. the composite
+    /// 1. Every source vertex survives, and none survives only under a
+    ///    predicate, so no node's data is set aside.
+    /// 2. No two source vertices share an image, so a view anchor
+    ///    determines the source anchor.
+    /// 3. Every source edge has an image in the target, and no two source
+    ///    edges share one, so a view arc determines its source edge.
+    /// 4. Every value-level transform is invertible, i.e. the composite
     ///    [`coercion_class`](Self::coercion_class) is
     ///    [`Iso`](panproto_gat::CoercionClass::Iso). A `Retraction`,
     ///    `Projection`, or `Opaque` transform is not injective, so the
@@ -146,8 +151,9 @@ impl Lens {
     ///    recovered from it.
     ///
     /// This is a *static* property of the lens, so it holds for every
-    /// source or for none. It is the precondition of
-    /// [`put_without_complement`], and
+    /// source or for none. It is exactly the test
+    /// [`put_without_complement`] makes before it reconstructs a source,
+    /// so the two agree on every lens, and
     /// [`obstruction_to_isomorphism`](Self::obstruction_to_isomorphism)
     /// names the first condition that fails.
     #[must_use]
@@ -159,39 +165,7 @@ impl Lens {
     /// is one. See [`is_isomorphism`](Self::is_isomorphism).
     #[must_use]
     pub fn obstruction_to_isomorphism(&self) -> Option<String> {
-        let dropped_vertex = self
-            .src_schema
-            .vertices
-            .keys()
-            .find(|v| !self.compiled.surviving_verts.contains(*v));
-        if let Some(v) = dropped_vertex {
-            return Some(format!(
-                "vertex `{v}` does not survive, so its data is set aside in the complement"
-            ));
-        }
-
-        let dropped_edge = self
-            .src_schema
-            .edges
-            .keys()
-            .find(|e| !self.compiled.surviving_edges.contains(*e));
-        if let Some(e) = dropped_edge {
-            return Some(format!(
-                "edge `{}` -> `{}` does not survive, so the arcs over it are set aside in the \
-                 complement",
-                e.src, e.tgt
-            ));
-        }
-
-        let class = self.coercion_class();
-        if !matches!(class, panproto_gat::CoercionClass::Iso) {
-            return Some(format!(
-                "a value transform is classified `{class:?}`, which is not injective, so a view \
-                 value does not determine the source value it came from"
-            ));
-        }
-
-        None
+        asymmetric::obstruction_to_tree_isomorphism(self)
     }
 }
 

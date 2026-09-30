@@ -16,7 +16,7 @@ use panproto_inst::{Fan, Node, PutDomainError, ViewRef, WInstance, wtype_restric
 use panproto_schema::Edge;
 
 use crate::Lens;
-use crate::error::{IdKind, LensError};
+use crate::error::LensError;
 
 /// The complement: data discarded by `get`, needed by `put` to restore the
 /// original source instance.
@@ -627,10 +627,11 @@ pub(crate) fn get_with_identity(
 ///
 /// Returns [`LensError::Identity`] if the complement's identity is refused,
 /// [`LensError::ComplementMismatch`] if the complement is inconsistent with
-/// the view, [`LensError::IdCollision`] if a view node has the id of a node
-/// the complement holds, and [`LensError::AmbiguousReverseAnchor`] if a
-/// node added in the view, or moved in the view away from the anchor `get`
-/// gave it, has no single source anchor.
+/// the view, and [`LensError::PutDomain`] with the first violation
+/// [`check_put_domain`] reports when the view is outside the domain of
+/// `put` (for instance a view node with the id of a node the complement
+/// holds, or a node added in the view, or moved away from the anchor `get`
+/// gave it, with no single source anchor).
 pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WInstance, LensError> {
     put_with_identity(
         lens,
@@ -677,14 +678,14 @@ pub(crate) fn put_with_identity(
         .into_iter()
         .next()
     {
-        return Err(domain_error(first));
+        return Err(LensError::PutDomain(first));
     }
     let source = reassemble(lens, view, complement)?;
     if let Some(first) = value_violations(lens, view, complement, &source)
         .into_iter()
         .next()
     {
-        return Err(domain_error(first));
+        return Err(LensError::PutDomain(first));
     }
     Ok((source, status))
 }
@@ -704,6 +705,10 @@ pub(crate) fn put_with_identity(
 ///   source path can be written for it: `get` of any source puts a
 ///   contracted arc there only for a dropped interior node, which the view
 ///   does not name.
+/// * [`PutDomainError::UnrepresentableViewEdge`]: any other view arc that
+///   `get` did not produce whose label is the image of no source edge, or
+///   of more than one, between its endpoints' source anchors. `put` would
+///   have no source edge to write it back under.
 /// * [`PutDomainError::AmbiguousReverseAnchor`]: a view node added or moved
 ///   in the view is anchored at a vertex with several source preimages.
 /// * [`PutDomainError::SurvivalPredicateFails`]: a restored node's
@@ -738,28 +743,6 @@ pub fn check_put_domain(
     if found.is_empty() { Ok(()) } else { Err(found) }
 }
 
-/// The [`LensError`] tree `put` reports for a view outside its domain.
-///
-/// The collision and ambiguity keep their dedicated variants; every other
-/// violation is reported as a complement mismatch naming it.
-fn domain_error(violation: PutDomainError) -> LensError {
-    match violation {
-        PutDomainError::IdCollision {
-            elem: ViewRef::Node(id),
-        } => LensError::IdCollision {
-            kind: IdKind::Node,
-            id,
-        },
-        PutDomainError::AmbiguousReverseAnchor {
-            elem: ViewRef::Node(node),
-            candidates,
-        } => LensError::AmbiguousReverseAnchor { node, candidates },
-        other => LensError::ComplementMismatch {
-            detail: format!("the view is outside the domain of put: {other}"),
-        },
-    }
-}
-
 /// Sort violations into report order and drop repeats.
 fn in_report_order(mut found: Vec<PutDomainError>) -> Vec<PutDomainError> {
     found.sort_by(|a, b| {
@@ -789,7 +772,8 @@ fn violation_ref(violation: &PutDomainError) -> Option<ViewRef> {
 }
 
 /// The violations read off the view and complement alone: id collisions,
-/// arcs inserted across a contracted pair, and ambiguous reverse anchors.
+/// arcs inserted across a contracted pair, arcs with no single source edge,
+/// and ambiguous reverse anchors.
 fn structural_violations(
     lens: &Lens,
     view: &WInstance,
@@ -825,13 +809,7 @@ fn structural_violations(
             Ok(anchor) => {
                 anchors.insert(id, anchor.clone());
             }
-            Err(LensError::AmbiguousReverseAnchor { candidates, .. }) => {
-                found.push(PutDomainError::AmbiguousReverseAnchor {
-                    elem: ViewRef::Node(id),
-                    candidates,
-                });
-            }
-            Err(_) => {}
+            Err(violation) => found.push(violation),
         }
     }
 
@@ -845,20 +823,22 @@ fn structural_violations(
         let (Some(src_anchor), Some(tgt_anchor)) = (anchors.get(parent), anchors.get(child)) else {
             continue;
         };
-        let representable = lens
+        let preimages = lens
             .src_schema
             .edges_between(src_anchor, tgt_anchor)
             .iter()
-            .any(|candidate| edge_image(lens, candidate) == *edge);
-        if !representable
-            && contracted_pair_label(lens, src_anchor, tgt_anchor).as_ref() == Some(edge)
-        {
-            found.push(PutDomainError::ContractedEdgeInserted {
-                elem: ViewRef::Arc {
-                    parent: *parent,
-                    child: *child,
-                },
-            });
+            .filter(|candidate| edge_image(lens, candidate) == *edge)
+            .count();
+        let elem = ViewRef::Arc {
+            parent: *parent,
+            child: *child,
+        };
+        match preimages {
+            1 => {}
+            0 if contracted_pair_label(lens, src_anchor, tgt_anchor).as_ref() == Some(edge) => {
+                found.push(PutDomainError::ContractedEdgeInserted { elem });
+            }
+            _ => found.push(PutDomainError::UnrepresentableViewEdge { elem }),
         }
     }
 
@@ -1065,7 +1045,7 @@ fn contracted_pair_label(lens: &Lens, a: &Name, b: &Name) -> Option<Edge> {
 /// anchor that the vertex remap alone cannot. A node the view added, or a
 /// view edge that is the image of no source edge, falls back to the vertex
 /// remap's inverse, keeping the recorded anchor while it still fits. Several candidates are reported as
-/// [`LensError::AmbiguousReverseAnchor`] rather than picked from, unless
+/// [`PutDomainError::AmbiguousReverseAnchor`] rather than picked from, unless
 /// the recorded anchor is one of them.
 fn restored_anchor<'a>(
     lens: &Lens,
@@ -1075,7 +1055,7 @@ fn restored_anchor<'a>(
     id: u32,
     view_anchor: &'a Name,
     view_arc: Option<(u32, &Edge)>,
-) -> Result<&'a Name, LensError> {
+) -> Result<&'a Name, PutDomainError> {
     let recorded = complement.original_anchors.get(&id).filter(|recorded| {
         lens.compiled
             .vertex_remap
@@ -1127,8 +1107,8 @@ fn restored_anchor<'a>(
                 .original_anchors
                 .get(&id)
                 .filter(|recorded| many.contains(recorded));
-            return from_record.ok_or_else(|| LensError::AmbiguousReverseAnchor {
-                node: id,
+            return from_record.ok_or_else(|| PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
                 candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
             });
         }
@@ -1138,8 +1118,8 @@ fn restored_anchor<'a>(
         || {
             reverse_anchors
                 .source_anchor(view_anchor)
-                .map_err(|candidates| LensError::AmbiguousReverseAnchor {
-                    node: id,
+                .map_err(|candidates| PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(id),
                     candidates: candidates.to_vec(),
                 })
         },
@@ -1204,8 +1184,7 @@ fn reassemble(
         if complement.synthesized_nodes.contains(&id) {
             continue;
         }
-        let mut restored_node = node.clone();
-        restored_node.anchor.clone_from(restored_anchor(
+        let anchor = restored_anchor(
             lens,
             &reverse_anchors,
             &edge_preimages,
@@ -1213,7 +1192,10 @@ fn reassemble(
             id,
             &node.anchor,
             view_arc_into.get(&id).copied(),
-        )?);
+        )
+        .map_err(LensError::PutDomain)?;
+        let mut restored_node = node.clone();
+        restored_node.anchor.clone_from(anchor);
         // Restore original extra_fields.
         //
         // When a complement snapshot is present, start from the snapshot
@@ -1253,10 +1235,9 @@ fn reassemble(
     dropped_ids.sort_unstable();
     for id in dropped_ids {
         if nodes.contains_key(&id) {
-            return Err(LensError::IdCollision {
-                kind: IdKind::Node,
-                id,
-            });
+            return Err(LensError::PutDomain(PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            }));
         }
         nodes.insert(id, complement.dropped_nodes[&id].clone());
     }
@@ -1906,7 +1887,7 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
 /// then residue); a source edge with no image in the target; two source
 /// edges between the same vertices with one image (their arcs' edges are
 /// then residue); and a value transform that is not an isomorphism.
-fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
+pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
     let compiled = &lens.compiled;
     let mut vertices: Vec<&Name> = lens.src_schema.vertices.keys().collect();
     vertices.sort();
@@ -2053,9 +2034,13 @@ fn find_original_arc(
     chosen.map(|edge| (parent_id, child_id, edge.clone()))
 }
 
-/// The view edge `get` carries source edge `source` onto: its entry in the
-/// explicit edge remap, or, for an edge the remap does not name, the same
-/// kind and label across remapped endpoints.
+/// The view edge `get` carries source edge `source` onto, by the rule
+/// `wtype_restrict` applies to a direct source arc: its entry in the
+/// explicit edge remap; else the target edge with the same kind and label
+/// across the remapped endpoints; else, when `source` is the only source
+/// edge between its endpoints, the resolver's edge for the remapped
+/// endpoint pair. With none of these the same kind and label across the
+/// remapped endpoints is returned, which is no target edge.
 fn edge_image(lens: &Lens, source: &Edge) -> Edge {
     if let Some(mapped) = lens.compiled.edge_remap.get(source) {
         return mapped.clone();
@@ -2067,12 +2052,28 @@ fn edge_image(lens: &Lens, source: &Edge) -> Edge {
             .cloned()
             .unwrap_or_else(|| vertex.clone())
     };
-    Edge {
+    let carried = Edge {
         src: remap(&source.src),
         tgt: remap(&source.tgt),
         kind: source.kind.clone(),
         name: source.name.clone(),
+    };
+    if lens.tgt_schema.edges.contains_key(&carried) {
+        return carried;
     }
+    if lens
+        .src_schema
+        .edges_between(&source.src, &source.tgt)
+        .len()
+        == 1
+        && let Some(resolved) = lens
+            .compiled
+            .resolver
+            .get(&(carried.src.clone(), carried.tgt.clone()))
+    {
+        return resolved.clone();
+    }
+    carried
 }
 
 #[cfg(test)]
@@ -2318,10 +2319,10 @@ mod tests {
             reanchor(&mut view, 1, "t2", "unmapped");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::AmbiguousReverseAnchor {
-                    node: 1,
+                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
                     candidates,
-                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }
@@ -2477,10 +2478,10 @@ mod tests {
             reanchor(&mut view, 1, "t2", "m");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::AmbiguousReverseAnchor {
-                    node: 1,
+                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
                     candidates,
-                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }

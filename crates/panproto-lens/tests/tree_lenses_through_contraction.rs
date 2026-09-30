@@ -235,7 +235,65 @@ mod put_domain {
         );
         let put = panproto_lens::put(&lens, &view, &complement);
         assert!(
-            matches!(put, Err(LensError::ComplementMismatch { .. })),
+            matches!(
+                put,
+                Err(LensError::PutDomain(
+                    PutDomainError::ContractedEdgeInserted {
+                        elem: ViewRef::Arc {
+                            parent: 0,
+                            child: 3
+                        }
+                    }
+                ))
+            ),
+            "{put:?}"
+        );
+    }
+
+    /// A view arc whose label is the image of no source edge between its
+    /// endpoints' source anchors, and is not a contracted pair's label,
+    /// has nowhere to go in the source: `put` refuses it rather than
+    /// dropping the arc and the node under it.
+    #[test]
+    fn a_view_arc_whose_label_no_source_edge_carries_is_rejected() {
+        let src = schema(&[("r", "object"), ("a", "string")], &[prop("r", "a", "a")]);
+        let m = migration(
+            &[("r", "r"), ("a", "a")],
+            vec![(prop("r", "a", "a"), prop("r", "a", "a"))],
+            vec![],
+        );
+        let lens = lens(src.clone(), src, &m);
+        let source = WInstance::new(
+            HashMap::from([(0, Node::new(0, "r")), (1, Node::new(1, "a"))]),
+            vec![(0, 1, prop("r", "a", "a"))],
+            vec![],
+            0,
+            "r".into(),
+        );
+        let (mut view, complement) = panproto_lens::get(&lens, &source).unwrap();
+        view.nodes.insert(6, Node::new(6, "a"));
+        view.arcs.push((0, 6, prop("r", "a", "bogus")));
+        let view = WInstance::new(
+            view.nodes,
+            view.arcs,
+            view.fans,
+            view.root,
+            view.schema_root,
+        );
+
+        let expected = PutDomainError::UnrepresentableViewEdge {
+            elem: ViewRef::Arc {
+                parent: 0,
+                child: 6,
+            },
+        };
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Err(vec![expected.clone()])
+        );
+        let put = panproto_lens::put(&lens, &view, &complement);
+        assert!(
+            matches!(&put, Err(LensError::PutDomain(first)) if *first == expected),
             "{put:?}"
         );
     }
@@ -308,15 +366,15 @@ mod strict_put {
         lens: &Lens,
         view: &WInstance,
         complement: &panproto_lens::Complement,
-        expected: PutDomainError,
+        expected: &PutDomainError,
     ) {
         assert_eq!(
             panproto_lens::asymmetric::check_put_domain(lens, view, complement),
-            Err(vec![expected])
+            Err(vec![expected.clone()])
         );
         let put = panproto_lens::put(lens, view, complement);
         assert!(
-            matches!(put, Err(LensError::ComplementMismatch { .. })),
+            matches!(&put, Err(LensError::PutDomain(first)) if first == expected),
             "{put:?}"
         );
     }
@@ -338,7 +396,7 @@ mod strict_put {
             &lens,
             &view,
             &complement,
-            PutDomainError::SurvivalPredicateFails {
+            &PutDomainError::SurvivalPredicateFails {
                 elem: ViewRef::Node(1),
             },
         );
@@ -367,7 +425,7 @@ mod strict_put {
             &lens,
             &view,
             &complement,
-            PutDomainError::DerivedCellEdited {
+            &PutDomainError::DerivedCellEdited {
                 elem: ViewRef::Node(0),
                 field: "double".into(),
             },
@@ -393,7 +451,7 @@ mod strict_put {
             &lens,
             &view,
             &complement,
-            PutDomainError::TransformNotInvertible {
+            &PutDomainError::TransformNotInvertible {
                 elem: ViewRef::Node(0),
                 field: "n".into(),
             },
@@ -428,24 +486,53 @@ mod strict_put {
 mod residue {
     use super::*;
 
-    /// A complement recording only contraction bookkeeping (which pair
-    /// contracted to which label, and which dropped node collapsed into
-    /// which ancestor) has trivial residue: both are derivable from the
+    /// The static classification and `put_without_complement` agree on
+    /// `lens`: the lens is an isomorphism exactly when a source is rebuilt
+    /// from `view` alone.
+    fn assert_classification_agrees(lens: &Lens, view: &WInstance) {
+        let rebuilt = panproto_lens::put_without_complement(lens, view);
+        assert_eq!(
+            lens.is_isomorphism(),
+            rebuilt.is_ok(),
+            "classification {:?} disagrees with put_without_complement {:?}",
+            lens.obstruction_to_isomorphism(),
+            rebuilt.as_ref().err()
+        );
+    }
+
+    /// A contracting lens drops the interior node, which is residue, so it
+    /// is not an isomorphism and the classification and
+    /// `put_without_complement` both say so. What `get` records about the
+    /// contraction itself (which pair contracted to which label, and which
+    /// dropped node collapsed into which ancestor) is bookkeeping: on its
+    /// own it leaves the residue trivial, since it is derivable from the
     /// view, the dropped nodes, the parent map and the resolver.
     #[test]
-    fn residue_classification_agrees_across_shapes_on_contraction_bookkeeping() {
-        let mut complement = panproto_lens::Complement::empty();
-        complement
+    fn tree_residue_classification_agrees_on_contraction_bookkeeping() {
+        let lens = contracting_lens(false);
+        let (view, complement) = panproto_lens::get(&lens, &contracting_source()).unwrap();
+        assert!(!lens.is_isomorphism());
+        assert!(!complement.residue_is_trivial(), "{complement:?}");
+        assert_classification_agrees(&lens, &view);
+
+        assert_eq!(
+            complement.contraction_choices,
+            HashMap::from([((0, 2), prop("r", "leaf", "label"))])
+        );
+        let mut bookkeeping = panproto_lens::Complement::empty();
+        bookkeeping
             .contraction_choices
-            .insert((0, 2), prop("r", "leaf", "label"));
-        complement.contracted_into.insert(1, 0);
-        assert!(complement.residue_is_trivial());
+            .clone_from(&complement.contraction_choices);
+        bookkeeping
+            .contracted_into
+            .clone_from(&complement.contracted_into);
+        assert!(bookkeeping.residue_is_trivial(), "{bookkeeping:?}");
     }
 
     /// An injective vertex rename loses nothing: the residue is trivial and
     /// the source is rebuilt from the view alone.
     #[test]
-    fn residue_classification_agrees_across_shapes_on_an_injective_rename() {
+    fn tree_residue_classification_agrees_on_an_injective_rename() {
         let src = schema(&[("r", "object"), ("a", "string")], &[prop("r", "a", "a")]);
         let tgt = schema(&[("r", "object"), ("b", "string")], &[prop("r", "b", "a")]);
         let m = migration(
@@ -469,6 +556,12 @@ mod residue {
         );
         let (view, complement) = panproto_lens::get(&lens, &source).unwrap();
         assert!(complement.residue_is_trivial(), "{complement:?}");
+        assert!(
+            lens.is_isomorphism(),
+            "{:?}",
+            lens.obstruction_to_isomorphism()
+        );
+        assert_classification_agrees(&lens, &view);
         let back = panproto_lens::put_without_complement(&lens, &view)
             .expect("an injective rename is an isomorphism");
         assert_eq!(sorted_arcs(&back), sorted_arcs(&source));
@@ -479,7 +572,7 @@ mod residue {
     /// cannot say which one an arc came from, so that is residue and the
     /// source cannot be rebuilt from the view alone.
     #[test]
-    fn residue_classification_agrees_across_shapes_on_merged_parallel_edges() {
+    fn tree_residue_classification_agrees_on_merged_parallel_edges() {
         let src = schema(
             &[("r", "object"), ("a", "string")],
             &[prop("r", "a", "x"), prop("r", "a", "y")],
@@ -508,7 +601,8 @@ mod residue {
         let (view, complement) = panproto_lens::get(&lens, &source).unwrap();
         assert!(!complement.residue_is_trivial(), "{complement:?}");
         assert_eq!(complement.arc_edges.len(), 2);
-        assert!(panproto_lens::put_without_complement(&lens, &view).is_err());
+        assert!(!lens.is_isomorphism());
+        assert_classification_agrees(&lens, &view);
         // With the complement the source comes back exactly.
         let back = panproto_lens::put(&lens, &view, &complement).unwrap();
         assert_eq!(sorted_arcs(&back), sorted_arcs(&source));
