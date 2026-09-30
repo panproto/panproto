@@ -396,8 +396,13 @@ impl GraphEdit {
         }
     }
 
-    /// Apply this edit to `graph`: [`Self::to_delta_in`], then
+    /// Apply this edit to `graph`: [`Self::to_delta`], then
     /// [`GraphDelta::apply`]. `graph` is unchanged on error.
+    ///
+    /// An edit that needs the instance to lower (a `Reconnect`, or a `Batch`
+    /// holding one) does not apply; apply its lowering against the instance
+    /// instead, `edit.to_delta_in(graph)?.apply(graph)`, or build the step
+    /// with [`Self::reconnect`].
     ///
     /// A failing [`Self::Batch`] is diagnosed by replaying its steps on a
     /// copy of `graph`: the error is [`EditError::BatchStep`] naming the
@@ -407,9 +412,13 @@ impl GraphEdit {
     ///
     /// # Errors
     ///
-    /// As [`Self::to_delta_in`] and [`GraphDelta::apply`].
+    /// [`EditError::Compose`] as [`Self::to_delta`] reports it, and as
+    /// [`GraphDelta::apply`].
     pub fn apply(&self, graph: &mut GInstance) -> Result<(), EditError> {
-        let result = self.to_delta_in(graph).and_then(|delta| delta.apply(graph));
+        let result = self
+            .to_delta()
+            .map_err(EditError::Compose)
+            .and_then(|delta| delta.apply(graph));
         match (result, self) {
             (Err(err), Self::Batch(steps)) => {
                 let mut replay = graph.clone();
@@ -575,18 +584,22 @@ impl GraphEdit {
         Ok(Self::RemoveEdge { id, edge })
     }
 
-    /// Move edge `id` to the endpoints `(src, tgt)`, reading its old ones.
+    /// Move edge `id` to the endpoints `(src, tgt)`: the replacement of the
+    /// edge under the same id, reading its old endpoints, label and position
+    /// from `graph`, as a [`Self::Delta`]. Unlike a bare [`Self::Reconnect`],
+    /// the step lowers, applies and inverts without the instance.
     ///
     /// # Errors
     ///
     /// Returns [`EditError::EdgeNotFound`] when `graph` has no such edge.
     pub fn reconnect(graph: &GInstance, id: EdgeId, src: u32, tgt: u32) -> Result<Self, EditError> {
         let edge = graph.edge(id).ok_or(EditError::EdgeNotFound(id))?;
-        Ok(Self::Reconnect {
+        let step = Self::Reconnect {
             id,
             old: (edge.src, edge.tgt),
             new: (src, tgt),
-        })
+        };
+        Ok(Self::Delta(step.to_delta_in(graph)?))
     }
 
     /// Change the label of edge `id`, reading its old label.

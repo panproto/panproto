@@ -1077,19 +1077,32 @@ fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
 #[test]
 fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
     let g = triangle();
-    let reconnect = GraphEdit::reconnect(&g, EdgeId(1), 0, 0)?;
-    // Without the instance a reconnect has no inverse.
+    let bare = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        old: (1, 2),
+        new: (0, 0),
+    };
+    // Without the instance a bare reconnect has no inverse.
     assert!(matches!(
-        reconnect.invert(),
+        bare.invert(),
         Err(ComposeError::NeedsState {
             elem: ElemRef::Edge(EdgeId(1))
         })
     ));
-    let inverse = GraphEdit::Delta(reconnect.to_delta_in(&g)?.invert());
+    let inverse = GraphEdit::Delta(bare.to_delta_in(&g)?.invert());
     let mut h = g.clone();
-    reconnect.apply(&mut h)?;
+    bare.to_delta_in(&g)?.apply(&mut h)?;
     assert_eq!(edge_of(&h, 1)?.src, 0);
     inverse.apply(&mut h)?;
+    assert!(GInstance::identical(&h, &g));
+    // The state-reading constructor's step inverts without the instance.
+    let step = GraphEdit::reconnect(&g, EdgeId(1), 0, 0)?;
+    let lowered = bare.to_delta_in(&g)?;
+    assert!(matches!(&step, GraphEdit::Delta(d) if *d == lowered));
+    let mut h = g.clone();
+    step.apply(&mut h)?;
+    assert_eq!(edge_of(&h, 1)?.src, 0);
+    step.invert()?.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
     // A batch mixing a delta step and reconnects inverts through its
     // lowering against the instance.
@@ -1109,9 +1122,10 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
             new: (0, 1),
         },
     ]);
-    let inverse = GraphEdit::Delta(batch.to_delta_in(&g)?.invert());
+    let lowered = batch.to_delta_in(&g)?;
+    let inverse = GraphEdit::Delta(lowered.invert());
     let mut h = g.clone();
-    batch.apply(&mut h)?;
+    lowered.apply(&mut h)?;
     let seven = edge_of(&h, 7)?;
     assert_eq!((seven.src, seven.tgt), (0, 1));
     inverse.apply(&mut h)?;
@@ -1119,6 +1133,47 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
     // An edit that lowers without the instance inverts to a delta.
     let relabel = GraphEdit::relabel_node(&g, 1, "agent")?;
     assert!(matches!(relabel.invert()?, GraphEdit::Delta(_)));
+    Ok(())
+}
+
+#[test]
+fn graph_edit_apply_is_its_stateless_lowering_applied() -> TestResult {
+    let g = triangle();
+    // A bare reconnect does not lower without the instance, so it does not
+    // apply either, and the instance is unchanged.
+    let bare = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        old: (1, 2),
+        new: (2, 1),
+    };
+    let needs_state = ComposeError::NeedsState {
+        elem: ElemRef::Edge(EdgeId(1)),
+    };
+    let mut h = g.clone();
+    assert_eq!(
+        bare.apply(&mut h),
+        Err(EditError::Compose(needs_state.clone()))
+    );
+    assert!(GInstance::identical(&h, &g));
+    // In a batch the replay names the reconnect step.
+    let batch = GraphEdit::Batch(vec![GraphEdit::relabel_node(&g, 1, "agent")?, bare.clone()]);
+    assert_eq!(
+        batch.apply(&mut h),
+        Err(EditError::BatchStep {
+            index: 1,
+            source: Box::new(EditError::Compose(needs_state)),
+        })
+    );
+    assert!(GInstance::identical(&h, &g));
+    // Its lowering against the instance applies, as does the constructor's
+    // step, and both give the same state.
+    let mut by_lowering = g.clone();
+    bare.to_delta_in(&g)?.apply(&mut by_lowering)?;
+    let mut by_step = g.clone();
+    GraphEdit::reconnect(&g, EdgeId(1), 2, 1)?.apply(&mut by_step)?;
+    assert!(GInstance::identical(&by_lowering, &by_step));
+    let moved = edge_of(&by_step, 1)?;
+    assert_eq!((moved.src, moved.tgt), (2, 1));
     Ok(())
 }
 
@@ -1428,7 +1483,11 @@ fn graph_edit_to_delta_cases() -> TestResult {
         vec![EdgeId(0), EdgeId(2)]
     );
 
-    let reconnect = GraphEdit::reconnect(&g, EdgeId(1), 1, 0)?;
+    let reconnect = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        old: (1, 2),
+        new: (1, 0),
+    };
     assert_eq!(
         reconnect.to_delta().err(),
         Some(ComposeError::NeedsState {
@@ -1436,6 +1495,11 @@ fn graph_edit_to_delta_cases() -> TestResult {
         })
     );
     let lowered = reconnect.to_delta_in(&g)?;
+    // The state-reading constructor emits that replacement as its step.
+    assert!(matches!(
+        GraphEdit::reconnect(&g, EdgeId(1), 1, 0)?,
+        GraphEdit::Delta(d) if d == lowered
+    ));
     assert_eq!(lowered.del_edges().get(&EdgeId(1)), Some(&edge_of(&g, 1)?));
     assert_eq!(
         lowered.add_edges().get(&EdgeId(1)),

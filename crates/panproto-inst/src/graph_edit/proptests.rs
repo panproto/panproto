@@ -370,8 +370,19 @@ fn independence_law(s: &GInstance, a: &GraphDelta, b: &GraphDelta) -> Result<(),
     Ok(())
 }
 
+/// 256 cases, and no failure-persistence file: a shrunk failure is kept as a
+/// named unit test in this module instead, so running the properties writes
+/// nothing outside the source tree's test modules.
+fn config() -> ProptestConfig {
+    ProptestConfig {
+        cases: 256,
+        failure_persistence: None,
+        ..ProptestConfig::default()
+    }
+}
+
 proptest! {
-    #![proptest_config(ProptestConfig::with_cases(256))]
+    #![proptest_config(config())]
 
     #[test]
     fn every_constructed_graph_delta_is_normal(a in arb_graph(), b in arb_graph(), ops in arb_ops()) {
@@ -541,24 +552,46 @@ proptest! {
     fn graph_edit_apply_is_delta_apply(s in arb_graph(), o1 in arb_ops(), o2 in arb_ops(), x in arb_graph()) {
         let d1 = GraphDelta::diff(&s, &mutate(&s, &o1));
         let d2 = GraphDelta::diff(&x, &mutate(&x, &o2));
-        let mut edges: Vec<(EdgeId, u32, u32)> = s.edges_sorted().map(|(id, e)| (id, e.src, e.tgt)).collect();
-        edges.truncate(1);
-        let mut steps = vec![GraphEdit::Delta(d1), GraphEdit::Delta(d2)];
-        steps.extend(edges.into_iter().map(|(id, src, tgt)| GraphEdit::Reconnect { id, old: (src, tgt), new: (tgt, src) }));
-        for edit in [GraphEdit::Batch(steps.clone()), GraphEdit::Batch(steps.into_iter().rev().collect())] {
+        let mut steps = vec![GraphEdit::Delta(d1.clone()), GraphEdit::Delta(d2)];
+        // A reconnect of the first edge, as the constructor's step and as a
+        // bare `Reconnect`, which does not lower without the instance.
+        if let Some((id, e)) = s.edges_sorted().next() {
+            steps.push(GraphEdit::reconnect(&s, id, e.tgt, e.src).map_err(fail)?);
+            steps.push(GraphEdit::Reconnect { id, old: (e.src, e.tgt), new: (e.tgt, e.src) });
+        }
+        let mut edits = vec![
+            GraphEdit::Batch(steps[..2].to_vec()),
+            GraphEdit::Batch(steps.clone()),
+            GraphEdit::Batch(steps.iter().rev().cloned().collect()),
+        ];
+        edits.extend(steps);
+        for edit in edits {
             let mut by_edit = s.clone();
             let mut by_delta = s.clone();
             let via_edit = edit.apply(&mut by_edit);
-            match edit.to_delta_in(&s) {
+            match edit.to_delta() {
                 Ok(delta) => {
                     let via_delta = delta.apply(&mut by_delta);
-                    prop_assert_eq!(via_edit.is_ok(), via_delta.is_ok());
+                    if matches!(edit, GraphEdit::Batch(_)) {
+                        prop_assert_eq!(via_edit.is_ok(), via_delta.is_ok());
+                    } else {
+                        prop_assert_eq!(&via_edit, &via_delta);
+                    }
                     prop_assert!(GInstance::identical(&by_edit, &by_delta));
                 }
-                Err(_) => prop_assert!(via_edit.is_err() && GInstance::identical(&by_edit, &s)),
+                Err(err) => {
+                    prop_assert!(via_edit.is_err() && GInstance::identical(&by_edit, &s));
+                    if !matches!(edit, GraphEdit::Batch(_)) {
+                        prop_assert_eq!(via_edit, Err(EditError::Compose(err)));
+                    }
+                }
             }
         }
+        // The first delta alone always applies to `s`.
+        let mut t = s;
+        prop_assert!(GraphEdit::Delta(d1).apply(&mut t).is_ok());
     }
+
 }
 
 /// The independence law is exercised: the generator yields independent
