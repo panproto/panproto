@@ -370,6 +370,28 @@ fn with_table_is_linear_in_row_count() -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
+/// Removing the row with the largest id finds the next largest without a
+/// scan, so deleting every row from the top down is linear, not quadratic:
+/// 100000 removals take well under the bound even in a debug build, where a
+/// rescan per removal costs about five billion key reads.
+#[test]
+fn removing_rows_from_the_top_down_is_linear() -> Result<(), Box<dyn std::error::Error>> {
+    let mut f = FInstance::new().with_table("t", (0..100_000).map(|_| Row::new()))?;
+    let start = std::time::Instant::now();
+    for id in (1..100_000).rev() {
+        assert!(f.remove_row(RowId(id)).is_some());
+    }
+    let elapsed = start.elapsed();
+    assert_eq!(f.total_row_count(), 1);
+    assert_eq!(f.max_row_id(), Some(RowId(0)));
+    assert_eq!(f.fresh_row_id()?, RowId(1));
+    assert!(
+        elapsed < std::time::Duration::from_secs(5),
+        "removing 99999 rows from the top took {elapsed:?}"
+    );
+    Ok(())
+}
+
 /// A set-valued functor sends a vertex with no rows to the empty set, so
 /// an empty table and an absent one are the same instance: equal, with
 /// the same wire form and the same digest.

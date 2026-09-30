@@ -137,10 +137,9 @@ impl Table {
 pub struct FInstance {
     tables: HashMap<Name, Table>,
     foreign_keys: HashMap<Edge, Vec<(RowId, RowId)>>,
-    row_table: HashMap<RowId, Name>,
-    /// The largest key of `row_table`, kept exact so that allocating a fresh
-    /// id costs no scan; a function of `row_table`, so equality is unchanged.
-    max_row: Option<RowId>,
+    /// The table of each row, ordered by id so that the largest id in use is
+    /// read in logarithmic time, however rows are added or removed.
+    row_table: BTreeMap<RowId, Name>,
 }
 
 /// The allocator of fresh row ids above every id in `ids`: its floor is
@@ -347,15 +346,13 @@ impl FInstance {
     /// Every row id of the instance, ascending.
     #[must_use]
     pub fn row_ids(&self) -> Vec<RowId> {
-        let mut ids: Vec<RowId> = self.row_table.keys().copied().collect();
-        ids.sort_unstable();
-        ids
+        self.row_table.keys().copied().collect()
     }
 
     /// The largest row id in use, if any.
     #[must_use]
     pub fn max_row_id(&self) -> Option<RowId> {
-        self.max_row
+        self.row_table.last_key_value().map(|(&id, _)| id)
     }
 
     /// The least row id above every row id in use: `max + 1`, and `0` for an
@@ -366,7 +363,7 @@ impl FInstance {
     /// Returns [`InstError::NodeIdsExhausted`] when the largest id in use is
     /// `u32::MAX`.
     pub fn fresh_row_id(&self) -> Result<RowId, InstError> {
-        allocate_row(&mut row_allocator(self.max_row))
+        allocate_row(&mut row_allocator(self.max_row_id()))
     }
 
     /// Insert a row with the given id into the given vertex's table.
@@ -405,7 +402,6 @@ impl FInstance {
     /// Insert a row whose id the caller knows to be unused.
     pub(crate) fn place_row(&mut self, vertex: Name, id: RowId, row: Row) {
         self.row_table.insert(id, vertex.clone());
-        self.max_row = self.max_row.max(Some(id));
         self.tables.entry(vertex).or_default().rows.insert(id, row);
     }
 
@@ -413,9 +409,6 @@ impl FInstance {
     /// out of the row index. Pairs are left to the caller.
     fn take_row(&mut self, id: RowId) -> Option<(Name, Row)> {
         let table_name = self.row_table.remove(&id)?;
-        if self.max_row == Some(id) {
-            self.max_row = self.row_table.keys().copied().max();
-        }
         let table = self.tables.get_mut(&table_name)?;
         let row = table.rows.remove(&id)?;
         if table.rows.is_empty() {
