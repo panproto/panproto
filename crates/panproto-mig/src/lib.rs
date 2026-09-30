@@ -53,6 +53,7 @@ pub use chase::{
     dependencies_from_schema, dependencies_from_theory, saturate_row_existence,
     term_dependencies_from_theory,
 };
+pub use chase::{chase_with_hom, saturate_row_existence_with_hom};
 pub use compile::compile;
 pub use compose::compose;
 pub use compose::{

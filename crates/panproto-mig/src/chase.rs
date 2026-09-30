@@ -25,6 +25,7 @@
 use std::collections::HashMap;
 
 use panproto_gat::{Equation, Term, Theory};
+use panproto_inst::FInstanceHom;
 use panproto_inst::functor::FInstance;
 use panproto_inst::value::Value;
 use panproto_schema::Schema;
@@ -127,6 +128,26 @@ pub fn saturate_row_existence(
     dependencies: &[EmbeddedDependency],
     max_iterations: usize,
 ) -> Result<FInstance, ChaseError> {
+    saturate_row_existence_with_hom(instance, dependencies, max_iterations)
+        .map(|(result, _)| result)
+}
+
+/// [`saturate_row_existence`], with the row map from the input into the
+/// saturated instance.
+///
+/// Saturation only adds rows, so every input row keeps its id, table and
+/// cells and the map is the inclusion: it sends each input row to itself.
+/// The rows outside its image are the ones saturation created.
+///
+/// # Errors
+///
+/// As [`saturate_row_existence`].
+pub fn saturate_row_existence_with_hom(
+    instance: &FInstance,
+    dependencies: &[EmbeddedDependency],
+    max_iterations: usize,
+) -> Result<(FInstance, FInstanceHom), ChaseError> {
+    let inclusion = FInstanceHom::identity(instance);
     let mut result = instance.clone();
 
     for _ in 0..max_iterations {
@@ -155,7 +176,7 @@ pub fn saturate_row_existence(
         }
 
         if !changed {
-            return Ok(result);
+            return Ok((result, inclusion));
         }
     }
 
@@ -476,6 +497,28 @@ pub fn chase(
     dependencies: &[Dependency],
     budget: ChaseBudget,
 ) -> Result<ChaseOutcome, ChaseError> {
+    chase_with_hom(instance, dependencies, budget).map(|(outcome, _)| outcome)
+}
+
+/// [`chase`], with the row map from the input into the chased instance.
+///
+/// The chase adds rows and replaces labeled nulls in place, but never merges
+/// or removes a row, so every input row keeps its id and table and the map
+/// is the inclusion: it sends each input row to itself (its cells may have
+/// had a labeled null replaced by the value an equality forced). The rows
+/// outside its image are the ones the chase created, in firing order. On
+/// [`ChaseOutcome::NonTermination`] there is no chased instance, and the map
+/// is the inclusion into the partial run.
+///
+/// # Errors
+///
+/// As [`chase`].
+pub fn chase_with_hom(
+    instance: &FInstance,
+    dependencies: &[Dependency],
+    budget: ChaseBudget,
+) -> Result<(ChaseOutcome, FInstanceHom), ChaseError> {
+    let inclusion = FInstanceHom::identity(instance);
     let mut result = instance.clone();
     let mut next_null = fresh_null_seed(&result);
     let mut nulls_created = 0usize;
@@ -497,7 +540,7 @@ pub fn chase(
                                 if let AtomTerm::Var(v) = term {
                                     if !firing.contains_key(v) {
                                         if nulls_created >= budget.max_nulls {
-                                            return Ok(ChaseOutcome::NonTermination);
+                                            return Ok((ChaseOutcome::NonTermination, inclusion));
                                         }
                                         firing.insert(v.clone(), Value::LabeledNull(next_null));
                                         next_null += 1;
@@ -538,11 +581,11 @@ pub fn chase(
         }
 
         if !changed {
-            return Ok(ChaseOutcome::Saturated(result));
+            return Ok((ChaseOutcome::Saturated(result), inclusion));
         }
     }
 
-    Ok(ChaseOutcome::NonTermination)
+    Ok((ChaseOutcome::NonTermination, inclusion))
 }
 
 /// The first labeled-null id not already used anywhere in the instance.
@@ -1000,6 +1043,47 @@ mod tests {
         assert_eq!(result.total_row_count(), 6);
         // The input rows keep their ids.
         assert_eq!(result.row(RowId(0)), instance.row(RowId(0)));
+    }
+
+    #[test]
+    fn every_row_creating_chase_returns_its_row_map() {
+        use panproto_inst::RowId;
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1)), row("x", Value::Int(2))])
+            .unwrap();
+        let tgd = Dependency::Tgd {
+            body: vec![Atom::new("A", [("x", AtomTerm::Var("v".into()))])],
+            head: vec![Atom::new("B", [("y", AtomTerm::Var("v".into()))])],
+        };
+        let (outcome, hom) = chase_with_hom(&instance, &[tgd], ChaseBudget::new(10, 10)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(
+            hom.row_map
+                .iter()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<_>>(),
+            vec![(RowId(0), RowId(0)), (RowId(1), RowId(1))]
+        );
+        hom.check_tables(&instance, &result).unwrap();
+        let created: Vec<RowId> = result
+            .row_ids()
+            .into_iter()
+            .filter(|id| !hom.row_map.values().any(|image| image == id))
+            .collect();
+        assert_eq!(created, vec![RowId(2), RowId(3)]);
+
+        let dep = EmbeddedDependency {
+            pattern_vertex: "A".into(),
+            pattern_values: HashMap::new(),
+            consequence_vertex: "C".into(),
+            consequence_values: row("z", Value::Int(0)),
+        };
+        let (saturated, hom) = saturate_row_existence_with_hom(&instance, &[dep], 10).unwrap();
+        assert_eq!(hom, FInstanceHom::identity(&instance));
+        hom.check_tables(&instance, &saturated).unwrap();
+        assert_eq!(saturated.row_ids(), vec![RowId(0), RowId(1), RowId(2)]);
     }
 
     #[test]
