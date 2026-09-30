@@ -385,7 +385,7 @@ fn flatten_into(out: &mut Vec<TableEdit>, edit: TableEdit) {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use std::collections::HashMap;
 
@@ -604,6 +604,40 @@ mod tests {
         assert_eq!(back, edits);
     }
 
+    /// An edit that creates a table is undone by its inverse: the table it
+    /// created goes away with its last row.
+    #[test]
+    fn an_edit_that_creates_a_table_is_undone_by_its_inverse() {
+        let start = FInstance::new();
+        let insert = TableEdit::InsertRow {
+            table: "user".into(),
+            id: RowId(0),
+            row: Row::new(),
+        };
+        let mut state = start.clone();
+        insert.apply(&mut state).unwrap();
+        insert.invert().apply(&mut state).unwrap();
+        assert_eq!(state, start);
+        assert_eq!(state.table_count(), 0);
+
+        let start = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new())])
+            .unwrap();
+        let moved = TableEdit::MoveRow {
+            id: RowId(0),
+            old_table: "a".into(),
+            new_table: "b".into(),
+        };
+        let mut state = start.clone();
+        moved.apply(&mut state).unwrap();
+        moved.invert().apply(&mut state).unwrap();
+        assert_eq!(state, start);
+        assert_eq!(state.table_count(), 1);
+    }
+
+    /// The tables a generated script draws from; `tag` starts absent.
+    const TABLES: [&str; 3] = ["user", "post", "tag"];
+
     /// One step of a generated edit script, resolved against the state it
     /// applies to.
     #[derive(Clone, Debug)]
@@ -611,7 +645,7 @@ mod tests {
         Insert(u8),
         Delete(u8),
         Update(u8, Option<i64>),
-        Move(u8),
+        Move(u8, u8),
         Link(u8, u8),
         Unlink(u8),
     }
@@ -621,7 +655,7 @@ mod tests {
             any::<u8>().prop_map(Intent::Insert),
             any::<u8>().prop_map(Intent::Delete),
             (any::<u8>(), proptest::option::of(-3_i64..3)).prop_map(|(r, v)| Intent::Update(r, v)),
-            any::<u8>().prop_map(Intent::Move),
+            (any::<u8>(), any::<u8>()).prop_map(|(r, to)| Intent::Move(r, to)),
             (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Intent::Link(a, b)),
             any::<u8>().prop_map(Intent::Unlink),
         ]
@@ -636,11 +670,7 @@ mod tests {
         let rows = state.row_ids();
         match intent {
             Intent::Insert(t) => Some(TableEdit::InsertRow {
-                table: if t % 2 == 0 {
-                    "user".into()
-                } else {
-                    "post".into()
-                },
+                table: TABLES[usize::from(*t) % TABLES.len()].into(),
                 id: state.fresh_row_id().ok()?,
                 row: HashMap::from([("n".to_owned(), Value::Int(i64::from(*t)))]),
             }),
@@ -663,18 +693,18 @@ mod tests {
                     new: value.map(Value::Int),
                 })
             }
-            Intent::Move(r) => {
+            Intent::Move(r, to) => {
                 let free: Vec<RowId> = rows
                     .into_iter()
                     .filter(|id| state.incident_pairs(*id).is_empty())
                     .collect();
                 let id = pick(&free, *r)?;
                 let old_table = state.table_of(id)?.clone();
-                let new_table = if old_table.as_ref() == "user" {
-                    "post"
-                } else {
-                    "user"
-                };
+                let others: Vec<&str> = TABLES
+                    .into_iter()
+                    .filter(|t| *t != old_table.as_ref())
+                    .collect();
+                let new_table = pick(&others, *to)?;
                 Some(TableEdit::MoveRow {
                     id,
                     old_table,
@@ -703,27 +733,35 @@ mod tests {
 
         #[test]
         fn a_table_edit_then_its_inverse_is_the_identity(
+            from_empty in any::<bool>(),
             intents in proptest::collection::vec(intent(), 0..24)
         ) {
-            let start = sample_instance();
+            let start = if from_empty { FInstance::new() } else { sample_instance() };
             let mut state = start.clone();
             let mut applied = Vec::new();
             for intent in &intents {
                 let Some(edit) = resolve(&state, intent) else { continue };
                 let before = state.clone();
-                edit.apply(&mut state).expect("a resolved edit applies");
+                edit.apply(&mut state).map_err(|e| TestCaseError::fail(format!("the edit fails: {e}")))?;
                 // Each step is undone by its own inverse.
                 let mut undone = state.clone();
-                edit.invert().apply(&mut undone).expect("the inverse applies");
+                edit.invert()
+                    .apply(&mut undone)
+                    .map_err(|e| TestCaseError::fail(format!("the inverse fails: {e}")))?;
                 prop_assert_eq!(&undone, &before);
                 applied.push(edit);
             }
             // The whole script, as one batch, is undone by its inverse.
             let script = TableEdit::Batch(applied);
             let mut replay = start.clone();
-            script.apply(&mut replay).expect("the script applies");
+            script
+                .apply(&mut replay)
+                .map_err(|e| TestCaseError::fail(format!("the script fails: {e}")))?;
             prop_assert_eq!(&replay, &state);
-            script.invert().apply(&mut replay).expect("the inverse script applies");
+            script
+                .invert()
+                .apply(&mut replay)
+                .map_err(|e| TestCaseError::fail(format!("the inverse script fails: {e}")))?;
             prop_assert_eq!(&replay, &start);
         }
     }

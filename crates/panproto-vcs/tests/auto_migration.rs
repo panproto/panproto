@@ -365,7 +365,14 @@ fn pi_functor_product_workflow() {
     };
 
     // Apply Pi_F (Cartesian product)
-    let result = panproto_inst::functor_pi(&instance, &compiled, 1000).unwrap();
+    let result = panproto_inst::functor_pi(
+        &instance,
+        &panproto_schema::Schema::default(),
+        &panproto_schema::Schema::default(),
+        &compiled,
+        1000,
+    )
+    .unwrap();
 
     // 2 * 3 = 6 product rows
     assert_eq!(

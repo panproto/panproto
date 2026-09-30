@@ -181,7 +181,7 @@ pub fn cmd_lift(
 
     match instance_type {
         "functor" => {
-            return cmd_lift_functor(&compiled, &record_json, direction);
+            return cmd_lift_functor(&compiled, &src_schema, &tgt_schema, &record_json, direction);
         }
         "wtype" => {}
         other => miette::bail!("unknown instance type: {other:?}. Use: wtype or functor"),
@@ -240,6 +240,8 @@ pub fn cmd_lift(
 
 pub fn cmd_lift_functor(
     compiled: &inst::CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     record_json: &serde_json::Value,
     direction: &str,
 ) -> Result<()> {
@@ -254,7 +256,7 @@ pub fn cmd_lift_functor(
         "sigma" => inst::functor_extend(&instance, compiled)
             .into_diagnostic()
             .wrap_err("source-to-target functor `Sigma_F` lift failed")?,
-        "pi" => mig::lift_functor_pi(compiled, &instance, 10_000)
+        "pi" => mig::lift_functor_pi(compiled, src_schema, tgt_schema, &instance, 10_000)
             .into_diagnostic()
             .wrap_err("source-to-target functor `Pi_F` lift failed")?,
         other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),

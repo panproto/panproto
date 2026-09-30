@@ -133,19 +133,24 @@ pub fn lift_functor_sigma(
 
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
 ///
-/// Delegates to [`panproto_inst::functor_pi`], which computes Cartesian
-/// products over fibers.
+/// Delegates to [`panproto_inst::functor_pi`], which computes the limit over
+/// each fibre: the Cartesian product of its tables, equalised along every
+/// edge of `src_schema` that the migration sends to an identity.
 ///
 /// # Errors
 ///
 /// Returns `LiftError::Restrict` if the underlying pi operation fails
-/// (e.g., product size exceeded).
+/// (e.g., product size exceeded, or a carried edge missing from
+/// `tgt_schema`).
 pub fn lift_functor_pi(
     compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     instance: &FInstance,
     max_product_size: usize,
 ) -> Result<FInstance, LiftError> {
-    let result = panproto_inst::functor_pi(instance, compiled, max_product_size)?;
+    let result =
+        panproto_inst::functor_pi(instance, src_schema, tgt_schema, compiled, max_product_size)?;
     Ok(result)
 }
 

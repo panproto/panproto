@@ -394,7 +394,6 @@ pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance
     let mut sigma = FInstance::new();
     for (source, table) in x.tables() {
         let target = map_vertex(migration, source);
-        sigma.add_table(target.clone());
         for (id, row) in table.rows() {
             sigma.place_row(target.clone(), id, row.clone());
         }
@@ -457,7 +456,6 @@ pub fn f_delta_with_hom(
     let mut copied: HashSet<RowId> = HashSet::new();
     for source in source_vertices(migration) {
         let target = map_vertex(migration, &source);
-        delta.add_table(source.clone());
         for (original, row) in y.rows(&target) {
             let id = if copied.insert(original) {
                 original
@@ -622,9 +620,12 @@ pub fn f_transpose_right(
 ///
 /// Reindexes a `T`-instance to an `S`-instance by relabelling each node's
 /// anchor `t` back to the unique `s` with `F(s) = t` and each edge's label
-/// to its unique preimage (an edge label outside the image of the edge map
-/// is relabelled through the vertex map alone), preserving node ids, edge
-/// ids, cells, values and positions. A reified fan node (of shape
+/// to its unique preimage, preserving node ids, edge ids, cells, values and
+/// positions. An edge whose label lies outside the image of the edge map has
+/// no `S` label to take, so the pullback drops it (the edges of a reified fan,
+/// labelled by the fan, keep their label with its endpoints relabelled), as [`f_delta`] drops the
+/// pairs of such a foreign key; Delta thus commutes with the graph form of
+/// a table. A reified fan node (of shape
 /// [`NodeShape::HyperEdge`](crate::metadata::NodeShape::HyperEdge)) is
 /// anchored at its hyper-edge, not at a vertex, and keeps its anchor.
 ///
@@ -653,21 +654,20 @@ pub fn g_delta(y: &GInstance, migration: &CompiledMigration) -> Result<GInstance
         out.insert_node(node).map_err(AdjunctionError::Graph)?;
     }
     for (id, edge) in y.edges_sorted() {
-        let label = inverse_edge
-            .get(&edge.edge)
-            .cloned()
-            .unwrap_or_else(|| Edge {
-                src: inverse_vertex
-                    .get(&edge.edge.src)
-                    .cloned()
-                    .unwrap_or_else(|| edge.edge.src.clone()),
-                tgt: inverse_vertex
-                    .get(&edge.edge.tgt)
-                    .cloned()
-                    .unwrap_or_else(|| edge.edge.tgt.clone()),
+        let label = if let Some(preimage) = inverse_edge.get(&edge.edge) {
+            preimage.clone()
+        } else if is_fan_kind(&edge.edge.kind) {
+            // The edges of a reified fan are labelled by the fan, not by a
+            // schema edge; they travel with their endpoints relabelled.
+            Edge {
+                src: relabel(&inverse_vertex, &edge.edge.src),
+                tgt: relabel(&inverse_vertex, &edge.edge.tgt),
                 kind: edge.edge.kind.clone(),
                 name: edge.edge.name.clone(),
-            });
+            }
+        } else {
+            continue;
+        };
         out.insert_edge(
             id,
             GEdge::new(edge.src, edge.tgt, label).with_position(edge.position),
@@ -675,6 +675,21 @@ pub fn g_delta(y: &GInstance, migration: &CompiledMigration) -> Result<GInstance
         .map_err(AdjunctionError::Graph)?;
     }
     Ok(out)
+}
+
+/// Whether an edge kind is one of the reserved kinds of a reified fan.
+fn is_fan_kind(kind: &Name) -> bool {
+    kind.as_ref() == crate::ginstance::HYPER_PARENT_KIND
+        || kind.as_ref() == crate::ginstance::HYPER_LABEL_KIND
+}
+
+/// A vertex's preimage under the inverted vertex map, or the vertex itself
+/// when it has none (a fan's hyper-edge anchor).
+fn relabel(inverse_vertex: &HashMap<Name, Name>, vertex: &Name) -> Name {
+    inverse_vertex
+        .get(vertex)
+        .cloned()
+        .unwrap_or_else(|| vertex.clone())
 }
 
 #[cfg(test)]
@@ -1104,7 +1119,14 @@ mod tests {
         pi_migration
             .vertex_remap
             .insert(Name::from("b"), Name::from("t"));
-        let (pi, projections) = crate::pi::functor_pi_with_hom(&x, &pi_migration, 16).unwrap();
+        let (pi, projections) = crate::pi::functor_pi_with_hom(
+            &x,
+            &Schema::default(),
+            &Schema::default(),
+            &pi_migration,
+            16,
+        )
+        .unwrap();
         for source in ["a", "b"] {
             let projection = &projections[&Name::from(source)];
             assert_eq!(projection.row_map.len(), pi.total_row_count());
@@ -1154,6 +1176,30 @@ mod tests {
             g_delta(&outside, &m),
             Err(AdjunctionError::AnchorOutsideImage(a)) if a == "elsewhere"
         ));
+    }
+
+    /// Delta commutes with the graph form of a table: pulling a table back
+    /// and then taking its graph gives the graph of the pullback. An edge
+    /// whose label lies outside the image of the edge map has no `S` label,
+    /// so the graph Delta drops it exactly as the table Delta drops its
+    /// pairs.
+    #[test]
+    fn graph_delta_commutes_with_the_graph_form_of_a_table() {
+        let m = rename_migration();
+        let y = FInstance::new()
+            .with_rows("box", [(RowId(0), crate::functor::Row::new())])
+            .and_then(|f| f.with_rows("item", [(RowId(1), crate::functor::Row::new())]))
+            .and_then(|f| f.with_foreign_key(edge("box", "item", "child"), [(RowId(0), RowId(1))]))
+            .and_then(|f| f.with_foreign_key(edge("box", "item", "other"), [(RowId(0), RowId(1))]))
+            .unwrap();
+        let (table_then_graph, _) = GInstance::from_finstance(&f_delta(&y, &m).unwrap()).unwrap();
+        let (graph, _) = GInstance::from_finstance(&y).unwrap();
+        let graph_then_delta = g_delta(&graph, &m).unwrap();
+        assert_eq!(graph_then_delta.edge_count(), 1);
+        assert!(
+            GInstance::identical(&graph_then_delta, &table_then_graph),
+            "{graph_then_delta:?} != {table_then_graph:?}"
+        );
     }
 
     // -- property tests --------------------------------------------------

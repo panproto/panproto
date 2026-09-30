@@ -226,22 +226,20 @@ pub fn parse_conllu(
 /// Writes a header row followed by data rows. The `table_vertex` specifies
 /// which table to emit. Columns are sorted alphabetically.
 ///
+/// A table the instance does not hold has no rows, so it emits no bytes.
+///
 /// # Errors
 ///
-/// Returns [`EmitInstanceError::Emit`] if the table is not found.
+/// This emit does not currently fail; the `Result` and the protocol name
+/// are retained for signature symmetry with the other codecs.
 pub fn emit_tsv(
     instance: &FInstance,
-    protocol: &str,
+    _protocol: &str,
     table_vertex: &str,
     delimiter: u8,
 ) -> Result<Vec<u8>, EmitInstanceError> {
     let rows: Vec<&HashMap<String, Value>> = instance
-        .table(table_vertex)
-        .ok_or_else(|| EmitInstanceError::Emit {
-            protocol: protocol.to_string(),
-            message: format!("table '{table_vertex}' not found in instance"),
-        })?
-        .rows()
+        .rows(table_vertex)
         .into_iter()
         .map(|(_, row)| row)
         .collect();
@@ -296,17 +294,16 @@ pub fn emit_tsv(
 
 /// Emit an `FInstance` to CoNLL-U format.
 ///
+/// A table the instance does not hold has no rows: without tokens the
+/// document has no token lines.
+///
 /// # Errors
 ///
-/// Returns [`EmitInstanceError::Emit`] if required tables are missing.
-pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, EmitInstanceError> {
+/// This emit does not currently fail; the `Result` and the protocol name
+/// are retained for signature symmetry with the other codecs.
+pub fn emit_conllu(instance: &FInstance, _protocol: &str) -> Result<Vec<u8>, EmitInstanceError> {
     let token_rows: Vec<&HashMap<String, Value>> = instance
-        .table("token")
-        .ok_or_else(|| EmitInstanceError::Emit {
-            protocol: protocol.to_string(),
-            message: "token table not found".into(),
-        })?
-        .rows()
+        .rows("token")
         .into_iter()
         .map(|(_, row)| row)
         .collect();
@@ -381,6 +378,14 @@ pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, Emit
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// An instance without the table emits as one whose table has no rows.
+    #[test]
+    fn an_absent_table_emits_no_rows() {
+        let empty = FInstance::new();
+        assert_eq!(emit_tsv(&empty, "tsv", "rows", b'\t').expect("emits"), b"");
+        assert!(emit_conllu(&empty, "conllu").is_ok());
+    }
 
     #[test]
     fn split_lines_basic() {

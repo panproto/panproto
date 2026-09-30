@@ -166,19 +166,15 @@ impl ByteTabularCodec {
     ///
     /// # Errors
     ///
-    /// Returns [`EmitInstanceError::Emit`] if the instance lacks the table.
+    /// This emit is total: a table the instance does not hold has no rows,
+    /// so its data lines replay verbatim. The `Result` is retained for
+    /// signature symmetry with the other codecs.
     pub fn emit(
         &self,
         instance: &FInstance,
         complement: &ByteTabularComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        let rows = instance
-            .table(&self.table_vertex)
-            .ok_or_else(|| EmitInstanceError::Emit {
-                protocol: self.protocol.clone(),
-                message: format!("table '{}' not found in instance", self.table_vertex),
-            })?
-            .rows();
+        let rows = instance.rows(&self.table_vertex);
 
         let mut output = Vec::with_capacity(complement.lines.len() * 16);
         let mut data_idx = 0usize;
@@ -369,13 +365,7 @@ impl InstanceEmitter for ByteTabularCodec {
         // delimited file from the positional cells. This is the non-preserving
         // fallback used by the generic `InstanceEmitter` seam; the byte-faithful
         // path is `emit` with a complement.
-        let rows = instance
-            .table(&self.table_vertex)
-            .ok_or_else(|| EmitInstanceError::Emit {
-                protocol: self.protocol.clone(),
-                message: format!("table '{}' not found in instance", self.table_vertex),
-            })?
-            .rows();
+        let rows = instance.rows(&self.table_vertex);
         let mut output = Vec::new();
         for (_, row) in rows {
             let mut i = 0usize;
@@ -419,6 +409,19 @@ mod tests {
         let (inst, comp) = c.parse(input).unwrap();
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, input);
+    }
+
+    /// A file with no data line parses to an instance with no rows, and
+    /// replays verbatim: a table without rows is no table, and emitting it
+    /// emits no rows.
+    #[test]
+    fn a_file_without_data_lines_round_trips() {
+        let input = b"# only a comment\n\n";
+        let c = ByteTabularCodec::new("p", "t", b' ', Some(b'#'));
+        let (inst, comp) = c.parse(input).unwrap();
+        assert_eq!(inst.total_row_count(), 0);
+        assert_eq!(c.emit(&inst, &comp).unwrap(), input);
+        assert_eq!(c.emit_functor(&Schema::default(), &inst).unwrap(), b"");
     }
 
     #[test]

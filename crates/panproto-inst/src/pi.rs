@@ -36,10 +36,19 @@ type PlacedRows = Vec<(RowId, BTreeMap<Name, RowId>)>;
 /// As [`functor_pi_with_hom`].
 pub fn functor_pi(
     instance: &FInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<FInstance, RestrictError> {
-    functor_pi_with_hom(instance, migration, max_product_size).map(|(pi, _)| pi)
+    functor_pi_with_hom(
+        instance,
+        src_schema,
+        tgt_schema,
+        migration,
+        max_product_size,
+    )
+    .map(|(pi, _)| pi)
 }
 
 /// Right Kan extension (`Pi_F`) for set-valued functor instances, with the
@@ -48,10 +57,13 @@ pub fn functor_pi(
 /// For each target vertex, the fibre is the set of source vertices that map
 /// to it, and the target's table is the limit over the fibre: the Cartesian
 /// product of the component tables with column union, equalised along every
-/// internal arrow. An internal arrow is a foreign-key edge whose endpoints
-/// both lie in the fibre and which the migration carries to no target edge,
-/// so `F` sends it to the identity of the target vertex; a product row is
-/// kept only when its components are a pair of that foreign key. A fibre
+/// internal arrow. An internal arrow is an edge of `src_schema` whose
+/// endpoints both lie in the fibre and which the migration carries to no
+/// target edge, so `F` sends it to the identity of the target vertex; a
+/// product row is kept only when its components are a pair of that foreign
+/// key. The arrows are read from the schema, not from the instance, so an
+/// internal foreign key without pairs is the empty relation and empties the
+/// limit. A fibre
 /// component whose table is empty or absent is an empty factor, so the
 /// target's table is empty; the empty fibre is the empty product, whose limit
 /// holds one row with no cells.
@@ -72,15 +84,20 @@ pub fn functor_pi(
 ///
 /// # Errors
 ///
-/// Returns [`RestrictError::ProductSizeExceeded`] if a Cartesian product
-/// exceeds `max_product_size`, [`RestrictError::AttributeCollision`] when two
+/// Returns [`RestrictError::NoEdgeFound`] when the migration carries an edge
+/// of `src_schema` to an edge `tgt_schema` does not have,
+/// [`RestrictError::ProductSizeExceeded`] if a Cartesian product exceeds
+/// `max_product_size`, [`RestrictError::AttributeCollision`] when two
 /// components of one product row disagree on a shared column, and
 /// [`RestrictError::RowIdsExhausted`] when the fresh row ids run out.
 pub fn functor_pi_with_hom(
     instance: &FInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
+    check_carried_edges(src_schema, tgt_schema, migration)?;
     let fiber_map = build_fiber_map(migration);
     let mut allocator = row_allocator(instance.row_ids());
 
@@ -89,7 +106,7 @@ pub fn functor_pi_with_hom(
     let mut provenance: HashMap<Name, PlacedRows> = HashMap::new();
 
     for (tgt_vertex, src_vertices) in &fiber_map {
-        let internal = internal_arrows(instance, migration, src_vertices);
+        let internal = internal_arrows(src_schema, migration, src_vertices);
         let rows = build_fiber_table(
             instance,
             src_vertices,
@@ -98,7 +115,6 @@ pub fn functor_pi_with_hom(
             max_product_size,
         )?;
         let keeps_ids = src_vertices.len() == 1 && internal.is_empty();
-        out.add_table(tgt_vertex.clone());
         let mut placed = Vec::with_capacity(rows.len());
         for (row, components) in rows {
             let id = match components.values().next() {
@@ -119,12 +135,7 @@ pub fn functor_pi_with_hom(
     }
 
     for (edge, pairs) in instance.foreign_keys() {
-        let Some(new_edge) = migration.edge_remap.get(edge).cloned().or_else(|| {
-            migration
-                .surviving_edges
-                .contains(edge)
-                .then(|| edge.clone())
-        }) else {
+        let Some(new_edge) = carried_edge(migration, edge).cloned() else {
             continue;
         };
         let (Some(src_prov), Some(tgt_prov)) =
@@ -150,25 +161,54 @@ pub fn functor_pi_with_hom(
     Ok((out, projections))
 }
 
-/// The internal arrows of a fibre: the foreign-key edges of the instance
-/// whose endpoints both lie in the fibre and which the migration carries to
-/// no target edge, in ascending order.
+/// The edge a source edge travels to under a migration: its remap when the
+/// migration names one, itself when it survives, and `None` otherwise.
+fn carried_edge<'a>(migration: &'a CompiledMigration, edge: &'a Edge) -> Option<&'a Edge> {
+    migration
+        .edge_remap
+        .get(edge)
+        .or_else(|| migration.surviving_edges.contains(edge).then_some(edge))
+}
+
+/// Check that every edge of `src` the migration carries lands on an edge of
+/// `tgt`, taking the edges in ascending order.
+fn check_carried_edges(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(), RestrictError> {
+    let mut edges: Vec<&Edge> = src.edges.keys().collect();
+    edges.sort_unstable();
+    for edge in edges {
+        if let Some(image) = carried_edge(migration, edge) {
+            if !tgt.edges.contains_key(image) {
+                return Err(RestrictError::NoEdgeFound {
+                    src: image.src.to_string(),
+                    tgt: image.tgt.to_string(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The internal arrows of a fibre: the edges of the source schema whose
+/// endpoints both lie in the fibre and which the migration carries to no
+/// target edge, in ascending order.
 fn internal_arrows<'a>(
-    instance: &'a FInstance,
+    schema: &'a Schema,
     migration: &CompiledMigration,
     fiber: &[Name],
 ) -> Vec<&'a Edge> {
-    instance
-        .foreign_keys()
-        .into_iter()
-        .map(|(edge, _)| edge)
-        .filter(|edge| {
-            fiber.contains(&edge.src)
-                && fiber.contains(&edge.tgt)
-                && !migration.edge_remap.contains_key(*edge)
-                && !migration.surviving_edges.contains(*edge)
-        })
-        .collect()
+    let mut arrows: Vec<&Edge> = fiber
+        .iter()
+        .flat_map(|src| fiber.iter().map(move |tgt| (src, tgt)))
+        .flat_map(|(src, tgt)| schema.edges_between(src, tgt))
+        .filter(|edge| carried_edge(migration, edge).is_none())
+        .collect();
+    arrows.sort_unstable();
+    arrows.dedup();
+    arrows
 }
 
 /// Build the rows of one target vertex's limit, each with the source row it
@@ -466,7 +506,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            edges: HashMap::new(),
+            edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -487,6 +527,43 @@ mod tests {
             between,
             ..Default::default()
         }
+    }
+
+    /// The source and target schemas a table test runs Pi against: the
+    /// source declares every foreign key of the instance, the `declared`
+    /// edges and the edges the migration carries; the target declares their
+    /// images.
+    fn schemas(
+        inst: &FInstance,
+        migration: &CompiledMigration,
+        declared: &[Edge],
+    ) -> (Schema, Schema) {
+        let mut src: Vec<Edge> = inst
+            .foreign_keys()
+            .into_iter()
+            .map(|(e, _)| e.clone())
+            .collect();
+        src.extend(declared.iter().cloned());
+        src.extend(migration.edge_remap.keys().cloned());
+        src.extend(migration.surviving_edges.iter().cloned());
+        src.sort_unstable();
+        src.dedup();
+        let mut tgt: Vec<Edge> = migration.edge_remap.values().cloned().collect();
+        tgt.extend(migration.surviving_edges.iter().cloned());
+        tgt.sort_unstable();
+        tgt.dedup();
+        (make_test_schema(&[], &src), make_test_schema(&[], &tgt))
+    }
+
+    /// Pi along `migration`, against the schemas of [`schemas`].
+    fn run_pi(
+        inst: &FInstance,
+        migration: &CompiledMigration,
+        declared: &[Edge],
+        max: usize,
+    ) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
+        let (src, tgt) = schemas(inst, migration, declared);
+        functor_pi_with_hom(inst, &src, &tgt, migration, max)
     }
 
     // --- functor_pi tests ---
@@ -512,7 +589,9 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         assert_eq!(result.table_count(), 1);
         assert_eq!(result.row_count("users"), 1);
     }
@@ -558,7 +637,9 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         // 2 * 1 = 2 product rows
         assert_eq!(result.row_count("merged"), 2);
         // Each product row should have both x and y columns
@@ -617,7 +698,7 @@ mod tests {
         };
 
         // Limit to 2 but product would be 4
-        let result = functor_pi(&inst, &migration, 2);
+        let result = run_pi(&inst, &migration, &[], 2).map(|(pi, _)| pi);
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(
@@ -689,7 +770,9 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         assert_eq!(result.row_count("merged"), 2);
         assert_eq!(result.row_count("other"), 2);
 
@@ -758,7 +841,9 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         assert_eq!(result.row_count("m1"), 2);
         assert_eq!(result.row_count("m2"), 2);
 
@@ -899,7 +984,9 @@ mod tests {
         migration.surviving_verts.insert(Name::from("merged"));
         migration.vertex_remap = vertex_remap;
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         assert_eq!(
             result.row_count("merged"),
             0,
@@ -922,7 +1009,9 @@ mod tests {
         migration.surviving_verts.insert(Name::from("merged"));
         migration.vertex_remap = vertex_remap;
 
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         assert_eq!(
             result.row_count("merged"),
             0,
@@ -975,7 +1064,9 @@ mod tests {
                 .insert(Name::from("b"), Name::from("t"));
             migration.edge_remap.insert(self_edge("a"), self_edge("t"));
             migration.edge_remap.insert(self_edge("b"), self_edge("t"));
-            functor_pi(&inst, &migration, 100).unwrap()
+            run_pi(&inst, &migration, &[], 100)
+                .map(|(pi, _)| pi)
+                .unwrap()
         };
 
         let first = build();
@@ -1041,7 +1132,9 @@ mod tests {
     #[test]
     fn functor_pi_equalises_along_an_intra_fibre_foreign_key() {
         let (inst, migration, _) = intra_fibre_fixture();
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         let rows: Vec<(i64, i64)> = result
             .rows("m")
             .into_iter()
@@ -1060,6 +1153,42 @@ mod tests {
         );
     }
 
+    /// An internal arrow with no pairs is still an arrow of the fibre: the
+    /// limit equalises along the empty relation and is empty. Adding a pair
+    /// can only enlarge the limit.
+    #[test]
+    fn an_internal_foreign_key_without_pairs_empties_the_limit() {
+        let (with_pair, migration, fk) = intra_fibre_fixture();
+        let mut without_pair = with_pair.clone();
+        assert!(without_pair.remove_foreign_key(&fk, RowId(0), RowId(3)));
+        let with_rows = run_pi(&with_pair, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap()
+            .row_count("m");
+        let without_rows = run_pi(&without_pair, &migration, std::slice::from_ref(&fk), 100)
+            .map(|(pi, _)| pi)
+            .unwrap()
+            .row_count("m");
+        assert_eq!((with_rows, without_rows), (1, 0));
+    }
+
+    #[test]
+    fn a_carried_edge_the_target_lacks_is_refused() {
+        let (inst, mut migration, fk) = intra_fibre_fixture();
+        let loop_edge = Edge {
+            src: "m".into(),
+            tgt: "m".into(),
+            kind: "fk".into(),
+            name: Some("ref".into()),
+        };
+        migration.edge_remap.insert(fk.clone(), loop_edge);
+        let (src, _) = schemas(&inst, &migration, &[]);
+        assert!(matches!(
+            functor_pi(&inst, &src, &Schema::default(), &migration, 100),
+            Err(RestrictError::NoEdgeFound { .. })
+        ));
+    }
+
     #[test]
     fn a_carried_intra_fibre_foreign_key_fans_out_over_the_product() {
         let (inst, mut migration, fk) = intra_fibre_fixture();
@@ -1070,7 +1199,9 @@ mod tests {
             name: Some("ref".into()),
         };
         migration.edge_remap.insert(fk, loop_edge.clone());
-        let result = functor_pi(&inst, &migration, 100).unwrap();
+        let result = run_pi(&inst, &migration, &[], 100)
+            .map(|(pi, _)| pi)
+            .unwrap();
         // Not an internal arrow: the product is not equalised, and the pair
         // (a0, b1) relates every row drawing a0 to every row drawing b1.
         assert_eq!(result.row_count("m"), 4);
@@ -1087,7 +1218,7 @@ mod tests {
         let mut unconstrained = inst.clone();
         let fk = unconstrained.all_pairs()[0].clone();
         assert!(unconstrained.remove_foreign_key(&fk.0, fk.1, fk.2));
-        let (result, projections) = functor_pi_with_hom(&unconstrained, &migration, 100).unwrap();
+        let (result, projections) = run_pi(&unconstrained, &migration, &[], 100).unwrap();
         // Fresh ids start above the input's largest (3), in product order:
         // src_a varies slowest, src_b fastest.
         assert_eq!(
@@ -1122,7 +1253,7 @@ mod tests {
             .unwrap();
         let mut migration = CompiledMigration::default();
         migration.surviving_verts.insert(Name::from("users"));
-        let (result, projections) = functor_pi_with_hom(&inst, &migration, 10).unwrap();
+        let (result, projections) = run_pi(&inst, &migration, &[], 10).unwrap();
         assert_eq!(
             result.table("users").unwrap().ids(),
             vec![RowId(7), RowId(41)]
