@@ -23,9 +23,10 @@ use panproto_protocols::registry::descriptors;
 use panproto_protocols::semantics::shapes;
 use panproto_protocols::theories::{
     RegistrationDiagram, constrained_hypergraph_diagram, constrained_multigraph_diagram,
-    constrained_simple_graph_diagram, registered_composition, registered_recipe, th_constraint,
-    th_flat, th_functor, th_graph, th_graph_instance, th_hypergraph, th_interface, th_meta,
-    th_multi, th_simple_graph, th_wtype, typed_graph_diagram, wtype_meta_diagram,
+    constrained_simple_graph_diagram, hypergraph_functor_specs, registered_composition,
+    registered_recipe, th_constraint, th_flat, th_functor, th_graph, th_graph_instance,
+    th_hypergraph, th_interface, th_meta, th_multi, th_simple_graph, th_wtype, typed_graph_diagram,
+    wtype_meta_diagram,
 };
 use panproto_schema::InstanceShapeKind::{self, Graph, Table, Tree};
 use panproto_schema::canonical_theory_bytes;
@@ -275,6 +276,17 @@ fn registration_equivalence() {
             );
             assert_eq!(protocol.syntactic_shape, *syntactic, "{name}");
             assert_eq!(protocol.semantic_shape, *semantic, "{name}");
+            // Only the instance theory is re-declared: the schema theory
+            // is still held to the 0.74 construction.
+            let group = zero_74
+                .get(name)
+                .unwrap_or_else(|| panic!("{name} is a 0.74 protocol"));
+            let (schema_ref, _) = reference(*group);
+            assert_eq!(
+                canonical_theory_bytes(schema),
+                bytes_as(&schema_ref, &protocol.schema_theory),
+                "{name}: schema theory"
+            );
         } else if let Some(group) = zero_74.get(name) {
             let (schema_ref, instance_ref) = reference(*group);
             assert_eq!(
@@ -304,9 +316,18 @@ fn registration_equivalence() {
 fn every_registered_protocol_records_a_diagram_step() {
     for descriptor in descriptors() {
         let (protocol, _) = register(descriptor.name);
-        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
-            let recipe = registered_recipe(theory_name)
+        for (theory_name, carried) in [
+            (&protocol.schema_theory, &protocol.schema_composition),
+            (&protocol.instance_theory, &protocol.instance_composition),
+        ] {
+            let recipe = carried
+                .clone()
                 .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
+            assert_eq!(
+                Some(&recipe),
+                registered_recipe(theory_name).as_ref(),
+                "{theory_name}: the protocol carries the recipe registration recorded"
+            );
             assert_eq!(recipe.result_name, *theory_name);
             assert_eq!(recipe.version, 1, "{theory_name}");
             assert!(
@@ -329,8 +350,13 @@ fn every_registered_protocol_records_a_diagram_step() {
 fn recompose_of_every_registration_spec_reproduces_its_theory() {
     for descriptor in descriptors() {
         let (protocol, registry) = register(descriptor.name);
-        for theory_name in [&protocol.schema_theory, &protocol.instance_theory] {
-            let recipe = registered_recipe(theory_name).unwrap();
+        for (theory_name, carried) in [
+            (&protocol.schema_theory, &protocol.schema_composition),
+            (&protocol.instance_theory, &protocol.instance_composition),
+        ] {
+            let recipe = carried
+                .clone()
+                .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
             let json = serde_json::to_string(&recipe).unwrap();
             let stored: panproto_gat::CompositionSpec = serde_json::from_str(&json).unwrap();
             let replayed =
@@ -339,6 +365,89 @@ fn recompose_of_every_registration_spec_reproduces_its_theory() {
                 canonical_theory_bytes(&replayed),
                 canonical_theory_bytes(&registry[theory_name.as_str()]),
                 "{theory_name}"
+            );
+        }
+    }
+}
+
+/// Set in the child process of
+/// [`a_protocol_carries_its_recipes_without_earlier_registration`].
+const FRESH_PROCESS: &str = "PANPROTO_PROTOCOLS_FRESH_PROCESS";
+
+#[test]
+fn a_protocol_carries_its_recipes_without_earlier_registration() {
+    if std::env::var_os(FRESH_PROCESS).is_none() {
+        // Rerun this test alone in a new process, where nothing has been
+        // registered before the protocols are built.
+        let status = std::process::Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "a_protocol_carries_its_recipes_without_earlier_registration",
+                "--test-threads=1",
+            ])
+            .env(FRESH_PROCESS, "1")
+            .status()
+            .unwrap();
+        assert!(status.success(), "the fresh process failed: {status}");
+        return;
+    }
+    assert!(
+        registered_recipe("ThSQLSchema").is_none(),
+        "the process registered theories before building a protocol"
+    );
+    // Build every protocol before registering anything explicitly.
+    let built: Vec<_> = descriptors().iter().map(|d| (d, (d.protocol)())).collect();
+    for (descriptor, protocol) in &built {
+        let mut registry = HashMap::new();
+        (descriptor.register_theories)(&mut registry).unwrap();
+        assert_eq!(
+            protocol.schema_composition,
+            registered_recipe(&protocol.schema_theory),
+            "{}",
+            descriptor.name
+        );
+        assert_eq!(
+            protocol.instance_composition,
+            registered_recipe(&protocol.instance_theory),
+            "{}",
+            descriptor.name
+        );
+        assert!(protocol.schema_composition.is_some(), "{}", descriptor.name);
+        assert!(
+            protocol.instance_composition.is_some(),
+            "{}",
+            descriptor.name
+        );
+    }
+    let sql = &built.iter().find(|(d, _)| d.name == "sql").unwrap().1;
+    let (schema, instance) = hypergraph_functor_specs("ThSQLSchema", "ThSQLInstance");
+    assert_eq!(sql.schema_composition, Some(schema));
+    assert_eq!(sql.instance_composition, Some(instance));
+}
+
+#[test]
+fn every_theory_registration_inserts_has_its_composition() {
+    for descriptor in descriptors() {
+        let (_, registry) = register(descriptor.name);
+        for (theory_name, theory) in &registry {
+            let composition = registered_composition(theory_name)
+                .unwrap_or_else(|| panic!("{}: {theory_name} has no composition", descriptor.name));
+            assert_eq!(
+                canonical_theory_bytes(&composition.theory),
+                canonical_theory_bytes(theory),
+                "{}: {theory_name}",
+                descriptor.name
+            );
+            assert_status_clause(&composition, theory_name);
+            let recipe = registered_recipe(theory_name)
+                .unwrap_or_else(|| panic!("{}: {theory_name} has no recipe", descriptor.name));
+            let replayed = recompose(&recipe, &registry)
+                .unwrap_or_else(|e| panic!("{}: {theory_name}: {e}", descriptor.name));
+            assert_eq!(
+                canonical_theory_bytes(&replayed),
+                canonical_theory_bytes(theory),
+                "{}: {theory_name}",
+                descriptor.name
             );
         }
     }
@@ -528,13 +637,13 @@ fn theory_composition_fixtures_match_the_generator() {
     assert_eq!(
         generated.keys().collect::<Vec<_>>(),
         committed.keys().collect::<Vec<_>>(),
-        "regenerate with `cargo run -p panproto-protocols --bin theory-composition-fixtures`"
+        "regenerate with `cargo run -p panproto-protocols --features fixtures --bin theory-composition-fixtures`"
     );
     for (name, bytes) in &generated {
         assert!(
             committed[name] == *bytes,
             "{name} differs from the generator's output; regenerate with \
-             `cargo run -p panproto-protocols --bin theory-composition-fixtures`"
+             `cargo run -p panproto-protocols --features fixtures --bin theory-composition-fixtures`"
         );
     }
 }

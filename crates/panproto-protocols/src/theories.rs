@@ -192,7 +192,7 @@ use panproto_gat::{
     DiagramNode, OpAssignment, RecipeEdge, RecipeOpImage, TheoryDiagram, TheoryMorphism, compose,
     validate_rewrite_system,
 };
-use panproto_schema::canonical_composition_bytes;
+use panproto_schema::{Protocol, canonical_composition_bytes};
 use std::collections::{BTreeMap, HashMap};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 
@@ -357,16 +357,26 @@ impl RegistrationDiagram {
         compose(&self.diagram(), &Self::options(result_name))
     }
 
-    /// Insert every building block into `registry` under its name, keeping
-    /// a block already there.
+    /// Record the composition of every building block as a one-node
+    /// diagram, and insert the block into `registry` under its name,
+    /// keeping a block already there.
+    ///
+    /// # Panics
+    ///
+    /// Panics if a block does not compose on its own, which is a defect in
+    /// the building blocks of this module.
     fn register_blocks<S: ::std::hash::BuildHasher>(
         &self,
         registry: &mut HashMap<String, Theory, S>,
     ) {
         for block in &self.blocks {
-            registry
-                .entry(block.name.to_string())
-                .or_insert_with(|| block.clone());
+            let name = block.name.to_string();
+            let single = Self::single(block.clone());
+            let composition = single
+                .compose(&name)
+                .unwrap_or_else(|e| panic!("composing the building block `{name}` failed: {e}"));
+            record(&name, &composition, single.recipe(&name));
+            registry.entry(name).or_insert_with(|| block.clone());
         }
     }
 }
@@ -483,9 +493,12 @@ fn registered() -> &'static Mutex<BTreeMap<String, Registered>> {
 /// building block, the provenance of every symbol and the composition
 /// report.
 ///
-/// This covers the schema and instance theory of every protocol whose
-/// theories were registered in this process, through the helpers of this
-/// module or [`crate::atproto::register_theories`]. The registry itself
+/// This covers every theory the helpers of this module and
+/// [`crate::atproto::register_theories`] have inserted into a registry in
+/// this process: the schema and instance theory of each protocol, and each
+/// building block, whose composition is the one-node diagram of the block.
+/// The shared theories of a diagram are never inserted into a registry and
+/// have none. The registry itself
 /// stays a map from names to theories; this is kept beside it.
 #[must_use]
 pub fn registered_composition(theory_name: &str) -> Option<Composition> {
@@ -506,6 +519,32 @@ pub fn registered_recipe(theory_name: &str) -> Option<CompositionSpec> {
         .unwrap_or_else(PoisonError::into_inner)
         .get(theory_name)
         .map(|r| r.recipe.clone())
+}
+
+/// Fill `protocol`'s [`Protocol::schema_composition`] and
+/// [`Protocol::instance_composition`] with the recipes that registration
+/// records for its schema and instance theories.
+///
+/// The recipes do not depend on what this process registered before: when
+/// a theory's recipe is not recorded yet, the protocol's own theories are
+/// registered into a scratch registry first, and registration is
+/// deterministic, so the recipes are the same either way. A protocol that
+/// is not a built-in descriptor, or whose theories are not composed by
+/// these helpers, keeps the fields it was given.
+pub fn attach_recipes(protocol: &mut Protocol) {
+    let lookup = |protocol: &Protocol| {
+        registered_recipe(&protocol.schema_theory).zip(registered_recipe(&protocol.instance_theory))
+    };
+    let recipes = lookup(protocol).or_else(|| {
+        let descriptor = crate::registry::descriptor(&protocol.name)?;
+        let mut scratch = HashMap::new();
+        (descriptor.register_theories)(&mut scratch).ok()?;
+        lookup(protocol)
+    });
+    if let Some((schema, instance)) = recipes {
+        protocol.schema_composition = Some(schema);
+        protocol.instance_composition = Some(instance);
+    }
 }
 
 /// Record the composition registered as `name`. The first registration of
