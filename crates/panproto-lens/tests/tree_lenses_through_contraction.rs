@@ -194,3 +194,224 @@ mod composition {
         assert_eq!(view.arcs, vec![(0, 2, prop("r", "leaf", "label"))]);
     }
 }
+
+mod put_domain {
+    use super::*;
+    use panproto_inst::ViewRef;
+    use panproto_lens::{LensError, PutDomainError};
+
+    /// Adding a leaf under `r` with the contracted label has no source path
+    /// to go to: `put` refuses it rather than dropping it.
+    #[test]
+    fn a_view_leaf_added_across_a_contracted_pair_is_rejected() {
+        let lens = contracting_lens(false);
+        let (mut view, complement) = panproto_lens::get(&lens, &contracting_source()).unwrap();
+        assert_eq!(view.arcs, vec![(0, 2, prop("r", "leaf", "label"))]);
+        view.nodes.insert(3, leaf(3, "y"));
+        view.arcs.push((0, 3, prop("r", "leaf", "label")));
+        let view = WInstance::new(
+            view.nodes,
+            view.arcs,
+            view.fans,
+            view.root,
+            view.schema_root,
+        );
+
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Err(vec![PutDomainError::ContractedEdgeInserted {
+                elem: ViewRef::Arc {
+                    parent: 0,
+                    child: 3
+                }
+            }])
+        );
+        let put = panproto_lens::put(&lens, &view, &complement);
+        assert!(
+            matches!(put, Err(LensError::ComplementMismatch { .. })),
+            "{put:?}"
+        );
+    }
+
+    /// The unchanged view is in the domain.
+    #[test]
+    fn the_view_get_returns_is_in_the_put_domain() {
+        let lens = contracting_lens(false);
+        let (view, complement) = panproto_lens::get(&lens, &contracting_source()).unwrap();
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Ok(())
+        );
+        let back = panproto_lens::put(&lens, &view, &complement).unwrap();
+        assert_eq!(sorted_arcs(&back), sorted_arcs(&contracting_source()));
+    }
+}
+
+/// Put is strict: a view that fails a survival predicate, edits a computed
+/// field, or edits a field whose transform has no inverse is refused, since
+/// no source would give that view back.
+mod strict_put {
+    use std::sync::Arc;
+
+    use super::*;
+    use panproto_expr::{BuiltinOp, Expr, Literal};
+    use panproto_inst::{FieldTransform, ViewRef};
+    use panproto_lens::{LensError, PutDomainError};
+
+    fn plain_lens() -> Lens {
+        let src = schema(&[("r", "object"), ("c", "object")], &[prop("r", "c", "c")]);
+        let m = migration(
+            &[("r", "r"), ("c", "c")],
+            vec![(prop("r", "c", "c"), prop("r", "c", "c"))],
+            vec![],
+        );
+        lens(src.clone(), src, &m)
+    }
+
+    /// `r(0) {n: 1} -> c(1) {level: 2}`.
+    fn source() -> WInstance {
+        let mut r = Node::new(0, "r");
+        r.extra_fields.insert("n".into(), Value::Int(1));
+        let mut c = Node::new(1, "c");
+        c.extra_fields.insert("level".into(), Value::Int(2));
+        WInstance::new(
+            HashMap::from([(0, r), (1, c)]),
+            vec![(0, 1, prop("r", "c", "c"))],
+            vec![],
+            0,
+            "r".into(),
+        )
+    }
+
+    fn var(name: &str) -> Expr {
+        Expr::Var(Arc::from(name))
+    }
+
+    fn edited(view: &WInstance, id: u32, key: &str, value: Value) -> WInstance {
+        let mut view = view.clone();
+        view.nodes
+            .get_mut(&id)
+            .unwrap()
+            .extra_fields
+            .insert(key.into(), value);
+        view
+    }
+
+    fn assert_refused(
+        lens: &Lens,
+        view: &WInstance,
+        complement: &panproto_lens::Complement,
+        expected: PutDomainError,
+    ) {
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(lens, view, complement),
+            Err(vec![expected])
+        );
+        let put = panproto_lens::put(lens, view, complement);
+        assert!(
+            matches!(put, Err(LensError::ComplementMismatch { .. })),
+            "{put:?}"
+        );
+    }
+
+    #[test]
+    fn tree_put_rejects_a_view_failing_a_survival_predicate() {
+        let mut lens = plain_lens();
+        lens.compiled.conditional_survival.insert(
+            "c".into(),
+            Expr::Builtin(
+                BuiltinOp::Eq,
+                vec![var("level"), Expr::Lit(Literal::Int(2))],
+            ),
+        );
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        assert!(view.nodes.contains_key(&1));
+        let view = edited(&view, 1, "level", Value::Int(3));
+        assert_refused(
+            &lens,
+            &view,
+            &complement,
+            PutDomainError::SurvivalPredicateFails {
+                elem: ViewRef::Node(1),
+            },
+        );
+    }
+
+    #[test]
+    fn tree_put_rejects_an_edited_computed_field() {
+        let mut lens = plain_lens();
+        lens.compiled.field_transforms.insert(
+            "r".into(),
+            vec![FieldTransform::ComputeField {
+                target_key: "double".into(),
+                expr: Expr::Builtin(BuiltinOp::Add, vec![var("n"), var("n")]),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            }],
+        );
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        assert_eq!(view.nodes[&0].extra_fields["double"], Value::Int(2));
+        assert_eq!(
+            panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+            Ok(())
+        );
+        let view = edited(&view, 0, "double", Value::Int(10));
+        assert_refused(
+            &lens,
+            &view,
+            &complement,
+            PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Node(0),
+                field: "double".into(),
+            },
+        );
+    }
+
+    #[test]
+    fn tree_put_rejects_an_edited_non_invertible_field() {
+        let mut lens = plain_lens();
+        lens.compiled.field_transforms.insert(
+            "r".into(),
+            vec![FieldTransform::ApplyExpr {
+                key: "n".into(),
+                expr: Expr::Builtin(BuiltinOp::Add, vec![var("n"), Expr::Lit(Literal::Int(1))]),
+                inverse: None,
+                coercion_class: panproto_gat::CoercionClass::Opaque,
+            }],
+        );
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        assert_eq!(view.nodes[&0].extra_fields["n"], Value::Int(2));
+        let view = edited(&view, 0, "n", Value::Int(7));
+        assert_refused(
+            &lens,
+            &view,
+            &complement,
+            PutDomainError::TransformNotInvertible {
+                elem: ViewRef::Node(0),
+                field: "n".into(),
+            },
+        );
+    }
+
+    /// An edit through a transform that has an inverse stays in the domain.
+    #[test]
+    fn tree_put_accepts_an_edit_through_an_inverse() {
+        let mut lens = plain_lens();
+        lens.compiled.field_transforms.insert(
+            "r".into(),
+            vec![FieldTransform::ApplyExpr {
+                key: "n".into(),
+                expr: Expr::Builtin(BuiltinOp::Add, vec![var("n"), Expr::Lit(Literal::Int(1))]),
+                inverse: Some(Expr::Builtin(
+                    BuiltinOp::Sub,
+                    vec![var("n"), Expr::Lit(Literal::Int(1))],
+                )),
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        );
+        let (view, complement) = panproto_lens::get(&lens, &source()).unwrap();
+        let view = edited(&view, 0, "n", Value::Int(7));
+        let back = panproto_lens::put(&lens, &view, &complement).unwrap();
+        assert_eq!(back.nodes[&0].extra_fields["n"], Value::Int(6));
+    }
+}
