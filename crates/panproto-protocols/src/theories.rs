@@ -541,26 +541,25 @@ pub fn attach_recipes(protocol: &mut Protocol) {
     let lookup = |protocol: &Protocol| {
         registered_recipe(&protocol.schema_theory).zip(registered_recipe(&protocol.instance_theory))
     };
-    let recipes = match lookup(protocol) {
-        Some(recipes) => recipes,
-        None => {
-            let Some(descriptor) = crate::registry::descriptor(&protocol.name) else {
-                return;
-            };
-            let mut scratch = HashMap::new();
-            if let Err(err) = (descriptor.register_theories)(&mut scratch) {
-                panic!(
-                    "the theories of built-in protocol {} fail to register: {err}",
-                    protocol.name
-                );
-            }
-            lookup(protocol).unwrap_or_else(|| {
-                panic!(
-                    "registering built-in protocol {} records no recipe for {} and {}",
-                    protocol.name, protocol.schema_theory, protocol.instance_theory
-                )
-            })
+    let recipes = if let Some(recipes) = lookup(protocol) {
+        recipes
+    } else {
+        let Some(descriptor) = crate::registry::descriptor(&protocol.name) else {
+            return;
+        };
+        let mut scratch = HashMap::new();
+        if let Err(err) = (descriptor.register_theories)(&mut scratch) {
+            panic!(
+                "the theories of built-in protocol {} fail to register: {err}",
+                protocol.name
+            );
         }
+        lookup(protocol).unwrap_or_else(|| {
+            panic!(
+                "registering built-in protocol {} records no recipe for {} and {}",
+                protocol.name, protocol.schema_theory, protocol.instance_theory
+            )
+        })
     };
     protocol.schema_composition = Some(recipes.0);
     protocol.instance_composition = Some(recipes.1);
