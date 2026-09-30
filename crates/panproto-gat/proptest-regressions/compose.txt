@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 5822652db564c4b84f0a3fdaf2befbaecac3e8f9161c25401a0c498a2f619da4 # shrinks to spec = OpenSpec { nodes: [([true, false, false, false], [1]), ([false, false, false, true], [0]), ([false, false, false, true], []), ([true, false, true, true], [1]), ([false, false, false, true], [])], edges: [(4, 3, [0, 0, 0, 2]), (0, 1, [0, 3, 0, 0])] }, rename = [3, 0, 1, 2], rotate = 0

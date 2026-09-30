@@ -11,6 +11,9 @@ use std::sync::Arc;
 
 use rustc_hash::{FxHashMap, FxHashSet};
 
+use serde::{Deserialize, Serialize};
+
+use crate::compose::SymKind;
 use crate::eq::{CaseBranch, Equation, Term};
 use crate::error::GatError;
 use crate::op::{Implicit, Operation};
@@ -1279,7 +1282,373 @@ pub fn typecheck_equation_modulo_rewrites(
     Ok(())
 }
 
-/// Typecheck all equations in a theory.
+/// Where in a theory's signature a [`SignatureDefect`] sits.
+///
+/// Serialized externally tagged in `snake_case`, for instance
+/// `{"op_input": {"op": "id", "index": 0}}`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureSite {
+    /// The sort of parameter `index` of the dependent sort `sort`.
+    SortParam {
+        /// The sort whose parameter this is.
+        sort: Arc<str>,
+        /// The parameter's position.
+        index: usize,
+    },
+    /// The sort of input `index` of the operation `op`.
+    OpInput {
+        /// The operation.
+        op: Arc<str>,
+        /// The input's position.
+        index: usize,
+    },
+    /// The output sort of the operation `op`.
+    OpOutput {
+        /// The operation.
+        op: Arc<str>,
+    },
+}
+
+impl std::fmt::Display for SignatureSite {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::SortParam { sort, index } => write!(f, "parameter {index} of sort `{sort}`"),
+            Self::OpInput { op, index } => write!(f, "input {index} of operation `{op}`"),
+            Self::OpOutput { op } => write!(f, "output of operation `{op}`"),
+        }
+    }
+}
+
+/// One way a theory's signature can be ill formed.
+///
+/// Serialized externally tagged in `snake_case`, for instance
+/// `{"undeclared_sort": {"site": {"op_output": {"op": "f"}}, "sort": "V"}}`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SignatureDefect {
+    /// A sort expression names a sort the theory does not declare, or one
+    /// it declares only through a cycle of parameter dependencies, so that
+    /// no dependency order puts the declaration before the use.
+    UndeclaredSort {
+        /// Where the sort is named.
+        site: SignatureSite,
+        /// The sort named.
+        sort: Arc<str>,
+    },
+    /// A sort is applied to a number of arguments different from its
+    /// number of parameters.
+    SortArity {
+        /// Where the application occurs.
+        site: SignatureSite,
+        /// The sort applied.
+        sort: Arc<str>,
+        /// Its declared number of parameters.
+        expected: usize,
+        /// The number of arguments given.
+        found: usize,
+    },
+    /// An argument of a sort application does not have the sort of the
+    /// parameter it instantiates.
+    ParamIllTyped {
+        /// Where the application occurs.
+        site: SignatureSite,
+        /// The sort applied.
+        sort: Arc<str>,
+        /// The argument's position.
+        index: usize,
+        /// The parameter's sort, with earlier arguments substituted.
+        expected: Arc<str>,
+        /// The argument's sort, or why it has none.
+        found: Arc<str>,
+    },
+    /// A sort argument mentions a variable that no earlier parameter or
+    /// input binds.
+    UnboundParamVar {
+        /// Where the argument occurs.
+        site: SignatureSite,
+        /// The unbound variable.
+        var: Arc<str>,
+    },
+    /// Two symbols of one kind share a name.
+    DuplicateSymbol {
+        /// The kind of the duplicated symbols.
+        kind: SymKind,
+        /// Their shared name.
+        name: Arc<str>,
+    },
+}
+
+impl SignatureDefect {
+    /// The sort this defect reports as undeclared, when it is an
+    /// [`SignatureDefect::UndeclaredSort`].
+    #[must_use]
+    pub const fn undeclared_sort(&self) -> Option<&Arc<str>> {
+        match self {
+            Self::UndeclaredSort { sort, .. } => Some(sort),
+            _ => None,
+        }
+    }
+}
+
+impl std::fmt::Display for SignatureDefect {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::UndeclaredSort { site, sort } => {
+                write!(f, "{site}: sort `{sort}` is not declared")
+            }
+            Self::SortArity {
+                site,
+                sort,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{site}: sort `{sort}` takes {expected} argument(s), given {found}"
+            ),
+            Self::ParamIllTyped {
+                site,
+                sort,
+                index,
+                expected,
+                found,
+            } => write!(
+                f,
+                "{site}: argument {index} of `{sort}` should have sort {expected}, has {found}"
+            ),
+            Self::UnboundParamVar { site, var } => {
+                write!(
+                    f,
+                    "{site}: variable `{var}` is not bound by an earlier parameter"
+                )
+            }
+            Self::DuplicateSymbol { kind, name } => {
+                write!(f, "{kind} `{name}` is declared more than once")
+            }
+        }
+    }
+}
+
+/// Check that a theory's signature is well formed.
+///
+/// The judgement:
+///
+/// - no two sorts, operations, equations, directed equations or policies
+///   share a name ([`SignatureDefect::DuplicateSymbol`]);
+/// - every sort named by a sort parameter is declared and precedes the
+///   sort in dependency order, which is the order of the parameter
+///   dependency graph and not the order of `theory.sorts`
+///   ([`SignatureDefect::UndeclaredSort`]);
+/// - every sort expression of an operation's inputs and output names a
+///   declared sort ([`SignatureDefect::UndeclaredSort`]);
+/// - `SortExpr::Name(s)` for a dependent sort `s` is its unapplied,
+///   implicitly indexed form and is admitted; a `SortExpr::App` must give
+///   exactly as many arguments as the sort has parameters
+///   ([`SignatureDefect::SortArity`]);
+/// - each argument of an application has the sort of the parameter it
+///   instantiates, with the earlier arguments substituted for the earlier
+///   parameters, since the parameters form a dependent telescope
+///   ([`SignatureDefect::ParamIllTyped`]);
+/// - every variable in an argument is bound by an earlier parameter of the
+///   sort, or by an earlier input of the operation, or for the output by
+///   any input ([`SignatureDefect::UnboundParamVar`]).
+///
+/// [`typecheck_theory`] runs this check first.
+///
+/// # Errors
+///
+/// Returns every defect found, in the order: duplicates, then sorts in
+/// declaration order, then operations in declaration order.
+pub fn typecheck_signature(theory: &Theory) -> Result<(), Vec<SignatureDefect>> {
+    let mut defects = duplicate_symbols(theory);
+    let ordered = sorts_in_dependency_order(theory);
+
+    for sort in &theory.sorts {
+        let mut ctx = VarContext::default();
+        for (index, param) in sort.params.iter().enumerate() {
+            let site = SignatureSite::SortParam {
+                sort: Arc::clone(&sort.name),
+                index,
+            };
+            let head = param.sort.head();
+            if theory.has_sort(head) && !ordered.contains(head) {
+                defects.push(SignatureDefect::UndeclaredSort {
+                    site,
+                    sort: Arc::clone(head),
+                });
+            } else {
+                check_sort_expr(&param.sort, &site, &ctx, theory, &mut defects);
+            }
+            ctx.insert(Arc::clone(&param.name), param.sort.clone());
+        }
+    }
+
+    for op in &theory.ops {
+        let mut ctx = VarContext::default();
+        for (index, (name, sort, _)) in op.inputs.iter().enumerate() {
+            let site = SignatureSite::OpInput {
+                op: Arc::clone(&op.name),
+                index,
+            };
+            check_sort_expr(sort, &site, &ctx, theory, &mut defects);
+            ctx.insert(Arc::clone(name), sort.clone());
+        }
+        let site = SignatureSite::OpOutput {
+            op: Arc::clone(&op.name),
+        };
+        check_sort_expr(&op.output, &site, &ctx, theory, &mut defects);
+    }
+
+    if defects.is_empty() {
+        Ok(())
+    } else {
+        Err(defects)
+    }
+}
+
+/// Every name declared more than once, per kind, in ascending order.
+fn duplicate_symbols(theory: &Theory) -> Vec<SignatureDefect> {
+    fn dups<'a>(
+        kind: SymKind,
+        names: impl Iterator<Item = &'a Arc<str>>,
+        out: &mut Vec<SignatureDefect>,
+    ) {
+        let mut seen = std::collections::BTreeSet::new();
+        let mut repeated = std::collections::BTreeSet::new();
+        for name in names {
+            if !seen.insert(name) {
+                repeated.insert(name);
+            }
+        }
+        for name in repeated {
+            out.push(SignatureDefect::DuplicateSymbol {
+                kind,
+                name: Arc::clone(name),
+            });
+        }
+    }
+    let mut out = Vec::new();
+    dups(
+        SymKind::Sort,
+        theory.sorts.iter().map(|s| &s.name),
+        &mut out,
+    );
+    dups(SymKind::Op, theory.ops.iter().map(|o| &o.name), &mut out);
+    dups(SymKind::Eq, theory.eqs.iter().map(|e| &e.name), &mut out);
+    dups(
+        SymKind::DirectedEq,
+        theory.directed_eqs.iter().map(|e| &e.name),
+        &mut out,
+    );
+    dups(
+        SymKind::Policy,
+        theory.policies.iter().map(|p| &p.name),
+        &mut out,
+    );
+    out
+}
+
+/// The declared sorts that can be placed in a dependency order: those
+/// whose parameter sorts are all declared and themselves orderable. A sort
+/// on a cycle of parameter dependencies, or depending on one, is left out.
+fn sorts_in_dependency_order(theory: &Theory) -> FxHashSet<Arc<str>> {
+    let mut ordered: FxHashSet<Arc<str>> = FxHashSet::default();
+    loop {
+        let before = ordered.len();
+        for sort in &theory.sorts {
+            if ordered.contains(&sort.name) {
+                continue;
+            }
+            let ready = sort.params.iter().all(|p| {
+                let head = p.sort.head();
+                *head != sort.name && (!theory.has_sort(head) || ordered.contains(head))
+            });
+            if ready {
+                ordered.insert(Arc::clone(&sort.name));
+            }
+        }
+        if ordered.len() == before {
+            return ordered;
+        }
+    }
+}
+
+/// Check one sort expression at `site`, with `ctx` binding the variables
+/// its arguments may mention.
+fn check_sort_expr(
+    expr: &SortExpr,
+    site: &SignatureSite,
+    ctx: &VarContext,
+    theory: &Theory,
+    defects: &mut Vec<SignatureDefect>,
+) {
+    let head = expr.head();
+    let Some(declared) = theory.find_sort(head) else {
+        defects.push(SignatureDefect::UndeclaredSort {
+            site: site.clone(),
+            sort: Arc::clone(head),
+        });
+        return;
+    };
+    let SortExpr::App { args, .. } = expr else {
+        return;
+    };
+    if args.len() != declared.params.len() {
+        defects.push(SignatureDefect::SortArity {
+            site: site.clone(),
+            sort: Arc::clone(head),
+            expected: declared.params.len(),
+            found: args.len(),
+        });
+        return;
+    }
+    let mut theta: FxHashMap<Arc<str>, Term> = FxHashMap::default();
+    for (index, (arg, param)) in args.iter().zip(&declared.params).enumerate() {
+        let expected = param.sort.subst(&theta);
+        let unbound: Vec<Arc<str>> = {
+            let mut vars: Vec<Arc<str>> = arg
+                .free_vars()
+                .into_iter()
+                .filter(|v| !ctx.contains_key(v))
+                .collect();
+            vars.sort();
+            vars
+        };
+        if unbound.is_empty() {
+            match typecheck_term(arg, ctx, theory) {
+                Ok(found) if found.alpha_eq(&expected) => {}
+                Ok(found) => defects.push(SignatureDefect::ParamIllTyped {
+                    site: site.clone(),
+                    sort: Arc::clone(head),
+                    index,
+                    expected: Arc::from(expected.to_string()),
+                    found: Arc::from(found.to_string()),
+                }),
+                Err(err) => defects.push(SignatureDefect::ParamIllTyped {
+                    site: site.clone(),
+                    sort: Arc::clone(head),
+                    index,
+                    expected: Arc::from(expected.to_string()),
+                    found: Arc::from(format!("no sort ({err})")),
+                }),
+            }
+        } else {
+            for var in unbound {
+                defects.push(SignatureDefect::UnboundParamVar {
+                    site: site.clone(),
+                    var,
+                });
+            }
+        }
+        theta.insert(Arc::clone(&param.name), arg.clone());
+    }
+}
+
+/// Typecheck a theory: its signature, then all its equations.
+///
+/// The signature is checked first with [`typecheck_signature`]; a theory
+/// whose signature is ill formed is rejected with
+/// [`GatError::IllTypedSignature`] before any equation is looked at.
 ///
 /// Also verifies, for every operation, that every implicit parameter's
 /// name occurs in at least one explicit input sort or the output sort.
@@ -1291,6 +1660,13 @@ pub fn typecheck_equation_modulo_rewrites(
 ///
 /// Returns the first type error encountered.
 pub fn typecheck_theory(theory: &Theory) -> Result<(), GatError> {
+    typecheck_signature(theory).map_err(|defects| GatError::IllTypedSignature { defects })?;
+    typecheck_theory_body(theory)
+}
+
+/// Everything [`typecheck_theory`] checks after the signature: implicit
+/// inferrability, closed sorts, and every equation.
+pub fn typecheck_theory_body(theory: &Theory) -> Result<(), GatError> {
     for op in &theory.ops {
         check_implicits_inferrable(op)?;
     }
@@ -3069,5 +3445,454 @@ mod tests {
                 prop_assert_eq!(l2, r2);
             }
         }
+    }
+
+    /// The building blocks of `panproto-protocols::theories`, reproduced
+    /// here so the signature judgement is pinned against the shapes the
+    /// registration helpers compose: `th_constraint`'s
+    /// `target : Constraint -> Vertex` and `th_simple_graph`'s
+    /// `src, tgt : Edge -> Vertex` use a dependent sort unapplied.
+    fn building_blocks() -> Vec<Theory> {
+        let mut blocks = schema_blocks();
+        blocks.extend(instance_blocks());
+        blocks
+    }
+
+    /// The schema-side building blocks.
+    fn schema_blocks() -> Vec<Theory> {
+        let unary = Operation::unary;
+        vec![
+            Theory::new(
+                "ThGraph",
+                vec![Sort::simple("Vertex"), Sort::simple("Edge")],
+                vec![
+                    unary("src", "e", "Edge", "Vertex"),
+                    unary("tgt", "e", "Edge", "Vertex"),
+                ],
+                vec![],
+            ),
+            Theory::new(
+                "ThConstraint",
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::dependent("Constraint", vec![SortParam::new("v", "Vertex")]),
+                ],
+                vec![unary("target", "c", "Constraint", "Vertex")],
+                vec![],
+            ),
+            Theory::new(
+                "ThMulti",
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::simple("Edge"),
+                    Sort::simple("EdgeLabel"),
+                ],
+                vec![unary("edge_label", "e", "Edge", "EdgeLabel")],
+                vec![],
+            ),
+        ]
+    }
+
+    /// `ThWType`, with its two arc-anchor coherence axioms.
+    fn wtype_block() -> Theory {
+        let unary = Operation::unary;
+        Theory::new(
+            "ThWType",
+            vec![
+                Sort::simple("Node"),
+                Sort::simple("Arc"),
+                Sort::simple("Value"),
+                Sort::simple("Vertex"),
+                Sort::simple("Edge"),
+            ],
+            vec![
+                unary("anchor", "n", "Node", "Vertex"),
+                unary("arc_src", "a", "Arc", "Node"),
+                unary("arc_tgt", "a", "Arc", "Node"),
+                unary("arc_edge", "a", "Arc", "Edge"),
+                unary("node_value", "n", "Node", "Value"),
+                unary("src", "e", "Edge", "Vertex"),
+                unary("tgt", "e", "Edge", "Vertex"),
+            ],
+            vec![
+                Equation::new(
+                    "arc_src_anchor",
+                    Term::app("anchor", vec![Term::app("arc_src", vec![Term::var("a")])]),
+                    Term::app("src", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+                ),
+                Equation::new(
+                    "arc_tgt_anchor",
+                    Term::app("anchor", vec![Term::app("arc_tgt", vec![Term::var("a")])]),
+                    Term::app("tgt", vec![Term::app("arc_edge", vec![Term::var("a")])]),
+                ),
+            ],
+        )
+    }
+
+    /// The instance-side building blocks and the remaining schema ones.
+    fn instance_blocks() -> Vec<Theory> {
+        let unary = Operation::unary;
+        vec![
+            wtype_block(),
+            Theory::new(
+                "ThMeta",
+                vec![
+                    Sort::simple("Node"),
+                    Sort::simple("Discriminator"),
+                    Sort::simple("ExtraField"),
+                    Sort::simple("Value"),
+                ],
+                vec![
+                    unary("discriminator", "n", "Node", "Discriminator"),
+                    Operation::new(
+                        "extra_field",
+                        vec![
+                            ("n".into(), "Node".into()),
+                            ("key".into(), "ExtraField".into()),
+                        ],
+                        "Value",
+                    ),
+                ],
+                vec![],
+            ),
+            Theory::new(
+                "ThSimpleGraph",
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::dependent(
+                        "Edge",
+                        vec![SortParam::new("s", "Vertex"), SortParam::new("t", "Vertex")],
+                    ),
+                ],
+                vec![
+                    unary("src", "e", "Edge", "Vertex"),
+                    unary("tgt", "e", "Edge", "Vertex"),
+                ],
+                vec![],
+            ),
+            Theory::new(
+                "ThHypergraph",
+                vec![
+                    Sort::simple("Vertex"),
+                    Sort::simple("HyperEdge"),
+                    Sort::simple("Label"),
+                ],
+                vec![
+                    Operation::new(
+                        "incident",
+                        vec![
+                            ("he".into(), "HyperEdge".into()),
+                            ("l".into(), "Label".into()),
+                        ],
+                        "Vertex",
+                    ),
+                    unary("parent_label", "he", "HyperEdge", "Label"),
+                ],
+                vec![],
+            ),
+            Theory::new(
+                "ThInterface",
+                vec![Sort::simple("Vertex"), Sort::simple("Interface")],
+                vec![Operation::new(
+                    "implements",
+                    vec![
+                        ("v".into(), "Vertex".into()),
+                        ("i".into(), "Interface".into()),
+                    ],
+                    "Vertex",
+                )],
+                vec![],
+            ),
+            Theory::new(
+                "ThGraphInstance",
+                vec![
+                    Sort::simple("IVertex"),
+                    Sort::simple("IEdge"),
+                    Sort::simple("Value"),
+                    Sort::simple("Vertex"),
+                    Sort::simple("Edge"),
+                ],
+                vec![
+                    unary("i_src", "e", "IEdge", "IVertex"),
+                    unary("i_tgt", "e", "IEdge", "IVertex"),
+                    unary("iv_anchor", "v", "IVertex", "Vertex"),
+                    unary("ie_anchor", "e", "IEdge", "Edge"),
+                    unary("iv_value", "v", "IVertex", "Value"),
+                ],
+                vec![],
+            ),
+        ]
+    }
+
+    /// A signature that no rule admits: `id : (x : Ob) -> Cell(x, x)` where
+    /// `Cell` takes two `Mor`s, and `mk : (o : Ob) -> V(o)` where `V` takes
+    /// no parameters. One further negative per defect, and every
+    /// registration building block as a positive.
+    #[test]
+    fn typecheck_rejects_ill_typed_signatures() -> Result<(), Box<dyn std::error::Error>> {
+        let bad = Theory::new(
+            "Bad",
+            vec![
+                Sort::simple("Ob"),
+                Sort::simple("Mor"),
+                Sort::simple("V"),
+                Sort::dependent(
+                    "Cell",
+                    vec![SortParam::new("f", "Mor"), SortParam::new("g", "Mor")],
+                ),
+            ],
+            vec![
+                Operation::new(
+                    "id",
+                    vec![(Arc::from("x"), SortExpr::from("Ob"))],
+                    SortExpr::app("Cell", vec![Term::var("x"), Term::var("x")]),
+                ),
+                Operation::new(
+                    "mk",
+                    vec![(Arc::from("o"), SortExpr::from("Ob"))],
+                    SortExpr::app("V", vec![Term::var("o")]),
+                ),
+            ],
+            vec![],
+        );
+        let result = typecheck_theory(&bad);
+        assert!(
+            matches!(result, Err(GatError::IllTypedSignature { .. })),
+            "ill-typed signature accepted: {result:?}"
+        );
+        let defects = typecheck_signature(&bad).err().unwrap_or_default();
+        let id_out = SignatureSite::OpOutput { op: "id".into() };
+        assert_eq!(
+            defects,
+            vec![
+                SignatureDefect::ParamIllTyped {
+                    site: id_out.clone(),
+                    sort: "Cell".into(),
+                    index: 0,
+                    expected: "Mor".into(),
+                    found: "Ob".into(),
+                },
+                SignatureDefect::ParamIllTyped {
+                    site: id_out,
+                    sort: "Cell".into(),
+                    index: 1,
+                    expected: "Mor".into(),
+                    found: "Ob".into(),
+                },
+                SignatureDefect::SortArity {
+                    site: SignatureSite::OpOutput { op: "mk".into() },
+                    sort: "V".into(),
+                    expected: 0,
+                    found: 1,
+                },
+            ]
+        );
+
+        rejects_undeclared_unbound_and_duplicate_symbols();
+        for block in building_blocks() {
+            typecheck_signature(&block).map_err(|d| format!("{} rejected: {d:?}", block.name))?;
+            typecheck_theory(&block)?;
+        }
+        // `ThFunctor` and `ThFlat` are open: they use `Vertex`, which the
+        // schema side of a composition declares, and that is their only
+        // defect standalone.
+        for (block, op) in open_instance_blocks() {
+            assert_eq!(
+                typecheck_signature(&block),
+                Err(vec![SignatureDefect::UndeclaredSort {
+                    site: SignatureSite::OpOutput { op: op.into() },
+                    sort: "Vertex".into(),
+                }]),
+                "{}",
+                block.name
+            );
+        }
+        Ok(())
+    }
+
+    /// The building blocks of `panproto-protocols::theories` that use the
+    /// schema sort `Vertex` without declaring it, each with the operation
+    /// whose output is `Vertex`.
+    fn open_instance_blocks() -> Vec<(Theory, &'static str)> {
+        let unary = Operation::unary;
+        vec![
+            (
+                Theory::new(
+                    "ThFunctor",
+                    vec![
+                        Sort::simple("Table"),
+                        Sort::simple("Row"),
+                        Sort::simple("ForeignKey"),
+                    ],
+                    vec![
+                        unary("table_vertex", "t", "Table", "Vertex"),
+                        Operation::new("fk_src", vec![("fk".into(), "ForeignKey".into())], "Row"),
+                        Operation::new("fk_tgt", vec![("fk".into(), "ForeignKey".into())], "Row"),
+                    ],
+                    vec![],
+                ),
+                "table_vertex",
+            ),
+            (
+                Theory::new(
+                    "ThFlat",
+                    vec![
+                        Sort::simple("Node"),
+                        Sort::simple("Field"),
+                        Sort::simple("Value"),
+                    ],
+                    vec![
+                        unary("field_node", "f", "Field", "Node"),
+                        unary("field_value", "f", "Field", "Value"),
+                        unary("node_anchor", "n", "Node", "Vertex"),
+                    ],
+                    vec![],
+                ),
+                "node_anchor",
+            ),
+        ]
+    }
+
+    /// One negative per remaining defect: an undeclared sort, a parameter
+    /// sort declared only through a cycle, an unbound variable, and a
+    /// duplicate name.
+    fn rejects_undeclared_unbound_and_duplicate_symbols() {
+        // Undeclared sort, and a parameter sort only declared through a cycle.
+        let undeclared = Theory::new(
+            "U",
+            vec![
+                Sort::dependent("P", vec![SortParam::new("q", "Q")]),
+                Sort::dependent("Q", vec![SortParam::new("p", "P")]),
+            ],
+            vec![Operation::unary("f", "x", "Missing", "P")],
+            vec![],
+        );
+        let defects = typecheck_signature(&undeclared).err().unwrap_or_default();
+        assert_eq!(
+            defects,
+            vec![
+                SignatureDefect::UndeclaredSort {
+                    site: SignatureSite::SortParam {
+                        sort: "P".into(),
+                        index: 0
+                    },
+                    sort: "Q".into(),
+                },
+                SignatureDefect::UndeclaredSort {
+                    site: SignatureSite::SortParam {
+                        sort: "Q".into(),
+                        index: 0
+                    },
+                    sort: "P".into(),
+                },
+                SignatureDefect::UndeclaredSort {
+                    site: SignatureSite::OpInput {
+                        op: "f".into(),
+                        index: 0
+                    },
+                    sort: "Missing".into(),
+                },
+            ]
+        );
+
+        // A variable no earlier input binds, and duplicate names.
+        let unbound = Theory::new(
+            "Unbound",
+            vec![
+                Sort::simple("Ob"),
+                Sort::simple("Ob"),
+                Sort::dependent(
+                    "Hom",
+                    vec![SortParam::new("a", "Ob"), SortParam::new("b", "Ob")],
+                ),
+            ],
+            vec![Operation::new(
+                "loop",
+                vec![(Arc::from("x"), SortExpr::from("Ob"))],
+                SortExpr::app("Hom", vec![Term::var("x"), Term::var("y")]),
+            )],
+            vec![],
+        );
+        let defects = typecheck_signature(&unbound).err().unwrap_or_default();
+        assert_eq!(
+            defects,
+            vec![
+                SignatureDefect::DuplicateSymbol {
+                    kind: SymKind::Sort,
+                    name: "Ob".into(),
+                },
+                SignatureDefect::UnboundParamVar {
+                    site: SignatureSite::OpOutput { op: "loop".into() },
+                    var: "y".into(),
+                },
+            ]
+        );
+    }
+
+    /// Every [`SignatureDefect`] and [`SignatureSite`] variant serializes
+    /// under its `snake_case` tag and reads back unchanged.
+    #[test]
+    fn signature_defect_round_trips_every_variant() -> Result<(), serde_json::Error> {
+        let sites = [
+            SignatureSite::SortParam {
+                sort: "S".into(),
+                index: 1,
+            },
+            SignatureSite::OpInput {
+                op: "f".into(),
+                index: 0,
+            },
+            SignatureSite::OpOutput { op: "f".into() },
+        ];
+        let site_tags = ["sort_param", "op_input", "op_output"];
+        for (site, tag) in sites.iter().zip(site_tags) {
+            let json = serde_json::to_value(site)?;
+            assert!(json.get(tag).is_some(), "{json}");
+            assert_eq!(&serde_json::from_value::<SignatureSite>(json)?, site);
+        }
+        defects_round_trip(sites[2].clone())
+    }
+
+    fn defects_round_trip(site: SignatureSite) -> Result<(), serde_json::Error> {
+        let defects = [
+            SignatureDefect::UndeclaredSort {
+                site: site.clone(),
+                sort: "V".into(),
+            },
+            SignatureDefect::SortArity {
+                site: site.clone(),
+                sort: "V".into(),
+                expected: 0,
+                found: 1,
+            },
+            SignatureDefect::ParamIllTyped {
+                site: site.clone(),
+                sort: "Cell".into(),
+                index: 0,
+                expected: "Mor".into(),
+                found: "Ob".into(),
+            },
+            SignatureDefect::UnboundParamVar {
+                site,
+                var: "y".into(),
+            },
+            SignatureDefect::DuplicateSymbol {
+                kind: SymKind::Op,
+                name: "f".into(),
+            },
+        ];
+        let tags = [
+            "undeclared_sort",
+            "sort_arity",
+            "param_ill_typed",
+            "unbound_param_var",
+            "duplicate_symbol",
+        ];
+        for (defect, tag) in defects.iter().zip(tags) {
+            let json = serde_json::to_value(defect)?;
+            assert!(json.get(tag).is_some(), "{json}");
+            assert_eq!(&serde_json::from_value::<SignatureDefect>(json)?, defect);
+        }
+        Ok(())
     }
 }
