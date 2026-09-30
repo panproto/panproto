@@ -158,15 +158,27 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 /// A composite of two tree lenses, by the composition rule shared by every
 /// instance shape.
 ///
-/// Two lenses are fused into one [`Lens`] only when the fusion is known to
-/// behave as running them in sequence: neither lens contracts a path, their
-/// compiled migrations compose, every explicit edge image of the composite
-/// joins the images of its endpoints, the composite gives every direct arc
-/// the edge the pair gives it in sequence (dropping the arcs the pair
-/// drops), and the composite neither contracts a path nor expands an arc
-/// into synthesized nodes. Queries of this kind compose because their pushforward is
-/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1,
-/// proof sketch; stated), and the endpoint check on edge images is that
+/// The pair is fused into one [`Lens`] exactly when
+///
+/// 1. neither lens contracts a path (no surviving source vertex reaches
+///    another through a vertex whose nodes may be dropped),
+/// 2. their compiled migrations compose,
+/// 3. the composite's edge image compiles: every explicit edge image joins
+///    the images of its endpoints and is an edge of the target (the endpoint
+///    check), and the direct-arc rule of the tree restrict, run on the
+///    composite, gives every source edge the fate the pair gives it in
+///    sequence. The second half is what compiling the composite's edge
+///    fates means for a tree lens, whose migration states a drop only by
+///    leaving an edge out of its edge map: when the pair drops an edge whose
+///    kind and label the target still carries between the endpoints'
+///    images, the composite would carry the arc there implicitly, so its
+///    edge image does not compile, and
+/// 4. the composite's plan is empty: it neither contracts a path nor
+///    expands an arc into synthesized nodes.
+///
+/// Queries of this kind compose because their pushforward is restricted to
+/// discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1, proof
+/// sketch; stated), and the endpoint check on edge images is that
 /// restriction here (inferred). Any other pair is kept as the two lenses run
 /// one after the other.
 #[derive(Debug)]
@@ -245,14 +257,23 @@ pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
     let Ok(composite) = fuse(l1, l2) else {
         return Ok(sequential());
     };
-    if !contraction_free(&composite)
-        || !composite.compiled.expansion_path.is_empty()
-        || !edge_images_coherent(&composite)
-        || !direct_images_agree(l1, l2, &composite)
-    {
+    if !edge_image_compiles(l1, l2, &composite) || !plan_is_empty(&composite) {
         return Ok(sequential());
     }
     Ok(TreeComposite::Compiled(composite))
+}
+
+/// Condition 3 of [`TreeComposite`]: the composite's explicit edge images
+/// pass the endpoint check, and the composite gives every direct arc the
+/// fate the pair gives it in sequence.
+fn edge_image_compiles(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
+    edge_images_coherent(composite) && direct_images_agree(l1, l2, composite)
+}
+
+/// Condition 4 of [`TreeComposite`]: `get` through `lens` neither contracts
+/// a path nor expands an arc into synthesized nodes.
+fn plan_is_empty(lens: &Lens) -> bool {
+    contraction_free(lens) && lens.compiled.expansion_path.is_empty()
 }
 
 /// Whether the fused lens gives every direct arc the edge the pair gives it

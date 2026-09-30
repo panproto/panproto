@@ -1003,8 +1003,7 @@ fn value_violations(
         };
         &unconditional
     };
-    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, forward)
-    else {
+    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, forward) else {
         return in_report_order(found);
     };
     for (&id, view_node) in &view.nodes {

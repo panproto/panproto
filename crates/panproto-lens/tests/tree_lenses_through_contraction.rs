@@ -1299,21 +1299,22 @@ mod composition_rule {
         let mut ids: Vec<u32> = a.nodes.keys().chain(b.nodes.keys()).copied().collect();
         ids.sort_unstable();
         ids.dedup();
-        ids.into_iter().find_map(|id| match (a.nodes.get(&id), b.nodes.get(&id)) {
-            (Some(x), Some(y))
-                if x.id == y.id
-                    && x.anchor == y.anchor
-                    && x.value == y.value
-                    && x.discriminator == y.discriminator
-                    && x.extra_fields == y.extra_fields
-                    && x.position == y.position
-                    && x.shape == y.shape
-                    && x.annotations == y.annotations =>
-            {
-                None
-            }
-            (x, y) => Some(format!("node {id}: {x:?} against {y:?}")),
-        })
+        ids.into_iter()
+            .find_map(|id| match (a.nodes.get(&id), b.nodes.get(&id)) {
+                (Some(x), Some(y))
+                    if x.id == y.id
+                        && x.anchor == y.anchor
+                        && x.value == y.value
+                        && x.discriminator == y.discriminator
+                        && x.extra_fields == y.extra_fields
+                        && x.position == y.position
+                        && x.shape == y.shape
+                        && x.annotations == y.annotations =>
+                {
+                    None
+                }
+                (x, y) => Some(format!("node {id}: {x:?} against {y:?}")),
+            })
     }
 
     /// The children of every parent, in arc order, with their edges.
@@ -1350,7 +1351,9 @@ mod composition_rule {
                     )
                 })
             })
-            .or_else(|| (a.fans != b.fans).then(|| format!("fans {:?} against {:?}", a.fans, b.fans)))
+            .or_else(|| {
+                (a.fans != b.fans).then(|| format!("fans {:?} against {:?}", a.fans, b.fans))
+            })
     }
 
     /// Two sources compared as `identical` compares instances: their graph
@@ -1424,7 +1427,9 @@ mod composition_rule {
         assert!(source_difference(&annotated, &tree).is_some());
 
         let mut fanned = tree.clone();
-        fanned.fans.push(panproto_inst::Fan::new("rel", 0).with_child("x", 1));
+        fanned
+            .fans
+            .push(panproto_inst::Fan::new("rel", 0).with_child("x", 1));
         assert!(view_difference(&fanned, &tree).is_some());
     }
 
