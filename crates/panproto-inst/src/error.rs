@@ -94,14 +94,6 @@ pub enum InstError {
         reason: NotTreeReason,
     },
 
-    /// A graph instance is not the graph form of a table instance, so it has
-    /// no table form.
-    #[error("not a table: {reason}")]
-    NotATable {
-        /// Why the graph is not a table.
-        reason: NotTableReason,
-    },
-
     /// A foreign-key pair names a row that is not in the endpoint table of
     /// its edge.
     #[error("foreign key {edge:?} names row {}, which its endpoint table does not hold", .row.0)]
@@ -109,33 +101,6 @@ pub enum InstError {
         /// The foreign-key edge.
         edge: Edge,
         /// The row the edge's endpoint table does not hold.
-        row: RowId,
-    },
-
-    /// A row id appears in more than one table of a table instance.
-    #[error("row {} appears in tables {tables:?}", .row.0)]
-    DuplicateRowId {
-        /// The row id.
-        row: RowId,
-        /// The tables holding it, ascending.
-        tables: Vec<Name>,
-    },
-
-    /// A foreign-key pair is listed twice (a foreign key is a set of pairs).
-    #[error("foreign key {edge:?} lists the pair ({}, {}) twice", .src.0, .tgt.0)]
-    DuplicateForeignKey {
-        /// The foreign-key edge.
-        edge: Edge,
-        /// The source row.
-        src: RowId,
-        /// The target row.
-        tgt: RowId,
-    },
-
-    /// A row map sends a row to a row of another table.
-    #[error("row {} is mapped into a table other than its own", .row.0)]
-    HomTableMismatch {
-        /// The domain row.
         row: RowId,
     },
 
@@ -152,6 +117,41 @@ pub enum InstError {
         node: u32,
         /// The condition it breaks.
         reason: FanViolation,
+    },
+
+    /// A row id appears in more than one table of a table instance.
+    #[error("row {} appears in tables {tables:?}", .row.0)]
+    DuplicateRowId {
+        /// The row id.
+        row: RowId,
+        /// The tables holding it, ascending.
+        tables: Vec<Name>,
+    },
+
+    /// A row map sends a row to a row of another table.
+    #[error("row {} is mapped into a table other than its own", .row.0)]
+    HomTableMismatch {
+        /// The domain row.
+        row: RowId,
+    },
+
+    /// A foreign-key pair is listed twice (a foreign key is a set of pairs).
+    #[error("foreign key {edge:?} lists the pair ({}, {}) twice", .src.0, .tgt.0)]
+    DuplicateForeignKey {
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The source row.
+        src: RowId,
+        /// The target row.
+        tgt: RowId,
+    },
+
+    /// A graph instance is not the graph form of a table instance, so it has
+    /// no table form.
+    #[error("not a table: {reason}")]
+    NotATable {
+        /// Why the graph is not a table.
+        reason: NotTableReason,
     },
 }
 
@@ -226,11 +226,6 @@ pub enum RestrictError {
         node_id: u32,
     },
 
-    /// An operation that creates rows found no row id free above the
-    /// largest in use.
-    #[error("no row id is free above the largest in use")]
-    RowIdsExhausted,
-
     /// Two source vertices in a right Kan extension (`Pi_F`) fiber contribute
     /// the same column with conflicting values, so the product-row attribute
     /// merge would have to silently overwrite one. The merge rejects instead.
@@ -279,6 +274,11 @@ pub enum RestrictError {
         #[source]
         source: panproto_expr::ExprError,
     },
+
+    /// An operation that creates rows found no row id free above the
+    /// largest in use.
+    #[error("no row id is free above the largest in use")]
+    RowIdsExhausted,
 }
 
 /// Errors from JSON parsing.
