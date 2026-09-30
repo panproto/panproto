@@ -29,6 +29,11 @@ use crate::error::{IdKind, LensError};
 /// terms of [`LensError`].
 pub use panproto_inst::Complement;
 
+/// A node id for a node added to a tree view, drawn at or above the
+/// complement's floor so that it never reuses the id of a source node. See
+/// [`panproto_inst::complement::fresh_view_node_id`].
+pub use panproto_inst::complement::fresh_view_node_id;
+
 /// Partial-commutative-monoid composition of [`Complement`]s.
 ///
 /// This is an extension trait (rather than inherent methods) because the
@@ -152,6 +157,8 @@ impl ComplementCompose for Complement {
             }
         }
 
+        let synthesized_keys = merge_synthesized_keys(self, other)?;
+
         Ok(Self {
             dropped_nodes,
             dropped_arcs,
@@ -166,6 +173,8 @@ impl ComplementCompose for Complement {
             synthesized_nodes,
             contracted_into,
             original_anchors,
+            id_floor: self.id_floor.max(other.id_floor),
+            synthesized_keys,
             identity,
         })
     }
@@ -410,6 +419,70 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
     get_with_identity(lens, instance, &lens.identity(ComplementShape::WType))
 }
 
+/// The union of two complements' synthesized keys, which must agree by id
+/// and by key: one id names one key, and one key one id.
+fn merge_synthesized_keys(
+    a: &Complement,
+    b: &Complement,
+) -> Result<std::collections::BTreeMap<u32, panproto_inst::SynthKey>, LensError> {
+    let mut synthesized_keys = a.synthesized_keys.clone();
+    let mut by_key: HashMap<&panproto_inst::SynthKey, u32> = a
+        .synthesized_keys
+        .iter()
+        .map(|(&id, key)| (key, id))
+        .collect();
+    for (&id, key) in &b.synthesized_keys {
+        let id_conflict = synthesized_keys.get(&id).is_some_and(|mine| mine != key);
+        let key_conflict = by_key.get(key).is_some_and(|&mine| mine != id);
+        if id_conflict || key_conflict {
+            return Err(LensError::ComplementConflict {
+                kind: "synthesized_keys",
+                key: format!("{id:?} {key:?}"),
+            });
+        }
+        synthesized_keys.insert(id, key.clone());
+        by_key.insert(key, id);
+    }
+    Ok(synthesized_keys)
+}
+
+/// The source edge of every surviving arc whose view label does not
+/// determine it: the source edges between its endpoints' anchors whose
+/// image is the label the view gives the arc are not exactly this one.
+/// Every other arc's edge is read back off the source schema by `put`.
+fn undetermined_arc_edges(
+    lens: &Lens,
+    instance: &WInstance,
+    view: &WInstance,
+) -> HashMap<(u32, u32), Edge> {
+    let view_edge_into: HashMap<(u32, u32), &Edge> = view
+        .arcs
+        .iter()
+        .map(|(parent, child, edge)| ((*parent, *child), edge))
+        .collect();
+    let mut arc_edges = HashMap::new();
+    for (parent, child, edge) in &instance.arcs {
+        if !(view.nodes.contains_key(parent) && view.nodes.contains_key(child)) {
+            continue;
+        }
+        let determined = view_edge_into
+            .get(&(*parent, *child))
+            .zip(instance.nodes.get(parent).zip(instance.nodes.get(child)))
+            .is_some_and(|(view_edge, (p, c))| {
+                let mut preimages = lens
+                    .src_schema
+                    .edges_between(&p.anchor, &c.anchor)
+                    .iter()
+                    .filter(|candidate| edge_image(lens, candidate) == **view_edge);
+                preimages.next() == Some(edge) && preimages.next().is_none()
+            });
+        if !determined {
+            arc_edges.insert((*parent, *child), edge.clone());
+        }
+    }
+    arc_edges
+}
+
 /// [`get`] with the lens's envelope already computed, for callers that run
 /// many `get`s through one lens.
 pub(crate) fn get_with_identity(
@@ -474,15 +547,7 @@ pub(crate) fn get_with_identity(
     let (original_extra_fields, original_values) =
         capture_pre_transform_state(lens, instance, &view);
 
-    // Record the exact edge for every arc in the source instance whose
-    // parent and child both survive. This makes `put` deterministic when
-    // the source schema has parallel edges between the same vertex pair.
-    let mut arc_edges = HashMap::new();
-    for (parent, child, edge) in &instance.arcs {
-        if view.nodes.contains_key(parent) && view.nodes.contains_key(child) {
-            arc_edges.insert((*parent, *child), edge.clone());
-        }
-    }
+    let arc_edges = undetermined_arc_edges(lens, instance, &view);
 
     // The source anchor of every surviving node the remap's inverse would
     // not recover: a node whose view anchor has several preimages, or a
@@ -534,6 +599,10 @@ pub(crate) fn get_with_identity(
         // field is populated only by the restrict pipeline.
         contracted_into: HashMap::new(),
         original_anchors,
+        // A source whose ids run out has no floor below `u32::MAX`; its
+        // fresh allocations then fail on the ids the view holds.
+        id_floor: panproto_inst::complement::tree_id_floor(instance).unwrap_or(u32::MAX),
+        synthesized_keys: std::collections::BTreeMap::new(),
         identity: None,
     };
     complement.stamp(envelope.clone(), &lens.src_schema);
@@ -926,7 +995,7 @@ fn written_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
 
 /// Whether a source vertex survives the lens: its image under the vertex
 /// remap is a surviving target vertex.
-fn vertex_survives(lens: &Lens, vertex: &Name) -> bool {
+pub(crate) fn vertex_survives(lens: &Lens, vertex: &Name) -> bool {
     let image = lens.compiled.vertex_remap.get(vertex).unwrap_or(vertex);
     lens.compiled.surviving_verts.contains(image)
 }
@@ -1015,10 +1084,22 @@ fn restored_anchor<'a>(
             == view_anchor
     });
     let recorded_edge = view_arc.and_then(|(parent, _)| complement.arc_edges.get(&(parent, id)));
+    // A node `get` carried over from the source, as opposed to one the view
+    // added.
+    let from_source = complement.original_parent.contains_key(&id) || recorded_edge.is_some();
     let edge_kept = match (view_arc, recorded_edge) {
         (Some((_, view_edge)), Some(recorded_edge)) => {
             edge_image(lens, recorded_edge) == *view_edge
         }
+        // `get` records an arc's edge only when the view label does not
+        // determine it; otherwise the label still fits the recorded anchor
+        // exactly when some source edge into that anchor has it as image.
+        (Some((_, view_edge)), None) if from_source => recorded.is_none_or(|anchor| {
+            edge_preimages
+                .of(view_edge)
+                .iter()
+                .any(|source| source.tgt == **anchor)
+        }),
         _ => true,
     };
     if edge_kept && let Some(recorded) = recorded {
@@ -1027,11 +1108,11 @@ fn restored_anchor<'a>(
 
     // Only anchors the node's own view anchor is the image of: an arc whose
     // edge points elsewhere says nothing about where this node belongs.
-    // Only for a node whose arc `get` recorded: a node the view added has
-    // no source to be faithful to, and takes its anchor from the vertex
-    // remap alone.
+    // Only for a node `get` carried over from the source: a node the view
+    // added has no source to be faithful to, and takes its anchor from the
+    // vertex remap alone.
     let mut by_edge = view_arc
-        .filter(|_| recorded_edge.is_some())
+        .filter(|_| from_source)
         .map(|(_, view_edge)| edge_preimages.target_anchors(view_edge))
         .unwrap_or_default();
     by_edge
@@ -1692,9 +1773,12 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
 /// A lens with complement decomposes its source as `S ≅ V × C`. When the
 /// complement is terminal the decomposition collapses to `S ≅ V × 1 ≅ V`,
 /// the projection `get` becomes an isomorphism, and its inverse is a
-/// function of the view alone. That is exactly the condition
-/// [`Lens::is_isomorphism`] tests, so this succeeds precisely for lenses
-/// satisfying it and refuses everything else.
+/// function of the view alone. This succeeds precisely for lenses whose
+/// every `get` leaves trivial residue ([`Complement::residue_is_trivial`]):
+/// every source vertex survives (an injective rename survives), no two
+/// source vertices or parallel source edges share an image, no vertex is
+/// filtered by a predicate, and every value transform is an isomorphism.
+/// It refuses everything else.
 ///
 /// The refusal is not a limitation of this implementation. For a lens with
 /// non-trivial complement, `get` is not injective: distinct sources share a
@@ -1712,7 +1796,7 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
 /// Returns [`LensError::NotAnIsomorphism`] naming the obstruction when the
 /// lens is not invertible, or whatever [`put`] reports.
 pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance, LensError> {
-    if let Some(obstruction) = lens.obstruction_to_isomorphism() {
+    if let Some(obstruction) = obstruction_to_tree_isomorphism(lens) {
         return Err(LensError::NotAnIsomorphism {
             detail: obstruction,
         });
@@ -1808,6 +1892,75 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
         IdentityPolicy::AllowLegacy,
     )
     .map(|(source, _)| source)
+}
+
+/// The first reason `get` through `lens` can leave residue in a tree
+/// complement, or `None` when every complement it produces has trivial
+/// residue ([`Complement::residue_is_trivial`]).
+///
+/// Survival is read as `get` reads it: a source vertex survives when its
+/// image under the vertex remap is a surviving target vertex, so an
+/// injective rename is not a drop. The obstructions, in the order they are
+/// reported: a vertex that does not survive, or survives only under a
+/// predicate; two source vertices with one image (their nodes' anchors are
+/// then residue); a source edge with no image in the target; two source
+/// edges between the same vertices with one image (their arcs' edges are
+/// then residue); and a value transform that is not an isomorphism.
+fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
+    let compiled = &lens.compiled;
+    let mut vertices: Vec<&Name> = lens.src_schema.vertices.keys().collect();
+    vertices.sort();
+    for v in &vertices {
+        if !vertex_survives(lens, v) {
+            return Some(format!(
+                "vertex `{v}` does not survive, so its data is set aside in the complement"
+            ));
+        }
+        if compiled.conditional_survival.contains_key(*v) {
+            return Some(format!(
+                "vertex `{v}` survives only under a predicate, so the nodes it drops are set \
+                 aside in the complement"
+            ));
+        }
+    }
+    let mut images: HashMap<&Name, &Name> = HashMap::new();
+    for v in &vertices {
+        let image = compiled.vertex_remap.get(*v).unwrap_or(v);
+        if let Some(other) = images.insert(image, v) {
+            return Some(format!(
+                "vertices `{other}` and `{v}` both map to `{image}`, so a view anchor does not \
+                 determine the source anchor"
+            ));
+        }
+    }
+    let mut edges: Vec<&Edge> = lens.src_schema.edges.keys().collect();
+    edges.sort();
+    let mut edge_images: HashMap<Edge, &Edge> = HashMap::new();
+    for e in edges {
+        let image = edge_image(lens, e);
+        if !compiled.edge_remap.contains_key(e) && !lens.tgt_schema.edges.contains_key(&image) {
+            return Some(format!(
+                "edge `{}` -> `{}` does not survive, so the arcs over it are set aside in the \
+                 complement",
+                e.src, e.tgt
+            ));
+        }
+        if let Some(other) = edge_images.insert(image, e) {
+            return Some(format!(
+                "edges `{:?}` and `{:?}` have one image, so a view arc does not determine its \
+                 source edge",
+                other.name, e.name
+            ));
+        }
+    }
+    let class = lens.coercion_class();
+    if !matches!(class, panproto_gat::CoercionClass::Iso) {
+        return Some(format!(
+            "a value transform is classified `{class:?}`, which is not injective, so a view \
+             value does not determine the source value it came from"
+        ));
+    }
+    None
 }
 
 /// The `extra_fields` key a transform writes, when it writes one.
