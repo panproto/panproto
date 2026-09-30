@@ -625,7 +625,10 @@ pub fn f_transpose_right(
 /// no `S` label to take, so the pullback drops it (the edges of a reified fan,
 /// labelled by the fan, keep their label with its endpoints relabelled), as [`f_delta`] drops the
 /// pairs of such a foreign key; Delta thus commutes with the graph form of
-/// a table. A reified fan node (of shape
+/// a table whose rows all sit at vertices in the image of `F`. A row at a
+/// vertex outside that image is dropped by [`f_delta`] but makes this
+/// pullback fail with [`AdjunctionError::AnchorOutsideImage`], so the two
+/// differ on such a table. A reified fan node (of shape
 /// [`NodeShape::HyperEdge`](crate::metadata::NodeShape::HyperEdge)) is
 /// anchored at its hyper-edge, not at a vertex, and keeps its anchor.
 ///

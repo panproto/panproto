@@ -229,7 +229,8 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
 
     let extended = functor_extend(&small_instance, &migration)?;
 
-    assert_eq!(extended.table_count(), 2, "should have A and B tables");
+    // A table is a vertex with at least one row, so the empty B does not count.
+    assert_eq!(extended.table_count(), 1, "only A holds rows");
     assert_eq!(extended.row_count("A"), 1, "A table should have 1 row");
     assert_eq!(extended.row_count("B"), 0, "B table should be empty");
 
