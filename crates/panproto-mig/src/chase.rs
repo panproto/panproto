@@ -22,7 +22,7 @@
 //!    looping. Dependencies are derived from a theory's equations by
 //!    freezing their variables ([`term_dependencies_from_theory`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::{Equation, Term, Theory};
 use panproto_inst::FInstanceHom;
@@ -500,15 +500,16 @@ pub fn chase(
     chase_with_hom(instance, dependencies, budget).map(|(outcome, _)| outcome)
 }
 
-/// [`chase`], with the row map from the input into the chased instance.
+/// [`chase`], with the homomorphism from the input into the chased instance.
 ///
 /// The chase adds rows and replaces labeled nulls in place, but never merges
-/// or removes a row, so every input row keeps its id and table and the map
-/// is the inclusion: it sends each input row to itself (its cells may have
-/// had a labeled null replaced by the value an equality forced). The rows
-/// outside its image are the ones the chase created, in firing order. On
-/// [`ChaseOutcome::NonTermination`] there is no chased instance, and the map
-/// is the inclusion into the partial run.
+/// or removes a row, so every input row keeps its id and table: the row map
+/// sends each input row to itself. Its null map sends each labeled null of
+/// the input to the value the equalities forced on it (a constant, or the
+/// null it was merged into), so the input row's cells, read along the null
+/// map, are the chased row's cells. The rows outside the image are the ones
+/// the chase created, in firing order. On [`ChaseOutcome::NonTermination`]
+/// there is no chased instance, and the map is the one into the partial run.
 ///
 /// # Errors
 ///
@@ -518,10 +519,12 @@ pub fn chase_with_hom(
     dependencies: &[Dependency],
     budget: ChaseBudget,
 ) -> Result<(ChaseOutcome, FInstanceHom), ChaseError> {
-    let inclusion = FInstanceHom::identity(instance);
     let mut result = instance.clone();
     let mut next_null = fresh_null_seed(&result);
     let mut nulls_created = 0usize;
+    // Each labeled null of the input, with the value it currently stands at.
+    let mut forced = input_nulls(instance);
+    let hom = |forced: BTreeMap<u64, Value>| FInstanceHom::identity(instance).with_null_map(forced);
 
     for _ in 0..budget.max_iterations {
         let mut changed = false;
@@ -540,7 +543,7 @@ pub fn chase_with_hom(
                                 if let AtomTerm::Var(v) = term {
                                     if !firing.contains_key(v) {
                                         if nulls_created >= budget.max_nulls {
-                                            return Ok((ChaseOutcome::NonTermination, inclusion));
+                                            return Ok((ChaseOutcome::NonTermination, hom(forced)));
                                         }
                                         firing.insert(v.clone(), Value::LabeledNull(next_null));
                                         next_null += 1;
@@ -572,7 +575,7 @@ pub fn chase_with_hom(
                         }
                     }
                     for (a, b) in equalities {
-                        if merge_values(&a, &b, &mut result)? {
+                        if merge_values(&a, &b, &mut result, &mut forced)? {
                             changed = true;
                         }
                     }
@@ -581,11 +584,26 @@ pub fn chase_with_hom(
         }
 
         if !changed {
-            return Ok((ChaseOutcome::Saturated(result), inclusion));
+            return Ok((ChaseOutcome::Saturated(result), hom(forced)));
         }
     }
 
-    Ok((ChaseOutcome::NonTermination, inclusion))
+    Ok((ChaseOutcome::NonTermination, hom(forced)))
+}
+
+/// Every labeled null occurring in the instance, each standing at itself.
+fn input_nulls(instance: &FInstance) -> BTreeMap<u64, Value> {
+    let mut nulls = BTreeMap::new();
+    for (_, table) in instance.tables() {
+        for (_, row) in table.rows() {
+            for value in row.values() {
+                if let Value::LabeledNull(id) = value {
+                    nulls.insert(*id, value.clone());
+                }
+            }
+        }
+    }
+    nulls
 }
 
 /// The first labeled-null id not already used anywhere in the instance.
@@ -705,41 +723,44 @@ fn instantiate_row(atom: &Atom, binding: &Binding) -> HashMap<String, Value> {
 /// Merge two values under an equality-generating dependency.
 ///
 /// A labeled null is merged into the other value by substituting it
-/// throughout the instance; two distinct constants are a conflict. Returns
-/// whether the instance changed.
+/// throughout the instance and throughout `forced`, the value each input
+/// null stands at; two distinct constants are a conflict. Returns whether
+/// the instance changed.
 ///
 /// # Errors
 ///
 /// Returns [`ChaseError::Inconsistent`] when both values are distinct
 /// constants.
-fn merge_values(a: &Value, b: &Value, instance: &mut FInstance) -> Result<bool, ChaseError> {
+fn merge_values(
+    a: &Value,
+    b: &Value,
+    instance: &mut FInstance,
+    forced: &mut BTreeMap<u64, Value>,
+) -> Result<bool, ChaseError> {
     if a == b {
         return Ok(false);
     }
-    match (a.as_labeled_null(), b.as_labeled_null()) {
+    let (from, to) = match (a.as_labeled_null(), b.as_labeled_null()) {
         // Merge the higher-id null into the lower, or a null into a constant.
-        (Some(na), Some(nb)) => {
-            let (from, to) = if na >= nb {
-                (na, b.clone())
-            } else {
-                (nb, a.clone())
-            };
-            substitute_null(instance, from, &to);
-            Ok(true)
+        (Some(na), Some(nb)) if na >= nb => (na, b),
+        (Some(_), Some(nb)) => (nb, a),
+        (Some(na), None) => (na, b),
+        (None, Some(nb)) => (nb, a),
+        (None, None) => {
+            return Err(ChaseError::Inconsistent {
+                left: format!("{a:?}"),
+                right: format!("{b:?}"),
+            });
         }
-        (Some(na), None) => {
-            substitute_null(instance, na, b);
-            Ok(true)
+    };
+    substitute_null(instance, from, to);
+    let merged = Value::LabeledNull(from);
+    for value in forced.values_mut() {
+        if *value == merged {
+            *value = to.clone();
         }
-        (None, Some(nb)) => {
-            substitute_null(instance, nb, a);
-            Ok(true)
-        }
-        (None, None) => Err(ChaseError::Inconsistent {
-            left: format!("{a:?}"),
-            right: format!("{b:?}"),
-        }),
     }
+    Ok(true)
 }
 
 /// Replace every occurrence of `Value::LabeledNull(from)` in the instance's
@@ -1043,6 +1064,42 @@ mod tests {
         assert_eq!(result.total_row_count(), 6);
         // The input rows keep their ids.
         assert_eq!(result.row(RowId(0)), instance.row(RowId(0)));
+    }
+
+    #[test]
+    fn the_chase_row_map_carries_the_values_an_egd_forced() {
+        // Two input rows share the labeled null 0 and a third holds null 1;
+        // the EGD forces null 0 to "x", then null 1 to null 0's value.
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![
+                    row2("a", Value::Str("x".into()), "b", Value::LabeledNull(0)),
+                    row2("a", Value::LabeledNull(1), "b", Value::LabeledNull(0)),
+                ],
+            )
+            .unwrap();
+        let egd = Dependency::Egd {
+            body: vec![Atom::new(
+                "t",
+                [
+                    ("a", AtomTerm::Var("v".into())),
+                    ("b", AtomTerm::Var("w".into())),
+                ],
+            )],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Var("w".into()),
+        };
+        let (outcome, hom) = chase_with_hom(&instance, &[egd], ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        for (_, row) in result.rows("t") {
+            assert_eq!(row.get("a"), Some(&Value::Str("x".into())));
+            assert_eq!(row.get("b"), Some(&Value::Str("x".into())));
+        }
+        hom.check(&instance, &result)
+            .expect("the row map sends each input row to its chased row");
     }
 
     #[test]
