@@ -20,11 +20,24 @@ rustc-hash = { workspace = true }
 blake3 = { workspace = true }
 smallvec = { workspace = true }
 # The frozen theory composition corpus is written in named MessagePack and
-# CBOR by the `theory-composition-fixtures` binary.
-rmp-serde = { workspace = true }
-ciborium = { workspace = true }
+# CBOR by the `theory-composition-fixtures` binary, built only with the
+# `fixtures` feature.
+rmp-serde = { workspace = true, optional = true }
+ciborium = { workspace = true, optional = true }
+
+[features]
+# Builds the `theory-composition-fixtures` corpus generator.
+fixtures = ["dep:rmp-serde", "dep:ciborium"]
+
+[[bin]]
+name = "theory-composition-fixtures"
+required-features = ["fixtures"]
 
 [dev-dependencies]
+# This crate's own tests run the corpus generator and decode the corpus.
+panproto-protocols = { path = ".", features = ["fixtures"] }
+rmp-serde = { workspace = true }
+ciborium = { workspace = true }
 proptest = { workspace = true }
 divan = { workspace = true }
 

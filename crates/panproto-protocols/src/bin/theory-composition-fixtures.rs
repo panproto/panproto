@@ -10,6 +10,9 @@
 //! with its instance theory over the interface they share, and one
 //! composition that freshens clashing names apart.
 //!
+//! Built with the `fixtures` feature: `cargo run -p panproto-protocols
+//! --features fixtures --bin theory-composition-fixtures [OUT_DIR]`.
+//!
 //! Usage: `theory-composition-fixtures [OUT_DIR]`, where `OUT_DIR` defaults
 //! to the repository's `tests/fixtures/theory_composition`. The
 //! registration equivalence tests run this binary into a temporary
