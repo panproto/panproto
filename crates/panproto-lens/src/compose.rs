@@ -9,6 +9,7 @@ use std::collections::{HashMap, HashSet};
 use panproto_expr::Expr;
 use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
+use panproto_inst::contraction_keys::{compose_contraction_keys, translate_edge, translate_vertex};
 use panproto_mig::{OnMissing, compose_relabeling};
 use panproto_schema::Edge;
 
@@ -103,27 +104,20 @@ pub(crate) fn compose_compiled_migrations(
     m2: &CompiledMigration,
     src_schema: Option<&panproto_schema::Schema>,
 ) -> Result<CompiledMigration, LensError> {
-    // Surviving verts: a vertex from the source must survive both migrations.
-    // After m1, the vertex might be remapped; the remapped version must survive m2.
-    let mut surviving_verts = std::collections::HashSet::new();
-    for v in &m1.surviving_verts {
-        let remapped = m1.vertex_remap.get(v).unwrap_or(v);
-        // Only the remapped vertex should be checked against m2's surviving set.
-        // Checking the original vertex `v` against m2 is incorrect: `v` is in
-        // m1's source space, not m2's source space.
-        if m2.surviving_verts.contains(remapped) {
-            surviving_verts.insert(v.clone());
-        }
-    }
-
-    // Surviving edges: compose similarly
-    let mut surviving_edges = std::collections::HashSet::new();
-    for e in &m1.surviving_edges {
-        let remapped = m1.edge_remap.get(e).unwrap_or(e);
-        if m2.surviving_edges.contains(remapped) {
-            surviving_edges.insert(e.clone());
-        }
-    }
+    // Both surviving sets are keyed in their migration's target space (the
+    // image of its vertex and edge maps), so m1's survivors are carried
+    // through m2: a vertex or edge survives the composite when its image
+    // under m2 survives m2.
+    let surviving_verts: HashSet<Name> = m1
+        .surviving_verts
+        .iter()
+        .filter_map(|v| translate_vertex(m2, v))
+        .collect();
+    let surviving_edges: HashSet<Edge> = m1
+        .surviving_edges
+        .iter()
+        .filter_map(|e| translate_edge(m2, e))
+        .collect();
 
     // Compose vertex remaps through the shared relabeling kernel: apply m1's
     // remap, then m2's remap, keeping m1's target where m2 does not remap it.
@@ -149,11 +143,9 @@ pub(crate) fn compose_compiled_migrations(
     let edge_remap: HashMap<Edge, Edge> =
         compose_relabeling(&m1.edge_remap, &m2.edge_remap, OnMissing::KeepIntermediate).map;
 
-    // Compose resolvers
-    let mut resolver = m1.resolver.clone();
-    for (k, v) in &m2.resolver {
-        resolver.entry(k.clone()).or_insert_with(|| v.clone());
-    }
+    // The resolver and expansion paths are keyed in the target space, so
+    // m1's entries are carried through m2 into the composite's target space.
+    let (resolver, expansion_path, _dropped) = compose_contraction_keys(m1, m2);
 
     // Compose hyper resolvers
     let mut hyper_resolver = m1.hyper_resolver.clone();
@@ -164,31 +156,6 @@ pub(crate) fn compose_compiled_migrations(
     let field_transforms = compose_field_transforms(m1, m2, src_schema)?;
     let op_term_assignments = compose_op_term_assignments(m1, m2);
     let conditional_survival = compose_conditional_survival(m1, m2);
-
-    // Compose expansion paths: m1's paths may need to be extended by m2's
-    // paths. If m1 expands (src, tgt) through intermediates, and m2 has
-    // a further expansion from the remapped tgt, chain them together.
-    let mut expansion_path: HashMap<(Name, Name), Vec<Name>> = HashMap::new();
-    for ((src, tgt), mids) in &m1.expansion_path {
-        let remapped_tgt = m1.vertex_remap.get(tgt).unwrap_or(tgt);
-        // Check if m2 extends from remapped_tgt to any further vertex.
-        let mut found_chain = false;
-        for ((m2_src, m2_tgt), m2_mids) in &m2.expansion_path {
-            if m2_src == remapped_tgt {
-                let mut combined = mids.clone();
-                combined.extend(m2_mids.iter().cloned());
-                expansion_path.insert((src.clone(), m2_tgt.clone()), combined);
-                found_chain = true;
-            }
-        }
-        if !found_chain {
-            expansion_path.insert((src.clone(), tgt.clone()), mids.clone());
-        }
-    }
-    // Include m2 entries for pairs not covered by m1's composition.
-    for (k, v) in &m2.expansion_path {
-        expansion_path.entry(k.clone()).or_insert_with(|| v.clone());
-    }
 
     Ok(CompiledMigration {
         surviving_verts,
