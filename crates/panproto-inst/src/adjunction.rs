@@ -1129,9 +1129,8 @@ mod tests {
         let wrong_copy = delta.rows(&Name::from("a"))[0].0;
         let mut wrong = to_original.row_map.clone();
         wrong.insert(wrong_copy, RowId(2));
-        let err =
-            FInstanceHom::from_row_map_along(wrong, to_original.table_map.clone(), &delta, &y)
-                .expect_err("a row outside its image table is refused");
+        let err = FInstanceHom::from_row_map_along(wrong, to_original.table_map, &delta, &y)
+            .expect_err("a row outside its image table is refused");
         assert!(matches!(err, InstError::HomTableMismatch { row } if row == wrong_copy));
 
         // Pi's projections send the rows of `t` into `a` and `b`.

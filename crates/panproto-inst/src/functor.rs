@@ -534,7 +534,7 @@ impl FInstance {
                     return Err(InstError::DuplicateForeignKey { edge, src, tgt });
                 }
                 (Some(a), Some(b)) if a < b => old.next(),
-                (Some(_), Some(_)) | (None, Some(_)) => new.next(),
+                (Some(_) | None, Some(_)) => new.next(),
                 (Some(_), None) => old.next(),
                 (None, None) => break,
             };

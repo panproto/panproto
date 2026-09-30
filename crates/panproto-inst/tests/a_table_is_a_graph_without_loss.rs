@@ -428,6 +428,10 @@ fn a_table_shaped_graph_holding_the_largest_edge_id_round_trips() {
     let mut along = embedding.clone();
     let again = GInstance::from_finstance_along(&tables, &mut along).unwrap();
     assert!(GInstance::identical(&again, &below));
+    assert_eq!(
+        along, embedding,
+        "every pair is recorded, so nothing is allocated"
+    );
 }
 
 /// Deciding the table shape does work per node and per edge only: a

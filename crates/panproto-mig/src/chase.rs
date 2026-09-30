@@ -743,9 +743,8 @@ fn merge_values(
     let (from, to) = match (a.as_labeled_null(), b.as_labeled_null()) {
         // Merge the higher-id null into the lower, or a null into a constant.
         (Some(na), Some(nb)) if na >= nb => (na, b),
-        (Some(_), Some(nb)) => (nb, a),
         (Some(na), None) => (na, b),
-        (None, Some(nb)) => (nb, a),
+        (_, Some(nb)) => (nb, a),
         (None, None) => {
             return Err(ChaseError::Inconsistent {
                 left: format!("{a:?}"),
@@ -1098,8 +1097,8 @@ mod tests {
             assert_eq!(row.get("a"), Some(&Value::Str("x".into())));
             assert_eq!(row.get("b"), Some(&Value::Str("x".into())));
         }
-        hom.check(&instance, &result)
-            .expect("the row map sends each input row to its chased row");
+        // The row map sends each input row to its chased row.
+        assert_eq!(hom.check(&instance, &result), Ok(()));
     }
 
     #[test]

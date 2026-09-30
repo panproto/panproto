@@ -1197,7 +1197,7 @@ mod tests {
             kind: "fk".into(),
             name: Some("ref".into()),
         };
-        migration.edge_remap.insert(fk.clone(), loop_edge);
+        migration.edge_remap.insert(fk, loop_edge);
         let (src, _) = schemas(&inst, &migration, &[]);
         assert!(matches!(
             functor_pi(&inst, &src, &Schema::default(), &migration, 100),
