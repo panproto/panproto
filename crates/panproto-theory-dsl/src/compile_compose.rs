@@ -1,22 +1,53 @@
 //! Compile a [`CompositionBody`] into a composed [`Theory`].
 //!
-//! Converts the DSL composition spec into GAT [`CompositionSpec`]
-//! and replays it via [`panproto_gat::recompose`].
+//! Each DSL step is composed as [`panproto_gat::compose`] composes it, and
+//! recorded as the [`CompositionStep`] that
+//! [`panproto_gat::recompose`] replays to the same theory:
+//!
+//! - a step with no `identify` entries in the default `amalgamate` mode is a
+//!   pushout by name ([`CompositionStep::Colimit`] in
+//!   [`CompositionMode::Amalgamate`]), as every step was before modes;
+//! - a step with no `identify` entries in `explicit_identity` mode is the
+//!   same span composed with explicit identity, refusing any other name the
+//!   two sides share;
+//! - a step with `identify` entries is a [`CompositionStep::Diagram`] over
+//!   the two sides and a shared theory built for the step, whose legs send
+//!   each shared or identified left symbol to its right counterpart.
+//!
+//! [`compile_composition_with_report`] also returns the
+//! [`CompositionReport`] of every step.
 
 use std::collections::HashMap;
 use std::hash::BuildHasher;
+use std::sync::Arc;
 
-use panproto_gat::{CompositionMode, CompositionSpec, CompositionStep, Theory};
+use panproto_gat::{
+    ClashPolicy, ComposeOptions, CompositionMode, CompositionReport, CompositionSpec,
+    CompositionStep, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode, OpAssignment, RecipeEdge,
+    RecipeOpImage, Sort, Theory, TheoryDiagram, TheoryMorphism, compose, pushout_by_name,
+};
 
-use crate::document::{ColimitStepSpec, CompositionBody, CompositionSpec_};
+use crate::document::{ColimitStepSpec, CompositionBody, CompositionSpec_, IdentifyKind};
 use crate::error::TheoryDslError;
+
+/// A compiled composition: the theory, the recipe that replays it, and the
+/// report of each step in step order.
+#[derive(Debug, Clone)]
+pub struct ComposedTheory {
+    /// The composed theory, named by the composition's `result`.
+    pub theory: Theory,
+    /// The recipe [`panproto_gat::recompose`] replays to `theory`.
+    pub spec: CompositionSpec,
+    /// The report of each step's composition, in step order.
+    pub reports: Vec<CompositionReport>,
+}
 
 /// Compile a [`CompositionBody`] into a composed [`Theory`] and its
 /// [`CompositionSpec`] recipe.
 ///
 /// Builds a local registry from resolved base theories and any
 /// theories already compiled in the same document (passed via
-/// `local_theories`), then replays the colimit steps.
+/// `local_theories`), then composes the steps.
 ///
 /// # Errors
 ///
@@ -28,7 +59,21 @@ pub fn compile_composition<S: BuildHasher>(
     resolver: &dyn Fn(&str) -> Option<Theory>,
     local_theories: &HashMap<String, Theory, S>,
 ) -> Result<(Theory, CompositionSpec), TheoryDslError> {
-    compile_composition_spec(&body.compose, resolver, local_theories)
+    compile_composition_with_report(body, resolver, local_theories)
+        .map(|composed| (composed.theory, composed.spec))
+}
+
+/// [`compile_composition`], also returning the report of every step.
+///
+/// # Errors
+///
+/// As [`compile_composition`].
+pub fn compile_composition_with_report<S: BuildHasher>(
+    body: &CompositionBody,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+    local_theories: &HashMap<String, Theory, S>,
+) -> Result<ComposedTheory, TheoryDslError> {
+    compile_composition_spec_with_report(&body.compose, resolver, local_theories)
 }
 
 /// Compile a [`CompositionSpec_`] (the inner spec, usable from both
@@ -38,12 +83,26 @@ pub fn compile_composition<S: BuildHasher>(
 ///
 /// Returns [`TheoryDslError::TheoryNotFound`] if a referenced theory
 /// cannot be resolved, or [`TheoryDslError::ColimitFailed`] if
-/// recomposition fails.
+/// a step fails.
 pub fn compile_composition_spec<S: BuildHasher>(
     spec: &CompositionSpec_,
     resolver: &dyn Fn(&str) -> Option<Theory>,
     local_theories: &HashMap<String, Theory, S>,
 ) -> Result<(Theory, CompositionSpec), TheoryDslError> {
+    compile_composition_spec_with_report(spec, resolver, local_theories)
+        .map(|composed| (composed.theory, composed.spec))
+}
+
+/// [`compile_composition_spec`], also returning the report of every step.
+///
+/// # Errors
+///
+/// As [`compile_composition_spec`].
+pub fn compile_composition_spec_with_report<S: BuildHasher>(
+    spec: &CompositionSpec_,
+    resolver: &dyn Fn(&str) -> Option<Theory>,
+    local_theories: &HashMap<String, Theory, S>,
+) -> Result<ComposedTheory, TheoryDslError> {
     let mut registry: HashMap<String, Theory> = HashMap::new();
 
     // Seed registry with local theories.
@@ -73,31 +132,520 @@ pub fn compile_composition_spec<S: BuildHasher>(
         }
     }
 
-    // Convert DSL steps to GAT steps.
-    let gat_steps: Vec<CompositionStep> = spec.steps.iter().map(convert_step).collect();
+    let mut steps = Vec::with_capacity(spec.steps.len());
+    let mut reports = Vec::with_capacity(spec.steps.len());
+    let mut last: Option<Theory> = None;
+    for (index, step) in spec.steps.iter().enumerate() {
+        let lookup = |name: &String| {
+            registry
+                .get(name)
+                .cloned()
+                .ok_or_else(|| TheoryDslError::TheoryNotFound {
+                    name: name.clone(),
+                    context: format!("composition '{}' step {index}", spec.result),
+                })
+        };
+        let left = lookup(&step.left)?;
+        let right = lookup(&step.right)?;
+        let composed = compose_step(index, step, &left, &right)?;
+        registry.insert(format!("step_{index}"), composed.theory.clone());
+        steps.push(composed.step);
+        reports.push(composed.report);
+        last = Some(composed.theory);
+    }
 
-    let gat_spec = CompositionSpec {
-        result_name: spec.result.clone(),
-        version: 0,
-        steps: gat_steps,
-    };
-
-    let theory = panproto_gat::recompose(&gat_spec, &registry).map_err(|e| {
-        TheoryDslError::ColimitFailed {
-            step: 0,
-            message: e.to_string(),
-        }
+    let mut theory = last.ok_or_else(|| TheoryDslError::ColimitFailed {
+        step: 0,
+        message: format!("composition '{}' has no steps", spec.result),
     })?;
-
-    Ok((theory, gat_spec))
+    theory.name = spec.result.clone().into();
+    Ok(ComposedTheory {
+        theory,
+        spec: CompositionSpec::new(spec.result.clone(), steps),
+        reports,
+    })
 }
 
-fn convert_step(step: &ColimitStepSpec) -> CompositionStep {
-    CompositionStep::Colimit {
-        left: step.left.clone(),
-        right: step.right.clone(),
-        shared_sorts: step.shared_sorts.clone(),
-        shared_ops: step.shared_ops.clone(),
-        mode: CompositionMode::Amalgamate,
+/// One composed step: its result, the recipe step that replays it, and
+/// its report.
+struct ComposedStep {
+    theory: Theory,
+    step: CompositionStep,
+    report: CompositionReport,
+}
+
+/// Compose one DSL step of index `index` over its two resolved sides.
+fn compose_step(
+    index: usize,
+    step: &ColimitStepSpec,
+    left: &Theory,
+    right: &Theory,
+) -> Result<ComposedStep, TheoryDslError> {
+    let failed = |message: String| TheoryDslError::ColimitFailed {
+        step: index,
+        message,
+    };
+    let step_name = format!("step_{index}");
+    let shared =
+        shared_theory(&format!("{step_name}_shared"), step, left, right).map_err(failed)?;
+
+    if step.identify.is_empty() {
+        let recipe = CompositionStep::Colimit {
+            left: step.left.clone(),
+            right: step.right.clone(),
+            shared_sorts: step.shared_sorts.clone(),
+            shared_ops: step.shared_ops.clone(),
+            mode: step.mode,
+        };
+        let (theory, report) = match step.mode {
+            CompositionMode::Amalgamate => {
+                let result =
+                    pushout_by_name(left, right, &shared).map_err(|e| failed(e.to_string()))?;
+                (result.theory, result.report)
+            }
+            CompositionMode::ExplicitIdentity => {
+                let diagram = TheoryDiagram::by_name(
+                    ("apex", shared),
+                    ("left", left.clone()),
+                    ("right", right.clone()),
+                )
+                .map_err(|e| failed(e.to_string()))?;
+                let composition = compose(&diagram, &options(step.mode, &step_name))
+                    .map_err(|e| failed(e.to_string()))?;
+                (composition.theory, composition.report)
+            }
+        };
+        return Ok(ComposedStep {
+            theory,
+            step: recipe,
+            report,
+        });
+    }
+
+    let (mut to_left, mut to_right) = legs(step, &shared);
+    // Each leg's codomain is the side's theory name, which for an earlier
+    // step's result is not its label; recompose names them the same way.
+    to_left.codomain = Arc::clone(&left.name);
+    to_right.codomain = Arc::clone(&right.name);
+    let recipe_edge = |tgt: &str, morphism: &TheoryMorphism| {
+        let mut sorts: Vec<(String, String)> = morphism
+            .sort_map
+            .iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect();
+        sorts.sort();
+        let mut ops: Vec<(String, RecipeOpImage)> = morphism
+            .op_map
+            .iter()
+            .map(|(a, image)| {
+                let image = match image {
+                    OpAssignment::Op(b) => RecipeOpImage::Op(b.to_string()),
+                    OpAssignment::Term(t) => RecipeOpImage::Term(t.clone()),
+                };
+                (a.to_string(), image)
+            })
+            .collect();
+        ops.sort_by(|a, b| a.0.cmp(&b.0));
+        RecipeEdge {
+            src: shared.name.to_string(),
+            tgt: tgt.to_owned(),
+            sorts,
+            ops,
+        }
+    };
+    let recipe = CompositionStep::Diagram {
+        nodes: vec![
+            step.left.clone(),
+            step.right.clone(),
+            shared.name.to_string(),
+        ],
+        edges: vec![
+            recipe_edge(&step.left, &to_left),
+            recipe_edge(&step.right, &to_right),
+        ],
+        mode: step.mode,
+        clash: ClashPolicy::Reject,
+        rewrite_budget: DEFAULT_VERIFY_BUDGET,
+        inline: vec![shared.clone()],
+    };
+    let diagram = TheoryDiagram {
+        nodes: vec![
+            DiagramNode {
+                label: Arc::from(step.left.as_str()),
+                theory: left.clone(),
+            },
+            DiagramNode {
+                label: Arc::from(step.right.as_str()),
+                theory: right.clone(),
+            },
+            DiagramNode {
+                label: Arc::clone(&shared.name),
+                theory: shared.clone(),
+            },
+        ],
+        edges: vec![
+            DiagramEdge {
+                src: Arc::clone(&shared.name),
+                tgt: Arc::from(step.left.as_str()),
+                morphism: to_left,
+            },
+            DiagramEdge {
+                src: Arc::clone(&shared.name),
+                tgt: Arc::from(step.right.as_str()),
+                morphism: to_right,
+            },
+        ],
+    };
+    let composition =
+        compose(&diagram, &options(step.mode, &step_name)).map_err(|e| failed(e.to_string()))?;
+    Ok(ComposedStep {
+        theory: composition.theory,
+        step: recipe,
+        report: composition.report,
+    })
+}
+
+/// The options a DSL step composes with: its mode, clashes refused.
+fn options(mode: CompositionMode, result_name: &str) -> ComposeOptions {
+    ComposeOptions {
+        mode,
+        result_name: Arc::from(result_name),
+        clash: ClashPolicy::Reject,
+        rewrite_budget: DEFAULT_VERIFY_BUDGET,
+    }
+}
+
+/// The theory a step shares between its sides, named `name`: its shared
+/// sorts (simple, as a pushout by name has always built them), then the
+/// left sides of its identified sorts, then its shared operations and the
+/// left sides of its identified operations, as the left theory declares
+/// them.
+fn shared_theory(
+    name: &str,
+    step: &ColimitStepSpec,
+    left: &Theory,
+    right: &Theory,
+) -> Result<Theory, String> {
+    let mut sorts: Vec<Sort> = step
+        .shared_sorts
+        .iter()
+        .map(|s| Sort::simple(s.as_str()))
+        .collect();
+    let mut ops = Vec::new();
+    for op_name in &step.shared_ops {
+        let op = left.find_op(op_name).ok_or_else(|| {
+            format!(
+                "shared operation '{op_name}' not found in left theory '{}'",
+                step.left
+            )
+        })?;
+        if !right.has_op(op_name) {
+            return Err(format!(
+                "shared operation '{op_name}' not found in right theory '{}'",
+                step.right
+            ));
+        }
+        ops.push(op.clone());
+    }
+    for pair in &step.identify {
+        match pair.kind {
+            IdentifyKind::Sort => {
+                let sort = left.find_sort(&pair.left).ok_or_else(|| {
+                    format!(
+                        "identified sort '{}' not found in left theory '{}'",
+                        pair.left, step.left
+                    )
+                })?;
+                if !right.has_sort(&pair.right) {
+                    return Err(format!(
+                        "identified sort '{}' not found in right theory '{}'",
+                        pair.right, step.right
+                    ));
+                }
+                sorts.push(sort.clone());
+            }
+            IdentifyKind::Op => {
+                let op = left.find_op(&pair.left).ok_or_else(|| {
+                    format!(
+                        "identified operation '{}' not found in left theory '{}'",
+                        pair.left, step.left
+                    )
+                })?;
+                if !right.has_op(&pair.right) {
+                    return Err(format!(
+                        "identified operation '{}' not found in right theory '{}'",
+                        pair.right, step.right
+                    ));
+                }
+                ops.push(op.clone());
+            }
+        }
+    }
+    Ok(Theory::new(name, sorts, ops, vec![]))
+}
+
+/// The legs of a step with identifications: into the left side, every
+/// shared symbol maps to itself; into the right side, an identified symbol
+/// maps to its right name and a shared one to itself.
+fn legs(step: &ColimitStepSpec, shared: &Theory) -> (TheoryMorphism, TheoryMorphism) {
+    let right_name = |kind: IdentifyKind, name: &str| -> Arc<str> {
+        step.identify
+            .iter()
+            .find(|pair| pair.kind == kind && pair.left == name)
+            .map_or_else(|| Arc::from(name), |pair| Arc::from(pair.right.as_str()))
+    };
+    let leg = |tgt: &str, rename: &dyn Fn(IdentifyKind, &str) -> Arc<str>| {
+        TheoryMorphism::new(
+            format!("{}_to_{tgt}", shared.name),
+            Arc::clone(&shared.name),
+            tgt,
+            shared
+                .sorts
+                .iter()
+                .map(|s| (Arc::clone(&s.name), rename(IdentifyKind::Sort, &s.name)))
+                .collect::<HashMap<_, _>>(),
+            shared
+                .ops
+                .iter()
+                .map(|o| {
+                    (
+                        Arc::clone(&o.name),
+                        OpAssignment::Op(rename(IdentifyKind::Op, &o.name)),
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
+        )
+    };
+    (
+        leg(&step.left, &|_, name| Arc::from(name)),
+        leg(&step.right, &right_name),
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use panproto_gat::{CheckStatus, GatError, recompose};
+
+    use super::*;
+    use crate::compile::builtin_resolver;
+    use crate::document::{TheoryBody, TheoryDocument};
+
+    fn body(json: &str) -> CompositionBody {
+        let document: TheoryDocument = serde_json::from_str(json).expect("the document parses");
+        match document.body {
+            TheoryBody::Composition(body) => body,
+            other => panic!("expected a composition, got {other:?}"),
+        }
+    }
+
+    fn registry(names: &[&str]) -> HashMap<String, Theory> {
+        let resolve = builtin_resolver();
+        names
+            .iter()
+            .map(|n| ((*n).to_owned(), resolve(n).expect("a built-in theory")))
+            .collect()
+    }
+
+    #[test]
+    fn dsl_compose_with_identify_returns_the_report() {
+        let body = body(
+            r#"{
+                "id": "test.identify",
+                "description": "graph edges are hyper-edges",
+                "compose": {
+                    "result": "GraphHyper",
+                    "bases": ["ThGraph", "ThHypergraph"],
+                    "steps": [{
+                        "left": "ThGraph",
+                        "right": "ThHypergraph",
+                        "shared_sorts": ["Vertex"],
+                        "mode": "explicit_identity",
+                        "identify": [{"kind": "sort", "left": "Edge", "right": "HyperEdge"}]
+                    }]
+                }
+            }"#,
+        );
+        let local: HashMap<String, Theory> = HashMap::new();
+        let composed = compile_composition_with_report(&body, &builtin_resolver(), &local)
+            .expect("the composition compiles");
+
+        // Edge and HyperEdge are one sort, named by the majority of its
+        // members (the left sort and the shared theory's copy).
+        let theory = &composed.theory;
+        assert_eq!(&*theory.name, "GraphHyper");
+        assert!(theory.has_sort("Edge"));
+        assert!(!theory.has_sort("HyperEdge"));
+        let incident = theory.find_op("incident").expect("incident is kept");
+        assert_eq!(&*incident.inputs[0].1.head().to_string(), "Edge");
+
+        assert_eq!(composed.reports.len(), 1);
+        let report = &composed.reports[0];
+        assert_eq!(report.mode, CompositionMode::ExplicitIdentity);
+        assert_eq!(report.status, CheckStatus::Passed);
+        assert!(report.name_clash_free);
+
+        assert_eq!(composed.spec.version, 1);
+        assert!(matches!(
+            composed.spec.steps.as_slice(),
+            [CompositionStep::Diagram {
+                mode: CompositionMode::ExplicitIdentity,
+                ..
+            }]
+        ));
+        let replayed = recompose(&composed.spec, &registry(&["ThGraph", "ThHypergraph"]))
+            .expect("the recipe replays");
+        assert_eq!(&replayed, theory);
+    }
+
+    #[test]
+    fn dsl_compose_without_a_mode_amalgamates_as_before() {
+        let body = body(
+            r#"{
+                "id": "test.amalgamate",
+                "description": "graph with multigraph labels",
+                "compose": {
+                    "result": "GM",
+                    "bases": ["ThGraph", "ThMulti"],
+                    "steps": [{"left": "ThGraph", "right": "ThMulti", "shared_sorts": ["Vertex"]}]
+                }
+            }"#,
+        );
+        let local: HashMap<String, Theory> = HashMap::new();
+        let composed = compile_composition_with_report(&body, &builtin_resolver(), &local)
+            .expect("the composition compiles");
+        assert_eq!(composed.spec.version, 0);
+        assert!(matches!(
+            composed.spec.steps.as_slice(),
+            [CompositionStep::Colimit {
+                mode: CompositionMode::Amalgamate,
+                ..
+            }]
+        ));
+        assert_eq!(composed.reports[0].mode, CompositionMode::Amalgamate);
+        // Edge is glued by name, as a step without a mode always did.
+        assert_eq!(
+            composed
+                .theory
+                .sorts
+                .iter()
+                .filter(|s| &*s.name == "Edge")
+                .count(),
+            1
+        );
+        let replayed = recompose(&composed.spec, &registry(&["ThGraph", "ThMulti"]))
+            .expect("the recipe replays");
+        assert_eq!(replayed, composed.theory);
+        let (theory, spec) = compile_composition(&body, &builtin_resolver(), &local)
+            .expect("the composition compiles");
+        assert_eq!((theory, spec), (composed.theory, composed.spec));
+    }
+
+    #[test]
+    fn dsl_compose_in_explicit_mode_refuses_an_unshared_name() {
+        let body = body(
+            r#"{
+                "id": "test.explicit",
+                "description": "Edge is not shared",
+                "compose": {
+                    "result": "GM",
+                    "bases": ["ThGraph", "ThMulti"],
+                    "steps": [{
+                        "left": "ThGraph",
+                        "right": "ThMulti",
+                        "shared_sorts": ["Vertex"],
+                        "mode": "explicit_identity"
+                    }]
+                }
+            }"#,
+        );
+        let local: HashMap<String, Theory> = HashMap::new();
+        let error = compile_composition_with_report(&body, &builtin_resolver(), &local)
+            .expect_err("Edge clashes");
+        let TheoryDslError::ColimitFailed { step, message } = error else {
+            panic!("expected ColimitFailed, got {error:?}");
+        };
+        assert_eq!(step, 0);
+        assert!(message.contains("Edge"), "{message}");
+        // The recorded recipe step says the same.
+        let spec = CompositionSpec::new(
+            "GM",
+            vec![CompositionStep::Colimit {
+                left: "ThGraph".into(),
+                right: "ThMulti".into(),
+                shared_sorts: vec!["Vertex".into()],
+                shared_ops: vec![],
+                mode: CompositionMode::ExplicitIdentity,
+            }],
+        );
+        assert!(matches!(
+            recompose(&spec, &registry(&["ThGraph", "ThMulti"])),
+            Err(GatError::Composition(_))
+        ));
+    }
+}
+
+#[cfg(test)]
+mod nickel_tests {
+    use std::collections::HashMap;
+
+    use panproto_gat::{CompositionMode, CompositionStep, Theory};
+
+    use super::compile_composition_with_report;
+    use crate::compile::builtin_resolver;
+    use crate::document::TheoryBody;
+    use crate::error::TheoryDslError;
+    use crate::eval::eval_nickel;
+
+    const SOURCE: &str = r#"
+        let { Composition, colimit, explicit, identifying, identify_sort, .. } =
+          import "panproto/theory.ncl" in
+        {
+          id = "test.nickel-identify",
+          description = "graph edges are hyper-edges",
+          compose = {
+            result = "GraphHyper",
+            bases = ["ThGraph", "ThHypergraph"],
+            steps = [
+              colimit "ThGraph" "ThHypergraph" ["Vertex"]
+              |> explicit
+              |> identifying [identify_sort "Edge" "HyperEdge"]
+            ],
+          },
+        } | Composition
+    "#;
+
+    #[test]
+    fn nickel_compose_steps_carry_mode_and_identify() {
+        let document = eval_nickel(SOURCE, &[]).expect("the source evaluates");
+        let TheoryBody::Composition(body) = document.body else {
+            panic!("expected a composition");
+        };
+        assert_eq!(
+            body.compose.steps[0].mode,
+            CompositionMode::ExplicitIdentity
+        );
+        assert_eq!(body.compose.steps[0].identify.len(), 1);
+        let local: HashMap<String, Theory> = HashMap::new();
+        let composed = compile_composition_with_report(&body, &builtin_resolver(), &local)
+            .expect("the composition compiles");
+        assert!(composed.theory.has_sort("Edge"));
+        assert!(!composed.theory.has_sort("HyperEdge"));
+        assert!(matches!(
+            composed.spec.steps.as_slice(),
+            [CompositionStep::Diagram { .. }]
+        ));
+    }
+
+    #[test]
+    fn nickel_rejects_an_unknown_mode() {
+        let source = SOURCE.replace("|> explicit", "& { mode = \"glue\" }");
+        let error = eval_nickel(&source, &[]).expect_err("glue is not a mode");
+        assert!(
+            matches!(
+                error,
+                TheoryDslError::NickelEval { .. } | TheoryDslError::NickelEvalSpanned { .. }
+            ),
+            "{error:?}"
+        );
     }
 }
