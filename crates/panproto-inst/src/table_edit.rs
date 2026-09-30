@@ -21,7 +21,10 @@ use crate::view_ref::RowId;
 /// A model of `ThEditableStructure` for functor instances.
 ///
 /// Serialized externally tagged, each variant's fields by name, every field
-/// always written; a row's cells in ascending column order.
+/// always written; a row's cells in ascending column order. Decoding is as
+/// exact: every field is required (an absent `old` or `new` of a cell update
+/// is an error, not `None`) and a field the variant does not have is
+/// refused.
 ///
 /// ```
 /// use std::collections::HashMap;
@@ -49,6 +52,7 @@ use crate::view_ref::RowId;
 /// # Ok::<(), panproto_inst::EditError>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub enum TableEdit {
     /// The monoid identity: no change.
     Identity,
@@ -86,8 +90,12 @@ pub enum TableEdit {
         /// The column.
         column: String,
         /// The cell's expected value, `None` when it is expected absent.
+        /// Required on decode: a missing `old` is refused, not read as
+        /// `None`.
+        #[serde(deserialize_with = "Option::deserialize")]
         old: Option<Value>,
-        /// The cell's new value, `None` to remove it.
+        /// The cell's new value, `None` to remove it. Required on decode.
+        #[serde(deserialize_with = "Option::deserialize")]
         new: Option<Value>,
     },
 
@@ -602,6 +610,46 @@ mod tests {
         );
         let back: Vec<TableEdit> = serde_json::from_value(json).unwrap();
         assert_eq!(back, edits);
+    }
+
+    /// `old: None` means the cell is expected absent, so a cell update
+    /// without its `old` (or `new`) field is refused rather than read as an
+    /// addition (or a removal), and a field the edit does not have is
+    /// refused rather than ignored.
+    #[test]
+    fn a_cell_update_must_spell_out_both_values() {
+        let decode = serde_json::from_str::<TableEdit>;
+        // The decode error of `json`, or the edit it wrongly decoded to.
+        let refusal = |json: &str| match serde_json::from_str::<TableEdit>(json) {
+            Ok(edit) => format!("decoded to {edit:?}"),
+            Err(err) => err.to_string(),
+        };
+        let missing_old = r#"{"UpdateCell":{"table":"t","id":0,"column":"n","new":null}}"#;
+        let err = refusal(missing_old);
+        assert!(err.contains("missing field `old`"), "{err}");
+        let missing_new = r#"{"UpdateCell":{"table":"t","id":0,"column":"n","old":{"Int":1}}}"#;
+        let err = refusal(missing_new);
+        assert!(err.contains("missing field `new`"), "{err}");
+        let unknown =
+            r#"{"UpdateCell":{"table":"t","id":0,"column":"n","old":null,"new":null,"od":null}}"#;
+        let err = refusal(unknown);
+        assert!(err.contains("unknown field `od`"), "{err}");
+        let unknown = r#"{"MoveRow":{"id":0,"old_table":"a","new_table":"b","table":"a"}}"#;
+        let err = refusal(unknown);
+        assert!(err.contains("unknown field `table`"), "{err}");
+
+        let spelled =
+            r#"{"UpdateCell":{"table":"t","id":0,"column":"n","old":null,"new":{"Int":1}}}"#;
+        assert_eq!(
+            decode(spelled).unwrap(),
+            TableEdit::UpdateCell {
+                table: "t".into(),
+                id: RowId(0),
+                column: "n".into(),
+                old: None,
+                new: Some(Value::Int(1)),
+            }
+        );
     }
 
     /// An edit that creates a table is undone by its inverse: the table it
