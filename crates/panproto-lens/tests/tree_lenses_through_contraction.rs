@@ -1283,17 +1283,6 @@ mod composition_rule {
             .prop_map(|counts| source(&counts))
     }
 
-    /// A tree as data: nodes with anchors and values, and its arcs.
-    fn shape(tree: &WInstance) -> Shape {
-        let mut nodes: Vec<_> = tree
-            .nodes
-            .values()
-            .map(|n| (n.id, n.anchor.clone(), n.value.clone()))
-            .collect();
-        nodes.sort_by_key(|n| n.0);
-        (nodes, sorted_arcs(tree))
-    }
-
     /// Every leaf value of `view` replaced, as an in-domain edit.
     fn edited(view: &WInstance) -> WInstance {
         let mut view = view.clone();
@@ -1305,9 +1294,86 @@ mod composition_rule {
         view
     }
 
-    /// The fused lens and the sequential pair agree on `source`: the same
-    /// view, and the same source written back for the view and an edit of
-    /// it.
+    /// Every node field of `a` and `b`, by id, or the first difference.
+    fn node_difference(a: &WInstance, b: &WInstance) -> Option<String> {
+        let mut ids: Vec<u32> = a.nodes.keys().chain(b.nodes.keys()).copied().collect();
+        ids.sort_unstable();
+        ids.dedup();
+        ids.into_iter().find_map(|id| match (a.nodes.get(&id), b.nodes.get(&id)) {
+            (Some(x), Some(y))
+                if x.id == y.id
+                    && x.anchor == y.anchor
+                    && x.value == y.value
+                    && x.discriminator == y.discriminator
+                    && x.extra_fields == y.extra_fields
+                    && x.position == y.position
+                    && x.shape == y.shape
+                    && x.annotations == y.annotations =>
+            {
+                None
+            }
+            (x, y) => Some(format!("node {id}: {x:?} against {y:?}")),
+        })
+    }
+
+    /// The children of every parent, in arc order, with their edges.
+    fn child_sequences(tree: &WInstance) -> std::collections::BTreeMap<u32, Vec<(u32, Edge)>> {
+        let mut sequences: std::collections::BTreeMap<u32, Vec<(u32, Edge)>> =
+            std::collections::BTreeMap::new();
+        for (parent, child, edge) in &tree.arcs {
+            sequences
+                .entry(*parent)
+                .or_default()
+                .push((*child, edge.clone()));
+        }
+        sequences
+    }
+
+    /// Two views compared as the tree view equivalence compares views with
+    /// no synthesized node: exactly, on every node field, the children of
+    /// every parent in order, the fans, and the roots.
+    fn view_difference(a: &WInstance, b: &WInstance) -> Option<String> {
+        if (a.root, &a.schema_root) != (b.root, &b.schema_root) {
+            return Some(format!(
+                "roots {:?} against {:?}",
+                (a.root, &a.schema_root),
+                (b.root, &b.schema_root)
+            ));
+        }
+        node_difference(a, b)
+            .or_else(|| {
+                (child_sequences(a) != child_sequences(b)).then(|| {
+                    format!(
+                        "children {:?} against {:?}",
+                        child_sequences(a),
+                        child_sequences(b)
+                    )
+                })
+            })
+            .or_else(|| (a.fans != b.fans).then(|| format!("fans {:?} against {:?}", a.fans, b.fans)))
+    }
+
+    /// Two sources compared as `identical` compares instances: their graph
+    /// forms have the same nodes and the same edges under the same ids (the
+    /// arc positions), and the trees have the same roots.
+    fn source_difference(a: &WInstance, b: &WInstance) -> Option<String> {
+        let (ga, gb) = (
+            panproto_inst::GInstance::from_wtype(a).unwrap(),
+            panproto_inst::GInstance::from_wtype(b).unwrap(),
+        );
+        if (a.root, &a.schema_root) == (b.root, &b.schema_root)
+            && panproto_inst::GInstance::identical(&ga, &gb)
+        {
+            None
+        } else {
+            Some(format!("{a:?} against {b:?}"))
+        }
+    }
+
+    /// The fused lens and the sequential pair agree on `source`: views
+    /// equivalent (neither synthesizes a node, so equivalence is exact,
+    /// child order included), and sources written back identical for the
+    /// view and an edit of it.
     fn agree(
         fused: &Lens,
         sequential: &SequentialTreeLens,
@@ -1316,14 +1382,50 @@ mod composition_rule {
         let (seq_view, seq_c) = sequential.get(source).unwrap();
         let (view, c) = panproto_lens::get(fused, source)
             .map_err(|e| TestCaseError::fail(format!("the fused get failed: {e}")))?;
-        prop_assert_eq!(shape(&view), shape(&seq_view), "views differ");
+        prop_assert!(c.synthesized_nodes.is_empty() && seq_c.1.synthesized_nodes.is_empty());
+        if let Some(difference) = view_difference(&view, &seq_view) {
+            return Err(TestCaseError::fail(format!("views differ: {difference}")));
+        }
         for v in [seq_view.clone(), edited(&seq_view)] {
             let back = sequential.put(&v, &seq_c).unwrap();
             let fused_back = panproto_lens::put(fused, &v, &c)
                 .map_err(|e| TestCaseError::fail(format!("the fused put failed: {e}")))?;
-            prop_assert_eq!(shape(&fused_back), shape(&back), "puts differ");
+            if let Some(difference) = source_difference(&fused_back, &back) {
+                return Err(TestCaseError::fail(format!("puts differ: {difference}")));
+            }
         }
         Ok(())
+    }
+
+    /// The comparisons the composition law uses see what a projection onto
+    /// ids, anchors, values and sorted arcs does not: child order, extra
+    /// fields and fans.
+    #[test]
+    fn the_law_comparisons_see_child_order_fields_and_fans() {
+        let tree = two_label_source(&["a".into(), "b".into()]);
+        assert_eq!(view_difference(&tree, &tree), None);
+        assert_eq!(source_difference(&tree, &tree), None);
+
+        let mut reordered = tree.clone();
+        reordered.arcs.reverse();
+        let reordered = WInstance::new(reordered.nodes, reordered.arcs, vec![], 0, "r".into());
+        assert_eq!(sorted_arcs(&reordered), sorted_arcs(&tree));
+        assert!(view_difference(&reordered, &tree).is_some());
+        assert!(source_difference(&reordered, &tree).is_some());
+
+        let mut annotated = tree.clone();
+        annotated
+            .nodes
+            .get_mut(&1)
+            .unwrap()
+            .extra_fields
+            .insert("k".into(), Value::Int(1));
+        assert!(view_difference(&annotated, &tree).is_some());
+        assert!(source_difference(&annotated, &tree).is_some());
+
+        let mut fanned = tree.clone();
+        fanned.fans.push(panproto_inst::Fan::new("rel", 0).with_child("x", 1));
+        assert!(view_difference(&fanned, &tree).is_some());
     }
 
     /// Contracting pairs are kept in sequence; a pair of renames with no
@@ -1443,7 +1545,7 @@ mod composition_rule {
         let (seq_view, _) = sequential.get(&source).unwrap();
         let fused = panproto_lens::compose(&sequential.first, &sequential.second).unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
-        assert_eq!(shape(&view), shape(&seq_view));
+        assert_eq!(view_difference(&view, &seq_view), None);
         assert!(matches!(
             panproto_lens::compose_tree(&sequential.first, &sequential.second).unwrap(),
             TreeComposite::Compiled(_)
@@ -1476,7 +1578,7 @@ mod composition_rule {
             1,
             "the pair keeps only the `other` arc"
         );
-        assert_ne!(shape(&view), shape(&seq_view));
+        assert!(view_difference(&view, &seq_view).is_some());
     }
 
     proptest! {
@@ -1522,8 +1624,12 @@ mod composition_rule {
             let seq_written = sequential.put(&edit, &seq_c).unwrap();
             let (again, _) = panproto_lens::get(&fused, &written).unwrap();
             let (seq_again, _) = sequential.get(&seq_written).unwrap();
-            prop_assert_eq!(shape(&again), shape(&seq_again), "views after a put differ");
-            prop_assert_eq!(shape(&again), shape(&edit), "PutGet through the fused lens");
+            if let Some(difference) = view_difference(&again, &seq_again) {
+                return Err(TestCaseError::fail(format!("views after a put differ: {difference}")));
+            }
+            if let Some(difference) = view_difference(&again, &edit) {
+                return Err(TestCaseError::fail(format!("PutGet through the fused lens: {difference}")));
+            }
         }
     }
 
