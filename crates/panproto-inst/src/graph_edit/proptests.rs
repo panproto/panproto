@@ -247,62 +247,7 @@ fn mutate(graph: &GInstance, ops: &[Op]) -> GInstance {
                     n.position = Some(u32::try_from(v).unwrap_or(0));
                 }
             }
-            10 => {
-                // A labelled edge from a node of the fan shape.
-                let fans: Vec<u32> = nodes
-                    .iter()
-                    .copied()
-                    .filter(|n| g.node(*n).is_some_and(|n| n.shape == NodeShape::HyperEdge))
-                    .collect();
-                let plain: Vec<u32> = nodes
-                    .iter()
-                    .copied()
-                    .filter(|n| !fans.contains(n))
-                    .collect();
-                if !fans.is_empty() && !plain.is_empty() {
-                    let id = 40 + u32::try_from(j % 4).unwrap_or(0);
-                    let name = FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3];
-                    let _ = g.insert_edge(
-                        EdgeId(id),
-                        GEdge::new(
-                            fans[i % fans.len()],
-                            plain[j % plain.len()],
-                            fan_edge(Some(name)),
-                        ),
-                    );
-                }
-            }
-            11 => {
-                if let Some(n) = node.and_then(|n| g.node_mut(n)) {
-                    n.shape = if n.shape == NodeShape::HyperEdge {
-                        NodeShape::default()
-                    } else {
-                        NodeShape::HyperEdge
-                    };
-                }
-            }
-            12 => {
-                // Rename a reserved-kind edge's label, or make it a parent edge.
-                let reserved: Vec<EdgeId> = edges
-                    .iter()
-                    .copied()
-                    .filter(|e| {
-                        g.edge(*e).is_some_and(|e| {
-                            e.edge.kind == HYPER_LABEL_KIND || e.edge.kind == HYPER_PARENT_KIND
-                        })
-                    })
-                    .collect();
-                if !reserved.is_empty() {
-                    let name = (k == 0).then(|| FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3]);
-                    let _ = g.relabel_edge(reserved[j % reserved.len()], fan_edge(name));
-                }
-            }
-            13 => {
-                if let (Some(s), Some(t)) = (node, other) {
-                    let id = 44 + u32::try_from(j % 4).unwrap_or(0);
-                    let _ = g.insert_edge(EdgeId(id), GEdge::new(s, t, fan_edge(None)));
-                }
-            }
+            10..=13 => mutate_fan(&mut g, &nodes, &edges, (code, i, j, k, v)),
             _ => {
                 if let Some(e) = edge {
                     let _ = g.remove_edge(e);
@@ -311,6 +256,76 @@ fn mutate(graph: &GInstance, ops: &[Op]) -> GInstance {
         }
     }
     g
+}
+
+/// The fan operations 10 to 13 of [`mutate`] on `graph`, whose sorted node and
+/// edge ids are `nodes` and `edges`.
+fn mutate_fan(graph: &mut GInstance, nodes: &[u32], edges: &[EdgeId], (code, i, j, k, v): Op) {
+    let node = (!nodes.is_empty()).then(|| nodes[i % nodes.len()]);
+    let other = (!nodes.is_empty()).then(|| nodes[j % nodes.len()]);
+    match code {
+        10 => {
+            // A labelled edge from a node of the fan shape.
+            let fans: Vec<u32> = nodes
+                .iter()
+                .copied()
+                .filter(|n| {
+                    graph
+                        .node(*n)
+                        .is_some_and(|n| n.shape == NodeShape::HyperEdge)
+                })
+                .collect();
+            let plain: Vec<u32> = nodes
+                .iter()
+                .copied()
+                .filter(|n| !fans.contains(n))
+                .collect();
+            if !fans.is_empty() && !plain.is_empty() {
+                let id = 40 + u32::try_from(j % 4).unwrap_or(0);
+                let name = FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3];
+                let _ = graph.insert_edge(
+                    EdgeId(id),
+                    GEdge::new(
+                        fans[i % fans.len()],
+                        plain[j % plain.len()],
+                        fan_edge(Some(name)),
+                    ),
+                );
+            }
+        }
+        11 => {
+            if let Some(n) = node.and_then(|n| graph.node_mut(n)) {
+                n.shape = if n.shape == NodeShape::HyperEdge {
+                    NodeShape::default()
+                } else {
+                    NodeShape::HyperEdge
+                };
+            }
+        }
+        12 => {
+            // Rename a reserved-kind edge's label, or make it a parent edge.
+            let reserved: Vec<EdgeId> = edges
+                .iter()
+                .copied()
+                .filter(|e| {
+                    graph.edge(*e).is_some_and(|e| {
+                        e.edge.kind == HYPER_LABEL_KIND || e.edge.kind == HYPER_PARENT_KIND
+                    })
+                })
+                .collect();
+            if !reserved.is_empty() {
+                let name = (k == 0).then(|| FAN_LABELS[usize::try_from(v).unwrap_or(0) % 3]);
+                let _ = graph.relabel_edge(reserved[j % reserved.len()], fan_edge(name));
+            }
+        }
+        13 => {
+            if let (Some(s), Some(t)) = (node, other) {
+                let id = 44 + u32::try_from(j % 4).unwrap_or(0);
+                let _ = graph.insert_edge(EdgeId(id), GEdge::new(s, t, fan_edge(None)));
+            }
+        }
+        _ => {}
+    }
 }
 
 fn fail(msg: impl std::fmt::Display) -> TestCaseError {
@@ -620,4 +635,33 @@ fn the_fan_independence_generator_covers_fan_conflicts() -> Result<(), TestCaseE
     prop_assert!(fan_only >= 20, "{}", counts);
     prop_assert!(broken >= 5, "{}", counts);
     Ok(())
+}
+
+/// The case `independent_graph_deltas_commute_and_merge_around_fans` shrank
+/// to before fan conflicts were reported: one fan node 20 with its
+/// `hyper_parent` edge to node 0, and two deltas that each give the fan a
+/// `hyper_label` edge of the same name. Each keeps the fan well formed;
+/// together they would not, so the pair must not be independent.
+#[test]
+fn two_same_name_labels_on_one_fan_are_a_fan_conflict() -> Result<(), TestCaseError> {
+    let s = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(20, "f").with_shape(NodeShape::HyperEdge))
+        .with_edge_id(EdgeId(20), 20, 0, fan_edge(None));
+    let (t1, t2) = (
+        mutate(&s, &[(10, 0, 6, 0, 1)]),
+        mutate(&s, &[(10, 0, 0, 0, 1)]),
+    );
+    prop_assert!(FanDomain::contains(&s));
+    prop_assert!(FanDomain::contains(&t1) && FanDomain::contains(&t2));
+    let (a, b) = (GraphDelta::diff(&s, &t1), GraphDelta::diff(&s, &t2));
+    let conflicts = a.independence(&b);
+    prop_assert!(
+        conflicts
+            .iter()
+            .any(|c| matches!(c, EditConflict::FanUse { .. })),
+        "{:?}",
+        conflicts
+    );
+    independence_law(&s, &a, &b)
 }

@@ -353,30 +353,17 @@ impl GraphDelta {
         out.into_iter().collect()
     }
 
-    /// The union of this delta and `other`, two deltas of the same state.
-    ///
-    /// A benign conflict ([`EditConflict::is_benign`]) whose two entries are
-    /// identical (for an `UpdateUpdate`, equal `old` values as well) is kept
-    /// once; for independent deltas the union is their merge.
+    /// The union of this delta and `other`, two independent deltas of the
+    /// same state.
     ///
     /// # Errors
     ///
-    /// Returns the first conflict, in the order of [`Self::independence`],
-    /// that is not such a benign duplicate.
+    /// Returns the first conflict of [`Self::independence`] when the two
+    /// deltas are not independent, a benign one ([`EditConflict::is_benign`])
+    /// included: merge is defined on independent deltas only.
     pub fn merge(&self, other: &Self) -> Result<Self, EditConflict> {
-        for conflict in self.independence(other) {
-            let duplicate = conflict.is_benign(self, other)
-                && match &conflict {
-                    EditConflict::UpdateUpdate { key } => pair(
-                        self.attrs().get(key).map(|c| &c.old),
-                        other.attrs().get(key).map(|c| &c.old),
-                        same_val,
-                    ),
-                    _ => true,
-                };
-            if !duplicate {
-                return Err(conflict);
-            }
+        if let Some(conflict) = self.independence(other).into_iter().next() {
+            return Err(conflict);
         }
         let mut parts = self.to_parts();
         let theirs = other.to_parts();

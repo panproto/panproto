@@ -1012,13 +1012,13 @@ fn fan_label(name: &str) -> Edge {
 
 #[test]
 fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
-    let s = one_fan();
+    let fan = one_fan();
     let a = GraphDelta::identity().with_added_edge(EdgeId(10), GEdge::new(5, 1, fan_label("x")));
     let b = GraphDelta::identity().with_added_edge(EdgeId(11), GEdge::new(5, 0, fan_label("x")));
-    a.check(&s)?;
-    b.check(&s)?;
+    a.check(&fan)?;
+    b.check(&fan)?;
     // One after the other they break the fan domain.
-    let mut ab = s.clone();
+    let mut ab = fan.clone();
     a.apply(&mut ab)?;
     assert!(matches!(
         b.apply(&mut ab),
@@ -1047,16 +1047,16 @@ fn two_deltas_that_together_break_a_fan_are_not_independent() -> TestResult {
     // A shape change to the fan shape meets any edge change at the node.
     let mut meta = NodeMeta::of(&person(1));
     meta.shape = NodeShape::HyperEdge;
-    let e = GraphEdit::set_node_meta(&s, 1, meta)?.to_delta()?;
+    let shape = GraphEdit::set_node_meta(&fan, 1, meta)?.to_delta()?;
     assert_eq!(
-        a.independence(&e),
+        a.independence(&shape),
         vec![EditConflict::FanUse {
             first: ElemRef::Edge(EdgeId(10)),
             second: ElemRef::Attr(AttrKey::Meta { node: 1 }),
         }]
     );
     // A label change to or from a reserved kind meets every fan change.
-    let rename = GraphEdit::relabel_edge(&s, EdgeId(0), fan_label("x"))?.to_delta()?;
+    let rename = GraphEdit::relabel_edge(&fan, EdgeId(0), fan_label("x"))?.to_delta()?;
     assert_eq!(
         rename.independence(&a),
         vec![EditConflict::FanUse {
@@ -1123,7 +1123,7 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
 }
 
 #[test]
-fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() -> TestResult {
+fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() {
     let add = GraphEdit::AddEdge {
         id: EdgeId(7),
         edge: GEdge::new(1, 2, label("likes")),
@@ -1137,8 +1137,8 @@ fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() -> TestResul
     // without the instance. Either order must invert as `to_delta` lowers.
     let orders = [
         vec![reconnect.clone(), add.clone(), add.clone()],
-        vec![add.clone(), add.clone(), reconnect.clone()],
-        vec![reconnect.clone()],
+        vec![add.clone(), add, reconnect.clone()],
+        vec![reconnect],
     ];
     for steps in orders {
         let batch = GraphEdit::Batch(steps);
@@ -1151,7 +1151,6 @@ fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() -> TestResul
         assert!(agrees, "{batch:?}");
         assert!(batch.invert().is_err(), "{batch:?}");
     }
-    Ok(())
 }
 
 #[test]
@@ -1208,7 +1207,31 @@ fn merge_of_dependent_deltas_reports_the_conflict() -> TestResult {
     let c = anchor_change(1, "person", "thing")?;
     let merged = a.merge(&c)?;
     assert_eq!(merged.attrs().len(), 2);
-    assert_eq!(a.merge(&a)?, a);
+    Ok(())
+}
+
+#[test]
+fn merge_reports_a_benign_conflict_too() -> TestResult {
+    // A delta merged with itself is not independent of itself: the benign
+    // duplicate is still a conflict, and merge is defined on independent
+    // deltas only.
+    let a = anchor_change(2, "person", "agent")?;
+    let conflict = EditConflict::UpdateUpdate {
+        key: AttrKey::Anchor { node: 2 },
+    };
+    assert_eq!(a.independence(&a), vec![conflict.clone()]);
+    assert!(conflict.is_benign(&a, &a));
+    assert_eq!(a.merge(&a), Err(conflict));
+    let node = GraphDelta::normalize(GraphDeltaParts {
+        add_nodes: std::iter::once((9, Node::new(9, "person"))).collect(),
+        ..GraphDeltaParts::default()
+    })?;
+    assert_eq!(
+        node.merge(&node),
+        Err(EditConflict::AddAdd {
+            elem: ElemRef::Node(9)
+        })
+    );
     Ok(())
 }
 
