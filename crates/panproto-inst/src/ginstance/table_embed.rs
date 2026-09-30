@@ -67,7 +67,10 @@ pub struct TableEmbedding {
     /// The graph edge of each foreign-key pair.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub pairs: BTreeMap<(Edge, RowId, RowId), EdgeId>,
-    /// The least edge id not yet used by a recorded pair.
+    /// The least edge id above every recorded pair's, saturated at
+    /// `u32::MAX`: allocation never hands out `u32::MAX` itself, so an
+    /// embedding whose floor has reached it allocates nothing, while a graph
+    /// that already uses that id still reads back with its embedding.
     pub next_edge: u32,
 }
 
@@ -96,8 +99,9 @@ impl TableEmbedding {
     ///
     /// # Errors
     ///
-    /// Returns [`InstError::EdgeIdsExhausted`] when no edge id is left, the
-    /// id `u32::MAX` included (no floor could be stored after it).
+    /// Returns [`InstError::EdgeIdsExhausted`] when the floor is `u32::MAX`
+    /// (no floor could be stored after that id); the embedding is then
+    /// unchanged.
     pub fn allocate_edge(&mut self) -> Result<EdgeId, InstError> {
         let mut allocator = IdAllocator::from_floor(IdRange::FULL, self.next_edge);
         let id = allocator
@@ -471,7 +475,8 @@ impl GInstance {
     /// Read the table instance out of a graph that [`Self::table_shape`]
     /// accepts, with the embedding that relates the two. Node ids become row
     /// ids and each edge's id is recorded for its pair; `next_edge` is the
-    /// least edge id above every edge of the graph.
+    /// least edge id above every edge of the graph, saturated at `u32::MAX`
+    /// (see [`TableEmbedding::next_edge`]).
     ///
     /// # Errors
     ///
@@ -504,7 +509,9 @@ impl GInstance {
         for (edge, pairs) in pairs {
             tables.insert_foreign_keys(edge.clone(), pairs)?;
         }
-        embedding.next_edge = allocator.floor().ok_or(InstError::EdgeIdsExhausted)?;
+        // Saturate: a graph using `EdgeId(u32::MAX)` has no floor above its
+        // edges, and the saturated floor allocates nothing.
+        embedding.next_edge = allocator.floor().unwrap_or(u32::MAX);
         Ok((tables, embedding))
     }
 }

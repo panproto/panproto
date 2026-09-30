@@ -380,6 +380,56 @@ fn a_table_shaped_graph_with_arbitrary_edge_ids_round_trips() {
     );
 }
 
+/// The largest edge id is an edge id like any other in a graph: a
+/// table-shaped graph holding `EdgeId(u32::MAX)` reads back as its table and
+/// round-trips. The embedding it yields has its floor saturated at
+/// `u32::MAX`, from which nothing is allocated, so a new pair is refused
+/// rather than given an id already in use.
+#[test]
+fn a_table_shaped_graph_holding_the_largest_edge_id_round_trips() {
+    let graph = GInstance::new()
+        .with_node(Node::new(1, "user"))
+        .with_node(Node::new(2, "post"))
+        .with_node(Node::new(3, "post"))
+        .with_edge_id(EdgeId(u32::MAX), 2, 1, author());
+    assert_eq!(graph.table_shape(&schema()), TableShapeReport::Table);
+    let (tables, embedding) = graph
+        .try_to_finstance(&schema())
+        .expect("a graph table_shape accepts reads back as its table");
+    assert_eq!(embedding.next_edge, u32::MAX);
+    assert_eq!(
+        embedding.pairs.get(&(author(), RowId(2), RowId(1))),
+        Some(&EdgeId(u32::MAX))
+    );
+    let mut along = embedding.clone();
+    let again = GInstance::from_finstance_along(&tables, &mut along).unwrap();
+    assert!(
+        GInstance::identical(&again, &graph),
+        "{again:?} != {graph:?}"
+    );
+    assert_eq!(along, embedding);
+    assert!(
+        matches!(
+            along.edge_for(&author(), RowId(3), RowId(1)),
+            Err(InstError::EdgeIdsExhausted)
+        ),
+        "the floor is saturated, so no edge id is left"
+    );
+    assert_eq!(along, embedding, "a refused allocation changes nothing");
+
+    // One below the largest id: the floor lands on `u32::MAX` exactly, and
+    // the round trip still holds.
+    let below = GInstance::new()
+        .with_node(Node::new(1, "user"))
+        .with_node(Node::new(2, "post"))
+        .with_edge_id(EdgeId(u32::MAX - 1), 2, 1, author());
+    let (tables, embedding) = below.try_to_finstance(&schema()).unwrap();
+    assert_eq!(embedding.next_edge, u32::MAX);
+    let mut along = embedding.clone();
+    let again = GInstance::from_finstance_along(&tables, &mut along).unwrap();
+    assert!(GInstance::identical(&again, &below));
+}
+
 /// Deciding the table shape does work per node and per edge only: a
 /// schema declaring many required foreign keys out of tables the graph
 /// does not populate costs nothing per node.
