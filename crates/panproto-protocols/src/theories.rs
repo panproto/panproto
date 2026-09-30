@@ -365,7 +365,7 @@ impl RegistrationDiagram {
     ///
     /// Panics if a block does not compose on its own, which is a defect in
     /// the building blocks of this module.
-    fn register_blocks<S: ::std::hash::BuildHasher>(
+    pub(crate) fn register_blocks<S: ::std::hash::BuildHasher>(
         &self,
         registry: &mut HashMap<String, Theory, S>,
     ) {

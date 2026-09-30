@@ -81,8 +81,8 @@ pub fn protocol() -> Protocol {
 /// composed theory is one diagram composed with explicit identity: the
 /// schema is [`theories::constrained_multigraph_diagram`], and the instance
 /// is `ThWType` and `ThMeta` sharing `Node` and `Value` through `ThNode`.
-/// Their compositions are then available from
-/// [`theories::registered_composition`].
+/// Their compositions, and the one-node composition of each building
+/// block, are then available from [`theories::registered_composition`].
 ///
 /// Registration is atomic. Both composed theories are built before
 /// anything is written, so a failure leaves `registry` untouched rather
@@ -94,6 +94,12 @@ pub fn protocol() -> Protocol {
 ///
 /// Returns [`ProtocolError::TheoryRegistration`] naming the composition
 /// stage that failed and the error it failed with.
+///
+/// # Panics
+///
+/// Panics if a building block does not compose on its own, or if a name
+/// was recorded before with another composition. Both are defects in the
+/// building blocks, not runtime input errors.
 pub fn register_theories<S: ::std::hash::BuildHasher>(
     registry: &mut HashMap<String, Theory, S>,
 ) -> Result<(), ProtocolError> {
@@ -139,10 +145,10 @@ fn register_diagrams<S: ::std::hash::BuildHasher>(
         .compose(INSTANCE_THEORY)
         .map_err(fail("instance", instance))?;
 
-    // Everything constructed; commit the whole set.
-    for block in schema.blocks.iter().chain(&instance.blocks) {
-        registry.insert(block.name.to_string(), block.clone());
-    }
+    // Everything constructed; commit the whole set, recording each
+    // building block's own composition as the other helpers do.
+    schema.register_blocks(registry);
+    instance.register_blocks(registry);
     theories::record(
         SCHEMA_THEORY,
         &schema_composition,
