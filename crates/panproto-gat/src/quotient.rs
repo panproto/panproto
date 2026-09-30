@@ -60,16 +60,21 @@ impl<K: Ord + Clone> UnionFind<K> {
 
     /// Merge the classes of `a` and `b`; the least of the two
     /// representatives represents the merged class.
-    pub fn union(&mut self, a: &K, b: &K) {
+    ///
+    /// Returns whether two distinct classes were merged, so a caller
+    /// running a closure to a fixpoint can stop once a pass merges nothing.
+    pub fn union(&mut self, a: &K, b: &K) -> bool {
         let ra = self.find(a);
         let rb = self.find(b);
         match ra.cmp(&rb) {
-            std::cmp::Ordering::Equal => {}
+            std::cmp::Ordering::Equal => false,
             std::cmp::Ordering::Less => {
                 self.parent.insert(rb, ra);
+                true
             }
             std::cmp::Ordering::Greater => {
                 self.parent.insert(ra, rb);
+                true
             }
         }
     }
@@ -425,6 +430,21 @@ pub fn quotient(
 mod tests {
     use super::*;
     use crate::eq::Term;
+
+    #[test]
+    fn union_reports_whether_it_merged_two_classes() {
+        let mut uf: UnionFind<usize> = UnionFind::new();
+        assert!(uf.union(&3, &1));
+        assert!(!uf.union(&1, &3));
+        assert!(uf.union(&2, &3));
+        assert!(!uf.union(&2, &1));
+        assert!(!uf.union(&4, &4));
+        assert_eq!(uf.find(&3), 1);
+        assert_eq!(
+            uf.classes(),
+            BTreeMap::from([(1, vec![1, 2, 3]), (4, vec![4])])
+        );
+    }
 
     /// Build a theory with two sorts and operations referencing them.
     fn two_sort_theory() -> Theory {

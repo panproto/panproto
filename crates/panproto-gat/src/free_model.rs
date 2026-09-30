@@ -15,6 +15,7 @@ use rustc_hash::{FxHashMap, FxHashSet};
 use crate::eq::Term;
 use crate::error::GatError;
 use crate::model::{Model, ModelValue};
+use crate::quotient::UnionFind;
 use crate::sort::SortExpr;
 use crate::theory::Theory;
 
@@ -75,8 +76,8 @@ pub fn free_model(theory: &Theory, config: &FreeModelConfig) -> Result<FreeModel
     for sort in &theory.sorts {
         terms_by_sort.entry(Arc::clone(&sort.name)).or_default();
     }
-    let (term_to_global, total_terms) = assign_global_indices(&terms_by_sort);
-    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms)?;
+    let (term_to_global, _) = assign_global_indices(&terms_by_sort);
+    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global)?;
     let model = build_model(theory, &terms_by_sort, &term_to_global, &mut uf)?;
     Ok(FreeModelResult { model, is_complete })
 }
@@ -299,7 +300,7 @@ fn ground_congruence(
     if total_terms == 0 {
         return Ok(FxHashMap::default());
     }
-    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global, total_terms)?;
+    let mut uf = quotient_by_equations(theory, &terms_by_sort, &term_to_global)?;
 
     let mut sorts: Vec<&Arc<str>> = terms_by_sort.keys().collect();
     sorts.sort();
@@ -311,7 +312,7 @@ fn ground_congruence(
         let indices = &term_to_global[*sort];
         for (i, term) in terms.iter().enumerate() {
             let global = indices[i];
-            let class = uf.find(global);
+            let class = uf.find(&global);
             match representative.get(&class) {
                 Some((best, _)) if *best <= global => {}
                 _ => {
@@ -327,7 +328,7 @@ fn ground_congruence(
         let terms = &terms_by_sort[*sort];
         let indices = &term_to_global[*sort];
         for (i, term) in terms.iter().enumerate() {
-            let class = uf.find(indices[i]);
+            let class = uf.find(&indices[i]);
             if let Some((_, rep)) = representative.get(&class) {
                 if rep != term {
                     canonical.insert(term.clone(), rep.clone());
@@ -505,9 +506,8 @@ fn quotient_by_equations(
     theory: &Theory,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
-    total_terms: usize,
-) -> Result<UnionFind, GatError> {
-    let mut uf = UnionFind::new(total_terms);
+) -> Result<UnionFind<usize>, GatError> {
+    let mut uf = UnionFind::new();
 
     // Precompute variable sorts for each equation. An equation with free
     // variables cannot participate in congruence closure without them, so
@@ -546,12 +546,12 @@ fn quotient_by_equations(
 
     // Fixpoint loop: keep merging until no new merges occur.
     loop {
-        let merges_before = uf.merge_count;
+        let mut merged = false;
 
         // Pass 1: equation substitution instances.
         for (eq, vars, var_sorts) in &eq_info {
             if vars.is_empty() {
-                merge_constant_eq(eq, &term_index, &mut uf);
+                merged |= merge_constant_eq(eq, &term_index, &mut uf);
                 continue;
             }
 
@@ -563,14 +563,14 @@ fn quotient_by_equations(
                 continue;
             };
 
-            merge_by_equation(eq, vars, vs, terms_by_sort, &term_index, &mut uf);
+            merged |= merge_by_equation(eq, vars, vs, terms_by_sort, &term_index, &mut uf);
         }
 
         // Pass 2: congruence closure. If t1 ~ t2, then f(..., t1, ...) ~ f(..., t2, ...)
         // for all operations f where both compound terms exist.
-        congruence_closure_pass(&congruence_entries, &mut uf);
+        merged |= congruence_closure_pass(&congruence_entries, &mut uf);
 
-        if uf.merge_count == merges_before {
+        if !merged {
             break;
         }
     }
@@ -626,10 +626,13 @@ fn build_congruence_index(
 
 /// Propagate congruence: for terms sharing the same operation, if their
 /// argument tuples are pointwise equivalent under the union-find, merge them.
+///
+/// Returns whether any two distinct classes were merged.
 fn congruence_closure_pass(
     entries: &FxHashMap<Arc<str>, Vec<CongruenceEntry>>,
-    uf: &mut UnionFind,
-) {
+    uf: &mut UnionFind<usize>,
+) -> bool {
+    let mut merged = false;
     for group in entries.values() {
         if group.len() < 2 {
             continue;
@@ -637,15 +640,15 @@ fn congruence_closure_pass(
         // Group entries by their canonical argument tuple.
         let mut canonical_groups: FxHashMap<Vec<usize>, usize> = FxHashMap::default();
         for entry in group {
-            let canonical_args: Vec<usize> =
-                entry.arg_indices.iter().map(|&i| uf.find(i)).collect();
-            if let Some(&representative) = canonical_groups.get(&canonical_args) {
-                uf.union(representative, entry.term_idx);
+            let canonical_args: Vec<usize> = entry.arg_indices.iter().map(|i| uf.find(i)).collect();
+            if let Some(representative) = canonical_groups.get(&canonical_args) {
+                merged |= uf.union(representative, &entry.term_idx);
             } else {
-                canonical_groups.insert(canonical_args, uf.find(entry.term_idx));
+                canonical_groups.insert(canonical_args, uf.find(&entry.term_idx));
             }
         }
     }
+    merged
 }
 
 /// Phase 3: Build the Model from equivalence class representatives.
@@ -714,7 +717,7 @@ fn build_model(
     theory: &Theory,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_to_global: &FxHashMap<Arc<str>, Vec<usize>>,
-    uf: &mut UnionFind,
+    uf: &mut UnionFind<usize>,
 ) -> Result<Model, GatError> {
     let mut model = Model::new(&*theory.name);
 
@@ -738,7 +741,7 @@ fn build_model(
                     "free-model carrier construction encountered a non-App term for sort '{sort}': {term:?}"
                 )));
             }
-            let rep = uf.find(indices[i]);
+            let rep = uf.find(&indices[i]);
             if seen_classes.insert(rep) {
                 // First term in this class becomes the representative string.
                 class_rep_string.insert(rep, term_to_string(term));
@@ -755,7 +758,7 @@ fn build_model(
         let mut carrier = Vec::new();
 
         for (i, term) in terms.iter().enumerate() {
-            let rep = uf.find(indices[i]);
+            let rep = uf.find(&indices[i]);
             if seen_classes.insert(rep) {
                 carrier.push(ModelValue::Str(term_to_string(term)));
             }
@@ -808,13 +811,16 @@ fn build_model(
 }
 
 /// Merge terms identified by a constants-only equation.
+///
+/// Returns whether two distinct classes were merged.
 fn merge_constant_eq(
     eq: &crate::eq::Equation,
     term_index: &FxHashMap<Term, usize>,
-    uf: &mut UnionFind,
-) {
-    if let (Some(&l), Some(&r)) = (term_index.get(&eq.lhs), term_index.get(&eq.rhs)) {
-        uf.union(l, r);
+    uf: &mut UnionFind<usize>,
+) -> bool {
+    match (term_index.get(&eq.lhs), term_index.get(&eq.rhs)) {
+        (Some(l), Some(r)) => uf.union(l, r),
+        _ => false,
     }
 }
 
@@ -842,14 +848,16 @@ fn build_term_index(
 }
 
 /// Enumerate substitutions and merge LHS/RHS when both match generated terms.
+///
+/// Returns whether any two distinct classes were merged.
 fn merge_by_equation(
     eq: &crate::eq::Equation,
     vars: &[Arc<str>],
     var_sorts: &FxHashMap<Arc<str>, SortExpr>,
     terms_by_sort: &FxHashMap<Arc<str>, Vec<Term>>,
     term_index: &FxHashMap<Term, usize>,
-    uf: &mut UnionFind,
-) {
+    uf: &mut UnionFind<usize>,
+) -> bool {
     let var_terms: Vec<(&Arc<str>, &Vec<Term>)> = vars
         .iter()
         .filter_map(|v| {
@@ -860,9 +868,10 @@ fn merge_by_equation(
         .collect();
 
     if var_terms.len() != vars.len() || var_terms.iter().any(|(_, terms)| terms.is_empty()) {
-        return;
+        return false;
     }
 
+    let mut merged = false;
     let mut indices = vec![0usize; var_terms.len()];
 
     loop {
@@ -874,8 +883,8 @@ fn merge_by_equation(
         let lhs = eq.lhs.substitute(&subst);
         let rhs = eq.rhs.substitute(&subst);
 
-        if let (Some(&l), Some(&r)) = (term_index.get(&lhs), term_index.get(&rhs)) {
-            uf.union(l, r);
+        if let (Some(l), Some(r)) = (term_index.get(&lhs), term_index.get(&rhs)) {
+            merged |= uf.union(l, r);
         }
 
         let mut carry = true;
@@ -893,49 +902,7 @@ fn merge_by_equation(
             break;
         }
     }
-}
-
-/// Simple union-find with path compression and union by rank.
-struct UnionFind {
-    parent: Vec<usize>,
-    rank: Vec<usize>,
-    /// Total number of union operations that actually merged distinct classes.
-    merge_count: usize,
-}
-
-impl UnionFind {
-    fn new(size: usize) -> Self {
-        Self {
-            parent: (0..size).collect(),
-            rank: vec![0; size],
-            merge_count: 0,
-        }
-    }
-
-    fn find(&mut self, mut x: usize) -> usize {
-        while self.parent[x] != x {
-            self.parent[x] = self.parent[self.parent[x]]; // Path splitting.
-            x = self.parent[x];
-        }
-        x
-    }
-
-    fn union(&mut self, x: usize, y: usize) {
-        let rx = self.find(x);
-        let ry = self.find(y);
-        if rx == ry {
-            return;
-        }
-        self.merge_count += 1;
-        match self.rank[rx].cmp(&self.rank[ry]) {
-            std::cmp::Ordering::Less => self.parent[rx] = ry,
-            std::cmp::Ordering::Greater => self.parent[ry] = rx,
-            std::cmp::Ordering::Equal => {
-                self.parent[ry] = rx;
-                self.rank[rx] += 1;
-            }
-        }
-    }
+    merged
 }
 
 #[cfg(test)]
