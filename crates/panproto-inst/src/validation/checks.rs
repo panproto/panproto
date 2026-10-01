@@ -777,7 +777,7 @@ use crate::fan_violation::FanViolation;
 
 /// One violation an instance of a check found: the elements it names and
 /// what is wrong.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct Finding {
     /// Every element the violation names, ascending.
     pub elements: Vec<ViewRef>,
@@ -1186,38 +1186,27 @@ fn fan_violation_edges(reason: &FanViolation) -> Vec<ViewRef> {
     }
 }
 
-/// A fan whose hyper-edge `schema` does not declare: the hyper-edge, as an
-/// unknown anchor of the fan.
-fn undeclared_hyper_edge(schema: &Schema, hyper_edge: &str, f: &ViewRef) -> Option<Finding> {
-    (!schema.hyper_edges.contains_key(hyper_edge)).then(|| {
-        Finding::new(
-            vec![f.clone()],
-            Violation::UnknownAnchor {
-                anchor: Name::from(hyper_edge),
-            },
-        )
-    })
-}
-
 /// A graph fan node is checked against the conditions of
 /// [`FanDomain::check_with_schema`](crate::FanDomain::check_with_schema),
-/// every violation reported rather than the first only; a tree's fans at
-/// one parent are checked label by label against their hyper-edge's
-/// signature, a label naming no node of the tree included. In both shapes a
-/// fan whose hyper-edge the schema does not declare is reported as an
-/// [`UnknownAnchor`](Violation::UnknownAnchor) naming the hyper-edge, beside
-/// an [`UnknownLabel`](FanViolation::UnknownLabel) for each of its labels.
+/// every violation reported rather than the first only; a fan node whose
+/// anchor (its hyper-edge) the schema does not declare is left to
+/// `NodeAnchor`, and each of its labels is unknown here.
+///
+/// A tree's fans at one parent are checked label by label against their
+/// hyper-edge's signature, a label naming no node of the tree included, so
+/// a fan of an undeclared hyper-edge gives an
+/// [`UnknownLabel`](FanViolation::UnknownLabel) per label. Such a fan with
+/// no labels has no [`FanViolation`] that describes it and is reported as
+/// an [`UnknownAnchor`](Violation::UnknownAnchor) naming the hyper-edge, as
+/// `NodeAnchor` reports the fan node of the graph form. A tree diagnostic
+/// names the parent and every child of its fan that the tree holds, so it
+/// tells apart fans at one parent with different children; equal fans are
+/// one fault and are reported once.
 fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
     let schema = &ctx.plan.schema;
     match (ctx.view, f) {
         (InstanceView::Graph(g), ViewRef::Node(id)) => {
             let mut out = Outcome::default();
-            if let Some(node) = g.node(*id)
-                && node.shape == NodeShape::HyperEdge
-            {
-                out.findings
-                    .extend(undeclared_hyper_edge(schema, &node.anchor, f));
-            }
             for reason in fan_violations(g, *id, schema) {
                 let mut elements = fan_violation_edges(&reason);
                 elements.push(f.clone());
@@ -1227,10 +1216,10 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
             out
         }
         (InstanceView::Tree(t, _), ViewRef::Node(parent)) => {
-            let mut out = Outcome::default();
+            let mut findings: Vec<Finding> = Vec::new();
             for fan in t.fans.iter().filter(|fan| fan.parent == *parent) {
                 if !t.nodes.contains_key(parent) {
-                    out.findings.push(Finding::new(
+                    findings.push(Finding::new(
                         vec![f.clone()],
                         Violation::MalformedFan {
                             reason: FanViolation::MissingParent,
@@ -1238,19 +1227,32 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
                     ));
                     continue;
                 }
-                out.findings
-                    .extend(undeclared_hyper_edge(schema, &fan.hyper_edge_id, f));
+                let mut elements = vec![f.clone()];
+                elements.extend(
+                    fan.children
+                        .values()
+                        .filter(|child| t.nodes.contains_key(child))
+                        .map(|child| ViewRef::Node(*child)),
+                );
                 let signature = schema
                     .hyper_edges
                     .get(fan.hyper_edge_id.as_str())
                     .map(|h| &h.signature);
+                if signature.is_none() && fan.children.is_empty() {
+                    findings.push(Finding::new(
+                        elements.clone(),
+                        Violation::UnknownAnchor {
+                            anchor: Name::from(fan.hyper_edge_id.as_str()),
+                        },
+                    ));
+                }
                 let mut labels: Vec<(&String, &u32)> = fan.children.iter().collect();
                 labels.sort();
                 for (label, child) in labels {
                     let declared = signature.is_some_and(|s| s.contains_key(label.as_str()));
                     if !declared || !t.nodes.contains_key(child) {
-                        out.findings.push(Finding::new(
-                            vec![f.clone()],
+                        findings.push(Finding::new(
+                            elements.clone(),
                             Violation::MalformedFan {
                                 reason: FanViolation::UnknownLabel {
                                     label: Name::from(label.as_str()),
@@ -1258,6 +1260,12 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
                             },
                         ));
                     }
+                }
+            }
+            let mut out = Outcome::default();
+            for finding in findings {
+                if !out.findings.contains(&finding) {
+                    out.findings.push(finding);
                 }
             }
             out

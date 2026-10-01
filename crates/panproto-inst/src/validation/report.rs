@@ -850,14 +850,13 @@ pub enum ReportScope {
     },
 }
 
-/// The status a set of entries gives: `Failed` if any required diagnostic
-/// exists, otherwise `Incomplete` if any required incomplete check exists,
-/// otherwise `Passed`. Advisory entries never change it.
+/// The status a set of entries gives.
 ///
-/// `Failed` if any required diagnostic exists; otherwise `Incomplete` if any
-/// required incomplete check exists; otherwise `Passed`. Advisory entries do
-/// not count. This is strong Kleene conjunction over the required entries, so
-/// a confirmed violation decides the status whatever else is unknown.
+/// `Failed` if any required diagnostic exists, otherwise `Incomplete` if any
+/// required incomplete check exists, otherwise `Passed`; advisory entries
+/// never change it. This is strong Kleene conjunction over the required
+/// entries, so a confirmed violation decides the status whatever else is
+/// unknown.
 #[must_use]
 pub fn aggregate_status(diagnostics: &[Diagnostic], incomplete: &[IncompleteCheck]) -> CheckStatus {
     let failed = diagnostics

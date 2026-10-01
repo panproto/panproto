@@ -3424,29 +3424,59 @@ fn a_reference_compiles_to_reference_resolves_when_the_shapes_agree() {
     );
 }
 
-#[test]
-fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
-    let schema = S::default().vertex("doc", "object").build();
-    let mut tree = WInstance::new(
-        HashMap::from([(0, Node::new(0, "doc"))]),
-        vec![],
+/// Every `FanWellFormed` diagnostic of `report` as (subject, elements,
+/// violation).
+fn fan_entries(report: &ValidationReport) -> Vec<(Option<ViewRef>, Vec<ViewRef>, Violation)> {
+    report
+        .diagnostics
+        .iter()
+        .filter(|d| d.check.kind == CheckKind::FanWellFormed)
+        .map(|d| (d.subject.clone(), d.elements.clone(), d.violation.clone()))
+        .collect()
+}
+
+/// A root `doc` with one child `1` of the same vertex, and no hyper-edge.
+fn doc_tree_with_child() -> (Schema, WInstance) {
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .build();
+    let tree = WInstance::new(
+        HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "doc"))]),
+        vec![(0, 1, prop("doc", "doc", "c"))],
         vec![],
         0,
         "doc".into(),
     );
-    tree.fans.push(Fan::new("nope", 0));
+    (schema, tree)
+}
+
+#[test]
+fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
+    let (schema, mut tree) = doc_tree_with_child();
+    tree.fans.push(Fan::new("nope", 0).with_child("lab", 1));
     let report = validate_wtype(&tree, &schema, &Protocol::default());
+    // I7 maps to `MalformedFan`: an undeclared hyper-edge has an empty
+    // signature, so each label of its fan is unknown.
     assert_eq!(
-        of_kind(&report, CheckKind::FanWellFormed),
+        fan_entries(&report),
         vec![(
             Some(ViewRef::Node(0)),
-            Violation::UnknownAnchor {
-                anchor: "nope".into()
+            vec![ViewRef::Node(0), ViewRef::Node(1)],
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownLabel {
+                    label: "lab".into()
+                }
             }
         )]
     );
     assert_eq!(report.status, CheckStatus::Failed);
-    // The graph form reports the fan's hyper-edge under the same check.
+}
+
+#[test]
+fn a_graph_fan_of_an_undeclared_hyper_edge_is_reported_once_per_fault() {
+    let (schema, mut tree) = doc_tree_with_child();
+    tree.fans.push(Fan::new("nope", 0).with_child("lab", 1));
     let graph = GInstance::from_wtype(&tree).unwrap();
     let fan_node = graph
         .nodes()
@@ -3455,8 +3485,10 @@ fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
         .map(|n| n.id)
         .unwrap();
     let report = validate_graph(&graph, &schema, &Protocol::default());
+    // The fan node's anchor is the hyper-edge: `NodeAnchor` reports it, and
+    // `FanWellFormed` reports only the unknown label.
     assert_eq!(
-        of_kind(&report, CheckKind::FanWellFormed),
+        of_kind(&report, CheckKind::NodeAnchor),
         vec![(
             Some(ViewRef::Node(fan_node)),
             Violation::UnknownAnchor {
@@ -3464,6 +3496,93 @@ fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
             }
         )]
     );
+    assert_eq!(
+        of_kind(&report, CheckKind::FanWellFormed),
+        vec![(
+            Some(ViewRef::Node(fan_node)),
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownLabel {
+                    label: "lab".into()
+                }
+            }
+        )]
+    );
+}
+
+#[test]
+fn a_tree_fan_of_an_undeclared_hyper_edge_with_no_labels_names_the_hyper_edge() {
+    let (schema, mut tree) = doc_tree_with_child();
+    tree.fans.push(Fan::new("nope", 0));
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    // No `FanViolation` describes a fan with no labels whose hyper-edge is
+    // undeclared, so the hyper-edge is reported as an unknown anchor, as
+    // `NodeAnchor` reports the fan node of the graph form.
+    assert_eq!(
+        fan_entries(&report),
+        vec![(
+            Some(ViewRef::Node(0)),
+            vec![ViewRef::Node(0)],
+            Violation::UnknownAnchor {
+                anchor: "nope".into()
+            }
+        )]
+    );
+    assert_eq!(report.status, CheckStatus::Failed);
+}
+
+#[test]
+fn tree_fan_diagnostics_name_the_fan_they_concern() {
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .build();
+    let tree = |fans: Vec<Fan>| {
+        let mut t = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (1, Node::new(1, "doc")),
+                (2, Node::new(2, "doc")),
+            ]),
+            vec![
+                (0, 1, prop("doc", "doc", "c")),
+                (0, 2, prop("doc", "doc", "c")),
+            ],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        t.fans = fans;
+        t
+    };
+    let unknown = |child: u32| {
+        (
+            Some(ViewRef::Node(0)),
+            vec![ViewRef::Node(0), ViewRef::Node(child)],
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownLabel {
+                    label: "lab".into(),
+                },
+            },
+        )
+    };
+    // Two fans at one parent: each diagnostic names its own fan's children.
+    let two = tree(vec![
+        Fan::new("nope", 0).with_child("lab", 1),
+        Fan::new("nope", 0).with_child("lab", 2),
+    ]);
+    let report = validate_wtype(&two, &schema, &Protocol::default());
+    assert_eq!(fan_entries(&report), vec![unknown(1), unknown(2)]);
+    // Two equal fans are one fault, reported once.
+    let same = tree(vec![
+        Fan::new("nope", 0).with_child("lab", 1),
+        Fan::new("nope", 0).with_child("lab", 1),
+    ]);
+    let report = validate_wtype(&same, &schema, &Protocol::default());
+    assert_eq!(fan_entries(&report), vec![unknown(1)]);
+    assert_eq!(report.coverage[&report.diagnostics[0].check].failed, 1);
+    let same_bare = tree(vec![Fan::new("nope", 0), Fan::new("nope", 0)]);
+    let report = validate_wtype(&same_bare, &schema, &Protocol::default());
+    assert_eq!(fan_entries(&report).len(), 1);
 }
 
 /// A root with a union `u` of variants `a` and `b`, and an edge from the
@@ -3570,6 +3689,35 @@ fn decoding_a_report_with_unordered_entries_is_rejected() -> TestResult {
     }
     let err = serde_json::from_value::<ValidationReport>(json).expect_err("unordered entries");
     assert!(err.to_string().contains("order"), "{err}");
+    Ok(())
+}
+
+#[test]
+fn decoding_a_report_with_unordered_incomplete_checks_is_rejected() -> TestResult {
+    let schema = S::default()
+        .vertex("a", "string")
+        .constraint("a", "mystery", "1")
+        .constraint("a", "mystery", "2")
+        .constraint("a", "mystery", "3")
+        .build();
+    let report = validate_graph(
+        &GInstance::new().with_node(str_node(0, "a", "x")),
+        &schema,
+        &Protocol::default(),
+    );
+    assert!(report.diagnostics.is_empty(), "{:?}", report.diagnostics);
+    assert!(report.incomplete.len() >= 2, "{:?}", report.incomplete);
+    round_trip(&report)?;
+    let mut json = serde_json::to_value(&report)?;
+    if let Some(incomplete) = json["incomplete"].as_array_mut() {
+        incomplete.reverse();
+    }
+    let err = serde_json::from_value::<ValidationReport>(json).expect_err("unordered incompletes");
+    assert!(
+        err.to_string()
+            .contains("report incomplete checks are not in canonical order"),
+        "{err}"
+    );
     Ok(())
 }
 
