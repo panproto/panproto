@@ -151,8 +151,12 @@ fn test_3_node_validate_and_round_trip() {
     let inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("obj"));
 
     // Validate
-    let errors = validate_wtype(&schema, &inst);
-    assert!(errors.is_empty(), "validation errors: {errors:?}");
+    let report = validate_wtype(&inst, &schema, &panproto_schema::Protocol::default());
+    assert_eq!(
+        report.status,
+        panproto_gat::CheckStatus::Passed,
+        "validation report: {report:?}"
+    );
 
     // Serialize to JSON
     let json_out = to_json(&schema, &inst);

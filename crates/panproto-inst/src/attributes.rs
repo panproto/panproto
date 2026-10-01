@@ -6,12 +6,14 @@
 //! over that vertex may carry: an ordered list of `(name, value kind)` pairs
 //! derived from the schema's scalar-valued outgoing edges.
 //!
-//! [`AttributeSchema::validate_wtype`] and
-//! [`AttributeSchema::validate_finstance`] check an instance's attribute
+//! [`AttributeSchema::validate_wtype`], [`AttributeSchema::validate_ginstance`]
+//! and [`AttributeSchema::validate_finstance`] check an instance's attribute
 //! payload against the declaration, reporting undeclared keys and kind
-//! mismatches. The check is opt-in: it is not part of the structural
-//! [`validate_wtype`](crate::validate::validate_wtype) pass, since instances
-//! routinely carry round-trip fields that no schema edge declares.
+//! mismatches. They are the attribute-only projection of validation, not a
+//! validation boundary: they return the attribute violations alone, with no
+//! status, and the `Attribute` check of
+//! [`validation`](crate::validation) is what calls them and reports their
+//! findings as diagnostics of a [`ValidationReport`](crate::ValidationReport).
 
 use std::collections::{HashMap, HashSet};
 
@@ -19,6 +21,8 @@ use panproto_gat::Name;
 use panproto_schema::Schema;
 
 use crate::functor::FInstance;
+use crate::ginstance::GInstance;
+use crate::metadata::NodeShape;
 use crate::value::Value;
 use crate::wtype::WInstance;
 
@@ -123,15 +127,53 @@ impl AttributeSchema {
     ///
     /// Reports undeclared keys and kind mismatches. Nodes whose anchor has no
     /// declared attributes are unconstrained (any extra fields are round-trip
-    /// data, not schema attributes) and skipped.
+    /// data, not schema attributes) and skipped. Nodes are visited in
+    /// ascending id and fields in ascending key.
+    ///
+    /// Not a validation boundary: see the module documentation.
     #[must_use]
     pub fn validate_wtype(&self, instance: &WInstance) -> Vec<AttributeViolation> {
+        let mut nodes: Vec<_> = instance.nodes.values().collect();
+        nodes.sort_unstable_by_key(|n| n.id);
         let mut violations = Vec::new();
-        for node in instance.nodes.values() {
+        for node in nodes {
             let Some(decls) = self.attrs.get(&node.anchor) else {
                 continue;
             };
-            for (key, value) in &node.extra_fields {
+            let mut fields: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+            fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in fields {
+                Self::check_one(node.id, &node.anchor, key, value, decls, &mut violations);
+            }
+        }
+        violations
+    }
+
+    /// Validate the attribute payload (`extra_fields`) of every node of a
+    /// graph instance against this schema, as [`Self::validate_wtype`] does
+    /// for a tree: undeclared keys and kind mismatches, with nodes whose
+    /// anchor declares no attributes skipped. Fan nodes carry no attributes
+    /// and are skipped. Nodes are visited in ascending id and fields in
+    /// ascending key, so a tree and its graph form report the same
+    /// violations in the same order.
+    ///
+    /// Not a validation boundary: see the module documentation.
+    #[must_use]
+    pub fn validate_ginstance(&self, instance: &GInstance) -> Vec<AttributeViolation> {
+        let mut nodes: Vec<_> = instance
+            .nodes()
+            .values()
+            .filter(|n| n.shape != NodeShape::HyperEdge)
+            .collect();
+        nodes.sort_unstable_by_key(|n| n.id);
+        let mut violations = Vec::new();
+        for node in nodes {
+            let Some(decls) = self.attrs.get(&node.anchor) else {
+                continue;
+            };
+            let mut fields: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+            fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in fields {
                 Self::check_one(node.id, &node.anchor, key, value, decls, &mut violations);
             }
         }
@@ -142,6 +184,8 @@ impl AttributeSchema {
     /// against this schema. The reported `node_id` is the row's
     /// [`RowId`](crate::RowId); tables are visited in name order, rows in
     /// ascending id and cells in ascending column.
+    ///
+    /// Not a validation boundary: see the module documentation.
     #[must_use]
     pub fn validate_finstance(&self, instance: &FInstance) -> Vec<AttributeViolation> {
         let mut violations = Vec::new();

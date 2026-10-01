@@ -136,7 +136,7 @@ impl FanDomain {
 
 /// The nodes that must be well-formed fan nodes: every node of the fan shape
 /// and every source of a reserved-kind edge, ascending.
-fn fan_candidates(graph: &GInstance) -> Vec<u32> {
+pub fn fan_candidates(graph: &GInstance) -> Vec<u32> {
     let mut ids: Vec<u32> = graph
         .nodes()
         .values()
@@ -163,11 +163,7 @@ fn first_violation(graph: &GInstance, schema: Option<&Schema>) -> Option<(u32, F
 }
 
 /// Why node `id` is not a well-formed fan node, or `None` when it is one.
-pub(super) fn fan_violation(
-    graph: &GInstance,
-    id: u32,
-    schema: Option<&Schema>,
-) -> Option<FanViolation> {
+pub fn fan_violation(graph: &GInstance, id: u32, schema: Option<&Schema>) -> Option<FanViolation> {
     let node = graph.node(id)?;
     let out = graph.out_edges(id);
     if node.shape != NodeShape::HyperEdge {
