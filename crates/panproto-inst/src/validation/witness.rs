@@ -183,9 +183,10 @@ impl Diagnostic {
     /// violation holds of the elements it names.
     ///
     /// A fault with several witnesses verifies with each of them, not only
-    /// with the one the validator reports (see the [module
-    /// documentation](self)): any closed walk of a `Cycle`'s component, and
-    /// any arc's parent other than the recorded one for a `ParentMismatch`.
+    /// with the one the validator reports: any closed walk of edges labelled
+    /// acyclic through a `Cycle`'s component (the validator's walk rotated,
+    /// or walked twice, among them), and the parent of any arc into the node
+    /// other than the recorded one for a `ParentMismatch`.
     ///
     /// Each violation is confirmed by reading what it names: an
     /// `UnknownAnchor` by looking its anchor up in the schema, an
