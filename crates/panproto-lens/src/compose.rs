@@ -174,7 +174,19 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 ///    images, the composite would carry the arc there implicitly, so its
 ///    edge image does not compile, and
 /// 4. the composite's plan is empty: it neither contracts a path nor
-///    expands an arc into synthesized nodes.
+///    expands an arc into synthesized nodes, and
+/// 5. the two value layers do not meet: either `l2` carries no value
+///    layer (no survival predicate, field transform or op-term
+///    assignment), or `l1` carries none and `l2` carries only survival
+///    predicates. The fused lens evaluates every predicate and transform
+///    on the source node in one batch, while the pair evaluates `l2`'s on
+///    the node `l1` produced. A predicate reads only its node's own
+///    fields, which a value-free `l1` leaves as they are; a transform of
+///    `l2` also reads the node's children and the instance around it,
+///    which `l1` restructures, and a predicate of each lens on one anchor
+///    is fused as a conjunction that an evaluation error in one conjunct
+///    turns from a drop into a survival. So any other pair is kept in
+///    sequence even when its migrations compose.
 ///
 /// Queries of this kind compose because their pushforward is restricted to
 /// discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1, proof
@@ -257,7 +269,10 @@ pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
     let Ok(composite) = fuse(l1, l2) else {
         return Ok(sequential());
     };
-    if !edge_image_compiles(l1, l2, &composite) || !plan_is_empty(&composite) {
+    if !edge_image_compiles(l1, l2, &composite)
+        || !plan_is_empty(&composite)
+        || !value_layers_compose(l1, l2)
+    {
         return Ok(sequential());
     }
     Ok(TreeComposite::Compiled(composite))
@@ -274,6 +289,27 @@ fn edge_image_compiles(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
 /// a path nor expands an arc into synthesized nodes.
 fn plan_is_empty(lens: &Lens) -> bool {
     contraction_free(lens) && lens.compiled.expansion_path.is_empty()
+}
+
+/// Condition 5 of [`TreeComposite`]: `l2` carries no value layer, or `l1`
+/// carries none and `l2` carries only survival predicates.
+fn value_layers_compose(l1: &Lens, l2: &Lens) -> bool {
+    let transforms = |lens: &Lens| {
+        lens.compiled
+            .field_transforms
+            .values()
+            .any(|t| !t.is_empty())
+            || lens
+                .compiled
+                .op_term_assignments
+                .values()
+                .any(|t| !t.is_empty())
+    };
+    let predicates = |lens: &Lens| !lens.compiled.conditional_survival.is_empty();
+    if !transforms(l2) && !predicates(l2) {
+        return true;
+    }
+    !transforms(l1) && !predicates(l1) && !transforms(l2)
 }
 
 /// Whether the fused lens gives every direct arc the edge the pair gives it

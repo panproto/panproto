@@ -1669,4 +1669,145 @@ mod composition_rule {
             agree(&fused, &SequentialTreeLens { first, second: Box::new(second) }, &source)?;
         }
     }
+
+    /// Value layers for the value-composition tests: `0` none, `1` the
+    /// invertible transform `level := level + 1` on `c`, `2` the survival
+    /// predicate `level == 3` on `c`, `3` the survival predicate
+    /// `missing == 1` on `c`, which fails to evaluate on every node and so
+    /// keeps it.
+    fn value_layer(lens: &mut Lens, layer: u8) {
+        use panproto_expr::{BuiltinOp, Expr, Literal};
+        use panproto_inst::FieldTransform;
+        let var = |name: &str| Expr::Var(std::sync::Arc::from(name));
+        let int = |n: i64| Expr::Lit(Literal::Int(n));
+        match layer {
+            1 => {
+                lens.compiled.field_transforms.insert(
+                    "c".into(),
+                    vec![FieldTransform::ApplyExpr {
+                        key: "level".into(),
+                        expr: Expr::Builtin(BuiltinOp::Add, vec![var("level"), int(1)]),
+                        inverse: Some(Expr::Builtin(BuiltinOp::Sub, vec![var("level"), int(1)])),
+                        coercion_class: panproto_gat::CoercionClass::Iso,
+                    }],
+                );
+            }
+            2 => {
+                lens.compiled.conditional_survival.insert(
+                    "c".into(),
+                    Expr::Builtin(BuiltinOp::Eq, vec![var("level"), int(3)]),
+                );
+            }
+            3 => {
+                lens.compiled.conditional_survival.insert(
+                    "c".into(),
+                    Expr::Builtin(BuiltinOp::Eq, vec![var("missing"), int(1)]),
+                );
+            }
+            _ => {}
+        }
+    }
+
+    /// The identity lens on `r -> c` with the value layer `layer`.
+    fn valued_identity(layer: u8) -> Lens {
+        let src = schema(&[("r", "object"), ("c", "string")], &[prop("r", "c", "c")]);
+        let mut lens = identity(&src);
+        value_layer(&mut lens, layer);
+        lens
+    }
+
+    /// `r(0)` with one `c` child per level, each holding the value `v<id>`
+    /// and the field `level`.
+    fn levelled_source(levels: &[i64]) -> WInstance {
+        let mut nodes = HashMap::from([(0, Node::new(0, "r"))]);
+        let mut arcs = Vec::new();
+        for (i, level) in levels.iter().enumerate() {
+            let id = u32::try_from(i).unwrap() + 1;
+            let mut c =
+                Node::new(id, "c").with_value(FieldPresence::Present(Value::Str(format!("v{id}"))));
+            c.extra_fields.insert("level".into(), Value::Int(*level));
+            nodes.insert(id, c);
+            arcs.push((0, id, prop("r", "c", "c")));
+        }
+        WInstance::new(nodes, arcs, vec![], 0, "r".into())
+    }
+
+    /// A first lens that adds one to `level` followed by one that keeps
+    /// only the nodes whose `level` is 3: the pair keeps a node of level 2,
+    /// which one migration would test before adding one and so drop. The
+    /// pair is kept in sequence.
+    #[test]
+    fn a_second_predicate_after_a_first_transform_is_kept_in_sequence() {
+        let (first, second) = (valued_identity(1), valued_identity(2));
+        let source = levelled_source(&[2]);
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let sequential = SequentialTreeLens {
+            first,
+            second: Box::new(second),
+        };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        assert!(
+            seq_view.nodes.contains_key(&1),
+            "the pair keeps level 2 + 1"
+        );
+        assert!(!view.nodes.contains_key(&1), "one migration tests level 2");
+        assert!(
+            matches!(composite, TreeComposite::Sequential(_)),
+            "{composite:?}"
+        );
+    }
+
+    /// A predicate of each lens on one anchor: the first fails to evaluate,
+    /// which keeps the node, and the second is false, which drops it. One
+    /// migration conjoins them, and the failed conjunct keeps the node.
+    #[test]
+    fn predicates_of_both_lenses_on_one_anchor_are_kept_in_sequence() {
+        let (first, second) = (valued_identity(3), valued_identity(2));
+        let source = levelled_source(&[2]);
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let sequential = SequentialTreeLens {
+            first,
+            second: Box::new(second),
+        };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        assert!(!seq_view.nodes.contains_key(&1), "the second lens drops it");
+        assert!(view.nodes.contains_key(&1), "the conjunction keeps it");
+        assert!(
+            matches!(composite, TreeComposite::Sequential(_)),
+            "{composite:?}"
+        );
+    }
+
+    proptest! {
+        /// Over pairs of identity lenses on `r -> c` carrying every
+        /// combination of no value layer, an invertible transform and two
+        /// survival predicates, the rule fuses exactly the pairs whose value
+        /// layers do not meet, and every fused lens is observationally the
+        /// pair in sequence.
+        #[test]
+        fn value_layers_fuse_only_where_they_do_not_meet(
+            a in 0u8..4,
+            b in 0u8..4,
+            levels in prop::collection::vec(0i64..5, 0..5),
+        ) {
+            let (first, second) = (valued_identity(a), valued_identity(b));
+            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+            let fusable = b == 0 || (a == 0 && b != 1);
+            let fused = match composite {
+                TreeComposite::Compiled(fused) if fusable => fused,
+                TreeComposite::Sequential(_) if !fusable => return Ok(()),
+                other => {
+                    return Err(TestCaseError::fail(format!(
+                        "layers {a} then {b} composed to {other:?}"
+                    )));
+                }
+            };
+            let sequential = SequentialTreeLens { first, second: Box::new(second) };
+            agree(&fused, &sequential, &levelled_source(&levels))?;
+        }
+    }
 }
