@@ -1,0 +1,978 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "Schema",
+        "theory": {
+          "name": "Schema",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Constraint",
+              "params": [
+                {
+                  "name": "v",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "EdgeLabel",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "edge_label",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "EdgeLabel"
+            },
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "target",
+              "inputs": [
+                [
+                  "c",
+                  "Constraint",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThWType",
+        "theory": {
+          "name": "ThWType",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Node",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Arc",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Value",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "anchor",
+              "inputs": [
+                [
+                  "n",
+                  "Node",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "arc_src",
+              "inputs": [
+                [
+                  "a",
+                  "Arc",
+                  "No"
+                ]
+              ],
+              "output": "Node"
+            },
+            {
+              "name": "arc_tgt",
+              "inputs": [
+                [
+                  "a",
+                  "Arc",
+                  "No"
+                ]
+              ],
+              "output": "Node"
+            },
+            {
+              "name": "arc_edge",
+              "inputs": [
+                [
+                  "a",
+                  "Arc",
+                  "No"
+                ]
+              ],
+              "output": "Edge"
+            },
+            {
+              "name": "node_value",
+              "inputs": [
+                [
+                  "n",
+                  "Node",
+                  "No"
+                ]
+              ],
+              "output": "Value"
+            },
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [
+            {
+              "name": "arc_src_anchor",
+              "lhs": {
+                "App": {
+                  "op": "anchor",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "arc_src",
+                        "args": [
+                          {
+                            "Var": "a"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "src",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "arc_edge",
+                        "args": [
+                          {
+                            "Var": "a"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "arc_tgt_anchor",
+              "lhs": {
+                "App": {
+                  "op": "anchor",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "arc_tgt",
+                        "args": [
+                          {
+                            "Var": "a"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "tgt",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "arc_edge",
+                        "args": [
+                          {
+                            "Var": "a"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "Interface",
+        "theory": {
+          "name": "Interface",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "src": "Interface",
+        "tgt": "Schema",
+        "morphism": {
+          "name": "Interface_to_Schema",
+          "domain": "Interface",
+          "codomain": "Schema",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {
+            "src": "src",
+            "tgt": "tgt"
+          }
+        }
+      },
+      {
+        "src": "Interface",
+        "tgt": "ThWType",
+        "morphism": {
+          "name": "Interface_to_ThWType",
+          "domain": "Interface",
+          "codomain": "ThWType",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {
+            "src": "src",
+            "tgt": "tgt"
+          }
+        }
+      }
+    ]
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "tree_schema_and_instance",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "tree_schema_and_instance",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Arc",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Constraint",
+          "params": [
+            {
+              "name": "v",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Edge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "EdgeLabel",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Node",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Value",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "anchor",
+          "inputs": [
+            [
+              "n",
+              "Node",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "arc_edge",
+          "inputs": [
+            [
+              "a",
+              "Arc",
+              "No"
+            ]
+          ],
+          "output": "Edge"
+        },
+        {
+          "name": "arc_src",
+          "inputs": [
+            [
+              "a",
+              "Arc",
+              "No"
+            ]
+          ],
+          "output": "Node"
+        },
+        {
+          "name": "arc_tgt",
+          "inputs": [
+            [
+              "a",
+              "Arc",
+              "No"
+            ]
+          ],
+          "output": "Node"
+        },
+        {
+          "name": "edge_label",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "EdgeLabel"
+        },
+        {
+          "name": "node_value",
+          "inputs": [
+            [
+              "n",
+              "Node",
+              "No"
+            ]
+          ],
+          "output": "Value"
+        },
+        {
+          "name": "src",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "target",
+          "inputs": [
+            [
+              "c",
+              "Constraint",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "tgt",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [
+        {
+          "name": "arc_src_anchor",
+          "lhs": {
+            "App": {
+              "op": "anchor",
+              "args": [
+                {
+                  "App": {
+                    "op": "arc_src",
+                    "args": [
+                      {
+                        "Var": "a"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "src",
+              "args": [
+                {
+                  "App": {
+                    "op": "arc_edge",
+                    "args": [
+                      {
+                        "Var": "a"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "arc_tgt_anchor",
+          "lhs": {
+            "App": {
+              "op": "anchor",
+              "args": [
+                {
+                  "App": {
+                    "op": "arc_tgt",
+                    "args": [
+                      {
+                        "Var": "a"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "tgt",
+              "args": [
+                {
+                  "App": {
+                    "op": "arc_edge",
+                    "args": [
+                      {
+                        "Var": "a"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_Schema_tree_schema_and_instance",
+        "domain": "Schema",
+        "codomain": "tree_schema_and_instance",
+        "sort_map": {
+          "Constraint": "Constraint",
+          "Edge": "Edge",
+          "EdgeLabel": "EdgeLabel",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "edge_label": "edge_label",
+          "src": "src",
+          "target": "target",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_ThWType_tree_schema_and_instance",
+        "domain": "ThWType",
+        "codomain": "tree_schema_and_instance",
+        "sort_map": {
+          "Arc": "Arc",
+          "Edge": "Edge",
+          "Node": "Node",
+          "Value": "Value",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "anchor": "anchor",
+          "arc_edge": "arc_edge",
+          "arc_src": "arc_src",
+          "arc_tgt": "arc_tgt",
+          "node_value": "node_value",
+          "src": "src",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_Interface_tree_schema_and_instance",
+        "domain": "Interface",
+        "codomain": "tree_schema_and_instance",
+        "sort_map": {
+          "Edge": "Edge",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "src": "src",
+          "tgt": "tgt"
+        }
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "Interface",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "Interface",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Constraint"
+          },
+          "Constraint"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "EdgeLabel"
+          },
+          "EdgeLabel"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "Arc"
+          },
+          "Arc"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "Node"
+          },
+          "Node"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "Value"
+          },
+          "Value"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "Interface",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "Interface",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "edge_label"
+          },
+          "edge_label"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "target"
+          },
+          "target"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "anchor"
+          },
+          "anchor"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "arc_edge"
+          },
+          "arc_edge"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "arc_src"
+          },
+          "arc_src"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "arc_tgt"
+          },
+          "arc_tgt"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "node_value"
+          },
+          "node_value"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "tgt"
+          },
+          "tgt"
+        ]
+      ],
+      "eqs": [
+        [
+          {
+            "node": "ThWType",
+            "name": "arc_src_anchor"
+          },
+          "arc_src_anchor"
+        ],
+        [
+          {
+            "node": "ThWType",
+            "name": "arc_tgt_anchor"
+          },
+          "arc_tgt_anchor"
+        ]
+      ],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThWType"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThWType"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThWType"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}
