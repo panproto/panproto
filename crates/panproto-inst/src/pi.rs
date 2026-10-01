@@ -227,13 +227,15 @@ thread_local! {
     static JOIN_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
 
-/// Count `n` units of join work on this thread (only under test).
+/// Count `n` units of join work on this thread.
+#[cfg(test)]
 fn charge_join_work(n: usize) {
-    #[cfg(test)]
     JOIN_WORK.with(|work| work.set(work.get().saturating_add(n)));
-    #[cfg(not(test))]
-    let _ = n;
 }
+
+/// Count `n` units of join work: nothing outside tests.
+#[cfg(not(test))]
+const fn charge_join_work(_n: usize) {}
 
 /// One fibre table in the join at a target table: its position in the
 /// fibre, the target columns its kept columns are sent to, and its rows
@@ -304,7 +306,7 @@ fn reduce(components: &mut [Component]) {
 /// groups (as indices into `components`), each ascending, the groups
 /// ordered by their least member.
 fn connected_groups(components: &[Component]) -> Vec<Vec<usize>> {
-    fn root(group_of: &mut [usize], mut i: usize) -> usize {
+    const fn root(group_of: &mut [usize], mut i: usize) -> usize {
         while group_of[i] != i {
             group_of[i] = group_of[group_of[i]];
             i = group_of[i];
@@ -605,7 +607,64 @@ fn table_limit<'a>(
             tuples: vec![(Vec::new(), Row::new())],
         });
     }
-    let mut components: Vec<Component> = fibre
+    let mut components = fibre_components(instance, functor, &fibre);
+    if let [only] = components.as_mut_slice() {
+        // One fibre table: its rows are the cones.
+        let rows = std::mem::take(&mut only.rows);
+        charge_join_work(rows.len());
+        if rows.len() > max {
+            return Err(over(rows.len()));
+        }
+        let mut tuples: Vec<(Vec<RowId>, Row)> = rows
+            .into_iter()
+            .map(|(id, at)| (vec![id], at.into_iter().map(|(c, (_, v))| (c, v)).collect()))
+            .collect();
+        tuples.sort_by(|a, b| a.0.cmp(&b.0));
+        return Ok(TableLimit {
+            table,
+            fibre,
+            tuples,
+        });
+    }
+    charge_join_work(components.iter().map(|c| c.rows.len()).sum());
+    let empty = |fibre| TableLimit {
+        table,
+        fibre,
+        tuples: Vec::new(),
+    };
+    if components.iter().any(|c| c.rows.is_empty()) {
+        return Ok(empty(fibre));
+    }
+    reduce(&mut components);
+    if components.iter().any(|c| c.rows.is_empty()) {
+        return Ok(empty(fibre));
+    }
+    let plans = group_plans(&components);
+    let total = plans
+        .iter()
+        .fold(1_usize, |acc, (_, count)| acc.saturating_mul(*count));
+    if total == 0 {
+        return Ok(empty(fibre));
+    }
+    if total > max {
+        return Err(over(total));
+    }
+    let tuples = list_tuples(&components, &plans, fibre.len());
+    Ok(TableLimit {
+        table,
+        fibre,
+        tuples: tuple_cells(&components, tuples),
+    })
+}
+
+/// The fibre tables of a target table, each with its rows read at the
+/// target columns and the target columns its kept columns are sent to.
+fn fibre_components(
+    instance: &FInstance,
+    functor: &MigrationFunctor,
+    fibre: &[&Name],
+) -> Vec<Component> {
+    fibre
         .iter()
         .enumerate()
         .map(|(position, component)| {
@@ -614,7 +673,6 @@ fn table_limit<'a>(
                 .into_iter()
                 .filter_map(|(id, cells)| Some((id, row_at_target(functor, component, cells)?)))
                 .collect();
-            charge_join_work(rows.len());
             let mut columns: Vec<String> = functor
                 .kept_columns(component)
                 .into_iter()
@@ -629,27 +687,19 @@ fn table_limit<'a>(
                 rows,
             }
         })
-        .collect();
-    let empty = |fibre| TableLimit {
-        table,
-        fibre,
-        tuples: Vec::new(),
-    };
-    if components.iter().any(|c| c.rows.is_empty()) {
-        return Ok(empty(fibre));
-    }
-    reduce(&mut components);
-    if components.iter().any(|c| c.rows.is_empty()) {
-        return Ok(empty(fibre));
-    }
+        .collect()
+}
 
-    // Count every group, the acyclic ones (cheap) first, before listing any.
+/// Each connected group of the (reduced) fibre tables in the order its
+/// cones are listed, with its count of cones: the acyclic groups (cheap)
+/// first, then the cyclic ones, stopping once a group has no cone.
+fn group_plans(components: &[Component]) -> Vec<(Vec<usize>, usize)> {
     let mut plans: Vec<(Vec<usize>, usize)> = Vec::new();
     let mut cyclic: Vec<Vec<usize>> = Vec::new();
-    for group in connected_groups(&components) {
-        match join_tree(&components, &group) {
+    for group in connected_groups(components) {
+        match join_tree(components, &group) {
             Some((removal, parent)) => {
-                let count = tree_count(&components, &removal, &parent);
+                let count = tree_count(components, &removal, &parent);
                 let mut order = removal;
                 order.reverse();
                 plans.push((order, count));
@@ -661,25 +711,24 @@ fn table_limit<'a>(
         if plans.iter().any(|(_, count)| *count == 0) {
             break;
         }
-        let order = connected_order(&components, &group);
-        let count = count_cones(&components, &join_steps(&components, &order));
+        let order = connected_order(components, &group);
+        let count = count_cones(components, &join_steps(components, &order));
         plans.push((order, count));
     }
-    let total = plans
-        .iter()
-        .fold(1_usize, |acc, (_, count)| acc.saturating_mul(*count));
-    if total == 0 {
-        return Ok(empty(fibre));
-    }
-    if total > max {
-        return Err(over(total));
-    }
+    plans
+}
 
-    // List each group's cones, then take their product.
-    let mut tuples: Vec<Vec<RowId>> = vec![vec![RowId(0); fibre.len()]];
-    for (order, _) in &plans {
-        let steps = join_steps(&components, order);
-        let cones = list_cones(&components, &steps);
+/// The cones of the fibre, as tuples of `width` row ids: each group's
+/// cones, then their product.
+fn list_tuples(
+    components: &[Component],
+    plans: &[(Vec<usize>, usize)],
+    width: usize,
+) -> Vec<Vec<RowId>> {
+    let mut tuples: Vec<Vec<RowId>> = vec![vec![RowId(0); width]];
+    for (order, _) in plans {
+        let steps = join_steps(components, order);
+        let cones = list_cones(components, &steps);
         let mut next = Vec::with_capacity(tuples.len().saturating_mul(cones.len()));
         for tuple in &tuples {
             for cone in &cones {
@@ -694,8 +743,13 @@ fn table_limit<'a>(
         }
         tuples = next;
     }
-    // Each tuple's cells: every fibre row read at the target columns, a
-    // later fibre table's value standing where two agree.
+    tuples
+}
+
+/// Each tuple with its cells, ascending by tuple: every fibre row read at
+/// the target columns, a later fibre table's value standing where two
+/// agree.
+fn tuple_cells(components: &[Component], tuples: Vec<Vec<RowId>>) -> Vec<(Vec<RowId>, Row)> {
     let at_target: Vec<HashMap<RowId, &AtTarget>> = components
         .iter()
         .map(|c| c.rows.iter().map(|(id, at)| (*id, at)).collect())
@@ -713,11 +767,7 @@ fn table_limit<'a>(
         })
         .collect();
     tuples.sort_by(|a, b| a.0.cmp(&b.0));
-    Ok(TableLimit {
-        table,
-        fibre,
-        tuples,
-    })
+    tuples
 }
 
 /// The pairs of the limit at one target relation, as pairs of tuple
@@ -764,11 +814,13 @@ fn relation_limit(
         .collect();
     let mut pairs = std::collections::BTreeSet::new();
     for &(s, t) in instance.pairs(first) {
+        charge_join_work(1);
         let (Some(xs), Some(ys)) = (sources.get(&s), targets.get(&t)) else {
             continue;
         };
         for &x in xs {
             for &y in ys {
+                charge_join_work(1);
                 let (tx, ty) = (&from.tuples[x].0, &to.tuples[y].0);
                 if others
                     .iter()
@@ -1484,6 +1536,29 @@ mod tests {
         );
     }
 
+    /// The nested-loop join of the tables' rows on their equal column
+    /// names, tuples ascending.
+    fn nested_loop_join(rows_of: &[Vec<(RowId, Row)>]) -> Vec<(Vec<RowId>, Row)> {
+        let mut joined: Vec<(Vec<RowId>, Row)> = vec![(Vec::new(), Row::new())];
+        for rows in rows_of {
+            let mut grown = Vec::new();
+            for (tuple, cells) in &joined {
+                for (id, row) in rows {
+                    if row.iter().all(|(c, v)| cells.get(c).is_none_or(|w| w == v)) {
+                        let mut tuple = tuple.clone();
+                        tuple.push(*id);
+                        let mut cells = cells.clone();
+                        cells.extend(row.iter().map(|(c, v)| (c.clone(), v.clone())));
+                        grown.push((tuple, cells));
+                    }
+                }
+            }
+            joined = grown;
+        }
+        joined.sort_by(|x, y| x.0.cmp(&y.0));
+        joined
+    }
+
     /// The limit at one target table against the nested-loop join on
     /// generated fibres of one to four tables over the target columns
     /// `p, q, r, s`: shared columns in connected and disconnected,
@@ -1545,24 +1620,7 @@ mod tests {
                 inst = inst.with_rows(name.as_str(), rows.clone()).unwrap();
                 rows_of.push(rows);
             }
-            // The nested-loop join, tuples ascending.
-            let mut expected: Vec<(Vec<RowId>, Row)> = vec![(Vec::new(), Row::new())];
-            for rows in &rows_of {
-                let mut grown = Vec::new();
-                for (tuple, cells) in &expected {
-                    for (id, row) in rows {
-                        if row.iter().all(|(c, v)| cells.get(c).is_none_or(|w| w == v)) {
-                            let mut tuple = tuple.clone();
-                            tuple.push(*id);
-                            let mut cells = cells.clone();
-                            cells.extend(row.iter().map(|(c, v)| (c.clone(), v.clone())));
-                            grown.push((tuple, cells));
-                        }
-                    }
-                }
-                expected = grown;
-            }
-            expected.sort_by(|x, y| x.0.cmp(&y.0));
+            let expected = nested_loop_join(&rows_of);
             let max = [1, 4, 81][usize::try_from(next(3)).unwrap()];
             let f =
                 MigrationFunctor::new(&src, &protocol(), &tgt, &protocol(), &migration).unwrap();
@@ -1835,13 +1893,15 @@ mod tests {
             surviving_edges: HashSet::from([edge, column("a", "n"), column("b", "n")]),
             ..CompiledMigration::default()
         };
-        let began = std::time::Instant::now();
-        let out = pi(&inst, &schema, &schema, &migration, usize::MAX).unwrap();
-        let took = began.elapsed();
-        assert_eq!(out, inst, "Pi along the identity is the identity");
+        let (out, work) = join_work(|| pi(&inst, &schema, &schema, &migration, usize::MAX));
+        assert_eq!(out.unwrap(), inst, "Pi along the identity is the identity");
+        // Counted, not timed: the rows of both tables are read once and each
+        // pair is looked up once and matched once, so the work is linear in
+        // the input (a quadratic join would be about `ROWS * ROWS`).
+        let linear = 5 * usize::try_from(ROWS).unwrap();
         assert!(
-            took < std::time::Duration::from_secs(3),
-            "Pi over {ROWS} pairs took {took:?}"
+            work <= linear,
+            "Pi over {ROWS} pairs did {work} units of join work"
         );
     }
 
