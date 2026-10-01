@@ -583,6 +583,7 @@ mod tests {
     use super::*;
     use crate::error::InstError;
     use crate::table_delta::TableDelta;
+    use crate::table_delta::tests::{TestResult, cells};
 
     fn fk() -> Edge {
         Edge {
@@ -591,6 +592,59 @@ mod tests {
             kind: "fk".into(),
             name: None,
         }
+    }
+
+    /// [`TableDelta`] serializes its fields in the order and with the
+    /// types the contract states, in every wire format.
+    #[test]
+    fn table_delta_fields_serialize_in_contract_order() -> TestResult {
+        let delta = TableDelta::identity()
+            .with_deleted_row(
+                RowId(1),
+                "user",
+                cells(&[("b", Value::Int(2)), ("a", Value::Int(1))]),
+            )
+            .with_added_row(RowId(5), "post", Row::new())
+            .with_deleted_pair(fk(), RowId(2), RowId(1))
+            .with_added_pair(fk(), RowId(5), RowId(0))
+            .with_cell_change(RowId(0), "name", None, Some(Value::Int(3)))
+            .with_table_change(RowId(3), "tag", "post");
+        let json = serde_json::to_string(&delta)?;
+        let fk_json = r#"{"src":"post","tgt":"user","kind":"fk","name":null}"#;
+        assert_eq!(
+            json,
+            format!(
+                concat!(
+                    r#"{{"del_rows":{{"1":["user",{{"a":{{"Int":1}},"b":{{"Int":2}}}}]}},"#,
+                    r#""add_rows":{{"5":["post",{{}}]}},"#,
+                    r#""del_pairs":[[{fk},2,1]],"#,
+                    r#""add_pairs":[[{fk},5,0]],"#,
+                    r#""cells":[[[0,"name"],{{"old":null,"new":{{"Int":3}}}}]],"#,
+                    r#""tables":{{"3":{{"old":"tag","new":"post"}}}}}}"#
+                ),
+                fk = fk_json
+            )
+        );
+        let back: TableDelta = serde_json::from_str(&json)?;
+        assert_eq!(back, delta);
+        let packed = rmp_serde::to_vec_named(&delta)?;
+        assert_eq!(rmp_serde::from_slice::<TableDelta>(&packed)?, delta);
+        let mut cbor = Vec::new();
+        ciborium::into_writer(&delta, &mut cbor)?;
+        assert_eq!(
+            ciborium::from_reader::<TableDelta, _>(cbor.as_slice())?,
+            delta
+        );
+
+        // A cell change spells out both values; decoding normalizes.
+        let missing_old = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"new":null}]],"tables":{}}"#;
+        let err = serde_json::from_str::<TableDelta>(missing_old)
+            .err()
+            .ok_or("expected an error")?;
+        assert!(err.to_string().contains("missing field `old`"), "{err}");
+        let no_op = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"old":{"Int":1},"new":{"Int":1}}]],"tables":{"4":{"old":"a","new":"a"}}}"#;
+        assert!(serde_json::from_str::<TableDelta>(no_op)?.is_identity());
+        Ok(())
     }
 
     fn named(value: &str) -> Row {

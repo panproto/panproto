@@ -1397,7 +1397,7 @@ impl TableDelta {
 #[cfg(test)]
 pub(crate) mod tests {
     use std::error::Error;
-    use std::fmt::Debug;
+    use std::fmt::{Debug, Write as _};
 
     use proptest::prelude::*;
 
@@ -1594,59 +1594,6 @@ pub(crate) mod tests {
             .all(|(row, change)| !structural(row) && change.old != change.new)
     }
 
-    #[test]
-    fn table_delta_fields_serialize_in_contract_order() -> TestResult {
-        let delta = TableDelta::identity()
-            .with_deleted_row(
-                RowId(1),
-                "user",
-                cells(&[("b", Value::Int(2)), ("a", Value::Int(1))]),
-            )
-            .with_added_row(RowId(5), "post", Row::new())
-            .with_deleted_pair(fk(), RowId(2), RowId(1))
-            .with_added_pair(fk(), RowId(5), RowId(0))
-            .with_cell_change(RowId(0), "name", None, Some(Value::Int(3)))
-            .with_table_change(RowId(3), "tag", "post");
-        let json = serde_json::to_string(&delta)?;
-        let fk_json = r#"{"src":"post","tgt":"user","kind":"fk","name":null}"#;
-        assert_eq!(
-            json,
-            format!(
-                concat!(
-                    r#"{{"del_rows":{{"1":["user",{{"a":{{"Int":1}},"b":{{"Int":2}}}}]}},"#,
-                    r#""add_rows":{{"5":["post",{{}}]}},"#,
-                    r#""del_pairs":[[{fk},2,1]],"#,
-                    r#""add_pairs":[[{fk},5,0]],"#,
-                    r#""cells":[[[0,"name"],{{"old":null,"new":{{"Int":3}}}}]],"#,
-                    r#""tables":{{"3":{{"old":"tag","new":"post"}}}}}}"#
-                ),
-                fk = fk_json
-            )
-        );
-        let back: TableDelta = serde_json::from_str(&json)?;
-        assert_eq!(back, delta);
-        let packed = rmp_serde::to_vec_named(&delta)?;
-        assert_eq!(rmp_serde::from_slice::<TableDelta>(&packed)?, delta);
-        let mut cbor = Vec::new();
-        ciborium::into_writer(&delta, &mut cbor)?;
-        assert_eq!(
-            ciborium::from_reader::<TableDelta, _>(cbor.as_slice())?,
-            delta
-        );
-
-        // A cell change spells out both values; decoding normalizes.
-        let missing_old = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"new":null}]],"tables":{}}"#;
-        let err = serde_json::from_str::<TableDelta>(missing_old).err().ok_or("expected an error")?;
-        assert!(err.to_string().contains("missing field `old`"), "{err}");
-        let no_op = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"old":{"Int":1},"new":{"Int":1}}]],"tables":{"4":{"old":"a","new":"a"}}}"#;
-        assert!(
-            serde_json::from_str::<TableDelta>(no_op)
-                ?
-                .is_identity()
-        );
-        Ok(())
-    }
-
     proptest! {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
@@ -1750,9 +1697,17 @@ pub(crate) mod tests {
             "post",
             cells(&[("name", Value::Str("bob".into()))]),
         );
-        refused(&sample()?, &delete, &EditError::StaleTable { row: RowId(1) });
+        refused(
+            &sample()?,
+            &delete,
+            &EditError::StaleTable { row: RowId(1) },
+        );
         let change = TableDelta::identity().with_table_change(RowId(1), "post", "tag");
-        refused(&sample()?, &change, &EditError::StaleTable { row: RowId(1) });
+        refused(
+            &sample()?,
+            &change,
+            &EditError::StaleTable { row: RowId(1) },
+        );
         Ok(())
     }
 
@@ -1843,8 +1798,7 @@ pub(crate) mod tests {
         // A pair in both parts is a replacement and applies.
         let mut state = sample()?;
         add.with_deleted_pair(fk(), RowId(2), RowId(0))
-            .apply(&mut state)
-            ?;
+            .apply(&mut state)?;
         assert_eq!(bytes(&state), bytes(&sample()?));
         Ok(())
     }
@@ -1886,8 +1840,7 @@ pub(crate) mod tests {
         TableDelta::identity()
             .with_added_row(RowId(4), "post", Row::new())
             .with_added_pair(fk(), RowId(4), RowId(1))
-            .apply(&mut state)
-            ?;
+            .apply(&mut state)?;
         assert!(state.contains_pair(&fk(), RowId(4), RowId(1)));
         Ok(())
     }
@@ -1910,8 +1863,7 @@ pub(crate) mod tests {
         let mut state = sample()?;
         delete
             .with_deleted_pair(fk(), RowId(2), RowId(0))
-            .apply(&mut state)
-            ?;
+            .apply(&mut state)?;
         assert_eq!(state.pair_count(), 0);
         assert_eq!(state.table_of(RowId(0)), None);
         Ok(())
@@ -2029,7 +1981,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn table_compose_case_table() -> TestResult {
+    fn table_compose_case_table() {
         let p = cells(&[("a", Value::Int(1))]);
         let q = cells(&[("a", Value::Int(2))]);
         let r = cells(&[("a", Value::Int(3))]);
@@ -2105,11 +2057,10 @@ pub(crate) mod tests {
         assert_eq!(pdel().compose(&prepl()), mismatch(pair()));
         assert_eq!(padd().compose(&padd()), mismatch(pair()));
         assert_eq!(prepl().compose(&padd()), mismatch(pair()));
-        Ok(())
     }
 
     #[test]
-    fn benign_table_conflicts_are_exactly_the_three_equal_payload_cases() -> TestResult {
+    fn benign_table_conflicts_are_exactly_the_three_equal_payload_cases() {
         let alice = cells(&[("name", Value::Str("alice".into()))]);
         let del = |row: &Row| {
             TableDelta::identity()
@@ -2168,13 +2119,12 @@ pub(crate) mod tests {
             }
         );
         assert!(!differing[0].is_benign_table(&one, &three));
-        Ok(())
     }
 
     /// The benign cases over cells and tables, and the conflicts that are
     /// never benign.
     #[test]
-    fn benign_table_conflicts_compare_new_values_and_nothing_else() -> TestResult {
+    fn benign_table_conflicts_compare_new_values_and_nothing_else() {
         let alice = cells(&[("name", Value::Str("alice".into()))]);
         let first = TableDelta::identity()
             .with_deleted_row(RowId(0), "user", alice)
@@ -2235,7 +2185,6 @@ pub(crate) mod tests {
             elem: ElemRef::Node(0),
         };
         assert!(!graph.is_benign_table(&first, &second));
-        Ok(())
     }
 
     /// The canonical bytes and digest of one delta with every part, pinned.
@@ -2250,11 +2199,10 @@ pub(crate) mod tests {
             .with_table_change(RowId(3), "tag", "post");
         let mut writer = CanonicalWriter::new();
         canonical_table_delta_bytes(&delta, &mut writer);
-        let hex: String = writer
-            .as_bytes()
-            .iter()
-            .map(|byte| format!("{byte:02x}"))
-            .collect();
+        let mut hex = String::new();
+        for byte in writer.as_bytes() {
+            write!(hex, "{byte:02x}")?;
+        }
         assert_eq!(hex, PINNED_BYTES);
         assert_eq!(
             delta.digest(),

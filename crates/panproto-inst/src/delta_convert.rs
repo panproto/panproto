@@ -478,10 +478,7 @@ mod tests {
     fn a_reconnect_converts_to_a_pair_replacement_under_the_same_edge() -> TestResult {
         let (graph, before) = GInstance::from_finstance(&sample()?)?;
         // Edge 0 is post 2's pair to user 0; reconnect it to user 1.
-        let reconnect = GraphEdit::reconnect(&graph, EdgeId(0), 2, 1)
-            ?
-            .to_delta()
-            ?;
+        let reconnect = GraphEdit::reconnect(&graph, EdgeId(0), 2, 1)?.to_delta()?;
         let mut embedding = before.clone();
         let table = TableDelta::from_graph_delta(&reconnect, &mut embedding)?;
         assert_eq!(
@@ -503,7 +500,10 @@ mod tests {
         table.apply(&mut tables)?;
         let mut moved = graph.clone();
         reconnect.apply(&mut moved)?;
-        assert!(GInstance::identical(&moved, &graph_of(&tables, &embedding)?));
+        assert!(GInstance::identical(
+            &moved,
+            &graph_of(&tables, &embedding)?
+        ));
 
         // A label change of edge 0 to another foreign key between the same
         // tables.
@@ -513,10 +513,7 @@ mod tests {
             kind: "fk".into(),
             name: Some("editor".into()),
         };
-        let relabel = GraphEdit::relabel_edge(&graph, EdgeId(0), other.clone())
-            ?
-            .to_delta()
-            ?;
+        let relabel = GraphEdit::relabel_edge(&graph, EdgeId(0), other.clone())?.to_delta()?;
         let mut embedding = before.clone();
         let table = TableDelta::from_graph_delta(&relabel, &mut embedding)?;
         assert_eq!(
@@ -526,20 +523,14 @@ mod tests {
                 .with_added_pair(other.clone(), RowId(2), RowId(0))
         );
         assert_eq!(embedding.pairs[&(other, RowId(2), RowId(0))], EdgeId(0));
-        assert_eq!(
-            table.to_graph_delta_between(&before, &embedding)?,
-            relabel
-        );
+        assert_eq!(table.to_graph_delta_between(&before, &embedding)?, relabel);
         Ok(())
     }
 
     #[test]
     fn a_value_attr_is_not_a_table_edit() -> TestResult {
         let (graph, before) = GInstance::from_finstance(&sample()?)?;
-        let value = GraphEdit::set_value(&graph, 1, Some(FieldPresence::Null))
-            ?
-            .to_delta()
-            ?;
+        let value = GraphEdit::set_value(&graph, 1, Some(FieldPresence::Null))?.to_delta()?;
         let meta = GraphEdit::set_node_meta(
             &graph,
             1,
@@ -547,20 +538,17 @@ mod tests {
                 position: Some(3),
                 ..NodeMeta::default()
             },
-        )
-        ?
-        .to_delta()
-        ?;
-        let position = GraphEdit::set_edge_position(&graph, EdgeId(0), Some(1))
-            ?
-            .to_delta()
-            ?;
+        )?
+        .to_delta()?;
+        let position = GraphEdit::set_edge_position(&graph, EdgeId(0), Some(1))?.to_delta()?;
         let mut valued = Node::new(9, "user");
         valued.value = Some(FieldPresence::Present(Value::Int(1)));
         let node = GraphDelta::identity().with_added_node(valued);
         for delta in [value, meta, position, node] {
             let mut embedding = before.clone();
-            let err = TableDelta::from_graph_delta(&delta, &mut embedding).err().ok_or("expected an error")?;
+            let err = TableDelta::from_graph_delta(&delta, &mut embedding)
+                .err()
+                .ok_or("expected an error")?;
             assert!(matches!(err, EditError::NotTableEdit { .. }), "{err:?}");
             assert_eq!(embedding, before);
         }
@@ -611,7 +599,9 @@ mod tests {
             .with_added_edge(EdgeId(6), GEdge::new(2, 1, fk()));
         for delta in [stray, misnamed, reused, parallel] {
             let mut embedding = before.clone();
-            let err = TableDelta::from_graph_delta(&delta, &mut embedding).err().ok_or("expected an error")?;
+            let err = TableDelta::from_graph_delta(&delta, &mut embedding)
+                .err()
+                .ok_or("expected an error")?;
             assert!(
                 matches!(err, EditError::NotTableEdit { .. }),
                 "{delta:?}: {err:?}"
