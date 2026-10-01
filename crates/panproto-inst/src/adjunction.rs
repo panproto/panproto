@@ -4217,9 +4217,10 @@ mod tests {
             }
         }
 
-        /// L1 and L1' at `(i, j)` given `sigma = Sigma_F(i)` (`None` on a
-        /// clash) and `delta = Delta_F(j)`: on a clash `Hom(I, Delta J)` is
-        /// empty; otherwise `g -> eps . Sigma g` is a bijection
+        /// The Sigma -| Delta bijection at `(i, j)` given
+        /// `sigma = Sigma_F(i)` (`None` on a clash) and `delta = Delta_F(j)`:
+        /// on a clash `Hom(I, Delta J)` is empty; otherwise
+        /// `g -> eps . Sigma g` is a bijection
         /// `Hom(I, Delta J) -> Hom(Sigma I, J)` with inverse
         /// `h -> Delta h . eta`. Returns `|Hom(I, Delta J)|`.
         fn sigma_bijection(
@@ -4400,10 +4401,10 @@ mod tests {
             Some(pi)
         }
 
-        /// L2 at `(i, j)` given `pi = Pi_F(i)` and `delta = Delta_F(j)`:
-        /// `|Hom(Delta J, I)| = |Hom(J, Pi I)|`, and, when the unit's codomain
-        /// `Pi_F(Delta J)` is within the bound too (`transposes`),
-        /// `g -> Pi g . unit` is a bijection with inverse
+        /// The Delta -| Pi bijection at `(i, j)` given `pi = Pi_F(i)` and
+        /// `delta = Delta_F(j)`: `|Hom(Delta J, I)| = |Hom(J, Pi I)|`, and,
+        /// when the unit's codomain `Pi_F(Delta J)` is within the bound too
+        /// (`transposes`), `g -> Pi g . unit` is a bijection with inverse
         /// `f -> counit . Delta f`. Returns `|Hom(J, Pi I)|`.
         fn pi_bijection(
             f: &MigrationFunctor,
@@ -4462,8 +4463,8 @@ mod tests {
         }
 
         /// The Delta -| Pi laws at `(i, j)`: for an attribute-surjective
-        /// functor within the bound, L2 by [`pi_bijection`]; otherwise Pi
-        /// refuses with the documented error (L2', checked by
+        /// functor within the bound, the bijection by [`pi_bijection`];
+        /// otherwise Pi refuses with the documented error (checked by
         /// [`pi_checked`]). Returns `|Hom(J, Pi I)|`, or `None` when Pi
         /// refuses.
         fn delta_pi(
@@ -4480,7 +4481,7 @@ mod tests {
         }
 
         /// `Delta_F(j)` checked against the oracle through its provenance,
-        /// and its conformance to `S'` (L8).
+        /// and its conformance to `S'`.
         fn delta_checked(spec: &Spec, f: &MigrationFunctor, j: &FInstance) -> FInstance {
             let (delta, provenance) =
                 f_delta_with_provenance(j, f).unwrap_or_else(|e| panic!("{e}"));
@@ -4521,7 +4522,7 @@ mod tests {
             )
         }
 
-        /// The triangle identities of both adjunctions at `(i, j)` (L3), on
+        /// The triangle identities of both adjunctions at `(i, j)`, on
         /// their domains: Sigma accepting `i`; `F` surjective on attributes
         /// with every limit involved within `max`.
         fn triangles(spec: &Spec, f: &MigrationFunctor, i: &FInstance, j: &FInstance, max: usize) {
@@ -4587,7 +4588,7 @@ mod tests {
             }
         }
 
-        /// L4: along the identity functor of a side, Sigma, Delta and Pi
+        /// The identity law: along the identity functor of a side, Sigma, Delta and Pi
         /// return `x` exactly, and the units and counits are identities.
         fn identity_laws(side: &Side, x: &FInstance) {
             let f = MigrationFunctor::identity(&fixture::schema_of(side), &fixture::protocol())
@@ -4613,7 +4614,7 @@ mod tests {
             }
         }
 
-        /// L6 for Delta: `j` within `j_big` gives `Delta j` within
+        /// Monotonicity of Delta: `j` within `j_big` gives `Delta j` within
         /// `Delta j_big`, by the injective homomorphism keeping copies.
         fn delta_monotone(f: &MigrationFunctor, j: &FInstance, j_big: &FInstance) {
             let (small, copies) = f_delta_with_provenance(j, f).unwrap_or_else(|e| panic!("{e}"));
@@ -4637,7 +4638,7 @@ mod tests {
             assert!(witness.check(&small, &big).is_ok(), "{small:?} -> {big:?}");
         }
 
-        /// L6 for Sigma: with both inputs accepted, rows keep their ids,
+        /// Monotonicity of Sigma: with both inputs accepted, rows keep their ids,
         /// each fresh null goes to the fresh null of its row and column, and
         /// each null of `i` to its representative in `Sigma i_big`; when
         /// only the larger input is refused, the test asserts the refusal.
@@ -4682,7 +4683,7 @@ mod tests {
             assert!(witness.check(&small, &big).is_ok(), "{small:?} -> {big:?}");
         }
 
-        /// L6 for Pi: within the bound, each row of `Pi i` goes to the row of
+        /// Monotonicity of Pi: within the bound, each row of `Pi i` goes to the row of
         /// `Pi i_big` with its tuple, an injective homomorphism.
         fn pi_monotone(f: &MigrationFunctor, i: &FInstance, i_big: &FInstance, max: usize) {
             let (Ok((small, tuples)), Ok((big, tuples_big))) = (
@@ -4723,7 +4724,7 @@ mod tests {
                 .all(|(e, pairs)| pairs.iter().all(|p| big.pairs(e).contains(p)))
         }
 
-        /// L7: each action on homomorphisms keeps identities, and composites
+        /// Functoriality: each action on homomorphisms keeps identities, and composites
         /// along `h1: a -> b` and `h2: b -> c` (instances on `S'` for Sigma
         /// and Pi; their Delta images are checked through `f_delta_on_hom`
         /// on the target instances `ta -> tb -> tc` when given).
@@ -4760,7 +4761,7 @@ mod tests {
             }
         }
 
-        /// L7 for Delta along `h1: a -> b`, `h2: b -> c` of instances on `T`.
+        /// Functoriality of Delta along `h1: a -> b`, `h2: b -> c` of instances on `T`.
         fn delta_functorial(
             f: &MigrationFunctor,
             (a, b, c): (&FInstance, &FInstance, &FInstance),
@@ -4777,7 +4778,7 @@ mod tests {
             assert!(both.same_as(&compose(&one, &two, &da)));
         }
 
-        /// L8 for Sigma and Pi: Sigma's result conforms to `T` (its tables
+        /// Conformance of Sigma and Pi: Sigma's result conforms to `T` (its tables
         /// outside the image are empty), Pi's too.
         fn outputs_conform(spec: &Spec, f: &MigrationFunctor, i: &FInstance, max: usize) {
             let (tables, relations) = whole(&spec.tgt);
@@ -5060,7 +5061,8 @@ mod tests {
         /// The bound of the exhaustive family: no product there exceeds it.
         const TINY_MAX: usize = 81;
 
-        /// L1, L1', L2, L2', L3, L4, L6 and L8 on every pair of tiny
+        /// Both adjunctions with their refusals, the triangle identities, the
+        /// identity law, monotonicity and conformance on every pair of tiny
         /// instances of every schema pair of the family.
         #[test]
         fn adjunctions_hold_on_every_tiny_instance() {
@@ -5111,7 +5113,7 @@ mod tests {
             }
         }
 
-        /// L1' on the family: an instance Sigma refuses with a clash of
+        /// Empty hom-sets on the family: an instance Sigma refuses with a clash of
         /// constants has no homomorphism into any `Delta J`.
         #[test]
         fn a_sigma_clash_has_no_homs_into_delta() {
@@ -5343,7 +5345,7 @@ mod tests {
             }
         }
 
-        /// L5 at `(i, j)`: along `F' = rho . F`, Delta of `rho J` is Delta of
+        /// Renaming invariance at `(i, j)`: along `F' = rho . F`, Delta of `rho J` is Delta of
         /// `J`; Sigma is the renaming of Sigma up to permuting each row's fresh
         /// nulls; Pi is the renaming of Pi up to the ids of the one row of each
         /// table outside the image; and the units and counits agree under the
@@ -5818,7 +5820,7 @@ mod tests {
             proptest! {
                 #![proptest_config(ProptestConfig::with_cases(256))]
 
-                /// L1 and L1' on generated cases: at a random target
+                /// The Sigma -| Delta laws on generated cases: at a random target
                 /// instance, and at Sigma I itself, where the identity makes
                 /// the hom-sets non-empty.
                 #[test]
@@ -5826,7 +5828,7 @@ mod tests {
                     sigma_laws(&case(seed));
                 }
 
-                /// L2 and L2' on generated cases: at a random source
+                /// The Delta -| Pi laws on generated cases: at a random source
                 /// instance, and at Delta J.
                 #[test]
                 fn pi_is_right_adjoint_to_delta(seed in any::<u64>()) {
@@ -5887,7 +5889,7 @@ mod tests {
                     delta_monotone(&case.f, &case.j, &big_j);
                 }
 
-                /// L7: identities and composites of homomorphisms that fill
+                /// Functoriality: identities and composites of homomorphisms that fill
                 /// nulls and add rows.
                 #[test]
                 fn kan_extensions_are_functorial(seed in any::<u64>()) {
@@ -5902,7 +5904,7 @@ mod tests {
                     delta_functorial(&case.f, (&case.j, &tb, &tc), (&t1, &t2));
                 }
 
-                /// L8: outputs conform, and an input that does not is refused
+                /// Conformance: outputs conform, and an input that does not is refused
                 /// with the first offender the oracle names.
                 #[test]
                 fn outputs_conform_and_refusals_are_typed(seed in any::<u64>()) {
@@ -5957,7 +5959,7 @@ mod tests {
                 }
             }
 
-            /// L1 and L1' at one generated case: at its random target
+            /// The Sigma -| Delta laws at one generated case: at its random target
             /// instance, and at Sigma I itself, where the identity makes the
             /// hom-sets non-empty.
             fn sigma_laws(case: &Case) {
@@ -5982,10 +5984,10 @@ mod tests {
             /// and Pi of the two instances once, not once per homomorphism,
             /// so the laws take a few dozen Kan extensions however large the
             /// hom-sets are (counted, not timed; once per homomorphism would
-            /// be over `10^4`). L1 and L1' run on generated cases whose
+            /// be over `10^4`). The Sigma -| Delta laws run on generated cases whose
             /// Sigma I holds six rows in one table, so that
             /// `Hom(I, Delta Sigma I)` holds `6^6` homomorphisms, each
-            /// transposed both ways; L2 runs along the identity on five rows
+            /// transposed both ways; the Delta -| Pi laws run along the identity on five rows
             /// with equal cells, so that `Hom(J, Pi I)` holds `5^5`.
             #[test]
             fn transposing_a_hom_set_takes_each_kan_extension_once() {
@@ -6001,7 +6003,10 @@ mod tests {
                         "|Hom(I, Delta Sigma I)| at seed {seed}"
                     );
                     let ((), work) = kan_work(|| sigma_laws(&case));
-                    assert!(work <= 64, "{work} Kan extensions for L1 at seed {seed}");
+                    assert!(
+                        work <= 64,
+                        "{work} Kan extensions for the Sigma -| Delta laws at seed {seed}"
+                    );
                 }
                 let side = fixture::side(&[("a", &["n"])], &[]);
                 let spec =
@@ -6012,7 +6017,7 @@ mod tests {
                     .unwrap_or_else(|e| panic!("{e}"));
                 let (homs, work) = kan_work(|| delta_pi(&spec, &f, &x, &x, 81));
                 assert_eq!(homs, Some(5_usize.pow(5)), "|Hom(J, Pi I)|");
-                assert!(work <= 64, "{work} Kan extensions for L2");
+                assert!(work <= 64, "{work} Kan extensions for the Delta -| Pi laws");
             }
 
             /// `x` with its rows renumbered in reverse above 100 and each
