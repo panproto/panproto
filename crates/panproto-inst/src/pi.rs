@@ -105,6 +105,14 @@ pub fn functor_pi_along(
 /// `Pi_F` creates no labelled nulls. Along the identity functor it is the
 /// identity, and it is monotone in `I`.
 ///
+/// The bound `max_product_size` is checked before a table's rows are
+/// built, so a refused table costs no more than counting it. The rows of a
+/// fibre table that agree with no row of another fibre table on the target
+/// columns the two share are dropped first; fibre tables that share no
+/// column are counted apart and their counts multiplied; and fibre tables
+/// whose shared columns form an acyclic hypergraph are counted on a join
+/// tree without listing their tuples.
+///
 /// Row ids: the rows of a table whose fibre is one table keep the ids of the
 /// rows they project to. Every other row is fresh, allocated from the least
 /// id above every row of `instance`: first the tables in the image, ordered
@@ -212,9 +220,368 @@ fn row_at_target(functor: &MigrationFunctor, component: &Name, cells: &Row) -> O
     Some(at)
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The join work done on this thread: the rows the joins have read and
+    /// the partial tuples they have built, so a test can bound it.
+    static JOIN_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `n` units of join work on this thread (only under test).
+fn charge_join_work(n: usize) {
+    #[cfg(test)]
+    JOIN_WORK.with(|work| work.set(work.get().saturating_add(n)));
+    #[cfg(not(test))]
+    let _ = n;
+}
+
+/// One fibre table in the join at a target table: its position in the
+/// fibre, the target columns its kept columns are sent to, and its rows
+/// that can still be in a cone, read at those columns.
+struct Component {
+    /// Its position in the (ascending) fibre.
+    position: usize,
+    /// The target columns its kept columns are sent to.
+    columns: Vec<String>,
+    /// Its rows that can still be in a cone, ascending by id.
+    rows: Vec<(RowId, AtTarget)>,
+}
+
+/// The canonical bytes of `at` at `columns`, or `None` when it lacks one.
+fn key_at(at: &AtTarget, columns: &[&String]) -> Option<Vec<Vec<u8>>> {
+    columns
+        .iter()
+        .map(|c| at.get(*c).map(|(bytes, _)| bytes.clone()))
+        .collect()
+}
+
+/// The target columns two components share, ascending.
+fn shared_columns<'c>(one: &'c Component, other: &Component) -> Vec<&'c String> {
+    one.columns
+        .iter()
+        .filter(|c| other.columns.contains(c))
+        .collect()
+}
+
+/// Drop, until nothing changes, every row of a component that agrees with
+/// no row of some other component on the target columns the two share.
+/// The join is unchanged (a dropped row is in no cone), and afterwards any
+/// two components agree on what they share (pairwise consistency).
+fn reduce(components: &mut [Component]) {
+    let mut changed = true;
+    while changed {
+        changed = false;
+        for i in 0..components.len() {
+            for j in 0..components.len() {
+                if i == j {
+                    continue;
+                }
+                let shared: Vec<String> = shared_columns(&components[i], &components[j])
+                    .into_iter()
+                    .cloned()
+                    .collect();
+                if shared.is_empty() {
+                    continue;
+                }
+                let shared: Vec<&String> = shared.iter().collect();
+                charge_join_work(components[i].rows.len() + components[j].rows.len());
+                let keys: std::collections::HashSet<Vec<Vec<u8>>> = components[j]
+                    .rows
+                    .iter()
+                    .filter_map(|(_, at)| key_at(at, &shared))
+                    .collect();
+                let before = components[i].rows.len();
+                components[i]
+                    .rows
+                    .retain(|(_, at)| key_at(at, &shared).is_some_and(|k| keys.contains(&k)));
+                changed |= components[i].rows.len() != before;
+            }
+        }
+    }
+}
+
+/// The components that share target columns, grouped into connected
+/// groups (as indices into `components`), each ascending, the groups
+/// ordered by their least member.
+fn connected_groups(components: &[Component]) -> Vec<Vec<usize>> {
+    fn root(group_of: &mut [usize], mut i: usize) -> usize {
+        while group_of[i] != i {
+            group_of[i] = group_of[group_of[i]];
+            i = group_of[i];
+        }
+        i
+    }
+    let mut group_of: Vec<usize> = (0..components.len()).collect();
+    for i in 0..components.len() {
+        for j in (i + 1)..components.len() {
+            if !shared_columns(&components[i], &components[j]).is_empty() {
+                let (a, b) = (root(&mut group_of, i), root(&mut group_of, j));
+                group_of[a.max(b)] = a.min(b);
+            }
+        }
+    }
+    let mut groups: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
+    for i in 0..components.len() {
+        let r = root(&mut group_of, i);
+        groups.entry(r).or_default().push(i);
+    }
+    groups.into_values().collect()
+}
+
+/// A join tree of a connected group, by GYO reduction: repeatedly remove a
+/// member (an ear) all of whose target columns shared with another
+/// remaining member lie in one remaining member (its parent). Returns the
+/// members in removal order, the last being the root, with each removed
+/// member's parent; `None` when no ear is left before one member remains,
+/// that is when the group's columns form a cyclic hypergraph.
+fn join_tree(
+    components: &[Component],
+    group: &[usize],
+) -> Option<(Vec<usize>, Vec<Option<usize>>)> {
+    let mut parent: Vec<Option<usize>> = vec![None; components.len()];
+    let mut remaining: Vec<usize> = group.to_vec();
+    let mut order = Vec::with_capacity(group.len());
+    while remaining.len() > 1 {
+        let ear = remaining.iter().enumerate().find_map(|(at, &e)| {
+            let others: Vec<usize> = remaining.iter().copied().filter(|&f| f != e).collect();
+            let linked: Vec<&String> = components[e]
+                .columns
+                .iter()
+                .filter(|c| others.iter().any(|&f| components[f].columns.contains(c)))
+                .collect();
+            others
+                .iter()
+                .copied()
+                .find(|&w| linked.iter().all(|c| components[w].columns.contains(c)))
+                .map(|w| (at, e, w))
+        });
+        let (at, e, w) = ear?;
+        parent[e] = Some(w);
+        order.push(e);
+        remaining.remove(at);
+    }
+    order.extend(remaining);
+    Some((order, parent))
+}
+
+/// The number of cones of an acyclic group, from its join tree: each row's
+/// weight is the product, over its children, of the summed weights of the
+/// child rows that agree with it on the columns the two share; the count is
+/// the summed weight of the root's rows. Saturates at `usize::MAX`.
+fn tree_count(components: &[Component], removal: &[usize], parent: &[Option<usize>]) -> usize {
+    let mut weights: Vec<Vec<u128>> = components
+        .iter()
+        .map(|c| vec![1_u128; c.rows.len()])
+        .collect();
+    for &child in removal {
+        let Some(up) = parent[child] else {
+            continue;
+        };
+        let shared = shared_columns(&components[child], &components[up]);
+        charge_join_work(components[child].rows.len() + components[up].rows.len());
+        let mut sums: HashMap<Vec<Vec<u8>>, u128> = HashMap::new();
+        for ((_, at), weight) in components[child].rows.iter().zip(&weights[child]) {
+            if let Some(key) = key_at(at, &shared) {
+                let sum = sums.entry(key).or_insert(0);
+                *sum = sum.saturating_add(*weight);
+            }
+        }
+        for ((_, at), weight) in components[up].rows.iter().zip(&mut weights[up]) {
+            let sum = key_at(at, &shared)
+                .and_then(|key| sums.get(&key))
+                .copied()
+                .unwrap_or(0);
+            *weight = weight.saturating_mul(sum);
+        }
+    }
+    let total = removal.last().map_or(0, |&root| {
+        weights[root]
+            .iter()
+            .fold(0_u128, |acc, w| acc.saturating_add(*w))
+    });
+    usize::try_from(total).unwrap_or(usize::MAX)
+}
+
+/// An order of a cyclic group's members in which each member after the
+/// first shares as many target columns as possible with those before it
+/// (ties: fewer rows, then the least member).
+fn connected_order(components: &[Component], group: &[usize]) -> Vec<usize> {
+    let mut seen: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+    let mut remaining: Vec<usize> = group.to_vec();
+    let mut order = Vec::with_capacity(group.len());
+    while !remaining.is_empty() {
+        let best = remaining
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, m)| {
+                let linked = components[**m]
+                    .columns
+                    .iter()
+                    .filter(|c| seen.contains(c))
+                    .count();
+                (std::cmp::Reverse(linked), components[**m].rows.len(), **m)
+            })
+            .map_or(0, |(at, _)| at);
+        let member = remaining.remove(best);
+        seen.extend(components[member].columns.iter());
+        order.push(member);
+    }
+    order
+}
+
+/// One step of a join in a given order: the member it adds, the target
+/// columns that member shares with the members before it, and its rows
+/// indexed by their values there.
+struct Step<'c> {
+    /// The member added.
+    member: usize,
+    /// The target columns it shares with the members before it.
+    shared: Vec<&'c String>,
+    /// Its rows (indices) by their canonical bytes at `shared`.
+    index: HashMap<Vec<Vec<u8>>, Vec<usize>>,
+}
+
+/// The steps of the join of members in `order`.
+fn join_steps<'c>(components: &'c [Component], order: &[usize]) -> Vec<Step<'c>> {
+    let mut seen: std::collections::BTreeSet<&String> = std::collections::BTreeSet::new();
+    let mut steps = Vec::with_capacity(order.len());
+    for &member in order {
+        let shared: Vec<&String> = components[member]
+            .columns
+            .iter()
+            .filter(|c| seen.contains(c))
+            .collect();
+        charge_join_work(components[member].rows.len());
+        let mut index: HashMap<Vec<Vec<u8>>, Vec<usize>> = HashMap::new();
+        for (n, (_, at)) in components[member].rows.iter().enumerate() {
+            if let Some(key) = key_at(at, &shared) {
+                index.entry(key).or_default().push(n);
+            }
+        }
+        seen.extend(components[member].columns.iter());
+        steps.push(Step {
+            member,
+            shared,
+            index,
+        });
+    }
+    steps
+}
+
+/// What a walk over the cones of a join gathers.
+enum Gather {
+    /// Only their number (saturating), read at the last step from its index.
+    Count(usize),
+    /// Each cone: the row (index) chosen at each step.
+    Cones(Vec<Vec<usize>>),
+}
+
+/// The number of cones of the join given by `steps` (saturating).
+fn count_cones(components: &[Component], steps: &[Step<'_>]) -> usize {
+    let mut gather = Gather::Count(0);
+    walk(components, steps, &mut gather);
+    match gather {
+        Gather::Count(count) => count,
+        Gather::Cones(cones) => cones.len(),
+    }
+}
+
+/// The cones of the join given by `steps`: the row (index) chosen at each
+/// step.
+fn list_cones(components: &[Component], steps: &[Step<'_>]) -> Vec<Vec<usize>> {
+    let mut gather = Gather::Cones(Vec::new());
+    walk(components, steps, &mut gather);
+    match gather {
+        Gather::Cones(cones) => cones,
+        Gather::Count(_) => Vec::new(),
+    }
+}
+
+/// Walk the cones of the join given by `steps`, depth first: at each step
+/// the rows of its member that agree with the values assigned so far.
+fn walk(components: &[Component], steps: &[Step<'_>], gather: &mut Gather) {
+    fn go<'c>(
+        level: usize,
+        components: &'c [Component],
+        steps: &[Step<'_>],
+        assigned: &mut BTreeMap<&'c String, &'c Vec<u8>>,
+        chosen: &mut Vec<usize>,
+        gather: &mut Gather,
+    ) {
+        let step = &steps[level];
+        let key: Option<Vec<Vec<u8>>> = step
+            .shared
+            .iter()
+            .map(|c| assigned.get(*c).map(|bytes| (*bytes).clone()))
+            .collect();
+        let Some(matches) = key.and_then(|key| step.index.get(&key)) else {
+            return;
+        };
+        charge_join_work(1);
+        if level + 1 == steps.len() {
+            match gather {
+                Gather::Count(count) => *count = count.saturating_add(matches.len()),
+                Gather::Cones(cones) => {
+                    for &n in matches {
+                        let mut cone = chosen.clone();
+                        cone.push(n);
+                        cones.push(cone);
+                    }
+                }
+            }
+            return;
+        }
+        for &n in matches {
+            let (_, at) = &components[step.member].rows[n];
+            let added: Vec<&String> = at
+                .iter()
+                .filter(|(c, _)| !assigned.contains_key(c))
+                .map(|(c, _)| c)
+                .collect();
+            for column in &added {
+                if let Some((bytes, _)) = at.get(*column) {
+                    assigned.insert(column, bytes);
+                }
+            }
+            chosen.push(n);
+            go(level + 1, components, steps, assigned, chosen, gather);
+            chosen.pop();
+            for column in added {
+                assigned.remove(column);
+            }
+        }
+    }
+    if steps.is_empty() {
+        return;
+    }
+    go(
+        0,
+        components,
+        steps,
+        &mut BTreeMap::new(),
+        &mut Vec::new(),
+        gather,
+    );
+}
+
 /// The cones at one target table: tuples with one row of each fibre table
-/// whose values agree at every target column, ascending, joined component
-/// by component on the target columns already assigned.
+/// whose values agree at every target column, ascending by tuple.
+///
+/// The bound is checked before any tuple is built, and the work stays near
+/// the input and the bound. First, a row of one fibre table that agrees
+/// with no row of another on the target columns the two share is in no
+/// cone, so such rows are dropped until none is left (an empty fibre table
+/// empties the limit). Then the fibre tables fall into connected groups by
+/// shared target columns; the cones are the products of the groups' cones,
+/// so the count is the product of the groups' counts, each counted on its
+/// own. A group whose columns form an acyclic hypergraph (GYO reduction) is
+/// counted on its join tree without listing its cones, and listing them in
+/// join-tree order extends every partial tuple to a cone, because after the
+/// reduction its tables are pairwise consistent, and a pairwise consistent
+/// acyclic join is globally consistent. A cyclic group is counted and
+/// listed depth first, joining each next table on the columns it shares
+/// with those before it. The tuples are built only when the count is within
+/// the bound.
 fn table_limit<'a>(
     instance: &FInstance,
     functor: &MigrationFunctor,
@@ -222,81 +589,126 @@ fn table_limit<'a>(
     fibre: Vec<&'a Name>,
     max: usize,
 ) -> Result<TableLimit<'a>, RestrictError> {
-    type Partial = (Vec<RowId>, AtTarget);
-    let mut partials: Vec<Partial> = vec![(Vec::new(), BTreeMap::new())];
-    let last = fibre.len().saturating_sub(1);
-    for (position, component) in fibre.iter().enumerate() {
-        let rows: Vec<(RowId, AtTarget)> = instance
-            .rows(component)
-            .into_iter()
-            .filter_map(|(id, cells)| Some((id, row_at_target(functor, component, cells)?)))
-            .collect();
-        // The target columns this component shares with those assigned so
-        // far, which are the same for every partial tuple.
-        let assigned: Vec<String> = partials
-            .first()
-            .map(|(_, at)| at.keys().cloned().collect())
-            .unwrap_or_default();
-        let own: Vec<String> = functor
-            .kept_columns(component)
-            .into_iter()
-            .filter_map(|alpha| functor.column_image(component, alpha))
-            .map(str::to_owned)
-            .collect();
-        let shared: Vec<&String> = assigned.iter().filter(|c| own.contains(c)).collect();
-        let key = |at: &AtTarget| -> Option<Vec<Vec<u8>>> {
-            shared
-                .iter()
-                .map(|c| at.get(*c).map(|(bytes, _)| bytes.clone()))
-                .collect()
-        };
-        let mut index: HashMap<Vec<Vec<u8>>, Vec<usize>> = HashMap::new();
-        for (n, (_, at)) in rows.iter().enumerate() {
-            if let Some(k) = key(at) {
-                index.entry(k).or_default().push(n);
-            }
+    let over = |actual: usize| RestrictError::ProductSizeExceeded {
+        vertex: table.to_string(),
+        actual,
+        limit: max,
+    };
+    if fibre.is_empty() {
+        // The limit of the empty diagram: one empty tuple.
+        if max < 1 {
+            return Err(over(1));
         }
-        if position == last {
-            let count = partials.iter().try_fold(0usize, |acc, (_, at)| {
-                let matches = key(at).and_then(|k| index.get(&k)).map_or(0, Vec::len);
-                acc.checked_add(matches)
-            });
-            let count = count.unwrap_or(usize::MAX);
-            if count > max {
-                return Err(RestrictError::ProductSizeExceeded {
-                    vertex: table.to_string(),
-                    actual: count,
-                    limit: max,
-                });
-            }
-        }
-        let mut next: Vec<Partial> = Vec::new();
-        for (tuple, at) in &partials {
-            let Some(matches) = key(at).and_then(|k| index.get(&k)) else {
-                continue;
-            };
-            for &n in matches {
-                let (id, row_at) = &rows[n];
-                let mut tuple = tuple.clone();
-                tuple.push(*id);
-                let mut joined = at.clone();
-                joined.extend(row_at.iter().map(|(c, v)| (c.clone(), v.clone())));
-                next.push((tuple, joined));
-            }
-        }
-        partials = next;
-    }
-    if fibre.is_empty() && partials.len() > max {
-        return Err(RestrictError::ProductSizeExceeded {
-            vertex: table.to_string(),
-            actual: partials.len(),
-            limit: max,
+        return Ok(TableLimit {
+            table,
+            fibre,
+            tuples: vec![(Vec::new(), Row::new())],
         });
     }
-    let mut tuples: Vec<(Vec<RowId>, Row)> = partials
+    let mut components: Vec<Component> = fibre
+        .iter()
+        .enumerate()
+        .map(|(position, component)| {
+            let rows: Vec<(RowId, AtTarget)> = instance
+                .rows(component)
+                .into_iter()
+                .filter_map(|(id, cells)| Some((id, row_at_target(functor, component, cells)?)))
+                .collect();
+            charge_join_work(rows.len());
+            let mut columns: Vec<String> = functor
+                .kept_columns(component)
+                .into_iter()
+                .filter_map(|alpha| functor.column_image(component, alpha))
+                .map(str::to_owned)
+                .collect();
+            columns.sort_unstable();
+            columns.dedup();
+            Component {
+                position,
+                columns,
+                rows,
+            }
+        })
+        .collect();
+    let empty = |fibre| TableLimit {
+        table,
+        fibre,
+        tuples: Vec::new(),
+    };
+    if components.iter().any(|c| c.rows.is_empty()) {
+        return Ok(empty(fibre));
+    }
+    reduce(&mut components);
+    if components.iter().any(|c| c.rows.is_empty()) {
+        return Ok(empty(fibre));
+    }
+
+    // Count every group, the acyclic ones (cheap) first, before listing any.
+    let mut plans: Vec<(Vec<usize>, usize)> = Vec::new();
+    let mut cyclic: Vec<Vec<usize>> = Vec::new();
+    for group in connected_groups(&components) {
+        match join_tree(&components, &group) {
+            Some((removal, parent)) => {
+                let count = tree_count(&components, &removal, &parent);
+                let mut order = removal;
+                order.reverse();
+                plans.push((order, count));
+            }
+            None => cyclic.push(group),
+        }
+    }
+    for group in cyclic {
+        if plans.iter().any(|(_, count)| *count == 0) {
+            break;
+        }
+        let order = connected_order(&components, &group);
+        let count = count_cones(&components, &join_steps(&components, &order));
+        plans.push((order, count));
+    }
+    let total = plans
+        .iter()
+        .fold(1_usize, |acc, (_, count)| acc.saturating_mul(*count));
+    if total == 0 {
+        return Ok(empty(fibre));
+    }
+    if total > max {
+        return Err(over(total));
+    }
+
+    // List each group's cones, then take their product.
+    let mut tuples: Vec<Vec<RowId>> = vec![vec![RowId(0); fibre.len()]];
+    for (order, _) in &plans {
+        let steps = join_steps(&components, order);
+        let cones = list_cones(&components, &steps);
+        let mut next = Vec::with_capacity(tuples.len().saturating_mul(cones.len()));
+        for tuple in &tuples {
+            for cone in &cones {
+                charge_join_work(1);
+                let mut tuple = tuple.clone();
+                for (step, &n) in steps.iter().zip(cone) {
+                    let component = &components[step.member];
+                    tuple[component.position] = component.rows[n].0;
+                }
+                next.push(tuple);
+            }
+        }
+        tuples = next;
+    }
+    // Each tuple's cells: every fibre row read at the target columns, a
+    // later fibre table's value standing where two agree.
+    let at_target: Vec<HashMap<RowId, &AtTarget>> = components
+        .iter()
+        .map(|c| c.rows.iter().map(|(id, at)| (*id, at)).collect())
+        .collect();
+    let mut tuples: Vec<(Vec<RowId>, Row)> = tuples
         .into_iter()
-        .map(|(tuple, at)| {
-            let cells = at.into_iter().map(|(c, (_, v))| (c, v)).collect();
+        .map(|tuple| {
+            let mut cells = Row::new();
+            for (position, id) in tuple.iter().enumerate() {
+                if let Some(at) = at_target[position].get(id) {
+                    cells.extend(at.iter().map(|(c, (_, v))| (c.clone(), v.clone())));
+                }
+            }
             (tuple, cells)
         })
         .collect();
@@ -975,6 +1387,215 @@ mod tests {
             "an unmentioned edge equalises nothing"
         );
         assert_eq!(out.pair_count(), 0);
+    }
+
+    /// The join work done on this thread while `run` runs.
+    fn join_work<T>(run: impl FnOnce() -> T) -> (T, usize) {
+        let before = JOIN_WORK.with(std::cell::Cell::get);
+        let out = run();
+        (out, JOIN_WORK.with(std::cell::Cell::get) - before)
+    }
+
+    /// Rows holding `column = value` for each `(id, value)`.
+    fn int_rows(column: &str, rows: impl IntoIterator<Item = (u32, i64)>) -> Vec<(RowId, Row)> {
+        rows.into_iter()
+            .map(|(i, v)| {
+                (
+                    RowId(i),
+                    HashMap::from([(column.to_owned(), Value::Int(v))]),
+                )
+            })
+            .collect()
+    }
+
+    /// `a(x)` and `b(y)` share no target column and `c(x)` is empty, so the
+    /// limit at `d(x, y)` is empty: the join must not first build the
+    /// `700 * 700` partial tuples of `a` and `b`.
+    #[test]
+    fn pi_does_not_build_a_product_that_a_later_component_empties() {
+        let src = tables(&[("a", &["x"]), ("b", &["y"]), ("c", &["x"])], &[]);
+        let tgt = tables(&[("d", &["x", "y"])], &[]);
+        let migration = migration_of(
+            &[("a", "d"), ("b", "d"), ("c", "d")],
+            &[("a", "x"), ("b", "y"), ("c", "x")],
+        );
+        let inst = FInstance::new()
+            .with_rows("a", int_rows("x", (0..700).map(|i| (i, i64::from(i)))))
+            .and_then(|f| f.with_rows("b", int_rows("y", (700..1400).map(|i| (i, 0)))))
+            .and_then(|f| f.with_rows("c", Vec::new()))
+            .unwrap();
+        let (out, work) = join_work(|| pi(&inst, &src, &tgt, &migration, 4));
+        assert_eq!(out.unwrap().row_count("d"), 0);
+        assert!(
+            work <= 10_000,
+            "{work} units of join work for an empty limit"
+        );
+    }
+
+    /// `a(x, k)`, `b(y, k)` and `c(x)` all agree on `k` and `x`, so the
+    /// limit at `d(x, y, k)` has `700 * 700` rows: refused under the bound 4
+    /// with that exact count, counted without building the tuples.
+    #[test]
+    fn pi_counts_an_over_bound_limit_without_building_it() {
+        let src = tables(
+            &[("a", &["x", "k"]), ("b", &["y", "k"]), ("c", &["x"])],
+            &[],
+        );
+        let tgt = tables(&[("d", &["x", "y", "k"])], &[]);
+        let migration = migration_of(
+            &[("a", "d"), ("b", "d"), ("c", "d")],
+            &[("a", "x"), ("a", "k"), ("b", "y"), ("b", "k"), ("c", "x")],
+        );
+        let k_rows = |column: &str, ids: std::ops::Range<u32>| -> Vec<(RowId, Row)> {
+            ids.map(|i| {
+                let row: Row = HashMap::from([
+                    (column.to_owned(), Value::Int(i64::from(i))),
+                    ("k".to_owned(), Value::Int(0)),
+                ]);
+                (RowId(i), row)
+            })
+            .collect()
+        };
+        let inst = FInstance::new()
+            .with_rows("a", k_rows("x", 0..700))
+            .and_then(|f| f.with_rows("b", k_rows("y", 700..1400)))
+            .and_then(|f| {
+                f.with_rows(
+                    "c",
+                    int_rows("x", (1400..2100).map(|i| (i, i64::from(i) - 1400))),
+                )
+            })
+            .unwrap();
+        let (out, work) = join_work(|| pi(&inst, &src, &tgt, &migration, 4));
+        assert!(
+            matches!(
+                out,
+                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
+                    actual: 490_000,
+                    limit: 4,
+                    ..
+                }))
+            ),
+            "{out:?}"
+        );
+        assert!(
+            work <= 20_000,
+            "{work} units of join work to count the limit"
+        );
+    }
+
+    /// The limit at one target table against the nested-loop join on
+    /// generated fibres of one to four tables over the target columns
+    /// `p, q, r, s`: shared columns in connected and disconnected,
+    /// acyclic and cyclic (every fourth case holds the triangle `pq, qr,
+    /// rp`) patterns, values from three integers, and bounds 1, 4 and 81.
+    /// Within the bound the tuples and their cells agree; over it the
+    /// refusal carries the exact count.
+    #[test]
+    fn pi_at_one_table_agrees_with_the_nested_loop_join() {
+        let mut state = 0x2545_f491_4f6c_dd1d_u64;
+        let mut next = |n: u64| {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state % n
+        };
+        let all = ["p", "q", "r", "s"];
+        let (mut within, mut over, mut cyclic) = (0, 0, 0);
+        for case in 0..3000 {
+            let mut shapes: Vec<Vec<&str>> = Vec::new();
+            if case % 4 == 0 {
+                shapes.extend([vec!["p", "q"], vec!["q", "r"], vec!["r", "p"]]);
+                cyclic += 1;
+            }
+            for _ in 0..=next(if shapes.is_empty() { 4 } else { 2 }) {
+                shapes.push(all.iter().copied().filter(|_| next(2) == 0).collect());
+            }
+            let names: Vec<String> = (0..shapes.len()).map(|k| format!("a{k}")).collect();
+            let used: std::collections::BTreeSet<&str> = shapes.iter().flatten().copied().collect();
+            let used: Vec<&str> = used.into_iter().collect();
+            let source: Vec<(&str, &[&str])> = names
+                .iter()
+                .zip(&shapes)
+                .map(|(n, s)| (n.as_str(), s.as_slice()))
+                .collect();
+            let src = tables(&source, &[]);
+            let tgt = tables(&[("d", used.as_slice())], &[]);
+            let table_map: Vec<(&str, &str)> = names.iter().map(|n| (n.as_str(), "d")).collect();
+            let column_map: Vec<(&str, &str)> = names
+                .iter()
+                .zip(&shapes)
+                .flat_map(|(n, s)| s.iter().map(move |c| (n.as_str(), *c)))
+                .collect();
+            let migration = migration_of(&table_map, &column_map);
+            let mut inst = FInstance::new();
+            let mut id = 0_u32;
+            let mut rows_of: Vec<Vec<(RowId, Row)>> = Vec::new();
+            for (name, shape) in names.iter().zip(&shapes) {
+                let rows: Vec<(RowId, Row)> = (0..next(6))
+                    .map(|_| {
+                        id += 1;
+                        let row: Row = shape
+                            .iter()
+                            .map(|c| ((*c).to_owned(), Value::Int(i64::try_from(next(3)).unwrap())))
+                            .collect();
+                        (RowId(id), row)
+                    })
+                    .collect();
+                inst = inst.with_rows(name.as_str(), rows.clone()).unwrap();
+                rows_of.push(rows);
+            }
+            // The nested-loop join, tuples ascending.
+            let mut expected: Vec<(Vec<RowId>, Row)> = vec![(Vec::new(), Row::new())];
+            for rows in &rows_of {
+                let mut grown = Vec::new();
+                for (tuple, cells) in &expected {
+                    for (id, row) in rows {
+                        if row.iter().all(|(c, v)| cells.get(c).is_none_or(|w| w == v)) {
+                            let mut tuple = tuple.clone();
+                            tuple.push(*id);
+                            let mut cells = cells.clone();
+                            cells.extend(row.iter().map(|(c, v)| (c.clone(), v.clone())));
+                            grown.push((tuple, cells));
+                        }
+                    }
+                }
+                expected = grown;
+            }
+            expected.sort_by(|x, y| x.0.cmp(&y.0));
+            let max = [1, 4, 81][usize::try_from(next(3)).unwrap()];
+            let f =
+                MigrationFunctor::new(&src, &protocol(), &tgt, &protocol(), &migration).unwrap();
+            match functor_pi_along_with_provenance(&inst, &f, max) {
+                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
+                    actual,
+                    limit,
+                    ..
+                })) => {
+                    assert_eq!(
+                        (actual, limit),
+                        (expected.len(), max),
+                        "case {case}: {shapes:?}"
+                    );
+                    assert!(expected.len() > max);
+                    over += 1;
+                }
+                Ok((out, provenance)) => {
+                    assert!(expected.len() <= max, "case {case}: {shapes:?}");
+                    let mut got: Vec<(Vec<RowId>, Row)> = out
+                        .rows("d")
+                        .into_iter()
+                        .map(|(id, row)| (provenance.tuples[&id].1.clone(), row.clone()))
+                        .collect();
+                    got.sort_by(|x, y| x.0.cmp(&y.0));
+                    assert_eq!(got, expected, "case {case}: {shapes:?}");
+                    within += 1;
+                }
+                Err(e) => panic!("case {case}: {e}"),
+            }
+        }
+        assert!(within > 0 && over > 0);
+        println!("{within} within the bound, {over} over it, {cyclic} with a cyclic triangle");
     }
 
     /// Merging `a(x)` and `b(y)` into `m(x, y)` shares no column, so the
