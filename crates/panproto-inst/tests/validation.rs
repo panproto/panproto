@@ -2806,9 +2806,12 @@ fn validate_wtype_reports_reserved_vocabulary() {
 }
 
 /// Each structural invariant the removed `ValidationError` reported maps to
-/// a typed violation: I1 `UnknownAnchor`, I2 `UndeclaredEdge` and
-/// `IncoherentEndpoint`, I3 `MissingRoot`, I4 `Unreachable`, I5
-/// `MissingRequiredEdge`, I6 `ParentMismatch`, I7 `MalformedFan`.
+/// a typed violation: an unknown anchor `UnknownAnchor`, an undeclared or
+/// incoherent arc `UndeclaredEdge` and `IncoherentEndpoint`, a missing root
+/// `MissingRoot`, an unreachable node `Unreachable`, a missing required edge
+/// `MissingRequiredEdge`, a parent map disagreeing with the arcs
+/// `ParentMismatch`, and a malformed fan `MalformedFan` (or, for a fan of an
+/// undeclared hyper-edge, `UnknownAnchor` naming the hyper-edge).
 #[test]
 fn legacy_invariants_map_to_typed_violations() {
     let p = Protocol::default();
@@ -2826,14 +2829,14 @@ fn legacy_invariants_map_to_typed_violations() {
             "{report:?}"
         );
     };
-    // I1.
+    // An unknown anchor.
     let mut t = three_node_tree();
     t.nodes.insert(1, str_node(1, "nonexistent", "Alice"));
     has(
         &t,
         &|v| matches!(v, Violation::UnknownAnchor { anchor } if anchor == "nonexistent"),
     );
-    // I2: an undeclared arc, and an arc whose child is anchored elsewhere.
+    // An undeclared arc, and an arc whose child is anchored elsewhere.
     let mut t = three_node_tree();
     t.arcs[0].2 = prop("obj", "str1", "nickname");
     has(&t, &|v| matches!(v, Violation::UndeclaredEdge { .. }));
@@ -2844,15 +2847,15 @@ fn legacy_invariants_map_to_typed_violations() {
         &t,
         &|v| matches!(v, Violation::IncoherentEndpoint { side: EndpointSide::Tgt, found, .. } if found == "str2"),
     );
-    // I3.
+    // A missing root.
     let mut t = three_node_tree();
     t.nodes.remove(&0);
     has(&t, &|v| matches!(v, Violation::MissingRoot));
-    // I4.
+    // An unreachable node.
     let mut t = three_node_tree();
     t.nodes.insert(99, str_node(99, "str2", "orphan"));
     has(&t, &|v| matches!(v, Violation::Unreachable));
-    // I5.
+    // A missing required edge.
     let mut t = three_node_tree();
     t.arcs.remove(0);
     t.parent_map.remove(&1);
@@ -2860,7 +2863,7 @@ fn legacy_invariants_map_to_typed_violations() {
         &t,
         &|v| matches!(v, Violation::MissingRequiredEdge { edge } if *edge == name),
     );
-    // I6.
+    // A parent map that disagrees with the arcs.
     let mut t = three_node_tree();
     t.parent_map.remove(&1);
     has(&t, &|v| {
@@ -2872,12 +2875,18 @@ fn legacy_invariants_map_to_typed_violations() {
             }
         )
     });
-    // I7.
+    // A malformed fan, and a fan of an undeclared hyper-edge.
     let mut t = three_node_tree();
     t.fans.push(Fan::new("rel", 0).with_child("theme", 1));
     has(
         &t,
         &|v| matches!(v, Violation::MalformedFan { reason: FanViolation::UnknownLabel { label } } if label == "theme"),
+    );
+    let mut t = three_node_tree();
+    t.fans.push(Fan::new("nope", 0));
+    has(
+        &t,
+        &|v| matches!(v, Violation::UnknownAnchor { anchor } if anchor == "nope"),
     );
     let mut t = three_node_tree();
     t.fans.push(Fan::new("rel", 0).with_child("arg", 1));
