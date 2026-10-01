@@ -809,6 +809,41 @@ fn a_failing_batch_reports_its_step() {
     );
 }
 
+#[test]
+fn a_batch_applies_although_a_step_alone_leaves_the_fan_domain() -> TestResult {
+    let fan = one_fan();
+    let parent = edge_of(&fan, 0)?;
+    let mut moved = parent.clone();
+    moved.tgt = 1;
+    let remove = GraphEdit::RemoveEdge {
+        id: EdgeId(0),
+        edge: parent,
+    };
+    let batch = GraphEdit::Batch(vec![
+        remove.clone(),
+        GraphEdit::AddEdge {
+            id: EdgeId(30),
+            edge: moved,
+        },
+    ]);
+    // The first step alone leaves fan 5 without a parent.
+    let mut h = fan.clone();
+    assert_eq!(
+        remove.apply(&mut h),
+        Err(EditError::MalformedFan {
+            node: 5,
+            reason: FanViolation::MissingParent,
+        })
+    );
+    assert!(GInstance::identical(&h, &fan));
+    // The net delta checks the input and the result only, so the batch
+    // applies.
+    batch.apply(&mut h)?;
+    assert_eq!(edge_of(&h, 30)?.tgt, 1);
+    assert!(h.edge(EdgeId(0)).is_none());
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Independence and merge
 // ---------------------------------------------------------------------------
@@ -1988,6 +2023,54 @@ fn edit_error_detail_is_structured() {
             ..
         }
     ));
+}
+
+#[test]
+fn edge_text_tells_distinct_edges_apart() -> TestResult {
+    use crate::edit_error::edge_text;
+    let edge = |src: &str, kind: &str, name: Option<&str>, tgt: &str| Edge {
+        src: src.into(),
+        tgt: tgt.into(),
+        kind: kind.into(),
+        name: name.map(Into::into),
+    };
+    // Every edge whose parts are strings of at most two characters over
+    // the separator alphabet (the name at most one) has its own text.
+    let alphabet = ["a", "-", ">", ":", "\\"];
+    let mut parts = vec![String::new()];
+    for first in alphabet {
+        parts.push(first.to_owned());
+        for second in alphabet {
+            parts.push(format!("{first}{second}"));
+        }
+    }
+    let names: Vec<Option<&str>> = std::iter::once(None)
+        .chain(
+            parts
+                .iter()
+                .filter(|p| p.chars().count() <= 1)
+                .map(|p| Some(p.as_str())),
+        )
+        .collect();
+    let mut seen: std::collections::HashMap<String, Edge> = std::collections::HashMap::new();
+    for src in &parts {
+        for kind in &parts {
+            for tgt in &parts {
+                for name in &names {
+                    let e = edge(src, kind, *name, tgt);
+                    if let Some(other) = seen.insert(edge_text(&e), e.clone()) {
+                        return Err(format!("{other:?} and {e:?} have one text").into());
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(edge_text(&edge("a-b", "k", None, "c")), "a\\-b-k->c");
+    assert_eq!(
+        edge_text(&edge("order", "fk", Some("buyer"), "customer")),
+        "order-fk:buyer->customer"
+    );
+    Ok(())
 }
 
 #[test]

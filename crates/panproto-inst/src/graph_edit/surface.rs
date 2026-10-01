@@ -406,9 +406,14 @@ impl GraphEdit {
     ///
     /// A failing [`Self::Batch`] is diagnosed by replaying its steps on a
     /// copy of `graph`: the error is [`EditError::BatchStep`] naming the
-    /// first step that fails and its error. When every step replays (a net
-    /// delta can fail where its steps do not, for instance on the fan
-    /// domain of an intermediate state), the net delta's error is returned.
+    /// first step that fails and its error. Steps that all replay apply
+    /// their composite, so the replay finds a failing step whenever the net
+    /// delta fails; should none fail, the net delta's error is returned.
+    /// The converse does not hold: the net delta is checked against `graph`
+    /// and its result only, never an intermediate state, so a batch can
+    /// apply although one of its steps alone fails there. Removing a fan's
+    /// parent edge and then adding a new one applies as a batch, while the
+    /// removal alone leaves the fan without a parent.
     ///
     /// # Errors
     ///
