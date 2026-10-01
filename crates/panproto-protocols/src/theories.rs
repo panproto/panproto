@@ -359,7 +359,8 @@ impl RegistrationDiagram {
 
     /// Record the composition of every building block as a one-node
     /// diagram, and insert the block into `registry` under its name,
-    /// keeping a block already there.
+    /// keeping or replacing a theory the registry already holds under that
+    /// name as `existing` says.
     ///
     /// # Panics
     ///
@@ -368,6 +369,7 @@ impl RegistrationDiagram {
     pub(crate) fn register_blocks<S: ::std::hash::BuildHasher>(
         &self,
         registry: &mut HashMap<String, Theory, S>,
+        existing: ExistingBlock,
     ) {
         for block in &self.blocks {
             let name = block.name.to_string();
@@ -376,9 +378,27 @@ impl RegistrationDiagram {
                 .compose(&name)
                 .unwrap_or_else(|e| panic!("composing the building block `{name}` failed: {e}"));
             record(&name, &composition, single.recipe(&name));
-            registry.entry(name).or_insert_with(|| block.clone());
+            match existing {
+                ExistingBlock::Keep => {
+                    registry.entry(name).or_insert_with(|| block.clone());
+                }
+                ExistingBlock::Replace => {
+                    registry.insert(name, block.clone());
+                }
+            }
         }
     }
+}
+
+/// What registering a building block does with a theory the registry
+/// already holds under the block's name.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ExistingBlock {
+    /// Keep the registry's theory, as the group helpers of this module do.
+    Keep,
+    /// Replace it with the block, as [`crate::atproto::register_theories`]
+    /// does.
+    Replace,
 }
 
 /// A shared theory named `name` with the given simple sorts and no
@@ -494,12 +514,18 @@ fn registered() -> &'static Mutex<BTreeMap<String, Registered>> {
 /// report.
 ///
 /// This covers every theory the helpers of this module and
-/// [`crate::atproto::register_theories`] have inserted into a registry in
-/// this process: the schema and instance theory of each protocol, and each
-/// building block, whose composition is the one-node diagram of the block.
-/// The shared theories of a diagram are never inserted into a registry and
-/// have none. The registry itself
-/// stays a map from names to theories; this is kept beside it.
+/// [`crate::atproto::register_theories`] have registered in this process:
+/// the schema and instance theory of each protocol, and each building
+/// block, whose composition is the one-node diagram of the block. The
+/// shared theories of a diagram are never inserted into a registry and
+/// have none. The registry itself stays a map from names to theories; this
+/// is kept beside it, by name, for every registry.
+///
+/// A group helper of this module keeps a theory a registry already holds
+/// under a building block's name, and [`crate::atproto::register_theories`]
+/// replaces it, both as in 0.74. So the composition of a block is the
+/// built-in block's, and its theory differs from the registry's entry when
+/// a group helper kept a caller's own theory under that name.
 #[must_use]
 pub fn registered_composition(theory_name: &str) -> Option<Composition> {
     registered()
@@ -657,7 +683,7 @@ fn register_diagram<S: ::std::hash::BuildHasher>(
     name: &str,
     diagram: &RegistrationDiagram,
 ) {
-    diagram.register_blocks(registry);
+    diagram.register_blocks(registry, ExistingBlock::Keep);
     let composition = diagram
         .compose(name)
         .unwrap_or_else(|e| panic!("composing `{name}` failed: {e}"));

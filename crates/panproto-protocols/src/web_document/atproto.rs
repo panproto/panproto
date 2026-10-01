@@ -77,7 +77,8 @@ pub fn protocol() -> Protocol {
 /// Register the component GATs for `ATProto` with a theory registry.
 ///
 /// Registers `ThGraph`, `ThConstraint`, `ThMulti`, `ThWType`, `ThMeta`,
-/// and the composed `ThATProtoSchema` and `ThATProtoInstance`. Each
+/// and the composed `ThATProtoSchema` and `ThATProtoInstance`, replacing
+/// any theory `registry` already holds under one of these names. Each
 /// composed theory is one diagram composed with explicit identity: the
 /// schema is [`theories::constrained_multigraph_diagram`], and the instance
 /// is `ThWType` and `ThMeta` sharing `Node` and `Value` through `ThNode`.
@@ -145,10 +146,11 @@ fn register_diagrams<S: ::std::hash::BuildHasher>(
         .compose(INSTANCE_THEORY)
         .map_err(fail("instance", instance))?;
 
-    // Everything constructed; commit the whole set, recording each
-    // building block's own composition as the other helpers do.
-    schema.register_blocks(registry);
-    instance.register_blocks(registry);
+    // Everything constructed; commit the whole set, replacing what the
+    // registry holds under these names and recording each building
+    // block's own composition as the other helpers do.
+    schema.register_blocks(registry, theories::ExistingBlock::Replace);
+    instance.register_blocks(registry, theories::ExistingBlock::Replace);
     theories::record(
         SCHEMA_THEORY,
         &schema_composition,
