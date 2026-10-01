@@ -41,7 +41,8 @@ use value_kinds::ValueKindRow;
 /// shape row sets both shapes; a protocol with none keeps the shapes its
 /// constructor gave it. Constraint-semantics and value-kind rows are added
 /// to the maps the constructor built, a row replacing an entry of the same
-/// key.
+/// key. The composition recipes of its schema and instance theories are
+/// filled by [`crate::theories::attach_recipes`].
 pub fn attach(protocol: &mut Protocol) {
     attach_from(
         protocol,
@@ -49,6 +50,7 @@ pub fn attach(protocol: &mut Protocol) {
         constraint_semantics::rows(),
         value_kinds::rows(),
     );
+    crate::theories::attach_recipes(protocol);
 }
 
 /// The canonical name `name` resolves to: the name of the descriptor it

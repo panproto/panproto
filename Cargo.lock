@@ -2295,12 +2295,15 @@ name = "panproto-protocols"
 version = "0.74.4"
 dependencies = [
  "blake3",
+ "ciborium",
  "divan",
  "panproto-expr",
  "panproto-gat",
  "panproto-inst",
+ "panproto-protocols",
  "panproto-schema",
  "proptest",
+ "rmp-serde",
  "rustc-hash",
  "serde",
  "serde_json",
