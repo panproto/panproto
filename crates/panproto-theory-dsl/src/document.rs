@@ -380,13 +380,17 @@ pub struct CompositionSpec_ {
 /// the left symbol and the right symbol that are one symbol of the result.
 /// A left symbol may be named more than once (shared and identified, or
 /// identified with several right symbols), and then every right symbol it
-/// is named with is one symbol with it. In a step with `identify` entries,
-/// every sort that a shared operation or an identified symbol mentions in
-/// its declaration must be shared or identified with the sort in the same
-/// place of its right counterpart's declaration. Every name a step shares
-/// or identifies must be declared on its side, and a shared or identified
-/// pair must take the same number of inputs (operations) or parameters
-/// (sorts).
+/// is named with is one symbol with it. A shared sort may be dependent: the
+/// result declares it with its left parameters. In a step with `identify`
+/// entries, or one that shares a dependent sort, every sort that a shared
+/// or identified symbol mentions in its declaration (a sort's parameter
+/// sorts, an operation's input and output sorts) must be shared or
+/// identified with the sort in the same place of its right counterpart's
+/// declaration. Every name a step shares or identifies must be declared on
+/// its side, and a shared or identified pair must take the same number of
+/// inputs (operations) or parameters (sorts); a step that breaks either
+/// rule is refused with a message naming the symbols, the sort or the two
+/// arities, and the theories.
 /// `mode` says what happens to the other names both sides declare:
 /// [`CompositionMode::Amalgamate`] (the default, and what a step that does
 /// not state a mode has always meant) identifies them too, and

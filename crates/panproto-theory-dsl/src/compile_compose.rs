@@ -4,28 +4,33 @@
 //! recorded as the [`CompositionStep`] that
 //! [`panproto_gat::recompose`] replays to the same theory:
 //!
-//! - a step with no `identify` entries in the default `amalgamate` mode is a
-//!   pushout by name ([`CompositionStep::Colimit`] in
-//!   [`CompositionMode::Amalgamate`]), as every step was before modes;
-//! - a step with no `identify` entries in `explicit_identity` mode is the
-//!   same span composed with explicit identity, refusing any other name the
-//!   two sides share;
-//! - a step with `identify` entries is a [`CompositionStep::Diagram`] over
-//!   the two sides and the shared theories built for the step, whose legs
-//!   send each shared or identified left symbol to its right counterpart; a
-//!   side whose name cannot label a node, or a theory composed with itself,
-//!   is carried inline in the recipe under a label of the step's own.
+//! - a step with no `identify` entries whose shared sorts are all simple is,
+//!   in the default `amalgamate` mode, a pushout by name
+//!   ([`CompositionStep::Colimit`] in [`CompositionMode::Amalgamate`]), as
+//!   every step was before modes, and in `explicit_identity` mode the same
+//!   span composed with explicit identity, refusing any other name the two
+//!   sides share;
+//! - a step with `identify` entries, or one that shares a dependent sort
+//!   (which a `Colimit` recipe step would replay as a simple sort), is a
+//!   [`CompositionStep::Diagram`] over the two sides and the shared theories
+//!   built for the step, whose legs send each shared or identified left
+//!   symbol to its right counterpart; a side whose name cannot label a node,
+//!   or a theory composed with itself, is carried inline in the recipe under
+//!   a label of the step's own.
 //!
-//! A step may name one left symbol more than once, as a shared sort that is
-//! also identified, or identified with several right symbols: every right
-//! symbol it is named with becomes one symbol with it. In a step with
-//! `identify` entries, every sort that a shared operation, or an identified
-//! sort or operation, mentions in its declaration must be shared or
-//! identified with the sort in the same place of the right declaration, so
-//! the legs can map it; a step that leaves one out is refused, naming the
-//! symbol and the sort. Every step refuses a shared or identified name that
-//! a side does not declare, and a shared or identified pair whose arities
-//! differ, naming the symbols and the theories.
+//! The shared theories copy each shared or identified symbol's left
+//! declaration, a shared sort's parameters included. A step may name one
+//! left symbol more than once, as a shared sort that is also identified, or
+//! identified with several right symbols: every right symbol it is named
+//! with becomes one symbol with it. In a step composed as a diagram, every
+//! sort that a shared or identified symbol mentions in its declaration (a
+//! sort's parameter sorts, an operation's input and output sorts) must be
+//! shared or identified with the sort in the same place of the right
+//! declaration, so the legs can map it; a step that leaves one out is
+//! refused, naming the symbol and the sort. Every step refuses a shared or
+//! identified name that a side does not declare, and a shared or identified
+//! pair whose arities differ (an operation's inputs, a sort's parameters),
+//! naming the symbols, their two arities and the theories.
 //!
 //! [`compile_composition_with_report`] also returns the
 //! [`CompositionReport`] of every step.
@@ -202,8 +207,14 @@ fn compose_step(
     let step_name = format!("step_{index}");
     let shared_name = format!("{step_name}_shared");
     let entries = shared_entries(step, left, right).map_err(failed)?;
+    // A `Colimit` recipe step replays every shared sort as a simple sort, so
+    // a step sharing a dependent sort is recorded, and composed, as a
+    // diagram whose legs carry its declaration.
+    let shares_a_dependent_sort = entries
+        .iter()
+        .any(|e| matches!(e, SharedEntry::Sort { decl, .. } if !decl.params.is_empty()));
 
-    if step.identify.is_empty() {
+    if step.identify.is_empty() && !shares_a_dependent_sort {
         let recipe = CompositionStep::Colimit {
             left: step.left.clone(),
             right: step.right.clone(),
@@ -238,17 +249,17 @@ fn compose_step(
     }
 
     let apexes = apexes(&shared_name, entries).map_err(failed)?;
-    compose_identified(step, left, right, apexes, &step_name).map_err(failed)
+    compose_diagram(step, left, right, apexes, &step_name).map_err(failed)
 }
 
-/// Compose a step that has identifications: one diagram over the two sides
-/// and the step's shared theories (see [`apexes`]), each with a leg into
-/// either side.
+/// Compose a step that has identifications, or that shares a dependent
+/// sort: one diagram over the two sides and the step's shared theories (see
+/// [`apexes`]), each with a leg into either side.
 ///
 /// Each side is a node of the diagram, labelled as [`side_node`] says, so a
 /// side whose name cannot label a node, or a theory composed with itself,
 /// composes as it does in a step without identifications.
-fn compose_identified(
+fn compose_diagram(
     step: &ColimitStepSpec,
     left: &Theory,
     right: &Theory,
@@ -469,9 +480,8 @@ impl SharedEntry {
 }
 
 /// The symbols a step shares between its sides, in step order: its shared
-/// sorts (simple, as a pushout by name has always built them), its shared
-/// operations as the left theory declares them, then its identified sorts
-/// and operations, each as the left theory declares it.
+/// sorts, its shared operations, then its identified sorts and operations,
+/// each as the left theory declares it (a sort with its parameters).
 ///
 /// Every named symbol must be declared on its side, and a shared or
 /// identified pair must agree in arity (an operation's inputs, a sort's
@@ -485,28 +495,14 @@ fn shared_entries(
     let sides = Sides { step, left, right };
     let mut entries = Vec::new();
     for name in &step.shared_sorts {
-        for (theory, side, theory_name) in
-            [(left, "left", &step.left), (right, "right", &step.right)]
-        {
-            if !theory.has_sort(name) {
-                return Err(format!(
-                    "shared sort '{name}' not found in {side} theory '{theory_name}'"
-                ));
-            }
-        }
-        let name: Arc<str> = Arc::from(name.as_str());
-        entries.push(SharedEntry::Sort {
-            decl: Sort::simple(&*name),
-            images: vec![(Arc::clone(&name), Arc::clone(&name))],
-            right: name,
-        });
+        entries.push(sides.sort_entry("shared", name, name)?);
     }
     for op_name in &step.shared_ops {
         entries.push(sides.op_entry("shared", op_name, op_name)?);
     }
     for pair in &step.identify {
         entries.push(match pair.kind {
-            IdentifyKind::Sort => sides.sort_entry(&pair.left, &pair.right)?,
+            IdentifyKind::Sort => sides.sort_entry("identified", &pair.left, &pair.right)?,
             IdentifyKind::Op => sides.op_entry("identified", &pair.left, &pair.right)?,
         });
     }
@@ -521,23 +517,31 @@ struct Sides<'a> {
 }
 
 impl Sides<'_> {
-    /// The entry for the identified sorts `left_name` and `right_name`.
-    fn sort_entry(&self, left_name: &str, right_name: &str) -> Result<SharedEntry, String> {
+    /// The entry for the sorts `left_name` and `right_name`, shared or
+    /// identified as `what` says: the left declaration, with the sort itself
+    /// and each of its parameter sorts paired with the right sort in the
+    /// same place.
+    fn sort_entry(
+        &self,
+        what: &str,
+        left_name: &str,
+        right_name: &str,
+    ) -> Result<SharedEntry, String> {
         let sort = self.left.find_sort(left_name).ok_or_else(|| {
             format!(
-                "identified sort '{left_name}' not found in left theory '{}'",
+                "{what} sort '{left_name}' not found in left theory '{}'",
                 self.step.left
             )
         })?;
         let counterpart = self.right.find_sort(right_name).ok_or_else(|| {
             format!(
-                "identified sort '{right_name}' not found in right theory '{}'",
+                "{what} sort '{right_name}' not found in right theory '{}'",
                 self.step.right
             )
         })?;
         if sort.params.len() != counterpart.params.len() {
             return Err(format!(
-                "identified sort '{left_name}' has arity {} in left theory '{}', but \
+                "{what} sort '{left_name}' has arity {} in left theory '{}', but \
                  '{right_name}' has arity {} in right theory '{}'",
                 sort.params.len(),
                 self.step.left,
@@ -609,8 +613,9 @@ impl Sides<'_> {
     }
 }
 
-/// The theory a step without identifications shares between its sides,
-/// named `name`: its shared sorts, then its shared operations.
+/// The theory a step composed as a pushout by name (no identifications, no
+/// dependent shared sort) shares between its sides, named `name`: its
+/// shared sorts, then its shared operations.
 fn shared_theory(name: &str, entries: Vec<SharedEntry>) -> Theory {
     let mut sorts = Vec::new();
     let mut ops = Vec::new();
@@ -623,7 +628,7 @@ fn shared_theory(name: &str, entries: Vec<SharedEntry>) -> Theory {
     Theory::new(name, sorts, ops, vec![])
 }
 
-/// One shared theory of a step with identifications, with the right
+/// One shared theory of a step composed as a diagram, with the right
 /// counterpart of each of its symbols.
 struct Apex {
     /// The shared theory, named by its node label.
@@ -756,7 +761,7 @@ fn closure<'a>(
     Ok(members)
 }
 
-/// The shared theories of a step with identifications, labelled `base`,
+/// The shared theories of a step composed as a diagram, labelled `base`,
 /// `{base}_1`, `{base}_2`, ...
 ///
 /// Each shared theory has legs into the two sides, so it declares each
