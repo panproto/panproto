@@ -23,6 +23,7 @@
 //! | [`VALIDATION_PLAN_CONTEXT`], [`VALIDATION_REPORT_CONTEXT`] | validation plans and reports |
 //! | [`SEGMENT_CONTEXT`], [`SEGMENT_COMPLEMENT_CONTEXT`], [`SEGMENT_CROSS_CONTEXT`], [`SEGMENT_TASK_CONTEXT`], [`MANIFEST_LEAF_CONTEXT`], [`MANIFEST_NODE_CONTEXT`], [`MANIFEST_CONTEXT`], [`RUN_JOURNAL_CONTEXT`] | segmented execution |
 //! | [`RESOLUTION_CONTEXT`]        | a resolution's protocol, kind and schemas    |
+//! | [`THEORY_CONTEXT`], [`COMPOSITION_CONTEXT`] | [`panproto_schema::canonical_theory_bytes`], [`panproto_schema::canonical_composition_bytes`] (defined in [`panproto_schema::canonical_theory`]) |
 //!
 //! Every context is a constant string: no id, count or range ever appears
 //! in one, so a context names a kind of object and never an object.
@@ -194,6 +195,11 @@ pub const SEGMENT_MANIFEST_VERSION: u16 = 1;
 /// protocol, the resolution kind and the syntactic and semantic schema
 /// digests.
 pub const RESOLUTION_CONTEXT: &str = "panproto 2026-09 resolution identity v1";
+
+/// The theory and theory-composition contexts. They are defined beside
+/// their encoders in [`panproto_schema::canonical_theory`] and re-exported
+/// here so that every identity context is reachable from this module.
+pub use panproto_schema::{COMPOSITION_CONTEXT, THEORY_CONTEXT};
 
 // ---------------------------------------------------------------------------
 // Digest.
