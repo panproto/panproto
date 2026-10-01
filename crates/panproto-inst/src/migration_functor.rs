@@ -1,45 +1,37 @@
-//! The functor a compiled migration states between relation-ified schemas.
+//! The functor a compiled migration states between attributed relation-ified
+//! schemas.
 //!
-//! Every table operation along a migration (`Delta_F`, `Sigma_F`, `Pi_F`,
-//! their units, counits and transposes) reads one [`MigrationFunctor`], built
-//! once from the two schemas and the compiled migration, so they agree on
-//! what `F` is.
+//! A migration states a functor `F: S' -> T` from the part `S'` of the
+//! source [`RelSchema`] it keeps to the target one: a map on tables, one on
+//! relations, and one on the columns of each kept table. Two types carry it.
+//! [`EntityFunctor`] is the functor together with the migration's remaps of
+//! edges inside column values; the table restrict reads it, and applies
+//! those remaps to the values it copies. [`MigrationFunctor`] is the functor
+//! the Kan extensions (`Delta_F`, `Sigma_F`, `Pi_F`, their units, counits,
+//! transposes and actions on homomorphisms) read; it is obtained only from
+//! an entity functor whose value remaps change no value's structure
+//! ([`EntityFunctor::into_kan`]), so the Kan extensions never see one that
+//! does.
+//!
+//! One rule reads the migration's lists of survivors: a name listed in
+//! `surviving_verts` or `surviving_edges` that `vertex_remap` or `edge_remap`
+//! names as the image of something is a target element (as
+//! `panproto_mig::compile` lists the images there), not a source one; any
+//! other listed name is read against the source schema.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Schema};
+use panproto_schema::{Edge, Protocol, Schema};
 
 use crate::error::RestrictError;
-use crate::rel_schema::RelSchema;
+use crate::rel_schema::{RelSchema, RelSchemaError};
 use crate::wtype::CompiledMigration;
 
-/// A functor `F: S' -> T` between relation-ified schemas ([`RelSchema`]).
-///
-/// `S'` is the part of the source schema the migration keeps: the source
-/// tables the migration names an image for (keys of `vertex_remap`) or lets
-/// survive under their own name (members of `surviving_verts` that are
-/// tables of the source schema and that `vertex_remap` names as no table's
-/// image, since `panproto_mig::compile` lists those images as surviving
-/// target vertices), and the source foreign keys between two
-/// kept tables that the migration carries (keys of `edge_remap`) or lets
-/// survive (members of `surviving_edges` that are edges of the source
-/// schema and that `edge_remap` names as no edge's image, by the same rule
-/// as the tables, since `panproto_mig::compile` lists those images as
-/// surviving target edges). A source table in `vertex_remap` goes to its entry, a surviving
-/// one to itself; a carried foreign key goes to its `edge_remap` entry, a
-/// surviving one to the edge of its kind and name between the images of its
-/// endpoints. The arrows `src_e` and `tgt_e` of a kept foreign key go to the
-/// arrows `src_F(e)` and `tgt_F(e)`, which is what makes `F` a functor.
-///
-/// An edge of the source schema the migration does not mention is outside
-/// `S'`: no operation reads its pairs, and none is constrained by it.
-/// Members of `surviving_edges` and `surviving_verts` are read against the
-/// source schema, so an edge or vertex only the target has (as
-/// `panproto_mig::compile` lists the surviving image edges) is never taken
-/// for a source one.
+/// The maps of a functor between relation-ified schemas, shared by
+/// [`EntityFunctor`] and [`MigrationFunctor`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct MigrationFunctor {
+struct Maps {
     /// The relation-ified source schema `S` (of which `S'` is a part).
     source: RelSchema,
     /// The relation-ified target schema `T`.
@@ -48,98 +40,382 @@ pub struct MigrationFunctor {
     tables: BTreeMap<Name, Name>,
     /// The image of each relation of `S'`.
     relations: BTreeMap<Edge, Edge>,
+    /// The image column of each kept column `(source table, column)`: a
+    /// column of the image of the table.
+    columns: BTreeMap<(Name, String), String>,
 }
 
-impl MigrationFunctor {
-    /// The functor `migration` states from `src` to `tgt`, read as the type
-    /// documents.
+/// The functor a migration states between relation-ified schemas, with the
+/// migration's remaps of the edges inside column values.
+///
+/// Built by [`MigrationFunctor::entity_part`] or [`EntityFunctor::between`],
+/// which run every check of the functor except the one on value remaps;
+/// [`EntityFunctor::into_kan`] runs that one and yields the
+/// [`MigrationFunctor`] the Kan extensions take.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct EntityFunctor {
+    /// The maps on tables, relations and columns.
+    maps: Maps,
+    /// Each `edge_remap` entry whose key is an inner value edge of the
+    /// source, with its image.
+    inner_edges: BTreeMap<Edge, Edge>,
+    /// Each `vertex_remap` entry whose key is a value vertex of the source.
+    value_remap: BTreeMap<Name, Name>,
+}
+
+/// The functor `F: S' -> T` the Kan extensions of table instances take.
+///
+/// `S'` holds the source tables the migration keeps: those `vertex_remap`
+/// maps, and those it lets survive under their own name. Of the relations
+/// between kept tables it holds those `edge_remap` maps or lets survive, and
+/// of the columns (attribute arrows) of kept tables those `edge_remap` maps
+/// or lets survive. A kept table goes to its `vertex_remap` entry or to
+/// itself; a kept relation to its `edge_remap` entry or to the edge of its
+/// kind and name between the images of its endpoints; a kept column to the
+/// column of its `edge_remap` entry, or of the target attribute arrow of its
+/// kind and name from the image of its table. The arrows `src_e` and `tgt_e`
+/// of a kept relation go to those of its image, which is what makes `F` a
+/// functor; on the value side `F` is the identity. An edge or column the
+/// migration does not mention is outside `S'`: no operation reads it, and
+/// none is constrained by it. The column map may send two columns of one
+/// table to one column, and may miss columns of the target.
+///
+/// ```
+/// use std::collections::{BTreeMap, BTreeSet, HashMap};
+///
+/// use panproto_inst::{CompiledMigration, MigrationFunctor};
+/// use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
+///
+/// let vertex = |id: &str, kind: &str| {
+///     (id.into(), Vertex { id: id.into(), kind: kind.into(), nsid: None })
+/// };
+/// let column = |table: &str, name: &str| Edge {
+///     src: table.into(),
+///     tgt: format!("{table}.{name}").into(),
+///     kind: "prop".into(),
+///     name: Some(name.into()),
+/// };
+/// let schema = |name: &str| Schema {
+///     vertices: HashMap::from([
+///         vertex("post", "record"),
+///         vertex(&format!("post.{name}"), "string"),
+///     ]),
+///     edges: HashMap::from([(column("post", name), "prop".into())]),
+///     ..Schema::default()
+/// };
+/// let protocol = Protocol {
+///     value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+///     non_value_kinds: BTreeSet::from(["record".to_owned()]),
+///     ..Protocol::default()
+/// };
+/// let mut rename = CompiledMigration::default();
+/// rename.vertex_remap.insert("post".into(), "post".into());
+/// rename.vertex_remap.insert("post.title".into(), "post.name".into());
+/// rename.edge_remap.insert(column("post", "title"), column("post", "name"));
+/// let f = MigrationFunctor::new(&schema("title"), &protocol, &schema("name"), &protocol, &rename)?;
+/// assert_eq!(f.column_image("post", "title"), Some("name"));
+/// f.attribute_surjective()?;
+/// # Ok::<(), panproto_inst::RestrictError>(())
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MigrationFunctor {
+    /// The maps on tables, relations and columns.
+    maps: Maps,
+}
+
+/// Build the maps of the functor `migration` states between `source` and
+/// `target`, and the remaps of inner value edges: steps 1 to 4a.
+fn entity_maps(
+    source: RelSchema,
+    target: RelSchema,
+    migration: &CompiledMigration,
+) -> Result<EntityFunctor, RestrictError> {
+    let vertex_images: BTreeSet<&Name> = migration.vertex_remap.values().collect();
+    let edge_images: BTreeSet<&Edge> = migration.edge_remap.values().collect();
+    let survives_vertex =
+        |v: &Name| migration.surviving_verts.contains(v) && !vertex_images.contains(v);
+    let survives_edge =
+        |e: &Edge| migration.surviving_edges.contains(e) && !edge_images.contains(e);
+
+    // Step 1: tables.
+    let mut tables = BTreeMap::new();
+    for table in source.tables() {
+        let image = match migration.vertex_remap.get(table) {
+            Some(image) => image,
+            None if survives_vertex(table) => table,
+            None => continue,
+        };
+        if !target.is_table(image) {
+            return Err(RestrictError::VertexImageNotATable {
+                vertex: table.clone(),
+                image: image.clone(),
+            });
+        }
+        tables.insert(table.clone(), image.clone());
+    }
+
+    // Step 2: relations between kept tables.
+    let mut relations = BTreeMap::new();
+    for edge in source.relations() {
+        let (Some(src), Some(tgt)) = (tables.get(&edge.src), tables.get(&edge.tgt)) else {
+            continue;
+        };
+        let image = match migration.edge_remap.get(edge) {
+            Some(image) => image.clone(),
+            None if survives_edge(edge) => Edge {
+                src: src.clone(),
+                tgt: tgt.clone(),
+                kind: edge.kind.clone(),
+                name: edge.name.clone(),
+            },
+            None => continue,
+        };
+        if &image.src != src || &image.tgt != tgt || !target.is_relation(&image) {
+            return Err(RestrictError::IncoherentEdgeImage {
+                edge: Box::new(edge.clone()),
+                image: Box::new(image),
+            });
+        }
+        relations.insert(edge.clone(), image);
+    }
+
+    // Step 3: the columns of kept tables.
+    let mut columns = BTreeMap::new();
+    for (table, image_table) in &tables {
+        for (column, arrow) in source.columns(table) {
+            let value_image = migration.vertex_remap.get(&arrow.tgt);
+            let image = if let Some(image) = migration.edge_remap.get(arrow) {
+                let coherent = target.attribute_column(image).is_some()
+                    && image.src == *image_table
+                    && value_image.is_none_or(|v| image.tgt == *v);
+                if !coherent {
+                    return Err(RestrictError::IncoherentAttributeImage {
+                        edge: Box::new(arrow.clone()),
+                        image: Some(Box::new(image.clone())),
+                    });
+                }
+                image.clone()
+            } else if survives_edge(arrow) {
+                let image = Edge {
+                    src: image_table.clone(),
+                    tgt: value_image.unwrap_or(&arrow.tgt).clone(),
+                    kind: arrow.kind.clone(),
+                    name: arrow.name.clone(),
+                };
+                if target.attribute_column(&image).is_none() {
+                    return Err(RestrictError::IncoherentAttributeImage {
+                        edge: Box::new(arrow.clone()),
+                        image: None,
+                    });
+                }
+                image
+            } else {
+                continue;
+            };
+            let image_column = target.attribute_column(&image).unwrap_or_default();
+            columns.insert((table.clone(), column.clone()), image_column.to_owned());
+        }
+    }
+
+    // Step 4a: no remap crosses the divide between entities and values, and
+    // the remaps of inner value edges are recorded.
+    let mut entries: Vec<(&Edge, &Edge)> = migration.edge_remap.iter().collect();
+    entries.sort();
+    let mut inner_edges = BTreeMap::new();
+    for (edge, image) in entries {
+        if source.is_relation(edge) && target.attribute_column(image).is_some() {
+            return Err(RestrictError::IncoherentEdgeImage {
+                edge: Box::new(edge.clone()),
+                image: Box::new(image.clone()),
+            });
+        }
+        if source.attribute_column(edge).is_some() && target.is_relation(image) {
+            return Err(RestrictError::IncoherentAttributeImage {
+                edge: Box::new(edge.clone()),
+                image: Some(Box::new(image.clone())),
+            });
+        }
+        if source.is_inner_edge(edge) {
+            inner_edges.insert(edge.clone(), image.clone());
+        }
+    }
+    let value_remap = migration
+        .vertex_remap
+        .iter()
+        .filter(|(vertex, _)| source.value_kind(vertex).is_some())
+        .map(|(vertex, image)| (vertex.clone(), image.clone()))
+        .collect();
+    Ok(EntityFunctor {
+        maps: Maps {
+            source,
+            target,
+            tables,
+            relations,
+            columns,
+        },
+        inner_edges,
+        value_remap,
+    })
+}
+
+impl EntityFunctor {
+    /// The entity functor `migration` states between relation-ified schemas
+    /// built already.
     ///
     /// # Errors
     ///
-    /// Returns [`RestrictError::VertexImageNotATable`] when a kept source
-    /// table's image is not a table of `tgt`, and
-    /// [`RestrictError::IncoherentEdgeImage`] when a kept foreign key's image
-    /// is not a foreign key of `tgt` running from the image of its source to
-    /// the image of its target. Tables are checked before foreign keys, each
-    /// in ascending order.
-    pub fn new(
-        src: &Schema,
-        tgt: &Schema,
+    /// As [`MigrationFunctor::entity_part`], without its classification
+    /// step.
+    pub fn between(
+        source: RelSchema,
+        target: RelSchema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
-        Self::between(RelSchema::new(src), RelSchema::new(tgt), migration)
+        entity_maps(source, target, migration)
+    }
+
+    /// The functor the Kan extensions take: this one, once no remap of an
+    /// edge inside a column's value changes that value's structure.
+    ///
+    /// A remap of an inner value edge `e` to `e'` is accepted when `e'` is an
+    /// inner value edge of the target with the name and kind of `e`, and the
+    /// kinds of its endpoints are those of the images of `e`'s endpoints
+    /// under `vertex_remap` (an endpoint the migration does not remap keeps
+    /// its own kind). Such a remap only renames vertices, which a value does
+    /// not record, so every cell keeps its structure.
+    ///
+    /// # Errors
+    ///
+    /// [`RestrictError::ValueStructureRemap`] for the least inner value edge
+    /// whose remap is not accepted.
+    pub fn into_kan(self) -> Result<MigrationFunctor, RestrictError> {
+        let (source, target) = (&self.maps.source, &self.maps.target);
+        let expected = |vertex: &Name| match self.value_remap.get(vertex) {
+            Some(image) => target.value_kind(image),
+            None => source.value_kind(vertex),
+        };
+        for (edge, image) in &self.inner_edges {
+            let keeps_structure = target.is_inner_edge(image)
+                && image.name == edge.name
+                && image.kind == edge.kind
+                && target.value_kind(&image.src).is_some()
+                && target.value_kind(&image.src) == expected(&edge.src)
+                && target.value_kind(&image.tgt).is_some()
+                && target.value_kind(&image.tgt) == expected(&edge.tgt);
+            if !keeps_structure {
+                return Err(RestrictError::ValueStructureRemap {
+                    edge: Box::new(edge.clone()),
+                });
+            }
+        }
+        Ok(MigrationFunctor { maps: self.maps })
+    }
+
+    /// The relation-ified source schema `S`.
+    #[must_use]
+    pub const fn source(&self) -> &RelSchema {
+        &self.maps.source
+    }
+
+    /// The relation-ified target schema `T`.
+    #[must_use]
+    pub const fn target(&self) -> &RelSchema {
+        &self.maps.target
+    }
+
+    /// The tables of `S'` with their images, ascending.
+    #[must_use]
+    pub const fn table_map(&self) -> &BTreeMap<Name, Name> {
+        &self.maps.tables
+    }
+
+    /// The relations of `S'` with their images, ascending.
+    #[must_use]
+    pub const fn relation_map(&self) -> &BTreeMap<Edge, Edge> {
+        &self.maps.relations
+    }
+
+    /// The kept columns `(source table, column)` with their image columns,
+    /// ascending.
+    #[must_use]
+    pub const fn column_map(&self) -> &BTreeMap<(Name, String), String> {
+        &self.maps.columns
+    }
+
+    /// The migration's remaps of inner value edges of the source, ascending.
+    #[must_use]
+    pub const fn inner_edges(&self) -> &BTreeMap<Edge, Edge> {
+        &self.inner_edges
+    }
+}
+
+impl MigrationFunctor {
+    /// The entity functor `migration` states from `src` (under
+    /// `src_protocol`) to `tgt` (under `tgt_protocol`): every check of the
+    /// functor but the one on value remaps.
+    ///
+    /// # Errors
+    ///
+    /// Each step reports its least offending element, and the steps run in
+    /// this order: [`RestrictError::RelSchema`] when either schema has no
+    /// relation-ified form (the source first);
+    /// [`RestrictError::VertexImageNotATable`] when a kept table's image is
+    /// no table of the target; [`RestrictError::IncoherentEdgeImage`] when a
+    /// kept relation's image is no relation of the target between the
+    /// images of its endpoints; [`RestrictError::IncoherentAttributeImage`]
+    /// when a kept column's image is no column of the image of its table
+    /// (ending at the image of its vertex, when `vertex_remap` maps that);
+    /// and then, over every `edge_remap` entry, `IncoherentEdgeImage` for a
+    /// relation sent to an attribute arrow and `IncoherentAttributeImage` for
+    /// an attribute arrow sent to a relation.
+    pub fn entity_part(
+        src: &Schema,
+        src_protocol: &Protocol,
+        tgt: &Schema,
+        tgt_protocol: &Protocol,
+        migration: &CompiledMigration,
+    ) -> Result<EntityFunctor, RestrictError> {
+        let source = RelSchema::new(src, src_protocol)?;
+        let target = RelSchema::new(tgt, tgt_protocol)?;
+        EntityFunctor::between(source, target, migration)
+    }
+
+    /// The functor `migration` states from `src` to `tgt`:
+    /// [`Self::entity_part`] followed by [`EntityFunctor::into_kan`].
+    ///
+    /// # Errors
+    ///
+    /// As those two, in that order.
+    pub fn new(
+        src: &Schema,
+        src_protocol: &Protocol,
+        tgt: &Schema,
+        tgt_protocol: &Protocol,
+        migration: &CompiledMigration,
+    ) -> Result<Self, RestrictError> {
+        Self::entity_part(src, src_protocol, tgt, tgt_protocol, migration)?.into_kan()
     }
 
     /// [`Self::new`] over relation-ified schemas built already.
     ///
     /// # Errors
     ///
-    /// As [`Self::new`].
+    /// As [`EntityFunctor::between`] and [`EntityFunctor::into_kan`].
     pub fn between(
         source: RelSchema,
         target: RelSchema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
-        // A listed surviving vertex that the vertex map names as some table's
-        // image is a target vertex, not a source one.
-        let images: BTreeSet<&Name> = migration.vertex_remap.values().collect();
-        let mut tables = BTreeMap::new();
-        for table in source.tables() {
-            let image = match migration.vertex_remap.get(table) {
-                Some(image) => image,
-                None if migration.surviving_verts.contains(table) && !images.contains(table) => {
-                    table
-                }
-                None => continue,
-            };
-            if !target.is_table(image) {
-                return Err(RestrictError::VertexImageNotATable {
-                    vertex: table.clone(),
-                    image: image.clone(),
-                });
-            }
-            tables.insert(table.clone(), image.clone());
-        }
-        // Likewise a listed surviving edge that the edge map names as some
-        // edge's image is a target edge.
-        let edge_images: BTreeSet<&Edge> = migration.edge_remap.values().collect();
-        let mut relations = BTreeMap::new();
-        for edge in source.relations() {
-            let (Some(src), Some(tgt)) = (tables.get(&edge.src), tables.get(&edge.tgt)) else {
-                continue;
-            };
-            let image = match migration.edge_remap.get(edge) {
-                Some(image) => image.clone(),
-                None if migration.surviving_edges.contains(edge) && !edge_images.contains(edge) => {
-                    Edge {
-                        src: src.clone(),
-                        tgt: tgt.clone(),
-                        kind: edge.kind.clone(),
-                        name: edge.name.clone(),
-                    }
-                }
-                None => continue,
-            };
-            if &image.src != src || &image.tgt != tgt || !target.is_relation(&image) {
-                return Err(RestrictError::IncoherentEdgeImage {
-                    edge: Box::new(edge.clone()),
-                    image: Box::new(image),
-                });
-            }
-            relations.insert(edge.clone(), image);
-        }
-        Ok(Self {
-            source,
-            target,
-            tables,
-            relations,
-        })
+        EntityFunctor::between(source, target, migration)?.into_kan()
     }
 
     /// The identity functor on the relation-ified schema of `schema`.
-    #[must_use]
-    pub fn identity(schema: &Schema) -> Self {
-        let rel = RelSchema::new(schema);
+    ///
+    /// # Errors
+    ///
+    /// As [`RelSchema::new`].
+    pub fn identity(schema: &Schema, protocol: &Protocol) -> Result<Self, RelSchemaError> {
+        let rel = RelSchema::new(schema, protocol)?;
         let tables = rel
             .tables()
             .iter()
@@ -150,54 +426,105 @@ impl MigrationFunctor {
             .iter()
             .map(|e| (e.clone(), e.clone()))
             .collect();
-        Self {
-            source: rel.clone(),
-            target: rel,
-            tables,
-            relations,
-        }
+        let columns = rel
+            .all_columns()
+            .iter()
+            .flat_map(|(table, columns)| {
+                columns
+                    .keys()
+                    .map(move |column| ((table.clone(), column.clone()), column.clone()))
+            })
+            .collect();
+        Ok(Self {
+            maps: Maps {
+                source: rel.clone(),
+                target: rel,
+                tables,
+                relations,
+                columns,
+            },
+        })
     }
 
     /// The relation-ified source schema `S`.
     #[must_use]
     pub const fn source(&self) -> &RelSchema {
-        &self.source
+        &self.maps.source
     }
 
     /// The relation-ified target schema `T`.
     #[must_use]
     pub const fn target(&self) -> &RelSchema {
-        &self.target
+        &self.maps.target
     }
 
     /// The tables of `S'` with their images, ascending.
     #[must_use]
     pub const fn table_map(&self) -> &BTreeMap<Name, Name> {
-        &self.tables
+        &self.maps.tables
     }
 
     /// The relations of `S'` with their images, ascending.
     #[must_use]
     pub const fn relation_map(&self) -> &BTreeMap<Edge, Edge> {
-        &self.relations
+        &self.maps.relations
+    }
+
+    /// The kept columns `(source table, column)` with their image columns,
+    /// ascending.
+    #[must_use]
+    pub const fn column_map(&self) -> &BTreeMap<(Name, String), String> {
+        &self.maps.columns
     }
 
     /// The image of a table of `S'`, or `None` outside `S'`.
     #[must_use]
     pub fn table_image(&self, table: &str) -> Option<&Name> {
-        self.tables.get(table)
+        self.maps.tables.get(table)
     }
 
     /// The image of a relation of `S'`, or `None` outside `S'`.
     #[must_use]
     pub fn relation_image(&self, edge: &Edge) -> Option<&Edge> {
-        self.relations.get(edge)
+        self.maps.relations.get(edge)
+    }
+
+    /// The image column of a kept column, or `None` outside `S'`.
+    #[must_use]
+    pub fn column_image(&self, table: &str, column: &str) -> Option<&str> {
+        self.maps
+            .columns
+            .get(&(Name::from(table), column.to_owned()))
+            .map(String::as_str)
+    }
+
+    /// The kept columns of a table of `S'`, ascending.
+    #[must_use]
+    pub fn kept_columns(&self, table: &str) -> Vec<&String> {
+        self.maps
+            .columns
+            .keys()
+            .filter(|(t, _)| t.as_ref() == table)
+            .map(|(_, column)| column)
+            .collect()
+    }
+
+    /// The kept columns of `table` sent to `column`, ascending.
+    #[must_use]
+    pub fn column_preimage(&self, table: &str, column: &str) -> Vec<&String> {
+        self.maps
+            .columns
+            .iter()
+            .filter(|((t, _), image)| t.as_ref() == table && image.as_str() == column)
+            .map(|((_, c), _)| c)
+            .collect()
     }
 
     /// The fibre of a target table: the tables of `S'` sent to it, ascending.
     #[must_use]
     pub fn table_fibre(&self, table: &str) -> Vec<&Name> {
-        self.tables
+        self.maps
+            .tables
             .iter()
             .filter(|(_, image)| image.as_ref() == table)
             .map(|(source, _)| source)
@@ -208,7 +535,8 @@ impl MigrationFunctor {
     /// ascending.
     #[must_use]
     pub fn relation_fibre(&self, edge: &Edge) -> Vec<&Edge> {
-        self.relations
+        self.maps
+            .relations
             .iter()
             .filter(|(_, image)| *image == edge)
             .map(|(source, _)| source)
@@ -219,12 +547,13 @@ impl MigrationFunctor {
     /// tables outside the image, by target table ascending.
     pub(crate) fn table_fibres(&self) -> BTreeMap<&Name, Vec<&Name>> {
         let mut fibres: BTreeMap<&Name, Vec<&Name>> = self
+            .maps
             .target
             .tables()
             .iter()
             .map(|t| (t, Vec::new()))
             .collect();
-        for (source, image) in &self.tables {
+        for (source, image) in &self.maps.tables {
             fibres.entry(image).or_default().push(source);
         }
         fibres
@@ -234,12 +563,13 @@ impl MigrationFunctor {
     /// target relation ascending.
     pub(crate) fn relation_fibres(&self) -> BTreeMap<&Edge, Vec<&Edge>> {
         let mut fibres: BTreeMap<&Edge, Vec<&Edge>> = self
+            .maps
             .target
             .relations()
             .iter()
             .map(|e| (e, Vec::new()))
             .collect();
-        for (source, image) in &self.relations {
+        for (source, image) in &self.maps.relations {
             fibres.entry(image).or_default().push(source);
         }
         fibres
@@ -248,20 +578,57 @@ impl MigrationFunctor {
     /// The tables of `T` outside the image of `F`, ascending.
     #[must_use]
     pub fn tables_outside_image(&self) -> BTreeSet<&Name> {
-        let image: BTreeSet<&Name> = self.tables.values().collect();
-        self.target
+        let image: BTreeSet<&Name> = self.maps.tables.values().collect();
+        self.maps
+            .target
             .tables()
             .iter()
             .filter(|t| !image.contains(t))
             .collect()
     }
+
+    /// Whether `F` is surjective on attributes: every column of every target
+    /// table is the image of a kept column of some table of its fibre. A
+    /// target table outside the image passes only when it has no columns.
+    /// Along such a functor the right Kan extension exists; along any other
+    /// it does not, since a column outside the image would have to hold
+    /// every value at once.
+    ///
+    /// # Errors
+    ///
+    /// [`RestrictError::AttributeOutsideImage`] for the least target table,
+    /// and column, that is the image of no kept column.
+    pub fn attribute_surjective(&self) -> Result<(), RestrictError> {
+        let hit: BTreeSet<(&Name, &str)> = self
+            .maps
+            .columns
+            .iter()
+            .filter_map(|((table, _), image)| Some((self.maps.tables.get(table)?, image.as_str())))
+            .collect();
+        for (table, columns) in self.maps.target.all_columns() {
+            if let Some(column) = columns
+                .keys()
+                .find(|column| !hit.contains(&(table, column.as_str())))
+            {
+                return Err(RestrictError::AttributeOutsideImage {
+                    table: table.clone(),
+                    column: column.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use panproto_schema::Vertex;
+    use std::collections::HashMap;
+
+    use panproto_schema::{ScalarKind, Vertex};
 
     use super::*;
+    use crate::functor::{FInstance, Row};
+    use crate::view_ref::RowId;
 
     fn fk(src: &str, tgt: &str, name: &str) -> Edge {
         Edge {
@@ -272,27 +639,87 @@ mod tests {
         }
     }
 
-    fn table_schema(tables: &[&str], relations: &[Edge]) -> Schema {
+    /// The attribute arrow of column `column` of `table`, to the vertex
+    /// `table.column`.
+    fn column(table: &str, column: &str) -> Edge {
+        Edge {
+            src: table.into(),
+            tgt: format!("{table}.{column}").into(),
+            kind: "prop".into(),
+            name: Some(column.into()),
+        }
+    }
+
+    /// A schema of tables (kind `record`) with integer columns, and the given
+    /// relations and further edges.
+    fn schema(tables: &[(&str, &[&str])], edges: &[Edge]) -> Schema {
+        let mut vertices = HashMap::new();
+        let mut all = HashMap::new();
+        for (table, columns) in tables {
+            vertices.insert(
+                Name::from(*table),
+                Vertex {
+                    id: (*table).into(),
+                    kind: "record".into(),
+                    nsid: None,
+                },
+            );
+            for c in *columns {
+                let arrow = column(table, c);
+                vertices.insert(
+                    arrow.tgt.clone(),
+                    Vertex {
+                        id: arrow.tgt.clone(),
+                        kind: "integer".into(),
+                        nsid: None,
+                    },
+                );
+                all.insert(arrow, Name::from("prop"));
+            }
+        }
+        for e in edges {
+            all.insert(e.clone(), e.kind.clone());
+        }
         Schema {
-            vertices: tables
-                .iter()
-                .map(|&v| {
-                    (
-                        Name::from(v),
-                        Vertex {
-                            id: v.into(),
-                            kind: "table".into(),
-                            nsid: None,
-                        },
-                    )
-                })
-                .collect(),
-            edges: relations
-                .iter()
-                .map(|e| (e.clone(), e.kind.clone()))
-                .collect(),
+            vertices,
+            edges: all,
             ..Schema::default()
         }
+    }
+
+    /// The protocol of [`schema`]: `record` tables, `integer`, `list` and
+    /// `string` values.
+    fn protocol() -> Protocol {
+        Protocol {
+            value_kinds: BTreeMap::from([
+                (
+                    "integer".to_owned(),
+                    ScalarKind::Int {
+                        bits: 64,
+                        signed: true,
+                    },
+                ),
+                ("list".to_owned(), ScalarKind::Any),
+                ("string".to_owned(), ScalarKind::Str),
+            ]),
+            non_value_kinds: BTreeSet::from(["record".to_owned()]),
+            ..Protocol::default()
+        }
+    }
+
+    fn functor(
+        src: &Schema,
+        tgt: &Schema,
+        m: &CompiledMigration,
+    ) -> Result<MigrationFunctor, RestrictError> {
+        MigrationFunctor::new(src, &protocol(), tgt, &protocol(), m)
+    }
+
+    fn row(cells: &[(&str, i64)]) -> Row {
+        cells
+            .iter()
+            .map(|(c, v)| ((*c).to_owned(), crate::Value::Int(*v)))
+            .collect()
     }
 
     /// `panproto_mig::compile` lists the surviving image edges, which are
@@ -302,18 +729,18 @@ mod tests {
     #[test]
     fn a_target_only_edge_is_not_a_source_edge() -> Result<(), Box<dyn std::error::Error>> {
         let e = fk("a", "b", "e");
-        let src = table_schema(&["a", "b"], &[]);
-        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&e));
+        let src = schema(&[("a", &[]), ("b", &[])], &[]);
+        let tgt = schema(&[("a", &[]), ("b", &[])], std::slice::from_ref(&e));
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
         m.surviving_edges.insert(e.clone());
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        let f = functor(&src, &tgt, &m)?;
         assert!(f.relation_map().is_empty());
         assert_eq!(f.relation_fibre(&e), Vec::<&Edge>::new());
-        let y = crate::FInstance::new()
-            .with_rows("a", [(crate::RowId(0), crate::Row::new())])
-            .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
-            .and_then(|i| i.with_foreign_key(e.clone(), [(crate::RowId(0), crate::RowId(1))]))?;
+        let y = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new())])
+            .and_then(|i| i.with_rows("b", [(RowId(1), Row::new())]))
+            .and_then(|i| i.with_foreign_key(e.clone(), [(RowId(0), RowId(1))]))?;
         let delta = crate::f_delta(&y, &f)?;
         assert_eq!(delta.pair_count(), 0, "{delta:?}");
         assert_eq!(delta.total_row_count(), 2);
@@ -323,45 +750,52 @@ mod tests {
     #[test]
     fn an_incoherent_edge_image_is_refused() {
         let e = fk("a", "b", "e");
-        let src = table_schema(&["a", "b", "c"], std::slice::from_ref(&e));
-        let tgt = table_schema(&["a", "b", "c"], &[fk("a", "c", "E"), fk("a", "b", "E")]);
+        let src = schema(
+            &[("a", &[]), ("b", &[]), ("c", &[])],
+            std::slice::from_ref(&e),
+        );
+        let tgt = schema(
+            &[("a", &[]), ("b", &[]), ("c", &[])],
+            &[fk("a", "c", "E"), fk("a", "b", "E")],
+        );
         let mut m = CompiledMigration::default();
         m.surviving_verts
             .extend(["a".into(), "b".into(), "c".into()]);
         m.edge_remap.insert(e.clone(), fk("a", "c", "E"));
         assert!(matches!(
-            MigrationFunctor::new(&src, &tgt, &m),
+            functor(&src, &tgt, &m),
             Err(RestrictError::IncoherentEdgeImage { edge, image })
                 if *edge == e && *image == fk("a", "c", "E")
         ));
-        // An image between the right tables that the target lacks is refused
-        // too.
+        // An image between the right tables that the target lacks.
         m.edge_remap.insert(e.clone(), fk("a", "b", "missing"));
         assert!(matches!(
-            MigrationFunctor::new(&src, &tgt, &m),
+            functor(&src, &tgt, &m),
             Err(RestrictError::IncoherentEdgeImage { .. })
         ));
         m.edge_remap.insert(e, fk("a", "b", "E"));
-        assert!(MigrationFunctor::new(&src, &tgt, &m).is_ok());
-        // A table sent to a vertex that is no table of the target.
+        assert!(functor(&src, &tgt, &m).is_ok());
+        // A table sent to a vertex that is no table of the target; tables
+        // are checked before relations.
         m.vertex_remap.insert("c".into(), "nowhere".into());
+        m.edge_remap.insert(fk("a", "b", "e"), fk("a", "c", "E"));
         assert!(matches!(
-            MigrationFunctor::new(&src, &tgt, &m),
+            functor(&src, &tgt, &m),
             Err(RestrictError::VertexImageNotATable { vertex, image })
                 if vertex == "c" && image == "nowhere"
         ));
     }
 
     #[test]
-    fn unmentioned_edges_are_outside_the_domain() -> Result<(), Box<dyn std::error::Error>> {
+    fn unmentioned_edges_are_outside_the_domain() -> Result<(), RestrictError> {
         let kept = fk("a", "b", "kept");
         let unmentioned = fk("b", "a", "back");
         let to_dropped = fk("a", "gone", "dangling");
-        let src = table_schema(
-            &["a", "b", "gone"],
+        let src = schema(
+            &[("a", &["x"]), ("b", &[]), ("gone", &[])],
             &[kept.clone(), unmentioned.clone(), to_dropped.clone()],
         );
-        let tgt = table_schema(&["m"], &[fk("m", "m", "K")]);
+        let tgt = schema(&[("m", &[])], &[fk("m", "m", "K")]);
         let mut m = CompiledMigration::default();
         m.vertex_remap.insert("a".into(), "m".into());
         m.vertex_remap.insert("b".into(), "m".into());
@@ -369,87 +803,605 @@ mod tests {
         m.edge_remap.insert(kept.clone(), fk("m", "m", "K"));
         // Carried, but its target table is outside the domain.
         m.edge_remap.insert(to_dropped.clone(), fk("m", "m", "K"));
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        let f = functor(&src, &tgt, &m)?;
         assert_eq!(f.relation_map().keys().collect::<Vec<_>>(), [&kept]);
         assert!(f.relation_image(&unmentioned).is_none());
         assert!(f.relation_image(&to_dropped).is_none());
         assert_eq!(f.table_fibre("m"), [&Name::from("a"), &Name::from("b")]);
         assert!(f.table_image("gone").is_none());
+        // The unmentioned column `x` is dropped, not an error.
+        assert!(f.column_map().is_empty());
         Ok(())
     }
 
     /// `panproto_mig::compile` lists the images of the vertex map as
     /// surviving vertices. A source table that the vertex map leaves out but
-    /// whose name is the image of another table is dropped, not kept: the
-    /// listed name is a target vertex, as a listed image edge is a target
-    /// edge.
+    /// whose name is the image of another table is dropped, not kept.
     #[test]
-    fn a_surviving_image_is_not_a_source_table() -> Result<(), Box<dyn std::error::Error>> {
-        let src = table_schema(&["a", "b"], &[]);
-        let tgt = table_schema(&["b"], &[]);
+    fn a_surviving_image_is_not_a_source_table() -> Result<(), RestrictError> {
+        let src = schema(&[("a", &[]), ("b", &[])], &[]);
+        let tgt = schema(&[("b", &[])], &[]);
         let mut m = CompiledMigration::default();
         m.vertex_remap.insert("a".into(), "b".into());
         m.surviving_verts.insert("b".into());
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
-        assert_eq!(
-            f.table_map().keys().collect::<Vec<_>>(),
-            [&Name::from("a")],
-            "source b is outside the domain"
-        );
-        assert!(f.table_image("b").is_none());
-        // Listed under its own image too, it is kept.
+        let f = functor(&src, &tgt, &m)?;
+        assert_eq!(f.table_map().keys().collect::<Vec<_>>(), [&Name::from("a")]);
         m.vertex_remap.insert("b".into(), "b".into());
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        let f = functor(&src, &tgt, &m)?;
         assert_eq!(f.table_fibre("b"), [&Name::from("a"), &Name::from("b")]);
-        // A surviving vertex no table is sent to survives under its name.
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
-        let f = MigrationFunctor::new(&src, &table_schema(&["a", "b"], &[]), &m)?;
+        let f = functor(&src, &schema(&[("a", &[]), ("b", &[])], &[]), &m)?;
         assert_eq!(f.table_map().len(), 2);
         Ok(())
     }
 
-    /// The edge twin of [`a_surviving_image_is_not_a_source_table`]: a source
-    /// foreign key that the edge map leaves out but whose edge is the image of
-    /// another foreign key is a listed target edge, so it is dropped, and Pi
-    /// does not intersect with its pairs.
+    /// The edge twin: a source relation that the edge map leaves out but
+    /// that is the image of another relation is a listed target edge, so it
+    /// is dropped, and Pi does not intersect with its pairs.
     #[test]
     fn a_surviving_image_is_not_a_source_relation() -> Result<(), Box<dyn std::error::Error>> {
         let (carried, listed) = (fk("a", "b", "p"), fk("a", "b", "q"));
-        let src = table_schema(&["a", "b"], &[carried.clone(), listed.clone()]);
-        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&listed));
+        let src = schema(
+            &[("a", &[]), ("b", &[])],
+            &[carried.clone(), listed.clone()],
+        );
+        let tgt = schema(&[("a", &[]), ("b", &[])], std::slice::from_ref(&listed));
         let mut migration = CompiledMigration::default();
         migration.surviving_verts.extend(["a".into(), "b".into()]);
         migration.edge_remap.insert(carried.clone(), listed.clone());
         migration.surviving_edges.insert(listed.clone());
-        let functor = MigrationFunctor::new(&src, &tgt, &migration)?;
-        assert_eq!(
-            functor.relation_map().keys().collect::<Vec<_>>(),
-            [&carried],
-            "source q is outside the domain"
-        );
-        let inst = crate::FInstance::new()
-            .with_rows("a", [(crate::RowId(0), crate::Row::new())])
-            .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
-            .and_then(|i| {
-                i.with_foreign_key(carried.clone(), [(crate::RowId(0), crate::RowId(1))])
-            })?;
-        let pi = crate::functor_pi_along(&inst, &functor, 1000)?;
+        let f = functor(&src, &tgt, &migration)?;
+        assert_eq!(f.relation_map().keys().collect::<Vec<_>>(), [&carried]);
+        let inst = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new())])
+            .and_then(|i| i.with_rows("b", [(RowId(1), Row::new())]))
+            .and_then(|i| i.with_foreign_key(carried.clone(), [(RowId(0), RowId(1))]))?;
+        let pi = crate::functor_pi_along(&inst, &f, 1000)?;
         assert_eq!(pi.pairs(&listed).len(), 1, "{pi:?}");
-        // Listed under its own image too, it is kept.
         migration.edge_remap.insert(listed.clone(), listed.clone());
-        let functor = MigrationFunctor::new(&src, &tgt, &migration)?;
-        assert_eq!(functor.relation_fibre(&listed), [&carried, &listed]);
+        let f = functor(&src, &tgt, &migration)?;
+        assert_eq!(f.relation_fibre(&listed), [&carried, &listed]);
+        Ok(())
+    }
+
+    /// A column remapped by `edge_remap` goes to the column of its image; a
+    /// surviving column to the target column of its kind and name.
+    #[test]
+    fn a_column_rename_is_carried() -> Result<(), RestrictError> {
+        let src = schema(&[("post", &["title", "body"])], &[]);
+        let tgt = schema(&[("post", &["name", "body"])], &[]);
+        let mut m = CompiledMigration::default();
+        m.vertex_remap.insert("post".into(), "post".into());
+        m.vertex_remap
+            .insert("post.title".into(), "post.name".into());
+        m.edge_remap
+            .insert(column("post", "title"), column("post", "name"));
+        m.surviving_edges.insert(column("post", "body"));
+        let f = functor(&src, &tgt, &m)?;
+        assert_eq!(f.column_image("post", "title"), Some("name"));
+        assert_eq!(f.column_image("post", "body"), Some("body"));
+        assert_eq!(f.column_preimage("post", "name"), [&"title".to_owned()]);
+        f.attribute_surjective()?;
         Ok(())
     }
 
     #[test]
-    fn the_identity_functor_keeps_every_table_and_relation() {
+    fn an_incoherent_attribute_image_is_refused() {
+        let src = schema(&[("a", &["x"]), ("b", &["y"])], &[]);
+        let tgt = schema(&[("a", &["x", "z"]), ("b", &["y"])], &[]);
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        // An image leaving another table than the image of the column's.
+        m.edge_remap.insert(column("a", "x"), column("b", "y"));
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::IncoherentAttributeImage { edge, image: Some(image) })
+                if *edge == column("a", "x") && *image == column("b", "y")
+        ));
+        // An image ending elsewhere than the image of the column's vertex.
+        m.edge_remap.insert(column("a", "x"), column("a", "z"));
+        m.vertex_remap.insert("a.x".into(), "a.x".into());
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::IncoherentAttributeImage { image: Some(_), .. })
+        ));
+        // A surviving column with no column of its kind and name.
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        m.surviving_edges.insert(column("b", "y"));
+        let tgt = schema(&[("a", &["x"]), ("b", &["w"])], &[]);
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::IncoherentAttributeImage { edge, image: None })
+                if *edge == column("b", "y")
+        ));
+    }
+
+    /// No remap sends a relation to an attribute arrow or an attribute arrow
+    /// to a relation, whether or not its tables are kept.
+    #[test]
+    fn a_remap_across_the_entity_value_divide_is_refused() {
+        let e = fk("a", "b", "e");
+        let src = schema(
+            &[("a", &["x"]), ("b", &[]), ("c", &[])],
+            std::slice::from_ref(&e),
+        );
+        let tgt = schema(&[("a", &["x"]), ("b", &[])], &[fk("a", "b", "E")]);
+        // `c` is not kept, so its relation is outside the domain, but its
+        // remap still crosses the divide.
+        let src2 = schema(
+            &[("a", &["x"]), ("b", &[]), ("c", &[])],
+            &[fk("c", "b", "f")],
+        );
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        m.edge_remap.insert(fk("c", "b", "f"), column("a", "x"));
+        assert!(matches!(
+            functor(&src2, &tgt, &m),
+            Err(RestrictError::IncoherentEdgeImage { edge, image })
+                if *edge == fk("c", "b", "f") && *image == column("a", "x")
+        ));
+        // A kept relation sent to a column.
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        m.edge_remap.insert(e.clone(), column("a", "x"));
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::IncoherentEdgeImage { .. })
+        ));
+        // A column sent to a relation.
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        m.edge_remap.insert(column("a", "x"), fk("a", "b", "E"));
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::IncoherentAttributeImage { image: Some(image), .. })
+                if *image == fk("a", "b", "E")
+        ));
+    }
+
+    /// A table `name` with one list column `tags` whose element vertex is
+    /// reached by an inner value edge `edge`, of the given element kind.
+    fn with_list_column(name: &str, element_edge: &str, element_kind: &str) -> Schema {
+        let mut s = schema(&[(name, &[])], &[]);
+        let list: Name = format!("{name}.tags").into();
+        let items: Name = format!("{name}.tags.items").into();
+        s.vertices.insert(
+            list.clone(),
+            Vertex {
+                id: list.clone(),
+                kind: "list".into(),
+                nsid: None,
+            },
+        );
+        s.vertices.insert(
+            items.clone(),
+            Vertex {
+                id: items.clone(),
+                kind: element_kind.into(),
+                nsid: None,
+            },
+        );
+        s.edges.insert(
+            Edge {
+                src: name.into(),
+                tgt: list.clone(),
+                kind: "prop".into(),
+                name: Some("tags".into()),
+            },
+            "prop".into(),
+        );
+        s.edges.insert(inner(name, element_edge), "items".into());
+        s
+    }
+
+    fn inner(table: &str, name: &str) -> Edge {
+        Edge {
+            src: format!("{table}.tags").into(),
+            tgt: format!("{table}.tags.items").into(),
+            kind: "items".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// The rename `posts -> articles` of a table with a list column.
+    fn rename_posts(element_edge: &str) -> CompiledMigration {
+        let mut m = CompiledMigration::default();
+        m.vertex_remap.insert("posts".into(), "articles".into());
+        m.vertex_remap
+            .insert("posts.tags".into(), "articles.tags".into());
+        m.vertex_remap
+            .insert("posts.tags.items".into(), "articles.tags.items".into());
+        m.edge_remap
+            .insert(column("posts", "tags"), column("articles", "tags"));
+        m.edge_remap
+            .insert(inner("posts", "item"), inner("articles", element_edge));
+        m
+    }
+
+    /// Renaming a table renames the ids of its list column's vertices too;
+    /// the cells (a list of strings) keep their structure, so the functor is
+    /// accepted.
+    #[test]
+    fn renaming_a_table_with_a_list_column_is_accepted() -> Result<(), RestrictError> {
+        let src = with_list_column("posts", "item", "string");
+        let tgt = with_list_column("articles", "item", "string");
+        let f = functor(&src, &tgt, &rename_posts("item"))?;
+        assert_eq!(f.column_image("posts", "tags"), Some("tags"));
+        f.attribute_surjective()?;
+        Ok(())
+    }
+
+    #[test]
+    fn entity_part_accepts_an_inner_value_edge_rename() -> Result<(), RestrictError> {
+        let src = with_list_column("posts", "item", "string");
+        let tgt = with_list_column("articles", "element", "string");
+        let entity = MigrationFunctor::entity_part(
+            &src,
+            &protocol(),
+            &tgt,
+            &protocol(),
+            &rename_posts("element"),
+        )?;
+        assert_eq!(
+            entity.inner_edges(),
+            &BTreeMap::from([(inner("posts", "item"), inner("articles", "element"))])
+        );
+        assert_eq!(entity.column_map().len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn into_kan_refuses_what_the_entity_part_accepts() -> Result<(), RestrictError> {
+        let src = with_list_column("posts", "item", "string");
+        let tgt = with_list_column("articles", "element", "string");
+        let entity = MigrationFunctor::entity_part(
+            &src,
+            &protocol(),
+            &tgt,
+            &protocol(),
+            &rename_posts("element"),
+        )?;
+        assert!(matches!(
+            entity.into_kan(),
+            Err(RestrictError::ValueStructureRemap { edge }) if *edge == inner("posts", "item")
+        ));
+        Ok(())
+    }
+
+    /// An inner value edge's remap that renames it, changes its kind, changes
+    /// an endpoint's kind, or lands on no inner value edge is refused by the
+    /// Kan functor.
+    #[test]
+    fn an_inner_value_edge_remap_is_refused() {
+        let src = with_list_column("posts", "item", "string");
+        let refused = |tgt: &Schema, m: &CompiledMigration| {
+            matches!(
+                functor(&src, tgt, m),
+                Err(RestrictError::ValueStructureRemap { edge }) if *edge == inner("posts", "item")
+            )
+        };
+        // Renamed.
+        assert!(refused(
+            &with_list_column("articles", "element", "string"),
+            &rename_posts("element")
+        ));
+        // An endpoint of another kind than the image of the source endpoint
+        // under the vertex map.
+        let mut tgt = with_list_column("articles", "item", "string");
+        tgt.vertices.insert(
+            "articles.tags.count".into(),
+            Vertex {
+                id: "articles.tags.count".into(),
+                kind: "integer".into(),
+                nsid: None,
+            },
+        );
+        let elsewhere = Edge {
+            tgt: "articles.tags.count".into(),
+            ..inner("articles", "item")
+        };
+        tgt.edges.insert(elsewhere.clone(), "items".into());
+        let mut m = rename_posts("item");
+        m.edge_remap.insert(inner("posts", "item"), elsewhere);
+        assert!(refused(&tgt, &m));
+        // An endpoint the vertex map leaves alone keeps its own kind.
+        let mut m = rename_posts("item");
+        m.vertex_remap.remove("posts.tags.items");
+        assert!(refused(
+            &with_list_column("articles", "item", "integer"),
+            &m
+        ));
+        // Another edge kind.
+        let mut tgt = with_list_column("articles", "item", "string");
+        let other_kind = Edge {
+            kind: "elements".into(),
+            ..inner("articles", "item")
+        };
+        tgt.edges.insert(other_kind.clone(), "elements".into());
+        let mut m = rename_posts("item");
+        m.edge_remap.insert(inner("posts", "item"), other_kind);
+        assert!(refused(&tgt, &m));
+        // No inner value edge of the target.
+        let mut m = rename_posts("item");
+        m.edge_remap
+            .insert(inner("posts", "item"), fk("articles", "articles", "loop"));
+        assert!(refused(&with_list_column("articles", "item", "string"), &m));
+    }
+
+    #[test]
+    fn attribute_surjectivity_names_the_least_missing_column() -> Result<(), RestrictError> {
+        let src = schema(&[("a", &["x"])], &[]);
+        let tgt = schema(&[("a", &["x", "y", "w"]), ("z", &["v"]), ("e", &[])], &[]);
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.insert("a".into());
+        m.surviving_edges.insert(column("a", "x"));
+        let f = functor(&src, &tgt, &m)?;
+        assert!(matches!(
+            f.attribute_surjective(),
+            Err(RestrictError::AttributeOutsideImage { table, column })
+                if table == "a" && column == "w"
+        ));
+        // A table outside the image passes only with no columns: `e` passes,
+        // `z` does not.
+        let tgt = schema(&[("a", &["x"]), ("z", &["v"]), ("e", &[])], &[]);
+        let f = functor(&src, &tgt, &m)?;
+        assert!(matches!(
+            f.attribute_surjective(),
+            Err(RestrictError::AttributeOutsideImage { table, column })
+                if table == "z" && column == "v"
+        ));
+        let tgt = schema(&[("a", &["x"]), ("e", &[])], &[]);
+        functor(&src, &tgt, &m)?.attribute_surjective()?;
+        Ok(())
+    }
+
+    /// A schema with no relation-ified form under its protocol is a restrict
+    /// error, the source reported first.
+    #[test]
+    fn a_classification_failure_is_a_restrict_error() {
+        let mut src = schema(&[("a", &[])], &[]);
+        src.vertices.insert(
+            "s".into(),
+            Vertex {
+                id: "s".into(),
+                kind: "mystery".into(),
+                nsid: None,
+            },
+        );
+        let mut tgt = schema(&[("a", &[])], &[]);
+        tgt.vertices.insert(
+            "t".into(),
+            Vertex {
+                id: "t".into(),
+                kind: "enigma".into(),
+                nsid: None,
+            },
+        );
+        let m = CompiledMigration::default();
+        assert!(matches!(
+            functor(&src, &tgt, &m),
+            Err(RestrictError::RelSchema(RelSchemaError::UnclassifiedKind { vertex, .. }))
+                if vertex == "s"
+        ));
+        assert!(matches!(
+            functor(&schema(&[("a", &[])], &[]), &tgt, &m),
+            Err(RestrictError::RelSchema(RelSchemaError::UnclassifiedKind { vertex, .. }))
+                if vertex == "t"
+        ));
+    }
+
+    #[test]
+    fn the_identity_functor_refuses_an_unclassified_kind() -> Result<(), RelSchemaError> {
         let e = fk("a", "a", "self");
-        let schema = table_schema(&["a", "b"], std::slice::from_ref(&e));
-        let f = MigrationFunctor::identity(&schema);
+        let s = schema(&[("a", &["x"]), ("b", &[])], std::slice::from_ref(&e));
+        let f = MigrationFunctor::identity(&s, &protocol())?;
         assert_eq!(f.table_image("b"), Some(&Name::from("b")));
         assert_eq!(f.relation_image(&e), Some(&e));
+        assert_eq!(f.column_image("a", "x"), Some("x"));
         assert!(f.tables_outside_image().is_empty());
+        let mut unclassified = s;
+        unclassified.vertices.insert(
+            "q".into(),
+            Vertex {
+                id: "q".into(),
+                kind: "mystery".into(),
+                nsid: None,
+            },
+        );
+        assert_eq!(
+            MigrationFunctor::identity(&unclassified, &protocol()),
+            Err(RelSchemaError::UnclassifiedKind {
+                vertex: "q".into(),
+                kind: "mystery".into()
+            })
+        );
+        Ok(())
+    }
+
+    /// Every restrict error names its variant in its structured detail, in
+    /// snake case, and no two variants share a name.
+    #[test]
+    fn every_restrict_error_has_a_kind() {
+        let e = || Box::new(fk("a", "b", "e"));
+        let all = [
+            (
+                RestrictError::NoEdgeFound {
+                    src: "a".into(),
+                    tgt: "b".into(),
+                },
+                "no_edge_found",
+            ),
+            (
+                RestrictError::AmbiguousEdge {
+                    src: "a".into(),
+                    tgt: "b".into(),
+                    count: 2,
+                },
+                "ambiguous_edge",
+            ),
+            (RestrictError::RootPruned, "root_pruned"),
+            (
+                RestrictError::FanReconstructionFailed {
+                    hyper_edge_id: "h".into(),
+                    detail: "d".into(),
+                },
+                "fan_reconstruction_failed",
+            ),
+            (
+                RestrictError::ProductSizeExceeded {
+                    vertex: "v".into(),
+                    actual: 2,
+                    limit: 1,
+                },
+                "product_size_exceeded",
+            ),
+            (
+                RestrictError::MultiElementFiber {
+                    vertex: "v".into(),
+                    count: 2,
+                },
+                "multi_element_fiber",
+            ),
+            (
+                RestrictError::UnmappedAnchor {
+                    anchor: "a".into(),
+                    node_id: 0,
+                },
+                "unmapped_anchor",
+            ),
+            (
+                RestrictError::AttributeCollision {
+                    vertex: "v".into(),
+                    column: "c".into(),
+                },
+                "attribute_collision",
+            ),
+            (
+                RestrictError::NonInjectiveVertexMap {
+                    target: "t".into(),
+                    sources: Vec::new(),
+                },
+                "non_injective_vertex_map",
+            ),
+            (
+                RestrictError::FieldTransformFailed {
+                    key: "k".into(),
+                    source: panproto_expr::ExprError::StepLimitExceeded(1),
+                },
+                "field_transform_failed",
+            ),
+            (RestrictError::RowIdsExhausted, "row_ids_exhausted"),
+            (
+                RestrictError::VertexOutsideDomain { vertex: "v".into() },
+                "vertex_outside_domain",
+            ),
+            (
+                RestrictError::EdgeOutsideDomain {
+                    edge: fk("a", "b", "e"),
+                },
+                "edge_outside_domain",
+            ),
+            (
+                RestrictError::IncoherentEdgeImage {
+                    edge: e(),
+                    image: e(),
+                },
+                "incoherent_edge_image",
+            ),
+            (
+                RestrictError::VertexImageNotATable {
+                    vertex: "v".into(),
+                    image: "w".into(),
+                },
+                "vertex_image_not_a_table",
+            ),
+            (
+                RestrictError::IncoherentAttributeImage {
+                    edge: e(),
+                    image: None,
+                },
+                "incoherent_attribute_image",
+            ),
+            (
+                RestrictError::AttributeOutsideImage {
+                    table: "t".into(),
+                    column: "c".into(),
+                },
+                "attribute_outside_image",
+            ),
+            (
+                RestrictError::ValueStructureRemap { edge: e() },
+                "value_structure_remap",
+            ),
+            (
+                RestrictError::RelSchema(RelSchemaError::AmbiguousKind { kind: "k".into() }),
+                "rel_schema",
+            ),
+        ];
+        let mut seen = BTreeSet::new();
+        for (error, kind) in all {
+            match error.detail() {
+                crate::ErrorDetail::Restrict {
+                    kind: named,
+                    message,
+                    ..
+                } => {
+                    assert_eq!(named, kind);
+                    assert_eq!(message, error.to_string());
+                    assert!(seen.insert(named), "{kind} twice");
+                }
+                other => panic!("{other:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn pi_errors_are_adjunction_errors() -> Result<(), Box<dyn std::error::Error>> {
+        let src = schema(&[("a", &["x"])], &[]);
+        let tgt = schema(&[("a", &["x"]), ("z", &["v"])], &[]);
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.insert("a".into());
+        m.surviving_edges.insert(column("a", "x"));
+        let x = FInstance::new().with_rows("a", [(RowId(0), row(&[("x", 1)]))])?;
+        let p = protocol();
+        assert!(matches!(
+            crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 10),
+            Err(crate::AdjunctionError::Pi(RestrictError::AttributeOutsideImage { table, column }))
+                if table == "z" && column == "v"
+        ));
+        // A construction error of the schema-taking form is wrapped too.
+        m.vertex_remap.insert("a".into(), "nowhere".into());
+        assert!(matches!(
+            crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 10),
+            Err(crate::AdjunctionError::Pi(
+                RestrictError::VertexImageNotATable { .. }
+            ))
+        ));
+        // So is an exceeded product bound.
+        let tgt = schema(&[("m", &[])], &[]);
+        let src = schema(&[("a", &[]), ("b", &[])], &[]);
+        let mut m = CompiledMigration::default();
+        m.vertex_remap.insert("a".into(), "m".into());
+        m.vertex_remap.insert("b".into(), "m".into());
+        let x = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new()), (RowId(1), Row::new())])
+            .and_then(|i| i.with_rows("b", [(RowId(2), Row::new()), (RowId(3), Row::new())]))?;
+        assert!(matches!(
+            crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 3),
+            Err(crate::AdjunctionError::Pi(
+                RestrictError::ProductSizeExceeded {
+                    actual: 4,
+                    limit: 3,
+                    ..
+                }
+            ))
+        ));
+        assert_eq!(
+            crate::functor_pi(&x, &src, &p, &tgt, &p, &m, 4)?.row_count("m"),
+            4
+        );
+        Ok(())
     }
 }

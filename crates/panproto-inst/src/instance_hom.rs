@@ -635,6 +635,29 @@ impl FInstanceHom {
         Ok(composed.with_edge_map(edge_map).with_null_map(null_map))
     }
 
+    /// Whether this homomorphism and `other` are equal as homomorphisms
+    /// between instances of one schema: their row maps are equal, and their
+    /// null maps, without identity entries, have the same keys and at each
+    /// key values with equal canonical bytes.
+    ///
+    /// This is the equality the laws of the Kan extensions are stated in.
+    /// The derived `==` compares values with `Value`'s own equality, under
+    /// which `NaN` differs from itself and `0.0` equals `-0.0`; here a float
+    /// equals another exactly when their bit patterns are equal. The null
+    /// maps the table operations build hold the nulls of their domain only,
+    /// so comparing their non-identity entries compares them on the domain.
+    #[must_use]
+    pub fn same_as(&self, other: &Self) -> bool {
+        let entries = |hom: &Self| -> BTreeMap<u64, Vec<u8>> {
+            hom.null_map
+                .iter()
+                .filter(|(null, value)| !same_value(value, &Value::LabeledNull(**null)))
+                .map(|(null, value)| (*null, value.canonical_bytes()))
+                .collect()
+        };
+        self.row_map == other.row_map && entries(self) == entries(other)
+    }
+
     /// Returns `true` iff this homomorphism from `dom` to `cod` is an
     /// isomorphism: the row map is a bijection onto the codomain's rows,
     /// the table, edge and null maps are invertible, and the inverse is a

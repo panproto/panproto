@@ -1,147 +1,169 @@
 //! Right Kan extension (`Pi_F`) for instances.
 //!
-//! For set-valued functor instances, `Pi_F` is the right Kan extension of
-//! presheaves on relation-ified schemas ([`crate::RelSchema`]) along the
-//! functor a migration states ([`MigrationFunctor`]): at each target object
-//! it is the limit of the instance over the comma category under that
-//! object. For W-type instances, only vertex-injective migrations are
+//! For table instances, `Pi_F` is the right Kan extension along the functor
+//! a migration states between attributed relation-ified schemas
+//! ([`MigrationFunctor`]): at each target table the natural join of its
+//! fibre's tables on the columns they share in the target, and at each
+//! target relation the limit over the relations carried to it. It exists
+//! exactly along a functor that is surjective on attributes
+//! ([`MigrationFunctor::attribute_surjective`]); along any other it is
+//! refused. For W-type instances, only vertex-injective migrations are
 //! supported; a non-injective map is rejected rather than silently
 //! producing `Sigma`-shaped output mislabeled as `Pi`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
-use panproto_schema::{CanonicalWriter, Edge, Schema};
+use panproto_schema::{Edge, Protocol, Schema};
 
+use crate::adjunction::AdjunctionError;
 use crate::error::RestrictError;
 use crate::functor::{FInstance, Row, allocate_row, row_allocator};
-use crate::identity::write_value_map;
-use crate::instance_hom::FInstanceHom;
 use crate::metadata::Node;
 use crate::migration_functor::MigrationFunctor;
+use crate::value::Value;
 use crate::view_ref::RowId;
 use crate::wtype::{CompiledMigration, WInstance, reconstruct_fans, resolve_edge};
 
+/// Where the rows of a `Pi_F` result come from.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct PiProvenance {
+    /// Each row of the result with its target table and its tuple: one row
+    /// of each table of the table's fibre, the fibre ascending (empty at a
+    /// table outside the image).
+    pub tuples: BTreeMap<RowId, (Name, Vec<RowId>)>,
+}
+
 /// Right Kan extension (`Pi_F`) of a table instance along the functor
-/// `migration` states from `src_schema` to `tgt_schema`.
+/// `migration` states from `src_schema` (under `src_protocol`) to
+/// `tgt_schema` (under `tgt_protocol`).
 ///
 /// Builds the [`MigrationFunctor`] and takes [`functor_pi_along`].
 ///
 /// # Errors
 ///
-/// As [`MigrationFunctor::new`] and [`functor_pi_along`].
+/// [`AdjunctionError::Pi`] wrapping the error of [`MigrationFunctor::new`],
+/// and as [`functor_pi_along`].
 pub fn functor_pi(
     instance: &FInstance,
     src_schema: &Schema,
+    src_protocol: &Protocol,
     tgt_schema: &Schema,
+    tgt_protocol: &Protocol,
     migration: &CompiledMigration,
     max_product_size: usize,
-) -> Result<FInstance, RestrictError> {
-    let functor = MigrationFunctor::new(src_schema, tgt_schema, migration)?;
+) -> Result<FInstance, AdjunctionError> {
+    let functor = MigrationFunctor::new(
+        src_schema,
+        src_protocol,
+        tgt_schema,
+        tgt_protocol,
+        migration,
+    )
+    .map_err(AdjunctionError::Pi)?;
     functor_pi_along(instance, &functor, max_product_size)
-}
-
-/// [`functor_pi`] with the projection of every row of the result onto each
-/// fibre component, as [`functor_pi_along_with_hom`] returns them.
-///
-/// # Errors
-///
-/// As [`functor_pi`].
-pub fn functor_pi_with_hom(
-    instance: &FInstance,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
-    max_product_size: usize,
-) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
-    let functor = MigrationFunctor::new(src_schema, tgt_schema, migration)?;
-    functor_pi_along_with_hom(instance, &functor, max_product_size)
 }
 
 /// Right Kan extension (`Pi_F`) of a table instance along `functor`.
 ///
-/// The first projection of [`functor_pi_along_with_hom`]; see there.
+/// The first projection of [`functor_pi_along_with_provenance`]; see there.
 ///
 /// # Errors
 ///
-/// As [`functor_pi_along_with_hom`].
+/// As [`functor_pi_along_with_provenance`].
 pub fn functor_pi_along(
     instance: &FInstance,
     functor: &MigrationFunctor,
     max_product_size: usize,
-) -> Result<FInstance, RestrictError> {
-    pi_limit(instance, functor, max_product_size).map(|limit| limit.instance)
+) -> Result<FInstance, AdjunctionError> {
+    functor_pi_along_with_provenance(instance, functor, max_product_size).map(|(pi, _)| pi)
 }
 
 /// Right Kan extension (`Pi_F`) of a table instance along `functor`, with
-/// the projection of every row of the result onto each fibre component.
+/// the tuple behind each row of the result.
 ///
-/// The instance is read as a presheaf `I` on the kept part `S'` of the source
-/// relation-ified schema: its rows at tables of `S'` and its pairs at
-/// relations of `S'`; rows and pairs elsewhere are outside the domain of
-/// `F` and are not read. `Pi_F(I)` at a target object `d` is the limit of `I`
-/// over the comma category `d/F`, computed by the standard formula:
+/// `functor` must be surjective on attributes. The instance must conform to
+/// the whole source schema `S`; it is then restricted to the kept part `S'`,
+/// `I = rho_{S'}(x)`. `Pi_F(I)` at a target object `d` is the limit of `I`
+/// over the comma category under `d`:
 ///
-/// - At a target table `d`, the only arrow out of `d` is its identity, so the
-///   objects of `d/F` are the tables of the fibre `F^{-1}(d)` and it has no
-///   other arrows. The rows of `d` are the tuples with one row of each fibre
-///   table (fibre tables ascending). Cells are labels every homomorphism
-///   preserves exactly (attribute vertices are not objects), so a tuple is
-///   a cone only when its rows carry the same cells, and the row takes them.
-///   A table outside the image of `F` has the empty diagram, whose limit is
-///   one row; it carries no cells.
-/// - At a target relation `E: d -> d'`, the objects of `E/F` are the
-///   relations of `F^{-1}(E)` together with the fibre tables of `d` (reached
-///   along `src_E`) and of `d'` (along `tgt_E`). The pairs of `E` are the
-///   pairs `(x, y)` of a row of `d` and a row of `d'` such that every
-///   relation `e` sent to `E` holds the pair of `x`'s row at `e`'s source and
-///   `y`'s row at `e`'s target, so several relations sent to `E` take the
-///   intersection. With none sent to `E` every pair of rows is in the limit.
+/// - At a target table `d` with fibre `s_1 < ... < s_k`, a row is a tuple
+///   `(r_1, ..., r_k)` of one row of each fibre table that is a cone: for
+///   every column `beta` of `d`, the values of the `r_i` at every column
+///   `alpha` of `s_i` with `F(alpha) = beta` are equal (equal canonical
+///   bytes; a labelled null equals only itself), and that value is the row's
+///   cell at `beta`. This is the natural join of the fibre's tables on the
+///   columns they share in the target, and the product of their rows where
+///   they share none. A table outside the image has, by surjectivity, no
+///   columns, and gets the one row of the empty diagram's limit.
+/// - At a target relation `E: d -> d'`, the pairs are the pairs `(x, y)` of a
+///   row of `d` and a row of `d'` such that every relation `e` carried to `E`
+///   holds the pair of `x`'s row at `e`'s source and `y`'s row at `e`'s
+///   target (several relations carried to `E` take the intersection). With
+///   none carried, every pair of rows is in the limit.
 ///
-/// Every comma category is finite, so every limit is. Along the identity
-/// functor `Pi_F` is the identity, and it is monotone in `I`.
+/// `Pi_F` creates no labelled nulls. Along the identity functor it is the
+/// identity, and it is monotone in `I`.
 ///
 /// Row ids: the rows of a table whose fibre is one table keep the ids of the
 /// rows they project to. Every other row is fresh, allocated from the least
 /// id above every row of `instance`: first the tables in the image, ordered
 /// by the least table of their fibre, each table's tuples in ascending
-/// order of their rows, then the tables outside the image, ascending. So the
-/// result does not depend on the names of the target tables in the image;
-/// renaming the tables outside the image can only permute the ids of their
-/// one row each.
-///
-/// The returned map sends each table `s` of `S'` to the projection of the
-/// rows of `F(s)` onto their row at `s`, as an [`FInstanceHom`] whose table
-/// map sends `F(s)` to `s`.
+/// order, then the tables outside the image, ascending. So the result does
+/// not depend on the names of the target tables in the image; renaming the
+/// tables outside the image can only permute the ids of their one row each.
 ///
 /// # Errors
 ///
-/// Returns [`RestrictError::ProductSizeExceeded`] when a target table would
-/// hold more than `max_product_size` tuples, or a relation to which no
-/// relation is sent more than `max_product_size` pairs (reported at its
-/// source table), and [`RestrictError::RowIdsExhausted`] when fresh row ids
-/// run out. Tables are checked in ascending name, then relations in
-/// ascending order.
-pub fn functor_pi_along_with_hom(
+/// [`AdjunctionError::Pi`] wrapping
+/// [`RestrictError::AttributeOutsideImage`] when `functor` is not surjective
+/// on attributes (checked first); [`AdjunctionError::NonConforming`] when the
+/// instance does not conform to `S`; [`AdjunctionError::Pi`] wrapping
+/// [`RestrictError::ProductSizeExceeded`] when a target table would hold
+/// more than `max_product_size` rows, or a relation to which no relation is
+/// carried more than `max_product_size` pairs (reported at its source table;
+/// tables are checked in ascending name, then relations in ascending order),
+/// and [`RestrictError::RowIdsExhausted`] when fresh row ids run out.
+pub fn functor_pi_along_with_provenance(
     instance: &FInstance,
     functor: &MigrationFunctor,
     max_product_size: usize,
-) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
-    let limit = pi_limit(instance, functor, max_product_size)?;
-    let mut projections: BTreeMap<Name, FInstanceHom> = BTreeMap::new();
-    for (&row, (table, tuple)) in &limit.tuples {
-        for (component, &source_row) in functor.table_fibre(table).into_iter().zip(tuple) {
-            projections
-                .entry(component.clone())
-                .or_insert_with(|| {
-                    FInstanceHom::default()
-                        .with_table_map(BTreeMap::from([(table.clone(), component.clone())]))
-                })
-                .row_map
-                .insert(row, source_row);
-        }
-    }
-    Ok((limit.instance, projections))
+) -> Result<(FInstance, PiProvenance), AdjunctionError> {
+    functor
+        .attribute_surjective()
+        .map_err(AdjunctionError::Pi)?;
+    let restricted = crate::adjunction::f_restrict_to_domain(instance, functor)?;
+    let limit = pi_limit(&restricted, functor, max_product_size, instance.row_ids())
+        .map_err(AdjunctionError::Pi)?;
+    Ok((
+        limit.instance,
+        PiProvenance {
+            tuples: limit.tuples,
+        },
+    ))
+}
+
+/// `Pi_F` of `i`, an instance on the kept part `S'` of the source (as
+/// [`crate::f_restrict_to_domain`] gives one), with fresh row ids above
+/// `i`'s: the `Pi_F` the units, counits, transposes and
+/// [`crate::f_pi_on_hom`] use.
+///
+/// # Errors
+///
+/// [`AdjunctionError::NonConforming`] when `i` does not conform to `S'`, and
+/// as [`functor_pi_along_with_provenance`].
+pub fn functor_pi_restricted(
+    i: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<(FInstance, PiProvenance), AdjunctionError> {
+    let limit = crate::adjunction::pi_on_domain(i, functor, max_product_size)?;
+    Ok((
+        limit.instance,
+        PiProvenance {
+            tuples: limit.tuples,
+        },
+    ))
 }
 
 /// The limit `Pi_F(I)` together with the tuple behind each of its rows.
@@ -155,14 +177,6 @@ pub(crate) struct PiLimit {
     pub(crate) rows: HashMap<(Name, Vec<RowId>), RowId>,
 }
 
-/// The canonical bytes of a row's cells: equal exactly when the cells are
-/// equal as every homomorphism compares them.
-fn cell_key(row: &Row) -> Vec<u8> {
-    let mut writer = CanonicalWriter::new();
-    write_value_map(&mut writer, row);
-    writer.into_bytes()
-}
-
 /// The tuples of one target table with their cells.
 struct TableLimit<'a> {
     /// The target table.
@@ -173,78 +187,119 @@ struct TableLimit<'a> {
     tuples: Vec<(Vec<RowId>, Row)>,
 }
 
-/// The cones at one target table: tuples with one row of each fibre table,
-/// all carrying the same cells, ascending.
+/// One row of a fibre table read at the target columns: the value at each
+/// column its kept columns are sent to, or `None` when two of its own
+/// columns sent to one target column disagree (it is then in no cone).
+fn row_at_target(
+    functor: &MigrationFunctor,
+    component: &Name,
+    cells: &Row,
+) -> Option<BTreeMap<String, (Vec<u8>, Value)>> {
+    let mut at: BTreeMap<String, (Vec<u8>, Value)> = BTreeMap::new();
+    for alpha in functor.kept_columns(component) {
+        let beta = functor.column_image(component, alpha)?;
+        let value = cells.get(alpha)?;
+        let bytes = value.canonical_bytes();
+        match at.get(beta) {
+            Some((seen, _)) if *seen != bytes => return None,
+            Some(_) => {}
+            None => {
+                at.insert(beta.to_owned(), (bytes, value.clone()));
+            }
+        }
+    }
+    Some(at)
+}
+
+/// The cones at one target table: tuples with one row of each fibre table
+/// whose values agree at every target column, ascending, joined component
+/// by component on the target columns already assigned.
 fn table_limit<'a>(
     instance: &FInstance,
+    functor: &MigrationFunctor,
     table: &'a Name,
     fibre: Vec<&'a Name>,
     max: usize,
 ) -> Result<TableLimit<'a>, RestrictError> {
-    let Some((first, rest)) = fibre.split_first() else {
-        return Ok(TableLimit {
-            table,
-            fibre,
-            tuples: vec![(Vec::new(), Row::new())],
-        });
-    };
-    // The rows of every later component, grouped by their cells.
-    let groups: Vec<HashMap<Vec<u8>, Vec<RowId>>> = rest
-        .iter()
-        .map(|component| {
-            let mut by_cells: HashMap<Vec<u8>, Vec<RowId>> = HashMap::new();
-            for (id, row) in instance.rows(component) {
-                by_cells.entry(cell_key(row)).or_default().push(id);
+    type Partial = (Vec<RowId>, BTreeMap<String, (Vec<u8>, Value)>);
+    let mut partials: Vec<Partial> = vec![(Vec::new(), BTreeMap::new())];
+    let last = fibre.len().saturating_sub(1);
+    for (position, component) in fibre.iter().enumerate() {
+        let rows: Vec<(RowId, BTreeMap<String, (Vec<u8>, Value)>)> = instance
+            .rows(component)
+            .into_iter()
+            .filter_map(|(id, cells)| Some((id, row_at_target(functor, component, cells)?)))
+            .collect();
+        // The target columns this component shares with those assigned so
+        // far, which are the same for every partial tuple.
+        let assigned: Vec<String> = partials
+            .first()
+            .map(|(_, at)| at.keys().cloned().collect())
+            .unwrap_or_default();
+        let own: Vec<String> = functor
+            .kept_columns(component)
+            .into_iter()
+            .filter_map(|alpha| functor.column_image(component, alpha))
+            .map(str::to_owned)
+            .collect();
+        let shared: Vec<&String> = assigned.iter().filter(|c| own.contains(c)).collect();
+        let key = |at: &BTreeMap<String, (Vec<u8>, Value)>| -> Option<Vec<Vec<u8>>> {
+            shared
+                .iter()
+                .map(|c| at.get(*c).map(|(bytes, _)| bytes.clone()))
+                .collect()
+        };
+        let mut index: HashMap<Vec<Vec<u8>>, Vec<usize>> = HashMap::new();
+        for (n, (_, at)) in rows.iter().enumerate() {
+            if let Some(k) = key(at) {
+                index.entry(k).or_default().push(n);
             }
-            by_cells
+        }
+        if position == last {
+            let count = partials.iter().try_fold(0usize, |acc, (_, at)| {
+                let matches = key(at).and_then(|k| index.get(&k)).map_or(0, Vec::len);
+                acc.checked_add(matches)
+            });
+            let count = count.unwrap_or(usize::MAX);
+            if count > max {
+                return Err(RestrictError::ProductSizeExceeded {
+                    vertex: table.to_string(),
+                    actual: count,
+                    limit: max,
+                });
+            }
+        }
+        let mut next: Vec<Partial> = Vec::new();
+        for (tuple, at) in &partials {
+            let Some(matches) = key(at).and_then(|k| index.get(&k)) else {
+                continue;
+            };
+            for &n in matches {
+                let (id, row_at) = &rows[n];
+                let mut tuple = tuple.clone();
+                tuple.push(*id);
+                let mut joined = at.clone();
+                joined.extend(row_at.iter().map(|(c, v)| (c.clone(), v.clone())));
+                next.push((tuple, joined));
+            }
+        }
+        partials = next;
+    }
+    if fibre.is_empty() && partials.len() > max {
+        return Err(RestrictError::ProductSizeExceeded {
+            vertex: table.to_string(),
+            actual: partials.len(),
+            limit: max,
+        });
+    }
+    let mut tuples: Vec<(Vec<RowId>, Row)> = partials
+        .into_iter()
+        .map(|(tuple, at)| {
+            let cells = at.into_iter().map(|(c, (_, v))| (c, v)).collect();
+            (tuple, cells)
         })
         .collect();
-    let mut tuples = Vec::new();
-    for (id, row) in instance.rows(first) {
-        let key = cell_key(row);
-        let choices: Vec<&[RowId]> = groups
-            .iter()
-            .map(|group| group.get(&key).map_or(&[][..], Vec::as_slice))
-            .collect();
-        let count = choices
-            .iter()
-            .try_fold(1usize, |acc, c| acc.checked_mul(c.len()))
-            .unwrap_or(usize::MAX);
-        if count == 0 {
-            continue;
-        }
-        if tuples.len().saturating_add(count) > max {
-            return Err(RestrictError::ProductSizeExceeded {
-                vertex: table.to_string(),
-                actual: tuples.len().saturating_add(count),
-                limit: max,
-            });
-        }
-        // Every choice of one row per later component, the last varying
-        // fastest, so the tuples come out ascending.
-        let mut index = vec![0usize; choices.len()];
-        loop {
-            let mut tuple = Vec::with_capacity(fibre.len());
-            tuple.push(id);
-            tuple.extend(choices.iter().zip(&index).map(|(c, &i)| c[i]));
-            tuples.push((tuple, row.clone()));
-            let mut position = choices.len();
-            loop {
-                if position == 0 {
-                    break;
-                }
-                position -= 1;
-                index[position] += 1;
-                if index[position] < choices[position].len() {
-                    break;
-                }
-                index[position] = 0;
-            }
-            if index.iter().all(|&i| i == 0) {
-                break;
-            }
-        }
-    }
+    tuples.sort_by(|a, b| a.0.cmp(&b.0));
     Ok(TableLimit {
         table,
         fibre,
@@ -294,7 +349,7 @@ fn relation_limit(
         .iter()
         .filter_map(|edge| Some((*edge, at(from, &edge.src)?, at(to, &edge.tgt)?)))
         .collect();
-    let mut pairs = BTreeSet::new();
+    let mut pairs = std::collections::BTreeSet::new();
     for &(s, t) in instance.pairs(first) {
         let (Some(xs), Some(ys)) = (sources.get(&s), targets.get(&t)) else {
             continue;
@@ -314,16 +369,18 @@ fn relation_limit(
     Ok(pairs.into_iter().collect())
 }
 
-/// `Pi_F(I)` with the tuple behind each row; see
-/// [`functor_pi_along_with_hom`].
+/// `Pi_F(I)` of `instance`, an instance on `S'`, with the tuple behind each
+/// row; fresh row ids are allocated above every id in `floor`. See
+/// [`functor_pi_along_with_provenance`].
 pub(crate) fn pi_limit(
     instance: &FInstance,
     functor: &MigrationFunctor,
     max: usize,
+    floor: impl IntoIterator<Item = RowId>,
 ) -> Result<PiLimit, RestrictError> {
     let mut limits: BTreeMap<&Name, TableLimit<'_>> = BTreeMap::new();
     for (table, fibre) in functor.table_fibres() {
-        limits.insert(table, table_limit(instance, table, fibre, max)?);
+        limits.insert(table, table_limit(instance, functor, table, fibre, max)?);
     }
     let mut relation_limits: Vec<(&Edge, Vec<(usize, usize)>)> = Vec::new();
     for (relation, carried) in functor.relation_fibres() {
@@ -347,7 +404,7 @@ pub(crate) fn pi_limit(
         (None, Some(_)) => std::cmp::Ordering::Greater,
         (None, None) => a.table.cmp(b.table),
     });
-    let mut allocator = row_allocator(instance.row_ids());
+    let mut allocator = row_allocator(floor);
     let mut out = FInstance::new();
     let mut tuples = BTreeMap::new();
     let mut rows = HashMap::new();
@@ -710,7 +767,6 @@ mod tests {
 
     // --- functor_pi along a migration functor ---
 
-    /// A foreign key `src -> tgt` named `name`.
     fn fk(src: &str, tgt: &str, name: &str) -> Edge {
         Edge {
             src: src.into(),
@@ -720,157 +776,294 @@ mod tests {
         }
     }
 
+    fn column(table: &str, name: &str) -> Edge {
+        Edge {
+            src: table.into(),
+            tgt: format!("{table}.{name}").into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// Tables of kind `record` with integer columns, and the given edges.
+    fn tables(tables: &[(&str, &[&str])], edges: &[Edge]) -> Schema {
+        let mut vertices: Vec<&str> = Vec::new();
+        let mut all: Vec<Edge> = edges.to_vec();
+        let names: Vec<String> = tables
+            .iter()
+            .flat_map(|(t, cs)| cs.iter().map(move |c| format!("{t}.{c}")))
+            .collect();
+        for (t, cs) in tables {
+            vertices.push(t);
+            for c in *cs {
+                all.push(column(t, c));
+            }
+        }
+        vertices.extend(names.iter().map(String::as_str));
+        let mut schema = make_test_schema(&vertices, &all);
+        for (id, vertex) in &mut schema.vertices {
+            vertex.kind = if id.contains('.') {
+                "integer"
+            } else {
+                "record"
+            }
+            .into();
+        }
+        schema
+    }
+
+    fn protocol() -> Protocol {
+        Protocol {
+            value_kinds: BTreeMap::from([(
+                "integer".to_owned(),
+                panproto_schema::ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            )]),
+            non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+            ..Protocol::default()
+        }
+    }
+
     /// Rows without cells, with the given ids.
     fn blank_rows(ids: &[u32]) -> Vec<(RowId, Row)> {
         ids.iter().map(|&i| (RowId(i), Row::new())).collect()
     }
 
-    /// A migration sending each `(source, target)` table and nothing else.
-    fn migration_of(tables: &[(&str, &str)]) -> CompiledMigration {
+    /// Rows holding `x = value`, with the given ids.
+    fn x_rows(rows: &[(u32, i64)]) -> Vec<(RowId, Row)> {
+        rows.iter()
+            .map(|&(i, v)| (RowId(i), HashMap::from([("x".to_owned(), Value::Int(v))])))
+            .collect()
+    }
+
+    /// A migration sending each `(source, target)` table, and each listed
+    /// column of a source table to the same column of its image.
+    fn migration_of(tables: &[(&str, &str)], columns: &[(&str, &str)]) -> CompiledMigration {
         let mut migration = CompiledMigration::default();
         for &(src, tgt) in tables {
             migration.vertex_remap.insert(src.into(), tgt.into());
             migration.surviving_verts.insert(tgt.into());
         }
+        for &(table, name) in columns {
+            let image = &migration.vertex_remap[table].clone();
+            migration.vertex_remap.insert(
+                format!("{table}.{name}").into(),
+                format!("{image}.{name}").into(),
+            );
+            migration
+                .edge_remap
+                .insert(column(table, name), column(image, name));
+        }
         migration
+    }
+
+    fn pi(
+        inst: &FInstance,
+        src: &Schema,
+        tgt: &Schema,
+        migration: &CompiledMigration,
+        max: usize,
+    ) -> Result<FInstance, AdjunctionError> {
+        functor_pi(inst, src, &protocol(), tgt, &protocol(), migration, max)
+    }
+
+    fn pi_with_provenance(
+        inst: &FInstance,
+        src: &Schema,
+        tgt: &Schema,
+        migration: &CompiledMigration,
+    ) -> (FInstance, PiProvenance) {
+        let f = MigrationFunctor::new(src, &protocol(), tgt, &protocol(), migration).unwrap();
+        functor_pi_along_with_provenance(inst, &f, 100).unwrap()
     }
 
     #[test]
     fn pi_at_a_target_table_outside_the_image_has_one_row() {
-        let src = make_test_schema(&["a"], &[]);
-        let tgt = make_test_schema(&["a", "z"], &[]);
-        let migration = migration_of(&[("a", "a")]);
+        let src = tables(&[("a", &["x"])], &[]);
+        let tgt = tables(&[("a", &["x"]), ("z", &[])], &[]);
+        let migration = migration_of(&[("a", "a")], &[("a", "x")]);
         let inst = FInstance::new()
-            .with_rows("a", blank_rows(&[0, 1]))
+            .with_rows("a", x_rows(&[(0, 5), (1, 6)]))
             .unwrap();
-        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
-        assert_eq!(pi.row_count("a"), 2);
+        let out = pi(&inst, &src, &tgt, &migration, 100).unwrap();
+        assert_eq!(out.rows("a"), inst.rows("a"));
         assert_eq!(
-            pi.row_count("z"),
+            out.row_count("z"),
             1,
             "the limit of the empty diagram is one row"
         );
-        let (_, row) = pi.rows("z")[0];
+        let (id, row) = out.rows("z")[0];
         assert!(row.is_empty(), "the one row carries no cells");
-        assert_eq!(pi.rows("z")[0].0, RowId(2), "a fresh id above the input");
+        assert_eq!(id, RowId(2), "a fresh id above the input");
     }
 
-    /// A target array column's element vertex is part of a cell, not a table
+    /// A target list column's element vertex is part of a cell, not a table
     /// outside the image, so the limit gives it no row.
     #[test]
     fn pi_gives_no_row_to_a_part_of_a_cell() {
-        let column = Edge {
-            src: "post".into(),
-            tgt: "post.tags".into(),
-            kind: "prop".into(),
-            name: Some("tags".into()),
-        };
         let items = Edge {
             src: "post.tags".into(),
             tgt: "post.tags:items".into(),
             kind: "items".into(),
             name: None,
         };
-        let src = make_test_schema(&["post"], &[]);
-        let tgt = make_test_schema(&["post", "post.tags", "post.tags:items"], &[column, items]);
-        let migration = migration_of(&[("post", "post")]);
+        let src = tables(&[("post", &["tags"])], &[]);
+        let mut tgt = tables(&[("post", &["tags"])], std::slice::from_ref(&items));
+        tgt.vertices.insert(
+            "post.tags:items".into(),
+            Vertex {
+                id: "post.tags:items".into(),
+                kind: "integer".into(),
+                nsid: None,
+            },
+        );
+        let migration = migration_of(&[("post", "post")], &[("post", "tags")]);
+        let tags = Value::List(vec![Value::Int(1)]);
         let inst = FInstance::new()
-            .with_rows("post", blank_rows(&[0]))
+            .with_rows(
+                "post",
+                [(RowId(0), HashMap::from([("tags".to_owned(), tags)]))],
+            )
             .unwrap();
-        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
-        assert_eq!(pi, inst, "{pi:?}");
+        assert_eq!(pi(&inst, &src, &tgt, &migration, 100).unwrap(), inst);
     }
 
     #[test]
     fn pi_at_a_target_only_relation_holds_every_pair() {
         let e = fk("a", "z", "e");
-        let src = make_test_schema(&["a"], &[]);
-        let tgt = make_test_schema(&["a", "z"], std::slice::from_ref(&e));
-        let migration = migration_of(&[("a", "a")]);
+        let src = tables(&[("a", &[])], &[]);
+        let tgt = tables(&[("a", &[]), ("z", &[])], std::slice::from_ref(&e));
+        let migration = migration_of(&[("a", "a")], &[]);
         let inst = FInstance::new()
             .with_rows("a", blank_rows(&[0, 1]))
             .unwrap();
-        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
-        let z = pi.rows("z")[0].0;
+        let out = pi(&inst, &src, &tgt, &migration, 100).unwrap();
+        let z = out.rows("z")[0].0;
         assert!(
-            pi.pairs(&e).iter().eq(&[(RowId(0), z), (RowId(1), z)]),
+            out.pairs(&e).iter().eq(&[(RowId(0), z), (RowId(1), z)]),
             "every pair of a row of a and the row of z: {:?}",
-            pi.pairs(&e)
+            out.pairs(&e)
         );
         assert!(matches!(
-            functor_pi(&inst, &src, &tgt, &migration, 1),
-            Err(RestrictError::ProductSizeExceeded {
+            pi(&inst, &src, &tgt, &migration, 1),
+            Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
                 actual: 2,
                 limit: 1,
                 ..
-            })
+            }))
         ));
     }
 
     #[test]
     fn unmentioned_edges_are_outside_the_domain() {
         let e = fk("a", "b", "e");
-        let src = make_test_schema(&["a", "b"], std::slice::from_ref(&e));
-        let tgt = make_test_schema(&["m"], &[]);
-        let migration = migration_of(&[("a", "m"), ("b", "m")]);
+        let src = tables(&[("a", &[]), ("b", &[])], std::slice::from_ref(&e));
+        let tgt = tables(&[("m", &[])], &[]);
+        let migration = migration_of(&[("a", "m"), ("b", "m")], &[]);
         let inst = FInstance::new()
             .with_rows("a", blank_rows(&[0, 1]))
             .and_then(|f| f.with_rows("b", blank_rows(&[2, 3])))
             .and_then(|f| f.with_foreign_key(e, [(RowId(0), RowId(3))]))
             .unwrap();
-        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
+        let out = pi(&inst, &src, &tgt, &migration, 100).unwrap();
         assert_eq!(
-            pi.row_count("m"),
+            out.row_count("m"),
             4,
             "an unmentioned edge equalises nothing"
         );
-        assert_eq!(pi.pair_count(), 0);
+        assert_eq!(out.pair_count(), 0);
     }
 
+    /// Merging `a(x)` and `b(y)` into `m(x, y)` shares no column, so the
+    /// limit is the product of the rows; adding a shared column `k` joins on
+    /// it, and only on it.
     #[test]
-    fn a_limit_row_carries_the_cells_its_components_share() {
-        let src = make_test_schema(&["a", "b"], &[]);
-        let tgt = make_test_schema(&["m"], &[]);
-        let migration = migration_of(&[("a", "m"), ("b", "m")]);
-        let x = |v: i64| HashMap::from([("x".to_owned(), Value::Int(v))]);
-        let inst = FInstance::new()
-            .with_rows("a", [(RowId(0), x(1)), (RowId(1), x(2))])
-            .and_then(|f| f.with_rows("b", [(RowId(2), x(1)), (RowId(3), HashMap::new())]))
-            .unwrap();
-        let (pi, projections) = functor_pi_with_hom(&inst, &src, &tgt, &migration, 100).unwrap();
-        assert_eq!(pi.row_count("m"), 1, "only (0, 2) agree on every cell");
-        for (id, row) in pi.rows("m") {
-            for hom in projections.values() {
-                let component = hom.image(id).unwrap();
-                assert!(crate::functor::same_row(row, inst.row(component).unwrap()));
-            }
-        }
-    }
-
-    #[test]
-    fn results_do_not_depend_on_target_names() {
-        let src = make_test_schema(&["a", "b", "c", "d"], &[]);
-        let run = |left: &str, right: &str| {
-            let tgt = make_test_schema(&[left, right], &[]);
-            let migration = migration_of(&[("a", left), ("b", left), ("c", right), ("d", right)]);
-            let inst = FInstance::new()
-                .with_rows("a", blank_rows(&[0]))
-                .and_then(|f| f.with_rows("b", blank_rows(&[1])))
-                .and_then(|f| f.with_rows("c", blank_rows(&[2])))
-                .and_then(|f| f.with_rows("d", blank_rows(&[3])))
-                .unwrap();
-            functor_pi(&inst, &src, &tgt, &migration, 100).unwrap()
+    fn pi_joins_merged_tables_on_their_shared_columns_only() {
+        let src = tables(&[("a", &["x"]), ("b", &["y"])], &[]);
+        let tgt = tables(&[("m", &["x", "y"])], &[]);
+        let migration = migration_of(&[("a", "m"), ("b", "m")], &[("a", "x"), ("b", "y")]);
+        let y_rows = |rows: &[(u32, i64)]| -> Vec<(RowId, Row)> {
+            rows.iter()
+                .map(|&(i, v)| (RowId(i), HashMap::from([("y".to_owned(), Value::Int(v))])))
+                .collect()
         };
-        let before = run("m", "n");
-        let after = run("q", "p");
-        assert_eq!(
-            before.rows("m").first().map(|r| r.0),
-            after.rows("q").first().map(|r| r.0)
+        let inst = FInstance::new()
+            .with_rows("a", x_rows(&[(0, 1), (1, 2)]))
+            .and_then(|f| f.with_rows("b", y_rows(&[(2, 10), (3, 20), (4, 30)])))
+            .unwrap();
+        let (out, provenance) = pi_with_provenance(&inst, &src, &tgt, &migration);
+        assert_eq!(out.row_count("m"), 6);
+        let mut pairs = std::collections::BTreeSet::new();
+        for (id, row) in out.rows("m") {
+            assert_eq!(row.len(), 2);
+            let (_, tuple) = &provenance.tuples[&id];
+            assert_eq!(row["x"], inst.row(tuple[0]).unwrap()["x"]);
+            assert_eq!(row["y"], inst.row(tuple[1]).unwrap()["y"]);
+            pairs.insert((tuple[0], tuple[1]));
+        }
+        assert_eq!(pairs.len(), 6);
+
+        // With a shared column `k`, only rows agreeing on `k` join.
+        let src = tables(&[("a", &["x", "k"]), ("b", &["y", "k"])], &[]);
+        let tgt = tables(&[("m", &["x", "y", "k"])], &[]);
+        let migration = migration_of(
+            &[("a", "m"), ("b", "m")],
+            &[("a", "x"), ("b", "y"), ("a", "k"), ("b", "k")],
         );
+        let row = |pairs: &[(&str, i64)]| -> Row {
+            pairs
+                .iter()
+                .map(|(c, v)| ((*c).to_owned(), Value::Int(*v)))
+                .collect()
+        };
+        let inst = FInstance::new()
+            .with_rows(
+                "a",
+                [
+                    (RowId(0), row(&[("x", 1), ("k", 0)])),
+                    (RowId(1), row(&[("x", 2), ("k", 1)])),
+                ],
+            )
+            .and_then(|f| {
+                f.with_rows(
+                    "b",
+                    [
+                        (RowId(2), row(&[("y", 10), ("k", 0)])),
+                        (RowId(3), row(&[("y", 20), ("k", 0)])),
+                        (RowId(4), row(&[("y", 30), ("k", 2)])),
+                    ],
+                )
+            })
+            .unwrap();
+        let (out, provenance) = pi_with_provenance(&inst, &src, &tgt, &migration);
+        let tuples: Vec<&Vec<RowId>> = provenance.tuples.values().map(|(_, t)| t).collect();
         assert_eq!(
-            before.rows("n").first().map(|r| r.0),
-            after.rows("p").first().map(|r| r.0)
+            tuples,
+            [&vec![RowId(0), RowId(2)], &vec![RowId(0), RowId(3)]]
         );
+        assert!(
+            out.rows("m")
+                .iter()
+                .all(|(_, r)| r["k"] == Value::Int(0) && r.len() == 3)
+        );
+    }
+
+    /// A target column no source column is sent to has no value the limit
+    /// could take, so Pi refuses before reading the instance.
+    #[test]
+    fn pi_refuses_a_column_outside_the_image() {
+        let src = tables(&[("a", &[])], &[]);
+        let tgt = tables(&[("a", &[]), ("z", &["v"])], &[]);
+        let migration = migration_of(&[("a", "a")], &[]);
+        // Not even a stray cell of the input is looked at.
+        let inst = FInstance::new().with_rows("a", x_rows(&[(0, 1)])).unwrap();
+        assert!(matches!(
+            pi(&inst, &src, &tgt, &migration, 100),
+            Err(AdjunctionError::Pi(RestrictError::AttributeOutsideImage { table, column }))
+                if table == "z" && column == "v"
+        ));
     }
 
     /// Two two-row tables merged into `m`, with the foreign key
@@ -883,9 +1076,9 @@ mod tests {
             .and_then(|f| f.with_rows("b", blank_rows(&[2, 3])))
             .and_then(|f| f.with_foreign_key(l.clone(), [(RowId(0), RowId(3))]))
             .unwrap();
-        let src = make_test_schema(&["a", "b"], std::slice::from_ref(&l));
-        let tgt = make_test_schema(&["m"], std::slice::from_ref(&loop_edge));
-        let mut migration = migration_of(&[("a", "m"), ("b", "m")]);
+        let src = tables(&[("a", &[]), ("b", &[])], std::slice::from_ref(&l));
+        let tgt = tables(&[("m", &[])], std::slice::from_ref(&loop_edge));
+        let mut migration = migration_of(&[("a", "m"), ("b", "m")], &[]);
         migration.edge_remap.insert(l, loop_edge.clone());
         (inst, src, tgt, migration, loop_edge)
     }
@@ -898,15 +1091,14 @@ mod tests {
     #[test]
     fn functor_pi_equalises_along_an_intra_fibre_foreign_key() {
         let (inst, src, tgt, migration, loop_edge) = carried_loop();
-        let (pi, projections) = functor_pi_with_hom(&inst, &src, &tgt, &migration, 100).unwrap();
-        assert_eq!(pi.row_count("m"), 4);
-        let a = &projections[&Name::from("a")];
-        let b = &projections[&Name::from("b")];
-        let rows: Vec<RowId> = pi.rows("m").into_iter().map(|(id, _)| id).collect();
-        let mut cones = BTreeSet::new();
+        let (out, provenance) = pi_with_provenance(&inst, &src, &tgt, &migration);
+        assert_eq!(out.row_count("m"), 4);
+        let rows: Vec<RowId> = out.rows("m").into_iter().map(|(id, _)| id).collect();
+        let mut cones = std::collections::BTreeSet::new();
         for &x in &rows {
             for &y in &rows {
-                if inst.contains_pair(&fk("a", "b", "l"), a.row_map[&x], b.row_map[&y]) {
+                let (a, b) = (provenance.tuples[&x].1[0], provenance.tuples[&y].1[1]);
+                if inst.contains_pair(&fk("a", "b", "l"), a, b) {
                     cones.insert((x, y));
                 }
             }
@@ -917,92 +1109,34 @@ mod tests {
             "x draws a0 (two tuples), y draws b1 (two tuples)"
         );
         assert_eq!(
-            pi.pairs(&loop_edge),
+            out.pairs(&loop_edge),
             &cones,
             "the loop holds every cone and nothing else"
         );
     }
 
-    /// Over a fibre with an internal edge Pi returns the limit, so nothing
-    /// needs to refuse such a fibre. With the edge carried to a
-    /// loop it is the equaliser at the loop above; left unmentioned the
-    /// edge is outside the functor's domain and constrains nothing, so the
-    /// table is the bare product and no pair is invented.
+    /// Left unmentioned, an internal edge of a fibre is outside the
+    /// functor's domain and constrains nothing: the table is the bare
+    /// product and the target loop nothing is carried to holds every pair.
     #[test]
     fn pi_over_a_fibre_with_an_internal_edge_is_its_limit() {
         let (inst, src, tgt, mut migration, loop_edge) = carried_loop();
         migration.edge_remap.clear();
-        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
-        assert_eq!(pi.row_count("m"), 4);
-        assert_eq!(
-            pi.pairs(&loop_edge).len(),
-            16,
-            "a target loop nothing is sent to holds every pair of the four rows"
-        );
+        let out = pi(&inst, &src, &tgt, &migration, 100).unwrap();
+        assert_eq!(out.row_count("m"), 4);
+        assert_eq!(out.pairs(&loop_edge).len(), 16);
     }
 
     /// Along the identity migration as `panproto_mig::compile` states it
-    /// (every table sent to itself, every foreign key listed as surviving),
-    /// Pi returns its input: a post with no author and a post with two keep
-    /// their rows, and an org chart whose root has no manager keeps every
-    /// employee.
-    /// Along the identity, Pi keeps the rows and pairs of record kinds that
-    /// share vocabulary with list values: ASN.1's `sequence` and `set`, and
-    /// a JSON array of objects.
-    #[test]
-    fn pi_along_the_identity_keeps_rows_at_record_container_kinds() {
-        let other = Edge {
-            src: "Person".into(),
-            tgt: "Other".into(),
-            kind: "field-of".into(),
-            name: Some("other".into()),
-        };
-        let items = Edge {
-            src: "root".into(),
-            tgt: "item".into(),
-            kind: "items".into(),
-            name: None,
-        };
-        let mut schema = make_test_schema(
-            &["Person", "Other", "root", "item"],
-            &[other.clone(), items.clone()],
-        );
-        for (vertex, kind) in [
-            ("Person", "sequence"),
-            ("Other", "set"),
-            ("root", "array"),
-            ("item", "object"),
-        ] {
-            if let Some(v) = schema.vertices.get_mut(vertex) {
-                v.kind = kind.into();
-            }
-        }
-        let inst = FInstance::new()
-            .with_rows("Person", blank_rows(&[0]))
-            .and_then(|f| f.with_rows("Other", blank_rows(&[1])))
-            .and_then(|f| f.with_rows("root", blank_rows(&[2])))
-            .and_then(|f| f.with_rows("item", blank_rows(&[3, 4])))
-            .and_then(|f| f.with_foreign_key(other.clone(), [(RowId(0), RowId(1))]))
-            .and_then(|f| {
-                f.with_foreign_key(items.clone(), [(RowId(2), RowId(3)), (RowId(2), RowId(4))])
-            })
-            .unwrap();
-        let mut migration = migration_of(&[
-            ("Person", "Person"),
-            ("Other", "Other"),
-            ("root", "root"),
-            ("item", "item"),
-        ]);
-        migration.surviving_edges.extend([other, items]);
-        let pi = functor_pi(&inst, &schema, &schema, &migration, 100).unwrap();
-        assert_eq!(pi, inst);
-    }
-
+    /// (every table sent to itself, every foreign key and column listed as
+    /// surviving), Pi returns its input: a post with no author and a post
+    /// with two keep their rows, and an org chart whose root has no manager
+    /// keeps every employee.
     #[test]
     fn pi_along_a_compiled_identity_keeps_partial_and_many_valued_keys() {
         let author = fk("post", "user", "author");
         let posts = FInstance::new()
-            .with_rows("post", blank_rows(&[2, 3, 4]))
+            .with_rows("post", x_rows(&[(2, 0), (3, 1), (4, 0)]))
             .and_then(|f| f.with_rows("user", blank_rows(&[0, 1])))
             .and_then(|f| {
                 f.with_foreign_key(
@@ -1029,19 +1163,35 @@ mod tests {
                 )
             })
             .unwrap();
-        for (inst, tables, key) in [
-            (posts, &["post", "user"][..], author),
-            (chart, &["emp"][..], manager),
+        for (inst, schema, key) in [
+            (
+                posts,
+                tables(
+                    &[("post", &["x"]), ("user", &[])],
+                    std::slice::from_ref(&author),
+                ),
+                author.clone(),
+            ),
+            (
+                chart,
+                tables(&[("emp", &[])], std::slice::from_ref(&manager)),
+                manager.clone(),
+            ),
         ] {
-            let schema = make_test_schema(tables, std::slice::from_ref(&key));
-            let mut migration = migration_of(&tables.iter().map(|&t| (t, t)).collect::<Vec<_>>());
-            migration.surviving_edges.insert(key);
-            let (pi, projections) =
-                functor_pi_with_hom(&inst, &schema, &schema, &migration, 100).unwrap();
-            assert_eq!(pi, inst);
-            for hom in projections.values() {
-                assert!(hom.row_map.iter().all(|(row, image)| row == image));
+            let mut migration = CompiledMigration::default();
+            for table in ["post", "user", "emp"] {
+                migration.surviving_verts.insert(table.into());
             }
+            migration.surviving_edges.insert(key);
+            migration.surviving_edges.insert(column("post", "x"));
+            let (out, provenance) = pi_with_provenance(&inst, &schema, &schema, &migration);
+            assert_eq!(out, inst);
+            assert!(
+                provenance
+                    .tuples
+                    .iter()
+                    .all(|(row, (_, tuple))| tuple == &vec![*row])
+            );
         }
     }
 
@@ -1057,19 +1207,46 @@ mod tests {
                 f.with_foreign_key(edge.clone(), (0..ROWS).map(|i| (RowId(i), RowId(ROWS + i))))
             })
             .unwrap();
-        let schema = make_test_schema(&["a", "b"], std::slice::from_ref(&edge));
+        let schema = tables(&[("a", &["n"]), ("b", &["n"])], std::slice::from_ref(&edge));
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("a"), Name::from("b")]),
-            surviving_edges: HashSet::from([edge]),
+            surviving_edges: HashSet::from([edge, column("a", "n"), column("b", "n")]),
             ..CompiledMigration::default()
         };
         let began = std::time::Instant::now();
-        let pi = functor_pi(&inst, &schema, &schema, &migration, usize::MAX).unwrap();
+        let out = pi(&inst, &schema, &schema, &migration, usize::MAX).unwrap();
         let took = began.elapsed();
-        assert_eq!(pi, inst, "Pi along the identity is the identity");
+        assert_eq!(out, inst, "Pi along the identity is the identity");
         assert!(
             took < std::time::Duration::from_secs(3),
             "Pi over {ROWS} pairs took {took:?}"
+        );
+    }
+
+    /// Renaming the target tables in the image leaves every row id alone.
+    #[test]
+    fn results_do_not_depend_on_target_names() {
+        let src = tables(&[("a", &[]), ("b", &[]), ("c", &[]), ("d", &[])], &[]);
+        let run = |left: &str, right: &str| {
+            let tgt = tables(&[(left, &[]), (right, &[])], &[]);
+            let migration =
+                migration_of(&[("a", left), ("b", left), ("c", right), ("d", right)], &[]);
+            let inst = FInstance::new()
+                .with_rows("a", blank_rows(&[0]))
+                .and_then(|f| f.with_rows("b", blank_rows(&[1])))
+                .and_then(|f| f.with_rows("c", blank_rows(&[2])))
+                .and_then(|f| f.with_rows("d", blank_rows(&[3])))
+                .unwrap();
+            pi(&inst, &src, &tgt, &migration, 100).unwrap()
+        };
+        let (before, after) = (run("m", "n"), run("q", "p"));
+        assert_eq!(
+            before.rows("m").first().map(|r| r.0),
+            after.rows("q").first().map(|r| r.0)
+        );
+        assert_eq!(
+            before.rows("n").first().map(|r| r.0),
+            after.rows("p").first().map(|r| r.0)
         );
     }
 }

@@ -268,6 +268,10 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::EdgeOutsideDomain { .. } => "edge_outside_domain",
         RestrictError::IncoherentEdgeImage { .. } => "incoherent_edge_image",
         RestrictError::VertexImageNotATable { .. } => "vertex_image_not_a_table",
+        RestrictError::IncoherentAttributeImage { .. } => "incoherent_attribute_image",
+        RestrictError::AttributeOutsideImage { .. } => "attribute_outside_image",
+        RestrictError::ValueStructureRemap { .. } => "value_structure_remap",
+        RestrictError::RelSchema(_) => "rel_schema",
     }
 }
 

@@ -1,218 +1,401 @@
-//! The relation-ified schema of a table schema.
+//! The attributed relation-ified schema of a table schema.
 //!
 //! A table instance ([`FInstance`](crate::FInstance)) reads every foreign key
 //! as a relation: a set of pairs that may be partial and many-valued. So it
-//! is a presheaf, not on the schema's vertices and edges, but on the category
-//! [`RelSchema`] built from them: one object per table vertex, and one object
-//! per foreign-key edge `e: a -> b` with two arrows `src_e: e -> a` and
-//! `tgt_e: e -> b`. The instance sends a table to its rows and a foreign key
-//! to its pairs, with their two projections. This is the typed-graph
-//! presentation of brown2022computational Section 2 (stated: typed-graph
-//! categories are the C-set categories whose instances are sets and
-//! relations). A foreign key the schema declares functional and total is the
-//! special case where `src_e` is a bijection.
+//! is a presheaf, not on the schema's vertices and edges, but on the entity
+//! category of a [`RelSchema`]: one object per table, and one object per
+//! relation `e: a -> b` with two arrows `src_e: e -> a` and `tgt_e: e -> b`,
+//! with no path equations. The instance sends a table to its rows and a
+//! relation to its pairs, with their two projections; this is the
+//! typed-graph presentation of brown2022computational Section 2 (stated:
+//! typed-graph categories are the C-set categories whose instances are sets
+//! and relations). A foreign key the schema declares functional and total is
+//! the special case where `src_e` is a bijection.
 //!
-//! Attribute (column) vertices are not objects: their values are the cells of
-//! the rows. Which vertices are tables is read from the schema alone, never
-//! from whether an instance holds rows there, so a table with no rows is
-//! still a table.
+//! The cells of the rows are the other half. Each attribute arrow `a: t -> c`
+//! (an edge from a table to a value vertex) is a function from the rows of
+//! `t` to one value sort, whose constants are the [`Value`](crate::Value)s
+//! holding no labelled null and which has no operations and no equations: a
+//! free, discrete value side, on which a labelled null is a free generator.
+//! A row holds one cell per attribute arrow of its table, keyed by the
+//! arrow's column name. Typing a cell by its vertex kind is the business of
+//! validation, not of this schema, which is why one value sort is enough.
+//!
+//! Which vertices are tables is read from the protocol's two declarations,
+//! [`Protocol::value_kinds`] and [`Protocol::non_value_kinds`], and from the
+//! schema's key and reference declarations, and from nothing else: not from
+//! the kind of an edge, not from the name of a kind, not from whether an
+//! instance holds rows there. So a table with no rows is still a table.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Schema};
+use panproto_schema::{Edge, Protocol, Schema};
 
-use crate::value::Value;
-
-/// The vertex kind that marks a vertex as a table.
-pub const TABLE_KIND: &str = "table";
-
-/// The edge kind that makes its target a column of its source.
-pub const COLUMN_EDGE_KIND: &str = "prop";
-
-/// Whether `kind` is a scalar kind of the one vocabulary of value kinds,
-/// [`kind_accepts`](crate::attributes::kind_accepts): one that refuses both a
-/// record and a list. A container kind (`array`, `sequence`, `set`, ...)
-/// accepts a list, and ASN.1 and JSON use those kinds for records and for
-/// arrays of records, so a container kind is no scalar kind.
-fn is_scalar_kind(kind: &str) -> bool {
-    let kind = Name::from(kind);
-    !crate::attributes::kind_accepts(&kind, &Value::Unknown(HashMap::new()))
-        && !crate::attributes::kind_accepts(&kind, &Value::List(Vec::new()))
+/// Why a schema has no attributed relation-ified form, or why given parts do
+/// not form one.
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum RelSchemaError {
+    /// The protocol declares one vertex kind both a value kind and a
+    /// non-value kind.
+    #[error("vertex kind `{kind}` is declared both a value kind and a non-value kind")]
+    AmbiguousKind {
+        /// The least such kind.
+        kind: String,
+    },
+    /// A vertex that no key or reference declares a table has a kind the
+    /// protocol declares neither a value kind nor a non-value kind.
+    #[error(
+        "vertex `{vertex}` has kind `{kind}`, which the protocol declares neither a value kind nor a non-value kind"
+    )]
+    UnclassifiedKind {
+        /// The least such vertex.
+        vertex: Name,
+        /// Its kind.
+        kind: Name,
+    },
+    /// An edge leads from a value vertex to a table: a declared table, or a
+    /// vertex of a non-value kind. A cell cannot hold a foreign key or a
+    /// record.
+    #[error("edge {edge:?} leads from a value vertex to a table")]
+    ValueReachesTable {
+        /// The least such edge (boxed to keep the error small).
+        edge: Box<Edge>,
+    },
+    /// Two attribute arrows of one table have one column name.
+    #[error("table `{table}` has two attribute arrows with the column name `{column}`")]
+    DuplicateColumn {
+        /// The least such table.
+        table: Name,
+        /// The least such column of it.
+        column: String,
+    },
+    /// A relation given to [`RelSchema::from_parts`] has an endpoint that is
+    /// not among its tables.
+    #[error("relation {edge:?} has an endpoint that is not a table")]
+    RelationEndpointNotATable {
+        /// The least such relation (boxed to keep the error small).
+        edge: Box<Edge>,
+    },
+    /// A column given to [`RelSchema::from_parts`] is not an attribute arrow
+    /// of its table under its own column name: its table is no table, its
+    /// arrow starts elsewhere or ends at a table, or the column name is not
+    /// the arrow's.
+    #[error("column `{column}` of `{table}` is not an attribute arrow of that table so named")]
+    ColumnEdgeMismatch {
+        /// The least such table.
+        table: Name,
+        /// The least such column of it.
+        column: String,
+    },
 }
 
-/// Whether `kind` is a value kind: a scalar kind, or a list kind named for a
-/// scalar element (`string-list`, `integer-list`).
-fn is_value_kind(kind: &str) -> bool {
-    is_scalar_kind(kind) || kind.strip_suffix("-list").is_some_and(is_scalar_kind)
+/// The column name of an attribute arrow: its edge name, or the id of its
+/// target when it has none.
+#[must_use]
+pub fn column_name(edge: &Edge) -> String {
+    edge.name
+        .as_ref()
+        .map_or_else(|| edge.tgt.to_string(), ToString::to_string)
 }
 
-/// Whether `kind` is a structured kind of the vocabulary: a record kind
-/// (`object`, `struct`, ...) or a container kind (`array`, `sequence`, `set`,
-/// ...), one that refuses a scalar and accepts a record or a list. A kind the
-/// vocabulary does not know accepts everything, so it is no structured kind.
-fn is_structured_kind(kind: &str) -> bool {
-    let kind = Name::from(kind);
-    !crate::attributes::kind_accepts(&kind, &Value::Int(0))
-        && (crate::attributes::kind_accepts(&kind, &Value::Unknown(HashMap::new()))
-            || crate::attributes::kind_accepts(&kind, &Value::List(Vec::new())))
-}
+/// The columns of no table.
+static NO_COLUMNS: BTreeMap<String, Edge> = BTreeMap::new();
 
-/// The relation-ified schema of a [`Schema`]: its tables and its foreign keys
-/// as relation objects.
+/// The attributed relation-ified schema of a [`Schema`]: its tables, its
+/// relations, and the columns of each table.
 ///
-/// A vertex is a table when the schema says so: its kind is
-/// [`TABLE_KIND`], it declares a key, or a declared reference holds at it or
-/// resolves to it. Otherwise a vertex is an attribute exactly when its kind
-/// is a value kind (a scalar kind such as `string` or `integer`, or a list
-/// kind named for a scalar element such as `string-list`, whatever edge
-/// reaches it, or none), an edge of kind [`COLUMN_EDGE_KIND`] reaches it (it
-/// is a column of that edge's source), it is a sink of no structured kind
-/// (record or container) that an edge reaches (no edge leaves it, so it holds no columns and no foreign
-/// keys of its own and is the value its source carries, as CoNLL-U's
-/// `upos-tag` vertices are), or any edge leaves an attribute for it (it is
-/// part of a column's value, as the element vertex of an array column is),
-/// and a table when none of these holds. A container kind (`array`,
-/// `sequence`, `set`, ...) is no value kind: ASN.1 declares records of the
-/// kinds `sequence` and `set`, and a JSON array of objects holds rows. A foreign key is an edge of the
-/// schema between two tables; an edge into an attribute is a column, not an
-/// object. Each foreign key `e` stands for an object with the two arrows
-/// `src_e` and `tgt_e` to its endpoint tables, which the edge itself names.
+/// [`RelSchema::new`] classifies the vertices of a schema under its
+/// protocol. The declared tables are the vertices with a key and the holders
+/// and targets of references, whatever their kind. Every other vertex must
+/// have a kind the protocol declares a value kind or a non-value kind. The
+/// value vertices are the undeclared vertices of a value kind and every
+/// vertex an edge reaches from one; the tables are the declared tables and
+/// the vertices of a non-value kind. A relation is an edge between two
+/// tables, of any edge kind. An attribute arrow is an edge from a table to a
+/// value vertex, and the column it names is [`column_name`] of it. An edge
+/// out of a value vertex (the element edge of a list column, the field
+/// edges of a struct column) is an inner value edge: part of the structure
+/// of the single value one cell holds, and no part of the entity category.
 ///
 /// ```
-/// use std::collections::HashMap;
+/// use std::collections::{BTreeMap, BTreeSet, HashMap};
 ///
 /// use panproto_inst::RelSchema;
-/// use panproto_schema::{Edge, Schema, Vertex};
+/// use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 ///
 /// let vertex = |id: &str, kind: &str| {
 ///     (id.into(), Vertex { id: id.into(), kind: kind.into(), nsid: None })
 /// };
 /// let author = Edge { src: "post".into(), tgt: "user".into(), kind: "fk".into(), name: None };
-/// let title = Edge { src: "post".into(), tgt: "post.title".into(), kind: "prop".into(), name: Some("title".into()) };
+/// let title = Edge {
+///     src: "post".into(),
+///     tgt: "post.title".into(),
+///     kind: "prop".into(),
+///     name: Some("title".into()),
+/// };
 /// let schema = Schema {
 ///     vertices: HashMap::from([
-///         vertex("post", "table"),
-///         vertex("user", "table"),
+///         vertex("post", "record"),
+///         vertex("user", "record"),
 ///         vertex("post.title", "string"),
 ///     ]),
-///     edges: HashMap::from([(author.clone(), "fk".into()), (title, "prop".into())]),
+///     edges: HashMap::from([(author.clone(), "fk".into()), (title.clone(), "prop".into())]),
 ///     ..Schema::default()
 /// };
-/// let rel = RelSchema::new(&schema);
+/// let protocol = Protocol {
+///     value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+///     non_value_kinds: BTreeSet::from(["record".to_owned()]),
+///     ..Protocol::default()
+/// };
+/// let rel = RelSchema::new(&schema, &protocol)?;
 /// assert!(rel.is_table("post") && rel.is_table("user"));
 /// assert!(!rel.is_table("post.title"));
 /// assert!(rel.relations().iter().eq([&author]));
+/// assert_eq!(rel.columns("post").get("title"), Some(&title));
+/// # Ok::<(), panproto_inst::RelSchemaError>(())
 /// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RelSchema {
-    /// The table objects, by vertex name.
+    /// The table objects.
     tables: BTreeSet<Name>,
-    /// The relation objects, one per foreign-key edge.
+    /// The relation objects, one per edge between two tables.
     relations: BTreeSet<Edge>,
+    /// The columns of each table (every table has an entry): column name to
+    /// attribute arrow.
+    columns: BTreeMap<Name, BTreeMap<String, Edge>>,
+    /// Each attribute arrow with its table's column name for it.
+    attributes: BTreeMap<Edge, String>,
+    /// The kind of each value vertex of the schema it was built from (none
+    /// for one built from parts). Not an object of the entity category: the
+    /// structure inside one cell.
+    value_vertices: BTreeMap<Name, Name>,
+    /// The inner value edges of the schema it was built from (none for one
+    /// built from parts): the edges out of value vertices.
+    inner_edges: BTreeSet<Edge>,
 }
 
 impl RelSchema {
-    /// The relation-ified schema of `schema`, read as the type documents.
-    #[must_use]
-    pub fn new(schema: &Schema) -> Self {
-        let declared: BTreeSet<&str> = schema
+    /// The attributed relation-ified schema of `schema` under `protocol`,
+    /// read as the type documents.
+    ///
+    /// # Errors
+    ///
+    /// In this order: [`RelSchemaError::AmbiguousKind`] for the least kind
+    /// the protocol declares both ways; [`RelSchemaError::UnclassifiedKind`]
+    /// for the least vertex, not declared a table by a key or reference,
+    /// whose kind the protocol declares neither way;
+    /// [`RelSchemaError::ValueReachesTable`] for the least edge from a value
+    /// vertex to a declared table or a vertex of a non-value kind; and
+    /// [`RelSchemaError::DuplicateColumn`] for the least table, and column,
+    /// that two attribute arrows name.
+    pub fn new(schema: &Schema, protocol: &Protocol) -> Result<Self, RelSchemaError> {
+        let non_value = &protocol.non_value_kinds;
+        if let Some(kind) = protocol
+            .value_kinds
+            .keys()
+            .find(|kind| non_value.contains(*kind))
+        {
+            return Err(RelSchemaError::AmbiguousKind { kind: kind.clone() });
+        }
+        let is_value_kind = |kind: &Name| protocol.value_kinds.contains_key(kind.as_ref());
+        let is_non_value_kind = |kind: &Name| non_value.contains(kind.as_ref());
+
+        let declared: BTreeSet<&Name> = schema
             .declarations
             .keys
             .iter()
             .filter(|(_, keys)| !keys.is_empty())
-            .map(|(vertex, _)| vertex.as_ref())
+            .map(|(vertex, _)| vertex)
             .chain(
                 schema
                     .declarations
                     .references
                     .values()
-                    .flat_map(|r| [r.holder.as_ref(), r.target_vertex.as_ref()]),
+                    .flat_map(|r| [&r.holder, &r.target_vertex]),
             )
+            .filter(|vertex| schema.vertices.contains_key(*vertex))
             .collect();
-        let declared_table = |id: &str| {
-            schema
-                .vertices
-                .get(id)
-                .is_some_and(|vertex| vertex.kind == TABLE_KIND)
-                || declared.contains(id)
-        };
-        // The attributes: the targets of column edges, closed under every
-        // edge out of an attribute (the element vertex of an array column,
-        // the fields of a struct column), never a declared table.
-        let reached: BTreeSet<&str> = schema.edges.keys().map(|e| e.tgt.as_ref()).collect();
-        let left: BTreeSet<&str> = schema.edges.keys().map(|e| e.src.as_ref()).collect();
-        let mut attributes: BTreeSet<&str> = BTreeSet::new();
-        let mut frontier: Vec<&str> = schema
-            .edges
-            .keys()
-            .filter(|edge| edge.kind == COLUMN_EDGE_KIND)
-            .map(|edge| edge.tgt.as_ref())
-            .chain(
-                schema
-                    .vertices
-                    .values()
-                    .filter(|vertex| is_value_kind(&vertex.kind))
-                    .map(|vertex| vertex.id.as_ref()),
-            )
-            .chain(
-                schema
-                    .vertices
-                    .values()
-                    .filter(|vertex| {
-                        !is_structured_kind(&vertex.kind)
-                            && reached.contains(vertex.id.as_ref())
-                            && !left.contains(vertex.id.as_ref())
-                    })
-                    .map(|vertex| vertex.id.as_ref()),
-            )
+
+        let vertices: BTreeMap<&Name, &Name> = schema
+            .vertices
+            .iter()
+            .map(|(id, vertex)| (id, &vertex.kind))
+            .collect();
+        if let Some((vertex, kind)) = vertices.iter().find(|(vertex, kind)| {
+            !declared.contains(*vertex) && !is_value_kind(kind) && !is_non_value_kind(kind)
+        }) {
+            return Err(RelSchemaError::UnclassifiedKind {
+                vertex: (*vertex).clone(),
+                kind: (*kind).clone(),
+            });
+        }
+
+        let edges: BTreeSet<&Edge> = schema.edges.keys().collect();
+        let mut out_edges: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
+        for edge in &edges {
+            out_edges.entry(&edge.src).or_default().push(edge);
+        }
+        // The value vertices: the least set holding every undeclared vertex
+        // of a value kind and closed under edges.
+        let mut values: BTreeSet<&Name> = BTreeSet::new();
+        let mut frontier: Vec<&Name> = vertices
+            .iter()
+            .filter(|(vertex, kind)| !declared.contains(*vertex) && is_value_kind(kind))
+            .map(|(vertex, _)| *vertex)
             .collect();
         while let Some(vertex) = frontier.pop() {
-            if declared_table(vertex) || !attributes.insert(vertex) {
+            if !vertices.contains_key(vertex) || !values.insert(vertex) {
                 continue;
             }
-            frontier.extend(
-                schema
-                    .edges
-                    .keys()
-                    .filter(|edge| edge.src.as_ref() == vertex)
-                    .map(|edge| edge.tgt.as_ref()),
-            );
+            for edge in out_edges.get(vertex).into_iter().flatten() {
+                frontier.push(&edge.tgt);
+            }
         }
-        let tables: BTreeSet<Name> = schema
-            .vertices
-            .values()
-            .filter(|vertex| !attributes.contains(vertex.id.as_ref()))
-            .map(|vertex| vertex.id.clone())
-            .collect();
-        let relations = schema
-            .edges
+        let is_table = |vertex: &Name| {
+            declared.contains(vertex) || vertices.get(vertex).is_some_and(|k| is_non_value_kind(k))
+        };
+        if let Some(edge) = edges
+            .iter()
+            .find(|edge| values.contains(&edge.src) && is_table(&edge.tgt))
+        {
+            return Err(RelSchemaError::ValueReachesTable {
+                edge: Box::new((*edge).clone()),
+            });
+        }
+
+        let tables: BTreeSet<Name> = vertices
             .keys()
-            .filter(|edge| tables.contains(&edge.src) && tables.contains(&edge.tgt))
-            .cloned()
+            .filter(|vertex| is_table(vertex))
+            .map(|vertex| (*vertex).clone())
             .collect();
-        Self { tables, relations }
+        let relations: BTreeSet<Edge> = edges
+            .iter()
+            .filter(|edge| tables.contains(&edge.src) && tables.contains(&edge.tgt))
+            .map(|edge| (*edge).clone())
+            .collect();
+        let mut columns: BTreeMap<Name, BTreeMap<String, Edge>> = tables
+            .iter()
+            .map(|table| (table.clone(), BTreeMap::new()))
+            .collect();
+        let mut duplicate: Option<(Name, String)> = None;
+        for edge in edges
+            .iter()
+            .filter(|edge| tables.contains(&edge.src) && values.contains(&edge.tgt))
+        {
+            let column = column_name(edge);
+            let table_columns = columns.entry(edge.src.clone()).or_default();
+            if table_columns.contains_key(&column) {
+                let candidate = (edge.src.clone(), column);
+                if duplicate.as_ref().is_none_or(|least| candidate < *least) {
+                    duplicate = Some(candidate);
+                }
+            } else {
+                table_columns.insert(column, (*edge).clone());
+            }
+        }
+        if let Some((table, column)) = duplicate {
+            return Err(RelSchemaError::DuplicateColumn { table, column });
+        }
+        let value_vertices = values
+            .iter()
+            .filter_map(|vertex| Some(((*vertex).clone(), (*vertices.get(vertex)?).clone())))
+            .collect();
+        let inner_edges = edges
+            .iter()
+            .filter(|edge| values.contains(&edge.src))
+            .map(|edge| (*edge).clone())
+            .collect();
+        Ok(Self::assemble(
+            tables,
+            relations,
+            columns,
+            value_vertices,
+            inner_edges,
+        ))
     }
 
-    /// The relation-ified schema with exactly the given tables and relations.
+    /// The relation-ified schema with exactly the given tables, relations
+    /// and columns (each table's column name to its attribute arrow). A table
+    /// given no columns has none. It records no value vertices and no inner
+    /// value edges.
     ///
     /// # Errors
     ///
-    /// Returns the first relation (ascending) one of whose endpoints is not
-    /// among the tables.
+    /// [`RelSchemaError::RelationEndpointNotATable`] for the least relation
+    /// with an endpoint that is not a table, then
+    /// [`RelSchemaError::ColumnEdgeMismatch`] for the least table, and
+    /// column, whose entry is not an attribute arrow of that table under its
+    /// own column name: the table is not a table, the arrow starts at
+    /// another vertex or ends at a table, or its column name differs.
     pub fn from_parts(
         tables: impl IntoIterator<Item = Name>,
         relations: impl IntoIterator<Item = Edge>,
-    ) -> Result<Self, Edge> {
+        columns: BTreeMap<Name, BTreeMap<String, Edge>>,
+    ) -> Result<Self, RelSchemaError> {
         let tables: BTreeSet<Name> = tables.into_iter().collect();
         let relations: BTreeSet<Edge> = relations.into_iter().collect();
         if let Some(edge) = relations
             .iter()
             .find(|edge| !tables.contains(&edge.src) || !tables.contains(&edge.tgt))
         {
-            return Err(edge.clone());
+            return Err(RelSchemaError::RelationEndpointNotATable {
+                edge: Box::new(edge.clone()),
+            });
         }
-        Ok(Self { tables, relations })
+        for (table, table_columns) in &columns {
+            for (column, edge) in table_columns {
+                if !tables.contains(table)
+                    || edge.src != *table
+                    || tables.contains(&edge.tgt)
+                    || column_name(edge) != *column
+                {
+                    return Err(RelSchemaError::ColumnEdgeMismatch {
+                        table: table.clone(),
+                        column: column.clone(),
+                    });
+                }
+            }
+        }
+        let mut all: BTreeMap<Name, BTreeMap<String, Edge>> = tables
+            .iter()
+            .map(|table| (table.clone(), BTreeMap::new()))
+            .collect();
+        all.extend(columns);
+        Ok(Self::assemble(
+            tables,
+            relations,
+            all,
+            BTreeMap::new(),
+            BTreeSet::new(),
+        ))
+    }
+
+    /// Build the schema and its index of attribute arrows.
+    fn assemble(
+        tables: BTreeSet<Name>,
+        relations: BTreeSet<Edge>,
+        columns: BTreeMap<Name, BTreeMap<String, Edge>>,
+        value_vertices: BTreeMap<Name, Name>,
+        inner_edges: BTreeSet<Edge>,
+    ) -> Self {
+        let attributes = columns
+            .values()
+            .flat_map(|table_columns| {
+                table_columns
+                    .iter()
+                    .map(|(column, edge)| (edge.clone(), column.clone()))
+            })
+            .collect();
+        Self {
+            tables,
+            relations,
+            columns,
+            attributes,
+            value_vertices,
+            inner_edges,
+        }
     }
 
     /// The table objects, ascending.
@@ -221,10 +404,23 @@ impl RelSchema {
         &self.tables
     }
 
-    /// The relation objects (foreign keys), ascending.
+    /// The relation objects, ascending.
     #[must_use]
     pub const fn relations(&self) -> &BTreeSet<Edge> {
         &self.relations
+    }
+
+    /// The columns of every table: each table (all of them) with its column
+    /// names and their attribute arrows, ascending.
+    #[must_use]
+    pub const fn all_columns(&self) -> &BTreeMap<Name, BTreeMap<String, Edge>> {
+        &self.columns
+    }
+
+    /// The columns of `table`, by column name; none when it is no table.
+    #[must_use]
+    pub fn columns(&self, table: &str) -> &BTreeMap<String, Edge> {
+        self.columns.get(table).unwrap_or(&NO_COLUMNS)
     }
 
     /// Whether `vertex` is a table object.
@@ -238,13 +434,41 @@ impl RelSchema {
     pub fn is_relation(&self, edge: &Edge) -> bool {
         self.relations.contains(edge)
     }
+
+    /// The column name of `edge` when it is an attribute arrow (its source is
+    /// the table it is a column of).
+    #[must_use]
+    pub fn attribute_column(&self, edge: &Edge) -> Option<&str> {
+        self.attributes.get(edge).map(String::as_str)
+    }
+
+    /// Whether `edge` is an inner value edge: an edge out of a value vertex.
+    #[must_use]
+    pub fn is_inner_edge(&self, edge: &Edge) -> bool {
+        self.inner_edges.contains(edge)
+    }
+
+    /// The inner value edges, ascending.
+    #[must_use]
+    pub const fn inner_edges(&self) -> &BTreeSet<Edge> {
+        &self.inner_edges
+    }
+
+    /// The kind of a value vertex, or `None` when `vertex` is none.
+    #[must_use]
+    pub fn value_kind(&self, vertex: &str) -> Option<&Name> {
+        self.value_vertices.get(vertex)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use std::collections::HashMap;
 
-    use panproto_schema::{Key, KeyPart, KeyRole, KeyScope, Vertex};
+    use panproto_schema::{
+        Cardinality, Key, KeyPart, KeyRole, KeyScope, OnUnresolved, RefSource, Reference,
+        ResolveMode, ScalarKind, Vertex,
+    };
 
     use super::*;
     use crate::FInstance;
@@ -269,36 +493,29 @@ mod tests {
         }
     }
 
-    /// A SQL-shaped schema: tables `post` and `user` with columns, a foreign
-    /// key between them, and `tag`, a vertex reached by a column edge that
-    /// declares a key and so is a table.
-    fn sql_like() -> Schema {
-        let mut schema = Schema {
-            vertices: HashMap::from([
-                vertex("post", "table"),
-                vertex("user", "table"),
-                vertex("post.title", "string"),
-                vertex("user.name", "string"),
-                vertex("tag", "string"),
-                vertex("audit", "object"),
-            ]),
-            edges: [
-                edge("post", "post.title", "prop", "title"),
-                edge("user", "user.name", "prop", "name"),
-                edge("post", "user", "foreign-key", "author"),
-                edge("post", "tag", "prop", "tag"),
-                edge("post", "post.title", "fk", "odd"),
-            ]
-            .into_iter()
-            .map(|e| {
-                let kind = e.kind.clone();
-                (e, kind)
-            })
-            .collect(),
+    fn schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
+        Schema {
+            vertices: vertices.iter().map(|(id, kind)| vertex(id, kind)).collect(),
+            edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
             ..Schema::default()
-        };
+        }
+    }
+
+    /// A protocol declaring the given value kinds and non-value kinds.
+    fn protocol(value: &[&str], non_value: &[&str]) -> Protocol {
+        Protocol {
+            value_kinds: value
+                .iter()
+                .map(|k| ((*k).to_owned(), ScalarKind::Any))
+                .collect(),
+            non_value_kinds: non_value.iter().map(|k| (*k).to_owned()).collect(),
+            ..Protocol::default()
+        }
+    }
+
+    fn primary_key(schema: &mut Schema, vertex: &str) {
         schema.declarations.keys.insert(
-            "tag".into(),
+            vertex.into(),
             vec![Key {
                 id: "pk".into(),
                 parts: vec![KeyPart::Path(Vec::new())],
@@ -306,209 +523,378 @@ mod tests {
                 scope: KeyScope::Global,
             }],
         );
-        schema
+    }
+
+    /// A SQL-shaped schema: tables `post` and `user` with columns, and a
+    /// foreign key between them.
+    fn sql_like() -> (Schema, Protocol) {
+        (
+            schema(
+                &[
+                    ("post", "record"),
+                    ("user", "record"),
+                    ("post.title", "string"),
+                    ("user.name", "string"),
+                ],
+                &[
+                    edge("post", "post.title", "prop", "title"),
+                    edge("user", "user.name", "prop", "name"),
+                    edge("post", "user", "foreign-key", "author"),
+                ],
+            ),
+            protocol(&["string"], &["record"]),
+        )
+    }
+
+    fn names(set: &BTreeSet<Name>) -> Vec<&str> {
+        set.iter().map(AsRef::as_ref).collect()
     }
 
     #[test]
-    fn rel_schema_reads_table_kinds_from_the_schema() {
-        let rel = RelSchema::new(&sql_like());
-        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
-        assert_eq!(tables, ["audit", "post", "tag", "user"]);
-        let relations: Vec<&Edge> = rel.relations().iter().collect();
-        assert_eq!(
-            relations,
-            [
-                &edge("post", "tag", "prop", "tag"),
-                &edge("post", "user", "foreign-key", "author"),
-            ],
-            "edges between tables are relations; edges into columns are cells"
+    fn rel_schema_reads_tables_from_the_non_value_kinds() -> Result<(), RelSchemaError> {
+        let (schema, protocol) = sql_like();
+        let rel = RelSchema::new(&schema, &protocol)?;
+        assert_eq!(names(rel.tables()), ["post", "user"]);
+        assert!(
+            rel.relations()
+                .iter()
+                .eq([&edge("post", "user", "foreign-key", "author")])
         );
+        assert_eq!(
+            rel.columns("post").get("title"),
+            Some(&edge("post", "post.title", "prop", "title"))
+        );
+        assert_eq!(rel.columns("user").len(), 1);
+        assert!(rel.columns("post.title").is_empty());
+        assert_eq!(
+            rel.attribute_column(&edge("user", "user.name", "prop", "name")),
+            Some("name")
+        );
+        Ok(())
     }
 
     #[test]
-    fn an_empty_table_is_still_a_table() -> Result<(), crate::error::InstError> {
-        let schema = sql_like();
-        let empty = RelSchema::new(&schema);
+    fn an_empty_table_is_still_a_table() -> Result<(), Box<dyn std::error::Error>> {
+        let (schema, protocol) = sql_like();
+        let rel = RelSchema::new(&schema, &protocol)?;
         // No instance is consulted: a table with no rows and one with rows
         // are both tables, and a column is never one.
         let rows = FInstance::new().with_table("post", [HashMap::new()])?;
         assert_eq!(rows.row_count("user"), 0);
-        assert!(empty.is_table("user"));
-        assert!(empty.is_table("post"));
-        assert!(!empty.is_table("post.title"));
-        assert_eq!(RelSchema::new(&schema), empty);
+        assert!(rel.is_table("user") && rel.is_table("post"));
+        assert!(!rel.is_table("post.title"));
+        assert_eq!(RelSchema::new(&schema, &protocol)?, rel);
         Ok(())
     }
 
-    /// The shape the SQL protocol gives an array column `post.tags TEXT[]`:
-    /// the column vertex of kind `array` reached by a column edge, and its
-    /// element vertex reached from it by an `items` edge. Both are parts of
-    /// a cell, not tables, and so is a field below a struct column.
+    /// A vertex of a value kind is an attribute whatever edge reaches it, or
+    /// none: one no edge reaches is the column of no table, an array column
+    /// and its element are one cell's value, and an edge out of a value
+    /// vertex is an inner value edge, never a relation.
     #[test]
-    fn a_vertex_below_a_column_is_an_attribute() {
-        let mut schema = sql_like();
-        schema.vertices.extend([
-            vertex("post.tags", "array"),
-            vertex("post.tags:items", "string"),
-        ]);
-        for e in [
-            edge("post", "post.tags", "prop", "tags"),
-            Edge {
-                src: "post.tags".into(),
-                tgt: "post.tags:items".into(),
-                kind: "items".into(),
-                name: None,
-            },
-            // An edge from a cell into a declared table leaves it a table.
-            edge("post.tags:items", "user", "fk", "owner"),
-        ] {
-            let kind = e.kind.clone();
-            schema.edges.insert(e, kind);
-        }
-        let rel = RelSchema::new(&schema);
-        assert!(!rel.is_table("post.tags"));
-        assert!(
-            !rel.is_table("post.tags:items"),
-            "an array column's element vertex is part of the cell: {:?}",
-            rel.tables()
-        );
-        assert!(rel.is_table("user"));
-        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
-        assert_eq!(tables, ["audit", "post", "tag", "user"]);
-        assert!(
-            rel.relations().iter().all(|e| e.src != "post.tags:items"),
-            "an edge out of a cell is no foreign key"
-        );
-    }
-
-    /// A vertex whose kind is a value kind (`string`, `integer`, ...) is an
-    /// attribute whatever reaches it: one no edge reaches is not a table,
-    /// and an edge of any kind into it is a column, not a foreign key. A
-    /// vertex of an unrecognised kind that an edge leaves stays a table, and
-    /// a declared table stays one whatever its kind.
-    #[test]
-    fn a_vertex_of_a_value_kind_is_an_attribute() {
-        let mut schema = sql_like();
-        schema.vertices.extend([
-            vertex("w", "word"),
-            vertex("t", "string"),
-            vertex("lone", "integer"),
-            vertex("n", "upos-tag"),
-        ]);
-        for e in [
-            edge("w", "t", "upos", "upos"),
-            edge("w", "n", "xpos", "xpos"),
-            edge("n", "w", "head", "head"),
-        ] {
-            let kind = e.kind.clone();
-            schema.edges.insert(e, kind);
-        }
-        let rel = RelSchema::new(&schema);
-        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
-        assert_eq!(tables, ["audit", "n", "post", "tag", "user", "w"]);
-        assert!(rel.relations().iter().all(|e| e.tgt != "t"), "{rel:?}");
-        assert!(rel.is_relation(&edge("w", "n", "xpos", "xpos")));
-    }
-
-    /// A record kind is a table whatever vocabulary it shares with list
-    /// values: ASN.1 declares `sequence` and `set` as record kinds, and a
-    /// JSON root of kind `array` whose items are objects holds rows too.
-    /// Only the scalar kinds, and lists named for a scalar element
-    /// (`string-list`), are value kinds.
-    #[test]
-    fn a_record_container_kind_is_a_table() {
-        let schema = Schema {
-            vertices: HashMap::from([
-                vertex("Person", "sequence"),
-                vertex("Person.name", "field"),
-                vertex("Other", "set"),
-                vertex("root", "array"),
-                vertex("item", "object"),
-                vertex("item.id", "integer"),
-                vertex("tags", "string-list"),
-            ]),
-            edges: [
-                edge("Person", "Person.name", "field-of", "name"),
-                edge("Person", "Other", "field-of", "other"),
-                edge("root", "item", "items", "items"),
-                edge("item", "item.id", "prop", "id"),
-                edge("item", "tags", "field-of", "tags"),
-            ]
-            .into_iter()
-            .map(|e| {
-                let kind = e.kind.clone();
-                (e, kind)
-            })
-            .collect(),
-            ..Schema::default()
+    fn a_vertex_of_a_value_kind_is_an_attribute() -> Result<(), RelSchemaError> {
+        let items = Edge {
+            src: "post.tags".into(),
+            tgt: "post.tags:items".into(),
+            kind: "items".into(),
+            name: None,
         };
-        let rel = RelSchema::new(&schema);
-        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
-        assert_eq!(tables, ["Other", "Person", "item", "root"]);
-        let relations: Vec<&Edge> = rel.relations().iter().collect();
+        let s = schema(
+            &[
+                ("post", "record"),
+                ("post.tags", "array"),
+                ("post.tags:items", "string"),
+                ("lone", "integer"),
+            ],
+            &[edge("post", "post.tags", "prop", "tags"), items.clone()],
+        );
+        let rel = RelSchema::new(&s, &protocol(&["array", "string", "integer"], &["record"]))?;
+        assert_eq!(names(rel.tables()), ["post"]);
+        assert!(rel.relations().is_empty());
+        assert_eq!(rel.columns("post").keys().collect::<Vec<_>>(), ["tags"]);
+        assert!(rel.is_inner_edge(&items));
         assert_eq!(
-            relations,
-            [
-                &edge("Person", "Other", "field-of", "other"),
-                &edge("root", "item", "items", "items"),
-            ]
+            rel.value_kind("post.tags:items"),
+            Some(&Name::from("string"))
+        );
+        assert_eq!(rel.value_kind("lone"), Some(&Name::from("integer")));
+        Ok(())
+    }
+
+    /// A vertex with a key, and the holder and target of a reference, are
+    /// tables whatever their kind, even a value kind.
+    #[test]
+    fn a_declared_vertex_is_a_table_whatever_its_kind() -> Result<(), RelSchemaError> {
+        let mut s = schema(
+            &[
+                ("post", "record"),
+                ("tag", "string"),
+                ("a", "string"),
+                ("b", "mystery"),
+            ],
+            &[
+                edge("post", "tag", "prop", "tag"),
+                edge("a", "b", "ref", "r"),
+            ],
+        );
+        primary_key(&mut s, "tag");
+        s.declarations.references.insert(
+            "r".into(),
+            Reference {
+                id: "r".into(),
+                holder: "a".into(),
+                source: RefSource::KeyValue { parts: Vec::new() },
+                target_vertex: "b".into(),
+                target_key: None,
+                edge: None,
+                cardinality: Cardinality::One,
+                nullable: false,
+                on_unresolved: OnUnresolved::Error,
+                mode: ResolveMode::AddEdge,
+            },
+        );
+        let rel = RelSchema::new(&s, &protocol(&["string"], &["record"]))?;
+        assert_eq!(names(rel.tables()), ["a", "b", "post", "tag"]);
+        assert!(rel.is_relation(&edge("post", "tag", "prop", "tag")));
+        assert!(rel.is_relation(&edge("a", "b", "ref", "r")));
+        Ok(())
+    }
+
+    /// A tag kind the protocol declares a value kind (CoNLL-U's `upos-tag`)
+    /// is an attribute of the word it hangs from.
+    #[test]
+    fn a_declared_tag_kind_is_an_attribute() -> Result<(), RelSchemaError> {
+        let s = schema(
+            &[("w", "word"), ("w.upos", "upos-tag"), ("v", "word")],
+            &[
+                edge("w", "w.upos", "upos", "upos"),
+                edge("w", "v", "dep", "nsubj"),
+            ],
+        );
+        let rel = RelSchema::new(&s, &protocol(&["upos-tag"], &["word"]))?;
+        assert_eq!(names(rel.tables()), ["v", "w"]);
+        assert_eq!(rel.columns("w").keys().collect::<Vec<_>>(), ["upos"]);
+        assert!(rel.is_relation(&edge("w", "v", "dep", "nsubj")));
+        Ok(())
+    }
+
+    /// The edge kind never decides a column: a `prop` edge into a vertex of a
+    /// non-value kind is a relation, and an edge of any other kind into a
+    /// value vertex is an attribute arrow.
+    #[test]
+    fn the_edge_kind_never_decides_a_column() -> Result<(), RelSchemaError> {
+        let into_meta = edge("post", "meta", "prop", "meta");
+        let s = schema(
+            &[
+                ("post", "object"),
+                ("meta", "object"),
+                ("meta.id", "integer"),
+            ],
+            &[into_meta.clone(), edge("meta", "meta.id", "anything", "id")],
+        );
+        let rel = RelSchema::new(&s, &protocol(&["integer"], &["object"]))?;
+        assert!(rel.is_table("meta"));
+        assert!(rel.is_relation(&into_meta));
+        assert_eq!(rel.columns("meta").keys().collect::<Vec<_>>(), ["id"]);
+        Ok(())
+    }
+
+    /// The kind name `table` is not special: a protocol that declares it a
+    /// value kind makes its vertices attributes, and one that declares it
+    /// neither way leaves it unclassified.
+    #[test]
+    fn the_kind_name_table_is_not_special() -> Result<(), RelSchemaError> {
+        let s = schema(
+            &[("r", "record"), ("t", "table")],
+            &[edge("r", "t", "prop", "t")],
+        );
+        let rel = RelSchema::new(&s, &protocol(&["table"], &["record"]))?;
+        assert_eq!(names(rel.tables()), ["r"]);
+        assert_eq!(rel.columns("r").keys().collect::<Vec<_>>(), ["t"]);
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&[], &["record"])),
+            Err(RelSchemaError::UnclassifiedKind {
+                vertex: "t".into(),
+                kind: "table".into()
+            })
+        );
+        Ok(())
+    }
+
+    /// A leaf of a non-value kind (UCCA's `terminal`) stays a table, so its
+    /// rows and the foreign keys into it are not cells.
+    #[test]
+    fn a_leaf_of_a_non_value_kind_is_a_table() -> Result<(), RelSchemaError> {
+        let into_terminal = edge("node", "terminal", "edge", "e");
+        let s = schema(
+            &[("node", "node"), ("terminal", "terminal")],
+            std::slice::from_ref(&into_terminal),
+        );
+        let rel = RelSchema::new(&s, &protocol(&[], &["node", "terminal"]))?;
+        assert!(rel.is_table("terminal"));
+        assert!(rel.is_relation(&into_terminal));
+        Ok(())
+    }
+
+    #[test]
+    fn an_unclassified_kind_is_refused() {
+        let s = schema(&[("b", "mystery"), ("a", "record"), ("c", "enigma")], &[]);
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&["string"], &["record"])),
+            Err(RelSchemaError::UnclassifiedKind {
+                vertex: "b".into(),
+                kind: "mystery".into()
+            })
         );
     }
 
-    /// A vertex no edge leaves, reached by an edge, that declares no key or
-    /// reference and is of neither the table kind nor a structured (record or
-    /// container) kind holds no
-    /// columns and no foreign keys of its own: it is the value its source
-    /// carries, so it is an attribute, as CoNLL-U's `upos-tag` and
-    /// `xpos-tag` vertices are. A sink of a structured kind, of the table
-    /// kind or with a declared key stays a table.
     #[test]
-    fn a_sink_of_no_structured_kind_is_an_attribute() {
-        let mut schema = sql_like();
-        schema.vertices.extend([
-            vertex("w", "word"),
-            vertex("u", "upos-tag"),
-            vertex("x", "xpos-tag"),
-            vertex("o", "object"),
-            vertex("k", "keyed"),
-            vertex("alone", "upos-tag"),
-        ]);
-        for e in [
-            edge("w", "u", "upos", "upos"),
-            edge("w", "x", "xpos", "xpos"),
-            edge("w", "o", "misc", "misc"),
-            edge("w", "k", "head", "head"),
-        ] {
-            let kind = e.kind.clone();
-            schema.edges.insert(e, kind);
-        }
-        schema.declarations.keys.insert(
-            "k".into(),
-            vec![Key {
-                id: "pk".into(),
-                parts: vec![KeyPart::Path(Vec::new())],
-                role: KeyRole::Primary,
-                scope: KeyScope::Global,
-            }],
-        );
-        let rel = RelSchema::new(&schema);
-        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
+    fn a_kind_declared_both_ways_is_refused() {
+        // Refused before any vertex is looked at, the least kind first.
+        let s = schema(&[("a", "unknown")], &[]);
         assert_eq!(
-            tables,
-            ["alone", "audit", "k", "o", "post", "tag", "user", "w"]
+            RelSchema::new(&s, &protocol(&["x", "y", "z"], &["z", "y"])),
+            Err(RelSchemaError::AmbiguousKind { kind: "y".into() })
         );
-        assert!(!rel.is_relation(&edge("w", "u", "upos", "upos")));
-        assert!(!rel.is_relation(&edge("w", "x", "xpos", "xpos")));
-        assert!(rel.is_relation(&edge("w", "o", "misc", "misc")));
-        assert!(rel.is_relation(&edge("w", "k", "head", "head")));
+    }
+
+    /// An edge out of a value vertex into a declared table is refused: a cell
+    /// cannot hold a foreign key. The least such edge is named.
+    #[test]
+    fn a_value_reaching_a_table_is_refused() {
+        let mut s = schema(
+            &[
+                ("post", "record"),
+                ("post.tags", "array"),
+                ("post.tags:items", "string"),
+                ("user", "string"),
+            ],
+            &[
+                edge("post", "post.tags", "prop", "tags"),
+                edge("post.tags", "post.tags:items", "items", "items"),
+                edge("post.tags:items", "user", "fk", "owner"),
+                edge("post.tags", "user", "fk", "owner"),
+            ],
+        );
+        primary_key(&mut s, "user");
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&["array", "string"], &["record"])),
+            Err(RelSchemaError::ValueReachesTable {
+                edge: Box::new(edge("post.tags", "user", "fk", "owner"))
+            })
+        );
     }
 
     #[test]
-    fn from_parts_refuses_a_relation_off_its_tables() {
+    fn a_value_reaching_a_non_value_kind_is_refused() {
+        let s = schema(
+            &[
+                ("post", "record"),
+                ("post.meta", "json"),
+                ("inner", "record"),
+            ],
+            &[
+                edge("post", "post.meta", "prop", "meta"),
+                edge("post.meta", "inner", "field", "inner"),
+            ],
+        );
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&["json"], &["record"])),
+            Err(RelSchemaError::ValueReachesTable {
+                edge: Box::new(edge("post.meta", "inner", "field", "inner"))
+            })
+        );
+    }
+
+    /// Two attribute arrows of one table with one column name are refused:
+    /// by edge name, or by target id when an edge has no name.
+    #[test]
+    fn two_attribute_arrows_with_one_column_name_are_refused() {
+        let unnamed = Edge {
+            src: "w".into(),
+            tgt: "x".into(),
+            kind: "k".into(),
+            name: None,
+        };
+        let s = schema(
+            &[("w", "word"), ("v", "word"), ("x", "tag"), ("y", "tag")],
+            &[
+                edge("w", "y", "a", "root"),
+                edge("w", "x", "b", "root"),
+                edge("v", "x", "c", "x"),
+                unnamed,
+                edge("v", "y", "d", "x"),
+            ],
+        );
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&["tag"], &["word"])),
+            Err(RelSchemaError::DuplicateColumn {
+                table: "v".into(),
+                column: "x".into()
+            })
+        );
+    }
+
+    /// The errors are reported in the order the classification runs.
+    #[test]
+    fn errors_come_in_the_order_of_the_classification() {
+        let s = schema(
+            &[("w", "word"), ("x", "tag"), ("t", "other")],
+            &[edge("w", "x", "a", "c"), edge("w", "x", "b", "c")],
+        );
+        // Unclassified before the duplicate column.
+        assert!(matches!(
+            RelSchema::new(&s, &protocol(&["tag"], &["word"])),
+            Err(RelSchemaError::UnclassifiedKind { .. })
+        ));
+        // Ambiguous before unclassified.
+        assert!(matches!(
+            RelSchema::new(&s, &protocol(&["tag", "word"], &["word"])),
+            Err(RelSchemaError::AmbiguousKind { .. })
+        ));
+    }
+
+    #[test]
+    fn from_parts_refuses_a_relation_off_its_tables() -> Result<(), RelSchemaError> {
         let e = edge("a", "b", "fk", "e");
         assert_eq!(
-            RelSchema::from_parts([Name::from("a")], [e.clone()]),
-            Err(e)
+            RelSchema::from_parts([Name::from("a")], [e.clone()], BTreeMap::new()),
+            Err(RelSchemaError::RelationEndpointNotATable {
+                edge: Box::new(e.clone())
+            })
         );
+        let column = edge("a", "a.x", "prop", "x");
+        let ok = RelSchema::from_parts(
+            [Name::from("a"), Name::from("b")],
+            [e.clone()],
+            BTreeMap::from([(
+                Name::from("a"),
+                BTreeMap::from([("x".to_owned(), column.clone())]),
+            )]),
+        )?;
+        assert_eq!(ok.columns("a").get("x"), Some(&column));
+        assert!(ok.columns("b").is_empty());
+        for (table, name, arrow) in [
+            ("a", "y", column.clone()),
+            ("b", "x", column.clone()),
+            ("c", "x", edge("c", "c.x", "prop", "x")),
+            ("a", "b", edge("a", "b", "prop", "b")),
+        ] {
+            assert_eq!(
+                RelSchema::from_parts(
+                    [Name::from("a"), Name::from("b")],
+                    [],
+                    BTreeMap::from([(
+                        Name::from(table),
+                        BTreeMap::from([(name.to_owned(), arrow)])
+                    )]),
+                ),
+                Err(RelSchemaError::ColumnEdgeMismatch {
+                    table: table.into(),
+                    column: name.to_owned()
+                })
+            );
+        }
+        Ok(())
     }
 }

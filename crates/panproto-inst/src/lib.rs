@@ -87,13 +87,16 @@ pub mod wtype_check;
 // Re-exports for convenience.
 pub use acset::AcsetOps;
 pub use adjunction::{
-    AdjunctionError, f_counit, f_delta, f_delta_with_hom, f_sigma, f_transpose_left,
+    AdjunctionError, f_counit, f_delta, f_delta_with_provenance, f_sigma, f_transpose_left,
     f_transpose_right, f_unit, g_delta, w_counit, w_delta, w_sigma, w_transpose_left,
     w_transpose_right, w_unit,
 };
 pub use adjunction::{
+    DeltaProvenance, NonConformance, SigmaProvenance, f_restrict_to_domain, f_sigma_restricted,
+};
+pub use adjunction::{
     f_delta_on_hom, f_pi_counit, f_pi_on_hom, f_pi_transpose_left, f_pi_transpose_right, f_pi_unit,
-    f_sigma_on_hom, f_sigma_with_hom,
+    f_sigma_on_hom, f_sigma_with_provenance,
 };
 pub use attributes::{AttributeDecl, AttributeSchema, AttributeViolation};
 pub use complement::Complement;
@@ -129,11 +132,11 @@ pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
 pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};
 pub use metadata::{Node, NodeShape};
-pub use migration_functor::MigrationFunctor;
+pub use migration_functor::{EntityFunctor, MigrationFunctor};
 pub use panproto_schema::InstanceShapeKind;
 pub use parse::{parse_json, to_json};
-pub use pi::{functor_pi, functor_pi_with_hom, wtype_pi};
-pub use pi::{functor_pi_along, functor_pi_along_with_hom};
+pub use pi::{PiProvenance, functor_pi, functor_pi_restricted, wtype_pi};
+pub use pi::{functor_pi_along, functor_pi_along_with_provenance};
 pub use poly::{
     SectionEnrichment, fiber_at_anchor, fiber_at_node, fiber_decomposition, fiber_with_predicate,
     group_by, join, restrict_with_complement, section,
@@ -144,7 +147,7 @@ pub use query::{
     execute_elements, execute_functor, execute_graph,
 };
 pub use reachability::ReachabilityIndex;
-pub use rel_schema::RelSchema;
+pub use rel_schema::{RelSchema, RelSchemaError};
 pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
