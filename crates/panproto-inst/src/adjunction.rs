@@ -2431,4 +2431,864 @@ mod tests {
             }
         }
     }
+
+    /// Brute-force oracles for the table Kan extensions. None of them calls
+    /// the code under test: each reads a [`Spec`], a plain description of a
+    /// functor between attributed relation-ified schemas, and instances
+    /// through their public accessors, and compares values by their
+    /// canonical bytes.
+    pub(super) mod oracle {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use panproto_gat::Name;
+        use panproto_schema::Edge;
+
+        use crate::functor::{FInstance, Row};
+        use crate::value::Value;
+        use crate::view_ref::RowId;
+
+        /// One side of a functor: tables with their columns, and relations.
+        #[derive(Clone, Debug, Default)]
+        pub(crate) struct Side {
+            /// Each table with its column names.
+            pub(crate) tables: BTreeMap<Name, BTreeSet<String>>,
+            /// The relation objects.
+            pub(crate) relations: BTreeSet<Edge>,
+        }
+
+        /// A functor `F: S' -> T`, given by its maps on the kept tables,
+        /// relations and columns of the source.
+        #[derive(Clone, Debug, Default)]
+        pub(crate) struct Spec {
+            /// The whole source `S`.
+            pub(crate) src: Side,
+            /// The target `T`.
+            pub(crate) tgt: Side,
+            /// Each kept table with its image.
+            pub(crate) tables: BTreeMap<Name, Name>,
+            /// Each kept relation with its image.
+            pub(crate) relations: BTreeMap<Edge, Edge>,
+            /// Each kept column `(table, column)` with its image column.
+            pub(crate) columns: BTreeMap<(Name, String), String>,
+        }
+
+        impl Spec {
+            /// The kept tables sent to `d`, ascending.
+            pub(crate) fn fibre(&self, d: &Name) -> Vec<Name> {
+                self.tables
+                    .iter()
+                    .filter(|(_, image)| *image == d)
+                    .map(|(s, _)| s.clone())
+                    .collect()
+            }
+
+            /// The kept relations sent to `e`, ascending.
+            pub(crate) fn relation_fibre(&self, e: &Edge) -> Vec<Edge> {
+                self.relations
+                    .iter()
+                    .filter(|(_, image)| *image == e)
+                    .map(|(s, _)| s.clone())
+                    .collect()
+            }
+
+            /// The kept columns of `s`, ascending.
+            pub(crate) fn kept_columns(&self, s: &Name) -> Vec<String> {
+                self.columns
+                    .keys()
+                    .filter(|(t, _)| t == s)
+                    .map(|(_, c)| c.clone())
+                    .collect()
+            }
+
+            /// The kept columns of `s` sent to `beta`, ascending.
+            pub(crate) fn preimage(&self, s: &Name, beta: &str) -> Vec<String> {
+                self.columns
+                    .iter()
+                    .filter(|((t, _), image)| t == s && image.as_str() == beta)
+                    .map(|((_, c), _)| c.clone())
+                    .collect()
+            }
+
+            /// Whether every column of every target table is the image of a
+            /// kept column of its fibre; else the least missing one.
+            pub(crate) fn missing_column(&self) -> Option<(Name, String)> {
+                for (d, columns) in &self.tgt.tables {
+                    for beta in columns {
+                        let hit = self
+                            .fibre(d)
+                            .iter()
+                            .any(|s| !self.preimage(s, beta).is_empty());
+                        if !hit {
+                            return Some((d.clone(), beta.clone()));
+                        }
+                    }
+                }
+                None
+            }
+        }
+
+        /// The canonical bytes of a value: the equality every oracle uses.
+        pub(crate) fn canon(value: &Value) -> Vec<u8> {
+            value.canonical_bytes()
+        }
+
+        /// The labelled nulls in the cells of an instance.
+        pub(crate) fn nulls(instance: &FInstance) -> BTreeSet<u64> {
+            instance
+                .row_ids()
+                .into_iter()
+                .filter_map(|id| instance.row(id))
+                .flat_map(|row| row.values().filter_map(Value::as_labeled_null))
+                .collect()
+        }
+
+        /// A row's cells, sorted by column.
+        fn sorted(row: &Row) -> Vec<(&String, &Value)> {
+            let mut cells: Vec<(&String, &Value)> = row.iter().collect();
+            cells.sort_by(|a, b| a.0.cmp(b.0));
+            cells
+        }
+
+        /// A homomorphism found by brute force: its row map and its null
+        /// map, without identity entries.
+        pub(crate) type Found = (BTreeMap<RowId, RowId>, BTreeMap<u64, Value>);
+
+        /// Extend `nu` by the cells of `row` sent to `image`: key sets must be
+        /// equal, the first occurrence of a null fixes its value, and every
+        /// later occurrence and every constant must agree by canonical bytes.
+        fn cells_agree(row: &Row, image: &Row, nu: &mut BTreeMap<u64, Value>) -> bool {
+            if row.len() != image.len() {
+                return false;
+            }
+            for (column, value) in sorted(row) {
+                let Some(theirs) = image.get(column) else {
+                    return false;
+                };
+                match value {
+                    Value::LabeledNull(n) => match nu.get(n) {
+                        Some(fixed) => {
+                            if canon(fixed) != canon(theirs) {
+                                return false;
+                            }
+                        }
+                        None => {
+                            nu.insert(*n, theirs.clone());
+                        }
+                    },
+                    constant => {
+                        if canon(constant) != canon(theirs) {
+                            return false;
+                        }
+                    }
+                }
+            }
+            true
+        }
+
+        /// Whether a row map from `a` to `b` is a homomorphism, with the
+        /// null map its cells fix (scanned in `(RowId, column)` order, as
+        /// far as the scan got).
+        pub(crate) fn brute_accepts(
+            a: &FInstance,
+            b: &FInstance,
+            row_map: &BTreeMap<RowId, RowId>,
+        ) -> (bool, BTreeMap<u64, Value>) {
+            let mut nu = BTreeMap::new();
+            for id in a.row_ids() {
+                let Some(&image) = row_map.get(&id) else {
+                    return (false, nu);
+                };
+                if a.table_of(id) != b.table_of(image) {
+                    return (false, nu);
+                }
+                let (Some(row), Some(image_row)) = (a.row(id), b.row(image)) else {
+                    return (false, nu);
+                };
+                if !cells_agree(row, image_row, &mut nu) {
+                    return (false, nu);
+                }
+            }
+            for (edge, pairs) in a.foreign_keys() {
+                for &(s, t) in pairs {
+                    let (Some(&ms), Some(&mt)) = (row_map.get(&s), row_map.get(&t)) else {
+                        return (false, nu);
+                    };
+                    if !b.pairs(edge).contains(&(ms, mt)) {
+                        return (false, nu);
+                    }
+                }
+            }
+            (true, nu)
+        }
+
+        /// Every table-respecting row map from `a` to `b`, in ascending
+        /// order of the image of each row (rows ascending).
+        pub(crate) fn candidates(a: &FInstance, b: &FInstance) -> Vec<BTreeMap<RowId, RowId>> {
+            let rows = a.row_ids();
+            let choices: Vec<Vec<RowId>> = rows
+                .iter()
+                .map(|&r| {
+                    a.table_of(r)
+                        .map(|t| b.rows(t).into_iter().map(|(id, _)| id).collect())
+                        .unwrap_or_default()
+                })
+                .collect();
+            let mut out = vec![BTreeMap::new()];
+            for (row, options) in rows.iter().zip(&choices) {
+                let mut next = Vec::with_capacity(out.len() * options.len());
+                for partial in &out {
+                    for &option in options {
+                        let mut extended: BTreeMap<RowId, RowId> = partial.clone();
+                        extended.insert(*row, option);
+                        next.push(extended);
+                    }
+                }
+                out = next;
+            }
+            out
+        }
+
+        /// Drop the identity entries of a null map.
+        pub(crate) fn normalise(nu: BTreeMap<u64, Value>) -> BTreeMap<u64, Value> {
+            nu.into_iter()
+                .filter(|(n, v)| canon(v) != canon(&Value::LabeledNull(*n)))
+                .collect()
+        }
+
+        /// Every homomorphism `a -> b` between instances of one schema:
+        /// every function from the rows of `a` to the rows of `b` that sends
+        /// each row into its own table, keeps the cells (nulls fixed at their
+        /// first occurrence) and sends pairs to pairs. Rows are assigned in
+        /// ascending id, and a partial map whose rows already disagree is not
+        /// extended, which the `(RowId, column)` scan order makes the same as
+        /// testing every complete map.
+        pub(crate) fn brute_homs(a: &FInstance, b: &FInstance) -> Vec<Found> {
+            fn go(
+                i: usize,
+                rows: &[RowId],
+                a: &FInstance,
+                b: &FInstance,
+                chosen: &mut BTreeMap<RowId, RowId>,
+                nu: &BTreeMap<u64, Value>,
+                out: &mut Vec<Found>,
+            ) {
+                if i == rows.len() {
+                    let (ok, nu) = brute_accepts(a, b, chosen);
+                    if ok {
+                        out.push((chosen.clone(), normalise(nu)));
+                    }
+                    return;
+                }
+                let row = rows[i];
+                let (Some(table), Some(cells)) = (a.table_of(row), a.row(row)) else {
+                    return;
+                };
+                for (image, image_cells) in b.rows(table) {
+                    let mut extended = nu.clone();
+                    if cells_agree(cells, image_cells, &mut extended) {
+                        chosen.insert(row, image);
+                        go(i + 1, rows, a, b, chosen, &extended, out);
+                        chosen.remove(&row);
+                    }
+                }
+            }
+            let rows = a.row_ids();
+            let mut out = Vec::new();
+            go(0, &rows, a, b, &mut BTreeMap::new(), &BTreeMap::new(), &mut out);
+            out
+        }
+
+        /// Whether `a` and `b` are isomorphic: some homomorphism `a -> b` is
+        /// a bijection on rows and on nulls, and its inverse is a
+        /// homomorphism `b -> a`.
+        pub(crate) fn brute_iso(a: &FInstance, b: &FInstance) -> bool {
+            if a.total_row_count() != b.total_row_count() {
+                return false;
+            }
+            let (na, nb) = (nulls(a), nulls(b));
+            brute_homs(a, b).into_iter().any(|(rows, nu)| {
+                let images: BTreeSet<RowId> = rows.values().copied().collect();
+                if images.len() != rows.len() {
+                    return false;
+                }
+                let mut null_images = BTreeMap::new();
+                for &n in &na {
+                    let v = nu.get(&n).cloned().unwrap_or(Value::LabeledNull(n));
+                    let Value::LabeledNull(m) = v else {
+                        return false;
+                    };
+                    if null_images.insert(m, n).is_some() {
+                        return false;
+                    }
+                }
+                if null_images.keys().copied().collect::<BTreeSet<u64>>() != nb {
+                    return false;
+                }
+                let inverse: BTreeMap<RowId, RowId> = rows.iter().map(|(x, y)| (*y, *x)).collect();
+                let (ok, back) = brute_accepts(b, a, &inverse);
+                ok && null_images.iter().all(|(m, n)| {
+                    back.get(m).map_or(*m == *n, |v| canon(v) == canon(&Value::LabeledNull(*n)))
+                })
+            })
+        }
+
+        /// `rho_{S'}(x)`: the rows at kept tables with their cells at kept
+        /// columns, and the pairs at kept relations.
+        pub(crate) fn restrict(spec: &Spec, x: &FInstance) -> FInstance {
+            let tables = spec.tables.keys().map(|s| {
+                let kept = spec.kept_columns(s);
+                let rows = x
+                    .rows(s)
+                    .into_iter()
+                    .map(|(id, row)| {
+                        let cells: Row = row
+                            .iter()
+                            .filter(|(c, _)| kept.contains(c))
+                            .map(|(c, v)| (c.clone(), v.clone()))
+                            .collect();
+                        (id, cells)
+                    })
+                    .collect::<Vec<_>>();
+                (s.clone(), rows)
+            });
+            let pairs = spec
+                .relations
+                .keys()
+                .map(|e| (e.clone(), x.pairs(e).iter().copied().collect::<Vec<_>>()));
+            FInstance::from_parts(tables, pairs).expect("a restriction is an instance")
+        }
+
+        /// The Delta oracle: the copy of each row `r'` of `J(F s)` at every
+        /// kept table `s`, keyed by `(s, r')`, with its cells, and the pairs
+        /// of each kept relation between copies.
+        pub(crate) struct DeltaOracle {
+            /// Each copy's cells.
+            pub(crate) copies: BTreeMap<(Name, RowId), Row>,
+            /// Each kept relation's pairs between copies.
+            pub(crate) pairs: BTreeMap<Edge, BTreeSet<((Name, RowId), (Name, RowId))>>,
+        }
+
+        /// [`DeltaOracle`] by the direct formula.
+        pub(crate) fn delta(spec: &Spec, j: &FInstance) -> DeltaOracle {
+            let mut copies = BTreeMap::new();
+            for (s, d) in &spec.tables {
+                for (r, row) in j.rows(d) {
+                    let cells: Row = spec
+                        .kept_columns(s)
+                        .into_iter()
+                        .filter_map(|alpha| {
+                            let beta = &spec.columns[&(s.clone(), alpha.clone())];
+                            row.get(beta).map(|v| (alpha, v.clone()))
+                        })
+                        .collect();
+                    copies.insert((s.clone(), r), cells);
+                }
+            }
+            let mut pairs: BTreeMap<Edge, BTreeSet<_>> = BTreeMap::new();
+            for (e, image) in &spec.relations {
+                let set = pairs.entry(e.clone()).or_default();
+                for &(a, b) in j.pairs(image) {
+                    set.insert(((e.src.clone(), a), (e.tgt.clone(), b)));
+                }
+            }
+            DeltaOracle { copies, pairs }
+        }
+
+        /// The Pi oracle: at each target table the tuples of the whole
+        /// product of its fibre's rows whose values at the preimages of each
+        /// column agree, with their cells; at each target relation the
+        /// pairs of tuples meeting every relation carried to it (every pair
+        /// when none is).
+        pub(crate) struct PiOracle {
+            /// Each target table's tuples with their cells.
+            pub(crate) rows: BTreeMap<Name, BTreeMap<Vec<RowId>, Row>>,
+            /// Each target relation's pairs of tuples.
+            pub(crate) pairs: BTreeMap<Edge, BTreeSet<(Vec<RowId>, Vec<RowId>)>>,
+        }
+
+        /// [`PiOracle`] over `i`, an instance on `S'`.
+        pub(crate) fn pi(spec: &Spec, i: &FInstance) -> PiOracle {
+            let mut rows = BTreeMap::new();
+            for (d, columns) in &spec.tgt.tables {
+                let fibre = spec.fibre(d);
+                let mut product: Vec<Vec<RowId>> = vec![Vec::new()];
+                for s in &fibre {
+                    let ids: Vec<RowId> = i.rows(s).into_iter().map(|(id, _)| id).collect();
+                    product = product
+                        .into_iter()
+                        .flat_map(|t| {
+                            ids.iter().map(move |&id| {
+                                let mut t = t.clone();
+                                t.push(id);
+                                t
+                            })
+                        })
+                        .collect();
+                }
+                let mut kept = BTreeMap::new();
+                for tuple in product {
+                    let mut cells = Row::new();
+                    let mut cone = true;
+                    for beta in columns {
+                        let mut values: BTreeMap<Vec<u8>, Value> = BTreeMap::new();
+                        for (s, r) in fibre.iter().zip(&tuple) {
+                            for alpha in spec.preimage(s, beta) {
+                                if let Some(v) = i.row(*r).and_then(|row| row.get(&alpha)) {
+                                    values.insert(canon(v), v.clone());
+                                }
+                            }
+                        }
+                        if values.len() == 1 {
+                            if let Some((_, v)) = values.into_iter().next() {
+                                cells.insert(beta.clone(), v);
+                            }
+                        } else {
+                            cone = false;
+                        }
+                    }
+                    if cone {
+                        kept.insert(tuple, cells);
+                    }
+                }
+                rows.insert(d.clone(), kept);
+            }
+            let mut pairs = BTreeMap::new();
+            for relation in &spec.tgt.relations {
+                let (from, to) = (&rows[&relation.src], &rows[&relation.tgt]);
+                let carried = spec.relation_fibre(relation);
+                let (fa, fb) = (spec.fibre(&relation.src), spec.fibre(&relation.tgt));
+                let mut set = BTreeSet::new();
+                for x in from.keys() {
+                    for y in to.keys() {
+                        let meets = carried.iter().all(|e| {
+                            let (Some(p), Some(q)) = (
+                                fa.iter().position(|s| *s == e.src),
+                                fb.iter().position(|s| *s == e.tgt),
+                            ) else {
+                                return false;
+                            };
+                            i.pairs(e).contains(&(x[p], y[q]))
+                        });
+                        if meets {
+                            set.insert((x.clone(), y.clone()));
+                        }
+                    }
+                }
+                pairs.insert(relation.clone(), set);
+            }
+            PiOracle { rows, pairs }
+        }
+
+        /// A term of the Sigma presentation.
+        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        enum Term {
+            /// The cell of a row at a target column.
+            Cell(RowId, String),
+            /// A labelled null of the input.
+            Null(u64),
+            /// A constant, by its canonical bytes.
+            Const(Vec<u8>),
+            /// The fresh null of a row at a non-image column.
+            Fresh(RowId, String),
+        }
+
+        /// The Sigma oracle over `i`, an instance on `S'`: the presentation
+        /// with generators the rows, the nulls of `i` and one fresh null per
+        /// row and non-image column, its equations solved by a naive
+        /// fixpoint (merge any two classes an equation joins, until nothing
+        /// changes, after each equation in `(RowId, column)` order). A class
+        /// with two constants is the clash at the first equation that made
+        /// it. Fresh nulls are numbered from `fresh_base` in that order.
+        pub(crate) fn sigma(
+            spec: &Spec,
+            i: &FInstance,
+            fresh_base: u64,
+        ) -> Result<FInstance, (RowId, String)> {
+            let mut constants: BTreeMap<Vec<u8>, Value> = BTreeMap::new();
+            let mut term_of = |v: &Value| match v {
+                Value::LabeledNull(n) => Term::Null(*n),
+                other => {
+                    let key = canon(other);
+                    constants.entry(key.clone()).or_insert_with(|| other.clone());
+                    Term::Const(key)
+                }
+            };
+            let mut equations: Vec<(RowId, String, Term, Term)> = Vec::new();
+            let mut placed: Vec<(Name, RowId, Vec<String>)> = Vec::new();
+            for id in i.row_ids() {
+                let Some(s) = i.table_of(id) else { continue };
+                let Some(d) = spec.tables.get(s) else { continue };
+                let columns: Vec<String> = spec.tgt.tables[d].iter().cloned().collect();
+                for beta in &columns {
+                    let pre = spec.preimage(s, beta);
+                    if pre.is_empty() {
+                        equations.push((
+                            id,
+                            beta.clone(),
+                            Term::Cell(id, beta.clone()),
+                            Term::Fresh(id, beta.clone()),
+                        ));
+                    }
+                    for alpha in pre {
+                        if let Some(v) = i.row(id).and_then(|row| row.get(&alpha)) {
+                            let t = term_of(v);
+                            equations.push((id, beta.clone(), Term::Cell(id, beta.clone()), t));
+                        }
+                    }
+                }
+                placed.push((d.clone(), id, columns));
+            }
+            let mut classes: Vec<BTreeSet<Term>> = Vec::new();
+            for (_, _, a, b) in &equations {
+                for t in [a, b] {
+                    if !classes.iter().any(|c| c.contains(t)) {
+                        classes.push(BTreeSet::from([t.clone()]));
+                    }
+                }
+            }
+            for k in 0..equations.len() {
+                loop {
+                    let mut merge = None;
+                    'search: for (_, _, a, b) in &equations[..=k] {
+                        let ca = classes.iter().position(|c| c.contains(a));
+                        let cb = classes.iter().position(|c| c.contains(b));
+                        if let (Some(x), Some(y)) = (ca, cb) {
+                            if x != y {
+                                merge = Some((x.min(y), x.max(y)));
+                                break 'search;
+                            }
+                        }
+                    }
+                    let Some((x, y)) = merge else { break };
+                    let moved = classes.remove(y);
+                    classes[x].extend(moved);
+                }
+                let clash = classes.iter().any(|c| {
+                    c.iter().filter(|t| matches!(t, Term::Const(_))).count() > 1
+                });
+                if clash {
+                    let (row, column, _, _) = &equations[k];
+                    return Err((*row, column.clone()));
+                }
+            }
+            let mut fresh_ids: BTreeMap<(RowId, String), u64> = BTreeMap::new();
+            let mut next = fresh_base;
+            for (_, _, _, b) in &equations {
+                if let Term::Fresh(r, beta) = b {
+                    fresh_ids.insert((*r, beta.clone()), next);
+                    next += 1;
+                }
+            }
+            let value_of = |cell: &Term| -> Value {
+                let Some(class) = classes.iter().find(|c| c.contains(cell)) else {
+                    return Value::Null;
+                };
+                if let Some(Term::Const(k)) = class.iter().find(|t| matches!(t, Term::Const(_))) {
+                    return constants[k].clone();
+                }
+                if let Some(Term::Null(n)) = class.iter().find(|t| matches!(t, Term::Null(_))) {
+                    return Value::LabeledNull(*n);
+                }
+                class
+                    .iter()
+                    .find_map(|t| match t {
+                        Term::Fresh(r, b) => Some(Value::LabeledNull(fresh_ids[&(*r, b.clone())])),
+                        _ => None,
+                    })
+                    .unwrap_or(Value::Null)
+            };
+            let mut tables: BTreeMap<Name, Vec<(RowId, Row)>> = BTreeMap::new();
+            for (d, id, columns) in placed {
+                let row: Row = columns
+                    .iter()
+                    .map(|beta| (beta.clone(), value_of(&Term::Cell(id, beta.clone()))))
+                    .collect();
+                tables.entry(d).or_default().push((id, row));
+            }
+            let mut pairs: BTreeMap<Edge, BTreeSet<(RowId, RowId)>> = BTreeMap::new();
+            for (e, image) in &spec.relations {
+                pairs
+                    .entry(image.clone())
+                    .or_default()
+                    .extend(i.pairs(e).iter().copied());
+            }
+            Ok(FInstance::from_parts(
+                tables,
+                pairs.into_iter().map(|(e, p)| (e, p.into_iter().collect())),
+            )
+            .expect("the presentation's rows and pairs form an instance"))
+        }
+    }
+
+    /// The verifier's probes, run against the table Kan extensions through
+    /// the oracles of [`oracle`].
+    mod probes {
+        use std::collections::{BTreeMap, HashMap};
+
+        use panproto_gat::Name;
+        use panproto_schema::{Edge, Schema, Vertex};
+
+        use super::oracle::{self, Side, Spec};
+        use crate::functor::{FInstance, Row};
+        use crate::instance_hom::FInstanceHom;
+        use crate::migration_functor::MigrationFunctor;
+        use crate::value::Value;
+        use crate::view_ref::RowId;
+        use crate::wtype::CompiledMigration;
+
+        fn attribute(table: &str, column: &str) -> Edge {
+            Edge {
+                src: table.into(),
+                tgt: format!("{table}.{column}").into(),
+                kind: "prop".into(),
+                name: Some(column.into()),
+            }
+        }
+
+        fn side(tables: &[(&str, &[&str])], relations: &[Edge]) -> Side {
+            Side {
+                tables: tables
+                    .iter()
+                    .map(|(t, cs)| (Name::from(*t), cs.iter().map(|c| (*c).to_owned()).collect()))
+                    .collect(),
+                relations: relations.iter().cloned().collect(),
+            }
+        }
+
+        fn schema_of(side: &Side) -> Schema {
+            let mut vertices = HashMap::new();
+            let mut edges = HashMap::new();
+            for (t, columns) in &side.tables {
+                vertices.insert(
+                    t.clone(),
+                    Vertex { id: t.clone(), kind: "table".into(), nsid: None },
+                );
+                for c in columns {
+                    let id = Name::from(format!("{t}.{c}"));
+                    vertices.insert(id.clone(), Vertex { id, kind: "integer".into(), nsid: None });
+                    edges.insert(attribute(t, c), Name::from("prop"));
+                }
+            }
+            for e in &side.relations {
+                edges.insert(e.clone(), e.kind.clone());
+            }
+            Schema { protocol: "test".into(), vertices, edges, ..Schema::default() }
+        }
+
+        fn migration_of(spec: &Spec) -> CompiledMigration {
+            let mut m = CompiledMigration::default();
+            for (s, d) in &spec.tables {
+                m.vertex_remap.insert(s.clone(), d.clone());
+            }
+            for ((s, alpha), beta) in &spec.columns {
+                let d = &spec.tables[s];
+                m.vertex_remap
+                    .insert(format!("{s}.{alpha}").into(), format!("{d}.{beta}").into());
+                m.edge_remap.insert(attribute(s, alpha), attribute(d, beta));
+            }
+            for (e, image) in &spec.relations {
+                m.edge_remap.insert(e.clone(), image.clone());
+            }
+            m
+        }
+
+        fn functor(spec: &Spec) -> MigrationFunctor {
+            MigrationFunctor::new(&schema_of(&spec.src), &schema_of(&spec.tgt), &migration_of(spec))
+                .expect("the probe states a functor")
+        }
+
+        fn row(cells: &[(&str, Value)]) -> Row {
+            cells.iter().map(|(c, v)| ((*c).to_owned(), v.clone())).collect()
+        }
+
+        fn rename() -> Spec {
+            Spec {
+                src: side(&[("post", &["title"])], &[]),
+                tgt: side(&[("post", &["name"])], &[]),
+                tables: BTreeMap::from([("post".into(), "post".into())]),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::from([(("post".into(), "title".into()), "name".into())]),
+            }
+        }
+
+        fn merge() -> Spec {
+            Spec {
+                src: side(&[("a", &["x"]), ("b", &["y"])], &[]),
+                tgt: side(&[("m", &["x", "y"])], &[]),
+                tables: BTreeMap::from([("a".into(), "m".into()), ("b".into(), "m".into())]),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::from([
+                    (("a".into(), "x".into()), "x".into()),
+                    (("b".into(), "y".into()), "y".into()),
+                ]),
+            }
+        }
+
+        /// Delta along `title -> name` gives the copy the source column name
+        /// `title`, holding the target's `name`.
+        #[test]
+        fn delta_renames_a_column_to_its_source_name() {
+            let spec = rename();
+            let j = FInstance::new()
+                .with_rows("post", [(RowId(0), row(&[("name", Value::Int(7))]))])
+                .expect("rows");
+            let expected = oracle::delta(&spec, &j);
+            let delta = crate::f_delta(&j, &functor(&spec)).expect("delta");
+            assert_eq!(
+                delta.row(RowId(0)),
+                expected.copies.get(&("post".into(), RowId(0))),
+                "{delta:?}"
+            );
+        }
+
+        /// Sigma along `title -> name` gives the row the target column name.
+        #[test]
+        fn sigma_renames_a_column_to_its_target_name() {
+            let spec = rename();
+            let i = FInstance::new()
+                .with_rows("post", [(RowId(0), row(&[("title", Value::Int(7))]))])
+                .expect("rows");
+            let expected = oracle::sigma(&spec, &i, 1 << 40).expect("no clash");
+            let sigma = crate::f_sigma(&i, &functor(&spec)).expect("sigma");
+            assert!(oracle::brute_iso(&sigma, &expected), "{sigma:?} vs {expected:?}");
+        }
+
+        /// Pi merging `a(x)` and `b(y)` into `m(x, y)` is the product of the
+        /// rows: no column is shared, so every pair of rows is a cone.
+        #[test]
+        fn pi_joins_merged_tables_on_their_shared_columns_only() {
+            let spec = merge();
+            let i = FInstance::new()
+                .with_rows(
+                    "a",
+                    [(RowId(0), row(&[("x", Value::Int(1))])), (RowId(1), row(&[("x", Value::Int(2))]))],
+                )
+                .and_then(|i| {
+                    i.with_rows(
+                        "b",
+                        [
+                            (RowId(2), row(&[("y", Value::Int(10))])),
+                            (RowId(3), row(&[("y", Value::Int(20))])),
+                            (RowId(4), row(&[("y", Value::Int(30))])),
+                        ],
+                    )
+                })
+                .expect("rows");
+            let expected = oracle::pi(&spec, &i);
+            let pi = crate::functor_pi_along(&i, &functor(&spec), 1000).expect("pi");
+            assert_eq!(expected.rows[&Name::from("m")].len(), 6);
+            assert_eq!(pi.row_count("m"), expected.rows[&Name::from("m")].len(), "{pi:?}");
+        }
+
+        /// The verifier's `S = {a}, T = {a, z}` probe, with `z` holding a
+        /// column `v`: the Delta -| Pi hom-sets disagree in size when a target
+        /// row outside the image carries a cell.
+        #[test]
+        fn delta_pi_hom_sets_agree_with_a_cell_outside_the_image() {
+            let spec = Spec {
+                src: side(&[("a", &[])], &[]),
+                tgt: side(&[("a", &[]), ("z", &["v"])], &[]),
+                tables: BTreeMap::from([("a".into(), "a".into())]),
+                relations: BTreeMap::new(),
+                columns: BTreeMap::new(),
+            };
+            let f = functor(&spec);
+            let i = FInstance::new();
+            let j = FInstance::new()
+                .with_rows("z", [(RowId(0), row(&[("v", Value::Int(3))]))])
+                .expect("rows");
+            let pi = crate::functor_pi_along(&i, &f, 1000).expect("pi");
+            let delta = crate::f_delta(&j, &f).expect("delta");
+            assert_eq!(
+                oracle::brute_homs(&j, &pi).len(),
+                oracle::brute_homs(&delta, &i).len(),
+                "Hom(J, Pi I) and Hom(Delta J, I): {pi:?}"
+            );
+        }
+
+        /// The edge kind never decides a column: a `prop` edge into a vertex
+        /// of the record kind `object` is a relation between two tables.
+        #[test]
+        fn the_edge_kind_never_decides_a_column() {
+            let into_meta = Edge {
+                src: "post".into(),
+                tgt: "meta".into(),
+                kind: "prop".into(),
+                name: Some("meta".into()),
+            };
+            let vertex = |id: &str, kind: &str| {
+                (Name::from(id), Vertex { id: id.into(), kind: kind.into(), nsid: None })
+            };
+            let schema = Schema {
+                vertices: HashMap::from([
+                    vertex("post", "object"),
+                    vertex("meta", "object"),
+                    vertex("meta.id", "integer"),
+                ]),
+                edges: HashMap::from([
+                    (into_meta.clone(), Name::from("prop")),
+                    (attribute("meta", "id"), Name::from("prop")),
+                ]),
+                ..Schema::default()
+            };
+            let rel = crate::RelSchema::new(&schema);
+            assert!(rel.is_table("meta"), "{rel:?}");
+            assert!(rel.is_relation(&into_meta), "{rel:?}");
+        }
+
+        /// A sink of a kind the protocol declares a record kind (UCCA's
+        /// `terminal`) stays a table: its rows are not cells.
+        #[test]
+        fn a_leaf_of_a_record_kind_is_a_table() {
+            let edge = Edge {
+                src: "node".into(),
+                tgt: "terminal".into(),
+                kind: "edge".into(),
+                name: None,
+            };
+            let schema = Schema {
+                vertices: HashMap::from([
+                    ("node".into(), Vertex { id: "node".into(), kind: "node".into(), nsid: None }),
+                    ("terminal".into(), Vertex { id: "terminal".into(), kind: "terminal".into(), nsid: None }),
+                ]),
+                edges: HashMap::from([(edge.clone(), Name::from("edge"))]),
+                ..Schema::default()
+            };
+            let rel = crate::RelSchema::new(&schema);
+            assert!(rel.is_table("terminal"), "{rel:?}");
+            assert!(rel.is_relation(&edge));
+        }
+
+        /// `FInstanceHom::check` accepts a table-respecting row map exactly
+        /// when the brute-force enumerator does, with the null map its
+        /// first occurrences fix.
+        #[test]
+        fn hom_check_agrees_with_the_brute_force_enumerator() {
+            let cells = [Value::Int(0), Value::Int(1), Value::LabeledNull(0), Value::LabeledNull(1)];
+            let mut instances = Vec::new();
+            for a in &cells {
+                for b in &cells {
+                    for c in &cells {
+                        let i = FInstance::new()
+                            .with_rows("t", [(RowId(0), row(&[("x", a.clone())])), (RowId(1), row(&[("x", b.clone())]))])
+                            .and_then(|i| i.with_rows("u", [(RowId(2), row(&[("y", c.clone())]))]))
+                            .expect("rows");
+                        instances.push(i);
+                    }
+                }
+            }
+            let mut checked = 0usize;
+            for a in &instances {
+                for b in &instances {
+                    for candidate in oracle::candidates(a, b) {
+                        let (accepted, nu) = oracle::brute_accepts(a, b, &candidate);
+                        let hom = FInstanceHom::new(candidate).with_null_map(nu);
+                        assert_eq!(hom.check(a, b).is_ok(), accepted, "{a:?} -> {b:?}: {hom:?}");
+                        checked += 1;
+                    }
+                }
+            }
+            assert!(checked > 0);
+        }
+    }
 }
