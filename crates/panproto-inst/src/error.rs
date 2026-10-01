@@ -289,6 +289,17 @@ pub enum RestrictError {
         /// The vertex whose rows have no image.
         vertex: Name,
     },
+
+    /// A table instance holds foreign-key pairs on an edge outside the
+    /// migration's domain that is the image of another edge: the migration
+    /// names it as a target only, so a total operation has nowhere to send
+    /// its pairs and refuses rather than dropping them or merging them
+    /// unasked.
+    #[error("edge {edge:?} holds pairs but is a target of the migration, not a source")]
+    EdgeOutsideDomain {
+        /// The edge whose pairs have no image.
+        edge: Edge,
+    },
 }
 
 /// Errors from JSON parsing.

@@ -53,7 +53,12 @@
 //! every table of `X`. An instance carrying a table at a vertex that is
 //! neither — a vertex `F` says nothing about — is refused by [`f_sigma`] with
 //! [`AdjunctionError::VertexOutsideDomain`] rather than passed through under
-//! its own name into an instance the counit could not come back from.
+//! its own name into an instance the counit could not come back from. Edges
+//! are read the same way: a foreign key on an edge the
+//! migration neither remaps nor lets survive as a source, including an edge it
+//! names only as another edge's image, is refused with
+//! [`AdjunctionError::EdgeOutsideDomain`], since `Delta_F` copies only the
+//! foreign keys of source edges.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -117,6 +122,15 @@ pub enum AdjunctionError {
     )]
     VertexOutsideDomain(Name),
 
+    /// The instance carries foreign-key pairs on an edge the migration is
+    /// not defined on, so `Sigma_F` has nowhere to send them.
+    #[error(
+        "edge {0:?} is neither remapped nor surviving as a source, so the \
+         migration is not defined on it and the pushforward has no image for \
+         its pairs"
+    )]
+    EdgeOutsideDomain(Edge),
+
     /// The underlying left Kan extension ([`wtype_extend`]) failed.
     #[error("Sigma (left Kan extension) failed: {0}")]
     Sigma(#[from] RestrictError),
@@ -147,7 +161,7 @@ pub(crate) fn map_vertex(migration: &CompiledMigration, vertex: &Name) -> Name {
 
 /// The image of an edge under the migration's edge map, defaulting to the
 /// edge relabelled by the vertex map when no explicit remap is recorded.
-fn map_edge(migration: &CompiledMigration, edge: &Edge) -> Edge {
+pub(crate) fn map_edge(migration: &CompiledMigration, edge: &Edge) -> Edge {
     migration
         .edge_remap
         .get(edge)
@@ -186,8 +200,14 @@ pub(crate) fn source_vertices(migration: &CompiledMigration) -> BTreeSet<Name> {
 }
 
 /// The source edges `F` is defined on, read the same way as
-/// [`source_vertices`] reads vertices.
-fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
+/// [`source_vertices`] reads vertices: the edges `edge_remap` names an image
+/// for, together with the surviving edges it neither remaps nor names as some
+/// other edge's image. An edge the migration does not mention is not in the
+/// domain.
+///
+/// Every table operation reads the edges a compiled migration carries through
+/// this one function, by way of [`edge_images`].
+pub(crate) fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
     let images: HashSet<&Edge> = migration.edge_remap.values().collect();
     let mut domain: BTreeSet<Edge> = migration.edge_remap.keys().cloned().collect();
     for edge in &migration.surviving_edges {
@@ -196,6 +216,33 @@ fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
         }
     }
     domain
+}
+
+/// Each source edge ([`source_edges`]) with its image under `F`: the edge
+/// `edge_remap` names, or, for an edge that survives unremapped, the edge of
+/// the same kind and name between the images of its endpoints.
+///
+/// `Sigma_F`, `Delta_F`, [`crate::functor_pi`], [`crate::functor_restrict`]
+/// and [`crate::functor_extend`] carry a foreign key exactly when its edge is
+/// a key of this map, and carry it to the edge this map names.
+pub(crate) fn edge_images(migration: &CompiledMigration) -> HashMap<Edge, Edge> {
+    source_edges(migration)
+        .into_iter()
+        .map(|source| {
+            let target = map_edge(migration, &source);
+            (source, target)
+        })
+        .collect()
+}
+
+/// The edges a migration names only as targets: images of `edge_remap` that
+/// are not themselves source edges.
+pub(crate) fn target_only_edges(migration: &CompiledMigration) -> HashSet<&Edge> {
+    migration
+        .edge_remap
+        .values()
+        .filter(|edge| !migration.edge_remap.contains_key(*edge))
+        .collect()
 }
 
 /// Invert the vertex map over its whole domain, failing when two source
@@ -363,19 +410,30 @@ pub fn w_transpose_right(f: &WInstanceHom) -> WInstanceHom {
 // ---------------------------------------------------------------------------
 
 /// Check that every table of `x` sits at a vertex the migration is defined
-/// on.
+/// on, and every foreign key with pairs at an edge it is defined on.
 ///
 /// `Sigma_F` is a transport along `F`, so a table at a vertex outside `F`'s
 /// domain has no image to travel to. Carrying it across under its own name
 /// would put a table in `Sigma_F X` that `Delta_F` never reads back, and the
-/// unit at that vertex would have no codomain.
+/// unit at that vertex would have no codomain. The same holds of the pairs of
+/// an edge outside the domain ([`source_edges`]): `Delta_F` copies only the
+/// foreign keys of source edges, so a pair carried along any other edge would
+/// have no pair of `Delta_F(Sigma_F X)` for the unit to send it to.
 fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), AdjunctionError> {
     let domain = source_vertices(migration);
-    x.table_names()
+    if let Some(vertex) = x
+        .table_names()
         .into_iter()
         .find(|vertex| !domain.contains(*vertex))
-        .map_or(Ok(()), |vertex| {
-            Err(AdjunctionError::VertexOutsideDomain(vertex.clone()))
+    {
+        return Err(AdjunctionError::VertexOutsideDomain(vertex.clone()));
+    }
+    let edges = source_edges(migration);
+    x.foreign_keys()
+        .into_iter()
+        .find(|(edge, _)| !edges.contains(*edge))
+        .map_or(Ok(()), |(edge, _)| {
+            Err(AdjunctionError::EdgeOutsideDomain(edge.clone()))
         })
 }
 
@@ -390,7 +448,10 @@ fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), Adju
 ///
 /// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
 /// at a vertex the migration neither remaps nor lets survive, so `F` names no
-/// image for its rows.
+/// image for its rows, and [`AdjunctionError::EdgeOutsideDomain`] when it
+/// carries pairs on an edge outside the domain: one the migration neither
+/// remaps nor lets survive as a source, including an edge it names only as
+/// another edge's image.
 pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance, AdjunctionError> {
     check_domain(x, migration)?;
     let mut sigma = FInstance::new();
@@ -471,9 +532,9 @@ pub fn f_delta_with_hom(
         }
     }
 
-    for source_edge in source_edges(migration) {
-        let target_edge = map_edge(migration, &source_edge);
-        for &(s, t) in y.pairs(&target_edge) {
+    let edge_map: BTreeMap<Edge, Edge> = edge_images(migration).into_iter().collect();
+    for (source_edge, target_edge) in &edge_map {
+        for &(s, t) in y.pairs(target_edge) {
             let (Some(&cs), Some(&ct)) = (
                 copy_of.get(&(source_edge.src.clone(), s)),
                 copy_of.get(&(source_edge.tgt.clone(), t)),
@@ -488,13 +549,6 @@ pub fn f_delta_with_hom(
         .into_iter()
         .map(|source| {
             let target = map_vertex(migration, &source);
-            (source, target)
-        })
-        .collect();
-    let edge_map = source_edges(migration)
-        .into_iter()
-        .map(|source| {
-            let target = map_edge(migration, &source);
             (source, target)
         })
         .collect();
@@ -526,7 +580,8 @@ fn copies(delta: &FInstance, to_original: &FInstanceHom) -> HashMap<(Name, RowId
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
 pub fn f_unit(
@@ -573,7 +628,8 @@ pub fn f_counit(
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
 pub fn f_transpose_left(
@@ -608,7 +664,8 @@ pub fn f_transpose_left(
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
 pub fn f_transpose_right(
@@ -1706,5 +1763,129 @@ mod tests {
         .unwrap();
         let ids: Vec<RowId> = pi.rows("b").into_iter().map(|(id, _)| id).collect();
         assert_eq!(ids, vec![RowId(0)]);
+    }
+
+    /// The edge version of [`the_table_operations_share_one_domain`]: with
+    /// `x` remapped onto `y` and `y` listed as surviving (as
+    /// `panproto_mig::compile` lists every target edge between surviving
+    /// vertices), `y` is a target and `x` the only source edge, and `z`,
+    /// which the migration does not mention, is no source edge either.
+    fn edge_domain_migration() -> CompiledMigration {
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("a".into());
+        migration.surviving_verts.insert("b".into());
+        migration
+            .edge_remap
+            .insert(edge("a", "b", "x"), edge("a", "b", "y"));
+        migration.surviving_edges.insert(edge("a", "b", "y"));
+        migration
+    }
+
+    /// `a` holds row 0, `b` row 1, and the pair `(0, 1)` sits on `label`.
+    fn pair_on(label: &str) -> FInstance {
+        FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::new())])
+            .and_then(|f| f.with_rows("b", [(RowId(1), HashMap::new())]))
+            .and_then(|f| f.with_foreign_key(edge("a", "b", label), [(RowId(0), RowId(1))]))
+            .unwrap()
+    }
+
+    #[test]
+    fn the_table_operations_share_one_edge_domain() {
+        let migration = edge_domain_migration();
+        assert_eq!(
+            source_edges(&migration),
+            BTreeSet::from([edge("a", "b", "x")])
+        );
+
+        // Over the domain every operation agrees and the unit is a
+        // homomorphism.
+        let x = pair_on("x");
+        let sigma = f_sigma(&x, &migration).unwrap();
+        assert!(sigma.contains_pair(&edge("a", "b", "y"), RowId(0), RowId(1)));
+        assert_eq!(crate::functor_restrict(&x, &migration).unwrap(), sigma);
+        assert_eq!(crate::functor_extend(&x, &migration).unwrap(), sigma);
+        let delta_sigma = f_delta(&sigma, &migration).unwrap();
+        f_unit(&x, &migration)
+            .unwrap()
+            .check(&x, &delta_sigma)
+            .expect("the unit is a homomorphism into Delta(Sigma X)");
+
+        // A pair on the target-only edge `y`: Sigma and extend refuse it,
+        // restrict and Pi drop it.
+        let on_y = pair_on("y");
+        assert!(matches!(
+            f_sigma(&on_y, &migration),
+            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == edge("a", "b", "y")
+        ));
+        assert!(matches!(
+            f_unit(&on_y, &migration),
+            Err(AdjunctionError::EdgeOutsideDomain(_))
+        ));
+        assert!(matches!(
+            crate::functor_extend(&on_y, &migration),
+            Err(RestrictError::EdgeOutsideDomain { edge: e }) if e == edge("a", "b", "y")
+        ));
+        let restricted = crate::functor_restrict(&on_y, &migration).unwrap();
+        assert_eq!(restricted.pair_count(), 0);
+        assert_eq!(restricted.row_ids(), vec![RowId(0), RowId(1)]);
+        let schema = schema_of(
+            &["a", "b"],
+            &[
+                edge("a", "b", "x"),
+                edge("a", "b", "y"),
+                edge("a", "b", "z"),
+            ],
+        );
+        let pi = crate::functor_pi(&on_y, &schema, &schema, &migration, 100).unwrap();
+        assert_eq!(pi.pair_count(), 0);
+
+        // A pair on the unmentioned edge `z`: Sigma refuses it, restrict and
+        // Pi drop it, and extend, which keeps what the migration does not
+        // mention, keeps it under its own name.
+        let on_z = pair_on("z");
+        assert!(matches!(
+            f_sigma(&on_z, &migration),
+            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == edge("a", "b", "z")
+        ));
+        assert!(matches!(
+            f_transpose_left(&FInstanceHom::identity(&on_z), &on_z, &on_z, &migration),
+            Err(AdjunctionError::EdgeOutsideDomain(_))
+        ));
+        assert_eq!(
+            crate::functor_restrict(&on_z, &migration)
+                .unwrap()
+                .pair_count(),
+            0
+        );
+        assert_eq!(
+            crate::functor_pi(&on_z, &schema, &schema, &migration, 100)
+                .unwrap()
+                .pair_count(),
+            0
+        );
+        assert_eq!(crate::functor_extend(&on_z, &migration).unwrap(), on_z);
+    }
+
+    /// A surviving edge whose source vertex is renamed travels to the edge
+    /// between the images of its endpoints in every operation, so restrict
+    /// keeps the pair Sigma carries.
+    #[test]
+    fn a_surviving_edge_travels_between_the_images_of_its_endpoints() {
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "t".into());
+        migration.surviving_verts.insert("t".into());
+        migration.surviving_verts.insert("b".into());
+        migration.surviving_edges.insert(edge("a", "b", "e"));
+        let x = pair_on("e");
+        let sigma = f_sigma(&x, &migration).unwrap();
+        assert!(sigma.contains_pair(&edge("t", "b", "e"), RowId(0), RowId(1)));
+        assert_eq!(crate::functor_restrict(&x, &migration).unwrap(), sigma);
+        assert_eq!(crate::functor_extend(&x, &migration).unwrap(), sigma);
+        let delta_sigma = f_delta(&sigma, &migration).unwrap();
+        f_unit(&x, &migration)
+            .unwrap()
+            .check(&x, &delta_sigma)
+            .expect("the unit is a homomorphism into Delta(Sigma X)");
     }
 }

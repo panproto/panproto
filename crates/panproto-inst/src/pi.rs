@@ -54,19 +54,24 @@ pub fn functor_pi(
 /// Right Kan extension (`Pi_F`) for set-valued functor instances, with the
 /// projection of every row of the result onto each fibre component.
 ///
-/// For each target vertex, the fibre is the set of source vertices that map
-/// to it, and the target's table is the limit over the fibre: the Cartesian
-/// product of the component tables with column union, equalised along every
-/// internal arrow. An internal arrow is an edge of `src_schema` whose
-/// endpoints both lie in the fibre and which the migration carries to no
-/// target edge, so `F` sends it to the identity of the target vertex; a
-/// product row is kept only when its components are a pair of that foreign
-/// key. The arrows are read from the schema, not from the instance, so an
-/// internal foreign key without pairs is the empty relation and empties the
-/// limit. A fibre
-/// component whose table is empty or absent is an empty factor, so the
-/// target's table is empty; the empty fibre is the empty product, whose limit
-/// holds one row with no cells.
+/// The result has a table at each vertex in the image of `F`, the images of
+/// the migration's source vertices (read as every table operation reads
+/// them; see [`crate::functor_restrict`]).
+/// For each such target vertex, the fibre is the set of source vertices that
+/// map to it, and the target's table is the limit over the fibre: the
+/// Cartesian product of the component tables with column union, equalised
+/// along every internal arrow. An internal arrow is an edge of `src_schema`
+/// whose endpoints both lie in the fibre and which is no source edge of the
+/// migration, so `F` sends it to the
+/// identity of the target vertex; a product row is kept only when its
+/// components are a pair of that foreign key. The arrows are read from the
+/// schema, not from the instance, so an internal foreign key without pairs
+/// is the empty relation and empties the limit. A fibre component whose
+/// table is empty or absent is an empty factor, so the target's table is
+/// empty. A vertex of `tgt_schema` outside the image of `F` has an empty
+/// fibre and gets no table: the schema does not say which of its vertices
+/// hold tables (a column vertex is an attribute, not a table), so the result
+/// is computed over the image of `F` alone.
 ///
 /// Row ids: a fibre with one component and no internal arrow keeps its rows'
 /// ids (the limit is the component itself); every other row of the result is
@@ -74,7 +79,9 @@ pub fn functor_pi(
 /// target vertices taken in ascending name and each target's rows in the
 /// product's order (components in ascending name, the last varying fastest).
 ///
-/// Foreign keys along carried edges travel through the product: a pair
+/// Foreign keys travel along the source edges, each to its image, as every
+/// table operation reads them; the pairs of any other edge are not carried.
+/// A carried foreign key travels through the product: a pair
 /// `(i, j)` of source edge `e` relates every result row drawing `i` from
 /// `e`'s source to every result row drawing `j` from its target, the largest
 /// relation the projections respect.
@@ -98,7 +105,8 @@ pub fn functor_pi_with_hom(
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
-    check_carried_edges(src_schema, tgt_schema, migration)?;
+    let edge_images = crate::adjunction::edge_images(migration);
+    check_carried_edges(src_schema, tgt_schema, &edge_images)?;
     let fiber_map = build_fiber_map(migration);
     let mut allocator = row_allocator(instance.row_ids());
 
@@ -107,7 +115,7 @@ pub fn functor_pi_with_hom(
     let mut provenance: HashMap<Name, PlacedRows> = HashMap::new();
 
     for (tgt_vertex, src_vertices) in &fiber_map {
-        let internal = internal_arrows(src_schema, migration, src_vertices);
+        let internal = internal_arrows(src_schema, &edge_images, src_vertices);
         let rows = build_fiber_table(
             instance,
             src_vertices,
@@ -164,7 +172,7 @@ pub fn functor_pi_with_hom(
         }
     }
     for (edge, pairs) in instance.foreign_keys() {
-        let Some(new_edge) = carried_edge(migration, edge).cloned() else {
+        let Some(new_edge) = edge_images.get(edge) else {
             continue;
         };
         for &(i, j) in pairs {
@@ -185,26 +193,18 @@ pub fn functor_pi_with_hom(
     Ok((out, projections))
 }
 
-/// The edge a source edge travels to under a migration: its remap when the
-/// migration names one, itself when it survives, and `None` otherwise.
-fn carried_edge<'a>(migration: &'a CompiledMigration, edge: &'a Edge) -> Option<&'a Edge> {
-    migration
-        .edge_remap
-        .get(edge)
-        .or_else(|| migration.surviving_edges.contains(edge).then_some(edge))
-}
-
 /// Check that every edge of `src` the migration carries lands on an edge of
-/// `tgt`, taking the edges in ascending order.
+/// `tgt`, taking the edges in ascending order. The carried edges and their
+/// images are `edge_images`, read by [`crate::adjunction::edge_images`].
 fn check_carried_edges(
     src: &Schema,
     tgt: &Schema,
-    migration: &CompiledMigration,
+    edge_images: &HashMap<Edge, Edge>,
 ) -> Result<(), RestrictError> {
     let mut edges: Vec<&Edge> = src.edges.keys().collect();
     edges.sort_unstable();
     for edge in edges {
-        if let Some(image) = carried_edge(migration, edge) {
+        if let Some(image) = edge_images.get(edge) {
             if !tgt.edges.contains_key(image) {
                 return Err(RestrictError::NoEdgeFound {
                     src: image.src.to_string(),
@@ -221,14 +221,14 @@ fn check_carried_edges(
 /// target edge, in ascending order.
 fn internal_arrows<'a>(
     schema: &'a Schema,
-    migration: &CompiledMigration,
+    edge_images: &HashMap<Edge, Edge>,
     fiber: &[Name],
 ) -> Vec<&'a Edge> {
     let mut arrows: Vec<&Edge> = fiber
         .iter()
         .flat_map(|src| fiber.iter().map(move |tgt| (src, tgt)))
         .flat_map(|(src, tgt)| schema.edges_between(src, tgt))
-        .filter(|edge| carried_edge(migration, edge).is_none())
+        .filter(|edge| !edge_images.contains_key(*edge))
         .collect();
     arrows.sort_unstable();
     arrows.dedup();
@@ -238,8 +238,8 @@ fn internal_arrows<'a>(
 /// Build the rows of one target vertex's limit, each with the source row it
 /// drew from every fibre component.
 ///
-/// Every vertex in the fibre is a factor of the product. The empty fibre is
-/// the empty product: one row, drawing from no component. A factor whose
+/// Every vertex in the fibre is a factor of the product; the fibre is never
+/// empty, since it is read off the source vertices. A factor whose
 /// table is empty or absent empties the whole product: the limit contains no
 /// tuple that could supply that component. Such a factor is never dropped
 /// from the fibre, which would return the product over the remaining factors
@@ -258,10 +258,6 @@ fn build_fiber_table(
     internal: &[&Edge],
     max_product_size: usize,
 ) -> Result<FiberRows, RestrictError> {
-    if src_vertices.is_empty() {
-        return Ok(vec![(Row::new(), BTreeMap::new())]);
-    }
-
     let mut factors: Vec<(&Name, Vec<(RowId, &Row)>)> = Vec::with_capacity(src_vertices.len());
     for src_v in src_vertices {
         let rows = instance.rows(src_v);
@@ -1360,5 +1356,27 @@ mod tests {
             matches!(&err, RestrictError::AttributeCollision { vertex, column } if vertex == "m" && column == "x"),
             "{err:?}"
         );
+    }
+
+    /// Pi is computed over the image of `F`: a target vertex no source vertex
+    /// maps to has no table, as the rustdoc of [`functor_pi_with_hom`]
+    /// states.
+    #[test]
+    fn a_target_vertex_outside_the_image_gets_no_table() {
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert("a".into());
+        let inst = FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::new())])
+            .unwrap();
+        let pi = functor_pi(
+            &inst,
+            &make_test_schema(&["a"], &[]),
+            &make_test_schema(&["a", "t"], &[]),
+            &migration,
+            100,
+        )
+        .unwrap();
+        assert_eq!(pi.table_names(), vec![&Name::from("a")]);
+        assert_eq!(pi.row_count("t"), 0);
     }
 }

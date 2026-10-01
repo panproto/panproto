@@ -1021,17 +1021,6 @@ impl FInstance {
     }
 }
 
-/// The edge a source edge travels to under a migration: its remap when the
-/// migration names one, itself when it survives, and `None` otherwise.
-fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
-    migration.edge_remap.get(edge).cloned().or_else(|| {
-        migration
-            .surviving_edges
-            .contains(edge)
-            .then(|| edge.clone())
-    })
-}
-
 /// Carry a set-valued functor instance forward along a migration, keeping
 /// the fragment that survives.
 ///
@@ -1048,19 +1037,24 @@ fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
 /// row keeps its [`RowId`] and is rewritten by its source vertex's
 /// op-to-term assignments. So every row lands at most once, even when a
 /// renamed vertex's old name is itself listed as surviving (as the
-/// migrations `panproto-lens` builds for a rename list it). Foreign keys
-/// travel for the edges the migration remaps between surviving vertices and
-/// for those it lets survive: a pair survives exactly when both of its rows
-/// landed in the carried edge's endpoint tables. Pairs from source edges the
-/// migration identifies are unioned (a foreign key is a set).
+/// migrations `panproto-lens` builds for a rename list it). The source edges
+/// are read the same way: the edges `edge_remap` remaps, together with the
+/// surviving edges it neither remaps nor names as another edge's image. Each
+/// travels to its image, the edge
+/// `edge_remap` names or, for a surviving edge, the edge of its kind and name
+/// between the images of its endpoints; the pairs of every other edge are not
+/// carried. A pair survives exactly when its edge's image joins surviving
+/// vertices and both of its rows landed in that image's endpoint tables.
+/// Pairs from source edges the migration identifies are unioned (a foreign
+/// key is a set).
 ///
 /// This is a pushforward, not precomposition: over a vertex map that merges
 /// two vertices it returns the fibre's disjoint union, which is `Sigma_F`'s
 /// answer; the row ids keep the union disjoint without any renumbering. On
 /// an instance whose rows all lie in the domain it agrees with
 /// [`crate::adjunction::f_sigma`] whenever every image survives; where
-/// `f_sigma` refuses rows outside the domain, this drops them, as it drops
-/// every row whose image does not survive. For `Delta_F` see
+/// `f_sigma` refuses rows or pairs outside the domain, this drops them, as it
+/// drops every row whose image does not survive. For `Delta_F` see
 /// [`crate::adjunction::f_delta`].
 ///
 /// # Errors
@@ -1093,8 +1087,9 @@ pub fn functor_restrict(
         }
     }
 
+    let edge_images = crate::adjunction::edge_images(migration);
     for (edge, pairs) in instance.foreign_keys() {
-        let Some(new_edge) = carried_edge(migration, edge) else {
+        let Some(new_edge) = edge_images.get(edge) else {
             continue;
         };
         if !migration.surviving_verts.contains(&new_edge.src)
@@ -1103,7 +1098,7 @@ pub fn functor_restrict(
             continue;
         }
         for &(s, t) in pairs {
-            if out.joins(&new_edge, s, t) {
+            if out.joins(new_edge, s, t) {
                 out.place_pair(new_edge.clone(), s, t);
             }
         }
@@ -1128,14 +1123,21 @@ pub fn functor_restrict(
 /// so the coproduct over a merging fibre is a disjoint union with no
 /// renumbering, and the operation creates no rows. Within each target table
 /// the rows are padded to the union of their columns with [`Value::Null`].
-/// Foreign keys travel along remapped and surviving edges; a pair is kept
-/// when its rows lie in the carried edge's endpoint tables.
+/// Edges are read the same way: a source edge (as [`functor_restrict`] reads
+/// them) travels to its image, an edge the migration does not mention keeps
+/// its kind and name between the images of its endpoints, and an edge the
+/// migration names only as a target, the image of some other edge that it
+/// does not remap itself, has no image of its own, so extend refuses pairs
+/// held there. A pair is kept when its rows lie in the carried edge's
+/// endpoint tables.
 ///
 /// # Errors
 ///
 /// Returns [`RestrictError::VertexOutsideDomain`] when a row lies at a
-/// vertex the migration names only as a target, and `RestrictError` if a
-/// row's op-to-term assignment fails to evaluate.
+/// vertex the migration names only as a target,
+/// [`RestrictError::EdgeOutsideDomain`] when a pair lies on an edge the
+/// migration names only as a target, and `RestrictError` if a row's
+/// op-to-term assignment fails to evaluate.
 pub fn functor_extend(
     instance: &FInstance,
     migration: &CompiledMigration,
@@ -1177,9 +1179,15 @@ pub fn functor_extend(
         }
     }
 
+    let edge_images = crate::adjunction::edge_images(migration);
+    let target_only = crate::adjunction::target_only_edges(migration);
     for (edge, pairs) in instance.foreign_keys() {
-        let Some(new_edge) = carried_edge(migration, edge) else {
-            continue;
+        let new_edge = match edge_images.get(edge) {
+            Some(image) => image.clone(),
+            None if target_only.contains(edge) => {
+                return Err(RestrictError::EdgeOutsideDomain { edge: edge.clone() });
+            }
+            None => crate::adjunction::map_edge(migration, edge),
         };
         for &(s, t) in pairs {
             if out.joins(&new_edge, s, t) {
