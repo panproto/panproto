@@ -333,18 +333,38 @@ fn sigma_then_chase_workflow() {
 
 #[test]
 fn pi_functor_product_workflow() {
-    // Two source tables map to the same target vertex via migration
+    // Two source tables map to the same target table. Pi takes the limit
+    // over the fibre: the pairs of one row of each table that carry the same
+    // cells, each keeping those cells.
     let rows_a = vec![row("x", Value::Int(1)), row("x", Value::Int(2))];
     let rows_b = vec![
-        row("y", Value::Int(10)),
-        row("y", Value::Int(20)),
-        row("y", Value::Int(30)),
+        row("x", Value::Int(1)),
+        row("x", Value::Int(1)),
+        row("x", Value::Int(2)),
     ];
-
     let instance = FInstance::new()
         .with_table("table_a", rows_a)
         .and_then(|f| f.with_table("table_b", rows_b))
         .unwrap();
+
+    let tables = |names: &[&str]| Schema {
+        vertices: names
+            .iter()
+            .map(|&n| {
+                (
+                    Name::from(n),
+                    Vertex {
+                        id: n.into(),
+                        kind: "table".into(),
+                        nsid: None,
+                    },
+                )
+            })
+            .collect(),
+        ..Schema::default()
+    };
+    let src_schema = tables(&["table_a", "table_b"]);
+    let tgt_schema = tables(&["merged"]);
 
     // Migration: table_a -> merged, table_b -> merged
     let mut vertex_remap = HashMap::new();
@@ -364,29 +384,29 @@ fn pi_functor_product_workflow() {
         expansion_path: HashMap::new(),
     };
 
-    // Apply Pi_F (Cartesian product)
-    let result = panproto_inst::functor_pi(
-        &instance,
-        &panproto_schema::Schema::default(),
-        &panproto_schema::Schema::default(),
-        &compiled,
-        1000,
-    )
-    .unwrap();
+    let result =
+        panproto_inst::functor_pi(&instance, &src_schema, &tgt_schema, &compiled, 1000).unwrap();
 
-    // 2 * 3 = 6 product rows
-    assert_eq!(
-        result.row_count("merged"),
-        6,
-        "Cartesian product of 2x3 should yield 6 rows"
-    );
+    // x = 1 pairs a0 with b0 and b1; x = 2 pairs a1 with b2.
+    let mut cells: Vec<Value> = result
+        .rows("merged")
+        .into_iter()
+        .map(|(_, r)| r["x"].clone())
+        .collect();
+    cells.sort_by_key(|v| match v {
+        Value::Int(i) => *i,
+        _ => i64::MAX,
+    });
+    assert_eq!(cells, [Value::Int(1), Value::Int(1), Value::Int(2)]);
 
-    // Each row should have both x and y columns
-    let rows = result.rows("merged");
-    for (_, r) in rows {
-        assert!(r.contains_key("x"), "product row should have x column");
-        assert!(r.contains_key("y"), "product row should have y column");
-    }
+    // Rows without cells agree on every cell: the whole 2 x 3 product.
+    let blank = FInstance::new()
+        .with_table("table_a", vec![HashMap::new(); 2])
+        .and_then(|f| f.with_table("table_b", vec![HashMap::new(); 3]))
+        .unwrap();
+    let product =
+        panproto_inst::functor_pi(&blank, &src_schema, &tgt_schema, &compiled, 1000).unwrap();
+    assert_eq!(product.row_count("merged"), 6);
 }
 
 // ===========================================================================

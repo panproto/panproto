@@ -162,18 +162,19 @@ pub fn lift_functor_sigma_with_hom(
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
 ///
 /// Delegates to [`panproto_inst::functor_pi`], which reads every foreign key
-/// as a relation and computes at each target vertex in the image the
-/// product of the fibre's tables, cut down to the tuples every edge of
-/// `src_schema` the migration sends to an identity relates, and at each
-/// target edge between image vertices the pairs of those rows that every
-/// edge carried to it relates.
+/// as a relation and takes the limit over each comma category of the
+/// migration functor: at each target table the tuples of one row of each
+/// fibre table that carry the same cells (one row without cells at a table
+/// outside the image), and at each target foreign key the pairs of those
+/// rows that every foreign key carried to it relates (every pair when none
+/// is).
 ///
 /// # Errors
 ///
 /// Returns `LiftError::Restrict` if the underlying pi operation fails
-/// (e.g., product size exceeded, a carried edge missing from `tgt_schema`,
-/// or a carried edge whose image does not join the images of its
-/// endpoints).
+/// (e.g., product size exceeded, a kept table sent to a vertex that is no
+/// table of `tgt_schema`, or a carried foreign key whose image is not a
+/// foreign key of `tgt_schema` between the images of its endpoints).
 pub fn lift_functor_pi(
     compiled: &CompiledMigration,
     src_schema: &Schema,
