@@ -913,12 +913,43 @@ fn step_delta(
     GraphDelta::normalize(parts).map_err(|e| EditError::ApplyFailed(e.to_string()))
 }
 
+/// Apply one tree edit step to `tree` and follow it with `embedding` as
+/// [`TreeEmbedding::apply_edit`] does, except that a `MoveSubtree` whose
+/// arc would keep its edge id (a move of the last arc under the parent it
+/// has) gives the arc a fresh id: a move deletes its arc and appends a new
+/// one. On error the step's effects on `tree` and `embedding` are not
+/// undone.
+fn follow_step(
+    embedding: &mut TreeEmbedding,
+    tree: &mut WInstance,
+    step: &TreeEdit,
+) -> Result<(), EditError> {
+    let moved = match step {
+        TreeEdit::MoveSubtree { node_id, .. } => {
+            embedding.arcs.get(node_id).map(|id| (*node_id, *id))
+        }
+        _ => None,
+    };
+    embedding.apply_edit(tree, step)?;
+    if let Some((node, id)) = moved
+        && embedding.arcs.get(&node) == Some(&id)
+    {
+        let fresh = embedding
+            .allocate_edge()
+            .map_err(|e| EditError::ApplyFailed(e.to_string()))?;
+        embedding.arcs.insert(node, fresh);
+    }
+    Ok(())
+}
+
 impl GraphDelta {
     /// The graph delta of a tree edit: with `W` the tree `graph` is when
     /// read through `embedding`, applying the result to `graph` gives the
     /// graph form of `edit` applied to `W`, under the embedding as it
-    /// follows the edit ([`TreeEmbedding::apply_edit`]), which `embedding`
-    /// becomes.
+    /// follows the edit, which `embedding` becomes. That embedding is the
+    /// one [`TreeEmbedding::apply_edit`] gives, except that each
+    /// `MoveSubtree` gives its arc a fresh edge id, also when the node stays
+    /// under the parent it has.
     ///
     /// Each step lowers to the change of the graph form it makes, and a
     /// sequence to the composite of its steps ([`GraphDelta::compose`]).
@@ -930,7 +961,8 @@ impl GraphDelta {
     /// a label change of each fan edge that reaches the node, whose label
     /// names its target's anchor); `SetField` and `RemoveField` are `Field`
     /// changes with the old value read from the state; `MoveSubtree` deletes
-    /// the old arc and adds the new one with a fresh id; `InsertFan` and
+    /// the old arc and adds the new one with a fresh id, so no step changes
+    /// the label of a tree arc; `InsertFan` and
     /// `DeleteFan` add and delete fan nodes with their edges; `JoinFeatures`
     /// deletes the joined nodes and their arcs, adds the re-parented arcs
     /// with fresh ids (in joined order, then each joined node's child arc
@@ -951,8 +983,9 @@ impl GraphDelta {
     /// Returns [`EditError::ApplyFailed`] when `graph` is not the graph form
     /// of a tree under `embedding` (up to the names of fan parent edges),
     /// and otherwise the error of the first step that does not apply to the
-    /// tree, as [`TreeEmbedding::apply_edit`] reports it. On error
-    /// `embedding` is unchanged.
+    /// tree, as [`TreeEmbedding::apply_edit`] reports it, with
+    /// [`EditError::ApplyFailed`] when the embedding runs out of ids. On
+    /// error `embedding` is unchanged.
     pub fn from_tree_edit(
         graph: &GInstance,
         embedding: &mut TreeEmbedding,
@@ -970,7 +1003,7 @@ impl GraphDelta {
         let mut net = Self::identity();
         for step in edit.steps() {
             let fans_before = fan_nodes(&followed);
-            followed.apply_edit(&mut tree, step)?;
+            follow_step(&mut followed, &mut tree, step)?;
             let stepped = graph_under(&tree, &followed, &names)?;
             let delta = step_delta(&current, &stepped, &fans_before, &fan_nodes(&followed))?;
             net = net.compose(&delta)?;
@@ -1024,38 +1057,8 @@ fn follows_anchor(
     expected == *new
 }
 
-/// The move in place a label change of a tree arc reads as: when `edge` is
-/// the arc of a node in `embedding` and the delta deletes every arc above
-/// it, moving the node under its own parent with the new label appends the
-/// arc last, so the arc keeps its id and only its label changes.
-fn move_in_place(
-    graph: &GInstance,
-    embedding: &TreeEmbedding,
-    delta: &GraphDelta,
-    edge: EdgeId,
-    change: &AttrChange,
-) -> Option<TreeEdit> {
-    let AttrVal::Label(label) = &change.new else {
-        return None;
-    };
-    let (&child, _) = embedding.arcs.iter().find(|(_, id)| **id == edge)?;
-    let last = embedding
-        .arcs
-        .values()
-        .all(|id| *id <= edge || delta.del_edges().contains_key(id));
-    let parent = graph.edge(edge)?.src;
-    last.then(|| TreeEdit::MoveSubtree {
-        node_id: child,
-        new_parent: parent,
-        edge: label.clone(),
-    })
-}
-
 /// The steps the entry changes of a graph delta read as.
 struct AttrSteps {
-    /// A `MoveSubtree` in place for each label change of a tree arc, which
-    /// go before every other step (see [`move_in_place`]).
-    moves: Vec<TreeEdit>,
     /// A `RelabelNode` for each `Anchor` change, then a `SetField` or
     /// `RemoveField` for each `Field` change, of the nodes not in `joins`.
     steps: Vec<TreeEdit>,
@@ -1065,13 +1068,11 @@ struct AttrSteps {
 }
 
 /// The steps the entry changes of `delta` read as (see [`AttrSteps`]),
-/// with `graph` the graph form of the tree it applies to under
-/// `embedding`. A label change of a fan edge that follows its target's
+/// with `graph` the graph form of the tree it applies to. A label change of a fan edge that follows its target's
 /// anchor change is part of that change. Every other entry change, and a
 /// change of an entry of a fan node, is one no tree edit makes.
 fn attr_steps(
     graph: &GInstance,
-    embedding: &TreeEmbedding,
     delta: &GraphDelta,
     fans_before: &BTreeSet<u32>,
 ) -> Result<AttrSteps, EditError> {
@@ -1083,7 +1084,6 @@ fn attr_steps(
             _ => None,
         })
         .collect();
-    let mut moves = Vec::new();
     let mut relabels = Vec::new();
     let mut fields = Vec::new();
     for (key, change) in delta.attrs() {
@@ -1103,13 +1103,6 @@ fn attr_steps(
                 _,
             ) if joins.contains(node) => {}
             (AttrKey::EdgeLabel { edge }, _) if follows_anchor(graph, delta, *edge, change) => {}
-            (AttrKey::EdgeLabel { edge }, _) => {
-                let step =
-                    move_in_place(graph, embedding, delta, *edge, change).ok_or_else(|| {
-                        not_tree_edit(format!("a tree edit has no change of {key:?}"))
-                    })?;
-                moves.push(step);
-            }
             (AttrKey::Anchor { node }, AttrVal::Anchor(anchor)) => {
                 relabels.push(TreeEdit::RelabelNode {
                     id: *node,
@@ -1139,7 +1132,6 @@ fn attr_steps(
     }
     relabels.extend(fields);
     Ok(AttrSteps {
-        moves,
         steps: relabels,
         joins,
     })
@@ -1770,12 +1762,9 @@ impl TreeEdit {
     /// deletes is a `DeleteNode`, children first, and one it deletes and
     /// adds again under its id is deleted before it goes back in; the fans
     /// of a name it deletes every fan of go first by a `DeleteFan`, and any
-    /// other fan it deletes goes with a deleted node that names it. A label
-    /// change of a tree arc above which the delta deletes every arc is a
-    /// `MoveSubtree` of its node under its own parent, first (such a move
-    /// keeps the arc's id). `Anchor` changes are `RelabelNode` and `Field`
-    /// changes `SetField` or `RemoveField`, last; the label change of a fan
-    /// edge whose target's anchor the delta changes, to the same label with
+    /// other fan it deletes goes with a deleted node that names it. `Anchor`
+    /// changes are `RelabelNode` and `Field` changes `SetField` or
+    /// `RemoveField`, last; the label change of a fan edge whose target's anchor the delta changes, to the same label with
     /// that new anchor as its target, is part of that relabel. The
     /// `Anchor`, `Value`, `Meta` and `Field` changes of a node with a
     /// `Value` or `Meta` change are instead one `JoinFeatures` of that node
@@ -1792,10 +1781,11 @@ impl TreeEdit {
     ///
     /// Returns [`EditError::NotTreeEdit`] when the delta is outside the
     /// domain: when it changes an edge position, an entry of a fan node, or
-    /// an edge label other than those above (the label of a tree arc below
-    /// an arc it keeps, or a fan edge label that does not follow its
-    /// target's new anchor); when an added arc's id is not above every
-    /// existing arc id (tree edits append arcs); when a deleted node is not
+    /// an edge label other than those above (the label of a tree arc, which
+    /// a move changes by deleting the arc and adding one with a fresh id, or
+    /// a fan edge label that does not follow its target's new anchor);
+    /// when an added arc's id is not above every existing arc id (tree
+    /// edits append arcs); when a deleted node is not
     /// a leaf once the delta's own arc deletions are made; and when a node
     /// loses its parent arc without gaining one, gains a parent arc without
     /// losing its old one or gains two, or is added without one (a
@@ -1824,7 +1814,7 @@ impl TreeEdit {
             ));
         }
         let fans_before = fan_nodes(embedding);
-        let attrs = attr_steps(&graph, embedding, delta, &fans_before)?;
+        let attrs = attr_steps(&graph, delta, &fans_before)?;
         let fans_after = fans_after(&fans_before, delta);
         let nodes = TreeNodeChanges::of(delta, &fans_before);
         let arcs = added_arcs(embedding, delta, &fans_after, &nodes)?;
@@ -1845,9 +1835,6 @@ impl TreeEdit {
             replaced: nodes.deleted.intersection(&nodes.added).copied().collect(),
             placed: BTreeSet::new(),
         };
-        for step in attrs.moves {
-            rebuild.push(step)?;
-        }
         for name in &target.dead_names {
             rebuild.push(Self::DeleteFan {
                 hyper_edge_id: name.clone(),
@@ -2341,8 +2328,35 @@ mod graph_tests {
         WInstance::new(nodes, arcs, vec![fan], 0, "s".into())
     }
 
+    /// Whether `edit` has a `MoveSubtree` step, whose lowering gives its
+    /// arc a fresh id where [`TreeEmbedding::apply_edit`] may keep it.
+    fn moves(edit: &TreeEdit) -> bool {
+        edit.steps()
+            .iter()
+            .any(|step| matches!(step, TreeEdit::MoveSubtree { .. }))
+    }
+
+    /// Check that `lowered`, the embedding a lowering left, follows the
+    /// edit that took `followed` (the embedding
+    /// [`TreeEmbedding::apply_edit`] left) to the tree it embeds: the same
+    /// tree nodes with arcs and the same fan nodes, and the very same
+    /// embedding when the edit moves nothing.
+    fn assert_follows(lowered: &TreeEmbedding, followed: &TreeEmbedding, edit: &TreeEdit) {
+        assert_eq!(ids(&lowered.arcs), ids(&followed.arcs), "{edit:?}");
+        assert_eq!(lowered.next_node, followed.next_node, "{edit:?}");
+        assert_eq!(
+            lowered.fans.iter().map(|f| f.node).collect::<Vec<_>>(),
+            followed.fans.iter().map(|f| f.node).collect::<Vec<_>>(),
+            "{edit:?}"
+        );
+        if !moves(edit) {
+            assert_eq!(lowered, followed, "{edit:?}");
+        }
+    }
+
     /// The graph delta of `edit` on `tree`, the embedding it leaves, and the
-    /// graph it reaches, checked against the graph form of the edited tree.
+    /// graph it reaches, checked against the graph form of the edited tree
+    /// under that embedding.
     fn lower(
         tree: &WInstance,
         edit: &TreeEdit,
@@ -2352,10 +2366,10 @@ mod graph_tests {
         let mut edited = tree.clone();
         followed.apply_edit(&mut edited, edit)?;
         let delta = GraphDelta::from_tree_edit(&graph, &mut embedding, edit)?;
-        assert_eq!(embedding, followed);
+        assert_follows(&embedding, &followed, edit);
         let mut reached = graph;
         delta.apply(&mut reached)?;
-        let expected = GInstance::from_wtype_under(&edited, &followed, None)?;
+        let expected = GInstance::from_wtype_under(&edited, &embedding, None)?;
         assert!(GInstance::identical(&reached, &expected));
         Ok((delta, embedding, reached))
     }
@@ -2594,6 +2608,19 @@ mod graph_tests {
         assert_eq!(ids(d.del_edges()), vec![EdgeId(0)]);
         assert_eq!(d.add_edges()[&EdgeId(5)], GEdge::new(1, 4, edge("w", "w")));
         assert_eq!(d.add_edges().len(), 1);
+        // A move of the last arc's node under the parent it has deletes that
+        // arc too and adds the new one under a fresh id.
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::MoveSubtree {
+                node_id: 1,
+                new_parent: 0,
+                edge: edge("s", "w"),
+            },
+        )?;
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(1)]);
+        assert_eq!(ids(d.add_edges()), vec![EdgeId(5)]);
+        assert!(d.attrs().is_empty());
 
         // InsertFan and DeleteFan: the fan node with its edges.
         let (d, _, _) = lower(
@@ -2757,6 +2784,15 @@ mod graph_tests {
             AttrVal::Label(edge("s", "x")),
         )?;
         reject(&arc_label, "a tree edit has no change of");
+        // The label change of the last arc, which no arc is above: a move
+        // in place appends its arc with a fresh id, so no tree edit changes
+        // an arc's label.
+        let last_label = GraphDelta::identity().with_change(
+            AttrKey::EdgeLabel { edge: EdgeId(1) },
+            AttrVal::Label(edge("s", "w")),
+            AttrVal::Label(edge("s", "x")),
+        )?;
+        reject(&last_label, "a tree edit has no change of");
         let position = GraphDelta::identity().with_change(
             AttrKey::EdgePosition { edge: EdgeId(0) },
             AttrVal::Position(None),
@@ -3267,26 +3303,30 @@ mod graph_tests {
     }
 
     #[test]
-    fn a_move_in_place_of_the_last_arc_reads_back_exactly() -> TestResult {
-        // Arcs 0 -> 4 (edge 0) and 0 -> 1 (edge 1). Moving node 1 under its
-        // own parent keeps the last arc's id, so the move is a label change
-        // of edge 1.
+    fn a_move_in_place_of_the_last_arc_takes_a_fresh_id() -> TestResult {
+        // Arcs 0 -> 4 (edge 0) and 0 -> 1 (edge 1); the next edge id is 5.
+        // Moving node 1 under its own parent deletes edge 1 and adds the
+        // arc as edge 5, with a new label or with the same one.
         let tree = sentence();
-        let edit = TreeEdit::MoveSubtree {
-            node_id: 1,
-            new_parent: 0,
-            edge: edge("s", "x"),
-        };
-        let (delta, read) = reads_back_exactly(&tree, &edit)?;
-        assert_eq!(
-            delta.attrs().keys().cloned().collect::<Vec<_>>(),
-            vec![AttrKey::EdgeLabel { edge: EdgeId(1) }]
-        );
-        assert_eq!(edit_bytes(&read), edit_bytes(&edit));
-        // Once node 1 goes, edge 0 is the last arc, and a move of node 4 in
-        // place keeps it: the reading has the same effect on the tree
-        // (checked by `round_trip`). It moves node 4 before node 1 goes, so
-        // its own lowering gives the arc a fresh id.
+        for label in [edge("s", "x"), edge("s", "w")] {
+            let edit = TreeEdit::MoveSubtree {
+                node_id: 1,
+                new_parent: 0,
+                edge: label.clone(),
+            };
+            let (delta, embedding, _) = lower(&tree, &edit)?;
+            assert_eq!(ids(delta.del_edges()), vec![EdgeId(1)]);
+            assert_eq!(
+                delta.add_edges().iter().collect::<Vec<_>>(),
+                vec![(&EdgeId(5), &GEdge::new(0, 1, label))]
+            );
+            assert!(delta.attrs().is_empty(), "{delta:?}");
+            assert_eq!(embedding.arcs[&1], EdgeId(5));
+            let (_, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit));
+        }
+        // Once node 1 goes, edge 0 is the last arc, and the move of node 4
+        // in place still takes a fresh id, so the delta changes no label.
         let edit = TreeEdit::Sequence(vec![
             TreeEdit::DeleteNode { id: 1 },
             TreeEdit::MoveSubtree {
@@ -3296,15 +3336,9 @@ mod graph_tests {
             },
         ]);
         let trip = round_trip(&tree, &edit)?;
-        assert!(
-            trip.delta
-                .attrs()
-                .contains_key(&AttrKey::EdgeLabel { edge: EdgeId(0) }),
-            "{:?}",
-            trip.delta
-        );
+        assert!(trip.delta.attrs().is_empty(), "{:?}", trip.delta);
         assert_eq!(
-            trip.lowered
+            trip.delta
                 .add_edges()
                 .values()
                 .map(|e| e.tgt)
@@ -4145,9 +4179,8 @@ mod graph_tests {
     }
 
     /// An insertion deleted again after a new fan and a move of its parent
-    /// under the parent it has: the move takes a fresh arc only because the
-    /// inserted node's arc follows it, so the node spending that edge id
-    /// stays until the move is made.
+    /// under the parent it has: the node spending the edge id below the
+    /// moved arc's fresh one stays until the move is made.
     #[test]
     fn from_graph_delta_reads_a_move_in_place_after_a_cancelled_insertion() -> TestResult {
         let tree = WInstance::new(
@@ -4621,13 +4654,20 @@ mod graph_tests {
                 match followed.apply_edit(&mut edited, &edit) {
                     Ok(()) => {
                         let delta = delta.map_err(|e| TestCaseError::fail(format!("{edit:?}: {e}")))?;
-                        prop_assert_eq!(&lowered, &followed);
+                        assert_follows(&lowered, &followed, &edit);
                         let mut reached = graph.clone();
                         delta.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
-                        let expected = GInstance::from_wtype_under(&edited, &followed, None).map_err(fail)?;
+                        let expected = GInstance::from_wtype_under(&edited, &lowered, None).map_err(fail)?;
                         prop_assert!(GInstance::identical(&reached, &expected), "{:?}", edit);
+                        prop_assert!(
+                            !delta.attrs().keys().any(|key| match key {
+                                AttrKey::EdgeLabel { edge } => lowered.arcs.values().any(|id| id == edge),
+                                _ => false,
+                            }),
+                            "{:?} changes a tree arc's label: {:?}", edit, delta
+                        );
                         graph = reached;
-                        embedding = followed;
+                        embedding = lowered;
                         tree = edited;
                         script.push(edit);
                     }
