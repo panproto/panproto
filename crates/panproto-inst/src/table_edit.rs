@@ -12,8 +12,9 @@
 //!
 //! The surface follows the asymmetric edit lenses of Johnson and Rosebrugh
 //! 2016 (Section 5 onward, stated); its edits are invertible because each one
-//! carries the values it replaces (inferred), not because the edit monoid of
-//! Hofmann et al. 2012 has inverses, which it does not.
+//! carries the values it replaces (inferred), not because the edit modules of
+//! Hofmann et al. 2012 (Def 3.2, stated) provide inverses: the edits of a
+//! module form a monoid, which need not have them.
 
 use std::collections::{BTreeMap, BTreeSet};
 
