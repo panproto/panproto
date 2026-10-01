@@ -76,6 +76,7 @@ pub mod table_edit;
 pub mod tree_edit;
 /// Validation of W-type instances against schemas.
 pub mod validate;
+pub mod validation;
 /// Value types and field presence.
 pub mod value;
 pub mod view_ref;
@@ -94,7 +95,7 @@ pub use complement::Complement;
 pub use contraction::{ContractionRecord, ContractionTracker};
 pub use edit_error::EditError;
 pub use element_ops::ElementOps;
-pub use error::{InstError, ParseError, RestrictError, ValidationError};
+pub use error::{InstError, ParseError, RestrictError};
 pub use error_detail::{ErrorDetail, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
@@ -141,6 +142,13 @@ pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
 pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};
+pub use validation::{
+    CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, CheckSpec, DeltaElementKind,
+    Diagnostic, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, FanRecord,
+    IncompleteCheck, IncompleteReason, ReportScope, Requirement, SchemaRef, SchemaSourceMap,
+    SourceLocation, TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan,
+    ValidationReport, Violation, validate_graph, validate_table,
+};
 pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};
 pub use view_ref::{IdFloor, RowId, SynthIndex, SynthKey, ViewRef};
