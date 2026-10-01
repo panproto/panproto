@@ -2512,4 +2512,91 @@ mod tests {
             }
         }
     }
+
+    /// Failing-first checks of the relation-ified reading of tables.
+    mod relational {
+        use super::*;
+
+        fn blank_rows(ids: &[u32]) -> Vec<(RowId, Row)> {
+            ids.iter().map(|&i| (RowId(i), Row::new())).collect()
+        }
+
+        #[test]
+        fn pi_at_a_target_table_outside_the_image_has_one_row() {
+            let src = make_test_schema(&["a"], &[]);
+            let tgt = make_test_schema(&["a", "z"], &[]);
+            let migration = migration_of(&[("a", "a")], &[]);
+            let inst = FInstance::new().with_rows("a", blank_rows(&[0, 1])).unwrap();
+            let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
+            assert_eq!(pi.row_count("a"), 2);
+            assert_eq!(pi.row_count("z"), 1, "the limit of the empty diagram is one row");
+        }
+
+        #[test]
+        fn pi_at_a_target_only_relation_holds_every_pair() {
+            let e = fk("a", "z", "e");
+            let src = make_test_schema(&["a"], &[]);
+            let tgt = make_test_schema(&["a", "z"], &[e.clone()]);
+            let migration = migration_of(&[("a", "a")], &[]);
+            let inst = FInstance::new().with_rows("a", blank_rows(&[0, 1])).unwrap();
+            let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
+            assert_eq!(pi.pairs(&e).len(), 2, "every pair of a row of a and the row of z");
+        }
+
+        #[test]
+        fn unmentioned_edges_are_outside_the_domain() {
+            let e = fk("a", "b", "e");
+            let src = make_test_schema(&["a", "b"], &[e.clone()]);
+            let tgt = make_test_schema(&["m"], &[]);
+            let migration = migration_of(&[("a", "m"), ("b", "m")], &[]);
+            let inst = FInstance::new()
+                .with_rows("a", blank_rows(&[0, 1]))
+                .and_then(|f| f.with_rows("b", blank_rows(&[2, 3])))
+                .and_then(|f| f.with_foreign_key(e, [(RowId(0), RowId(3))]))
+                .unwrap();
+            let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
+            assert_eq!(pi.row_count("m"), 4, "an unmentioned edge equalises nothing");
+        }
+
+        #[test]
+        fn a_limit_row_carries_the_cells_its_components_share() {
+            let src = make_test_schema(&["a", "b"], &[]);
+            let tgt = make_test_schema(&["m"], &[]);
+            let migration = migration_of(&[("a", "m"), ("b", "m")], &[]);
+            let x = |v: i64| HashMap::from([("x".to_owned(), Value::Int(v))]);
+            let inst = FInstance::new()
+                .with_rows("a", [(RowId(0), x(1)), (RowId(1), x(2))])
+                .and_then(|f| f.with_rows("b", [(RowId(2), x(1)), (RowId(3), HashMap::new())]))
+                .unwrap();
+            let (pi, projections) = functor_pi_with_hom(&inst, &src, &tgt, &migration, 100).unwrap();
+            assert_eq!(pi.row_count("m"), 1, "only (0, 2) agree on every cell");
+            for (id, row) in pi.rows("m") {
+                for hom in projections.values() {
+                    let component = hom.image(id).unwrap();
+                    assert!(crate::functor::same_row(row, inst.row(component).unwrap()));
+                }
+            }
+        }
+
+        #[test]
+        fn results_do_not_depend_on_target_names() {
+            let src = make_test_schema(&["a", "b", "c", "d"], &[]);
+            let run = |left: &str, right: &str| {
+                let tgt = make_test_schema(&[left, right], &[]);
+                let migration =
+                    migration_of(&[("a", left), ("b", left), ("c", right), ("d", right)], &[]);
+                let inst = FInstance::new()
+                    .with_rows("a", blank_rows(&[0]))
+                    .and_then(|f| f.with_rows("b", blank_rows(&[1])))
+                    .and_then(|f| f.with_rows("c", blank_rows(&[2])))
+                    .and_then(|f| f.with_rows("d", blank_rows(&[3])))
+                    .unwrap();
+                functor_pi(&inst, &src, &tgt, &migration, 100).unwrap()
+            };
+            let before = run("m", "n");
+            let after = run("q", "p");
+            assert_eq!(before.rows("m").first().map(|r| r.0), after.rows("q").first().map(|r| r.0));
+            assert_eq!(before.rows("n").first().map(|r| r.0), after.rows("p").first().map(|r| r.0));
+        }
+    }
 }
