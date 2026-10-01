@@ -398,8 +398,10 @@ fn expect_recorded(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::error::Error;
+    use std::fmt::Debug;
+
     use panproto_schema::Edge;
     use proptest::prelude::*;
 
@@ -410,14 +412,24 @@ mod tests {
     use crate::table_delta::tests::{arb_instance, cells, fk, sample, sub_delta};
     use crate::value::{FieldPresence, Value};
 
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    /// A proptest failure carrying `err`.
+    fn fail(err: impl Debug) -> TestCaseError {
+        TestCaseError::fail(format!("{err:?}"))
+    }
+
     /// The graph form of `instance` under `embedding`, which it extends.
-    fn graph_of(instance: &FInstance, embedding: &TableEmbedding) -> GInstance {
-        GInstance::from_finstance_along(instance, &mut embedding.clone()).unwrap()
+    fn graph_of(
+        instance: &FInstance,
+        embedding: &TableEmbedding,
+    ) -> Result<GInstance, crate::error::InstError> {
+        GInstance::from_finstance_along(instance, &mut embedding.clone())
     }
 
     #[test]
-    fn an_unembedded_pair_takes_the_next_edge_id() {
-        let (_, mut embedding) = GInstance::from_finstance(&sample()).unwrap();
+    fn an_unembedded_pair_takes_the_next_edge_id() -> TestResult {
+        let (_, mut embedding) = GInstance::from_finstance(&sample()?)?;
         assert_eq!(embedding.next_edge, 1);
         embedding.next_edge = 7;
         let before = embedding.clone();
@@ -425,7 +437,7 @@ mod tests {
             .with_added_pair(fk(), RowId(2), RowId(1))
             .with_added_row(RowId(3), "post", cells(&[]))
             .with_added_pair(fk(), RowId(3), RowId(0));
-        let graph = delta.to_graph_delta(&mut embedding).unwrap();
+        let graph = delta.to_graph_delta(&mut embedding)?;
         // Ascending pair order: (fk, 2, 1) then (fk, 3, 0).
         assert_eq!(embedding.pairs[&(fk(), RowId(2), RowId(1))], EdgeId(7));
         assert_eq!(embedding.pairs[&(fk(), RowId(3), RowId(0))], EdgeId(8));
@@ -439,7 +451,7 @@ mod tests {
         // deletes edge 0.
         let mut embedding = before.clone();
         let removal = TableDelta::identity().with_deleted_pair(fk(), RowId(2), RowId(0));
-        let graph = removal.to_graph_delta(&mut embedding).unwrap();
+        let graph = removal.to_graph_delta(&mut embedding)?;
         assert_eq!(
             graph.del_edges().keys().copied().collect::<Vec<_>>(),
             vec![EdgeId(0)]
@@ -459,18 +471,19 @@ mod tests {
             })
         );
         assert_eq!(embedding, before);
+        Ok(())
     }
 
     #[test]
-    fn a_reconnect_converts_to_a_pair_replacement_under_the_same_edge() {
-        let (graph, before) = GInstance::from_finstance(&sample()).unwrap();
+    fn a_reconnect_converts_to_a_pair_replacement_under_the_same_edge() -> TestResult {
+        let (graph, before) = GInstance::from_finstance(&sample()?)?;
         // Edge 0 is post 2's pair to user 0; reconnect it to user 1.
         let reconnect = GraphEdit::reconnect(&graph, EdgeId(0), 2, 1)
-            .unwrap()
+            ?
             .to_delta()
-            .unwrap();
+            ?;
         let mut embedding = before.clone();
-        let table = TableDelta::from_graph_delta(&reconnect, &mut embedding).unwrap();
+        let table = TableDelta::from_graph_delta(&reconnect, &mut embedding)?;
         assert_eq!(
             table,
             TableDelta::identity()
@@ -482,15 +495,15 @@ mod tests {
         assert_eq!(embedding.next_edge, before.next_edge);
         // And back, under the same edge.
         assert_eq!(
-            table.to_graph_delta_between(&before, &embedding).unwrap(),
+            table.to_graph_delta_between(&before, &embedding)?,
             reconnect
         );
         // Both sides reach the same state.
-        let mut tables = sample();
-        table.apply(&mut tables).unwrap();
+        let mut tables = sample()?;
+        table.apply(&mut tables)?;
         let mut moved = graph.clone();
-        reconnect.apply(&mut moved).unwrap();
-        assert!(GInstance::identical(&moved, &graph_of(&tables, &embedding)));
+        reconnect.apply(&mut moved)?;
+        assert!(GInstance::identical(&moved, &graph_of(&tables, &embedding)?));
 
         // A label change of edge 0 to another foreign key between the same
         // tables.
@@ -501,11 +514,11 @@ mod tests {
             name: Some("editor".into()),
         };
         let relabel = GraphEdit::relabel_edge(&graph, EdgeId(0), other.clone())
-            .unwrap()
+            ?
             .to_delta()
-            .unwrap();
+            ?;
         let mut embedding = before.clone();
-        let table = TableDelta::from_graph_delta(&relabel, &mut embedding).unwrap();
+        let table = TableDelta::from_graph_delta(&relabel, &mut embedding)?;
         assert_eq!(
             table,
             TableDelta::identity()
@@ -514,18 +527,19 @@ mod tests {
         );
         assert_eq!(embedding.pairs[&(other, RowId(2), RowId(0))], EdgeId(0));
         assert_eq!(
-            table.to_graph_delta_between(&before, &embedding).unwrap(),
+            table.to_graph_delta_between(&before, &embedding)?,
             relabel
         );
+        Ok(())
     }
 
     #[test]
-    fn a_value_attr_is_not_a_table_edit() {
-        let (graph, before) = GInstance::from_finstance(&sample()).unwrap();
+    fn a_value_attr_is_not_a_table_edit() -> TestResult {
+        let (graph, before) = GInstance::from_finstance(&sample()?)?;
         let value = GraphEdit::set_value(&graph, 1, Some(FieldPresence::Null))
-            .unwrap()
+            ?
             .to_delta()
-            .unwrap();
+            ?;
         let meta = GraphEdit::set_node_meta(
             &graph,
             1,
@@ -534,27 +548,28 @@ mod tests {
                 ..NodeMeta::default()
             },
         )
-        .unwrap()
+        ?
         .to_delta()
-        .unwrap();
+        ?;
         let position = GraphEdit::set_edge_position(&graph, EdgeId(0), Some(1))
-            .unwrap()
+            ?
             .to_delta()
-            .unwrap();
+            ?;
         let mut valued = Node::new(9, "user");
         valued.value = Some(FieldPresence::Present(Value::Int(1)));
         let node = GraphDelta::identity().with_added_node(valued);
         for delta in [value, meta, position, node] {
             let mut embedding = before.clone();
-            let err = TableDelta::from_graph_delta(&delta, &mut embedding).unwrap_err();
+            let err = TableDelta::from_graph_delta(&delta, &mut embedding).err().ok_or("expected an error")?;
             assert!(matches!(err, EditError::NotTableEdit { .. }), "{err:?}");
             assert_eq!(embedding, before);
         }
+        Ok(())
     }
 
     #[test]
-    fn a_fan_is_not_a_table_edit() {
-        let (_, before) = GInstance::from_finstance(&sample()).unwrap();
+    fn a_fan_is_not_a_table_edit() -> TestResult {
+        let (_, before) = GInstance::from_finstance(&sample()?)?;
         let fan = GraphDelta::identity()
             .with_added_node(Node::new(5, "rel").with_shape(NodeShape::HyperEdge));
         let mut embedding = before.clone();
@@ -578,11 +593,12 @@ mod tests {
             })
         );
         assert_eq!(embedding, before);
+        Ok(())
     }
 
     #[test]
-    fn a_graph_delta_outside_the_table_embedding_is_not_a_table_edit() {
-        let (_, before) = GInstance::from_finstance(&sample()).unwrap();
+    fn a_graph_delta_outside_the_table_embedding_is_not_a_table_edit() -> TestResult {
+        let (_, before) = GInstance::from_finstance(&sample()?)?;
         // Edge 3 is not an edge of the embedded state.
         let stray = GraphDelta::identity().with_deleted_edge(EdgeId(3), GEdge::new(2, 0, fk()));
         // Edge 0 is recorded, for another pair than the one deleted.
@@ -595,7 +611,7 @@ mod tests {
             .with_added_edge(EdgeId(6), GEdge::new(2, 1, fk()));
         for delta in [stray, misnamed, reused, parallel] {
             let mut embedding = before.clone();
-            let err = TableDelta::from_graph_delta(&delta, &mut embedding).unwrap_err();
+            let err = TableDelta::from_graph_delta(&delta, &mut embedding).err().ok_or("expected an error")?;
             assert!(
                 matches!(err, EditError::NotTableEdit { .. }),
                 "{delta:?}: {err:?}"
@@ -613,6 +629,7 @@ mod tests {
                 tgt: RowId(0)
             })
         );
+        Ok(())
     }
 
     /// A reconnect of one edge of `graph` to another row of its target
@@ -646,33 +663,33 @@ mod tests {
             pick in any::<usize>(),
         ) {
             // A delta with replacements: the net of s -> u -> t.
-            let delta = TableDelta::diff(&s, &u).compose(&TableDelta::diff(&u, &t)).unwrap();
-            let (graph, before) = GInstance::from_finstance(&s).unwrap();
+            let delta = TableDelta::diff(&s, &u).compose(&TableDelta::diff(&u, &t)).map_err(fail)?;
+            let (graph, before) = GInstance::from_finstance(&s).map_err(fail)?;
             let mut after = before.clone();
-            let lowered = delta.to_graph_delta(&mut after).unwrap();
+            let lowered = delta.to_graph_delta(&mut after).map_err(fail)?;
             prop_assert!(after.check().is_ok());
             prop_assert!(after.next_edge >= before.next_edge);
             let mut reached = graph.clone();
             lowered.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
             let mut end = s.clone();
-            delta.apply(&mut end).unwrap();
-            prop_assert!(GInstance::identical(&reached, &graph_of(&end, &after)));
-            prop_assert_eq!(&delta.to_graph_delta_between(&before, &after).unwrap(), &lowered);
+            delta.apply(&mut end).map_err(fail)?;
+            prop_assert!(GInstance::identical(&reached, &graph_of(&end, &after).map_err(fail)?));
+            prop_assert_eq!(&delta.to_graph_delta_between(&before, &after).map_err(fail)?, &lowered);
             // And back.
             let mut again = before.clone();
-            prop_assert_eq!(&TableDelta::from_graph_delta(&lowered, &mut again).unwrap(), &delta);
+            prop_assert_eq!(&TableDelta::from_graph_delta(&lowered, &mut again).map_err(fail)?, &delta);
             prop_assert_eq!(&again, &after);
 
             // A graph reconnect goes to the table and back under its edge.
             if let Some(reconnect) = some_reconnect(&graph, &s, pick) {
                 let mut moved = before.clone();
-                let table = TableDelta::from_graph_delta(&reconnect, &mut moved).unwrap();
-                prop_assert_eq!(&table.to_graph_delta_between(&before, &moved).unwrap(), &reconnect);
+                let table = TableDelta::from_graph_delta(&reconnect, &mut moved).map_err(fail)?;
+                prop_assert_eq!(&table.to_graph_delta_between(&before, &moved).map_err(fail)?, &reconnect);
                 let mut tables = s.clone();
                 table.apply(&mut tables).map_err(|e| TestCaseError::fail(format!("{e}")))?;
                 let mut reached = graph.clone();
-                reconnect.apply(&mut reached).unwrap();
-                prop_assert!(GInstance::identical(&reached, &graph_of(&tables, &moved)));
+                reconnect.apply(&mut reached).map_err(fail)?;
+                prop_assert!(GInstance::identical(&reached, &graph_of(&tables, &moved).map_err(fail)?));
             }
         }
 
@@ -687,63 +704,65 @@ mod tests {
             let a = sub_delta(TableDelta::diff(&s, &t), &keep_a);
             let b = sub_delta(TableDelta::diff(&s, &u), &keep_b);
             prop_assume!(a.check(&s).is_ok() && b.check(&s).is_ok());
-            let (_, before) = GInstance::from_finstance(&s).unwrap();
+            let (_, before) = GInstance::from_finstance(&s).map_err(fail)?;
             // One embedding after both, recording every pair either adds.
             let mut after = before.clone();
             for pair in a.add_pairs().union(b.add_pairs()) {
                 if !after.pairs.contains_key(pair) {
-                    let id = after.allocate_edge().unwrap();
+                    let id = after.allocate_edge().map_err(fail)?;
                     after.pairs.insert(pair.clone(), id);
                 }
             }
-            let ga = a.to_graph_delta_between(&before, &after).unwrap();
-            let gb = b.to_graph_delta_between(&before, &after).unwrap();
+            let ga = a.to_graph_delta_between(&before, &after).map_err(fail)?;
+            let gb = b.to_graph_delta_between(&before, &after).map_err(fail)?;
             let pair_edge = |edge: &Edge, src: RowId, tgt: RowId| {
                 after.pairs.get(&(edge.clone(), src, tgt)).copied()
             };
-            let map = |conflict: &EditConflict| -> EditConflict {
-                let elem = |e: &ElemRef| e.to_graph(pair_edge).unwrap();
-                let key = |k: &AttrKey| match elem(&ElemRef::Attr(k.clone())) {
-                    ElemRef::Attr(key) => key,
-                    other => panic!("an entry maps to an entry, not {other:?}"),
+            let map = |conflict: &EditConflict| -> Result<EditConflict, TestCaseError> {
+                let elem = |e: &ElemRef| {
+                    e.to_graph(pair_edge).ok_or_else(|| fail(format!("{e:?} has no graph element")))
                 };
-                match conflict {
-                    EditConflict::DeleteDelete { elem: e } => EditConflict::DeleteDelete { elem: elem(e) },
-                    EditConflict::AddAdd { elem: e } => EditConflict::AddAdd { elem: elem(e) },
-                    EditConflict::UpdateUpdate { key: k } => EditConflict::UpdateUpdate { key: key(k) },
+                let key = |k: &AttrKey| match elem(&ElemRef::Attr(k.clone()))? {
+                    ElemRef::Attr(key) => Ok(key),
+                    other => Err(fail(format!("an entry maps to an entry, not {other:?}"))),
+                };
+                Ok(match conflict {
+                    EditConflict::DeleteDelete { elem: e } => EditConflict::DeleteDelete { elem: elem(e)? },
+                    EditConflict::AddAdd { elem: e } => EditConflict::AddAdd { elem: elem(e)? },
+                    EditConflict::UpdateUpdate { key: k } => EditConflict::UpdateUpdate { key: key(k)? },
                     EditConflict::DeleteUse { deleted, user } => EditConflict::DeleteUse {
-                        deleted: elem(deleted),
-                        user: elem(user),
+                        deleted: elem(deleted)?,
+                        user: elem(user)?,
                     },
                     EditConflict::AnchorUse { node, user } => EditConflict::AnchorUse {
                         node: *node,
-                        user: elem(user),
+                        user: elem(user)?,
                     },
                     EditConflict::FanUse { first, second } => EditConflict::FanUse {
-                        first: elem(first),
-                        second: elem(second),
+                        first: elem(first)?,
+                        second: elem(second)?,
                     },
-                }
+                })
             };
             let table_conflicts = a.independence(&b);
-            let mut mapped: Vec<EditConflict> = table_conflicts.iter().map(map).collect();
+            let mut mapped = table_conflicts.iter().map(map).collect::<Result<Vec<_>, _>>()?;
             mapped.sort();
             prop_assert_eq!(&mapped, &ga.independence(&gb));
             for conflict in &table_conflicts {
                 prop_assert_eq!(
                     conflict.is_benign_table(&a, &b),
-                    map(conflict).is_benign(&ga, &gb)
+                    map(conflict)?.is_benign(&ga, &gb)
                 );
             }
             match (a.compose(&b), ga.compose(&gb)) {
                 (Ok(table), Ok(graph)) => {
-                    prop_assert_eq!(&table.to_graph_delta_between(&before, &after).unwrap(), &graph);
+                    prop_assert_eq!(&table.to_graph_delta_between(&before, &after).map_err(fail)?, &graph);
                 }
                 (Err(table), Err(graph)) => {
                     let crate::graph_edit::ComposeError::Mismatch { elem } = table;
                     let crate::graph_edit::ComposeError::Mismatch { elem: expected } = graph;
                     if !matches!(elem, ElemRef::Pair { .. }) {
-                        prop_assert_eq!(elem.to_graph(pair_edge).unwrap(), expected);
+                        prop_assert_eq!(elem.to_graph(pair_edge), Some(expected));
                     }
                 }
                 (table, graph) => prop_assert!(false, "{:?} / {:?}", table, graph),

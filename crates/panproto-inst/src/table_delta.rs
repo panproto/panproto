@@ -1395,12 +1395,22 @@ impl TableDelta {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 pub(crate) mod tests {
+    use std::error::Error;
+    use std::fmt::Debug;
+
     use proptest::prelude::*;
 
     use super::*;
+    use crate::error::InstError;
     use crate::table_edit::TableEdit;
+
+    pub type TestResult = Result<(), Box<dyn Error>>;
+
+    /// A proptest failure carrying `err`.
+    pub fn fail(err: impl Debug) -> TestCaseError {
+        TestCaseError::fail(format!("{err:?}"))
+    }
 
     const TABLES: [&str; 3] = ["user", "post", "tag"];
     const ROWS: u32 = 6;
@@ -1440,7 +1450,7 @@ pub(crate) mod tests {
     }
 
     /// Users 0 (alice) and 1 (bob), post 2 by alice.
-    pub fn sample() -> FInstance {
+    pub fn sample() -> Result<FInstance, InstError> {
         FInstance::new()
             .with_rows(
                 "user",
@@ -1448,15 +1458,12 @@ pub(crate) mod tests {
                     (RowId(0), cells(&[("name", Value::Str("alice".into()))])),
                     (RowId(1), cells(&[("name", Value::Str("bob".into()))])),
                 ],
-            )
-            .unwrap()
+            )?
             .with_rows(
                 "post",
                 [(RowId(2), cells(&[("title", Value::Str("hi".into()))]))],
-            )
-            .unwrap()
+            )?
             .with_foreign_key(fk(), [(RowId(2), RowId(0))])
-            .unwrap()
     }
 
     /// Cell values, including the floats whose `==` is not an identity.
@@ -1486,13 +1493,13 @@ pub(crate) mod tests {
             ),
             prop::collection::vec(any::<bool>(), 3 * slots),
         )
-            .prop_map(move |(rows, mask)| {
+            .prop_filter_map("every generated row and pair joins", move |(rows, mask)| {
                 let mut instance = FInstance::new();
                 for (id, row) in rows.into_iter().enumerate() {
                     if let Some((table, row)) = row {
                         instance
-                            .insert_row(TABLES[table], RowId(u32::try_from(id).unwrap()), row)
-                            .unwrap();
+                            .insert_row(TABLES[table], RowId(u32::try_from(id).ok()?), row)
+                            .ok()?;
                     }
                 }
                 for (k, edge) in edges().into_iter().enumerate() {
@@ -1504,12 +1511,12 @@ pub(crate) mod tests {
                             if mask[at] && joins {
                                 instance
                                     .insert_foreign_key(edge.clone(), RowId(s), RowId(t))
-                                    .unwrap();
+                                    .ok()?;
                             }
                         }
                     }
                 }
-                instance
+                Some(instance)
             })
     }
 
@@ -1588,7 +1595,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn table_delta_fields_serialize_in_contract_order() {
+    fn table_delta_fields_serialize_in_contract_order() -> TestResult {
         let delta = TableDelta::identity()
             .with_deleted_row(
                 RowId(1),
@@ -1600,7 +1607,7 @@ pub(crate) mod tests {
             .with_added_pair(fk(), RowId(5), RowId(0))
             .with_cell_change(RowId(0), "name", None, Some(Value::Int(3)))
             .with_table_change(RowId(3), "tag", "post");
-        let json = serde_json::to_string(&delta).unwrap();
+        let json = serde_json::to_string(&delta)?;
         let fk_json = r#"{"src":"post","tgt":"user","kind":"fk","name":null}"#;
         assert_eq!(
             json,
@@ -1616,27 +1623,28 @@ pub(crate) mod tests {
                 fk = fk_json
             )
         );
-        let back: TableDelta = serde_json::from_str(&json).unwrap();
+        let back: TableDelta = serde_json::from_str(&json)?;
         assert_eq!(back, delta);
-        let packed = rmp_serde::to_vec_named(&delta).unwrap();
-        assert_eq!(rmp_serde::from_slice::<TableDelta>(&packed).unwrap(), delta);
+        let packed = rmp_serde::to_vec_named(&delta)?;
+        assert_eq!(rmp_serde::from_slice::<TableDelta>(&packed)?, delta);
         let mut cbor = Vec::new();
-        ciborium::into_writer(&delta, &mut cbor).unwrap();
+        ciborium::into_writer(&delta, &mut cbor)?;
         assert_eq!(
-            ciborium::from_reader::<TableDelta, _>(cbor.as_slice()).unwrap(),
+            ciborium::from_reader::<TableDelta, _>(cbor.as_slice())?,
             delta
         );
 
         // A cell change spells out both values; decoding normalizes.
         let missing_old = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"new":null}]],"tables":{}}"#;
-        let err = serde_json::from_str::<TableDelta>(missing_old).unwrap_err();
+        let err = serde_json::from_str::<TableDelta>(missing_old).err().ok_or("expected an error")?;
         assert!(err.to_string().contains("missing field `old`"), "{err}");
         let no_op = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"old":{"Int":1},"new":{"Int":1}}]],"tables":{"4":{"old":"a","new":"a"}}}"#;
         assert!(
             serde_json::from_str::<TableDelta>(no_op)
-                .unwrap()
+                ?
                 .is_identity()
         );
+        Ok(())
     }
 
     proptest! {
@@ -1660,8 +1668,8 @@ pub(crate) mod tests {
             }
             prop_assert!(is_normal(&TableDelta::diff(&s, &t)));
             // Decoding goes through the normal form too.
-            let json = serde_json::to_string(&a.to_parts()).unwrap();
-            prop_assert_eq!(&serde_json::from_str::<TableDelta>(&json).unwrap(), &a);
+            let json = serde_json::to_string(&a.to_parts()).map_err(fail)?;
+            prop_assert_eq!(&serde_json::from_str::<TableDelta>(&json).map_err(fail)?, &a);
             // A pair in both parts is a replacement and is kept.
             for pair in a.del_pairs().intersection(a.add_pairs()) {
                 prop_assert!(a.touched_pairs().contains(pair));
@@ -1679,14 +1687,14 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn table_apply_reports_row_not_found() {
+    fn table_apply_reports_row_not_found() -> TestResult {
         let delete = TableDelta::identity().with_deleted_row(RowId(9), "user", Row::new());
-        refused(&sample(), &delete, &EditError::RowNotFound(RowId(9)));
+        refused(&sample()?, &delete, &EditError::RowNotFound(RowId(9)));
         let cell =
             TableDelta::identity().with_cell_change(RowId(9), "name", None, Some(Value::Int(1)));
-        refused(&sample(), &cell, &EditError::RowNotFound(RowId(9)));
+        refused(&sample()?, &cell, &EditError::RowNotFound(RowId(9)));
         let table = TableDelta::identity().with_table_change(RowId(9), "user", "post");
-        refused(&sample(), &table, &EditError::RowNotFound(RowId(9)));
+        refused(&sample()?, &table, &EditError::RowNotFound(RowId(9)));
         let edit = TableEdit::UpdateCell {
             table: "user".into(),
             id: RowId(9),
@@ -1695,28 +1703,30 @@ pub(crate) mod tests {
             new: Some(Value::Int(1)),
         };
         assert_eq!(
-            edit.apply(&mut sample()),
+            edit.apply(&mut sample()?),
             Err(EditError::RowNotFound(RowId(9)))
         );
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_duplicate_row() {
+    fn table_apply_reports_duplicate_row() -> TestResult {
         let add = TableDelta::identity().with_added_row(RowId(1), "user", Row::new());
-        refused(&sample(), &add, &EditError::DuplicateRow(RowId(1)));
+        refused(&sample()?, &add, &EditError::DuplicateRow(RowId(1)));
         // Replacing the row frees its id.
         let replace = add.with_deleted_row(
             RowId(1),
             "user",
             cells(&[("name", Value::Str("bob".into()))]),
         );
-        let mut state = sample();
-        replace.apply(&mut state).unwrap();
+        let mut state = sample()?;
+        replace.apply(&mut state)?;
         assert_eq!(state.row(RowId(1)), Some(&Row::new()));
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_stale_cell() {
+    fn table_apply_reports_stale_cell() -> TestResult {
         let delete = TableDelta::identity().with_deleted_row(
             RowId(1),
             "user",
@@ -1726,26 +1736,28 @@ pub(crate) mod tests {
             row: RowId(1),
             column: "age".into(),
         };
-        refused(&sample(), &delete, &stale);
+        refused(&sample()?, &delete, &stale);
         let change =
             TableDelta::identity().with_cell_change(RowId(1), "age", Some(Value::Int(3)), None);
-        refused(&sample(), &change, &stale);
+        refused(&sample()?, &change, &stale);
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_stale_table() {
+    fn table_apply_reports_stale_table() -> TestResult {
         let delete = TableDelta::identity().with_deleted_row(
             RowId(1),
             "post",
             cells(&[("name", Value::Str("bob".into()))]),
         );
-        refused(&sample(), &delete, &EditError::StaleTable { row: RowId(1) });
+        refused(&sample()?, &delete, &EditError::StaleTable { row: RowId(1) });
         let change = TableDelta::identity().with_table_change(RowId(1), "post", "tag");
-        refused(&sample(), &change, &EditError::StaleTable { row: RowId(1) });
+        refused(&sample()?, &change, &EditError::StaleTable { row: RowId(1) });
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_stale_incidence() {
+    fn table_apply_reports_stale_incidence() -> TestResult {
         // The edit lists no pair at user 0, which has one.
         let missing = TableEdit::DeleteRow {
             table: "user".into(),
@@ -1753,15 +1765,15 @@ pub(crate) mod tests {
             row: cells(&[("name", Value::Str("alice".into()))]),
             incident_fks: Vec::new(),
         };
-        let mut state = sample();
+        let mut state = sample()?;
         assert_eq!(
             missing.apply(&mut state),
             Err(EditError::StaleIncidence { row: RowId(0) })
         );
         // It lists a pair at another row, which it would otherwise delete
         // along with the row.
-        let mut linked = sample();
-        linked.insert_foreign_key(fk(), RowId(2), RowId(1)).unwrap();
+        let mut linked = sample()?;
+        linked.insert_foreign_key(fk(), RowId(2), RowId(1))?;
         let foreign = TableEdit::DeleteRow {
             table: "user".into(),
             id: RowId(1),
@@ -1789,7 +1801,7 @@ pub(crate) mod tests {
                 incident_fks: Vec::new(),
             },
         ]);
-        let mut state = sample();
+        let mut state = sample()?;
         assert_eq!(
             batch.apply(&mut state),
             Err(EditError::BatchStep {
@@ -1797,14 +1809,15 @@ pub(crate) mod tests {
                 source: Box::new(EditError::StaleIncidence { row: RowId(1) })
             })
         );
-        assert_eq!(bytes(&state), bytes(&sample()));
+        assert_eq!(bytes(&state), bytes(&sample()?));
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_foreign_key_not_found() {
+    fn table_apply_reports_foreign_key_not_found() -> TestResult {
         let delete = TableDelta::identity().with_deleted_pair(fk(), RowId(2), RowId(1));
         refused(
-            &sample(),
+            &sample()?,
             &delete,
             &EditError::ForeignKeyNotFound {
                 edge: fk(),
@@ -1812,13 +1825,14 @@ pub(crate) mod tests {
                 tgt: RowId(1),
             },
         );
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_duplicate_foreign_key() {
+    fn table_apply_reports_duplicate_foreign_key() -> TestResult {
         let add = TableDelta::identity().with_added_pair(fk(), RowId(2), RowId(0));
         refused(
-            &sample(),
+            &sample()?,
             &add,
             &EditError::DuplicateForeignKey {
                 edge: fk(),
@@ -1827,19 +1841,20 @@ pub(crate) mod tests {
             },
         );
         // A pair in both parts is a replacement and applies.
-        let mut state = sample();
+        let mut state = sample()?;
         add.with_deleted_pair(fk(), RowId(2), RowId(0))
             .apply(&mut state)
-            .unwrap();
-        assert_eq!(bytes(&state), bytes(&sample()));
+            ?;
+        assert_eq!(bytes(&state), bytes(&sample()?));
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_missing_row_endpoint() {
+    fn table_apply_reports_missing_row_endpoint() -> TestResult {
         // Row 7 does not exist.
         let dangling = TableDelta::identity().with_added_pair(fk(), RowId(2), RowId(7));
         refused(
-            &sample(),
+            &sample()?,
             &dangling,
             &EditError::MissingRowEndpoint {
                 edge: fk(),
@@ -1849,7 +1864,7 @@ pub(crate) mod tests {
         // Row 1 is a user, not a post.
         let wrong = TableDelta::identity().with_added_pair(fk(), RowId(1), RowId(0));
         refused(
-            &sample(),
+            &sample()?,
             &wrong,
             &EditError::MissingRowEndpoint {
                 edge: fk(),
@@ -1859,7 +1874,7 @@ pub(crate) mod tests {
         // Moving user 0 would leave post 2's pair pointing outside `user`.
         let moved = TableDelta::identity().with_table_change(RowId(0), "user", "tag");
         refused(
-            &sample(),
+            &sample()?,
             &moved,
             &EditError::MissingRowEndpoint {
                 edge: fk(),
@@ -1867,37 +1882,39 @@ pub(crate) mod tests {
             },
         );
         // A pair to a row the same delta adds joins.
-        let mut state = sample();
+        let mut state = sample()?;
         TableDelta::identity()
             .with_added_row(RowId(4), "post", Row::new())
             .with_added_pair(fk(), RowId(4), RowId(1))
             .apply(&mut state)
-            .unwrap();
+            ?;
         assert!(state.contains_pair(&fk(), RowId(4), RowId(1)));
+        Ok(())
     }
 
     #[test]
-    fn table_apply_reports_dangling_foreign_keys() {
+    fn table_apply_reports_dangling_foreign_keys() -> TestResult {
         let delete = TableDelta::identity().with_deleted_row(
             RowId(0),
             "user",
             cells(&[("name", Value::Str("alice".into()))]),
         );
         refused(
-            &sample(),
+            &sample()?,
             &delete,
             &EditError::DanglingForeignKeys {
                 row: RowId(0),
                 pairs: vec![(fk(), RowId(2), RowId(0))],
             },
         );
-        let mut state = sample();
+        let mut state = sample()?;
         delete
             .with_deleted_pair(fk(), RowId(2), RowId(0))
             .apply(&mut state)
-            .unwrap();
+            ?;
         assert_eq!(state.pair_count(), 0);
         assert_eq!(state.table_of(RowId(0)), None);
+        Ok(())
     }
 
     /// Apply a delta to a copy.
@@ -1925,7 +1942,7 @@ pub(crate) mod tests {
         #[test]
         fn table_differ_laws(s in arb_instance(), t in arb_instance()) {
             let d = TableDelta::diff(&s, &t);
-            prop_assert_eq!(bytes(&applied(&d, &s).unwrap()), bytes(&t));
+            prop_assert_eq!(bytes(&applied(&d, &s).map_err(fail)?), bytes(&t));
             prop_assert!(TableDelta::diff(&s, &s).is_identity());
             prop_assert!(d.del_rows().keys().all(|r| !d.add_rows().contains_key(r)));
             prop_assert!(d.del_pairs().is_disjoint(d.add_pairs()));
@@ -1948,19 +1965,19 @@ pub(crate) mod tests {
                 TableDelta::diff(&s1, &s2),
                 TableDelta::diff(&s2, &s3),
             );
-            let ab = a.compose(&b).unwrap();
-            let bc = b.compose(&c).unwrap();
-            prop_assert_eq!(ab.compose(&c).unwrap(), a.compose(&bc).unwrap());
-            prop_assert_eq!(bytes(&applied(&ab, &s0).unwrap()), bytes(&s2));
-            prop_assert_eq!(ab.invert(), b.invert().compose(&a.invert()).unwrap());
+            let ab = a.compose(&b).map_err(fail)?;
+            let bc = b.compose(&c).map_err(fail)?;
+            prop_assert_eq!(ab.compose(&c).map_err(fail)?, a.compose(&bc).map_err(fail)?);
+            prop_assert_eq!(bytes(&applied(&ab, &s0).map_err(fail)?), bytes(&s2));
+            prop_assert_eq!(ab.invert(), b.invert().compose(&a.invert()).map_err(fail)?);
             // Apply then invert restores, and invert is an involution.
-            let ab_s = applied(&ab, &s0).unwrap();
-            prop_assert_eq!(bytes(&applied(&ab.invert(), &ab_s).unwrap()), bytes(&s0));
+            let ab_s = applied(&ab, &s0).map_err(fail)?;
+            prop_assert_eq!(bytes(&applied(&ab.invert(), &ab_s).map_err(fail)?), bytes(&s0));
             prop_assert_eq!(&ab.invert().invert(), &ab);
             // Unit on both sides.
             let id = TableDelta::identity();
-            prop_assert_eq!(&id.compose(&ab).unwrap(), &ab);
-            prop_assert_eq!(&ab.compose(&id).unwrap(), &ab);
+            prop_assert_eq!(&id.compose(&ab).map_err(fail)?, &ab);
+            prop_assert_eq!(&ab.compose(&id).map_err(fail)?, &ab);
 
             // Arbitrary triples: associative wherever both adjacent
             // composites are defined, and anti-homomorphic.
@@ -1971,7 +1988,7 @@ pub(crate) mod tests {
                     (Err(_), Err(_)) => {}
                     (l, r) => prop_assert!(false, "one bracketing only: {:?} / {:?}", l, r),
                 }
-                prop_assert_eq!(xy.invert(), y.invert().compose(&x.invert()).unwrap());
+                prop_assert_eq!(xy.invert(), y.invert().compose(&x.invert()).map_err(fail)?);
             }
             prop_assert_eq!(&x.invert().invert(), &x);
         }
@@ -2000,9 +2017,9 @@ pub(crate) mod tests {
             flipped.sort();
             prop_assert_eq!(&flipped, &conflicts, "independence is symmetric");
             if conflicts.is_empty() {
-                let ab = applied(&b, &applied(&a, &s).unwrap()).unwrap();
-                let ba = applied(&a, &applied(&b, &s).unwrap()).unwrap();
-                let merged = applied(&a.merge(&b).unwrap(), &s).unwrap();
+                let ab = applied(&b, &applied(&a, &s).map_err(fail)?).map_err(fail)?;
+                let ba = applied(&a, &applied(&b, &s).map_err(fail)?).map_err(fail)?;
+                let merged = applied(&a.merge(&b).map_err(fail)?, &s).map_err(fail)?;
                 prop_assert_eq!(bytes(&ab), bytes(&ba));
                 prop_assert_eq!(bytes(&ab), bytes(&merged));
             } else {
@@ -2012,7 +2029,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn table_compose_case_table() {
+    fn table_compose_case_table() -> TestResult {
         let p = cells(&[("a", Value::Int(1))]);
         let q = cells(&[("a", Value::Int(2))]);
         let r = cells(&[("a", Value::Int(3))]);
@@ -2088,10 +2105,11 @@ pub(crate) mod tests {
         assert_eq!(pdel().compose(&prepl()), mismatch(pair()));
         assert_eq!(padd().compose(&padd()), mismatch(pair()));
         assert_eq!(prepl().compose(&padd()), mismatch(pair()));
+        Ok(())
     }
 
     #[test]
-    fn benign_table_conflicts_are_exactly_the_three_equal_payload_cases() {
+    fn benign_table_conflicts_are_exactly_the_three_equal_payload_cases() -> TestResult {
         let alice = cells(&[("name", Value::Str("alice".into()))]);
         let del = |row: &Row| {
             TableDelta::identity()
@@ -2150,12 +2168,13 @@ pub(crate) mod tests {
             }
         );
         assert!(!differing[0].is_benign_table(&one, &three));
+        Ok(())
     }
 
     /// The benign cases over cells and tables, and the conflicts that are
     /// never benign.
     #[test]
-    fn benign_table_conflicts_compare_new_values_and_nothing_else() {
+    fn benign_table_conflicts_compare_new_values_and_nothing_else() -> TestResult {
         let alice = cells(&[("name", Value::Str("alice".into()))]);
         let first = TableDelta::identity()
             .with_deleted_row(RowId(0), "user", alice)
@@ -2216,11 +2235,12 @@ pub(crate) mod tests {
             elem: ElemRef::Node(0),
         };
         assert!(!graph.is_benign_table(&first, &second));
+        Ok(())
     }
 
     /// The canonical bytes and digest of one delta with every part, pinned.
     #[test]
-    fn table_delta_bytes_are_pinned() {
+    fn table_delta_bytes_are_pinned() -> TestResult {
         let delta = TableDelta::identity()
             .with_deleted_row(RowId(1), "user", cells(&[("a", Value::Int(1))]))
             .with_added_row(RowId(5), "post", Row::new())
@@ -2230,14 +2250,11 @@ pub(crate) mod tests {
             .with_table_change(RowId(3), "tag", "post");
         let mut writer = CanonicalWriter::new();
         canonical_table_delta_bytes(&delta, &mut writer);
-        let hex = writer
+        let hex: String = writer
             .as_bytes()
             .iter()
-            .fold(String::new(), |mut hex, byte| {
-                use std::fmt::Write as _;
-                write!(hex, "{byte:02x}").unwrap();
-                hex
-            });
+            .map(|byte| format!("{byte:02x}"))
+            .collect();
         assert_eq!(hex, PINNED_BYTES);
         assert_eq!(
             delta.digest(),
@@ -2253,6 +2270,7 @@ pub(crate) mod tests {
             .with_added_row(RowId(5), "post", Row::new())
             .with_deleted_row(RowId(1), "user", cells(&[("a", Value::Int(1))]));
         assert_eq!(again.digest(), delta.digest());
+        Ok(())
     }
 
     const PINNED_BYTES: &str = concat!(
