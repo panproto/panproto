@@ -2031,14 +2031,7 @@ fn every_edit_error() -> Vec<(EditError, &'static str)> {
             EditError::FieldTransformFailed("x".into()),
             "field_transform_failed",
         ),
-        (EditError::TableNotFound("t".into()), "table_not_found"),
-        (
-            EditError::RowNotFound {
-                table: "t".into(),
-                key: "k".into(),
-            },
-            "row_not_found",
-        ),
+        (EditError::RowNotFound(RowId(1)), "row_not_found"),
         (
             EditError::CycleDetected {
                 node_id: 1,
