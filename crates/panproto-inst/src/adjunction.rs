@@ -530,13 +530,17 @@ impl DeltaProvenance {
     pub fn copy_of(&self, table: &str, row: RowId) -> Option<RowId> {
         self.copies
             .iter()
-            .find(|(_, (t, r))| t.as_ref() == table && *r == row)
+            .find(|(_, (t, r))| {
+                charge_copy_work(1);
+                t.as_ref() == table && *r == row
+            })
             .map(|(copy, _)| *copy)
     }
 
     /// Every copy keyed by its source table and the row it copies: the
     /// lookups of [`DeltaProvenance::copy_of`], each one hash lookup.
     fn copy_index(&self) -> HashMap<(Name, RowId), RowId> {
+        charge_copy_work(self.copies.len());
         let mut index = HashMap::with_capacity(self.copies.len());
         for (copy, (table, row)) in &self.copies {
             index.entry((table.clone(), *row)).or_insert(*copy);
@@ -721,6 +725,23 @@ thread_local! {
     /// many an operation takes.
     static KAN_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
 }
+
+#[cfg(test)]
+thread_local! {
+    /// The copies of `Delta_F` results read on this thread to find a row's
+    /// copy, so a test can bound how many a lookup takes.
+    static COPY_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Count `n` copies read to find a row's copy on this thread.
+#[cfg(test)]
+fn charge_copy_work(n: usize) {
+    COPY_WORK.with(|work| work.set(work.get().saturating_add(n)));
+}
+
+/// Count `n` copies read to find a row's copy: nothing outside tests.
+#[cfg(not(test))]
+const fn charge_copy_work(_n: usize) {}
 
 /// Count one Kan extension of a whole instance on this thread.
 #[cfg(test)]
@@ -5710,43 +5731,51 @@ mod tests {
 
         /// The unit and counit of both adjunctions and `Delta_F` on a
         /// homomorphism find each row's copy in a `Delta_F` result through
-        /// an index, so along the identity functor over 40 000 rows all
-        /// five finish well inside the time a test is allowed. A search of
-        /// the copies for every row takes about `8 * 10^8` steps each.
+        /// an index built once, so along the identity functor over 2 000
+        /// rows all five read each copy a few times (counted, not timed); a
+        /// search of the copies for every row reads about `2 * 10^6`.
         #[test]
         fn homs_through_delta_copies_are_linear_in_the_rows() {
-            const ROWS: i64 = 40_000;
-            let (done, finished) = std::sync::mpsc::channel();
-            std::thread::spawn(move || {
-                let side = fixture::side(&[("a", &["n"])], &[]);
-                let f =
-                    MigrationFunctor::identity(&fixture::schema_of(&side), &fixture::protocol())
-                        .unwrap_or_else(|e| panic!("{e}"));
-                let x = FInstance::new()
-                    .with_table(
-                        "a",
-                        (0..ROWS).map(|n| fixture::row(&[("n", Value::Int(n))])),
-                    )
-                    .unwrap_or_else(|e| panic!("{e}"));
-                let id = FInstanceHom::identity(&x);
-                for (name, hom) in [
-                    ("unit", f_unit(&x, &f)),
-                    ("counit", f_counit(&x, &f)),
-                    ("Delta on a hom", f_delta_on_hom(&id, &x, &x, &f)),
-                    ("Pi unit", f_pi_unit(&x, &f, usize::MAX)),
-                    ("Pi counit", f_pi_counit(&x, &f, usize::MAX)),
-                ] {
-                    let hom = hom.unwrap_or_else(|e| panic!("{name}: {e}"));
-                    assert!(hom.same_as(&id), "the {name} along the identity");
-                }
-                let _ = done.send(());
-            });
-            assert!(
-                finished
-                    .recv_timeout(std::time::Duration::from_secs(30))
-                    .is_ok(),
-                "the homs over {ROWS} rows did not finish within 30 s"
-            );
+            const ROWS: usize = 2_000;
+            /// One of the five, run at `x`.
+            type Run<'r> = &'r dyn Fn() -> Result<FInstanceHom, AdjunctionError>;
+            let side = fixture::side(&[("a", &["n"])], &[]);
+            let f = MigrationFunctor::identity(&fixture::schema_of(&side), &fixture::protocol())
+                .unwrap_or_else(|e| panic!("{e}"));
+            let x = FInstance::new()
+                .with_table(
+                    "a",
+                    (0..ROWS).map(|n| {
+                        let n = i64::try_from(n).unwrap_or_else(|e| panic!("{e}"));
+                        fixture::row(&[("n", Value::Int(n))])
+                    }),
+                )
+                .unwrap_or_else(|e| panic!("{e}"));
+            let id = FInstanceHom::identity(&x);
+            let copies = |run: Run<'_>| {
+                let before = crate::adjunction::COPY_WORK.with(std::cell::Cell::get);
+                let hom = run();
+                (
+                    hom,
+                    crate::adjunction::COPY_WORK.with(std::cell::Cell::get) - before,
+                )
+            };
+            let runs: [(&str, Run<'_>); 5] = [
+                ("unit", &|| f_unit(&x, &f)),
+                ("counit", &|| f_counit(&x, &f)),
+                ("Delta on a hom", &|| f_delta_on_hom(&id, &x, &x, &f)),
+                ("Pi unit", &|| f_pi_unit(&x, &f, usize::MAX)),
+                ("Pi counit", &|| f_pi_counit(&x, &f, usize::MAX)),
+            ];
+            for (name, run) in runs {
+                let (hom, work) = copies(run);
+                let hom = hom.unwrap_or_else(|e| panic!("{name}: {e}"));
+                assert!(hom.same_as(&id), "the {name} along the identity");
+                assert!(
+                    work <= 4 * ROWS,
+                    "the {name} read {work} copies to find {ROWS} rows' copies"
+                );
+            }
         }
 
         mod generated {
