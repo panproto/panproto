@@ -3,18 +3,28 @@
 //! A [`TableEdit`] is an element of the edit monoid for relational
 //! (table-shaped) instances. Every edit names the rows it touches by
 //! [`RowId`] and carries what it expects to find there (compare and set), so
-//! applying it checks the instance before changing anything, and every edit
-//! has an inverse ([`TableEdit::invert`]) built from its own payload. The
-//! monoid operations are [`TableEdit::identity`], [`TableEdit::compose`], and
-//! [`TableEdit::apply`] (the partial monoid action on [`FInstance`]).
+//! applying it checks the instance before changing anything. Every edit lowers
+//! to one canonical [`TableDelta`] ([`TableEdit::to_delta`]), a batch to the
+//! net delta of its steps, and its inverse is the inverse delta
+//! ([`TableEdit::invert`]). The monoid operations are
+//! [`TableEdit::identity`], [`TableEdit::compose`], and [`TableEdit::apply`]
+//! (the partial monoid action on [`FInstance`]).
+//!
+//! The surface follows the asymmetric edit lenses of Johnson and Rosebrugh
+//! 2016 (Section 5 onward, stated); its edits are invertible because each one
+//! carries the values it replaces (inferred), not because the edit monoid of
+//! Hofmann et al. 2012 has inverses, which it does not.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::Name;
 use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use crate::edit_error::EditError;
-use crate::error::InstError;
-use crate::functor::{FInstance, ForeignKeyPair, Row, same_row, same_value};
+use crate::functor::{FInstance, ForeignKeyPair, Row};
+use crate::graph_edit::ComposeError;
+use crate::table_delta::{Pair, TableDelta, TableDeltaParts, compose_into, same_cell};
 use crate::value::Value;
 use crate::view_ref::RowId;
 
@@ -46,10 +56,10 @@ use crate::view_ref::RowId;
 ///     new: Some(Value::Str("grace".into())),
 /// };
 /// rename.apply(&mut tables)?;
-/// rename.invert().apply(&mut tables)?;
-/// insert.invert().apply(&mut tables)?;
+/// rename.invert()?.apply(&mut tables)?;
+/// insert.invert()?.apply(&mut tables)?;
 /// assert_eq!(tables.total_row_count(), 0);
-/// # Ok::<(), panproto_inst::EditError>(())
+/// # Ok::<(), Box<dyn std::error::Error>>(())
 /// ```
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -131,6 +141,9 @@ pub enum TableEdit {
 
     /// A sequence of edits applied in order, all or nothing.
     Batch(Vec<Self>),
+
+    /// A canonical table delta.
+    Delta(TableDelta),
 }
 
 impl TableEdit {
@@ -161,247 +174,389 @@ impl TableEdit {
         match self {
             Self::Identity => true,
             Self::Batch(steps) => steps.iter().all(Self::is_identity),
+            Self::Delta(delta) => delta.is_identity(),
             _ => false,
         }
     }
 
-    /// The edit that undoes this one, built from its compare-and-set payload.
+    /// The canonical delta of this edit, without the instance.
     ///
-    /// Applying an edit and then its inverse to an instance the edit applies
-    /// to gives back that instance. The inverse of a `DeleteRow` re-inserts
-    /// the row and then its incident pairs in ascending order.
-    #[must_use]
-    pub fn invert(&self) -> Self {
-        match self {
-            Self::Identity => Self::Identity,
-            Self::InsertRow { table, id, row } => Self::DeleteRow {
-                table: table.clone(),
-                id: *id,
-                row: row.clone(),
-                incident_fks: Vec::new(),
-            },
-            Self::DeleteRow {
-                table,
-                id,
-                row,
-                incident_fks,
-            } => {
-                let mut steps = vec![Self::InsertRow {
-                    table: table.clone(),
-                    id: *id,
-                    row: row.clone(),
-                }];
-                steps.extend(
-                    incident_fks
-                        .iter()
-                        .map(|(edge, src, tgt)| Self::AddForeignKey {
-                            edge: edge.clone(),
-                            src: *src,
-                            tgt: *tgt,
-                        }),
-                );
-                Self::Batch(steps)
-            }
-            Self::UpdateCell {
-                table,
-                id,
-                column,
-                old,
-                new,
-            } => Self::UpdateCell {
-                table: table.clone(),
-                id: *id,
-                column: column.clone(),
-                old: new.clone(),
-                new: old.clone(),
-            },
-            Self::MoveRow {
-                id,
-                old_table,
-                new_table,
-            } => Self::MoveRow {
-                id: *id,
-                old_table: new_table.clone(),
-                new_table: old_table.clone(),
-            },
-            Self::AddForeignKey { edge, src, tgt } => Self::RemoveForeignKey {
-                edge: edge.clone(),
-                src: *src,
-                tgt: *tgt,
-            },
-            Self::RemoveForeignKey { edge, src, tgt } => Self::AddForeignKey {
-                edge: edge.clone(),
-                src: *src,
-                tgt: *tgt,
-            },
-            Self::Batch(steps) => Self::Batch(steps.iter().rev().map(Self::invert).collect()),
-        }
+    /// `InsertRow` adds the row; `DeleteRow` deletes the row and its listed
+    /// pairs; `UpdateCell` is a cell change; `MoveRow` a table change of the
+    /// row; `AddForeignKey` and `RemoveForeignKey` add and delete the pair;
+    /// `Delta` is its delta; `Batch` is the left-to-right composite of its
+    /// steps ([`TableDelta::compose`]), one net delta, computed in time
+    /// linear in the steps (each composed in place onto the running
+    /// composite).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ComposeError::Mismatch`] when the steps of a batch do not
+    /// compose.
+    pub fn to_delta(&self) -> Result<TableDelta, ComposeError> {
+        let mut parts = TableDeltaParts::default();
+        lower_into(self, &mut parts)?;
+        Ok(TableDelta::normalize(parts))
+    }
+
+    /// The inverse edit: `Delta(to_delta()?.invert())`. Applying an edit
+    /// and then its inverse to an instance the edit applies to gives back
+    /// that instance. The inverse of a `DeleteRow` re-inserts the row and
+    /// then its incident pairs: it is the delta of
+    /// `Batch[InsertRow, AddForeignKey*]`, the pairs in ascending order.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::to_delta`].
+    pub fn invert(&self) -> Result<Self, ComposeError> {
+        Ok(Self::Delta(self.to_delta()?.invert()))
     }
 
     /// Apply this edit to a functor instance.
     ///
-    /// Every expectation the edit carries is checked against the instance
-    /// before it changes, and a cell or row is compared by its exact value
-    /// (its canonical bytes, so a `NaN` cell matches itself and `0.0` does
-    /// not match `-0.0`). On error the instance is unchanged: a batch
-    /// applies its steps in place and, when one fails, undoes the steps
-    /// before it by their inverses, in reverse order, so it never copies the
-    /// instance.
+    /// Each step is checked against the state it meets, the instance
+    /// followed by the net delta of the steps before it, without changing
+    /// anything: an `InsertRow` needs its id free ([`EditError::DuplicateRow`]);
+    /// a `DeleteRow`, `UpdateCell` or `MoveRow` needs its row
+    /// ([`EditError::RowNotFound`]) in the table it names
+    /// ([`EditError::StaleTable`]); a `DeleteRow` needs the row's cells
+    /// ([`EditError::StaleCell`], the least differing column) and its listed
+    /// pairs to be exactly the pairs at the row
+    /// ([`EditError::StaleIncidence`]); an `UpdateCell` needs the cell's old
+    /// value ([`EditError::StaleCell`]); a `MoveRow` to another table needs a
+    /// row without pairs ([`EditError::MissingRowEndpoint`], naming the first
+    /// pair's edge); an `AddForeignKey` needs the pair absent
+    /// ([`EditError::DuplicateForeignKey`]) and its rows in the edge's
+    /// endpoint tables ([`EditError::MissingRowEndpoint`]); a
+    /// `RemoveForeignKey` needs the pair present
+    /// ([`EditError::ForeignKeyNotFound`]). A `Delta` step is checked as
+    /// part of the net delta. The net delta of the whole edit is then
+    /// applied ([`TableDelta::apply`]). Cells and rows compare by canonical
+    /// bytes, so a `NaN` cell matches itself and `0.0` does not match
+    /// `-0.0`.
+    ///
+    /// On error the instance is unchanged and is not copied, except that a
+    /// batch whose net delta fails is replayed on a copy to name the failing
+    /// step. A failing step of a batch is reported as
+    /// [`EditError::BatchStep`] with its index (nested for nested batches).
     ///
     /// # Errors
     ///
-    /// - [`EditError::DuplicateNodeId`]: an inserted row's id is in use.
-    /// - [`EditError::RowNotFound`]: the named row does not exist.
-    /// - [`EditError::AnchorMismatch`]: the row is in another table than the
-    ///   edit expects.
-    /// - [`EditError::ApplyFailed`]: a stale expectation (the row's cells, a
-    ///   cell's old value, or the incident pairs of a deleted row differ from
-    ///   the instance), a pair to add is present or does not join its edge's
-    ///   endpoint tables, a pair to remove is absent, or a row to move takes
-    ///   part in a foreign key.
+    /// The first failing check's error, as above; [`EditError::Compose`]
+    /// when the steps around a `Delta` step do not compose; and the errors
+    /// of [`TableDelta::apply`].
     pub fn apply(&self, instance: &mut FInstance) -> Result<(), EditError> {
-        match self {
-            Self::Identity => Ok(()),
-            Self::InsertRow { table, id, row } => {
-                if instance.table_of(*id).is_some() {
-                    return Err(EditError::DuplicateNodeId(id.0));
-                }
-                instance
-                    .insert_row(table.clone(), *id, row.clone())
-                    .map_err(inst_error)
+        let mut prefix = Prefix::new(instance);
+        let mut path = Vec::new();
+        if let Err(err) = check_into(self, &mut prefix, &mut path) {
+            return Err(at_path(&path, err));
+        }
+        let delta = TableDelta::normalize(prefix.parts);
+        match delta.apply(instance) {
+            Ok(()) => Ok(()),
+            Err(err) => Err(self.diagnose(instance, err)),
+        }
+    }
+
+    /// Name the failing step of a batch by replaying its steps on a copy;
+    /// `err` when the edit is not a batch or no step fails on its own.
+    fn diagnose(&self, instance: &FInstance, err: EditError) -> EditError {
+        let Self::Batch(steps) = self else {
+            return err;
+        };
+        let mut replay = instance.clone();
+        for (index, step) in steps.iter().enumerate() {
+            if let Err(source) = step.apply(&mut replay) {
+                return EditError::BatchStep {
+                    index,
+                    source: Box::new(source),
+                };
             }
-            Self::DeleteRow {
+        }
+        err
+    }
+}
+
+/// The delta of one step that is neither a batch nor a delta.
+fn step_delta(edit: &TableEdit) -> TableDelta {
+    let id = TableDelta::identity;
+    match edit {
+        TableEdit::InsertRow {
+            table,
+            id: row,
+            row: cells,
+        } => id().with_added_row(*row, table.clone(), cells.clone()),
+        TableEdit::DeleteRow {
+            table,
+            id: row,
+            row: cells,
+            incident_fks,
+        } => incident_fks.iter().fold(
+            id().with_deleted_row(*row, table.clone(), cells.clone()),
+            |delta, (edge, src, tgt)| delta.with_deleted_pair(edge.clone(), *src, *tgt),
+        ),
+        TableEdit::UpdateCell {
+            id: row,
+            column,
+            old,
+            new,
+            ..
+        } => id().with_cell_change(*row, column.clone(), old.clone(), new.clone()),
+        TableEdit::MoveRow {
+            id: row,
+            old_table,
+            new_table,
+        } => id().with_table_change(*row, old_table.clone(), new_table.clone()),
+        TableEdit::AddForeignKey { edge, src, tgt } => {
+            id().with_added_pair(edge.clone(), *src, *tgt)
+        }
+        TableEdit::RemoveForeignKey { edge, src, tgt } => {
+            id().with_deleted_pair(edge.clone(), *src, *tgt)
+        }
+        TableEdit::Identity | TableEdit::Batch(_) | TableEdit::Delta(_) => id(),
+    }
+}
+
+/// Compose the delta of `edit` onto `parts` in place.
+fn lower_into(edit: &TableEdit, parts: &mut TableDeltaParts) -> Result<(), ComposeError> {
+    match edit {
+        TableEdit::Identity => Ok(()),
+        TableEdit::Batch(steps) => steps.iter().try_for_each(|step| lower_into(step, parts)),
+        TableEdit::Delta(delta) => compose_into(parts, delta),
+        step => compose_into(parts, &step_delta(step)),
+    }
+}
+
+/// `err` inside the batch steps `path` names, outermost first.
+fn at_path(path: &[usize], err: EditError) -> EditError {
+    path.iter()
+        .rev()
+        .fold(err, |source, &index| EditError::BatchStep {
+            index,
+            source: Box::new(source),
+        })
+}
+
+/// The state a step of an edit meets: the instance followed by the net delta
+/// of the steps before it, read without applying it.
+struct Prefix<'a> {
+    instance: &'a FInstance,
+    parts: TableDeltaParts,
+    /// The pairs the net delta adds, by each of their two rows.
+    added_at: BTreeMap<RowId, BTreeSet<Pair>>,
+}
+
+impl<'a> Prefix<'a> {
+    fn new(instance: &'a FInstance) -> Self {
+        Self {
+            instance,
+            parts: TableDeltaParts::default(),
+            added_at: BTreeMap::new(),
+        }
+    }
+
+    /// The table of row `id`, `None` when there is no such row.
+    fn table(&self, id: RowId) -> Option<&Name> {
+        if let Some((table, _)) = self.parts.add_rows.get(&id) {
+            return Some(table);
+        }
+        if self.parts.del_rows.contains_key(&id) {
+            return None;
+        }
+        self.parts
+            .tables
+            .get(&id)
+            .map(|change| &change.new)
+            .or_else(|| self.instance.table_of(id))
+    }
+
+    /// The cells of row `id`, `None` when there is no such row.
+    fn row(&self, id: RowId) -> Option<Row> {
+        if let Some((_, cells)) = self.parts.add_rows.get(&id) {
+            return Some(cells.clone());
+        }
+        if self.parts.del_rows.contains_key(&id) {
+            return None;
+        }
+        let mut cells = self.instance.row(id)?.clone();
+        for ((row, column), change) in self.parts.cells.range((id, String::new())..) {
+            if *row != id {
+                break;
+            }
+            match &change.new {
+                Some(value) => {
+                    cells.insert(column.clone(), value.clone());
+                }
+                None => {
+                    cells.remove(column);
+                }
+            }
+        }
+        Some(cells)
+    }
+
+    /// Whether the pair is present.
+    fn has_pair(&self, pair: &Pair) -> bool {
+        self.parts.add_pairs.contains(pair)
+            || (!self.parts.del_pairs.contains(pair)
+                && self.instance.contains_pair(&pair.0, pair.1, pair.2))
+    }
+
+    /// The pairs at row `id`, ascending.
+    fn incident(&self, id: RowId) -> Vec<Pair> {
+        let mut pairs: BTreeSet<Pair> = self
+            .instance
+            .incident_pairs(id)
+            .into_iter()
+            .filter(|pair| self.has_pair(pair))
+            .collect();
+        if let Some(added) = self.added_at.get(&id) {
+            pairs.extend(added.iter().cloned());
+        }
+        pairs.into_iter().collect()
+    }
+
+    /// Follow one more delta.
+    fn absorb(&mut self, delta: &TableDelta) -> Result<(), ComposeError> {
+        compose_into(&mut self.parts, delta)?;
+        for pair in delta.touched_pairs() {
+            let added = self.parts.add_pairs.contains(&pair);
+            for row in [pair.1, pair.2] {
+                let at = self.added_at.entry(row).or_default();
+                if added {
+                    at.insert(pair.clone());
+                } else {
+                    at.remove(&pair);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The row's table, which must exist and be `table`.
+    fn expect_table(&self, id: RowId, table: &Name) -> Result<(), EditError> {
+        match self.table(id) {
+            None => Err(EditError::RowNotFound(id)),
+            Some(actual) if actual != table => Err(EditError::StaleTable { row: id }),
+            Some(_) => Ok(()),
+        }
+    }
+
+    /// Check one step that is neither a batch nor a delta, as
+    /// [`TableEdit::apply`] lists the checks.
+    fn check_step(&self, step: &TableEdit) -> Result<(), EditError> {
+        match step {
+            TableEdit::InsertRow { id, .. } => {
+                if self.table(*id).is_some() {
+                    return Err(EditError::DuplicateRow(*id));
+                }
+            }
+            TableEdit::DeleteRow {
                 table,
                 id,
                 row,
                 incident_fks,
             } => {
-                expect_row(instance, table, *id)?;
-                if !instance.row(*id).is_some_and(|cells| same_row(cells, row)) {
-                    return Err(EditError::ApplyFailed(format!(
-                        "row {} does not hold the cells the deletion expects",
-                        id.0
-                    )));
+                self.expect_table(*id, table)?;
+                let cells = self.row(*id).ok_or(EditError::RowNotFound(*id))?;
+                let columns: BTreeSet<&String> = cells.keys().chain(row.keys()).collect();
+                if let Some(column) = columns
+                    .into_iter()
+                    .find(|c| !same_cell(cells.get(*c), row.get(*c)))
+                {
+                    return Err(EditError::StaleCell {
+                        row: *id,
+                        column: column.clone(),
+                    });
                 }
-                if instance.incident_pairs(*id) != *incident_fks {
-                    return Err(EditError::ApplyFailed(format!(
-                        "row {} does not take part in exactly the foreign-key pairs the deletion lists",
-                        id.0
-                    )));
+                if self.incident(*id) != *incident_fks {
+                    return Err(EditError::StaleIncidence { row: *id });
                 }
-                instance.remove_row(*id);
-                Ok(())
             }
-            Self::UpdateCell {
+            TableEdit::UpdateCell {
                 table,
                 id,
                 column,
                 old,
-                new,
+                ..
             } => {
-                expect_row(instance, table, *id)?;
-                let cells = instance
-                    .row_mut(*id)
-                    .ok_or_else(|| row_not_found(table, *id))?;
-                let holds = match (cells.get(column), old) {
-                    (Some(cell), Some(expected)) => same_value(cell, expected),
-                    (None, None) => true,
-                    _ => false,
-                };
-                if !holds {
-                    return Err(EditError::ApplyFailed(format!(
-                        "cell `{column}` of row {} does not hold the value the update expects",
-                        id.0
-                    )));
+                self.expect_table(*id, table)?;
+                let cells = self.row(*id).ok_or(EditError::RowNotFound(*id))?;
+                if !same_cell(cells.get(column), old.as_ref()) {
+                    return Err(EditError::StaleCell {
+                        row: *id,
+                        column: column.clone(),
+                    });
                 }
-                match new {
-                    Some(value) => {
-                        cells.insert(column.clone(), value.clone());
-                    }
-                    None => {
-                        cells.remove(column);
-                    }
-                }
-                Ok(())
             }
-            Self::MoveRow {
+            TableEdit::MoveRow {
                 id,
                 old_table,
                 new_table,
             } => {
-                expect_row(instance, old_table, *id)?;
-                instance
-                    .move_row(*id, new_table.clone())
-                    .map(|_| ())
-                    .map_err(inst_error)
-            }
-            Self::AddForeignKey { edge, src, tgt } => instance
-                .insert_foreign_key(edge.clone(), *src, *tgt)
-                .map_err(inst_error),
-            Self::RemoveForeignKey { edge, src, tgt } => {
-                if instance.remove_foreign_key(edge, *src, *tgt) {
-                    Ok(())
-                } else {
-                    Err(EditError::ApplyFailed(format!(
-                        "foreign key {edge:?} has no pair ({}, {})",
-                        src.0, tgt.0
-                    )))
+                self.expect_table(*id, old_table)?;
+                if old_table != new_table
+                    && let Some((edge, _, _)) = self.incident(*id).into_iter().next()
+                {
+                    return Err(EditError::MissingRowEndpoint { edge, row: *id });
                 }
             }
-            Self::Batch(steps) => {
-                for (done, step) in steps.iter().enumerate() {
-                    if let Err(error) = step.apply(instance) {
-                        roll_back(instance, &steps[..done])?;
-                        return Err(error);
+            TableEdit::AddForeignKey { edge, src, tgt } => {
+                let pair = (edge.clone(), *src, *tgt);
+                if self.has_pair(&pair) {
+                    return Err(EditError::DuplicateForeignKey {
+                        edge: edge.clone(),
+                        src: *src,
+                        tgt: *tgt,
+                    });
+                }
+                for (row, table) in [(*src, &edge.src), (*tgt, &edge.tgt)] {
+                    if self.table(row) != Some(table) {
+                        return Err(EditError::MissingRowEndpoint {
+                            edge: edge.clone(),
+                            row,
+                        });
                     }
                 }
-                Ok(())
             }
+            TableEdit::RemoveForeignKey { edge, src, tgt } => {
+                if !self.has_pair(&(edge.clone(), *src, *tgt)) {
+                    return Err(EditError::ForeignKeyNotFound {
+                        edge: edge.clone(),
+                        src: *src,
+                        tgt: *tgt,
+                    });
+                }
+            }
+            TableEdit::Identity | TableEdit::Batch(_) | TableEdit::Delta(_) => {}
         }
+        Ok(())
     }
 }
 
-/// Undo the applied prefix of a failed batch, last step first.
-///
-/// Each step's inverse meets exactly the state the step left (the later
-/// steps are undone already) and compare and set is exact, so it applies;
-/// an error here means that guarantee is broken and is reported as such.
-fn roll_back(instance: &mut FInstance, applied: &[TableEdit]) -> Result<(), EditError> {
-    for step in applied.iter().rev() {
-        step.invert().apply(instance).map_err(|error| {
-            EditError::ApplyFailed(format!(
-                "a failed batch could not undo a step it applied: {error}"
-            ))
-        })?;
-    }
-    Ok(())
-}
-
-fn row_not_found(table: &Name, id: RowId) -> EditError {
-    EditError::RowNotFound {
-        table: table.to_string(),
-        key: format!("row {}", id.0),
-    }
-}
-
-/// Check that row `id` exists and sits in `table`.
-fn expect_row(instance: &FInstance, table: &Name, id: RowId) -> Result<(), EditError> {
-    match instance.table_of(id) {
-        None => Err(row_not_found(table, id)),
-        Some(actual) if actual != table => Err(EditError::AnchorMismatch {
-            node_id: id.0,
-            expected: table.to_string(),
-            actual: actual.to_string(),
-        }),
-        Some(_) => Ok(()),
-    }
-}
-
-/// An instance error met while applying an edit, as an edit error.
-fn inst_error(error: InstError) -> EditError {
-    match error {
-        InstError::DuplicateRowId { row, .. } => EditError::DuplicateNodeId(row.0),
-        other => EditError::ApplyFailed(other.to_string()),
+/// Check every step of `edit` against the state it meets and fold its delta
+/// into `prefix`; on error, `path` holds the batch indices of the failing
+/// step.
+fn check_into(
+    edit: &TableEdit,
+    prefix: &mut Prefix<'_>,
+    path: &mut Vec<usize>,
+) -> Result<(), EditError> {
+    match edit {
+        TableEdit::Identity => Ok(()),
+        TableEdit::Batch(steps) => {
+            for (index, step) in steps.iter().enumerate() {
+                path.push(index);
+                check_into(step, prefix, path)?;
+                path.pop();
+            }
+            Ok(())
+        }
+        TableEdit::Delta(delta) => prefix.absorb(delta).map_err(EditError::Compose),
+        step => {
+            prefix.check_step(step)?;
+            prefix.absorb(&step_delta(step)).map_err(EditError::Compose)
+        }
     }
 }
 
@@ -426,6 +581,8 @@ mod tests {
     use proptest::prelude::*;
 
     use super::*;
+    use crate::error::InstError;
+    use crate::table_delta::TableDelta;
 
     fn fk() -> Edge {
         Edge {
@@ -464,10 +621,10 @@ mod tests {
             id: RowId(2),
             row: named("carol"),
         };
-        assert!(matches!(
+        assert_eq!(
             edit.apply(&mut inst),
-            Err(EditError::DuplicateNodeId(2))
-        ));
+            Err(EditError::DuplicateRow(RowId(2)))
+        );
         assert_eq!(inst, sample_instance(), "a refused edit changes nothing");
     }
 
@@ -483,7 +640,7 @@ mod tests {
         edit.apply(&mut inst).unwrap();
         assert_eq!(inst.row_count("user"), 1);
         assert_eq!(inst.pair_count(), 0);
-        edit.invert().apply(&mut inst).unwrap();
+        edit.invert().unwrap().apply(&mut inst).unwrap();
         assert_eq!(inst, sample_instance());
     }
 
@@ -496,30 +653,33 @@ mod tests {
             row: named("alice"),
             incident_fks: Vec::new(),
         };
-        assert!(matches!(
+        assert_eq!(
             stale.apply(&mut inst),
-            Err(EditError::ApplyFailed(_))
-        ));
+            Err(EditError::StaleIncidence { row: RowId(0) })
+        );
         let wrong_cells = TableEdit::DeleteRow {
             table: "user".into(),
             id: RowId(0),
             row: named("alicia"),
             incident_fks: vec![(fk(), RowId(2), RowId(0))],
         };
-        assert!(matches!(
+        assert_eq!(
             wrong_cells.apply(&mut inst),
-            Err(EditError::ApplyFailed(_))
-        ));
+            Err(EditError::StaleCell {
+                row: RowId(0),
+                column: "name".into()
+            })
+        );
         let wrong_table = TableEdit::DeleteRow {
             table: "post".into(),
             id: RowId(0),
             row: named("alice"),
             incident_fks: vec![(fk(), RowId(2), RowId(0))],
         };
-        assert!(matches!(
+        assert_eq!(
             wrong_table.apply(&mut inst),
-            Err(EditError::AnchorMismatch { node_id: 0, .. })
-        ));
+            Err(EditError::StaleTable { row: RowId(0) })
+        );
         assert_eq!(inst, sample_instance());
     }
 
@@ -539,10 +699,13 @@ mod tests {
             Some(&Value::Int(40))
         );
         // Adding again is stale: the cell is no longer absent.
-        assert!(matches!(
+        assert_eq!(
             add.apply(&mut inst),
-            Err(EditError::ApplyFailed(_))
-        ));
+            Err(EditError::StaleCell {
+                row: RowId(1),
+                column: "age".into()
+            })
+        );
         let remove = TableEdit::UpdateCell {
             table: "user".into(),
             id: RowId(1),
@@ -552,8 +715,8 @@ mod tests {
         };
         remove.apply(&mut inst).unwrap();
         assert!(!inst.row(RowId(1)).unwrap().contains_key("name"));
-        remove.invert().apply(&mut inst).unwrap();
-        add.invert().apply(&mut inst).unwrap();
+        remove.invert().unwrap().apply(&mut inst).unwrap();
+        add.invert().unwrap().apply(&mut inst).unwrap();
         assert_eq!(inst, sample_instance());
     }
 
@@ -600,9 +763,9 @@ mod tests {
         };
         let with_nan = bytes(&inst);
         update.apply(&mut inst).unwrap();
-        update.invert().apply(&mut inst).unwrap();
+        update.invert().unwrap().apply(&mut inst).unwrap();
         assert_eq!(bytes(&inst), with_nan);
-        insert.invert().apply(&mut inst).unwrap();
+        insert.invert().unwrap().apply(&mut inst).unwrap();
         assert_eq!(inst.total_row_count(), 0);
     }
 
@@ -625,20 +788,26 @@ mod tests {
             old: Some(Value::Float(0.0)),
             new: Some(Value::Int(1)),
         };
-        assert!(matches!(
+        assert_eq!(
             update.apply(&mut inst),
-            Err(EditError::ApplyFailed(_))
-        ));
+            Err(EditError::StaleCell {
+                row: RowId(0),
+                column: "x".into()
+            })
+        );
         let delete = TableEdit::DeleteRow {
             table: "t".into(),
             id: RowId(0),
             row: HashMap::from([("x".to_owned(), Value::Float(0.0))]),
             incident_fks: Vec::new(),
         };
-        assert!(matches!(
+        assert_eq!(
             delete.apply(&mut inst),
-            Err(EditError::ApplyFailed(_))
-        ));
+            Err(EditError::StaleCell {
+                row: RowId(0),
+                column: "x".into()
+            })
+        );
         assert_eq!(bytes(&inst), before);
     }
 
@@ -664,7 +833,7 @@ mod tests {
         deletes.apply(&mut state).unwrap();
         assert_eq!(state.total_row_count(), 0);
         let began = std::time::Instant::now();
-        deletes.invert().apply(&mut state).unwrap();
+        deletes.invert().unwrap().apply(&mut state).unwrap();
         let took = began.elapsed();
         assert_eq!(state, start);
         assert!(
@@ -757,6 +926,7 @@ mod tests {
                 tgt: RowId(0),
             },
             TableEdit::Batch(vec![TableEdit::Identity]),
+            TableEdit::Delta(TableDelta::identity().with_table_change(RowId(4), "a", "b")),
         ];
         let json = serde_json::to_value(&edits).unwrap();
         let fk_json = serde_json::json!({"src": "post", "tgt": "user", "kind": "fk", "name": null});
@@ -772,6 +942,8 @@ mod tests {
                 {"AddForeignKey": {"edge": fk_json, "src": 2, "tgt": 1}},
                 {"RemoveForeignKey": {"edge": fk_json, "src": 2, "tgt": 0}},
                 {"Batch": ["Identity"]},
+                {"Delta": {"del_rows": {}, "add_rows": {}, "del_pairs": [], "add_pairs": [],
+                    "cells": [], "tables": {"4": {"old": "a", "new": "b"}}}},
             ])
         );
         let back: Vec<TableEdit> = serde_json::from_value(json).unwrap();
@@ -830,7 +1002,7 @@ mod tests {
         };
         let mut state = start.clone();
         insert.apply(&mut state).unwrap();
-        insert.invert().apply(&mut state).unwrap();
+        insert.invert().unwrap().apply(&mut state).unwrap();
         assert_eq!(state, start);
         assert_eq!(state.table_count(), 0);
 
@@ -844,14 +1016,15 @@ mod tests {
         };
         let mut state = start.clone();
         moved.apply(&mut state).unwrap();
-        moved.invert().apply(&mut state).unwrap();
+        moved.invert().unwrap().apply(&mut state).unwrap();
         assert_eq!(state, start);
         assert_eq!(state.table_count(), 1);
     }
 
-    /// Moving a row that takes part in a foreign-key pair is refused with a
-    /// message that names the pair it would break, not one claiming the row
-    /// is missing from its table, and leaves the instance unchanged.
+    /// Moving a row that takes part in a foreign-key pair is refused with an
+    /// error naming the pair's edge and the row it would leave outside the
+    /// edge's endpoint table, not one claiming the row is missing from its
+    /// table, and leaves the instance unchanged.
     #[test]
     fn moving_a_row_with_a_foreign_key_pair_is_refused_for_the_pair() {
         let fk = Edge {
@@ -876,15 +1049,12 @@ mod tests {
         }
         .apply(&mut state)
         .unwrap_err();
-        let EditError::ApplyFailed(message) = err else {
-            panic!("expected ApplyFailed, got {err:?}");
-        };
         assert_eq!(
-            message,
-            format!(
-                "row 3 cannot move from table \"user\" to table \"member\" \
-                 while it takes part in the pair (1, 3) of foreign key {fk:?}"
-            )
+            err,
+            EditError::MissingRowEndpoint {
+                edge: fk.clone(),
+                row: RowId(3)
+            }
         );
         assert_eq!(state, start);
         assert_eq!(state.table_of(RowId(3)), Some(&Name::from("user")));
@@ -1026,6 +1196,7 @@ mod tests {
                 // Each step is undone by its own inverse.
                 let mut undone = state.clone();
                 edit.invert()
+                    .unwrap()
                     .apply(&mut undone)
                     .map_err(|e| TestCaseError::fail(format!("the inverse fails: {e}")))?;
                 prop_assert_eq!(bytes(&undone), before);
@@ -1040,6 +1211,7 @@ mod tests {
             prop_assert_eq!(bytes(&replay), bytes(&state));
             script
                 .invert()
+                .unwrap()
                 .apply(&mut replay)
                 .map_err(|e| TestCaseError::fail(format!("the inverse script fails: {e}")))?;
             prop_assert_eq!(bytes(&replay), bytes(&start));
@@ -1052,6 +1224,189 @@ mod tests {
             let mut refused = start.clone();
             prop_assert!(failing.apply(&mut refused).is_err());
             prop_assert_eq!(bytes(&refused), bytes(&start));
+        }
+    }
+
+    /// A small sample of every surface step, valid in turn from
+    /// [`sample_instance`].
+    fn every_step() -> Vec<TableEdit> {
+        vec![
+            TableEdit::Identity,
+            TableEdit::InsertRow {
+                table: "post".into(),
+                id: RowId(3),
+                row: named("draft"),
+            },
+            TableEdit::AddForeignKey {
+                edge: fk(),
+                src: RowId(3),
+                tgt: RowId(1),
+            },
+            TableEdit::UpdateCell {
+                table: "user".into(),
+                id: RowId(1),
+                column: "name".into(),
+                old: Some(Value::Str("bob".into())),
+                new: None,
+            },
+            TableEdit::MoveRow {
+                id: RowId(1),
+                old_table: "user".into(),
+                new_table: "user".into(),
+            },
+            TableEdit::RemoveForeignKey {
+                edge: fk(),
+                src: RowId(3),
+                tgt: RowId(1),
+            },
+            TableEdit::DeleteRow {
+                table: "user".into(),
+                id: RowId(0),
+                row: named("alice"),
+                incident_fks: vec![(fk(), RowId(2), RowId(0))],
+            },
+        ]
+    }
+
+    #[test]
+    fn table_edit_to_delta_cases() {
+        let id = TableDelta::identity;
+        let steps = every_step();
+        let expected = [
+            id(),
+            id().with_added_row(RowId(3), "post", named("draft")),
+            id().with_added_pair(fk(), RowId(3), RowId(1)),
+            id().with_cell_change(RowId(1), "name", Some(Value::Str("bob".into())), None),
+            id(),
+            id().with_deleted_pair(fk(), RowId(3), RowId(1)),
+            id().with_deleted_row(RowId(0), "user", named("alice"))
+                .with_deleted_pair(fk(), RowId(2), RowId(0)),
+        ];
+        for (step, delta) in steps.iter().zip(&expected) {
+            assert_eq!(&step.to_delta().unwrap(), delta, "{step:?}");
+        }
+        let moved = TableEdit::MoveRow {
+            id: RowId(1),
+            old_table: "user".into(),
+            new_table: "admin".into(),
+        };
+        assert_eq!(
+            moved.to_delta().unwrap(),
+            id().with_table_change(RowId(1), "user", "admin")
+        );
+        let delta = id().with_table_change(RowId(1), "user", "admin");
+        assert_eq!(TableEdit::Delta(delta.clone()).to_delta().unwrap(), delta);
+        // A batch is the net delta of its steps: the inserted post and its
+        // pair cancel against their removal only where the payloads agree.
+        let batch = TableEdit::Batch(steps.clone());
+        let net = expected
+            .iter()
+            .try_fold(id(), |acc, d| acc.compose(d))
+            .unwrap();
+        assert_eq!(batch.to_delta().unwrap(), net);
+        assert_eq!(
+            net,
+            id().with_added_row(RowId(3), "post", named("draft"))
+                .with_cell_change(RowId(1), "name", Some(Value::Str("bob".into())), None)
+                .with_deleted_row(RowId(0), "user", named("alice"))
+                .with_deleted_pair(fk(), RowId(2), RowId(0))
+        );
+        let mut inst = sample_instance();
+        batch.apply(&mut inst).unwrap();
+        let mut stepwise = sample_instance();
+        for step in &steps {
+            step.apply(&mut stepwise).unwrap();
+        }
+        assert_eq!(bytes(&inst), bytes(&stepwise));
+        // Steps that do not compose are a composition error.
+        let clash = TableEdit::Batch(vec![steps[1].clone(), steps[1].clone()]);
+        assert_eq!(
+            clash.to_delta(),
+            Err(ComposeError::Mismatch {
+                elem: crate::graph_edit::ElemRef::Row(RowId(3))
+            })
+        );
+    }
+
+    #[test]
+    fn inverting_a_row_delete_reinserts_its_foreign_keys_in_order() {
+        let other = Edge {
+            src: "user".into(),
+            tgt: "user".into(),
+            kind: "boss".into(),
+            name: None,
+        };
+        let mut inst = sample_instance();
+        inst.insert_foreign_key(other.clone(), RowId(1), RowId(0))
+            .unwrap();
+        inst.insert_foreign_key(other, RowId(0), RowId(1)).unwrap();
+        let incident = inst.incident_pairs(RowId(0));
+        assert_eq!(incident.len(), 3);
+        let delete = TableEdit::DeleteRow {
+            table: "user".into(),
+            id: RowId(0),
+            row: named("alice"),
+            incident_fks: incident.clone(),
+        };
+        let mut reinsert = vec![TableEdit::InsertRow {
+            table: "user".into(),
+            id: RowId(0),
+            row: named("alice"),
+        }];
+        reinsert.extend(
+            incident
+                .iter()
+                .map(|(edge, src, tgt)| TableEdit::AddForeignKey {
+                    edge: edge.clone(),
+                    src: *src,
+                    tgt: *tgt,
+                }),
+        );
+        let expected = TableEdit::Batch(reinsert).to_delta().unwrap();
+        assert_eq!(delete.invert().unwrap(), TableEdit::Delta(expected));
+        let before = bytes(&inst);
+        delete.apply(&mut inst).unwrap();
+        delete.invert().unwrap().apply(&mut inst).unwrap();
+        assert_eq!(bytes(&inst), before);
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(256))]
+
+        #[test]
+        fn every_table_edit_lowers_to_a_normal_table_delta(
+            from_empty in any::<bool>(),
+            intents in proptest::collection::vec(intent(), 0..16)
+        ) {
+            let start = if from_empty { FInstance::new() } else { sample_instance() };
+            let mut state = start.clone();
+            let mut applied = Vec::new();
+            for intent in &intents {
+                let Some(edit) = resolve(&state, intent) else { continue };
+                let delta = edit.to_delta().unwrap();
+                // Normal form: no no-op change, no change of a row the delta
+                // deletes or adds; re-normalizing changes nothing.
+                prop_assert_eq!(TableDelta::normalize(delta.to_parts()), delta.clone());
+                for ((row, _), change) in delta.cells() {
+                    prop_assert!(!delta.del_rows().contains_key(row) && !delta.add_rows().contains_key(row));
+                    prop_assert!(change.old.is_some() || change.new.is_some());
+                }
+                for change in delta.tables().values() {
+                    prop_assert!(change.old != change.new);
+                }
+                let mut via_delta = state.clone();
+                delta.apply(&mut via_delta).map_err(|e| TestCaseError::fail(format!("{e}")))?;
+                edit.apply(&mut state).map_err(|e| TestCaseError::fail(format!("{e}")))?;
+                prop_assert_eq!(bytes(&via_delta), bytes(&state));
+                applied.push(edit);
+            }
+            let script = TableEdit::Batch(applied);
+            let net = script.to_delta().unwrap();
+            prop_assert_eq!(&TableDelta::normalize(net.to_parts()), &net);
+            let mut replay = start.clone();
+            net.apply(&mut replay).map_err(|e| TestCaseError::fail(format!("{e}")))?;
+            prop_assert_eq!(bytes(&replay), bytes(&state));
+            prop_assert_eq!(TableDelta::diff(&start, &state).apply(&mut start.clone()), Ok(()));
         }
     }
 }

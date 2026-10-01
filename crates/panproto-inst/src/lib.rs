@@ -68,6 +68,7 @@ pub mod query;
 /// Incremental reachability index for W-type instances.
 pub mod reachability;
 pub mod segment;
+pub mod table_delta;
 /// Edit algebra for functor (table-shaped) instances.
 pub mod table_edit;
 /// Edit algebra for W-type (tree-shaped) instances.
@@ -135,6 +136,7 @@ pub use query::{
 };
 pub use reachability::ReachabilityIndex;
 pub use segment::{IdAllocator, IdRange, SegmentId};
+pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
 pub use validate::{validate_attributes, validate_wtype};
