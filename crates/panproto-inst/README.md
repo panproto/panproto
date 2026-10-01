@@ -32,7 +32,7 @@ let output = to_json(&schema, &instance);
 
 `Instance` has three variants. `WInstance` stores a rooted tree with nodes, arcs, and hyperedge fans. `FInstance` stores tables and foreign-key row pairs. `GInstance` stores a general directed multigraph with no required root: nodes keyed by id and edges keyed by `EdgeId`, each edge a `GEdge` carrying its endpoints, its schema edge and an optional position. Its tables are private and change only through methods that keep the adjacency indices in step. `GInstance::from_wtype` and `to_wtype` move a tree into a graph and back without loss, reifying each hyperedge fan as a node of shape `NodeShape::HyperEdge` (`reify_fans`, `unreify_fans`); `GInstance::from_finstance` lays tables out as rows and foreign-key edges; `to_node_link_json` and `from_node_link_json` give the node-link JSON form. The `AcsetOps` trait and the methods on `Instance` dispatch to the shape-specific implementations.
 
-`parse_json(schema, root_vertex, value)` and `to_json(schema, instance)` convert between JSON values and `WInstance`. `ValidationPlan::compile(schema, protocol, options)` compiles a schema's structure, its constraints, keys and references into checks; `validate_tree`, `validate_table` and `validate_graph` on the plan return a `ValidationReport` whose status is passed, failed or incomplete, with a typed diagnostic for every failed check and a reason for every check left undecided. `validate_wtype`, `validate_table` and `validate_graph` compile and run in one call.
+`parse_json(schema, root_vertex, value)` and `to_json(schema, instance)` convert between JSON values and `WInstance`. `validate_wtype` returns the structural violations found in one tree instance.
 
 ## Forward filtering and extension
 
@@ -72,7 +72,7 @@ For `WInstance`, `w_sigma` delegates to `wtype_extend`. `w_delta` is defined onl
 |---|---|
 | Tree instances | `WInstance`, `Node`, `Fan`, `FieldPresence`, `Value` |
 | Table and graph instances | `FInstance`, `GInstance`, `Instance`, `AcsetOps` |
-| Parse and validation | `parse_json`, `to_json`, `ValidationPlan`, `ValidationReport`, `validate_wtype`, `validate_table`, `validate_graph` |
+| Parse and validation | `parse_json`, `to_json`, `validate_wtype`, `validate_attributes` |
 | Filtered forward transport | `wtype_restrict`, `functor_restrict`, `graph_restrict`, `restrict_with_complement` |
 | Total and partial extension | `wtype_extend`, `wtype_extend_partial`, `functor_extend`, `graph_extend` |
 | Categorical transports | `w_sigma`, `w_delta`, `f_sigma`, `f_delta`, `functor_pi`, `wtype_pi` |

@@ -565,29 +565,6 @@ fn a_root_of_the_fan_shape_is_reserved_vocabulary() {
             reason: FanViolation::ReservedKindOutsideFan { edge: EdgeId(0) }
         })
     ));
-    // Validation reports the same vocabulary as the `ReservedVocabulary`
-    // check: the fan-shaped root and the `hyper_parent` arc.
-    let report = panproto_inst::validate_wtype(
-        &tree,
-        &panproto_schema::Schema::default(),
-        &panproto_schema::Protocol::default(),
-    );
-    let reserved: Vec<_> = report
-        .diagnostics
-        .iter()
-        .filter(|d| d.check.kind == panproto_inst::CheckKind::ReservedVocabulary)
-        .map(|d| d.subject.clone())
-        .collect();
-    assert_eq!(
-        reserved,
-        vec![
-            Some(panproto_inst::ViewRef::Node(0)),
-            Some(panproto_inst::ViewRef::Arc {
-                parent: 0,
-                child: 1
-            })
-        ]
-    );
 }
 
 #[test]

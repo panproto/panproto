@@ -1036,16 +1036,23 @@ fn check_kinds_compile_only_for_their_shapes() {
             .keys()
             .any(|k| k.kind == CheckKind::ReferenceResolves)
     );
-    // When the syntax already has the semantic shape, references compile to
-    // the semantic checks only.
+    // When the syntax already has the semantic shape, every reference check
+    // compiles on that one shape, ReferenceResolves included.
     let mut same = p;
     same.syntactic_shape = Graph;
     let plan = ValidationPlan::compile(&schema, &same, &ValidationOptions::default());
-    assert!(
-        !plan
-            .checks()
-            .keys()
-            .any(|k| k.kind == CheckKind::ReferenceResolves)
+    let reference_checks: Vec<(CheckKind, BTreeSet<InstanceShapeKind>)> = plan
+        .checks()
+        .values()
+        .filter(|s| matches!(s.key.decl, SchemaRef::Reference(_)))
+        .map(|s| (s.key.kind, s.locality.keys().copied().collect()))
+        .collect();
+    assert_eq!(
+        reference_checks,
+        vec![
+            (CheckKind::OutDegree, BTreeSet::from([Graph])),
+            (CheckKind::ReferenceResolves, BTreeSet::from([Graph])),
+        ]
     );
 }
 
@@ -2928,8 +2935,13 @@ fn attribute_validation_agrees_on_a_tree_and_its_graph() {
     tree.nodes.insert(0, root);
     let graph = GInstance::from_wtype(&tree).unwrap();
     let attrs = panproto_inst::AttributeSchema::from_schema(&schema);
-    let on_tree = attrs.validate_wtype(&tree);
-    let on_graph = attrs.validate_ginstance(&graph);
+    // The tree projection visits fields in map order; the graph projection
+    // in ascending key. The two find the same violations.
+    let key_of = |v: &panproto_inst::AttributeViolation| format!("{v:?}");
+    let mut on_tree = attrs.validate_wtype(&tree);
+    on_tree.sort_by_key(key_of);
+    let mut on_graph = attrs.validate_ginstance(&graph);
+    on_graph.sort_by_key(key_of);
     assert_eq!(on_tree, on_graph);
     assert_eq!(on_tree.len(), 2, "{on_tree:?}");
     let p = Protocol::default();
@@ -3343,4 +3355,328 @@ proptest! {
             }
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Reference compilation, fan anchors, endpoint families, required targets,
+// report decoding.
+// ---------------------------------------------------------------------------
+
+/// The reference checks a plan compiled, by kind.
+fn reference_kinds(plan: &ValidationPlan) -> Vec<(CheckKind, Requirement)> {
+    plan.checks()
+        .values()
+        .filter(|s| matches!(s.key.decl, SchemaRef::Reference(_)))
+        .map(|s| (s.key.kind, s.requirement))
+        .collect()
+}
+
+#[test]
+fn a_reference_compiles_to_reference_resolves_when_the_shapes_agree() {
+    use panproto_schema::OnUnresolved;
+    // Tree and Tree: the syntactic and the semantic shape are one.
+    let p = Protocol::default();
+    assert_eq!(p.syntactic_shape, p.semantic_shape);
+    // Without an edge, the reference is only ReferenceResolves.
+    let mut schema = referencing_schema(OnUnresolved::Error);
+    if let Some(r) = schema.declarations.references.values_mut().next() {
+        r.edge = None;
+    }
+    let strict = plan(&schema, &p);
+    assert_eq!(
+        reference_kinds(&strict),
+        vec![(CheckKind::ReferenceResolves, Requirement::Required)]
+    );
+    let report = strict.validate_tree(&people(&[(10, Some(99))]), &unlimited(), &none());
+    assert_eq!(
+        of_kind(&report, CheckKind::ReferenceResolves)
+            .into_iter()
+            .filter(|(_, v)| matches!(v, Violation::DanglingReference { .. }))
+            .collect::<Vec<_>>(),
+        vec![(
+            Some(ViewRef::Node(1)),
+            Violation::DanglingReference {
+                reference: "boss".into(),
+                key: vec![Value::Int(99)],
+            }
+        )]
+    );
+    assert_eq!(report.status, CheckStatus::Failed);
+    // With an edge and a lenient policy, ReferenceResolves is advisory
+    // beside the semantic degree and required-edge checks.
+    let lenient = plan(&referencing_schema(OnUnresolved::Complement), &p);
+    assert_eq!(
+        reference_kinds(&lenient),
+        vec![
+            (CheckKind::RequiredEdge, Requirement::Required),
+            (CheckKind::OutDegree, Requirement::Required),
+            (CheckKind::ReferenceResolves, Requirement::Advisory),
+        ]
+    );
+}
+
+#[test]
+fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
+    let schema = S::default().vertex("doc", "object").build();
+    let mut tree = WInstance::new(
+        HashMap::from([(0, Node::new(0, "doc"))]),
+        vec![],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    tree.fans.push(Fan::new("nope", 0));
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::FanWellFormed),
+        vec![(
+            Some(ViewRef::Node(0)),
+            Violation::UnknownAnchor {
+                anchor: "nope".into()
+            }
+        )]
+    );
+    assert_eq!(report.status, CheckStatus::Failed);
+    // The graph form reports the fan's hyper-edge under the same check.
+    let graph = GInstance::from_wtype(&tree).unwrap();
+    let fan_node = graph
+        .nodes()
+        .values()
+        .find(|n| n.shape == NodeShape::HyperEdge)
+        .map(|n| n.id)
+        .unwrap();
+    let report = validate_graph(&graph, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::FanWellFormed),
+        vec![(
+            Some(ViewRef::Node(fan_node)),
+            Violation::UnknownAnchor {
+                anchor: "nope".into()
+            }
+        )]
+    );
+}
+
+/// A root with a union `u` of variants `a` and `b`, and an edge from the
+/// root to `a`.
+fn sibling_variant_schema() -> Schema {
+    let mut schema = S::default()
+        .vertex("root", "object")
+        .vertex("u", "object")
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge(&prop("root", "a", "x"))
+        .build();
+    schema.variants.insert(
+        "u".into(),
+        ["a", "b"]
+            .into_iter()
+            .map(|v| panproto_schema::Variant {
+                id: v.into(),
+                parent_vertex: "u".into(),
+                tag: None,
+            })
+            .collect(),
+    );
+    schema
+}
+
+#[test]
+fn a_sibling_variant_is_not_an_endpoint_of_its_siblings_edge() {
+    let schema = sibling_variant_schema();
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "root"))
+        .with_node(Node::new(1, "b"))
+        .with_edge(0, 1, prop("root", "a", "x"));
+    let report = validate_graph(&graph, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::EndpointCoherence),
+        vec![(
+            Some(ViewRef::Edge(EdgeId(0))),
+            Violation::IncoherentEndpoint {
+                side: EndpointSide::Tgt,
+                expected: "a".into(),
+                found: "b".into(),
+            }
+        )]
+    );
+    // The union stands for each variant, and a variant for its union.
+    let mut schema = sibling_variant_schema();
+    schema = S(schema).edge(&prop("root", "u", "y")).build();
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "root"))
+        .with_node(Node::new(1, "b"))
+        .with_node(Node::new(2, "u"))
+        .with_edge(0, 1, prop("root", "u", "y"))
+        .with_edge(0, 2, prop("root", "a", "x"));
+    let report = validate_graph(&graph, &schema, &Protocol::default());
+    assert!(of_kind(&report, CheckKind::EndpointCoherence).is_empty());
+}
+
+#[test]
+fn a_required_edge_is_met_only_by_an_edge_to_its_target() {
+    let to_a = prop("post", "a", "x");
+    let to_b = prop("post", "b", "x");
+    let schema = S::default()
+        .vertex("post", "object")
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge(&to_a)
+        .edge(&to_b)
+        .required("post", &to_a)
+        .build();
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "post"))
+        .with_node(Node::new(1, "b"))
+        .with_edge(0, 1, to_b);
+    let report = validate_graph(&graph, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::RequiredEdge),
+        vec![(
+            Some(ViewRef::Node(0)),
+            Violation::MissingRequiredEdge { edge: to_a.clone() }
+        )]
+    );
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "post"))
+        .with_node(Node::new(1, "a"))
+        .with_edge(0, 1, to_a);
+    assert!(validate_graph(&graph, &schema, &Protocol::default()).passed());
+}
+
+#[test]
+fn decoding_a_report_with_unordered_entries_is_rejected() -> TestResult {
+    let report = validate_graph(
+        &GInstance::new()
+            .with_node(Node::new(0, "ghost"))
+            .with_node(Node::new(1, "ghost")),
+        &Schema::default(),
+        &Protocol::default(),
+    );
+    assert!(report.diagnostics.len() >= 2);
+    round_trip(&report)?;
+    let mut json = serde_json::to_value(&report)?;
+    if let Some(diagnostics) = json["diagnostics"].as_array_mut() {
+        diagnostics.reverse();
+    }
+    let err = serde_json::from_value::<ValidationReport>(json).expect_err("unordered entries");
+    assert!(err.to_string().contains("order"), "{err}");
+    Ok(())
+}
+
+#[test]
+fn an_incomplete_check_without_subject_covers_every_instance() {
+    let schema = S::default()
+        .vertex("a", "string")
+        .constraint("a", "mystery", "1")
+        .build();
+    let plan = plan(&schema, &Protocol::default());
+    let key = CheckKey::new(
+        CheckKind::ValueConstraint,
+        SchemaRef::Constraint {
+            vertex: "a".into(),
+            constraint: Constraint {
+                sort: "mystery".into(),
+                value: "1".into(),
+            },
+        },
+    );
+    for count in [0u32, 1, 3] {
+        let mut graph = GInstance::new();
+        for id in 0..count {
+            graph = graph.with_node(str_node(id, "a", "x"));
+        }
+        let report = plan.validate_graph(&graph, &unlimited(), &none());
+        let entries: Vec<&IncompleteCheck> = report
+            .incomplete
+            .iter()
+            .filter(|i| i.check == key)
+            .collect();
+        assert_eq!(entries.len(), 1, "one entry for the whole check");
+        assert_eq!(entries[0].subject, None);
+        let cov = report.coverage[&key];
+        assert_eq!(cov.instances, u64::from(count));
+        assert_eq!(cov.incomplete, cov.instances, "every instance undecided");
+        assert_eq!((cov.passed, cov.failed), (0, 0));
+        assert!(report.diagnostics.iter().all(|d| d.check != key));
+    }
+}
+
+#[test]
+fn validate_attributes_is_the_tree_attribute_projection() {
+    let schema = S::default()
+        .vertex("post", "object")
+        .vertex("post.title", "string")
+        .edge(&prop("post", "post.title", "title"))
+        .build();
+    let mut node = Node::new(0, "post");
+    node.extra_fields.insert("title".into(), Value::Int(3));
+    node.extra_fields.insert("stray".into(), Value::Int(4));
+    let tree = WInstance::new(HashMap::from([(0, node)]), vec![], vec![], 0, "post".into());
+    let found = panproto_inst::validate_attributes(&schema, &tree);
+    assert_eq!(found.len(), 2, "{found:?}");
+}
+
+/// The subjects of the reserved-vocabulary diagnostics of a tree.
+fn reserved_subjects(tree: &WInstance, schema: &Schema) -> Vec<Option<ViewRef>> {
+    of_kind(
+        &validate_wtype(tree, schema, &Protocol::default()),
+        CheckKind::ReservedVocabulary,
+    )
+    .into_iter()
+    .map(|(subject, _)| subject)
+    .collect()
+}
+
+#[test]
+fn validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses() {
+    use panproto_inst::ginstance::HYPER_PARENT_KIND;
+    let schema = S::default()
+        .vertex("doc", "object")
+        .vertex("p", "object")
+        .edge(&edge("doc", "p", "prop", None))
+        .edge(&edge("doc", "p", HYPER_PARENT_KIND, None))
+        .build();
+    let two_nodes = || HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "p"))]);
+    // A non-fan node of the fan shape.
+    let mut nodes = two_nodes();
+    nodes.insert(1, Node::new(1, "p").with_shape(NodeShape::HyperEdge));
+    let arcs = vec![(0, 1, edge("doc", "p", "prop", None))];
+    let tree = WInstance::new(nodes.clone(), arcs.clone(), vec![], 0, "doc".into());
+    assert_eq!(
+        reserved_subjects(&tree, &schema),
+        vec![Some(ViewRef::Node(1))]
+    );
+    assert!(WInstance::try_new(nodes, arcs, vec![], 0, "doc".into()).is_err());
+    // An arc of the reserved parent kind.
+    let arcs = vec![(0, 1, edge("doc", "p", HYPER_PARENT_KIND, None))];
+    let tree = WInstance::new(two_nodes(), arcs.clone(), vec![], 0, "doc".into());
+    assert_eq!(
+        reserved_subjects(&tree, &schema),
+        vec![Some(ViewRef::Arc {
+            parent: 0,
+            child: 1
+        })]
+    );
+    assert!(WInstance::try_new(two_nodes(), arcs, vec![], 0, "doc".into()).is_err());
+    // A root of the fan shape with a reserved-kind arc: both are reported,
+    // under any schema.
+    let root = Node::new(0, "doc").with_shape(NodeShape::HyperEdge);
+    let tree = WInstance::new(
+        HashMap::from([(0, root), (1, Node::new(1, "para"))]),
+        vec![(0, 1, edge("doc", "para", HYPER_PARENT_KIND, None))],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    assert_eq!(
+        reserved_subjects(&tree, &Schema::default()),
+        vec![
+            Some(ViewRef::Node(0)),
+            Some(ViewRef::Arc {
+                parent: 0,
+                child: 1
+            })
+        ]
+    );
 }

@@ -1190,53 +1190,51 @@ impl Builder<'_> {
         for reference in references {
             let decl = SchemaRef::Reference(reference.id.clone());
             let anchors = BTreeSet::from([reference.holder.clone()]);
-            if syntactic != semantic {
-                let key = CheckKey::new(CheckKind::ReferenceResolves, decl.clone());
-                let default = if reference.on_unresolved == panproto_schema::OnUnresolved::Error {
-                    Requirement::Required
-                } else {
-                    Requirement::Advisory
-                };
-                let target = self.schema.declarations.resolving_key(&reference).cloned();
-                let supported = matches!(
-                    reference.source,
-                    panproto_schema::RefSource::KeyValue { .. }
-                );
-                let compiled = match (&target, supported) {
-                    (Some(target), true) => Compiled::Reference {
-                        reference: reference.clone(),
-                        target: target.clone(),
-                    },
-                    _ => Compiled::Structural,
-                };
-                self.add_on(
-                    key.clone(),
-                    compiled,
-                    None,
-                    anchors.clone(),
-                    &[syntactic],
-                    default,
-                );
-                if !supported {
-                    self.finding(
-                        CheckKind::DeclarationInterpretable,
-                        &super::report::IncompleteReason::Unsupported {
-                            detail: format!(
-                                "reference {} reads its value through a path, standoff or variable source, which validation does not resolve",
-                                reference.id
-                            ),
-                        },
-                        &[key],
-                    );
-                } else if target.is_none() {
-                    self.ill_formed(
-                        format!(
-                            "reference {} names no key of {} to resolve through",
-                            reference.id, reference.target_vertex
+            let key = CheckKey::new(CheckKind::ReferenceResolves, decl.clone());
+            let default = if reference.on_unresolved == panproto_schema::OnUnresolved::Error {
+                Requirement::Required
+            } else {
+                Requirement::Advisory
+            };
+            let target = self.schema.declarations.resolving_key(&reference).cloned();
+            let supported = matches!(
+                reference.source,
+                panproto_schema::RefSource::KeyValue { .. }
+            );
+            let compiled = match (&target, supported) {
+                (Some(target), true) => Compiled::Reference {
+                    reference: reference.clone(),
+                    target: target.clone(),
+                },
+                _ => Compiled::Structural,
+            };
+            self.add_on(
+                key.clone(),
+                compiled,
+                None,
+                anchors.clone(),
+                &[syntactic],
+                default,
+            );
+            if !supported {
+                self.finding(
+                    CheckKind::DeclarationInterpretable,
+                    &super::report::IncompleteReason::Unsupported {
+                        detail: format!(
+                            "reference {} reads its value through a path, standoff or variable source, which validation does not resolve",
+                            reference.id
                         ),
-                        &[key],
-                    );
-                }
+                    },
+                    &[key],
+                );
+            } else if target.is_none() {
+                self.ill_formed(
+                    format!(
+                        "reference {} names no key of {} to resolve through",
+                        reference.id, reference.target_vertex
+                    ),
+                    &[key],
+                );
             }
             if let Some(edge) = &reference.edge {
                 if reference.cardinality == panproto_schema::Cardinality::One {

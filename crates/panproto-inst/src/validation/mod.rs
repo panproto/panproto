@@ -66,7 +66,7 @@ pub use plan::{
 };
 pub use report::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, Diagnostic, EndpointSide,
-    IncompleteCheck, IncompleteReason, ReportScope, ReportStatusMismatch, Requirement, SchemaRef,
+    IncompleteCheck, IncompleteReason, ReportDecodeError, ReportScope, Requirement, SchemaRef,
     SchemaSourceMap, SourceLocation, ValidationReport, Violation, aggregate_status,
 };
 

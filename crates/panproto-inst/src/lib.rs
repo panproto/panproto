@@ -72,7 +72,7 @@ pub mod segment;
 pub mod table_edit;
 /// Edit algebra for W-type (tree-shaped) instances.
 pub mod tree_edit;
-/// Validation of instances against schemas, re-exported from `validation`.
+/// Validation of W-type instances against schemas.
 pub mod validate;
 pub mod validation;
 /// Value types and field presence.
@@ -138,12 +138,13 @@ pub use reachability::ReachabilityIndex;
 pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_edit::TableEdit;
 pub use tree_edit::TreeEdit;
+pub use validate::{validate_attributes, validate_wtype};
 pub use validation::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, CheckSpec, DeltaElementKind,
     Diagnostic, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts,
     IncompleteCheck, IncompleteReason, ReportScope, Requirement, SchemaRef, SchemaSourceMap,
     SourceLocation, TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan,
-    ValidationReport, Violation, validate_graph, validate_table, validate_wtype,
+    ValidationReport, Violation, validate_graph, validate_table,
 };
 pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};

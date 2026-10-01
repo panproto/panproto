@@ -56,7 +56,6 @@ pub use reify::{
     FanDomain, HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, reify_fans_owned, unreify_fans,
     unreify_fans_owned, unreify_fans_with_schema,
 };
-pub(crate) use reify::{fan_candidates, fan_violations};
 pub use table_embed::{NotTableReason, TableEmbedding, TableShapeReport};
 pub use tree_shape::{NotTreeReason, TreeShapeReport};
 

@@ -552,19 +552,20 @@ impl<'a> InstanceView<'a> {
 ///
 /// A union vertex stands for each of its variants, a recursion point for the
 /// vertex it unfolds to, and a reference vertex for the target of its
-/// outgoing reference edge; an edge declared between such placeholders may
-/// connect elements anchored at members of the corresponding family. The
-/// three relations are closed in both directions.
+/// outgoing reference edge. Each relation points from the placeholder to
+/// what it stands for, and a chain of them is followed in one direction: an
+/// anchor is in the family of an endpoint when one is reachable from the
+/// other along these links. Two variants of one union are thus not in each
+/// other's family, although each is in the union's.
 pub struct AnchorFamilies<'a> {
-    related: HashMap<&'a Name, Vec<&'a Name>>,
+    stands_for: HashMap<&'a Name, Vec<&'a Name>>,
 }
 
 impl<'a> AnchorFamilies<'a> {
     pub(crate) fn new(schema: &'a Schema) -> Self {
-        let mut related: HashMap<&'a Name, Vec<&'a Name>> = HashMap::new();
-        let mut link = |a: &'a Name, b: &'a Name| {
-            related.entry(a).or_default().push(b);
-            related.entry(b).or_default().push(a);
+        let mut stands_for: HashMap<&'a Name, Vec<&'a Name>> = HashMap::new();
+        let mut link = |placeholder: &'a Name, member: &'a Name| {
+            stands_for.entry(placeholder).or_default().push(member);
         };
         for (union_vertex, variants) in &schema.variants {
             for variant in variants {
@@ -586,26 +587,30 @@ impl<'a> AnchorFamilies<'a> {
                 }
             }
         }
-        Self { related }
+        Self { stands_for }
     }
 
-    /// Whether `anchor` is in the family of `endpoint`.
+    /// Whether `anchor` is in the family of `endpoint`: equal to it, or
+    /// reachable from it, or it reachable from `anchor`, along the
+    /// placeholder links.
     pub(crate) fn accepts(&self, endpoint: &Name, anchor: &Name) -> bool {
-        if endpoint == anchor {
-            return true;
-        }
-        let mut seen: HashSet<&Name> = HashSet::from([endpoint]);
-        let mut queue: VecDeque<&Name> = VecDeque::from([endpoint]);
+        endpoint == anchor || self.reaches(endpoint, anchor) || self.reaches(anchor, endpoint)
+    }
+
+    /// Whether `to` is reachable from `from` along the placeholder links.
+    fn reaches(&self, from: &Name, to: &Name) -> bool {
+        let mut seen: HashSet<&Name> = HashSet::from([from]);
+        let mut queue: VecDeque<&Name> = VecDeque::from([from]);
         while let Some(current) = queue.pop_front() {
-            let Some(neighbours) = self.related.get(current) else {
+            let Some(members) = self.stands_for.get(current) else {
                 continue;
             };
-            for neighbour in neighbours {
-                if *neighbour == anchor {
+            for member in members {
+                if *member == to {
                     return true;
                 }
-                if seen.insert(neighbour) {
-                    queue.push_back(neighbour);
+                if seen.insert(member) {
+                    queue.push_back(member);
                 }
             }
         }
@@ -613,10 +618,161 @@ impl<'a> AnchorFamilies<'a> {
     }
 }
 
+/// The nodes of a graph that must be well-formed fan nodes: every node of
+/// the fan shape and every source of a reserved-kind edge, ascending.
+pub fn fan_candidates(graph: &GInstance) -> Vec<u32> {
+    let mut ids: Vec<u32> = graph
+        .nodes()
+        .values()
+        .filter(|n| n.shape == NodeShape::HyperEdge)
+        .map(|n| n.id)
+        .chain(
+            graph
+                .edges()
+                .values()
+                .filter(|e| is_reserved_kind(&e.edge))
+                .map(|e| e.src),
+        )
+        .collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
+}
+
+/// Every reason graph node `id` is not a well-formed fan node under
+/// `schema`, empty when it is one (or when no node has that id). The
+/// conditions are those [`FanDomain::check_with_schema`](crate::FanDomain::check_with_schema)
+/// tests, each reported rather than the first only.
+///
+/// A node not of the fan shape lists each reserved-kind out-edge, ascending.
+/// A fan node lists, in this order: each in-edge and each out-edge of
+/// neither reserved kind (both [`FanViolation::ForeignIncidentEdge`],
+/// ascending), a missing or repeated parent edge, each label carried by more
+/// than one edge, and each label the fan's hyper-edge signature does not
+/// declare (labels ascending).
+pub fn fan_violations(graph: &GInstance, id: u32, schema: &Schema) -> Vec<FanViolation> {
+    let Some(node) = graph.node(id) else {
+        return Vec::new();
+    };
+    let label_of = |edge_id: &EdgeId| graph.edge(*edge_id).map(|e| &e.edge);
+    let out = graph.out_edges(id);
+    if node.shape != NodeShape::HyperEdge {
+        return out
+            .iter()
+            .copied()
+            .filter(|e| label_of(e).is_some_and(is_reserved_kind))
+            .map(|edge| FanViolation::ReservedKindOutsideFan { edge })
+            .collect();
+    }
+    let mut violations: Vec<FanViolation> = graph
+        .in_edges(id)
+        .iter()
+        .map(|&edge| FanViolation::ForeignIncidentEdge { edge })
+        .collect();
+    let mut parents = Vec::new();
+    let mut labels: BTreeMap<&Name, Vec<EdgeId>> = BTreeMap::new();
+    for edge_id in out {
+        let Some(edge) = label_of(edge_id) else {
+            continue;
+        };
+        if edge.kind == HYPER_PARENT_KIND {
+            parents.push(*edge_id);
+        } else if edge.kind == HYPER_LABEL_KIND
+            && let Some(label) = edge.name.as_ref()
+        {
+            labels.entry(label).or_default().push(*edge_id);
+        } else {
+            violations.push(FanViolation::ForeignIncidentEdge { edge: *edge_id });
+        }
+    }
+    match parents.len() {
+        0 => violations.push(FanViolation::MissingParent),
+        1 => {}
+        _ => violations.push(FanViolation::MultipleParents { edges: parents }),
+    }
+    for (label, edges) in &labels {
+        if edges.len() > 1 {
+            violations.push(FanViolation::DuplicateLabel {
+                label: (*label).clone(),
+                edges: edges.clone(),
+            });
+        }
+    }
+    let signature = schema.hyper_edges.get(&node.anchor).map(|h| &h.signature);
+    for label in labels.keys() {
+        if signature.is_none_or(|s| !s.contains_key(*label)) {
+            violations.push(FanViolation::UnknownLabel {
+                label: (*label).clone(),
+            });
+        }
+    }
+    violations
+}
+
+impl AttributeSchema {
+    /// Validate the attribute payload (`extra_fields`) of every node of a
+    /// graph instance against this schema, as
+    /// [`validate_wtype`](Self::validate_wtype) does for a tree: undeclared
+    /// keys and kind mismatches, with nodes whose anchor declares no
+    /// attributes skipped. Fan nodes carry no attributes and are skipped.
+    /// Nodes are visited in ascending id and fields in ascending key.
+    ///
+    /// Not a validation boundary: it returns the attribute violations alone,
+    /// with no status. The `Attribute` check of
+    /// [`validate_graph`](crate::validate_graph) calls it and reports its
+    /// findings as diagnostics of a [`ValidationReport`](crate::ValidationReport).
+    #[must_use]
+    pub fn validate_ginstance(&self, instance: &GInstance) -> Vec<AttributeViolation> {
+        let mut nodes: Vec<_> = instance
+            .nodes()
+            .values()
+            .filter(|n| n.shape != NodeShape::HyperEdge)
+            .collect();
+        nodes.sort_unstable_by_key(|n| n.id);
+        let mut violations = Vec::new();
+        for node in nodes {
+            let Some(decls) = self.attrs.get(&node.anchor) else {
+                continue;
+            };
+            let mut fields: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
+            fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (key, value) in fields {
+                match decls.iter().find(|d| d.name == *key) {
+                    None => violations.push(AttributeViolation::Undeclared {
+                        node_id: node.id,
+                        anchor: node.anchor.clone(),
+                        key: key.clone(),
+                    }),
+                    Some(decl) if !kind_accepts(&decl.kind, value) => {
+                        violations.push(AttributeViolation::Mistyped {
+                            node_id: node.id,
+                            anchor: node.anchor.clone(),
+                            key: key.clone(),
+                            expected: decl.kind.clone(),
+                            found: value.type_name().to_owned(),
+                        });
+                    }
+                    Some(_) => {}
+                }
+            }
+        }
+        violations
+    }
+}
+
+/// The attribute key a violation names.
+fn attribute_key(v: &AttributeViolation) -> &str {
+    match v {
+        AttributeViolation::Undeclared { key, .. } | AttributeViolation::Mistyped { key, .. } => {
+            key
+        }
+    }
+}
+
 use super::plan::{Bound, Compiled, ExternalVerdicts, Format, ValidationPlan, ValueTest};
 use super::report::{CheckKey, CheckKind, EndpointSide, IncompleteReason, SchemaRef, Violation};
 use super::state::{KeyIndex, key_bytes, part_name, part_value, path_values};
-use crate::attributes::{AttributeSchema, AttributeViolation};
+use crate::attributes::{AttributeSchema, AttributeViolation, kind_accepts};
 use crate::fan_violation::FanViolation;
 
 /// One violation an instance of a check found: the elements it names and
@@ -705,6 +861,9 @@ impl<'a> Context<'a> {
                 _ => ViewRef::Node(id),
             };
             attributes.entry(at).or_default().push(v);
+        }
+        for found in attributes.values_mut() {
+            found.sort_by(|a, b| attribute_key(a).cmp(attribute_key(b)));
         }
         let reachable = view.tree().map(reachable_from_root);
         let reserved = view
@@ -801,12 +960,9 @@ pub fn instances(ctx: &Context<'_>, key: &CheckKey) -> Vec<Option<ViewRef>> {
                 .collect(),
         ),
         CheckKind::FanWellFormed => match view {
-            InstanceView::Graph(g) => some(
-                crate::ginstance::fan_candidates(g)
-                    .into_iter()
-                    .map(ViewRef::Node)
-                    .collect(),
-            ),
+            InstanceView::Graph(g) => {
+                some(fan_candidates(g).into_iter().map(ViewRef::Node).collect())
+            }
             InstanceView::Tree(t, _) => {
                 some(t.fans.iter().map(|f| ViewRef::Node(f.parent)).collect())
             }
@@ -1030,16 +1186,39 @@ fn fan_violation_edges(reason: &FanViolation) -> Vec<ViewRef> {
     }
 }
 
-/// A graph fan node is checked with the code
-/// [`unreify_fans_with_schema`](crate::unreify_fans_with_schema) checks it
-/// with, every violation reported rather than the first only; a tree's fans at one parent are checked label by label against their
-/// hyper-edge's signature, a label naming no node of the tree included.
+/// A fan whose hyper-edge `schema` does not declare: the hyper-edge, as an
+/// unknown anchor of the fan.
+fn undeclared_hyper_edge(schema: &Schema, hyper_edge: &str, f: &ViewRef) -> Option<Finding> {
+    (!schema.hyper_edges.contains_key(hyper_edge)).then(|| {
+        Finding::new(
+            vec![f.clone()],
+            Violation::UnknownAnchor {
+                anchor: Name::from(hyper_edge),
+            },
+        )
+    })
+}
+
+/// A graph fan node is checked against the conditions of
+/// [`FanDomain::check_with_schema`](crate::FanDomain::check_with_schema),
+/// every violation reported rather than the first only; a tree's fans at
+/// one parent are checked label by label against their hyper-edge's
+/// signature, a label naming no node of the tree included. In both shapes a
+/// fan whose hyper-edge the schema does not declare is reported as an
+/// [`UnknownAnchor`](Violation::UnknownAnchor) naming the hyper-edge, beside
+/// an [`UnknownLabel`](FanViolation::UnknownLabel) for each of its labels.
 fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
     let schema = &ctx.plan.schema;
     match (ctx.view, f) {
         (InstanceView::Graph(g), ViewRef::Node(id)) => {
             let mut out = Outcome::default();
-            for reason in crate::ginstance::fan_violations(g, *id, Some(schema)) {
+            if let Some(node) = g.node(*id)
+                && node.shape == NodeShape::HyperEdge
+            {
+                out.findings
+                    .extend(undeclared_hyper_edge(schema, &node.anchor, f));
+            }
+            for reason in fan_violations(g, *id, schema) {
                 let mut elements = fan_violation_edges(&reason);
                 elements.push(f.clone());
                 out.findings
@@ -1059,6 +1238,8 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
                     ));
                     continue;
                 }
+                out.findings
+                    .extend(undeclared_hyper_edge(schema, &fan.hyper_edge_id, f));
                 let signature = schema
                     .hyper_edges
                     .get(fan.hyper_edge_id.as_str())
@@ -1093,11 +1274,10 @@ fn non_fan_out_edges<'a>(view: InstanceView<'a>, n: &ViewRef) -> Vec<EdgeRec<'a>
         .collect()
 }
 
-/// An element has an out-edge of the required edge's kind and name.
+/// An element has an out-edge labelled with the required edge: its kind,
+/// name and target all agree.
 fn required_edge(view: InstanceView<'_>, n: &ViewRef, edge: &Edge) -> Outcome {
-    let has = non_fan_out_edges(view, n)
-        .iter()
-        .any(|e| e.label.kind == edge.kind && e.label.name == edge.name);
+    let has = non_fan_out_edges(view, n).iter().any(|e| e.label == edge);
     if has {
         Outcome::default()
     } else {

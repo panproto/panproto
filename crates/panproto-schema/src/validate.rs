@@ -35,12 +35,6 @@ use crate::schema::{Edge, Schema};
 /// search, so a caller loading a schema from bytes has to run it. What it
 /// buys is that a dangling reference is named here instead of surfacing later
 /// as a part quietly missing from an induced sub-schema.
-///
-/// It is schema-level: it checks the schema, never an instance. Instance
-/// validation (`panproto_inst::validation`) wraps it as its static
-/// `SchemaWellFormed` check, so each finding here becomes an incomplete check
-/// in every validation report of the schema, never a failure of the
-/// instance.
 #[must_use]
 pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
     let mut errors = Vec::new();

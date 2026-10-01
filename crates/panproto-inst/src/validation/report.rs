@@ -850,7 +850,9 @@ pub enum ReportScope {
     },
 }
 
-/// The status V.5 aggregation gives a set of entries.
+/// The status a set of entries gives: `Failed` if any required diagnostic
+/// exists, otherwise `Incomplete` if any required incomplete check exists,
+/// otherwise `Passed`. Advisory entries never change it.
 ///
 /// `Failed` if any required diagnostic exists; otherwise `Incomplete` if any
 /// required incomplete check exists; otherwise `Passed`. Advisory entries do
@@ -874,8 +876,10 @@ pub fn aggregate_status(diagnostics: &[Diagnostic], incomplete: &[IncompleteChec
 /// Diagnostics are sorted by `(check, subject, elements)` and incomplete
 /// checks by `(check, subject)`, with ties broken by the canonical bytes of
 /// the rest, so one report has one encoding. `status` is stored and equals
-/// [`aggregate_status`] applied to the entries; decoding recomputes it and
-/// rejects a report whose stored status differs.
+/// [`aggregate_status`] applied to the entries. Decoding rejects a report
+/// whose entries are out of that order or whose stored status differs from
+/// the one its entries give, so a decoded report has the digest of the
+/// report that was encoded.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(try_from = "ReportWire")]
 pub struct ValidationReport {
@@ -910,23 +914,58 @@ struct ReportWire {
     coverage: BTreeMap<CheckKey, CheckCoverage>,
 }
 
-/// A decoded report whose stored status is not the status its entries give.
+/// Why a decoded report was rejected.
 #[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
-#[error("report status {stored:?} does not match the status {computed:?} its entries give")]
-pub struct ReportStatusMismatch {
-    /// The status the report stored.
-    pub stored: CheckStatus,
-    /// The status its entries give.
-    pub computed: CheckStatus,
+#[non_exhaustive]
+pub enum ReportDecodeError {
+    /// The stored status is not the status the entries give.
+    #[error("report status {stored:?} does not match the status {computed:?} its entries give")]
+    StatusMismatch {
+        /// The status the report stored.
+        stored: CheckStatus,
+        /// The status its entries give.
+        computed: CheckStatus,
+    },
+    /// The diagnostics are not in their documented order.
+    #[error("report diagnostics are not in canonical order")]
+    UnorderedDiagnostics,
+    /// The incomplete checks are not in their documented order.
+    #[error("report incomplete checks are not in canonical order")]
+    UnorderedIncomplete,
 }
 
 impl TryFrom<ReportWire> for ValidationReport {
-    type Error = ReportStatusMismatch;
+    type Error = ReportDecodeError;
 
     fn try_from(wire: ReportWire) -> Result<Self, Self::Error> {
-        let computed = aggregate_status(&wire.diagnostics, &wire.incomplete);
+        // Compared by canonical bytes, so a float payload that is not equal
+        // to itself still compares as the same entry.
+        let bytes_of = |entries: &[Diagnostic]| -> Vec<Vec<u8>> {
+            entries
+                .iter()
+                .map(|d| canonical(|w| write_diagnostic(w, d)))
+                .collect()
+        };
+        let mut sorted = wire.diagnostics.clone();
+        sort_diagnostics(&mut sorted);
+        if bytes_of(&sorted) != bytes_of(&wire.diagnostics) {
+            return Err(ReportDecodeError::UnorderedDiagnostics);
+        }
+        let incomplete_bytes = |entries: &[IncompleteCheck]| -> Vec<Vec<u8>> {
+            entries
+                .iter()
+                .map(|i| canonical(|w| write_incomplete(w, i)))
+                .collect()
+        };
+        let mut sorted = wire.incomplete.clone();
+        sort_incomplete(&mut sorted);
+        if incomplete_bytes(&sorted) != incomplete_bytes(&wire.incomplete) {
+            return Err(ReportDecodeError::UnorderedIncomplete);
+        }
+        let (diagnostics, incomplete) = (wire.diagnostics, wire.incomplete);
+        let computed = aggregate_status(&diagnostics, &incomplete);
         if computed != wire.status {
-            return Err(ReportStatusMismatch {
+            return Err(ReportDecodeError::StatusMismatch {
                 stored: wire.status,
                 computed,
             });
@@ -936,8 +975,8 @@ impl TryFrom<ReportWire> for ValidationReport {
             scope: wire.scope,
             plan: wire.plan,
             status: wire.status,
-            diagnostics: wire.diagnostics,
-            incomplete: wire.incomplete,
+            diagnostics,
+            incomplete,
             coverage: wire.coverage,
         })
     }

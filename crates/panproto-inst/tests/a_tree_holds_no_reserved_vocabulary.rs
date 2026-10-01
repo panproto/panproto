@@ -31,49 +31,17 @@ fn two_nodes() -> HashMap<u32, Node> {
     HashMap::from([(0, Node::new(0, "doc")), (1, Node::new(1, "p"))])
 }
 
-/// The schema of the two-node trees below: `doc` with a `p` child.
-fn doc_schema() -> Schema {
-    let mut schema = Schema::default();
-    for v in ["doc", "p"] {
-        schema.vertices.insert(
-            v.into(),
-            panproto_schema::Vertex {
-                id: v.into(),
-                kind: "object".into(),
-                nsid: None,
-            },
-        );
-    }
-    for kind in ["prop", HYPER_PARENT_KIND] {
-        let e = edge("doc", "p", kind);
-        schema.edges.insert(e.clone(), kind.into());
-        schema.outgoing.entry("doc".into()).or_default().push(e);
-    }
-    schema
-}
-
-/// The reserved-vocabulary diagnostics `validate_wtype` reports, by subject.
-fn reserved_diagnostics(tree: &WInstance) -> Vec<Option<ViewRef>> {
-    panproto_inst::validate_wtype(tree, &doc_schema(), &panproto_schema::Protocol::default())
-        .diagnostics
-        .into_iter()
-        .filter(|d| d.check.kind == panproto_inst::CheckKind::ReservedVocabulary)
-        .map(|d| d.subject)
-        .collect()
-}
-
 #[test]
 fn a_non_fan_hyperedge_node_is_rejected_in_a_tree() {
     let mut nodes = two_nodes();
     nodes.insert(1, Node::new(1, "p").with_shape(NodeShape::HyperEdge));
-    let arcs = vec![(0, 1, edge("doc", "p", "prop"))];
-    // The validator reports what the constructor refuses.
-    let unchecked = WInstance::new(nodes.clone(), arcs.clone(), vec![], 0, "doc".into());
-    assert_eq!(
-        reserved_diagnostics(&unchecked),
-        vec![Some(ViewRef::Node(1))]
+    let refused = WInstance::try_new(
+        nodes,
+        vec![(0, 1, edge("doc", "p", "prop"))],
+        vec![],
+        0,
+        "doc".into(),
     );
-    let refused = WInstance::try_new(nodes, arcs, vec![], 0, "doc".into());
     assert!(
         matches!(
             refused,
@@ -87,20 +55,6 @@ fn a_non_fan_hyperedge_node_is_rejected_in_a_tree() {
 
 #[test]
 fn a_hyper_parent_arc_is_rejected_in_a_tree() {
-    let unchecked = WInstance::new(
-        two_nodes(),
-        vec![(0, 1, edge("doc", "p", HYPER_PARENT_KIND))],
-        vec![],
-        0,
-        "doc".into(),
-    );
-    assert_eq!(
-        reserved_diagnostics(&unchecked),
-        vec![Some(ViewRef::Arc {
-            parent: 0,
-            child: 1
-        })]
-    );
     let refused = WInstance::try_new(
         two_nodes(),
         vec![(0, 1, edge("doc", "p", HYPER_PARENT_KIND))],
