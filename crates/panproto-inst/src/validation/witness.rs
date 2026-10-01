@@ -13,8 +13,18 @@
 //! diagnostic of a compiled check of the plan with the check's class,
 //! requirement and declared source, when its subject is an instance of that
 //! check in the instance, and when its elements are exactly the elements the
-//! violation names, ascending. So a diagnostic whose payload, subject or
-//! elements have been altered fails to verify.
+//! violation names, ascending.
+//!
+//! Verification confirms that a diagnostic refutes the instance, not that it
+//! is the diagnostic the validator reports. Where one fault has several
+//! witnesses, each verifies: a `Cycle` verifies with any closed walk of
+//! edges labelled acyclic through its component, so the validator's walk
+//! rotated to start at another node, or walked twice, verifies too; and a
+//! `ParentMismatch` verifies with the parent of any arc into the node other
+//! than the recorded parent, while the validator names the first. A
+//! diagnostic altered so that it no longer refutes the instance (another
+//! subject, another element, a walk that does not close or leaves the
+//! component, a key the named elements do not share) fails to verify.
 //!
 //! ```
 //! use panproto_gat::CheckStatus;
@@ -41,6 +51,71 @@
 //! let mut forged = diagnostic.clone();
 //! forged.violation = Violation::UnknownAnchor { anchor: "phantom".into() };
 //! assert!(!forged.verify(&plan, &ghost));
+//! ```
+//!
+//! A cycle's walk is one witness among several:
+//!
+//! ```
+//! use panproto_inst::validation::{
+//!     CheckKind, ExternalVerdicts, ValidationBudget, ValidationOptions, ValidationPlan, Violation,
+//! };
+//! use panproto_inst::{GInstance, Node};
+//! use panproto_schema::{
+//!     Constraint, ConstraintSemantics, Edge, Protocol, Schema, Vertex,
+//! };
+//!
+//! let next = Edge { src: "item".into(), tgt: "item".into(), kind: "prop".into(), name: Some("next".into()) };
+//! let mut schema = Schema::default();
+//! schema.vertices.insert(
+//!     "item".into(),
+//!     Vertex { id: "item".into(), kind: "object".into(), nsid: None },
+//! );
+//! schema.edges.insert(next.clone(), "prop".into());
+//! schema.outgoing.entry("item".into()).or_default().push(next.clone());
+//! schema.incoming.entry("item".into()).or_default().push(next.clone());
+//! schema.between.entry(("item".into(), "item".into())).or_default().push(next.clone());
+//! schema.constraints.insert(
+//!     "item".into(),
+//!     vec![Constraint { sort: "acyclic".into(), value: "next".into() }],
+//! );
+//! let protocol = Protocol {
+//!     constraint_sorts: vec!["acyclic".into()],
+//!     constraint_semantics: [("acyclic".to_owned(), ConstraintSemantics::Acyclic)].into(),
+//!     ..Protocol::default()
+//! };
+//! let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+//! let ring = GInstance::new()
+//!     .with_node(Node::new(0, "item"))
+//!     .with_node(Node::new(1, "item"))
+//!     .with_node(Node::new(2, "item"))
+//!     .with_edge(0, 1, next.clone())
+//!     .with_edge(1, 2, next.clone())
+//!     .with_edge(2, 0, next);
+//! let report =
+//!     plan.validate_graph(&ring, &ValidationBudget::default(), &ExternalVerdicts::default());
+//! let cycle = report
+//!     .diagnostics
+//!     .iter()
+//!     .find(|d| d.check.kind == CheckKind::Acyclic)
+//!     .expect("the ring is a cycle");
+//! let Violation::Cycle { scc, witness } = &cycle.violation else { unreachable!() };
+//! assert!(cycle.verify(&plan, &ring));
+//!
+//! // The same walk from another node, and walked twice: other witnesses of
+//! // the same cycle, which verify although the validator reports neither.
+//! let mut rotated = cycle.clone();
+//! let mut walk = witness.clone();
+//! walk.rotate_left(1);
+//! rotated.violation = Violation::Cycle { scc: scc.clone(), witness: walk };
+//! assert!(rotated.verify(&plan, &ring) && rotated != *cycle);
+//! let mut doubled = cycle.clone();
+//! doubled.violation = Violation::Cycle { scc: scc.clone(), witness: witness.repeat(2) };
+//! assert!(doubled.verify(&plan, &ring) && doubled != *cycle);
+//!
+//! // A walk that does not close is no witness.
+//! let mut open = cycle.clone();
+//! open.violation = Violation::Cycle { scc: scc.clone(), witness: witness[..2].to_vec() };
+//! assert!(!open.verify(&plan, &ring));
 //! ```
 
 use std::collections::{BTreeSet, HashSet, VecDeque};
@@ -106,6 +181,11 @@ impl Diagnostic {
     /// requirement and source; its subject is an instance of the check; its
     /// elements are exactly those its violation names, ascending; and the
     /// violation holds of the elements it names.
+    ///
+    /// A fault with several witnesses verifies with each of them, not only
+    /// with the one the validator reports (see the [module
+    /// documentation](self)): any closed walk of a `Cycle`'s component, and
+    /// any arc's parent other than the recorded one for a `ParentMismatch`.
     ///
     /// Each violation is confirmed by reading what it names: an
     /// `UnknownAnchor` by looking its anchor up in the schema, an
