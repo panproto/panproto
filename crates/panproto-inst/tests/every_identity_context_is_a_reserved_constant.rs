@@ -7,22 +7,27 @@
 
 use std::collections::BTreeSet;
 
+use panproto_gat::{
+    ClashPolicy, ComposeOptions, CompositionMode, DEFAULT_VERIFY_BUDGET, DiagramNode, Operation,
+    Sort, Theory, TheoryDiagram, compose,
+};
 use panproto_inst::identity::{
-    FUNCTOR_COMPLEMENT_FORMAT_VERSION, GRAPH_COMPLEMENT_FORMAT_VERSION, GRAPH_DELTA_CONTEXT,
-    GRAPH_INSTANCE_CONTEXT, LENS_CONTEXT, MANIFEST_CONTEXT, MANIFEST_LEAF_CONTEXT,
-    MANIFEST_NODE_CONTEXT, RESOLUTION_COMPLEMENT_FORMAT_VERSION, RESOLUTION_CONTEXT,
-    RUN_JOURNAL_CONTEXT, SCHEMA_CONTEXT, SEGMENT_COMPLEMENT_CONTEXT, SEGMENT_CONTEXT,
-    SEGMENT_CROSS_CONTEXT, SEGMENT_FORMAT_VERSION, SEGMENT_MANIFEST_VERSION, SEGMENT_TASK_CONTEXT,
-    TABLE_DELTA_CONTEXT, TABLE_INSTANCE_CONTEXT, TREE_COMPLEMENT_FORMAT_VERSION, TREE_EDIT_CONTEXT,
-    TREE_INSTANCE_CONTEXT, VALIDATION_PLAN_CONTEXT, VALIDATION_REPORT_CONTEXT,
-    VCS_GRAPH_COMPLEMENT_CONTEXT, VCS_GRAPH_DATASET_CONTEXT, VCS_GRAPH_EDIT_LOG_CONTEXT,
-    VCS_TABLE_COMPLEMENT_CONTEXT, VCS_TABLE_DATASET_CONTEXT, VCS_TABLE_EDIT_LOG_CONTEXT,
+    COMPOSITION_CONTEXT, Digest, FUNCTOR_COMPLEMENT_FORMAT_VERSION,
+    GRAPH_COMPLEMENT_FORMAT_VERSION, GRAPH_DELTA_CONTEXT, GRAPH_INSTANCE_CONTEXT, LENS_CONTEXT,
+    MANIFEST_CONTEXT, MANIFEST_LEAF_CONTEXT, MANIFEST_NODE_CONTEXT,
+    RESOLUTION_COMPLEMENT_FORMAT_VERSION, RESOLUTION_CONTEXT, RUN_JOURNAL_CONTEXT, SCHEMA_CONTEXT,
+    SEGMENT_COMPLEMENT_CONTEXT, SEGMENT_CONTEXT, SEGMENT_CROSS_CONTEXT, SEGMENT_FORMAT_VERSION,
+    SEGMENT_MANIFEST_VERSION, SEGMENT_TASK_CONTEXT, TABLE_DELTA_CONTEXT, TABLE_INSTANCE_CONTEXT,
+    THEORY_CONTEXT, TREE_COMPLEMENT_FORMAT_VERSION, TREE_EDIT_CONTEXT, TREE_INSTANCE_CONTEXT,
+    VALIDATION_PLAN_CONTEXT, VALIDATION_REPORT_CONTEXT, VCS_GRAPH_COMPLEMENT_CONTEXT,
+    VCS_GRAPH_DATASET_CONTEXT, VCS_GRAPH_EDIT_LOG_CONTEXT, VCS_TABLE_COMPLEMENT_CONTEXT,
+    VCS_TABLE_DATASET_CONTEXT, VCS_TABLE_EDIT_LOG_CONTEXT,
 };
 
-/// Every context this crate defines, each with the string it must be,
-/// except [`SCHEMA_CONTEXT`], whose version moves with the schema encoding
-/// and is pinned by the golden identity file instead.
-const CONTEXTS: [(&str, &str); 24] = [
+/// Every context this module defines or re-exports, each with the string it
+/// must be, except [`SCHEMA_CONTEXT`], whose version moves with the schema
+/// encoding and is pinned by the golden identity file instead.
+const CONTEXTS: [(&str, &str); 26] = [
     (LENS_CONTEXT, "panproto 2026-09 compiled lens identity v1"),
     (GRAPH_INSTANCE_CONTEXT, "panproto 2026-09 graph instance v1"),
     (
@@ -91,6 +96,11 @@ const CONTEXTS: [(&str, &str); 24] = [
     (
         RESOLUTION_CONTEXT,
         "panproto 2026-09 resolution identity v1",
+    ),
+    (THEORY_CONTEXT, "panproto 2026-09 theory identity v1"),
+    (
+        COMPOSITION_CONTEXT,
+        "panproto 2026-09 theory composition v1",
     ),
 ];
 
@@ -178,4 +188,61 @@ fn every_complement_format_version_is_one() {
     assert_eq!(GRAPH_COMPLEMENT_FORMAT_VERSION, 1);
     assert_eq!(FUNCTOR_COMPLEMENT_FORMAT_VERSION, 1);
     assert_eq!(RESOLUTION_COMPLEMENT_FORMAT_VERSION, 1);
+}
+
+/// The theory contexts this module re-exports are the constants the theory
+/// encoders hash under, so a digest derived here equals the one
+/// `panproto_schema` computes.
+#[test]
+fn the_theory_contexts_are_the_ones_the_theory_digests_use() {
+    assert_eq!(
+        THEORY_CONTEXT,
+        panproto_schema::canonical_theory::THEORY_CONTEXT
+    );
+    assert_eq!(
+        COMPOSITION_CONTEXT,
+        panproto_schema::canonical_theory::COMPOSITION_CONTEXT
+    );
+
+    let theory = Theory::new(
+        "ThGraph",
+        vec![Sort::simple("V"), Sort::simple("E")],
+        vec![
+            Operation::unary("src", "e", "E", "V"),
+            Operation::unary("tgt", "e", "E", "V"),
+        ],
+        vec![],
+    );
+    assert_eq!(
+        Digest::derive(
+            THEORY_CONTEXT,
+            &panproto_schema::canonical_theory_bytes(&theory)
+        )
+        .0,
+        panproto_schema::theory_digest(&theory)
+    );
+
+    let diagram = TheoryDiagram {
+        nodes: vec![DiagramNode {
+            label: "ThGraph".into(),
+            theory,
+        }],
+        edges: vec![],
+    };
+    let opts = ComposeOptions {
+        mode: CompositionMode::ExplicitIdentity,
+        result_name: "Composed".into(),
+        clash: ClashPolicy::Reject,
+        rewrite_budget: DEFAULT_VERIFY_BUDGET,
+    };
+    let composition =
+        compose(&diagram, &opts).unwrap_or_else(|e| panic!("a one-node diagram composes: {e}"));
+    assert_eq!(
+        Digest::derive(
+            COMPOSITION_CONTEXT,
+            &panproto_schema::canonical_composition_bytes(&composition)
+        )
+        .0,
+        panproto_schema::composition_digest(&composition)
+    );
 }
