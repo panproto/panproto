@@ -66,8 +66,8 @@ pub use plan::{
 };
 pub use report::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, Diagnostic, EndpointSide,
-    IncompleteCheck, IncompleteReason, ReportDecodeError, ReportScope, Requirement, SchemaRef,
-    SchemaSourceMap, SourceLocation, ValidationReport, Violation, aggregate_status,
+    FanRecord, IncompleteCheck, IncompleteReason, ReportDecodeError, ReportScope, Requirement,
+    SchemaRef, SchemaSourceMap, SourceLocation, ValidationReport, Violation, aggregate_status,
 };
 
 impl ValidationPlan {

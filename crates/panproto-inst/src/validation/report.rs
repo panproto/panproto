@@ -13,6 +13,7 @@ use panproto_gat::{CheckStatus, Name};
 use panproto_schema::{Constraint, Edge, InstanceShapeKind};
 use serde::{Deserialize, Serialize};
 
+use crate::fan::Fan;
 use crate::fan_violation::FanViolation;
 use crate::ginstance::EdgeId;
 use crate::identity::{CanonicalSink, Digest, VALIDATION_REPORT_CONTEXT};
@@ -367,6 +368,63 @@ pub enum EndpointSide {
     Tgt,
 }
 
+/// A tree fan, named by its canonical record: its parent, its hyper-edge and
+/// its children ascending by label.
+///
+/// A tree diagnostic about a fan carries this record, since a tree names no
+/// fan by an id: two diagnostics about fans at one parent are equal only for
+/// equal fans. The derived order, by parent, then hyper-edge, then children,
+/// is the canonical order of fan records in a tree's bytes.
+///
+/// ```
+/// use panproto_inst::{Fan, FanRecord};
+///
+/// let record = FanRecord::of(&Fan::new("rel", 0).with_child("b", 2).with_child("a", 1));
+/// assert_eq!(record.parent, 0);
+/// assert_eq!(record.hyper_edge, "rel");
+/// assert_eq!(record.children, vec![("a".into(), 1), ("b".into(), 2)]);
+/// ```
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct FanRecord {
+    /// The fan's parent node.
+    pub parent: u32,
+    /// The fan's hyper-edge.
+    pub hyper_edge: Name,
+    /// Each label of the fan with the node it names, ascending by label.
+    pub children: Vec<(Name, u32)>,
+}
+
+impl FanRecord {
+    /// The record of `fan`.
+    #[must_use]
+    pub fn of(fan: &Fan) -> Self {
+        let mut children: Vec<(Name, u32)> = fan
+            .children
+            .iter()
+            .map(|(label, child)| (Name::from(label.as_str()), *child))
+            .collect();
+        children.sort_unstable();
+        Self {
+            parent: fan.parent,
+            hyper_edge: Name::from(fan.hyper_edge_id.as_str()),
+            children,
+        }
+    }
+}
+
+impl fmt::Display for FanRecord {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} at {} {{", self.hyper_edge, self.parent)?;
+        for (i, (label, child)) in self.children.iter().enumerate() {
+            if i > 0 {
+                f.write_str(", ")?;
+            }
+            write!(f, "{label}: {child}")?;
+        }
+        f.write_str("}")
+    }
+}
+
 /// A typed refutation: what one check found wrong with an instance.
 ///
 /// Each variant carries what a checker needs to confirm it without
@@ -398,6 +456,9 @@ pub enum Violation {
     MalformedFan {
         /// Why.
         reason: FanViolation,
+        /// The fan, for a tree, whose fans have no ids; `None` for a graph,
+        /// whose diagnostic names the fan node as its subject.
+        fan: Option<FanRecord>,
     },
     /// A tree holds reserved fan vocabulary.
     ReservedVocabulary,
@@ -582,7 +643,13 @@ impl fmt::Display for Violation {
                     "{end} is anchored at {found} but the edge expects {expected}"
                 )
             }
-            Self::MalformedFan { reason } => write!(f, "malformed fan: {reason}"),
+            Self::MalformedFan { reason, fan } => {
+                f.write_str("malformed fan")?;
+                if let Some(fan) = fan {
+                    write!(f, " {fan}")?;
+                }
+                write!(f, ": {reason}")
+            }
             Self::ReservedVocabulary => f.write_str("reserved fan vocabulary outside a fan"),
             Self::MissingRequiredEdge { edge } => {
                 f.write_str("missing required edge ")?;
@@ -1289,6 +1356,26 @@ fn write_fan_violation<W: CanonicalSink + ?Sized>(w: &mut W, v: &FanViolation) {
             w.tag(5);
             w.u32(edge.0);
         }
+        FanViolation::UnknownHyperEdge { hyper_edge } => {
+            w.tag(6);
+            w.name(hyper_edge);
+        }
+        FanViolation::MissingChild { label } => {
+            w.tag(7);
+            w.name(label);
+        }
+    }
+}
+
+/// Write a fan record: its parent, its hyper-edge, then its children's
+/// count and each `(label, child)`.
+fn write_fan_record<W: CanonicalSink + ?Sized>(w: &mut W, fan: &FanRecord) {
+    w.u32(fan.parent);
+    w.name(&fan.hyper_edge);
+    w.len(fan.children.len());
+    for (label, child) in &fan.children {
+        w.name(label);
+        w.u32(*child);
     }
 }
 
@@ -1324,9 +1411,10 @@ pub fn write_violation<W: CanonicalSink + ?Sized>(w: &mut W, v: &Violation) {
             w.name(expected);
             w.name(found);
         }
-        Violation::MalformedFan { reason } => {
+        Violation::MalformedFan { reason, fan } => {
             w.tag(3);
             write_fan_violation(w, reason);
+            write_opt(w, fan.as_ref(), write_fan_record);
         }
         Violation::ReservedVocabulary => w.tag(4),
         Violation::MissingRequiredEdge { edge } => {

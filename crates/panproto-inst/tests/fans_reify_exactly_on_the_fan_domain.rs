@@ -231,13 +231,14 @@ fn an_unknown_fan_label_needs_a_schema() {
         .with_edge(5, 0, parent_edge())
         .with_edge(5, 1, label_edge("theme"));
     assert!(FanDomain::check(&g).is_ok(), "no schema, no label check");
-    // A hyper-edge the schema does not declare has no labels at all.
+    // A hyper-edge the schema does not declare is reported as such, and its
+    // labels are not checked.
     assert!(matches!(
         FanDomain::check_with_schema(&g, &Schema::default()),
         Err(InstError::MalformedFan {
-            reason: FanViolation::UnknownLabel { .. },
-            ..
-        })
+            node: 5,
+            reason: FanViolation::UnknownHyperEdge { hyper_edge },
+        }) if hyper_edge == "rel"
     ));
     let mut schema = Schema::default();
     schema.hyper_edges.insert(

@@ -11,11 +11,11 @@ use panproto_inst::validation::aggregate_status;
 use panproto_inst::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, DeltaElementKind, Diagnostic,
     Digest, EdgeId, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, FInstance,
-    Fan, FanViolation, FieldPresence, GEdge, GInstance, IncompleteCheck, IncompleteReason,
-    InstanceShapeKind, Node, NodeShape, ReportScope, Requirement, RowId, SchemaRef,
-    SchemaSourceMap, SegmentId, SourceLocation, TriggerTable, ValidationBudget, ValidationOptions,
-    ValidationPlan, ValidationReport, Value, ViewRef, Violation, WInstance, validate_graph,
-    validate_table, validate_wtype,
+    Fan, FanRecord, FanViolation, FieldPresence, GEdge, GInstance, IncompleteCheck,
+    IncompleteReason, InstanceShapeKind, Node, NodeShape, ReportScope, Requirement, RowId,
+    SchemaRef, SchemaSourceMap, SegmentId, SourceLocation, TriggerTable, ValidationBudget,
+    ValidationOptions, ValidationPlan, ValidationReport, Value, ViewRef, Violation, WInstance,
+    validate_graph, validate_table, validate_wtype,
 };
 use panproto_schema::{
     Constraint, ConstraintSemantics, Edge, HyperEdge, Key, KeyPart, KeyRole, KeyScope, LengthUnit,
@@ -463,6 +463,7 @@ fn all_violations() -> Vec<Violation> {
         },
         Violation::MalformedFan {
             reason: FanViolation::UnknownLabel { label: "l".into() },
+            fan: Some(FanRecord::of(&Fan::new("h", 0).with_child("l", 1))),
         },
         Violation::ReservedVocabulary,
         Violation::MissingRequiredEdge { edge: e.clone() },
@@ -2323,7 +2324,8 @@ fn an_unknown_fan_label_needs_a_schema() {
             Violation::MalformedFan {
                 reason: FanViolation::UnknownLabel {
                     label: "theme".into()
-                }
+                },
+                fan: None,
             }
         )]
     );
@@ -2348,16 +2350,24 @@ fn fan_edges_are_checked_against_hyper_edges_not_schema_edges() {
     assert_eq!(edge_checks.instances, 0);
     let fan_checks = report.coverage[&CheckKey::new(CheckKind::FanWellFormed, SchemaRef::Schema)];
     assert_eq!((fan_checks.instances, fan_checks.passed), (1, 1));
-    // A fan node anchored at an undeclared hyper-edge is an unknown anchor.
+    // A fan node anchored at an undeclared hyper-edge is a malformed fan,
+    // never an unknown anchor: `NodeAnchor` does not apply to fan nodes.
     let mut other = fan_schema();
     other.hyper_edges.clear();
     let report = validate_graph(&graph, &other, &Protocol::default());
-    assert!(of_kind(&report, CheckKind::NodeAnchor).contains(&(
-        Some(ViewRef::Node(2)),
-        Violation::UnknownAnchor {
-            anchor: "rel".into()
-        }
-    )));
+    assert_eq!(
+        of_kind(&report, CheckKind::FanWellFormed),
+        vec![(
+            Some(ViewRef::Node(2)),
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownHyperEdge {
+                    hyper_edge: "rel".into()
+                },
+                fan: None,
+            }
+        )]
+    );
+    assert!(of_kind(&report, CheckKind::NodeAnchor).is_empty());
 }
 
 #[test]
@@ -2425,7 +2435,8 @@ fn graph_fans_are_checked_by_fan_well_formed_only() {
             .collect();
         assert!(
             fans.contains(&Violation::MalformedFan {
-                reason: expected.clone()
+                reason: expected.clone(),
+                fan: None,
             }),
             "{expected:?} in {fans:?}"
         );
@@ -2463,7 +2474,7 @@ fn validate_graph_reports_every_fan_violation() {
     let fan = |node: u32, reason: FanViolation| {
         (
             Some(ViewRef::Node(node)),
-            Violation::MalformedFan { reason },
+            Violation::MalformedFan { reason, fan: None },
         )
     };
     assert_eq!(
@@ -2810,8 +2821,10 @@ fn validate_wtype_reports_reserved_vocabulary() {
 /// incoherent arc `UndeclaredEdge` and `IncoherentEndpoint`, a missing root
 /// `MissingRoot`, an unreachable node `Unreachable`, a missing required edge
 /// `MissingRequiredEdge`, a parent map disagreeing with the arcs
-/// `ParentMismatch`, and a malformed fan `MalformedFan` (or, for a fan of an
-/// undeclared hyper-edge, `UnknownAnchor` naming the hyper-edge).
+/// `ParentMismatch`, and a malformed fan `MalformedFan`: a fan label outside
+/// the signature `UnknownLabel`, a fan of an undeclared hyper-edge
+/// `UnknownHyperEdge`, and a fan naming an absent parent or child
+/// `MissingParent` and `MissingChild`.
 #[test]
 fn legacy_invariants_map_to_typed_violations() {
     let p = Protocol::default();
@@ -2875,18 +2888,36 @@ fn legacy_invariants_map_to_typed_violations() {
             }
         )
     });
-    // A malformed fan, and a fan of an undeclared hyper-edge.
+    // A malformed fan, a fan of an undeclared hyper-edge, and fans naming an
+    // absent parent or child.
     let mut t = three_node_tree();
     t.fans.push(Fan::new("rel", 0).with_child("theme", 1));
     has(
         &t,
-        &|v| matches!(v, Violation::MalformedFan { reason: FanViolation::UnknownLabel { label } } if label == "theme"),
+        &|v| matches!(v, Violation::MalformedFan { reason: FanViolation::UnknownLabel { label }, .. } if label == "theme"),
     );
     let mut t = three_node_tree();
     t.fans.push(Fan::new("nope", 0));
     has(
         &t,
-        &|v| matches!(v, Violation::UnknownAnchor { anchor } if anchor == "nope"),
+        &|v| matches!(v, Violation::MalformedFan { reason: FanViolation::UnknownHyperEdge { hyper_edge }, .. } if hyper_edge == "nope"),
+    );
+    let mut t = three_node_tree();
+    t.fans.push(Fan::new("rel", 9).with_child("arg", 1));
+    has(&t, &|v| {
+        matches!(
+            v,
+            Violation::MalformedFan {
+                reason: FanViolation::MissingParent,
+                ..
+            }
+        )
+    });
+    let mut t = three_node_tree();
+    t.fans.push(Fan::new("rel", 0).with_child("arg", 9));
+    has(
+        &t,
+        &|v| matches!(v, Violation::MalformedFan { reason: FanViolation::MissingChild { label }, .. } if label == "arg"),
     );
     let mut t = three_node_tree();
     t.fans.push(Fan::new("rel", 0).with_child("arg", 1));
@@ -3454,135 +3485,274 @@ fn doc_tree_with_child() -> (Schema, WInstance) {
 #[test]
 fn a_tree_fan_of_an_undeclared_hyper_edge_is_malformed() {
     let (schema, mut tree) = doc_tree_with_child();
-    tree.fans.push(Fan::new("nope", 0).with_child("lab", 1));
+    let fan = Fan::new("nope", 0).with_child("lab", 1);
+    tree.fans.push(fan.clone());
     let report = validate_wtype(&tree, &schema, &Protocol::default());
-    // I7 maps to `MalformedFan`: an undeclared hyper-edge has an empty
-    // signature, so each label of its fan is unknown.
+    // I7 maps to `MalformedFan`: the hyper-edge is undeclared, so its labels
+    // are not read against any signature.
     assert_eq!(
         fan_entries(&report),
         vec![(
             Some(ViewRef::Node(0)),
             vec![ViewRef::Node(0), ViewRef::Node(1)],
             Violation::MalformedFan {
-                reason: FanViolation::UnknownLabel {
-                    label: "lab".into()
-                }
+                reason: FanViolation::UnknownHyperEdge {
+                    hyper_edge: "nope".into()
+                },
+                fan: Some(FanRecord::of(&fan)),
             }
         )]
     );
     assert_eq!(report.status, CheckStatus::Failed);
 }
 
-#[test]
-fn a_graph_fan_of_an_undeclared_hyper_edge_is_reported_once_per_fault() {
-    let (schema, mut tree) = doc_tree_with_child();
-    tree.fans.push(Fan::new("nope", 0).with_child("lab", 1));
-    let graph = GInstance::from_wtype(&tree).unwrap();
-    let fan_node = graph
-        .nodes()
-        .values()
-        .find(|n| n.shape == NodeShape::HyperEdge)
-        .map(|n| n.id)
-        .unwrap();
-    let report = validate_graph(&graph, &schema, &Protocol::default());
-    // The fan node's anchor is the hyper-edge: `NodeAnchor` reports it, and
-    // `FanWellFormed` reports only the unknown label.
-    assert_eq!(
-        of_kind(&report, CheckKind::NodeAnchor),
-        vec![(
-            Some(ViewRef::Node(fan_node)),
-            Violation::UnknownAnchor {
-                anchor: "nope".into()
-            }
-        )]
-    );
-    assert_eq!(
-        of_kind(&report, CheckKind::FanWellFormed),
-        vec![(
-            Some(ViewRef::Node(fan_node)),
-            Violation::MalformedFan {
-                reason: FanViolation::UnknownLabel {
-                    label: "lab".into()
-                }
-            }
-        )]
-    );
+/// The `FanWellFormed` diagnostics of a graph report about the graph form
+/// of a tree, read back as tree fan diagnostics: the diagnostic at the fan
+/// node of the tree's `k`th fan becomes `(FanRecord::of(&tree.fans[k]),
+/// reason)`.
+fn graph_fan_pairs(
+    tree: &WInstance,
+    graph_report: &ValidationReport,
+    fan_nodes: &[u32],
+) -> BTreeSet<(FanRecord, FanViolation)> {
+    fan_entries(graph_report)
+        .into_iter()
+        .map(|(subject, _, violation)| {
+            let Some(ViewRef::Node(node)) = subject else {
+                panic!("a graph fan diagnostic names its fan node");
+            };
+            let k = fan_nodes.iter().position(|n| *n == node).unwrap();
+            let Violation::MalformedFan { reason, fan: None } = violation else {
+                panic!("a graph fan diagnostic carries no fan record");
+            };
+            (FanRecord::of(&tree.fans[k]), reason)
+        })
+        .collect()
+}
+
+/// The `FanWellFormed` diagnostics of a tree report as `(fan, reason)`.
+fn tree_fan_pairs(report: &ValidationReport) -> BTreeSet<(FanRecord, FanViolation)> {
+    fan_entries(report)
+        .into_iter()
+        .map(|(_, _, violation)| {
+            let Violation::MalformedFan {
+                reason,
+                fan: Some(fan),
+            } = violation
+            else {
+                panic!("a tree fan diagnostic names its fan");
+            };
+            (fan, reason)
+        })
+        .collect()
 }
 
 #[test]
-fn a_tree_fan_of_an_undeclared_hyper_edge_with_no_labels_names_the_hyper_edge() {
+fn a_fan_of_an_undeclared_hyper_edge_is_one_malformed_fan_in_every_shape() {
+    for fan in [
+        Fan::new("nope", 0).with_child("lab", 1),
+        Fan::new("nope", 0),
+    ] {
+        let (schema, mut tree) = doc_tree_with_child();
+        tree.fans.push(fan.clone());
+        let tree_report = validate_wtype(&tree, &schema, &Protocol::default());
+        let (graph, emb) = GInstance::from_wtype_embedded(&tree, None).unwrap();
+        let fan_node = emb.fans[0].node;
+        let graph_report = validate_graph(&graph, &schema, &Protocol::default());
+        // One fault, one diagnostic, in each shape: the graph's fan node is
+        // not an element `NodeAnchor` checks.
+        let expected = BTreeSet::from([(
+            FanRecord::of(&fan),
+            FanViolation::UnknownHyperEdge {
+                hyper_edge: "nope".into(),
+            },
+        )]);
+        assert_eq!(tree_fan_pairs(&tree_report), expected);
+        assert_eq!(graph_fan_pairs(&tree, &graph_report, &[fan_node]), expected);
+        assert_eq!(fan_entries(&tree_report).len(), 1);
+        assert_eq!(fan_entries(&graph_report).len(), 1);
+        assert!(
+            of_kind(&graph_report, CheckKind::NodeAnchor)
+                .iter()
+                .all(|(subject, _)| subject != &Some(ViewRef::Node(fan_node))),
+            "{graph_report:?}"
+        );
+        assert!(of_kind(&graph_report, CheckKind::NodeAnchor).is_empty());
+        let anchors = report_key(&graph_report, CheckKind::NodeAnchor);
+        assert_eq!(graph_report.coverage[&anchors].instances, 2);
+        assert_eq!(tree_report.status, CheckStatus::Failed);
+        assert_eq!(graph_report.status, CheckStatus::Failed);
+    }
+}
+
+/// The key of the one check of `kind` that a report covers.
+fn report_key(report: &ValidationReport, kind: CheckKind) -> CheckKey {
+    let keys: Vec<&CheckKey> = report.coverage.keys().filter(|k| k.kind == kind).collect();
+    assert_eq!(keys.len(), 1, "{keys:?}");
+    keys[0].clone()
+}
+
+#[test]
+fn a_tree_fan_of_an_undeclared_hyper_edge_with_no_labels_is_a_malformed_fan() {
     let (schema, mut tree) = doc_tree_with_child();
     tree.fans.push(Fan::new("nope", 0));
     let report = validate_wtype(&tree, &schema, &Protocol::default());
-    // No `FanViolation` describes a fan with no labels whose hyper-edge is
-    // undeclared, so the hyper-edge is reported as an unknown anchor, as
-    // `NodeAnchor` reports the fan node of the graph form.
     assert_eq!(
         fan_entries(&report),
         vec![(
             Some(ViewRef::Node(0)),
             vec![ViewRef::Node(0)],
-            Violation::UnknownAnchor {
-                anchor: "nope".into()
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownHyperEdge {
+                    hyper_edge: "nope".into()
+                },
+                fan: Some(FanRecord::of(&Fan::new("nope", 0))),
+            }
+        )]
+    );
+    assert!(
+        report
+            .diagnostics
+            .iter()
+            .all(|d| !matches!(d.violation, Violation::UnknownAnchor { .. })),
+        "{report:?}"
+    );
+    assert_eq!(report.status, CheckStatus::Failed);
+}
+
+#[test]
+fn a_tree_fan_with_an_absent_child_is_missing_child() {
+    let (schema, mut tree) = three_doc_tree(vec![]);
+    // `x` is declared and its child 9 is absent: `MissingChild`, never
+    // `UnknownLabel`.
+    let fan = Fan::new("a", 0).with_child("x", 9);
+    tree.fans.push(fan.clone());
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        fan_entries(&report),
+        vec![(
+            Some(ViewRef::Node(0)),
+            vec![ViewRef::Node(0), ViewRef::Node(9)],
+            Violation::MalformedFan {
+                reason: FanViolation::MissingChild { label: "x".into() },
+                fan: Some(FanRecord::of(&fan)),
             }
         )]
     );
     assert_eq!(report.status, CheckStatus::Failed);
 }
 
+/// Every reason a tree fan breaks reaches the report (the order in which
+/// they are produced is the unit test `tree_fan_reasons_are_reported_in_order`
+/// of the checks; the report orders diagnostics with one subject and one
+/// element list by their canonical bytes, V.2).
 #[test]
-fn tree_fan_diagnostics_name_the_fan_they_concern() {
-    let schema = S::default()
-        .vertex("doc", "object")
-        .edge(&prop("doc", "doc", "c"))
-        .build();
-    let tree = |fans: Vec<Fan>| {
-        let mut t = WInstance::new(
-            HashMap::from([
-                (0, Node::new(0, "doc")),
-                (1, Node::new(1, "doc")),
-                (2, Node::new(2, "doc")),
-            ]),
-            vec![
-                (0, 1, prop("doc", "doc", "c")),
-                (0, 2, prop("doc", "doc", "c")),
-            ],
-            vec![],
-            0,
-            "doc".into(),
-        );
-        t.fans = fans;
-        t
-    };
-    let unknown = |child: u32| {
+fn every_tree_fan_reason_reaches_the_report() {
+    // Parent 9 is absent, children 7 and 8 are absent, and `w` and `z` are
+    // not in the signature `{x, y}` of `h`.
+    let fan = Fan::new("h", 9)
+        .with_child("z", 8)
+        .with_child("x", 7)
+        .with_child("w", 1)
+        .with_child("y", 1);
+    let (schema, mut tree) = three_doc_tree(vec![fan.clone()]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    let record = FanRecord::of(&fan);
+    let elements = vec![
+        ViewRef::Node(1),
+        ViewRef::Node(7),
+        ViewRef::Node(8),
+        ViewRef::Node(9),
+    ];
+    let expected = |reason: FanViolation| {
         (
-            Some(ViewRef::Node(0)),
-            vec![ViewRef::Node(0), ViewRef::Node(child)],
+            Some(ViewRef::Node(9)),
+            elements.clone(),
             Violation::MalformedFan {
-                reason: FanViolation::UnknownLabel {
-                    label: "lab".into(),
-                },
+                reason,
+                fan: Some(record.clone()),
             },
         )
     };
-    // Two fans at one parent: each diagnostic names its own fan's children.
-    let two = tree(vec![
-        Fan::new("nope", 0).with_child("lab", 1),
-        Fan::new("nope", 0).with_child("lab", 2),
-    ]);
-    let report = validate_wtype(&two, &schema, &Protocol::default());
-    assert_eq!(fan_entries(&report), vec![unknown(1), unknown(2)]);
-    // Two equal fans are one fault, reported once.
-    let same = tree(vec![
-        Fan::new("nope", 0).with_child("lab", 1),
-        Fan::new("nope", 0).with_child("lab", 1),
-    ]);
-    let report = validate_wtype(&same, &schema, &Protocol::default());
-    assert_eq!(fan_entries(&report), vec![unknown(1)]);
+    // In canonical byte order: fan reason tags 0 (missing parent), 3
+    // (unknown label) and 7 (missing child).
+    assert_eq!(
+        fan_entries(&report),
+        vec![
+            expected(FanViolation::MissingParent),
+            expected(FanViolation::UnknownLabel { label: "w".into() }),
+            expected(FanViolation::UnknownLabel { label: "z".into() }),
+            expected(FanViolation::MissingChild { label: "x".into() }),
+            expected(FanViolation::MissingChild { label: "z".into() }),
+        ]
+    );
+    // With an undeclared hyper-edge, `UnknownHyperEdge` replaces every
+    // `UnknownLabel`.
+    let ghost = Fan {
+        hyper_edge_id: "ghost".into(),
+        ..fan
+    };
+    tree.fans = vec![ghost.clone()];
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        tree_fan_pairs(&report),
+        BTreeSet::from([
+            (FanRecord::of(&ghost), FanViolation::MissingParent),
+            (
+                FanRecord::of(&ghost),
+                FanViolation::UnknownHyperEdge {
+                    hyper_edge: "ghost".into()
+                }
+            ),
+            (
+                FanRecord::of(&ghost),
+                FanViolation::MissingChild { label: "x".into() }
+            ),
+            (
+                FanRecord::of(&ghost),
+                FanViolation::MissingChild { label: "z".into() }
+            ),
+        ])
+    );
+}
+
+/// A tree fan diagnostic with subject the fan's parent `parent`, elements
+/// `parent` and `children`, and the fan's record.
+fn tree_fan_entry(
+    fan: &Fan,
+    elements: &[u32],
+    reason: FanViolation,
+) -> (Option<ViewRef>, Vec<ViewRef>, Violation) {
+    (
+        Some(ViewRef::Node(fan.parent)),
+        elements.iter().map(|n| ViewRef::Node(*n)).collect(),
+        Violation::MalformedFan {
+            reason,
+            fan: Some(FanRecord::of(fan)),
+        },
+    )
+}
+
+#[test]
+fn tree_fan_diagnostics_name_the_fan_they_concern() {
+    let unknown = || FanViolation::UnknownLabel {
+        label: "lab".into(),
+    };
+    // Two fans at one parent: each diagnostic names its own fan.
+    let (first, second) = (
+        Fan::new("a", 0).with_child("lab", 1),
+        Fan::new("a", 0).with_child("lab", 2),
+    );
+    let (schema, tree) = three_doc_tree(vec![first.clone(), second.clone()]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        fan_entries(&report),
+        vec![
+            tree_fan_entry(&first, &[0, 1], unknown()),
+            tree_fan_entry(&second, &[0, 2], unknown()),
+        ]
+    );
     assert_eq!(report.coverage[&report.diagnostics[0].check].failed, 1);
-    let same_bare = tree(vec![Fan::new("nope", 0), Fan::new("nope", 0)]);
-    let report = validate_wtype(&same_bare, &schema, &Protocol::default());
-    assert_eq!(fan_entries(&report).len(), 1);
 }
 
 #[test]
@@ -3590,6 +3760,7 @@ fn tree_fan_diagnostics_name_children_the_tree_does_not_hold() {
     let schema = S::default()
         .vertex("doc", "object")
         .edge(&prop("doc", "doc", "c"))
+        .hyper_edge("he", &[("lab", "doc")], "head")
         .build();
     let mut t = WInstance::new(
         HashMap::from([(0, Node::new(0, "doc"))]),
@@ -3599,23 +3770,22 @@ fn tree_fan_diagnostics_name_children_the_tree_does_not_hold() {
         "doc".into(),
     );
     // Two unequal fans at one parent, each naming a child the tree lacks.
-    t.fans = vec![
-        Fan::new("nope", 0).with_child("lab", 5),
-        Fan::new("nope", 0).with_child("lab", 6),
-    ];
-    let unknown = |child: u32| {
-        (
-            Some(ViewRef::Node(0)),
-            vec![ViewRef::Node(0), ViewRef::Node(child)],
-            Violation::MalformedFan {
-                reason: FanViolation::UnknownLabel {
-                    label: "lab".into(),
-                },
-            },
-        )
+    let (five, six) = (
+        Fan::new("he", 0).with_child("lab", 5),
+        Fan::new("he", 0).with_child("lab", 6),
+    );
+    t.fans = vec![five.clone(), six.clone()];
+    let missing = || FanViolation::MissingChild {
+        label: "lab".into(),
     };
     let report = validate_wtype(&t, &schema, &Protocol::default());
-    assert_eq!(fan_entries(&report), vec![unknown(5), unknown(6)]);
+    assert_eq!(
+        fan_entries(&report),
+        vec![
+            tree_fan_entry(&five, &[0, 5], missing()),
+            tree_fan_entry(&six, &[0, 6], missing()),
+        ]
+    );
     assert_eq!(report.coverage[&report.diagnostics[0].check].failed, 1);
 }
 
@@ -3625,37 +3795,178 @@ fn tree_fan_diagnostics_at_an_absent_parent_name_the_fan() {
         .vertex("doc", "object")
         .edge(&prop("doc", "doc", "c"))
         .hyper_edge("he", &[("lab", "doc")], "head")
+        .hyper_edge("other", &[("lab", "doc")], "head")
         .build();
-    let mut t = WInstance::new(
-        HashMap::from([
-            (0, Node::new(0, "doc")),
-            (1, Node::new(1, "doc")),
-            (2, Node::new(2, "doc")),
-        ]),
-        vec![
-            (0, 1, prop("doc", "doc", "c")),
-            (0, 2, prop("doc", "doc", "c")),
-        ],
-        vec![],
-        0,
-        "doc".into(),
-    );
-    // Two unequal fans whose parent 9 the tree lacks.
-    t.fans = vec![
+    let (_, mut t) = three_doc_tree(vec![]);
+    // Unequal fans whose parent 9 the tree lacks: two that differ in their
+    // child, and two that differ only in their hyper-edge.
+    let fans = [
         Fan::new("he", 9).with_child("lab", 1),
         Fan::new("he", 9).with_child("lab", 2),
+        Fan::new("other", 9).with_child("lab", 1),
     ];
-    let missing = |child: u32| {
-        (
-            Some(ViewRef::Node(9)),
-            vec![ViewRef::Node(child), ViewRef::Node(9)],
-            Violation::MalformedFan {
-                reason: FanViolation::MissingParent,
-            },
-        )
-    };
+    t.fans = fans.to_vec();
     let report = validate_wtype(&t, &schema, &Protocol::default());
-    assert_eq!(fan_entries(&report), vec![missing(1), missing(2)]);
+    assert_eq!(
+        fan_entries(&report),
+        vec![
+            tree_fan_entry(&fans[0], &[1, 9], FanViolation::MissingParent),
+            tree_fan_entry(&fans[2], &[1, 9], FanViolation::MissingParent),
+            tree_fan_entry(&fans[1], &[2, 9], FanViolation::MissingParent),
+        ]
+    );
+}
+
+#[test]
+fn equal_tree_fans_give_one_diagnostic_per_reason() {
+    // Two equal fans of an undeclared hyper-edge, each with a child the tree
+    // lacks: one fan of the tree's fan multiset, two reasons.
+    let fan = Fan::new("ghost", 0).with_child("lab", 9);
+    let (schema, tree) = three_doc_tree(vec![fan.clone(), fan.clone()]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        fan_entries(&report),
+        vec![
+            tree_fan_entry(
+                &fan,
+                &[0, 9],
+                FanViolation::UnknownHyperEdge {
+                    hyper_edge: "ghost".into()
+                }
+            ),
+            tree_fan_entry(
+                &fan,
+                &[0, 9],
+                FanViolation::MissingChild {
+                    label: "lab".into()
+                }
+            ),
+        ]
+    );
+    assert_eq!(report.coverage[&report.diagnostics[0].check].failed, 1);
+    // Equal label-less fans: one diagnostic.
+    let bare = Fan::new("ghost", 0);
+    let (schema, tree) = three_doc_tree(vec![bare.clone(), bare.clone()]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        fan_entries(&report),
+        vec![tree_fan_entry(
+            &bare,
+            &[0],
+            FanViolation::UnknownHyperEdge {
+                hyper_edge: "ghost".into()
+            }
+        )]
+    );
+}
+
+#[test]
+fn fan_record_order_is_the_canonical_fan_record_order() -> TestResult {
+    // I orders a tree's fan records by parent, then hyper-edge, then
+    // children ascending by label.
+    let fans = [
+        Fan::new("b", 0).with_child("x", 1),
+        Fan::new("a", 1),
+        Fan::new("a", 0).with_child("y", 1),
+        Fan::new("a", 0).with_child("x", 2),
+        Fan::new("a", 0).with_child("x", 1).with_child("y", 3),
+        Fan::new("a", 0).with_child("x", 1),
+        Fan::new("a", 0),
+    ];
+    let mut records: Vec<FanRecord> = fans.iter().map(FanRecord::of).collect();
+    records.sort();
+    let key = |r: &FanRecord| (r.parent, r.hyper_edge.clone(), r.children.clone());
+    let mut by_key = records.clone();
+    by_key.sort_by_key(key);
+    assert_eq!(records, by_key);
+    assert_eq!(
+        records,
+        vec![
+            FanRecord::of(&Fan::new("a", 0)),
+            FanRecord::of(&Fan::new("a", 0).with_child("x", 1)),
+            FanRecord::of(&Fan::new("a", 0).with_child("x", 1).with_child("y", 3)),
+            FanRecord::of(&Fan::new("a", 0).with_child("x", 2)),
+            FanRecord::of(&Fan::new("a", 0).with_child("y", 1)),
+            FanRecord::of(&Fan::new("b", 0).with_child("x", 1)),
+            FanRecord::of(&Fan::new("a", 1)),
+        ]
+    );
+    // Children are ascending by label whatever order the fan lists them in,
+    // and the record serializes with named fields.
+    let record = FanRecord::of(&Fan::new("h", 4).with_child("y", 2).with_child("x", 3));
+    assert_eq!(
+        serde_json::to_string(&record)?,
+        r#"{"parent":4,"hyper_edge":"h","children":[["x",3],["y",2]]}"#
+    );
+    round_trip(&record)?;
+    Ok(())
+}
+
+#[test]
+fn malformed_fan_bytes_and_messages_name_the_fan() {
+    let fan = FanRecord::of(&Fan::new("h", 4).with_child("y", 2).with_child("x", 3));
+    let tree_fan = Violation::MalformedFan {
+        reason: FanViolation::MissingChild { label: "z".into() },
+        fan: Some(fan),
+    };
+    let graph_fan = Violation::MalformedFan {
+        reason: FanViolation::UnknownHyperEdge {
+            hyper_edge: "h".into(),
+        },
+        fan: None,
+    };
+    assert_eq!(
+        tree_fan.to_string(),
+        "malformed fan h at 4 {x: 3, y: 2}: fan child at label z is not a node of the tree"
+    );
+    assert_eq!(
+        graph_fan.to_string(),
+        "malformed fan: fan hyper-edge h is not declared by the schema"
+    );
+    let bytes = |v: Violation| {
+        ValidationReport::new(
+            InstanceShapeKind::Tree,
+            ReportScope::Instance,
+            Digest([0; 32]),
+            vec![d(CheckKind::FanWellFormed, Requirement::Required, v)],
+            vec![],
+            BTreeMap::new(),
+        )
+        .canonical_bytes()
+    };
+    let name = |s: &str| {
+        let mut out = u64::try_from(s.len()).unwrap().to_le_bytes().to_vec();
+        out.extend(s.as_bytes());
+        out
+    };
+    // malformed_fan (3), missing_child (7) and its label, then Some, the
+    // parent, the hyper-edge, two children and each (label, child).
+    let mut tree_tail = vec![3u8, 7];
+    tree_tail.extend(name("z"));
+    tree_tail.push(1);
+    tree_tail.extend(4u32.to_le_bytes());
+    tree_tail.extend(name("h"));
+    tree_tail.extend(2u64.to_le_bytes());
+    for (label, child) in [("x", 3u32), ("y", 2)] {
+        tree_tail.extend(name(label));
+        tree_tail.extend(child.to_le_bytes());
+    }
+    let tree_bytes = bytes(tree_fan);
+    assert!(
+        tree_bytes.windows(tree_tail.len()).any(|w| w == tree_tail),
+        "{tree_bytes:?}"
+    );
+    // unknown_hyper_edge (6) and its hyper-edge, then None.
+    let mut graph_tail = vec![3u8, 6];
+    graph_tail.extend(name("h"));
+    graph_tail.push(0);
+    let graph_bytes = bytes(graph_fan);
+    assert!(
+        graph_bytes
+            .windows(graph_tail.len())
+            .any(|w| w == graph_tail),
+        "{graph_bytes:?}"
+    );
 }
 
 /// A root with a union `u` of variants `a` and `b`, and an edge from the
@@ -3860,7 +4171,8 @@ fn reserved_subjects(tree: &WInstance, schema: &Schema) -> Vec<Option<ViewRef>> 
 
 #[test]
 fn validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses() {
-    use panproto_inst::ginstance::HYPER_PARENT_KIND;
+    use panproto_inst::ginstance::{HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+    use panproto_inst::{InstError, wtype_check};
     let schema = S::default()
         .vertex("doc", "object")
         .vertex("p", "object")
@@ -3889,8 +4201,8 @@ fn validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses() {
         })]
     );
     assert!(WInstance::try_new(two_nodes(), arcs, vec![], 0, "doc".into()).is_err());
-    // A root of the fan shape with a reserved-kind arc: both are reported,
-    // under any schema.
+    // The trees of the two refusals of `from_wtype`. A root of the fan shape
+    // with a reserved-kind arc: both are reported, under any schema.
     let root = Node::new(0, "doc").with_shape(NodeShape::HyperEdge);
     let tree = WInstance::new(
         HashMap::from([(0, root), (1, Node::new(1, "para"))]),
@@ -3909,4 +4221,265 @@ fn validation_reports_the_reserved_vocabulary_the_tree_constructor_refuses() {
             })
         ]
     );
+    // Node 1 has the form of a fan node, with no incoming arc: the fan
+    // shape, a `hyper_parent` arc and a named `hyper_label` arc to node 0.
+    let orphan = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "sent")),
+            (1, Node::new(1, "arg").with_shape(NodeShape::HyperEdge)),
+        ]),
+        vec![
+            (1, 0, edge("arg", "sent", HYPER_PARENT_KIND, None)),
+            (1, 0, edge("arg", "sent", HYPER_LABEL_KIND, Some("theme"))),
+        ],
+        vec![],
+        0,
+        "sent".into(),
+    );
+    assert_eq!(
+        reserved_subjects(&orphan, &Schema::default()),
+        vec![
+            Some(ViewRef::Node(1)),
+            Some(ViewRef::Arc {
+                parent: 1,
+                child: 0
+            })
+        ]
+    );
+    // For each, the subjects are the reserved vocabulary the tree check
+    // finds, and the validating constructor refuses the tree.
+    for tree in [&tree, &orphan] {
+        let found: Vec<Option<ViewRef>> = wtype_check::reserved_vocabulary(tree)
+            .into_iter()
+            .map(Some)
+            .collect();
+        assert_eq!(reserved_subjects(tree, &Schema::default()), found);
+        let refused = WInstance::try_new(
+            tree.nodes.clone(),
+            tree.arcs.clone(),
+            tree.fans.clone(),
+            tree.root,
+            tree.schema_root.clone(),
+        );
+        assert!(
+            matches!(refused, Err(InstError::ReservedVocabulary { .. })),
+            "{refused:?}"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fans of an undeclared hyper-edge, absent children, and naming tree fans.
+// ---------------------------------------------------------------------------
+
+/// A root `doc` with children 1 and 2, and the hyper-edges `a`, `b` (each
+/// with the signature `{x}`) and `h` (with the signature `{x, y}`).
+fn three_doc_tree(fans: Vec<Fan>) -> (Schema, WInstance) {
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .hyper_edge("a", &[("x", "doc")], "head")
+        .hyper_edge("b", &[("x", "doc")], "head")
+        .hyper_edge("h", &[("x", "doc"), ("y", "doc")], "head")
+        .build();
+    let mut tree = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "doc")),
+            (1, Node::new(1, "doc")),
+            (2, Node::new(2, "doc")),
+        ]),
+        vec![
+            (0, 1, prop("doc", "doc", "c")),
+            (0, 2, prop("doc", "doc", "c")),
+        ],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    tree.fans = fans;
+    (schema, tree)
+}
+
+#[test]
+fn tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_hyper_edge() {
+    let (schema, tree) = three_doc_tree(vec![
+        Fan::new("a", 0).with_child("lab", 1),
+        Fan::new("b", 0).with_child("lab", 1),
+    ]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    let entries = fan_entries(&report);
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    let unknown = || FanViolation::UnknownLabel {
+        label: "lab".into(),
+    };
+    assert_eq!(
+        entries,
+        vec![
+            tree_fan_entry(&tree.fans[0], &[0, 1], unknown()),
+            tree_fan_entry(&tree.fans[1], &[0, 1], unknown()),
+        ]
+    );
+}
+
+#[test]
+fn tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_label_assignment() {
+    let (schema, tree) = three_doc_tree(vec![
+        Fan::new("h", 0)
+            .with_child("x", 1)
+            .with_child("y", 2)
+            .with_child("z", 1),
+        Fan::new("h", 0)
+            .with_child("x", 2)
+            .with_child("y", 1)
+            .with_child("z", 1),
+    ]);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    let entries = fan_entries(&report);
+    assert_eq!(entries.len(), 2, "{entries:?}");
+    let unknown = || FanViolation::UnknownLabel { label: "z".into() };
+    assert_eq!(
+        entries,
+        vec![
+            tree_fan_entry(&tree.fans[0], &[0, 1, 2], unknown()),
+            tree_fan_entry(&tree.fans[1], &[0, 1, 2], unknown()),
+        ]
+    );
+}
+
+#[test]
+fn a_label_less_fan_of_an_undeclared_hyper_edge_leaves_the_fan_domain() {
+    use panproto_inst::FanDomain;
+    use panproto_inst::ginstance::HYPER_PARENT_KIND;
+    let g = GInstance::new()
+        .with_node(Node::new(0, "item"))
+        .with_node(Node::new(5, "ghost").with_shape(NodeShape::HyperEdge))
+        .with_edge(5, 0, edge("ghost", "item", HYPER_PARENT_KIND, None));
+    assert!(
+        FanDomain::check(&g).is_ok(),
+        "no schema, no hyper-edge check"
+    );
+    let checked = FanDomain::check_with_schema(&g, &Schema::default());
+    assert!(checked.is_err(), "{checked:?}");
+}
+
+/// A graph that may hold reserved vocabulary, as the adversarial generator
+/// of the fan reification tests builds it (nodes of the fan shape, edges of
+/// the reserved kinds between any nodes, so fan-shaped nodes may nest, and
+/// ordinary edges), with each fan-shaped node anchored at the declared
+/// hyper-edge `rel` (signature `{a, b}`) or the undeclared `ghost`, and
+/// labels drawn from `a` to `c`, so every condition of the fan domain and
+/// both schema conditions occur.
+fn arb_adversarial_fan_graph() -> impl Strategy<Value = GInstance> {
+    (1u32..7)
+        .prop_flat_map(|n| {
+            let shapes = prop::collection::vec(
+                prop::sample::select(vec![None, None, None, Some("rel"), Some("ghost")]),
+                n as usize,
+            );
+            let edges = prop::collection::vec(
+                (
+                    0..n,
+                    0..n,
+                    prop::sample::select(vec![
+                        "link",
+                        "link",
+                        panproto_inst::ginstance::HYPER_PARENT_KIND,
+                        panproto_inst::ginstance::HYPER_LABEL_KIND,
+                        panproto_inst::ginstance::HYPER_LABEL_KIND,
+                    ]),
+                    prop::option::weighted(0.8, "[a-c]"),
+                ),
+                0..10,
+            );
+            (Just(n), shapes, edges)
+        })
+        .prop_map(|(n, shapes, edges)| {
+            let mut graph = GInstance::new();
+            for (id, fan) in (0..n).zip(shapes) {
+                graph = graph.with_node(fan.map_or_else(
+                    || Node::new(id, "item"),
+                    |he| Node::new(id, he).with_shape(NodeShape::HyperEdge),
+                ));
+            }
+            for (src, tgt, kind, name) in edges {
+                graph = graph.with_edge(src, tgt, edge("item", "item", kind, name.as_deref()));
+            }
+            graph
+        })
+}
+
+/// The schema of [`arb_adversarial_fan_graph`]: the vertex `item` and the
+/// hyper-edge `rel` with the signature `{a, b}`.
+fn adversarial_fan_schema() -> Schema {
+    S::default()
+        .vertex("item", "object")
+        .hyper_edge("rel", &[("a", "item"), ("b", "item")], "head")
+        .build()
+}
+
+/// The reasons of the `FanWellFormed` diagnostics of a graph report, by
+/// subject node.
+fn fan_reasons_by_node(report: &ValidationReport) -> BTreeMap<u32, Vec<FanViolation>> {
+    let mut by_node: BTreeMap<u32, Vec<FanViolation>> = BTreeMap::new();
+    for (subject, _, violation) in fan_entries(report) {
+        let (Some(ViewRef::Node(node)), Violation::MalformedFan { reason, .. }) =
+            (subject, violation)
+        else {
+            panic!("a graph fan diagnostic names its fan node");
+        };
+        by_node.entry(node).or_default().push(reason);
+    }
+    by_node
+}
+
+proptest! {
+    #[test]
+    fn fan_domain_reports_the_first_fan_violation_the_validator_reports(
+        g in arb_adversarial_fan_graph(),
+    ) {
+        use panproto_inst::{FanDomain, InstError};
+        let schema = adversarial_fan_schema();
+        let report = validate_graph(&g, &schema, &Protocol::default());
+        let by_node = fan_reasons_by_node(&report);
+        match FanDomain::check_with_schema(&g, &schema) {
+            Ok(()) => prop_assert!(by_node.is_empty(), "{by_node:?}"),
+            Err(InstError::MalformedFan { node, reason }) => {
+                let first = by_node.iter().next();
+                prop_assert_eq!(first.map(|(n, _)| *n), Some(node));
+                prop_assert!(by_node[&node].contains(&reason), "{reason:?} not in {by_node:?}");
+                // It is the first violation of the least offending node.
+                let at = FanDomain::violations_at(&g, node, Some(&schema));
+                prop_assert_eq!(at.first(), Some(&reason));
+            }
+            Err(other) => prop_assert!(false, "unexpected error {other:?}"),
+        }
+        // The validator reports every violation `violations_at` lists, at
+        // every node, and nothing else.
+        let ids: BTreeSet<u32> = g.nodes().keys().copied().collect();
+        let mut listed: BTreeMap<u32, Vec<FanViolation>> = BTreeMap::new();
+        for &id in &ids {
+            let mut at = FanDomain::violations_at(&g, id, Some(&schema));
+            if !at.is_empty() {
+                at.sort();
+                listed.insert(id, at);
+            }
+        }
+        let mut reported = by_node;
+        for reasons in reported.values_mut() {
+            reasons.sort();
+        }
+        prop_assert_eq!(&reported, &listed);
+        // Without a schema, `check` reports the first violation of the least
+        // node `violations_at` faults with no schema.
+        let first_unschema = ids.iter().find_map(|&id| {
+            FanDomain::violations_at(&g, id, None).into_iter().next().map(|r| (id, r))
+        });
+        match FanDomain::check(&g) {
+            Ok(()) => prop_assert_eq!(first_unschema, None),
+            Err(InstError::MalformedFan { node, reason }) => {
+                prop_assert_eq!(first_unschema, Some((node, reason)));
+            }
+            Err(other) => prop_assert!(false, "unexpected error {other:?}"),
+        }
+    }
 }

@@ -141,7 +141,7 @@ pub use tree_edit::TreeEdit;
 pub use validate::{validate_attributes, validate_wtype};
 pub use validation::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, CheckSpec, DeltaElementKind,
-    Diagnostic, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts,
+    Diagnostic, EndpointSide, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts, FanRecord,
     IncompleteCheck, IncompleteReason, ReportScope, Requirement, SchemaRef, SchemaSourceMap,
     SourceLocation, TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan,
     ValidationReport, Violation, validate_graph, validate_table,
