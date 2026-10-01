@@ -791,8 +791,10 @@ pub fn f_transpose_right(
 }
 
 /// `Pi_F(h)`: the image under `Pi_F` of a homomorphism `h: X -> X'` of
-/// instances on `S'`, sending the row of each tuple to the row of the tuple
-/// of its images (the one row of a table outside the image to the one row).
+/// instances on `S'`.
+///
+/// It sends the row of each tuple to the row of the tuple of its images (the
+/// one row of a table outside the image to the one row).
 ///
 /// # Errors
 ///
@@ -893,8 +895,10 @@ pub fn f_pi_counit(
 }
 
 /// Transpose `Hom_S'(Delta_F Y, X) -> Hom_T(Y, Pi_F X)`, sending `g` to
-/// `Pi_F(g) . eta_Y`: row `r` of `Y` at `d` maps to the row of `Pi_F X`
-/// whose tuple holds `g` of the copy of `r` at every table of `d`'s fibre.
+/// `Pi_F(g) . eta_Y`.
+///
+/// Row `r` of `Y` at `d` maps to the row of `Pi_F X` whose tuple holds `g`
+/// of the copy of `r` at every table of `d`'s fibre.
 ///
 /// # Errors
 ///
@@ -932,8 +936,10 @@ pub fn f_pi_transpose_left(
 }
 
 /// Transpose `Hom_T(Y, Pi_F X) -> Hom_S'(Delta_F Y, X)`, sending `f` to
-/// `eps_X . Delta_F(f)`, the inverse of [`f_pi_transpose_left`]: the copy at
-/// `s` of a row `r` of `Y` maps to the component at `s` of `f(r)`.
+/// `eps_X . Delta_F(f)`, the inverse of [`f_pi_transpose_left`].
+///
+/// The copy at `s` of a row `r` of `Y` maps to the component at `s` of
+/// `f(r)`.
 ///
 /// # Errors
 ///
@@ -1399,22 +1405,6 @@ mod tests {
     /// found by assigning rows in ascending id and pruning on each pair whose
     /// two rows are assigned.
     fn homs(dom: &FInstance, cod: &FInstance) -> Vec<FInstanceHom> {
-        let rows = dom.row_ids();
-        let candidates: Vec<Vec<RowId>> = rows
-            .iter()
-            .map(|&r| {
-                let table = dom.table_of(r).cloned().unwrap_or_default();
-                let cells = dom.row(r).cloned().unwrap_or_default();
-                cod.rows(&table)
-                    .into_iter()
-                    .filter(|(_, c)| crate::functor::same_row(c, &cells))
-                    .map(|(id, _)| id)
-                    .collect()
-            })
-            .collect();
-        let pairs = dom.all_pairs();
-        let mut out = Vec::new();
-        let mut chosen: BTreeMap<RowId, RowId> = BTreeMap::new();
         fn go(
             i: usize,
             rows: &[RowId],
@@ -1443,6 +1433,22 @@ mod tests {
                 chosen.remove(&rows[i]);
             }
         }
+        let rows = dom.row_ids();
+        let candidates: Vec<Vec<RowId>> = rows
+            .iter()
+            .map(|&r| {
+                let table = dom.table_of(r).cloned().unwrap_or_default();
+                let cells = dom.row(r).cloned().unwrap_or_default();
+                cod.rows(&table)
+                    .into_iter()
+                    .filter(|(_, c)| crate::functor::same_row(c, &cells))
+                    .map(|(id, _)| id)
+                    .collect()
+            })
+            .collect();
+        let pairs = dom.all_pairs();
+        let mut out = Vec::new();
+        let mut chosen: BTreeMap<RowId, RowId> = BTreeMap::new();
         go(0, &rows, &candidates, &pairs, cod, &mut chosen, &mut out);
         out
     }
@@ -1595,6 +1601,131 @@ mod tests {
             return Err(format!("Pi(eps') . eta' = {fourth:?}"));
         }
         Ok(())
+    }
+
+    /// Every tuple with one row of each table of `fibre` (in order), by
+    /// brute force over the whole product, keeping those whose rows carry
+    /// the same cells. The empty fibre has the one empty tuple.
+    fn brute_cones(x: &FInstance, fibre: &[&Name]) -> BTreeSet<Vec<RowId>> {
+        let mut tuples: Vec<Vec<RowId>> = vec![Vec::new()];
+        for table in fibre {
+            let rows: Vec<RowId> = x.rows(table).into_iter().map(|(id, _)| id).collect();
+            tuples = tuples
+                .into_iter()
+                .flat_map(|t| {
+                    rows.iter().map(move |&r| {
+                        let mut longer = t.clone();
+                        longer.push(r);
+                        longer
+                    })
+                })
+                .collect();
+        }
+        tuples
+            .into_iter()
+            .filter(|t| {
+                t.windows(2)
+                    .all(|w| crate::functor::same_row(x.row(w[0]).unwrap(), x.row(w[1]).unwrap()))
+            })
+            .collect()
+    }
+
+    /// Check `pi` against the limit formula over the comma categories,
+    /// computed independently by brute force: the projections must send the
+    /// rows of each target table bijectively onto its cones, each row
+    /// carrying its components' cells, and the pairs of each target relation
+    /// exactly onto the pairs of cones every relation sent to it holds.
+    fn check_limit(
+        f: &MigrationFunctor,
+        x: &FInstance,
+        pi: &FInstance,
+        projections: &BTreeMap<Name, FInstanceHom>,
+    ) -> Result<(), String> {
+        let tuple_of = |row: RowId, table: &Name| -> Option<Vec<RowId>> {
+            f.table_fibre(table)
+                .into_iter()
+                .map(|s| projections.get(s)?.image(row))
+                .collect()
+        };
+        let outside: BTreeSet<&Name> = pi
+            .table_names()
+            .into_iter()
+            .filter(|t| !f.target().is_table(t))
+            .collect();
+        if !outside.is_empty() {
+            return Err(format!(
+                "rows at vertices that are no target tables: {outside:?}"
+            ));
+        }
+        for d in f.target().tables() {
+            let fibre = f.table_fibre(d);
+            let cones = brute_cones(x, &fibre);
+            let mut seen = BTreeSet::new();
+            for (row, cells) in pi.rows(d) {
+                let tuple =
+                    tuple_of(row, d).ok_or_else(|| format!("row {row:?} has no projection"))?;
+                let expected = tuple
+                    .first()
+                    .map_or_else(crate::functor::Row::new, |&r| x.row(r).unwrap().clone());
+                if !crate::functor::same_row(cells, &expected) {
+                    return Err(format!("row {row:?} of {d} carries {cells:?}"));
+                }
+                if !seen.insert(tuple.clone()) {
+                    return Err(format!("two rows of {d} project to {tuple:?}"));
+                }
+            }
+            if seen != cones {
+                return Err(format!(
+                    "{d}: rows project to {seen:?}, cones are {cones:?}"
+                ));
+            }
+        }
+        for relation in f.target().relations() {
+            let from = f.table_fibre(&relation.src);
+            let to = f.table_fibre(&relation.tgt);
+            let carried = f.relation_fibre(relation);
+            let mut expected = BTreeSet::new();
+            for tx in brute_cones(x, &from) {
+                for ty in brute_cones(x, &to) {
+                    let holds = carried.iter().all(|e| {
+                        let s = from.iter().position(|t| *t == &e.src).unwrap();
+                        let t = to.iter().position(|t| *t == &e.tgt).unwrap();
+                        x.contains_pair(e, tx[s], ty[t])
+                    });
+                    if holds {
+                        expected.insert((tx.clone(), ty.clone()));
+                    }
+                }
+            }
+            let actual: BTreeSet<(Vec<RowId>, Vec<RowId>)> = pi
+                .pairs(relation)
+                .iter()
+                .map(|&(s, t)| {
+                    (
+                        tuple_of(s, &relation.src).unwrap_or_default(),
+                        tuple_of(t, &relation.tgt).unwrap_or_default(),
+                    )
+                })
+                .collect();
+            if actual != expected || actual.len() != pi.pairs(relation).len() {
+                return Err(format!(
+                    "{relation:?}: pairs {actual:?}, cones {expected:?}"
+                ));
+            }
+        }
+        let stray: Vec<&Edge> = pi
+            .foreign_keys()
+            .into_iter()
+            .map(|(e, _)| e)
+            .filter(|e| !f.target().is_relation(e))
+            .collect();
+        if stray.is_empty() {
+            Ok(())
+        } else {
+            Err(format!(
+                "pairs on edges that are no target relations: {stray:?}"
+            ))
+        }
     }
 
     /// A generated case: a functor between small relation-ified schemas, an
@@ -1971,10 +2102,23 @@ mod tests {
             }
 
             #[test]
+            fn pi_is_the_limit_over_the_comma_category(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let (pi, projections) = functor_pi_along_with_hom(&case.x, &f, 10_000).unwrap();
+                let result = check_limit(&f, &case.x, &pi, &projections);
+                prop_assert!(result.is_ok(), "{:?} on {:?}", result, case);
+            }
+
+            /// The bound admits the largest iterated limit a case can ask for:
+            /// three two-row tables merged into one give `Pi x` eight rows,
+            /// `Pi (Delta (Pi x))` 512, and a target-only loop on it every
+            /// pair of those, 262 144.
+            #[test]
             fn triangle_identities_hold(seed in any::<u64>()) {
                 let case = kan_case(seed);
                 let f = case.functor();
-                let result = check_triangles(&f, &case.x, &case.y, 10_000);
+                let result = check_triangles(&f, &case.x, &case.y, 1 << 18);
                 prop_assert!(result.is_ok(), "{:?} on {:?}", result, case);
             }
 
@@ -2024,7 +2168,7 @@ mod tests {
                     // The rows of the image tables keep their ids; the rows of
                     // the tables outside it are one each, without cells.
                     for (table, rows) in pi.tables() {
-                        let theirs = renamed.table(&renaming[table]).map(Table::len).unwrap_or(0);
+                        let theirs = renamed.table(&renaming[table]).map_or(0, Table::len);
                         prop_assert_eq!(rows.len(), theirs);
                         if !outside.contains(table) {
                             prop_assert_eq!(Some(rows), renamed.table(&renaming[table]));
