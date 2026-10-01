@@ -150,25 +150,33 @@ pub fn functor_pi_with_hom(
         })
         .collect();
 
+    // The result rows drawn from each source row, per target table and
+    // fibre component, so carrying a pair reads only the rows it relates.
+    let mut drawn_from: HashMap<(&Name, &Name, RowId), Vec<RowId>> = HashMap::new();
+    for (tgt_vertex, placed) in &provenance {
+        for (id, components) in placed {
+            for (component, &src_row) in components {
+                drawn_from
+                    .entry((tgt_vertex, component, src_row))
+                    .or_default()
+                    .push(*id);
+            }
+        }
+    }
     for (edge, pairs) in instance.foreign_keys() {
         let Some(new_edge) = carried_edge(migration, edge).cloned() else {
             continue;
         };
-        let (Some(src_prov), Some(tgt_prov)) =
-            (provenance.get(&new_edge.src), provenance.get(&new_edge.tgt))
-        else {
-            continue;
-        };
         for &(i, j) in pairs {
-            for (p, _) in src_prov
-                .iter()
-                .filter(|(_, c)| c.get(&edge.src) == Some(&i))
-            {
-                for (q, _) in tgt_prov
-                    .iter()
-                    .filter(|(_, c)| c.get(&edge.tgt) == Some(&j))
-                {
-                    out.place_pair(new_edge.clone(), *p, *q);
+            let (Some(sources), Some(targets)) = (
+                drawn_from.get(&(&new_edge.src, &edge.src, i)),
+                drawn_from.get(&(&new_edge.tgt, &edge.tgt, j)),
+            ) else {
+                continue;
+            };
+            for &p in sources {
+                for &q in targets {
+                    out.place_pair(new_edge.clone(), p, q);
                 }
             }
         }
@@ -1283,6 +1291,41 @@ mod tests {
         assert_eq!(
             projections[&Name::from("users")].row_map,
             BTreeMap::from([(RowId(7), RowId(7)), (RowId(41), RowId(41))])
+        );
+    }
+
+    /// Carrying foreign keys through Pi is linear in pairs plus rows: each
+    /// pair reads the result rows drawn from its two source rows through an
+    /// index, not by scanning the endpoint tables.
+    #[test]
+    fn carrying_foreign_keys_through_pi_is_linear() {
+        const ROWS: u32 = 20_000;
+        let edge = Edge {
+            src: "a".into(),
+            tgt: "b".into(),
+            kind: "fk".into(),
+            name: None,
+        };
+        let cells = |n: u32| HashMap::from([("n".to_owned(), Value::Int(i64::from(n)))]);
+        let inst = FInstance::new()
+            .with_table("a", (0..ROWS).map(cells))
+            .and_then(|f| f.with_table("b", (0..ROWS).map(cells)))
+            .and_then(|f| {
+                f.with_foreign_key(edge.clone(), (0..ROWS).map(|i| (RowId(i), RowId(ROWS + i))))
+            })
+            .unwrap();
+        let migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("a"), Name::from("b")]),
+            surviving_edges: HashSet::from([edge.clone()]),
+            ..CompiledMigration::default()
+        };
+        let began = std::time::Instant::now();
+        let (pi, _) = run_pi(&inst, &migration, &[], usize::MAX).unwrap();
+        let took = began.elapsed();
+        assert_eq!(pi, inst, "Pi along the identity is the identity");
+        assert!(
+            took < std::time::Duration::from_secs(3),
+            "Pi over {ROWS} pairs took {took:?}"
         );
     }
 }
