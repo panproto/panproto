@@ -378,6 +378,11 @@ pub struct CompositionSpec_ {
 /// `shared_sorts` and `shared_ops` identify same-name symbols of the two
 /// sides. `identify` identifies differently named ones, each pair naming
 /// the left symbol and the right symbol that are one symbol of the result.
+/// A left symbol may be named more than once (shared and identified, or
+/// identified with several right symbols), and then every right symbol it
+/// is named with is one symbol with it. In a step with `identify` entries,
+/// every sort that a shared operation or an identified symbol mentions in
+/// its declaration must be shared or identified too.
 /// `mode` says what happens to the other names both sides declare:
 /// [`CompositionMode::Amalgamate`] (the default, and what a step that does
 /// not state a mode has always meant) identifies them too, and

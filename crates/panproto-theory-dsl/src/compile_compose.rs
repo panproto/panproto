@@ -11,10 +11,17 @@
 //!   same span composed with explicit identity, refusing any other name the
 //!   two sides share;
 //! - a step with `identify` entries is a [`CompositionStep::Diagram`] over
-//!   the two sides and a shared theory built for the step, whose legs send
-//!   each shared or identified left symbol to its right counterpart; a side
-//!   whose name cannot label a node, or a theory composed with itself, is
-//!   carried inline in the recipe under a label of the step's own.
+//!   the two sides and the shared theories built for the step, whose legs
+//!   send each shared or identified left symbol to its right counterpart; a
+//!   side whose name cannot label a node, or a theory composed with itself,
+//!   is carried inline in the recipe under a label of the step's own.
+//!
+//! A step may name one left symbol more than once, as a shared sort that is
+//! also identified, or identified with several right symbols: every right
+//! symbol it is named with becomes one symbol with it. Every sort that a
+//! shared operation, or an identified sort or operation, mentions in its
+//! declaration must itself be shared or identified, so the legs can map it;
+//! a step that leaves one out is refused, naming the symbol and the sort.
 //!
 //! [`compile_composition_with_report`] also returns the
 //! [`CompositionReport`] of every step.
@@ -25,8 +32,9 @@ use std::sync::Arc;
 
 use panproto_gat::{
     ClashPolicy, ComposeOptions, CompositionMode, CompositionReport, CompositionSpec,
-    CompositionStep, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode, OpAssignment, RecipeEdge,
-    RecipeOpImage, Sort, Theory, TheoryDiagram, TheoryMorphism, compose, pushout_by_name,
+    CompositionStep, DEFAULT_VERIFY_BUDGET, DiagramEdge, DiagramNode, OpAssignment, Operation,
+    RecipeEdge, RecipeOpImage, Sort, Theory, TheoryDiagram, TheoryMorphism, compose,
+    pushout_by_name,
 };
 
 use crate::document::{ColimitStepSpec, CompositionBody, CompositionSpec_, IdentifyKind};
@@ -188,8 +196,8 @@ fn compose_step(
         message,
     };
     let step_name = format!("step_{index}");
-    let shared =
-        shared_theory(&format!("{step_name}_shared"), step, left, right).map_err(failed)?;
+    let shared_name = format!("{step_name}_shared");
+    let entries = shared_entries(step, left, right).map_err(failed)?;
 
     if step.identify.is_empty() {
         let recipe = CompositionStep::Colimit {
@@ -199,6 +207,7 @@ fn compose_step(
             shared_ops: step.shared_ops.clone(),
             mode: step.mode,
         };
+        let shared = shared_theory(&shared_name, entries);
         let (theory, report) = match step.mode {
             CompositionMode::Amalgamate => {
                 let result =
@@ -224,11 +233,13 @@ fn compose_step(
         });
     }
 
-    compose_identified(step, left, right, shared, &step_name).map_err(failed)
+    check_mentioned_sorts(&entries).map_err(failed)?;
+    compose_identified(step, left, right, apexes(&shared_name, entries), &step_name).map_err(failed)
 }
 
 /// Compose a step that has identifications: one diagram over the two sides
-/// and the step's shared theory.
+/// and the step's shared theories (see [`apexes`]), each with a leg into
+/// either side.
 ///
 /// Each side is a node of the diagram, labelled as [`side_node`] says, so a
 /// side whose name cannot label a node, or a theory composed with itself,
@@ -237,72 +248,61 @@ fn compose_identified(
     step: &ColimitStepSpec,
     left: &Theory,
     right: &Theory,
-    shared: Theory,
+    apexes: Vec<Apex>,
     step_name: &str,
 ) -> Result<ComposedStep, String> {
-    let shared_label = shared.name.to_string();
-    let left_node = side_node(&step.left, left, &[&shared_label], step_name, "left");
-    let right_node = side_node(
-        &step.right,
-        right,
-        &[&shared_label, &left_node.label],
-        step_name,
-        "right",
-    );
-    let (mut to_left, mut to_right) = legs(step, &shared);
-    // Each leg ends at its node's theory, whose name is the side's theory
-    // name (for an earlier step's result, not its label) or, for a side
-    // carried inline, its label; recompose names the legs the same way.
-    for (leg, node) in [(&mut to_left, &left_node), (&mut to_right, &right_node)] {
-        leg.name = Arc::from(format!("{shared_label}_to_{}", node.label));
-        leg.codomain = Arc::clone(&node.theory.name);
+    let apex_labels: Vec<String> = apexes.iter().map(|a| a.theory.name.to_string()).collect();
+    let mut taken: Vec<&str> = apex_labels.iter().map(String::as_str).collect();
+    let left_node = side_node(&step.left, left, &taken, step_name, "left");
+    taken.push(&left_node.label);
+    let right_node = side_node(&step.right, right, &taken, step_name, "right");
+
+    let mut nodes = vec![left_node.label.clone(), right_node.label.clone()];
+    let mut recipe_edges = Vec::with_capacity(2 * apexes.len());
+    let mut edges = Vec::with_capacity(2 * apexes.len());
+    // The shared theories first, then any side carried inline.
+    let mut inline: Vec<Theory> = apexes.iter().map(|a| a.theory.clone()).collect();
+    let mut diagram_nodes = Vec::with_capacity(apexes.len() + 2);
+    for apex in &apexes {
+        let (to_left, to_right) = apex.legs(&left_node, &right_node);
+        let label = &apex.theory.name;
+        nodes.push(label.to_string());
+        recipe_edges.push(recipe_edge(label, &left_node.label, &to_left));
+        recipe_edges.push(recipe_edge(label, &right_node.label, &to_right));
+        for (node, morphism) in [(&left_node, to_left), (&right_node, to_right)] {
+            edges.push(DiagramEdge {
+                src: Arc::clone(label),
+                tgt: Arc::from(node.label.as_str()),
+                morphism,
+            });
+        }
     }
-    let mut inline = vec![shared.clone()];
-    inline.extend(
-        [&left_node, &right_node]
-            .into_iter()
-            .filter(|node| node.inline)
-            .map(|node| node.theory.clone()),
-    );
+    for node in [&left_node, &right_node] {
+        if node.inline {
+            inline.push(node.theory.clone());
+        }
+        diagram_nodes.push(DiagramNode {
+            label: Arc::from(node.label.as_str()),
+            theory: node.theory.clone(),
+        });
+    }
+    for apex in apexes {
+        diagram_nodes.push(DiagramNode {
+            label: Arc::clone(&apex.theory.name),
+            theory: apex.theory,
+        });
+    }
     let recipe = CompositionStep::Diagram {
-        nodes: vec![
-            left_node.label.clone(),
-            right_node.label.clone(),
-            shared_label.clone(),
-        ],
-        edges: vec![
-            recipe_edge(&shared_label, &left_node.label, &to_left),
-            recipe_edge(&shared_label, &right_node.label, &to_right),
-        ],
+        nodes,
+        edges: recipe_edges,
         mode: step.mode,
         clash: ClashPolicy::Reject,
         rewrite_budget: DEFAULT_VERIFY_BUDGET,
         inline,
     };
-    let edge = |tgt: &str, morphism: TheoryMorphism| DiagramEdge {
-        src: Arc::clone(&shared.name),
-        tgt: Arc::from(tgt),
-        morphism,
-    };
     let diagram = TheoryDiagram {
-        edges: vec![
-            edge(&left_node.label, to_left),
-            edge(&right_node.label, to_right),
-        ],
-        nodes: vec![
-            DiagramNode {
-                label: Arc::from(left_node.label.as_str()),
-                theory: left_node.theory,
-            },
-            DiagramNode {
-                label: Arc::from(right_node.label.as_str()),
-                theory: right_node.theory,
-            },
-            DiagramNode {
-                label: Arc::clone(&shared.name),
-                theory: shared,
-            },
-        ],
+        nodes: diagram_nodes,
+        edges,
     };
     let composition =
         compose(&diagram, &options(step.mode, step_name)).map_err(|e| e.to_string())?;
@@ -395,23 +395,67 @@ fn options(mode: CompositionMode, result_name: &str) -> ComposeOptions {
     }
 }
 
-/// The theory a step shares between its sides, named `name`: its shared
-/// sorts (simple, as a pushout by name has always built them), then the
-/// left sides of its identified sorts, then its shared operations and the
-/// left sides of its identified operations, as the left theory declares
-/// them.
-fn shared_theory(
-    name: &str,
+/// One symbol a step shares between its sides: the left declaration, which
+/// the shared theory copies, and the name of its right counterpart.
+#[derive(Clone)]
+enum SharedEntry {
+    /// A shared or identified sort.
+    Sort {
+        /// The sort as the shared theory declares it.
+        decl: Sort,
+        /// The right sort it is one symbol with.
+        right: Arc<str>,
+    },
+    /// A shared or identified operation.
+    Op {
+        /// The operation as the shared theory declares it.
+        decl: Operation,
+        /// The right operation it is one symbol with.
+        right: Arc<str>,
+    },
+}
+
+impl SharedEntry {
+    /// The entry's kind and left name, which a shared theory declares once.
+    fn key(&self) -> (IdentifyKind, &str) {
+        match self {
+            Self::Sort { decl, .. } => (IdentifyKind::Sort, &decl.name),
+            Self::Op { decl, .. } => (IdentifyKind::Op, &decl.name),
+        }
+    }
+
+    /// The sort names the entry's declaration mentions: an operation's
+    /// input and output sorts, or a sort's parameter sorts.
+    fn mentioned_sorts(&self) -> Vec<&Arc<str>> {
+        match self {
+            Self::Sort { decl, .. } => decl.params.iter().map(|p| p.sort.head()).collect(),
+            Self::Op { decl, .. } => decl
+                .inputs
+                .iter()
+                .map(|(_, sort, _)| sort.head())
+                .chain(std::iter::once(decl.output.head()))
+                .collect(),
+        }
+    }
+}
+
+/// The symbols a step shares between its sides, in step order: its shared
+/// sorts (simple, as a pushout by name has always built them), its shared
+/// operations as the left theory declares them, then its identified sorts
+/// and operations, each as the left theory declares it.
+fn shared_entries(
     step: &ColimitStepSpec,
     left: &Theory,
     right: &Theory,
-) -> Result<Theory, String> {
-    let mut sorts: Vec<Sort> = step
+) -> Result<Vec<SharedEntry>, String> {
+    let mut entries: Vec<SharedEntry> = step
         .shared_sorts
         .iter()
-        .map(|s| Sort::simple(s.as_str()))
+        .map(|s| SharedEntry::Sort {
+            decl: Sort::simple(s.as_str()),
+            right: Arc::from(s.as_str()),
+        })
         .collect();
-    let mut ops = Vec::new();
     for op_name in &step.shared_ops {
         let op = left.find_op(op_name).ok_or_else(|| {
             format!(
@@ -425,10 +469,13 @@ fn shared_theory(
                 step.right
             ));
         }
-        ops.push(op.clone());
+        entries.push(SharedEntry::Op {
+            decl: op.clone(),
+            right: Arc::from(op_name.as_str()),
+        });
     }
     for pair in &step.identify {
-        match pair.kind {
+        let entry = match pair.kind {
             IdentifyKind::Sort => {
                 let sort = left.find_sort(&pair.left).ok_or_else(|| {
                     format!(
@@ -442,7 +489,10 @@ fn shared_theory(
                         pair.right, step.right
                     ));
                 }
-                sorts.push(sort.clone());
+                SharedEntry::Sort {
+                    decl: sort.clone(),
+                    right: Arc::from(pair.right.as_str()),
+                }
             }
             IdentifyKind::Op => {
                 let op = left.find_op(&pair.left).ok_or_else(|| {
@@ -457,49 +507,194 @@ fn shared_theory(
                         pair.right, step.right
                     ));
                 }
-                ops.push(op.clone());
+                SharedEntry::Op {
+                    decl: op.clone(),
+                    right: Arc::from(pair.right.as_str()),
+                }
+            }
+        };
+        entries.push(entry);
+    }
+    Ok(entries)
+}
+
+/// The theory a step without identifications shares between its sides,
+/// named `name`: its shared sorts, then its shared operations.
+fn shared_theory(name: &str, entries: Vec<SharedEntry>) -> Theory {
+    let mut sorts = Vec::new();
+    let mut ops = Vec::new();
+    for entry in entries {
+        match entry {
+            SharedEntry::Sort { decl, .. } => sorts.push(decl),
+            SharedEntry::Op { decl, .. } => ops.push(decl),
+        }
+    }
+    Theory::new(name, sorts, ops, vec![])
+}
+
+/// One shared theory of a step with identifications, with the right
+/// counterpart of each of its symbols.
+struct Apex {
+    /// The shared theory, named by its node label.
+    theory: Theory,
+    /// The right sort each of its sorts is one symbol with, by sort name.
+    sort_images: HashMap<Arc<str>, Arc<str>>,
+    /// The right operation each of its operations is one symbol with, by
+    /// operation name.
+    op_images: HashMap<Arc<str>, Arc<str>>,
+}
+
+impl Apex {
+    /// The shared theory labelled `label` over `entries`, which name each
+    /// left symbol once.
+    fn new(label: &str, entries: Vec<SharedEntry>) -> Self {
+        let mut sorts = Vec::new();
+        let mut ops = Vec::new();
+        let mut sort_images = HashMap::new();
+        let mut op_images = HashMap::new();
+        for entry in entries {
+            match entry {
+                SharedEntry::Sort { decl, right } => {
+                    sort_images.insert(Arc::clone(&decl.name), right);
+                    sorts.push(decl);
+                }
+                SharedEntry::Op { decl, right } => {
+                    op_images.insert(Arc::clone(&decl.name), right);
+                    ops.push(decl);
+                }
+            }
+        }
+        Self {
+            theory: Theory::new(label, sorts, ops, vec![]),
+            sort_images,
+            op_images,
+        }
+    }
+
+    /// The legs into the two side nodes: into the left one, every symbol
+    /// maps to itself; into the right one, to its right counterpart. Each
+    /// leg ends at its node's theory, whose name is the side's theory name
+    /// (for an earlier step's result, not its label) or, for a side carried
+    /// inline, its label; recompose names the legs the same way.
+    fn legs(&self, left: &SideNode, right: &SideNode) -> (TheoryMorphism, TheoryMorphism) {
+        let leg =
+            |node: &SideNode,
+             image: &dyn Fn(&HashMap<Arc<str>, Arc<str>>, &Arc<str>) -> Arc<str>| {
+                TheoryMorphism::new(
+                    format!("{}_to_{}", self.theory.name, node.label),
+                    Arc::clone(&self.theory.name),
+                    Arc::clone(&node.theory.name),
+                    self.theory
+                        .sorts
+                        .iter()
+                        .map(|s| (Arc::clone(&s.name), image(&self.sort_images, &s.name)))
+                        .collect::<HashMap<_, _>>(),
+                    self.theory
+                        .ops
+                        .iter()
+                        .map(|o| {
+                            (
+                                Arc::clone(&o.name),
+                                OpAssignment::Op(image(&self.op_images, &o.name)),
+                            )
+                        })
+                        .collect::<HashMap<_, _>>(),
+                )
+            };
+        (
+            leg(left, &|_, name| Arc::clone(name)),
+            leg(right, &|images, name| {
+                images
+                    .get(name)
+                    .map_or_else(|| Arc::clone(name), Arc::clone)
+            }),
+        )
+    }
+}
+
+/// Check that every sort a shared or identified symbol's declaration
+/// mentions is itself shared or identified, so the legs of the step can
+/// map it.
+fn check_mentioned_sorts(entries: &[SharedEntry]) -> Result<(), String> {
+    let sorts: Vec<&str> = entries
+        .iter()
+        .filter_map(|e| match e.key() {
+            (IdentifyKind::Sort, name) => Some(name),
+            (IdentifyKind::Op, _) => None,
+        })
+        .collect();
+    for entry in entries {
+        for sort in entry.mentioned_sorts() {
+            if !sorts.contains(&&**sort) {
+                let (what, name) = match entry.key() {
+                    (IdentifyKind::Sort, name) => ("sort", name),
+                    (IdentifyKind::Op, name) => ("operation", name),
+                };
+                return Err(format!(
+                    "{what} '{name}' is shared or identified, but the sort '{sort}' its \
+                     declaration mentions is neither shared nor identified"
+                ));
             }
         }
     }
-    Ok(Theory::new(name, sorts, ops, vec![]))
+    Ok(())
 }
 
-/// The legs of a step with identifications: into the left side, every
-/// shared symbol maps to itself; into the right side, an identified symbol
-/// maps to its right name and a shared one to itself.
-fn legs(step: &ColimitStepSpec, shared: &Theory) -> (TheoryMorphism, TheoryMorphism) {
-    let right_name = |kind: IdentifyKind, name: &str| -> Arc<str> {
-        step.identify
+/// The shared theories of a step with identifications, labelled `base`,
+/// `{base}_1`, `{base}_2`, ...
+///
+/// A theory declares each name once, so the entries go into layers: an
+/// entry joins the first layer that does not yet declare its kind and left
+/// name. One left symbol named by several entries (shared and also
+/// identified, or identified with several right symbols) is then one
+/// symbol of each of several shared theories, and every right symbol it is
+/// named with becomes one symbol with it in the result. A step that names
+/// each left symbol once has the one shared theory `base`.
+fn apexes(base: &str, entries: Vec<SharedEntry>) -> Vec<Apex> {
+    let mut layers: Vec<Vec<SharedEntry>> = Vec::new();
+    for entry in entries {
+        let free = layers
             .iter()
-            .find(|pair| pair.kind == kind && pair.left == name)
-            .map_or_else(|| Arc::from(name), |pair| Arc::from(pair.right.as_str()))
-    };
-    let leg = |tgt: &str, rename: &dyn Fn(IdentifyKind, &str) -> Arc<str>| {
-        TheoryMorphism::new(
-            format!("{}_to_{tgt}", shared.name),
-            Arc::clone(&shared.name),
-            tgt,
-            shared
-                .sorts
-                .iter()
-                .map(|s| (Arc::clone(&s.name), rename(IdentifyKind::Sort, &s.name)))
-                .collect::<HashMap<_, _>>(),
-            shared
-                .ops
-                .iter()
-                .map(|o| {
-                    (
-                        Arc::clone(&o.name),
-                        OpAssignment::Op(rename(IdentifyKind::Op, &o.name)),
-                    )
-                })
-                .collect::<HashMap<_, _>>(),
-        )
-    };
-    (
-        leg(&step.left, &|_, name| Arc::from(name)),
-        leg(&step.right, &right_name),
-    )
+            .position(|layer| layer.iter().all(|e| e.key() != entry.key()));
+        match free {
+            Some(index) => layers[index].push(entry),
+            None => layers.push(vec![entry]),
+        }
+    }
+    // A later layer declares the sorts its symbols mention, as the first
+    // layer that declares each, so its legs map them as that layer's do.
+    for index in 1..layers.len() {
+        let (earlier, rest) = layers.split_at_mut(index);
+        let layer = &mut rest[0];
+        let mut pending: Vec<Arc<str>> = layer
+            .iter()
+            .flat_map(SharedEntry::mentioned_sorts)
+            .cloned()
+            .collect();
+        while let Some(sort) = pending.pop() {
+            let key = (IdentifyKind::Sort, &*sort);
+            if layer.iter().any(|e| e.key() == key) {
+                continue;
+            }
+            let Some(entry) = earlier.iter().flatten().find(|e| e.key() == key) else {
+                continue;
+            };
+            pending.extend(entry.mentioned_sorts().into_iter().cloned());
+            layer.push(entry.clone());
+        }
+    }
+    layers
+        .into_iter()
+        .enumerate()
+        .map(|(index, layer)| {
+            let label = if index == 0 {
+                base.to_owned()
+            } else {
+                format!("{base}_{index}")
+            };
+            Apex::new(&label, layer)
+        })
+        .collect()
 }
 
 #[cfg(test)]
