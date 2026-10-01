@@ -105,13 +105,13 @@ pub fn functor_pi_along(
 /// `Pi_F` creates no labelled nulls. Along the identity functor it is the
 /// identity, and it is monotone in `I`.
 ///
-/// The bound `max_product_size` is checked before a table's rows are
-/// built, so a refused table costs no more than counting it. The rows of a
-/// fibre table that agree with no row of another fibre table on the target
-/// columns the two share are dropped first; fibre tables that share no
-/// column are counted apart and their counts multiplied; and fibre tables
-/// whose shared columns form an acyclic hypergraph are counted on a join
-/// tree without listing their tuples.
+/// The bound `max_product_size` is on products: at a target table whose
+/// fibre has two or more tables, the product of their row counts in the
+/// restricted instance, checked before any of the table's rows are built;
+/// at a target relation to which no relation is carried, the product of
+/// the row counts of its endpoint tables in the limit. A table whose fibre
+/// is one table, or none, is never bounded, so along the identity functor
+/// `Pi_F` returns its input whatever the bound.
 ///
 /// Row ids: the rows of a table whose fibre is one table keep the ids of the
 /// rows they project to. Every other row is fresh, allocated from the least
@@ -127,9 +127,10 @@ pub fn functor_pi_along(
 /// [`RestrictError::AttributeOutsideImage`] when `functor` is not surjective
 /// on attributes (checked first); [`AdjunctionError::NonConforming`] when the
 /// instance does not conform to `S`; [`AdjunctionError::Pi`] wrapping
-/// [`RestrictError::ProductSizeExceeded`] when a target table would hold
-/// more than `max_product_size` rows, or a relation to which no relation is
-/// carried more than `max_product_size` pairs (reported at its source table;
+/// [`RestrictError::ProductSizeExceeded`] when the product of the row
+/// counts of a target table's fibre of two or more tables exceeds
+/// `max_product_size`, or a relation to which no relation is carried would
+/// hold more than `max_product_size` pairs (reported at its source table;
 /// tables are checked in ascending name, then relations in ascending order),
 /// and [`RestrictError::RowIdsExhausted`] when fresh row ids run out.
 pub fn functor_pi_along_with_provenance(
@@ -569,21 +570,21 @@ fn walk(components: &[Component], steps: &[Step<'_>], gather: &mut Gather) {
 /// The cones at one target table: tuples with one row of each fibre table
 /// whose values agree at every target column, ascending by tuple.
 ///
-/// The bound is checked before any tuple is built, and the work stays near
-/// the input and the bound. First, a row of one fibre table that agrees
-/// with no row of another on the target columns the two share is in no
-/// cone, so such rows are dropped until none is left (an empty fibre table
-/// empties the limit). Then the fibre tables fall into connected groups by
-/// shared target columns; the cones are the products of the groups' cones,
-/// so the count is the product of the groups' counts, each counted on its
-/// own. A group whose columns form an acyclic hypergraph (GYO reduction) is
-/// counted on its join tree without listing its cones, and listing them in
-/// join-tree order extends every partial tuple to a cone, because after the
-/// reduction its tables are pairwise consistent, and a pairwise consistent
-/// acyclic join is globally consistent. A cyclic group is counted and
-/// listed depth first, joining each next table on the columns it shares
-/// with those before it. The tuples are built only when the count is within
-/// the bound.
+/// When the fibre has two or more tables, the product of their row counts
+/// is checked against the bound before any tuple is built, so the join's
+/// work is bounded by the input and the bound; a fibre of one table, or of
+/// none, is not bounded. Then, a row of one fibre table that agrees with no
+/// row of another on the target columns the two share is in no cone, so
+/// such rows are dropped until none is left (an empty fibre table empties
+/// the limit). The fibre tables fall into connected groups by shared target
+/// columns, and the cones are the products of the groups' cones. A group
+/// whose columns form an acyclic hypergraph (GYO reduction) is counted on
+/// its join tree, and listing its cones in join-tree order extends every
+/// partial tuple to a cone, because after the reduction its tables are
+/// pairwise consistent, and a pairwise consistent acyclic join is globally
+/// consistent. A cyclic group is counted and listed depth first, joining
+/// each next table on the columns it shares with those before it. No tuple
+/// is built when some group has no cone.
 fn table_limit<'a>(
     instance: &FInstance,
     functor: &MigrationFunctor,
@@ -591,16 +592,21 @@ fn table_limit<'a>(
     fibre: Vec<&'a Name>,
     max: usize,
 ) -> Result<TableLimit<'a>, RestrictError> {
-    let over = |actual: usize| RestrictError::ProductSizeExceeded {
-        vertex: table.to_string(),
-        actual,
-        limit: max,
-    };
+    if fibre.len() > 1 {
+        let product = fibre
+            .iter()
+            .try_fold(1_usize, |acc, s| acc.checked_mul(instance.row_count(s)))
+            .unwrap_or(usize::MAX);
+        if product > max {
+            return Err(RestrictError::ProductSizeExceeded {
+                vertex: table.to_string(),
+                actual: product,
+                limit: max,
+            });
+        }
+    }
     if fibre.is_empty() {
         // The limit of the empty diagram: one empty tuple.
-        if max < 1 {
-            return Err(over(1));
-        }
         return Ok(TableLimit {
             table,
             fibre,
@@ -612,9 +618,6 @@ fn table_limit<'a>(
         // One fibre table: its rows are the cones.
         let rows = std::mem::take(&mut only.rows);
         charge_join_work(rows.len());
-        if rows.len() > max {
-            return Err(over(rows.len()));
-        }
         let mut tuples: Vec<(Vec<RowId>, Row)> = rows
             .into_iter()
             .map(|(id, at)| (vec![id], at.into_iter().map(|(c, (_, v))| (c, v)).collect()))
@@ -645,9 +648,6 @@ fn table_limit<'a>(
         .fold(1_usize, |acc, (_, count)| acc.saturating_mul(*count));
     if total == 0 {
         return Ok(empty(fibre));
-    }
-    if total > max {
-        return Err(over(total));
     }
     let tuples = list_tuples(&components, &plans, fibre.len());
     Ok(TableLimit {
@@ -1441,6 +1441,51 @@ mod tests {
         assert_eq!(out.pair_count(), 0);
     }
 
+    /// The bound is on the product of the fibre's row counts, not on the
+    /// join: `a(k)` and `b(k)` merged into `m(k)` with `a.k = {0, 1, 2}` and
+    /// `b.k = {0, 5, 6}` join to one row, but their product of 9 exceeds 4.
+    #[test]
+    fn pi_refuses_a_fibre_whose_product_exceeds_the_bound_though_its_join_is_small() {
+        let src = tables(&[("a", &["k"]), ("b", &["k"])], &[]);
+        let tgt = tables(&[("m", &["k"])], &[]);
+        let migration = migration_of(&[("a", "m"), ("b", "m")], &[("a", "k"), ("b", "k")]);
+        let inst = FInstance::new()
+            .with_rows("a", int_rows("k", [(0, 0), (1, 1), (2, 2)]))
+            .and_then(|f| f.with_rows("b", int_rows("k", [(3, 0), (4, 5), (5, 6)])))
+            .unwrap();
+        let out = pi(&inst, &src, &tgt, &migration, 4);
+        assert!(
+            matches!(
+                &out,
+                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
+                    vertex,
+                    actual: 9,
+                    limit: 4,
+                })) if vertex == "m"
+            ),
+            "{out:?}"
+        );
+        assert_eq!(pi(&inst, &src, &tgt, &migration, 9).unwrap().row_count("m"), 1);
+    }
+
+    /// A table whose fibre is one table is never bounded: Pi along the
+    /// identity returns a five-row table under the bound 4 unchanged, and a
+    /// table outside the image gets its one row under the bound 0.
+    #[test]
+    fn pi_bounds_no_table_whose_fibre_has_fewer_than_two_tables() {
+        let schema = tables(&[("a", &["k"])], &[]);
+        let inst = FInstance::new()
+            .with_rows("a", int_rows("k", (0..5).map(|i| (i, i64::from(i)))))
+            .unwrap();
+        let identity = MigrationFunctor::identity(&schema, &protocol()).unwrap();
+        assert_eq!(functor_pi_along(&inst, &identity, 4).unwrap(), inst);
+        assert_eq!(functor_pi_along(&inst, &identity, 0).unwrap(), inst);
+        let tgt = tables(&[("a", &["k"]), ("z", &[])], &[]);
+        let migration = migration_of(&[("a", "a")], &[("a", "k")]);
+        let out = pi(&inst, &schema, &tgt, &migration, 0).unwrap();
+        assert_eq!((out.row_count("a"), out.row_count("z")), (5, 1));
+    }
+
     /// The join work done on this thread while `run` runs.
     fn join_work<T>(run: impl FnOnce() -> T) -> (T, usize) {
         let before = JOIN_WORK.with(std::cell::Cell::get);
@@ -1484,11 +1529,11 @@ mod tests {
         );
     }
 
-    /// `a(x, k)`, `b(y, k)` and `c(x)` all agree on `k` and `x`, so the
-    /// limit at `d(x, y, k)` has `700 * 700` rows: refused under the bound 4
-    /// with that exact count, counted without building the tuples.
+    /// `a(x, k)`, `b(y, k)` and `c(x)` hold 700 rows each, so the product
+    /// of the fibre of `d(x, y, k)` is `700^3`: refused under the bound 4
+    /// with that product, before any join work.
     #[test]
-    fn pi_counts_an_over_bound_limit_without_building_it() {
+    fn pi_refuses_an_over_bound_fibre_before_joining_it() {
         let src = tables(
             &[("a", &["x", "k"]), ("b", &["y", "k"]), ("c", &["x"])],
             &[],
@@ -1523,17 +1568,14 @@ mod tests {
             matches!(
                 out,
                 Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
-                    actual: 490_000,
+                    actual: 343_000_000,
                     limit: 4,
                     ..
                 }))
             ),
             "{out:?}"
         );
-        assert!(
-            work <= 20_000,
-            "{work} units of join work to count the limit"
-        );
+        assert_eq!(work, 0, "{work} units of join work before the refusal");
     }
 
     /// The nested-loop join of the tables' rows on their equal column
@@ -1564,8 +1606,9 @@ mod tests {
     /// `p, q, r, s`: shared columns in connected and disconnected,
     /// acyclic and cyclic (every fourth case holds the triangle `pq, qr,
     /// rp`) patterns, values from three integers, and bounds 1, 4 and 81.
-    /// Within the bound the tuples and their cells agree; over it the
-    /// refusal carries the exact count.
+    /// Within the bound the tuples and their cells agree; when the fibre has
+    /// two or more tables and the product of their row counts exceeds the
+    /// bound, the refusal carries that product.
     #[test]
     fn pi_at_one_table_agrees_with_the_nested_loop_join() {
         let mut state = 0x2545_f491_4f6c_dd1d_u64;
@@ -1622,6 +1665,8 @@ mod tests {
             }
             let expected = nested_loop_join(&rows_of);
             let max = [1, 4, 81][usize::try_from(next(3)).unwrap()];
+            let product: usize = rows_of.iter().map(Vec::len).product();
+            let refused = rows_of.len() > 1 && product > max;
             let f =
                 MigrationFunctor::new(&src, &protocol(), &tgt, &protocol(), &migration).unwrap();
             match functor_pi_along_with_provenance(&inst, &f, max) {
@@ -1632,14 +1677,14 @@ mod tests {
                 })) => {
                     assert_eq!(
                         (actual, limit),
-                        (expected.len(), max),
+                        (product, max),
                         "case {case}: {shapes:?}"
                     );
-                    assert!(expected.len() > max);
+                    assert!(refused, "case {case}: {shapes:?}");
                     over += 1;
                 }
                 Ok((out, provenance)) => {
-                    assert!(expected.len() <= max, "case {case}: {shapes:?}");
+                    assert!(!refused, "case {case}: {shapes:?}");
                     let mut got: Vec<(Vec<RowId>, Row)> = out
                         .rows("d")
                         .into_iter()

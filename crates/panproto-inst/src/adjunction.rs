@@ -4280,20 +4280,40 @@ mod tests {
             sigma_bijection(f, i, sigma.as_ref(), &delta, j)
         }
 
-        /// Whether the Pi oracle's result exceeds `max` rows at a table, or
-        /// `max` pairs at a relation nothing is carried to.
-        fn over_bound(spec: &Spec, expected: &oracle::PiOracle, max: usize) -> bool {
-            expected.rows.values().any(|rows| rows.len() > max)
-                || expected.pairs.keys().any(|e| {
-                    spec.relation_fibre(e).is_empty()
-                        && expected.rows[&e.src].len() * expected.rows[&e.tgt].len() > max
-                })
+        /// The product bound's refusal of `Pi_F(i)` under `max`, as the
+        /// vertex it names and the product it reports: the first target
+        /// table, ascending, whose fibre has two or more tables with a
+        /// product of row counts in `i` above `max`; else the first target
+        /// relation, ascending, to which nothing is carried and whose
+        /// endpoints' limits (from the oracle) hold more than `max` pairs.
+        fn over_bound(
+            spec: &Spec,
+            i: &FInstance,
+            expected: &oracle::PiOracle,
+            max: usize,
+        ) -> Option<(String, usize)> {
+            for d in spec.tgt.tables.keys() {
+                let fibre = spec.fibre(d);
+                let product = fibre
+                    .iter()
+                    .try_fold(1_usize, |acc, s| acc.checked_mul(i.rows(s).len()))
+                    .unwrap_or(usize::MAX);
+                if fibre.len() > 1 && product > max {
+                    return Some((d.to_string(), product));
+                }
+            }
+            expected.pairs.keys().find_map(|e| {
+                let count = expected.rows[&e.src].len() * expected.rows[&e.tgt].len();
+                (spec.relation_fibre(e).is_empty() && count > max)
+                    .then(|| (e.src.to_string(), count))
+            })
         }
 
         /// `Pi_F(i)` checked against the oracle: refused exactly when the
-        /// functor misses a column (the least one named) or the result
-        /// exceeds `max`; otherwise equal to the oracle through its
-        /// provenance. Returns it when it is computed.
+        /// functor misses a column (the least one named) or a product
+        /// exceeds `max` (the refusal [`over_bound`] gives); otherwise equal
+        /// to the oracle through its provenance. Returns it when it is
+        /// computed.
         fn pi_checked(
             spec: &Spec,
             f: &MigrationFunctor,
@@ -4315,21 +4335,25 @@ mod tests {
                 return None;
             }
             let expected = oracle::pi(spec, i);
+            let refusal = over_bound(spec, i, &expected, max);
             let (pi, provenance) = match result {
-                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded { .. })) => {
-                    assert!(
-                        over_bound(spec, &expected, max),
-                        "refused within the bound: {i:?}"
+                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded {
+                    vertex,
+                    actual,
+                    limit,
+                })) => {
+                    assert_eq!(
+                        Some((vertex, actual)),
+                        refusal,
+                        "the refusal under {limit} of {i:?}"
                     );
+                    assert_eq!(limit, max);
                     return None;
                 }
                 Err(e) => panic!("Pi of {i:?}: {e}"),
                 Ok(ok) => ok,
             };
-            assert!(
-                !over_bound(spec, &expected, max),
-                "not refused over the bound: {i:?}"
-            );
+            assert_eq!(refusal, None, "not refused over the bound: {i:?}");
             let mut seen: BTreeMap<Name, BTreeSet<Vec<RowId>>> = BTreeMap::new();
             let mut by_tuple: BTreeMap<(Name, Vec<RowId>), RowId> = BTreeMap::new();
             for (row, (table, tuple)) in &provenance.tuples {
@@ -5025,7 +5049,7 @@ mod tests {
             });
         }
 
-        /// The bound of the exhaustive family: no limit there exceeds it.
+        /// The bound of the exhaustive family: no product there exceeds it.
         const TINY_MAX: usize = 81;
 
         /// L1, L1', L2, L2', L3, L4, L6 and L8 on every pair of tiny
