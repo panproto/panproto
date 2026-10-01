@@ -1465,7 +1465,10 @@ mod tests {
             ),
             "{out:?}"
         );
-        assert_eq!(pi(&inst, &src, &tgt, &migration, 9).unwrap().row_count("m"), 1);
+        assert_eq!(
+            pi(&inst, &src, &tgt, &migration, 9).unwrap().row_count("m"),
+            1
+        );
     }
 
     /// A table whose fibre is one table is never bounded: Pi along the
@@ -1675,11 +1678,7 @@ mod tests {
                     limit,
                     ..
                 })) => {
-                    assert_eq!(
-                        (actual, limit),
-                        (product, max),
-                        "case {case}: {shapes:?}"
-                    );
+                    assert_eq!((actual, limit), (product, max), "case {case}: {shapes:?}");
                     assert!(refused, "case {case}: {shapes:?}");
                     over += 1;
                 }
