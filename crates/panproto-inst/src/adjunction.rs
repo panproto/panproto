@@ -2405,10 +2405,12 @@ mod tests {
             out
         }
 
-        /// Whether `a` and `b` are isomorphic: some homomorphism `a -> b` is
-        /// a bijection on rows and on nulls, and its inverse is a
-        /// homomorphism `b -> a`.
-        pub(super) fn brute_iso(a: &FInstance, b: &FInstance) -> bool {
+        /// Whether `a` and `b` are isomorphic, read off the definition: some
+        /// homomorphism `a -> b` is a bijection on rows and on nulls, and
+        /// its inverse is a homomorphism `b -> a`. It lists every
+        /// homomorphism, so it is only for small instances; [`brute_iso`]
+        /// is checked against it.
+        pub(super) fn brute_iso_by_homs(a: &FInstance, b: &FInstance) -> bool {
             if a.total_row_count() != b.total_row_count() {
                 return false;
             }
@@ -2438,6 +2440,390 @@ mod tests {
                         .map_or(*m == *n, |v| canon(v) == canon(&Value::LabeledNull(*n)))
                 })
             })
+        }
+
+        /// A cell as the isomorphism search reads it: a labelled null, or a
+        /// constant by its canonical bytes.
+        #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+        enum Cell {
+            Null(u64),
+            Constant(Vec<u8>),
+        }
+
+        /// An instance indexed for the isomorphism search.
+        struct Indexed<'x> {
+            /// The rows, ascending.
+            rows: Vec<RowId>,
+            /// Each row's table.
+            table: Vec<&'x Name>,
+            /// Each row's cells, by column.
+            cells: Vec<Vec<(&'x String, Cell)>>,
+            /// Each row's outgoing pairs: relation and target row (index).
+            out: Vec<BTreeSet<(&'x Edge, usize)>>,
+            /// Each row's incoming pairs: relation and source row (index).
+            inc: Vec<BTreeSet<(&'x Edge, usize)>>,
+            /// The nulls, ascending.
+            nulls: Vec<u64>,
+            /// Each null's cells: row (index) and column.
+            held: Vec<Vec<(usize, &'x String)>>,
+        }
+
+        impl<'x> Indexed<'x> {
+            fn of(x: &'x FInstance) -> Self {
+                let rows = x.row_ids();
+                let at: BTreeMap<RowId, usize> =
+                    rows.iter().enumerate().map(|(n, r)| (*r, n)).collect();
+                let table = rows
+                    .iter()
+                    .map(|r| x.table_of(*r).expect("a listed row has a table"))
+                    .collect();
+                let cells: Vec<Vec<(&String, Cell)>> = rows
+                    .iter()
+                    .map(|r| {
+                        let mut cells: Vec<(&String, Cell)> = x
+                            .row(*r)
+                            .expect("a listed row has cells")
+                            .iter()
+                            .map(|(c, v)| {
+                                let cell = v
+                                    .as_labeled_null()
+                                    .map_or_else(|| Cell::Constant(canon(v)), Cell::Null);
+                                (c, cell)
+                            })
+                            .collect();
+                        cells.sort();
+                        cells
+                    })
+                    .collect();
+                let mut out = vec![BTreeSet::new(); rows.len()];
+                let mut inc = vec![BTreeSet::new(); rows.len()];
+                for (edge, pairs) in x.foreign_keys() {
+                    for (s, t) in pairs {
+                        let (s, t) = (at[s], at[t]);
+                        out[s].insert((edge, t));
+                        inc[t].insert((edge, s));
+                    }
+                }
+                let mut by_null: BTreeMap<u64, Vec<(usize, &String)>> = BTreeMap::new();
+                for (n, row) in cells.iter().enumerate() {
+                    for (c, cell) in row {
+                        if let Cell::Null(m) = cell {
+                            by_null.entry(*m).or_default().push((n, *c));
+                        }
+                    }
+                }
+                let (nulls, held) = by_null.into_iter().unzip();
+                Self {
+                    rows,
+                    table,
+                    cells,
+                    out,
+                    inc,
+                    nulls,
+                    held,
+                }
+            }
+
+            /// Whether rows `y` and `z` are twins: one table, equal cells
+            /// (the same nulls), and the same pairs to every other row, so
+            /// that swapping them is an automorphism fixing every other row
+            /// and every null.
+            fn twins(&self, y: usize, z: usize) -> bool {
+                let swap = |w: usize| match w {
+                    w if w == y => z,
+                    w if w == z => y,
+                    w => w,
+                };
+                let swapped = |pairs: &BTreeSet<(&'x Edge, usize)>| -> BTreeSet<(&'x Edge, usize)> {
+                    pairs.iter().map(|(e, w)| (*e, swap(*w))).collect()
+                };
+                self.table[y] == self.table[z]
+                    && self.cells[y] == self.cells[z]
+                    && swapped(&self.out[y]) == self.out[z]
+                    && swapped(&self.inc[y]) == self.inc[z]
+            }
+        }
+
+        /// Intern `key` in `ids`, returning its id.
+        fn intern<K: Ord>(ids: &mut BTreeMap<K, usize>, key: K) -> usize {
+            let next = ids.len();
+            *ids.entry(key).or_insert(next)
+        }
+
+        /// The stable colours of the rows and nulls of `a` and `b`, refined
+        /// together so their ids compare across the two: a row starts from
+        /// its table and its cells with every null read as one marker, and
+        /// each round adds the colours of its pair neighbours (by relation
+        /// and direction) and of the nulls in its cells (by column); a null's
+        /// colour adds the colours and columns of the cells holding it.
+        fn colours(a: &Indexed<'_>, b: &Indexed<'_>) -> [(Vec<usize>, Vec<usize>); 2] {
+            let mut start: BTreeMap<(Name, Vec<(String, Option<Vec<u8>>)>), usize> =
+                BTreeMap::new();
+            let mut first = |x: &Indexed<'_>| -> Vec<usize> {
+                (0..x.rows.len())
+                    .map(|n| {
+                        let shape = x.cells[n]
+                            .iter()
+                            .map(|(c, cell)| match cell {
+                                Cell::Null(_) => ((*c).clone(), None),
+                                Cell::Constant(bytes) => ((*c).clone(), Some(bytes.clone())),
+                            })
+                            .collect();
+                        intern(&mut start, (x.table[n].clone(), shape))
+                    })
+                    .collect()
+            };
+            let mut rows = [first(a), first(b)];
+            let mut nulls = [vec![0; a.nulls.len()], vec![0; b.nulls.len()]];
+            let sides = [a, b];
+            let classes = |rows: &[Vec<usize>; 2], nulls: &[Vec<usize>; 2]| {
+                let r: BTreeSet<usize> = rows.iter().flatten().copied().collect();
+                let n: BTreeSet<usize> = nulls.iter().flatten().copied().collect();
+                r.len() + n.len()
+            };
+            let mut seen = classes(&rows, &nulls);
+            loop {
+                let mut null_ids = BTreeMap::new();
+                let next_nulls: [Vec<usize>; 2] = [0, 1].map(|s| {
+                    let x = sides[s];
+                    (0..x.nulls.len())
+                        .map(|m| {
+                            let mut around: Vec<(usize, &String)> =
+                                x.held[m].iter().map(|(r, c)| (rows[s][*r], *c)).collect();
+                            around.sort();
+                            intern(&mut null_ids, (nulls[s][m], around))
+                        })
+                        .collect()
+                });
+                let mut row_ids = BTreeMap::new();
+                let next_rows: [Vec<usize>; 2] = [0, 1].map(|s| {
+                    let x = sides[s];
+                    let null_at: BTreeMap<u64, usize> =
+                        x.nulls.iter().enumerate().map(|(m, n)| (*n, m)).collect();
+                    (0..x.rows.len())
+                        .map(|r| {
+                            let mut around: Vec<(&Edge, bool, usize)> = x.out[r]
+                                .iter()
+                                .map(|(e, t)| (*e, true, rows[s][*t]))
+                                .chain(x.inc[r].iter().map(|(e, t)| (*e, false, rows[s][*t])))
+                                .collect();
+                            around.sort();
+                            let held: Vec<(&String, usize)> = x.cells[r]
+                                .iter()
+                                .filter_map(|(c, cell)| match cell {
+                                    Cell::Null(n) => Some((*c, nulls[s][null_at[n]])),
+                                    Cell::Constant(_) => None,
+                                })
+                                .collect();
+                            intern(&mut row_ids, (rows[s][r], around, held))
+                        })
+                        .collect()
+                });
+                rows = next_rows;
+                nulls = next_nulls;
+                let now = classes(&rows, &nulls);
+                if now == seen {
+                    break;
+                }
+                seen = now;
+            }
+            let [ra, rb] = rows;
+            let [na, nb] = nulls;
+            [(ra, na), (rb, nb)]
+        }
+
+        /// The state of the isomorphism search: the rows and nulls of `a`
+        /// assigned so far, with their inverses.
+        struct Search<'s, 'x> {
+            a: &'s Indexed<'x>,
+            b: &'s Indexed<'x>,
+            /// Each row of `a` with its image, when assigned.
+            sigma: Vec<Option<usize>>,
+            /// Each row of `b` with its preimage, when assigned.
+            sigma_inv: Vec<Option<usize>>,
+            /// Each null of `a` with its image, when fixed.
+            tau: BTreeMap<u64, u64>,
+            /// Each null of `b` with its preimage, when fixed.
+            tau_inv: BTreeMap<u64, u64>,
+        }
+
+        impl Search<'_, '_> {
+            /// Assign row `r` of `a` to row `y` of `b` when their cells agree
+            /// under the nulls fixed so far (fixing the new ones) and their
+            /// pairs to the rows assigned so far agree both ways; returns the
+            /// nulls it fixed, or `None` (with nothing changed) when they do
+            /// not.
+            fn assign(&mut self, r: usize, y: usize) -> Option<Vec<u64>> {
+                let (a, b) = (self.a, self.b);
+                if a.table[r] != b.table[y] || a.cells[r].len() != b.cells[y].len() {
+                    return None;
+                }
+                let image =
+                    |w: usize, sigma: &[Option<usize>]| if w == r { Some(y) } else { sigma[w] };
+                let preimage =
+                    |w: usize, inv: &[Option<usize>]| if w == y { Some(r) } else { inv[w] };
+                let forward = a.out[r].iter().all(|(e, t)| {
+                    image(*t, &self.sigma).is_none_or(|it| b.out[y].contains(&(*e, it)))
+                }) && a.inc[r].iter().all(|(e, s)| {
+                    image(*s, &self.sigma).is_none_or(|is| b.inc[y].contains(&(*e, is)))
+                });
+                let backward = b.out[y].iter().all(|(e, t)| {
+                    preimage(*t, &self.sigma_inv).is_none_or(|pt| a.out[r].contains(&(*e, pt)))
+                }) && b.inc[y].iter().all(|(e, s)| {
+                    preimage(*s, &self.sigma_inv).is_none_or(|ps| a.inc[r].contains(&(*e, ps)))
+                });
+                if !forward || !backward {
+                    return None;
+                }
+                let mut fixed: Vec<u64> = Vec::new();
+                for ((ca, va), (cb, vb)) in a.cells[r].iter().zip(&b.cells[y]) {
+                    let agrees = ca == cb
+                        && match (va, vb) {
+                            (Cell::Constant(x), Cell::Constant(z)) => x == z,
+                            (Cell::Null(n), Cell::Null(m)) => {
+                                match (self.tau.get(n), self.tau_inv.get(m)) {
+                                    (Some(fm), Some(fn_)) => fm == m && fn_ == n,
+                                    (None, None) => {
+                                        self.tau.insert(*n, *m);
+                                        self.tau_inv.insert(*m, *n);
+                                        fixed.push(*n);
+                                        true
+                                    }
+                                    _ => false,
+                                }
+                            }
+                            _ => false,
+                        };
+                    if !agrees {
+                        self.unfix(&fixed);
+                        return None;
+                    }
+                }
+                self.sigma[r] = Some(y);
+                self.sigma_inv[y] = Some(r);
+                Some(fixed)
+            }
+
+            /// Undo the nulls fixed by one assignment.
+            fn unfix(&mut self, fixed: &[u64]) {
+                for n in fixed {
+                    if let Some(m) = self.tau.remove(n) {
+                        self.tau_inv.remove(&m);
+                    }
+                }
+            }
+
+            /// Undo the assignment of row `r` of `a` to `y`.
+            fn unassign(&mut self, r: usize, y: usize, fixed: &[u64]) {
+                self.sigma[r] = None;
+                self.sigma_inv[y] = None;
+                self.unfix(fixed);
+            }
+
+            /// Whether the rows `order[level..]` can be assigned, each to an
+            /// unused row of `b` with its colour, trying one row of each
+            /// class of twins among the candidates.
+            fn extend(&mut self, level: usize, order: &[usize], colours: &[Vec<usize>; 2]) -> bool {
+                let Some(&r) = order.get(level) else {
+                    return true;
+                };
+                let mut tried: Vec<usize> = Vec::new();
+                for y in 0..self.b.rows.len() {
+                    if self.sigma_inv[y].is_some()
+                        || colours[1][y] != colours[0][r]
+                        || tried.iter().any(|&z| self.b.twins(z, y))
+                    {
+                        continue;
+                    }
+                    tried.push(y);
+                    let Some(fixed) = self.assign(r, y) else {
+                        continue;
+                    };
+                    if self.extend(level + 1, order, colours) {
+                        return true;
+                    }
+                    self.unassign(r, y, &fixed);
+                }
+                false
+            }
+        }
+
+        /// Whether `a` and `b` are isomorphic: a bijection `sigma` on rows
+        /// that keeps each row's table and a bijection `tau` from the nulls
+        /// of `a` onto those of `b` such that each row `sigma(r)` holds the
+        /// cells of `r` with each null `n` read as `tau(n)` and each constant
+        /// equal by canonical bytes, and `sigma` sends the pairs of `a` at
+        /// each relation onto those of `b`. This is [`brute_iso_by_homs`]
+        /// (a homomorphism bijective on rows and nulls whose inverse is a
+        /// homomorphism) searched for directly, and is checked against it.
+        ///
+        /// Rows of `a` are assigned one at a time, each only to an unused
+        /// row of `b` of its colour (see [`colours`]; an isomorphism keeps
+        /// every colour), and an assignment whose cells, nulls or pairs to
+        /// the rows assigned so far disagree is dropped at once. Of the
+        /// candidate rows of `b` that are twins, only the first is tried:
+        /// swapping two unused twins is an automorphism of `b` that fixes
+        /// everything assigned, so the second leads where the first did.
+        /// Rows are taken most-constrained first: the one with the most
+        /// pairs and nulls shared with the rows already taken, then the one
+        /// of the least colour class.
+        pub(super) fn brute_iso(a: &FInstance, b: &FInstance) -> bool {
+            let (xa, xb) = (Indexed::of(a), Indexed::of(b));
+            if xa.rows.len() != xb.rows.len() || xa.nulls.len() != xb.nulls.len() {
+                return false;
+            }
+            let [(rows_a, nulls_a), (rows_b, nulls_b)] = colours(&xa, &xb);
+            let census = |colours: &[usize]| -> BTreeMap<usize, usize> {
+                let mut counts = BTreeMap::new();
+                for c in colours {
+                    *counts.entry(*c).or_insert(0) += 1;
+                }
+                counts
+            };
+            if census(&rows_a) != census(&rows_b) || census(&nulls_a) != census(&nulls_b) {
+                return false;
+            }
+            let class = census(&rows_a);
+            // Rows of `a` that share a pair or a null with each row.
+            let mut linked: Vec<BTreeSet<usize>> = (0..xa.rows.len())
+                .map(|r| {
+                    xa.out[r]
+                        .iter()
+                        .chain(&xa.inc[r])
+                        .map(|(_, w)| *w)
+                        .collect()
+                })
+                .collect();
+            for held in &xa.held {
+                for (r, _) in held {
+                    linked[*r].extend(held.iter().map(|(w, _)| *w));
+                }
+            }
+            let mut order: Vec<usize> = Vec::with_capacity(xa.rows.len());
+            let mut taken = vec![false; xa.rows.len()];
+            while order.len() < xa.rows.len() {
+                let next = (0..xa.rows.len())
+                    .filter(|r| !taken[*r])
+                    .min_by_key(|r| {
+                        let ties = linked[*r].iter().filter(|w| taken[**w]).count();
+                        (std::cmp::Reverse(ties), class[&rows_a[*r]], *r)
+                    })
+                    .expect("a row is left to take");
+                taken[next] = true;
+                order.push(next);
+            }
+            let mut search = Search {
+                a: &xa,
+                b: &xb,
+                sigma: vec![None; xa.rows.len()],
+                sigma_inv: vec![None; xb.rows.len()],
+                tau: BTreeMap::new(),
+                tau_inv: BTreeMap::new(),
+            };
+            let found = search.extend(0, &order, &[rows_a, rows_b]);
+            // Every null of `a` is in some cell, so a full assignment fixes
+            // `tau` on all of them, onto the nulls of `b` (equal in number).
+            found && search.tau.len() == xa.nulls.len()
         }
 
         /// `rho_{S'}(x)`: the rows at kept tables with their cells at kept
@@ -3096,7 +3482,10 @@ mod tests {
                 matches!(
                     &refused,
                     Err(AdjunctionError::SigmaConstantClash { row, column, left, right })
-                        if *row == RowId(1) && column == "b" && **left == int(1) && **right == int(2)
+                        if *row == RowId(1)
+                            && column == "b"
+                            && **left == int(1)
+                            && **right == int(2)
                 ),
                 "{refused:?}"
             );
@@ -3637,8 +4026,10 @@ mod tests {
                 assert!(
                     matches!(
                         &result,
-                        Err(AdjunctionError::Pi(RestrictError::AttributeOutsideImage { table: t, column: c }))
-                            if *t == table && *c == column
+                        Err(AdjunctionError::Pi(RestrictError::AttributeOutsideImage {
+                            table: t,
+                            column: c,
+                        })) if *t == table && *c == column
                     ),
                     "{result:?}"
                 );
@@ -5079,7 +5470,8 @@ mod tests {
                     let bounded = delta.total_row_count() <= 6
                         && delta.tables().iter().all(|(_, rows)| rows.len() <= 3);
                     if bounded {
-                        if let Some(count) = delta_pi(&case.spec, &case.f, &delta, &case.j, case.max) {
+                        let count = delta_pi(&case.spec, &case.f, &delta, &case.j, case.max);
+                        if let Some(count) = count {
                             prop_assert!(count > 0);
                         }
                     }
@@ -5152,7 +5544,9 @@ mod tests {
                     let bad = corrupt(&mut case.rng, &case.x);
                     let expected = first_violation(&src_tables, &src_relations, &bad);
                     let refused = |result: Result<(), AdjunctionError>| match result {
-                        Err(AdjunctionError::NonConforming { row, column, .. }) => Some((row, column)),
+                        Err(AdjunctionError::NonConforming { row, column, .. }) => {
+                            Some((row, column))
+                        }
                         _ => None,
                     };
                     let sigma = refused(crate::adjunction::f_sigma(&bad, &case.f).map(|_| ()));
@@ -5166,6 +5560,107 @@ mod tests {
                     let expected = first_violation(&tgt_tables, &tgt_relations, &bad_j);
                     prop_assert_eq!(refused(f_delta(&bad_j, &case.f).map(|_| ())), expected);
                 }
+            }
+
+            /// L5 on the generated cases whose Pi results hold the most rows
+            /// with equal cells: about `4e8` table-respecting row maps each,
+            /// which an isomorphism search that does not prune by
+            /// injectivity, by pairs and by twins cannot get through. Each
+            /// case must finish well inside the time the test runner allows
+            /// a test.
+            #[test]
+            fn renaming_laws_finish_on_pi_results_with_many_equal_rows() {
+                for seed in [1606_u64, 1703, 1873, 2932, 3193] {
+                    let (done, finished) = std::sync::mpsc::channel();
+                    std::thread::spawn(move || {
+                        let case = case(seed);
+                        renaming_laws(&case.spec, &case.f, &case.i, &case.j, case.max);
+                        let _ = done.send(());
+                    });
+                    assert!(
+                        finished
+                            .recv_timeout(std::time::Duration::from_secs(30))
+                            .is_ok(),
+                        "the renaming laws at seed {seed} did not finish within 30 s"
+                    );
+                }
+            }
+
+            /// `x` with its rows renumbered in reverse above 100 and each
+            /// labelled null `n` read as `n + 50`: an isomorphic copy.
+            fn relabel(x: &FInstance) -> FInstance {
+                let top = x.max_row_id().map_or(0, |r| r.0);
+                let id = |r: RowId| RowId(100 + top - r.0);
+                let tables: Vec<(Name, Vec<(RowId, Row)>)> = x
+                    .table_names()
+                    .into_iter()
+                    .map(|name| {
+                        let rows = x
+                            .rows(name)
+                            .into_iter()
+                            .map(|(r, cells)| {
+                                let cells: Row = cells
+                                    .iter()
+                                    .map(|(c, v)| {
+                                        let v = v.as_labeled_null().map_or_else(
+                                            || v.clone(),
+                                            |n| Value::LabeledNull(n + 50),
+                                        );
+                                        (c.clone(), v)
+                                    })
+                                    .collect();
+                                (id(r), cells)
+                            })
+                            .collect();
+                        (name.clone(), rows)
+                    })
+                    .collect();
+                let pairs = x.foreign_keys().into_iter().map(|(e, pairs)| {
+                    (
+                        e.clone(),
+                        pairs
+                            .iter()
+                            .map(|(s, t)| (id(*s), id(*t)))
+                            .collect::<Vec<_>>(),
+                    )
+                });
+                FInstance::from_parts(tables, pairs).unwrap_or_else(|e| panic!("{e}"))
+            }
+
+            /// The isomorphism search agrees with its definition by
+            /// homomorphisms, both ways round, on generated small instances:
+            /// each against itself, a relabelled copy, a homomorphic image
+            /// and another generated instance of its schema.
+            #[test]
+            fn brute_iso_agrees_with_its_definition() {
+                let (mut isomorphic, mut not) = (0, 0);
+                for seed in 0..2000_u64 {
+                    let mut case = case(seed);
+                    let side = case.spec.src.clone();
+                    let x = case.x.clone();
+                    let (image, _) = hom_out(&mut case.rng, &side, &x);
+                    let other = gen_instance(&mut case.rng, &side, 0);
+                    for y in [x.clone(), relabel(&x), image, other] {
+                        for (one, two) in [(&x, &y), (&y, &x)] {
+                            let expected = oracle::brute_iso_by_homs(one, two);
+                            assert_eq!(
+                                oracle::brute_iso(one, two),
+                                expected,
+                                "seed {seed}: {one:?} against {two:?}"
+                            );
+                            if expected {
+                                isomorphic += 1;
+                            } else {
+                                not += 1;
+                            }
+                        }
+                    }
+                }
+                assert!(
+                    isomorphic > 0 && not > 0,
+                    "{isomorphic} isomorphic, {not} not"
+                );
+                println!("{isomorphic} isomorphic pairs, {not} not");
             }
 
             /// `inst` with one row corrupted: a stray cell, a missing cell or
