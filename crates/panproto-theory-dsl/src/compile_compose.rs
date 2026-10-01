@@ -1125,6 +1125,232 @@ mod tests {
             Err(GatError::Composition(_))
         ));
     }
+
+    /// A one-step composition of `left` and `right` in `mode` with the given
+    /// shared sorts, shared operations and identifications, each a kind
+    /// (`sort` or `op`), a left name and a right name.
+    fn step_with(
+        (left, right): (&str, &str),
+        shared_sorts: &[&str],
+        shared_ops: &[&str],
+        mode: &str,
+        identify: &[(&str, &str, &str)],
+    ) -> CompositionBody {
+        let quoted = |names: &[&str]| -> String {
+            names
+                .iter()
+                .map(|n| format!("\"{n}\""))
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let identify: Vec<String> = identify
+            .iter()
+            .map(|(kind, l, r)| format!(r#"{{"kind": "{kind}", "left": "{l}", "right": "{r}"}}"#))
+            .collect();
+        body(&format!(
+            r#"{{
+                "id": "test.step",
+                "description": "one step",
+                "compose": {{
+                    "result": "R",
+                    "steps": [{{
+                        "left": "{left}",
+                        "right": "{right}",
+                        "shared_sorts": [{}],
+                        "shared_ops": [{}],
+                        "mode": "{mode}",
+                        "identify": [{}]
+                    }}]
+                }}
+            }}"#,
+            quoted(shared_sorts),
+            quoted(shared_ops),
+            identify.join(", "),
+        ))
+    }
+
+    /// The sorted sort and operation names of `theory`.
+    fn symbol_names(theory: &Theory) -> (Vec<String>, Vec<String>) {
+        let mut ops: Vec<String> = theory.ops.iter().map(|o| o.name.to_string()).collect();
+        ops.sort();
+        (sort_names(theory), ops)
+    }
+
+    /// The message of a step-0 `ColimitFailed` error, checked to name no
+    /// node or edge of the step's diagram.
+    fn user_message(error: TheoryDslError) -> String {
+        let TheoryDslError::ColimitFailed { step, message } = error else {
+            panic!("expected ColimitFailed, got {error:?}");
+        };
+        assert_eq!(step, 0);
+        assert!(
+            !message.contains("step_0") && !message.contains("edge "),
+            "{message}"
+        );
+        message
+    }
+
+    #[test]
+    fn dsl_identify_step_composes_the_same_with_a_redundant_shared_operation() {
+        // Vertex and Edge are shared, and the left `src` and `Vertex` are
+        // identified with the right `tgt` and `Edge`. Sharing `src` (and
+        // `tgt`) as well names a left symbol a second time, which must not
+        // change whether or how the step composes.
+        let graph = registry(&["ThGraph"]);
+        let identify_orders: [&[(&str, &str, &str)]; 2] = [
+            &[("op", "src", "tgt"), ("sort", "Vertex", "Edge")],
+            &[("sort", "Vertex", "Edge"), ("op", "src", "tgt")],
+        ];
+        let compile = |mode: &str, shared_ops: &[&str], identify: &[(&str, &str, &str)]| {
+            compile_and_replay(
+                &step_with(
+                    ("ThGraph", "ThGraph"),
+                    &["Vertex", "Edge"],
+                    shared_ops,
+                    mode,
+                    identify,
+                ),
+                &HashMap::new(),
+                &graph,
+            )
+            .map(|theory| symbol_names(&theory))
+        };
+        // Every sort is one class, and so is every operation.
+        let one_class = (vec!["Vertex".to_owned()], vec!["src".to_owned()]);
+        for identify in identify_orders {
+            // Amalgamation glues the redundant entries by name anyway.
+            for shared_ops in [&[][..], &["src"][..], &["src", "tgt"][..]] {
+                let names = compile("amalgamate", shared_ops, identify)
+                    .unwrap_or_else(|e| panic!("{identify:?}, shared ops {shared_ops:?}: {e}"));
+                assert_eq!(names, one_class, "{identify:?}, shared ops {shared_ops:?}");
+            }
+            // With explicit identity, sharing both operations makes every
+            // operation one class.
+            let names = compile("explicit_identity", &["src", "tgt"], identify)
+                .unwrap_or_else(|e| panic!("explicit, {identify:?}: {e}"));
+            assert_eq!(names, one_class, "explicit, {identify:?}");
+            // Sharing `src` only leaves the left `tgt` alone, while the
+            // right `tgt` joins the class of `src`.
+            let names = compile("explicit_identity", &["src"], identify)
+                .unwrap_or_else(|e| panic!("explicit, {identify:?}, src shared: {e}"));
+            assert_eq!(
+                names,
+                (
+                    vec!["Vertex".to_owned()],
+                    vec!["src".to_owned(), "tgt".to_owned()]
+                ),
+                "explicit, {identify:?}, src shared"
+            );
+            // Sharing neither leaves the left `tgt` and the right `src`
+            // outside the class, and their names clash: refused in the
+            // step's terms.
+            let Err(error) = compile("explicit_identity", &[], identify) else {
+                panic!("explicit, {identify:?}: the unshared operations clash");
+            };
+            let message = user_message(error);
+            assert!(message.contains("src"), "explicit, {identify:?}: {message}");
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_refuses_an_operation_whose_sorts_are_identified_otherwise() {
+        // `src` is identified with `tgt`, which needs the left `Vertex` to be
+        // one symbol with the right `Vertex`; it is only identified with the
+        // right `Edge`.
+        for mode in ["amalgamate", "explicit_identity"] {
+            let Err(error) = compile_composition_with_report(
+                &step_with(
+                    ("ThGraph", "ThGraph"),
+                    &["Edge"],
+                    &[],
+                    mode,
+                    &[("sort", "Vertex", "Edge"), ("op", "src", "tgt")],
+                ),
+                &builtin_resolver(),
+                &HashMap::new(),
+            ) else {
+                panic!("{mode}: src~tgt needs Vertex~Vertex");
+            };
+            let message = user_message(error);
+            assert!(
+                message.contains("'src'")
+                    && message.contains("'tgt'")
+                    && message.contains("'Vertex'"),
+                "{mode}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_refuses_operations_of_different_arity() {
+        // `src` takes one input and ThHypergraph's `incident` two.
+        let other = "incident";
+        for mode in ["amalgamate", "explicit_identity"] {
+            let Err(error) = compile_composition_with_report(
+                &step_with(
+                    ("ThGraph", "ThHypergraph"),
+                    &["Vertex"],
+                    &[],
+                    mode,
+                    &[("sort", "Edge", "HyperEdge"), ("op", "src", other)],
+                ),
+                &builtin_resolver(),
+                &HashMap::new(),
+            ) else {
+                panic!("{mode}: src and {other} differ in arity");
+            };
+            let message = user_message(error);
+            assert!(
+                message.contains("'src'") && message.contains(&format!("'{other}'")),
+                "{mode}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn dsl_step_names_a_shared_sort_missing_from_a_side() {
+        for mode in ["amalgamate", "explicit_identity"] {
+            for identify in [&[][..], &[("sort", "Edge", "HyperEdge")][..]] {
+                let Err(error) = compile_composition_with_report(
+                    &step_with(
+                        ("ThGraph", "ThHypergraph"),
+                        &["Vertex", "Nope"],
+                        &[],
+                        mode,
+                        identify,
+                    ),
+                    &builtin_resolver(),
+                    &HashMap::new(),
+                ) else {
+                    panic!("{mode}, {identify:?}: Nope is in neither theory");
+                };
+                let message = user_message(error);
+                assert!(
+                    message.contains("'Nope'") && message.contains("'ThGraph'"),
+                    "{mode}, {identify:?}: {message}"
+                );
+            }
+            // Present on the left only: the right theory is named.
+            let Err(error) = compile_composition_with_report(
+                &step_with(
+                    ("ThGraph", "ThHypergraph"),
+                    &["Vertex", "Edge"],
+                    &[],
+                    mode,
+                    &[("sort", "Edge", "HyperEdge")],
+                ),
+                &builtin_resolver(),
+                &HashMap::new(),
+            ) else {
+                panic!("{mode}: Edge is not in ThHypergraph");
+            };
+            let message = user_message(error);
+            assert!(
+                message.contains("'Edge'") && message.contains("'ThHypergraph'"),
+                "{mode}: {message}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
