@@ -546,3 +546,61 @@ fn removing_rows_with_foreign_keys_reads_only_their_pairs() -> Result<(), Box<dy
     );
     Ok(())
 }
+
+/// The table-instance entries of the identity corpus, by name: the empty
+/// instance, [`sample`], and a table whose cells are the floats whose `==`
+/// is not an identity (`NaN`, `-0.0`) beside a `Null`.
+fn corpus_entries() -> Vec<(&'static str, FInstance)> {
+    let floats = FInstance::new()
+        .with_rows(
+            "m",
+            [
+                (
+                    RowId(0),
+                    HashMap::from([("x".to_owned(), Value::Float(f64::NAN))]),
+                ),
+                (
+                    RowId(3),
+                    HashMap::from([
+                        ("x".to_owned(), Value::Float(-0.0)),
+                        ("y".to_owned(), Value::Null),
+                    ]),
+                ),
+            ],
+        )
+        .unwrap();
+    vec![
+        ("table_empty", FInstance::new()),
+        ("table_user_post", sample()),
+        ("table_float_cells", floats),
+    ]
+}
+
+/// The digests the identity corpus pins for the table entries; the
+/// integrator copies these into golden.json. Each entry also decodes from
+/// its JSON to the same digest.
+#[test]
+fn the_table_corpus_entries_have_pinned_digests() {
+    let pinned = [
+        (
+            "table_empty",
+            "9dd95d0986d257b229b20e26f176e993a03c8428d06f2aac3ad2d9c702c17f4b",
+        ),
+        (
+            "table_user_post",
+            "40d79a4af0170493f10a6e86c2b745ecc377c7076d29c9f60615154a2734bfd5",
+        ),
+        (
+            "table_float_cells",
+            "e018971e3edbcbd2dc8aee726fdeefc6539b306012220aa93cd00140c4923124",
+        ),
+    ];
+    let entries = corpus_entries();
+    for ((name, instance), (pinned_name, hex)) in entries.iter().zip(pinned) {
+        assert_eq!(*name, pinned_name);
+        let json = serde_json::to_string(instance).unwrap();
+        let decoded: FInstance = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.digest(), instance.digest(), "{name}");
+        assert_eq!(instance.digest().to_hex(), hex, "{name}: json {json}");
+    }
+}
