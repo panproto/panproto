@@ -1197,16 +1197,227 @@ fn plan_digest_covers_every_protocol_field_compilation_reads() {
     };
     assert_eq!(base.digest(), plan(&schema, &unread).digest());
 
-    // Vertex kinds and constraint sorts are sets: order and repeats do not count.
-    let kinds = |list: &[&str]| Protocol {
-        obj_kinds: list.iter().map(|k| (*k).to_owned()).collect(),
-        constraint_sorts: list.iter().map(|k| (*k).to_owned()).collect(),
+    // Vertex kinds and constraint sorts are lists written as stored: order
+    // and repeats each change the digest.
+    let owned = |list: &[&str]| -> Vec<String> { list.iter().map(|k| (*k).to_owned()).collect() };
+    let obj = |list: &[&str]| Protocol {
+        obj_kinds: owned(list),
         ..Protocol::default()
     };
-    assert_eq!(
-        plan(&schema, &kinds(&["object", "string"])).digest(),
-        plan(&schema, &kinds(&["string", "object", "string"])).digest()
-    );
+    let sorts = |list: &[&str]| Protocol {
+        constraint_sorts: owned(list),
+        ..Protocol::default()
+    };
+    for (field, make) in [
+        ("obj_kinds", &obj as &dyn Fn(&[&str]) -> Protocol),
+        ("constraint_sorts", &sorts),
+    ] {
+        let stored = plan(&schema, &make(&["object", "string"]));
+        let reordered = plan(&schema, &make(&["string", "object"]));
+        let repeated = plan(&schema, &make(&["object", "string", "string"]));
+        assert_ne!(stored.digest(), reordered.digest(), "{field} reordered");
+        assert_ne!(stored.digest(), repeated.digest(), "{field} repeated");
+        assert_ne!(reordered.digest(), repeated.digest(), "{field}");
+    }
+}
+
+/// The schema `a: object -prop-> b: string` under a protocol whose one
+/// `prop` rule permits `src` sources and `tgt` targets.
+fn edge_rule_case(src: &[&str], tgt: &[&str]) -> (Schema, Protocol) {
+    let schema = S::default()
+        .vertex("a", "object")
+        .vertex("b", "string")
+        .edge(&prop("a", "b", "x"))
+        .build();
+    let owned = |list: &[&str]| -> Vec<String> { list.iter().map(|k| (*k).to_owned()).collect() };
+    let protocol = Protocol {
+        obj_kinds: owned(&["object", "string"]),
+        edge_rules: vec![panproto_schema::EdgeRule {
+            edge_kind: "prop".into(),
+            src_kinds: owned(src),
+            tgt_kinds: owned(tgt),
+        }],
+        ..Protocol::default()
+    };
+    (schema, protocol)
+}
+
+/// An edge rule's source and target kinds are lists written as stored: the
+/// schema check echoes the list, in order and with repeats, into the
+/// ill-formed-declaration detail a plan reports, so plans whose rules differ
+/// only in order or repeats give unequal reports and must not share a
+/// digest.
+#[test]
+fn plan_digest_keeps_edge_rule_kind_order_and_repeats() {
+    let cases = [
+        (
+            "src_kinds",
+            edge_rule_case(&["p", "q"], &[]),
+            edge_rule_case(&["q", "p", "q"], &[]),
+        ),
+        (
+            "tgt_kinds",
+            edge_rule_case(&[], &["p", "q"]),
+            edge_rule_case(&[], &["q", "p", "q"]),
+        ),
+    ];
+    for (field, (schema_a, protocol_a), (schema_b, protocol_b)) in &cases {
+        let a = plan(schema_a, protocol_a);
+        let b = plan(schema_b, protocol_b);
+        let empty = GInstance::new();
+        let report_a = a.validate_graph(&empty, &unlimited(), &none());
+        let report_b = b.validate_graph(&empty, &unlimited(), &none());
+        assert_eq!(report_a.status, CheckStatus::Incomplete, "{field}");
+        assert_eq!(report_b.status, CheckStatus::Incomplete, "{field}");
+        let details = |report: &ValidationReport| -> Vec<String> {
+            report
+                .incomplete
+                .iter()
+                .filter_map(|c| match &c.reason {
+                    IncompleteReason::IllFormedDeclaration { detail } => Some(detail.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        assert_ne!(
+            details(&report_a),
+            details(&report_b),
+            "{field}: details echo the list"
+        );
+        assert_ne!(
+            report_a.canonical_bytes(),
+            report_b.canonical_bytes(),
+            "{field}"
+        );
+        assert_ne!(
+            a.digest(),
+            b.digest(),
+            "{field}: unequal reports, so unequal digests"
+        );
+    }
+}
+
+/// A list drawn with permutations and repeats from a small alphabet.
+fn arb_kind_list(alphabet: &'static [&'static str]) -> impl Strategy<Value = Vec<String>> {
+    prop::collection::vec(prop::sample::select(alphabet), 0..4)
+        .prop_map(|list| list.into_iter().map(str::to_owned).collect())
+}
+
+/// A protocol whose list fields compilation reads (`obj_kinds`,
+/// `constraint_sorts` and each edge rule's source and target kinds) are
+/// drawn with permutations and repeats from a small alphabet, over fixed
+/// constraint semantics.
+fn arb_digest_protocol() -> impl Strategy<Value = Protocol> {
+    const KINDS: &[&str] = &["object", "string", "p"];
+    const SORTS: &[&str] = &["maxLength", "p"];
+    const EDGE_KINDS: &[&str] = &["prop", "item"];
+    let rule = (
+        prop::sample::select(EDGE_KINDS),
+        arb_kind_list(KINDS),
+        arb_kind_list(KINDS),
+    )
+        .prop_map(|(kind, src_kinds, tgt_kinds)| panproto_schema::EdgeRule {
+            edge_kind: kind.to_owned(),
+            src_kinds,
+            tgt_kinds,
+        });
+    (
+        arb_kind_list(KINDS),
+        arb_kind_list(SORTS),
+        prop::collection::vec(rule, 0..3),
+    )
+        .prop_map(|(obj_kinds, constraint_sorts, edge_rules)| Protocol {
+            obj_kinds,
+            constraint_sorts,
+            edge_rules,
+            ..protocol(&[(
+                "maxLength",
+                ConstraintSemantics::MaxLength(LengthUnit::Chars),
+            )])
+        })
+}
+
+/// A list reversed, with its first entry repeated at the end.
+fn reversed_with_repeat(list: &[String]) -> Vec<String> {
+    let mut out: Vec<String> = list.iter().rev().cloned().collect();
+    out.extend(list.first().cloned());
+    out
+}
+
+/// The protocol with every list field compilation reads reversed and its
+/// first entry repeated.
+fn reorder_and_repeat(protocol: &Protocol) -> Protocol {
+    Protocol {
+        obj_kinds: reversed_with_repeat(&protocol.obj_kinds),
+        constraint_sorts: reversed_with_repeat(&protocol.constraint_sorts),
+        edge_rules: protocol
+            .edge_rules
+            .iter()
+            .map(|rule| panproto_schema::EdgeRule {
+                edge_kind: rule.edge_kind.clone(),
+                src_kinds: reversed_with_repeat(&rule.src_kinds),
+                tgt_kinds: reversed_with_repeat(&rule.tgt_kinds),
+            })
+            .collect(),
+        ..protocol.clone()
+    }
+}
+
+proptest! {
+    /// Two plans with equal digests give equal reports (equal canonical
+    /// bytes) on every instance of a fixed set, over one fixed schema.
+    #[test]
+    fn equal_plan_digests_give_equal_reports(
+        drawn in prop::collection::vec(arb_digest_protocol(), 2..6),
+        twin in 0usize..6,
+    ) {
+        let schema = S::default()
+            .vertex("a", "object")
+            .vertex("b", "string")
+            .edge(&prop("a", "b", "x"))
+            .constraint("b", "maxLength", "3")
+            .build();
+        let instances = [
+            GInstance::new(),
+            GInstance::new()
+                .with_node(Node::new(0, "a"))
+                .with_node(str_node(1, "b", "abcd"))
+                .with_edge(0, 1, prop("a", "b", "x")),
+            GInstance::new()
+                .with_node(Node::new(0, "a"))
+                .with_node(str_node(1, "b", "ab"))
+                .with_edge(0, 1, prop("a", "b", "y")),
+        ];
+        // One protocol drawn twice, so every case has an equal-digest pair,
+        // and each drawn protocol again with every list reversed and its
+        // first entry repeated: equal under a set reading, unequal as stored.
+        let mut protocols = drawn.clone();
+        protocols.push(drawn[twin % drawn.len()].clone());
+        protocols.extend(drawn.iter().map(reorder_and_repeat));
+        let plans: Vec<ValidationPlan> = protocols.iter().map(|p| plan(&schema, p)).collect();
+        let reports: Vec<Vec<Vec<u8>>> = plans
+            .iter()
+            .map(|pl| {
+                instances
+                    .iter()
+                    .map(|g| pl.validate_graph(g, &unlimited(), &none()).canonical_bytes())
+                    .collect()
+            })
+            .collect();
+        for i in 0..plans.len() {
+            for j in (i + 1)..plans.len() {
+                if plans[i].digest() == plans[j].digest() {
+                    prop_assert_eq!(
+                        &reports[i],
+                        &reports[j],
+                        "equal digests, unequal reports: {:?} vs {:?}",
+                        &protocols[i],
+                        &protocols[j]
+                    );
+                }
+            }
+        }
+    }
 }
 
 /// A plan compiled once and shared (the cache a plan-taking caller keeps)
