@@ -9,7 +9,7 @@
 //! inserting or deleting nodes, relabeling anchors, setting or removing
 //! fields, moving subtrees, and manipulating hyper-edge fans.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::Edge;
@@ -18,7 +18,13 @@ use smallvec::SmallVec;
 
 use crate::edit_error::EditError;
 use crate::fan::Fan;
-use crate::metadata::Node;
+use crate::ginstance::{
+    EdgeId, FanEmbedding, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, TreeEmbedding,
+    write_node_record,
+};
+use crate::graph_edit::{AttrChange, AttrKey, AttrVal, ElemRef, GraphDelta};
+use crate::identity::{CanonicalSink, Digest, TREE_EDIT_CONTEXT};
+use crate::metadata::{Node, NodeShape};
 use crate::value::Value;
 use crate::wtype::WInstance;
 
@@ -38,7 +44,7 @@ pub enum TreeEdit {
         parent: u32,
         /// ID for the new child node (must not already exist).
         child_id: u32,
-        /// The new node data.
+        /// The new node data, which must carry `child_id` as its id.
         node: Node,
         /// The edge connecting parent to child.
         edge: Edge,
@@ -107,12 +113,20 @@ pub enum TreeEdit {
 
     /// Merge multiple nodes into one via spatial join
     /// (co-located annotations merge into a single node).
+    ///
+    /// `produce` replaces the primary node and must carry its id. Each
+    /// joined node is deleted with its in-arc, and its children move to the
+    /// primary: in `joined` order, and for each joined node in the order of
+    /// its child arcs, each child keeps its arc's schema edge with the
+    /// source set to `produce`'s anchor, appended after every other arc.
+    /// Fans that name a joined node are deleted.
     JoinFeatures {
         /// The primary node that absorbs the others.
         primary: u32,
-        /// Nodes to merge into the primary.
+        /// Nodes to merge into the primary, without repeats; neither the
+        /// primary, nor the root, nor an ancestor of the primary.
         joined: Vec<u32>,
-        /// The resulting merged node data.
+        /// The resulting merged node data, with the primary's id.
         produce: Node,
     },
 
@@ -275,6 +289,12 @@ fn apply_insert_node(
     if instance.nodes.contains_key(&child_id) {
         return Err(EditError::DuplicateNodeId(child_id));
     }
+    if node.id != child_id {
+        return Err(EditError::ApplyFailed(format!(
+            "the inserted node {} is filed under {child_id}",
+            node.id
+        )));
+    }
     instance.nodes.insert(child_id, node.clone());
     let arc = (parent, child_id, edge.clone());
     instance.arcs.push(arc);
@@ -290,6 +310,11 @@ fn apply_insert_node(
 fn apply_delete_node(instance: &mut WInstance, id: u32) -> Result<(), EditError> {
     if !instance.nodes.contains_key(&id) {
         return Err(EditError::NodeNotFound(id));
+    }
+    if id == instance.root {
+        return Err(EditError::ApplyFailed(
+            "cannot delete the root node".to_owned(),
+        ));
     }
     // Only allow deleting leaf nodes (no children).
     let children = instance.children_map.get(&id);
@@ -494,29 +519,75 @@ fn apply_join_features(
     if !instance.nodes.contains_key(&primary) {
         return Err(EditError::NodeNotFound(primary));
     }
+    if produce.id != primary {
+        return Err(EditError::ApplyFailed(format!(
+            "the product of joining into node {primary} carries the id {}",
+            produce.id
+        )));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(joined.len());
     for &jid in joined {
         if !instance.nodes.contains_key(&jid) {
             return Err(EditError::NodeNotFound(jid));
+        }
+        if jid == primary {
+            return Err(EditError::ApplyFailed(format!(
+                "node {primary} cannot be joined into itself"
+            )));
+        }
+        if jid == instance.root {
+            return Err(EditError::ApplyFailed(format!(
+                "the root node {jid} cannot be joined into node {primary}"
+            )));
+        }
+        if !seen.insert(jid) {
+            return Err(EditError::ApplyFailed(format!(
+                "node {jid} is joined into node {primary} twice"
+            )));
+        }
+        // A joined ancestor of the primary would hand the primary to itself.
+        if is_descendant(instance, primary, jid) {
+            return Err(EditError::CycleDetected {
+                node_id: jid,
+                new_parent: primary,
+            });
         }
     }
 
     // Replace the primary node with the merged produce.
     instance.nodes.insert(primary, produce.clone());
 
-    // Delete the joined nodes (they are absorbed).
     for &jid in joined {
-        // Remove arcs.
-        instance.arcs.retain(|&(_, child, _)| child != jid);
-        instance.arcs.retain(|&(parent, _, _)| parent != jid);
-        // Clean up maps.
-        if let Some(&parent_id) = instance.parent_map.get(&jid) {
-            if let Some(siblings) = instance.children_map.get_mut(&parent_id) {
-                siblings.retain(|&c| c != jid);
+        // The joined node's child arcs, in arc order, become arcs of the
+        // primary appended after every other arc.
+        let mut moved = Vec::new();
+        instance.arcs.retain(|(parent, child, edge)| {
+            if *child == jid {
+                return false;
             }
+            if *parent == jid {
+                moved.push((*child, edge.clone()));
+                return false;
+            }
+            true
+        });
+        if let Some(parent_id) = instance.parent_map.remove(&jid)
+            && let Some(siblings) = instance.children_map.get_mut(&parent_id)
+        {
+            siblings.retain(|c| *c != jid);
         }
-        instance.nodes.remove(&jid);
-        instance.parent_map.remove(&jid);
         instance.children_map.remove(&jid);
+        instance.nodes.remove(&jid);
+        for (child, mut edge) in moved {
+            edge.src.clone_from(&produce.anchor);
+            instance.arcs.push((primary, child, edge));
+            instance.parent_map.insert(child, primary);
+            instance
+                .children_map
+                .entry(primary)
+                .or_default()
+                .push(child);
+        }
     }
 
     // Remove fans referencing joined nodes.
@@ -525,6 +596,1310 @@ fn apply_join_features(
     });
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Canonical bytes
+// ---------------------------------------------------------------------------
+
+impl TreeEdit {
+    /// The steps of this edit in normal form: nested sequences spliced in
+    /// order and every `Identity` removed. A single edit other than a
+    /// sequence is its own one step; the identity has none.
+    #[must_use]
+    pub fn steps(&self) -> Vec<&Self> {
+        fn walk<'a>(edit: &'a TreeEdit, out: &mut Vec<&'a TreeEdit>) {
+            match edit {
+                TreeEdit::Identity => {}
+                TreeEdit::Sequence(steps) => steps.iter().for_each(|s| walk(s, out)),
+                step => out.push(step),
+            }
+        }
+        let mut out = Vec::new();
+        walk(self, &mut out);
+        out
+    }
+
+    /// The digest of this edit: its canonical bytes
+    /// ([`canonical_tree_edit_bytes`]) under
+    /// [`TREE_EDIT_CONTEXT`], computed by
+    /// streaming the steps into the hasher. An edit and the one-step
+    /// sequence of it have one digest.
+    ///
+    /// ```
+    /// use panproto_inst::TreeEdit;
+    /// use panproto_inst::identity::{Digest, TREE_EDIT_CONTEXT};
+    /// use panproto_inst::tree_edit::canonical_tree_edit_bytes;
+    /// use panproto_schema::CanonicalWriter;
+    ///
+    /// let edit = TreeEdit::DeleteNode { id: 3 };
+    /// let mut writer = CanonicalWriter::new();
+    /// canonical_tree_edit_bytes(&edit, &mut writer);
+    /// assert_eq!(edit.digest(), Digest::derive(TREE_EDIT_CONTEXT, writer.as_bytes()));
+    /// assert_eq!(edit.digest(), TreeEdit::Sequence(vec![edit.clone()]).digest());
+    /// ```
+    #[must_use]
+    pub fn digest(&self) -> Digest {
+        let mut hasher = Digest::hasher(TREE_EDIT_CONTEXT);
+        canonical_tree_edit_bytes(self, &mut hasher);
+        hasher.finalize()
+    }
+}
+
+/// Write the canonical bytes of a tree edit into `sink`.
+///
+/// The edit is first brought into normal form ([`TreeEdit::steps`]): nested
+/// sequences spliced in order and every `Identity` removed, so an edit `e`
+/// and `Sequence[e]` have one encoding, and the identity is the empty
+/// sequence.
+///
+/// ```text
+/// header = step count                       (u64)
+/// step   = tag: u8, then the fields          (in sequence order)
+/// ```
+///
+/// The tag is the variant's position in declaration order (`1`
+/// `InsertNode` to `10` `JoinFeatures`; `0` `Identity` and `11` `Sequence`
+/// never occur). Fields follow in declaration order: node ids as `u32`, a
+/// node as its node record ([`write_node_record`]), a schema edge through
+/// [`CanonicalSink::edge`], a name or field name through
+/// [`CanonicalSink::name`], a value through [`CanonicalSink::value`], a fan
+/// as its hyper-edge id, its parent and its children (count, then each label
+/// and child in ascending label order), and the joined nodes of
+/// `JoinFeatures` as a count and then each id in the edit's order.
+///
+/// ```
+/// use panproto_inst::TreeEdit;
+/// use panproto_inst::tree_edit::canonical_tree_edit_bytes;
+/// use panproto_schema::CanonicalWriter;
+///
+/// let mut writer = CanonicalWriter::new();
+/// canonical_tree_edit_bytes(&TreeEdit::Identity, &mut writer);
+/// // No steps.
+/// assert_eq!(writer.into_bytes(), vec![0u8; 8]);
+/// ```
+pub fn canonical_tree_edit_bytes<S: CanonicalSink + ?Sized>(edit: &TreeEdit, sink: &mut S) {
+    let steps = edit.steps();
+    sink.len(steps.len());
+    for step in steps {
+        write_step(sink, step);
+    }
+}
+
+/// Write one step of a tree edit in normal form.
+fn write_step<S: CanonicalSink + ?Sized>(sink: &mut S, step: &TreeEdit) {
+    match step {
+        TreeEdit::Identity => sink.tag(0),
+        TreeEdit::InsertNode {
+            parent,
+            child_id,
+            node,
+            edge,
+        } => {
+            sink.tag(1);
+            sink.u32(*parent);
+            sink.u32(*child_id);
+            write_node_record(sink, node);
+            sink.edge(edge);
+        }
+        TreeEdit::DeleteNode { id } => {
+            sink.tag(2);
+            sink.u32(*id);
+        }
+        TreeEdit::ContractNode { id } => {
+            sink.tag(3);
+            sink.u32(*id);
+        }
+        TreeEdit::RelabelNode { id, new_anchor } => {
+            sink.tag(4);
+            sink.u32(*id);
+            sink.name(new_anchor);
+        }
+        TreeEdit::SetField {
+            node_id,
+            field,
+            value,
+        } => {
+            sink.tag(5);
+            sink.u32(*node_id);
+            sink.name(field);
+            sink.value(value);
+        }
+        TreeEdit::RemoveField { node_id, field } => {
+            sink.tag(6);
+            sink.u32(*node_id);
+            sink.name(field);
+        }
+        TreeEdit::MoveSubtree {
+            node_id,
+            new_parent,
+            edge,
+        } => {
+            sink.tag(7);
+            sink.u32(*node_id);
+            sink.u32(*new_parent);
+            sink.edge(edge);
+        }
+        TreeEdit::InsertFan { fan } => {
+            sink.tag(8);
+            sink.str(&fan.hyper_edge_id);
+            sink.u32(fan.parent);
+            let children: std::collections::BTreeMap<&String, &u32> = fan.children.iter().collect();
+            sink.len(children.len());
+            for (label, child) in children {
+                sink.str(label);
+                sink.u32(*child);
+            }
+        }
+        TreeEdit::DeleteFan { hyper_edge_id } => {
+            sink.tag(9);
+            sink.name(hyper_edge_id);
+        }
+        TreeEdit::JoinFeatures {
+            primary,
+            joined,
+            produce,
+        } => {
+            sink.tag(10);
+            sink.u32(*primary);
+            sink.len(joined.len());
+            for id in joined {
+                sink.u32(*id);
+            }
+            write_node_record(sink, produce);
+        }
+        TreeEdit::Sequence(steps) => {
+            sink.tag(11);
+            sink.len(steps.len());
+            for inner in steps {
+                write_step(sink, inner);
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tree edits and graph deltas
+// ---------------------------------------------------------------------------
+
+fn not_graph_tree(reason: impl std::fmt::Display) -> EditError {
+    EditError::ApplyFailed(format!(
+        "the graph is not the tree its embedding embeds: {reason}"
+    ))
+}
+
+fn inst_failure(err: &crate::error::InstError) -> EditError {
+    EditError::ApplyFailed(err.to_string())
+}
+
+/// The names of the fan parent edges of `graph`, by edge id: the graph form
+/// of a tree names a fan's parent edge by the label its schema declares,
+/// which the tree does not hold.
+fn parent_names(graph: &GInstance, embedding: &TreeEmbedding) -> BTreeMap<EdgeId, Option<Name>> {
+    embedding
+        .fans
+        .iter()
+        .filter_map(|fan| {
+            graph
+                .edge(fan.parent_edge)
+                .map(|edge| (fan.parent_edge, edge.edge.name.clone()))
+        })
+        .collect()
+}
+
+/// The fan node ids of an embedding.
+fn fan_nodes(embedding: &TreeEmbedding) -> BTreeSet<u32> {
+    embedding.fans.iter().map(|fan| fan.node).collect()
+}
+
+/// The tree `graph` is when read through `embedding`: every node but the
+/// fan nodes, the arcs the embedding records in ascending edge id, and the
+/// fans in the embedding's order. Its root is the one node no arc enters;
+/// its schema root is the root's anchor.
+fn read_tree(graph: &GInstance, embedding: &TreeEmbedding) -> Result<WInstance, EditError> {
+    let fans = fan_nodes(embedding);
+    let nodes: HashMap<u32, Node> = graph
+        .nodes()
+        .iter()
+        .filter(|(id, _)| !fans.contains(id))
+        .map(|(id, node)| (*id, node.clone()))
+        .collect();
+    let mut arc_ids: Vec<(EdgeId, u32)> = embedding.arcs.iter().map(|(c, e)| (*e, *c)).collect();
+    arc_ids.sort_unstable();
+    let mut arcs = Vec::with_capacity(arc_ids.len());
+    for (id, child) in arc_ids {
+        let edge = graph
+            .edge(id)
+            .ok_or_else(|| not_graph_tree(format!("arc edge {id} is missing")))?;
+        if edge.tgt != child {
+            return Err(not_graph_tree(format!(
+                "arc edge {id} does not enter node {child}"
+            )));
+        }
+        arcs.push((edge.src, child, edge.edge.clone()));
+    }
+    let mut tree_fans = Vec::with_capacity(embedding.fans.len());
+    for fan in &embedding.fans {
+        let node = graph
+            .node(fan.node)
+            .ok_or_else(|| not_graph_tree(format!("fan node {} is missing", fan.node)))?;
+        let target = |id: EdgeId| {
+            graph
+                .edge(id)
+                .map(|e| e.tgt)
+                .ok_or_else(|| not_graph_tree(format!("fan edge {id} is missing")))
+        };
+        let mut children = HashMap::with_capacity(fan.child_edges.len());
+        for (label, id) in &fan.child_edges {
+            children.insert(label.clone(), target(*id)?);
+        }
+        tree_fans.push(Fan {
+            hyper_edge_id: node.anchor.to_string(),
+            parent: target(fan.parent_edge)?,
+            children,
+        });
+    }
+    let mut roots = nodes.keys().filter(|id| !embedding.arcs.contains_key(id));
+    let (Some(&root), None) = (roots.next(), roots.next()) else {
+        return Err(not_graph_tree("it does not have exactly one root"));
+    };
+    let schema_root = nodes[&root].anchor.clone();
+    Ok(WInstance::new(nodes, arcs, tree_fans, root, schema_root))
+}
+
+/// The graph form of `tree` under `embedding`, with the fan parent edges
+/// named as `names` records them.
+fn graph_under(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    names: &BTreeMap<EdgeId, Option<Name>>,
+) -> Result<GInstance, EditError> {
+    let mut graph =
+        GInstance::from_wtype_under(tree, embedding, None).map_err(|e| inst_failure(&e))?;
+    for fan in &embedding.fans {
+        if let (Some(Some(name)), Some(edge)) =
+            (names.get(&fan.parent_edge), graph.edge(fan.parent_edge))
+        {
+            let mut label = edge.edge.clone();
+            label.name = Some(name.clone());
+            graph
+                .relabel_edge(fan.parent_edge, label)
+                .map_err(|e| inst_failure(&e))?;
+        }
+    }
+    Ok(graph)
+}
+
+/// The delta of one tree edit step between the graph forms `before` and
+/// `after`: their diff, except that a node id that is a fan node on one side
+/// and a tree node on the other (a fan relocated away from an id a tree node
+/// takes) is a replacement, since it names two different elements.
+fn step_delta(
+    before: &GInstance,
+    after: &GInstance,
+    fans_before: &BTreeSet<u32>,
+    fans_after: &BTreeSet<u32>,
+) -> Result<GraphDelta, EditError> {
+    let mut parts = GraphDelta::diff(before, after).into_parts();
+    for id in fans_before.symmetric_difference(fans_after) {
+        if let (Some(old), Some(new)) = (before.node(*id), after.node(*id)) {
+            parts
+                .attrs
+                .retain(|key, _| key.element() != ElemRef::Node(*id));
+            parts.del_nodes.insert(*id, old.clone());
+            parts.add_nodes.insert(*id, new.clone());
+        }
+    }
+    GraphDelta::normalize(parts).map_err(|e| EditError::ApplyFailed(e.to_string()))
+}
+
+/// Apply one tree edit step to `tree` and follow it with `embedding` as
+/// [`TreeEmbedding::apply_edit`] does, except that a `MoveSubtree` whose
+/// arc would keep its edge id (a move of the last arc under the parent it
+/// has) gives the arc a fresh id: a move deletes its arc and appends a new
+/// one. On error the step's effects on `tree` and `embedding` are not
+/// undone.
+fn follow_step(
+    embedding: &mut TreeEmbedding,
+    tree: &mut WInstance,
+    step: &TreeEdit,
+) -> Result<(), EditError> {
+    let moved = match step {
+        TreeEdit::MoveSubtree { node_id, .. } => {
+            embedding.arcs.get(node_id).map(|id| (*node_id, *id))
+        }
+        _ => None,
+    };
+    embedding.apply_edit(tree, step)?;
+    if let Some((node, id)) = moved
+        && embedding.arcs.get(&node) == Some(&id)
+    {
+        let fresh = embedding
+            .allocate_edge()
+            .map_err(|e| EditError::ApplyFailed(e.to_string()))?;
+        embedding.arcs.insert(node, fresh);
+    }
+    Ok(())
+}
+
+impl GraphDelta {
+    /// The graph delta of a tree edit: with `W` the tree `graph` is when
+    /// read through `embedding`, applying the result to `graph` gives the
+    /// graph form of `edit` applied to `W`, under the embedding as it
+    /// follows the edit, which `embedding` becomes. That embedding is the
+    /// one [`TreeEmbedding::apply_edit`] gives, except that each
+    /// `MoveSubtree` gives its arc a fresh edge id, also when the node stays
+    /// under the parent it has.
+    ///
+    /// Each step lowers to the change of the graph form it makes, and a
+    /// sequence to the composite of its steps ([`GraphDelta::compose`]).
+    /// `InsertNode` adds the node and an arc with a fresh edge id;
+    /// `DeleteNode` deletes the node, its in-arc and the fans that name it;
+    /// `ContractNode` deletes the node, its in-arc, its out-arcs and the fans
+    /// that name it and adds the re-parented arcs with fresh ids and the
+    /// labels tree apply gives them; `RelabelNode` is an `Anchor` change (and
+    /// a label change of each fan edge that reaches the node, whose label
+    /// names its target's anchor); `SetField` and `RemoveField` are `Field`
+    /// changes with the old value read from the state; `MoveSubtree` deletes
+    /// the old arc and adds the new one with a fresh id, so no step changes
+    /// the label of a tree arc; `InsertFan` and
+    /// `DeleteFan` add and delete fan nodes with their edges; `JoinFeatures`
+    /// deletes the joined nodes and their arcs, adds the re-parented arcs
+    /// with fresh ids (in joined order, then each joined node's child arc
+    /// order), and changes the primary's `Anchor`, `Value`, `Meta` and
+    /// `Field` entries to those of the product. A tree node taking the id of
+    /// a fan node relocates the fan node: that id is replaced, and the fan
+    /// node and its edges move to the fan's new node id. Fresh ids come from
+    /// `embedding.next_edge` and `embedding.next_node` in apply order. A fan
+    /// parent edge keeps the name `graph` gives it; a new fan's parent edge
+    /// is unnamed.
+    ///
+    /// Each step costs time linear in the size of the tree: following it
+    /// with [`TreeEmbedding::apply_edit`] reads the whole tree, and its
+    /// delta is the diff of the graph forms before and after it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditError::ApplyFailed`] when `graph` is not the graph form
+    /// of a tree under `embedding` (up to the names of fan parent edges),
+    /// and otherwise the error of the first step that does not apply to the
+    /// tree, as [`TreeEmbedding::apply_edit`] reports it, with
+    /// [`EditError::ApplyFailed`] when the embedding runs out of ids. On
+    /// error `embedding` is unchanged.
+    pub fn from_tree_edit(
+        graph: &GInstance,
+        embedding: &mut TreeEmbedding,
+        edit: &TreeEdit,
+    ) -> Result<Self, EditError> {
+        let names = parent_names(graph, embedding);
+        let mut tree = read_tree(graph, embedding)?;
+        let mut current = graph_under(&tree, embedding, &names)?;
+        if !GInstance::identical(&current, graph) {
+            return Err(not_graph_tree(
+                "its nodes and edges are not those of the tree read through it",
+            ));
+        }
+        let mut followed = embedding.clone();
+        let mut net = Self::identity();
+        for step in edit.steps() {
+            let fans_before = fan_nodes(&followed);
+            follow_step(&mut followed, &mut tree, step)?;
+            let stepped = graph_under(&tree, &followed, &names)?;
+            let delta = step_delta(&current, &stepped, &fans_before, &fan_nodes(&followed))?;
+            net = net.compose(&delta)?;
+            current = stepped;
+        }
+        *embedding = followed;
+        Ok(net)
+    }
+}
+
+const fn not_tree_edit(reason: String) -> EditError {
+    EditError::NotTreeEdit { reason }
+}
+
+/// Whether an edge is a fan edge: of a reserved kind, or leaving a fan node.
+fn is_fan_edge(edge: &GEdge, fan_nodes: &BTreeSet<u32>) -> bool {
+    edge.edge.kind == HYPER_PARENT_KIND
+        || edge.edge.kind == HYPER_LABEL_KIND
+        || fan_nodes.contains(&edge.src)
+}
+
+/// Whether the label change `change` of `edge` follows the anchor change
+/// of its target: `edge` is a fan edge of `graph`, the graph form of the
+/// tree, whose label names its target's anchor; `delta` changes that
+/// target's anchor; and the new label is the old one with that new anchor
+/// as its target.
+fn follows_anchor(
+    graph: &GInstance,
+    delta: &GraphDelta,
+    edge: EdgeId,
+    change: &AttrChange,
+) -> bool {
+    let Some(current) = graph.edge(edge) else {
+        return false;
+    };
+    if current.edge.kind != HYPER_PARENT_KIND && current.edge.kind != HYPER_LABEL_KIND {
+        return false;
+    }
+    let (AttrVal::Label(old), AttrVal::Label(new)) = (&change.old, &change.new) else {
+        return false;
+    };
+    let Some(AttrChange {
+        new: AttrVal::Anchor(anchor),
+        ..
+    }) = delta.attrs().get(&AttrKey::Anchor { node: current.tgt })
+    else {
+        return false;
+    };
+    let mut expected = old.clone();
+    expected.tgt.clone_from(anchor);
+    expected == *new
+}
+
+/// The steps the entry changes of a graph delta read as.
+struct AttrSteps {
+    /// A `RelabelNode` for each `Anchor` change, then a `SetField` or
+    /// `RemoveField` for each `Field` change, of the nodes not in `joins`.
+    steps: Vec<TreeEdit>,
+    /// The tree nodes with a `Value` or `Meta` change, ascending: the
+    /// changes of each read as one `JoinFeatures` with nothing joined.
+    joins: BTreeSet<u32>,
+}
+
+/// The steps the entry changes of `delta` read as (see [`AttrSteps`]),
+/// with `graph` the graph form of the tree it applies to. A label change
+/// of a fan edge that follows its target's anchor change is part of that
+/// change. Every other entry change, and a change of an entry of a fan
+/// node, is one no tree edit makes.
+fn attr_steps(
+    graph: &GInstance,
+    delta: &GraphDelta,
+    fans_before: &BTreeSet<u32>,
+) -> Result<AttrSteps, EditError> {
+    let joins: BTreeSet<u32> = delta
+        .attrs()
+        .keys()
+        .filter_map(|key| match key {
+            AttrKey::Value { node } | AttrKey::Meta { node } => Some(*node),
+            _ => None,
+        })
+        .collect();
+    let mut relabels = Vec::new();
+    let mut fields = Vec::new();
+    for (key, change) in delta.attrs() {
+        if let ElemRef::Node(node) = key.element()
+            && fans_before.contains(&node)
+        {
+            return Err(not_tree_edit(format!(
+                "a tree edit has no change of {key:?}, an entry of the fan node {node}"
+            )));
+        }
+        match (key, &change.new) {
+            (
+                AttrKey::Value { node }
+                | AttrKey::Meta { node }
+                | AttrKey::Anchor { node }
+                | AttrKey::Field { node, .. },
+                _,
+            ) if joins.contains(node) => {}
+            (AttrKey::EdgeLabel { edge }, _) if follows_anchor(graph, delta, *edge, change) => {}
+            (AttrKey::Anchor { node }, AttrVal::Anchor(anchor)) => {
+                relabels.push(TreeEdit::RelabelNode {
+                    id: *node,
+                    new_anchor: anchor.clone(),
+                });
+            }
+            (AttrKey::Field { node, field }, AttrVal::Field(new)) => {
+                let field = Name::from(field.as_str());
+                fields.push(new.as_ref().map_or_else(
+                    || TreeEdit::RemoveField {
+                        node_id: *node,
+                        field: field.clone(),
+                    },
+                    |value| TreeEdit::SetField {
+                        node_id: *node,
+                        field: field.clone(),
+                        value: value.clone(),
+                    },
+                ));
+            }
+            (other, _) => {
+                return Err(not_tree_edit(format!(
+                    "a tree edit has no change of {other:?}"
+                )));
+            }
+        }
+    }
+    relabels.extend(fields);
+    Ok(AttrSteps {
+        steps: relabels,
+        joins,
+    })
+}
+
+/// The fan node ids after `delta`: the fan nodes before it that it neither
+/// deletes nor replaces by a tree node, and the fan nodes it adds.
+fn fans_after(fans_before: &BTreeSet<u32>, delta: &GraphDelta) -> BTreeSet<u32> {
+    let mut after: BTreeSet<u32> = fans_before
+        .iter()
+        .copied()
+        .filter(|id| {
+            delta.add_nodes().get(id).map_or_else(
+                || !delta.del_nodes().contains_key(id),
+                |node| node.shape == NodeShape::HyperEdge,
+            )
+        })
+        .collect();
+    after.extend(
+        delta
+            .add_nodes()
+            .values()
+            .filter(|node| node.shape == NodeShape::HyperEdge)
+            .map(|node| node.id),
+    );
+    after
+}
+
+/// The tree nodes a delta deletes and adds: `deleted` holds the tree nodes
+/// of the tree it applies to that it deletes, `added` the tree nodes it
+/// adds. A node in both is replaced under its id.
+struct TreeNodeChanges {
+    deleted: BTreeSet<u32>,
+    added: BTreeSet<u32>,
+}
+
+impl TreeNodeChanges {
+    fn of(delta: &GraphDelta, fans_before: &BTreeSet<u32>) -> Self {
+        Self {
+            deleted: delta
+                .del_nodes()
+                .keys()
+                .copied()
+                .filter(|id| !fans_before.contains(id))
+                .collect(),
+            added: delta
+                .add_nodes()
+                .values()
+                .filter(|node| node.shape != NodeShape::HyperEdge)
+                .map(|node| node.id)
+                .collect(),
+        }
+    }
+}
+
+/// The parent arc a delta gives a tree node: its edge id, its parent and
+/// its schema edge.
+type AddedArc = (EdgeId, u32, Edge);
+
+/// The arcs a delta adds, by child, after checking that each has an id
+/// above every arc id of the tree (tree edits append arcs) and that every
+/// re-parent is one a `MoveSubtree` expresses: a node that gains an arc is
+/// new or loses its own, a node that loses its arc gains one, gains are
+/// one per node, and a new node gains one.
+fn added_arcs(
+    embedding: &TreeEmbedding,
+    delta: &GraphDelta,
+    fans_after: &BTreeSet<u32>,
+    nodes: &TreeNodeChanges,
+) -> Result<BTreeMap<u32, AddedArc>, EditError> {
+    let child_of: BTreeMap<EdgeId, u32> = embedding.arcs.iter().map(|(c, e)| (*e, *c)).collect();
+    let top_arc = embedding.arcs.values().max().copied();
+    let lost_parent: BTreeSet<u32> = delta
+        .del_edges()
+        .keys()
+        .filter_map(|id| child_of.get(id).copied())
+        .filter(|child| !nodes.deleted.contains(child))
+        .collect();
+    let mut arcs = BTreeMap::new();
+    for (id, edge) in delta.add_edges() {
+        if is_fan_edge(edge, fans_after) {
+            continue;
+        }
+        if let Some(top) = top_arc
+            && *id <= top
+        {
+            return Err(not_tree_edit(format!(
+                "the added arc {id} is not above the existing arc {top}"
+            )));
+        }
+        let child = edge.tgt;
+        if !nodes.added.contains(&child) && !lost_parent.contains(&child) {
+            return Err(not_tree_edit(format!(
+                "node {child} gains a parent arc without losing its own, which no move expresses"
+            )));
+        }
+        if arcs
+            .insert(child, (*id, edge.src, edge.edge.clone()))
+            .is_some()
+        {
+            return Err(not_tree_edit(format!("node {child} gains two parent arcs")));
+        }
+    }
+    if let Some(orphan) = lost_parent.iter().find(|c| !arcs.contains_key(*c)) {
+        return Err(not_tree_edit(format!(
+            "node {orphan} loses its parent arc without gaining one"
+        )));
+    }
+    if let Some(rootless) = nodes.added.iter().find(|c| !arcs.contains_key(*c)) {
+        return Err(not_tree_edit(format!(
+            "the added node {rootless} has no parent arc"
+        )));
+    }
+    Ok(arcs)
+}
+
+/// Check that every tree node a delta deletes is a leaf once the delta's
+/// own arc deletions are made.
+fn check_deleted_leaves(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    delta: &GraphDelta,
+    deleted: &BTreeSet<u32>,
+) -> Result<(), EditError> {
+    for id in deleted {
+        let kept_child = tree
+            .children_map
+            .get(id)
+            .into_iter()
+            .flatten()
+            .find(|child| {
+                embedding
+                    .arcs
+                    .get(child)
+                    .is_none_or(|arc| !delta.del_edges().contains_key(arc))
+            });
+        if let Some(child) = kept_child {
+            return Err(not_tree_edit(format!(
+                "the deleted node {id} keeps its child {child} after the delta's arc deletions"
+            )));
+        }
+    }
+    Ok(())
+}
+
+/// Give each fan parent edge of `graph` that `delta` deletes the name the
+/// delta's payload gives it, when that is the only difference: the graph
+/// form of a tree names a fan's parent edge by the label a schema declares,
+/// which the tree does not hold.
+fn adopt_parent_names(
+    graph: &mut GInstance,
+    embedding: &TreeEmbedding,
+    delta: &GraphDelta,
+) -> Result<(), EditError> {
+    for fan in &embedding.fans {
+        let (Some(expected), Some(current)) = (
+            delta.del_edges().get(&fan.parent_edge),
+            graph.edge(fan.parent_edge),
+        ) else {
+            continue;
+        };
+        let mut renamed = current.clone();
+        renamed.edge.name.clone_from(&expected.edge.name);
+        if renamed == *expected && renamed != *current {
+            graph
+                .relabel_edge(fan.parent_edge, renamed.edge)
+                .map_err(|e| inst_failure(&e))?;
+        }
+    }
+    Ok(())
+}
+
+/// The tree a graph reads as after a delta, with the parts of it the delta
+/// changes.
+struct Target {
+    /// The tree: the graph's nodes other than fan nodes; the arcs in
+    /// ascending edge id; the fans the tree had that the delta keeps, in
+    /// their order, then the fans it adds, by ascending parent edge id; the
+    /// root and schema root of the tree the delta applies to.
+    tree: WInstance,
+    /// The fans the delta adds, with their parent edge ids, ascending.
+    new_fans: Vec<(EdgeId, Fan)>,
+    /// The names of the fans the delta deletes every fan of the tree's of,
+    /// in the order the tree first holds them.
+    dead_names: Vec<Name>,
+}
+
+/// A fan of `after` read from its fan node `id`: its parent edge, the
+/// child edges by label, and the fan.
+fn read_fan(
+    after: &GInstance,
+    id: u32,
+) -> Result<(EdgeId, BTreeMap<String, EdgeId>, Fan), EditError> {
+    let node = after
+        .node(id)
+        .ok_or_else(|| not_tree_edit(format!("the fan node {id} is missing")))?;
+    let mut parent = None;
+    let mut child_edges = BTreeMap::new();
+    let mut children = HashMap::new();
+    for &edge_id in after.out_edges(id) {
+        let edge = after
+            .edge(edge_id)
+            .ok_or_else(|| not_tree_edit(format!("the fan edge {edge_id} is missing")))?;
+        let kind = edge.edge.kind.as_ref();
+        let label = edge.edge.name.as_ref().map(ToString::to_string);
+        match label {
+            _ if kind == HYPER_PARENT_KIND && parent.is_none() => {
+                parent = Some((edge_id, edge.tgt));
+            }
+            Some(label) if kind == HYPER_LABEL_KIND && !children.contains_key(&label) => {
+                child_edges.insert(label.clone(), edge_id);
+                children.insert(label, edge.tgt);
+            }
+            _ => {
+                return Err(not_tree_edit(format!(
+                    "the fan node {id} it leaves has an edge {edge_id} no fan has"
+                )));
+            }
+        }
+    }
+    let (parent_edge, parent) = parent
+        .ok_or_else(|| not_tree_edit(format!("the fan node {id} it leaves has no parent edge")))?;
+    let fan = Fan {
+        hyper_edge_id: node.anchor.to_string(),
+        parent,
+        children,
+    };
+    Ok((parent_edge, child_edges, fan))
+}
+
+/// The tree `after`, the graph a delta leaves, reads as, given the tree the
+/// delta applies to and its embedding (see [`Target`]). The graph must be
+/// the graph form of that tree under that embedding, up to the names of
+/// fan parent edges; otherwise no tree edit leaves it.
+fn target_tree(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    after: &GInstance,
+) -> Result<Target, EditError> {
+    let fan_ids: BTreeSet<u32> = after
+        .nodes()
+        .values()
+        .filter(|node| node.shape == NodeShape::HyperEdge)
+        .map(|node| node.id)
+        .collect();
+    let nodes: HashMap<u32, Node> = after
+        .nodes()
+        .iter()
+        .filter(|(id, _)| !fan_ids.contains(id))
+        .map(|(id, node)| (*id, node.clone()))
+        .collect();
+    let mut arcs = Vec::new();
+    let mut arc_ids = BTreeMap::new();
+    for (id, edge) in after.edges_sorted() {
+        if fan_ids.contains(&edge.src) {
+            continue;
+        }
+        if arc_ids.insert(edge.tgt, id).is_some() {
+            return Err(not_tree_edit(format!(
+                "node {} it leaves has two parent arcs",
+                edge.tgt
+            )));
+        }
+        arcs.push((edge.src, edge.tgt, edge.edge.clone()));
+    }
+    let mut read: BTreeMap<EdgeId, (u32, BTreeMap<String, EdgeId>, Fan)> = BTreeMap::new();
+    for &id in &fan_ids {
+        let (parent_edge, child_edges, fan) = read_fan(after, id)?;
+        read.insert(parent_edge, (id, child_edges, fan));
+    }
+    let mut fans = Vec::new();
+    let mut fan_ids_after = Vec::new();
+    let mut kept_names = BTreeSet::new();
+    for old in &embedding.fans {
+        if let Some((node, child_edges, fan)) = read.remove(&old.parent_edge) {
+            kept_names.insert(fan.hyper_edge_id.clone());
+            fan_ids_after.push(FanEmbedding {
+                node,
+                parent_edge: old.parent_edge,
+                child_edges,
+            });
+            fans.push(fan);
+        }
+    }
+    let mut dead_names: Vec<Name> = Vec::new();
+    for fan in &tree.fans {
+        let name = Name::from(fan.hyper_edge_id.as_str());
+        if !kept_names.contains(&fan.hyper_edge_id) && !dead_names.contains(&name) {
+            dead_names.push(name);
+        }
+    }
+    let mut new_fans = Vec::with_capacity(read.len());
+    for (parent_edge, (node, child_edges, fan)) in read {
+        fan_ids_after.push(FanEmbedding {
+            node,
+            parent_edge,
+            child_edges,
+        });
+        fans.push(fan.clone());
+        new_fans.push((parent_edge, fan));
+    }
+    let target = WInstance::new(nodes, arcs, fans, tree.root, tree.schema_root.clone());
+    let after_embedding = TreeEmbedding {
+        arcs: arc_ids,
+        fans: fan_ids_after,
+        next_node: embedding.next_node,
+        next_edge: embedding.next_edge,
+    };
+    check_rooted(&target)?;
+    let names = parent_names(after, &after_embedding);
+    let formed = graph_under(&target, &after_embedding, &names)
+        .map_err(|e| not_tree_edit(format!("the graph it leaves is not a tree's: {e}")))?;
+    if !GInstance::identical(&formed, after) {
+        return Err(not_tree_edit(
+            "the graph it leaves is not the graph form of the tree it reads as".to_owned(),
+        ));
+    }
+    Ok(Target {
+        tree: target,
+        new_fans,
+        dead_names,
+    })
+}
+
+/// Check that `tree` holds its root, which no arc enters, and that every
+/// other node reaches it through arcs.
+fn check_rooted(tree: &WInstance) -> Result<(), EditError> {
+    check_rooted_by(tree, |id| tree.parent_map.get(&id).copied())
+}
+
+/// [`check_rooted`] with the parent of each node read through `parent_of`.
+///
+/// Each walk towards the root stops at the first node an earlier walk
+/// showed reaches it, and every node it passes then joins those nodes, so
+/// each parent is read at most once and a tree passes in linear time. A
+/// graph that fails is walked again from its nodes in ascending id, so the
+/// reason names the same node whatever the hash order of `tree.nodes`.
+fn check_rooted_by(
+    tree: &WInstance,
+    mut parent_of: impl FnMut(u32) -> Option<u32>,
+) -> Result<(), EditError> {
+    if !tree.nodes.contains_key(&tree.root) || parent_of(tree.root).is_some() {
+        return Err(not_tree_edit(format!(
+            "the root {} is not the root of the tree it leaves",
+            tree.root
+        )));
+    }
+    if walk_to_root(tree.root, tree.nodes.keys().copied(), &mut parent_of).is_ok() {
+        return Ok(());
+    }
+    let mut ids: Vec<u32> = tree.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    walk_to_root(tree.root, ids, &mut parent_of)
+}
+
+/// Walk from each of `starts` towards `root` through `parent_of`, stopping
+/// at the first node that does not reach it: a node with no parent, or one
+/// on a cycle.
+fn walk_to_root(
+    root: u32,
+    starts: impl IntoIterator<Item = u32>,
+    parent_of: &mut impl FnMut(u32) -> Option<u32>,
+) -> Result<(), EditError> {
+    let mut rooted: HashSet<u32> = HashSet::from([root]);
+    let mut path: Vec<u32> = Vec::new();
+    let mut on_path: HashSet<u32> = HashSet::new();
+    for id in starts {
+        let mut current = id;
+        while !rooted.contains(&current) {
+            if !on_path.insert(current) {
+                return Err(not_tree_edit(format!(
+                    "node {current} is on a cycle in the graph it leaves"
+                )));
+            }
+            path.push(current);
+            let Some(parent) = parent_of(current) else {
+                return Err(not_tree_edit(format!(
+                    "node {id} does not reach the root in the tree it leaves"
+                )));
+            };
+            current = parent;
+        }
+        rooted.extend(std::mem::take(&mut path));
+        on_path.clear();
+    }
+    Ok(())
+}
+
+/// The tree edit a graph delta reads as, built step by step on a copy of
+/// the tree it applies to.
+///
+/// The arcs and fans the delta adds are made in ascending id, which is the
+/// order a tree edit appends them in, so the tree ends with the target's
+/// arc and fan order. A step that needs a node the delta adds before the
+/// step that gives that node its arc (a parent, or a fan's member) inserts
+/// it early under the root; a node the delta replaces under its id is
+/// deleted first, with its subtree cleared; a move under a node of the
+/// moved node's own subtree first moves the highest node on the way that
+/// the delta moves later out under the root. Each such node then reaches
+/// its place by a later move, which appends its arc there.
+struct Rebuild<'a> {
+    target: &'a WInstance,
+    /// The arcs the delta adds, by child.
+    arcs: &'a BTreeMap<u32, AddedArc>,
+    tree: WInstance,
+    steps: Vec<TreeEdit>,
+    /// The tree nodes the delta deletes and does not add again that are
+    /// still in the tree.
+    doomed: BTreeSet<u32>,
+    /// The tree nodes the delta deletes and adds again whose old node is
+    /// still in the tree.
+    replaced: BTreeSet<u32>,
+    /// The nodes whose arc from the delta is in place.
+    placed: BTreeSet<u32>,
+}
+
+impl Rebuild<'_> {
+    /// Apply `step` to the tree and record it.
+    fn push(&mut self, step: TreeEdit) -> Result<(), EditError> {
+        step.apply(&mut self.tree).map_err(|err| {
+            not_tree_edit(format!("the tree edit it reads as does not apply: {err}"))
+        })?;
+        self.steps.push(step);
+        Ok(())
+    }
+
+    /// The schema edge of the arc the delta gives `node`.
+    fn final_edge(&self, node: u32) -> Result<Edge, EditError> {
+        self.arcs
+            .get(&node)
+            .map(|(_, _, edge)| edge.clone())
+            .ok_or_else(|| not_tree_edit(format!("node {node} has no arc in the delta")))
+    }
+
+    /// Whether `node` is in the tree as the node the delta leaves under its
+    /// id (not an old node the delta replaces).
+    fn present(&self, node: u32) -> bool {
+        self.tree.nodes.contains_key(&node) && !self.replaced.contains(&node)
+    }
+
+    /// Delete the old node `node`, which the delta deletes or replaces,
+    /// after clearing its subtree: a child the delta deletes or replaces
+    /// goes the same way, and any other child (whose arc the delta moves)
+    /// is moved out under the root.
+    fn remove(&mut self, node: u32) -> Result<(), EditError> {
+        let children: Vec<u32> = self
+            .tree
+            .children_map
+            .get(&node)
+            .map(|c| c.to_vec())
+            .unwrap_or_default();
+        for child in children {
+            if self.doomed.contains(&child) || self.replaced.contains(&child) {
+                self.remove(child)?;
+            } else {
+                self.park(child)?;
+            }
+        }
+        self.push(TreeEdit::DeleteNode { id: node })?;
+        self.doomed.remove(&node);
+        self.replaced.remove(&node);
+        Ok(())
+    }
+
+    /// Move `node`, whose arc the delta moves later, out under the root.
+    fn park(&mut self, node: u32) -> Result<(), EditError> {
+        if self.placed.contains(&node) || !self.arcs.contains_key(&node) {
+            return Err(not_tree_edit(format!(
+                "node {node} is in the way of the tree edit it reads as"
+            )));
+        }
+        let edge = self.final_edge(node)?;
+        self.push(TreeEdit::MoveSubtree {
+            node_id: node,
+            new_parent: self.tree.root,
+            edge,
+        })
+    }
+
+    /// Make the node the delta leaves under `node` present: an old node the
+    /// delta replaces is removed, and the new one is inserted under the
+    /// root until its own arc places it.
+    fn make_present(&mut self, node: u32) -> Result<(), EditError> {
+        if self.present(node) {
+            return Ok(());
+        }
+        if self.replaced.contains(&node) {
+            self.remove(node)?;
+        }
+        let payload =
+            self.target.nodes.get(&node).cloned().ok_or_else(|| {
+                not_tree_edit(format!("node {node} is not in the tree it leaves"))
+            })?;
+        let edge = self.final_edge(node)?;
+        self.push(TreeEdit::InsertNode {
+            parent: self.tree.root,
+            child_id: node,
+            node: payload,
+            edge,
+        })
+    }
+
+    /// Make the arc the delta gives `child`, under `parent` with `edge`.
+    fn place(&mut self, child: u32, parent: u32, edge: Edge) -> Result<(), EditError> {
+        self.make_present(parent)?;
+        if self.replaced.contains(&child) {
+            self.remove(child)?;
+        }
+        let step = if self.tree.nodes.contains_key(&child) {
+            self.clear_way(child, parent)?;
+            TreeEdit::MoveSubtree {
+                node_id: child,
+                new_parent: parent,
+                edge,
+            }
+        } else {
+            let node = self.target.nodes.get(&child).cloned().ok_or_else(|| {
+                not_tree_edit(format!("node {child} is not in the tree it leaves"))
+            })?;
+            TreeEdit::InsertNode {
+                parent,
+                child_id: child,
+                node,
+                edge,
+            }
+        };
+        self.push(step)?;
+        self.placed.insert(child);
+        Ok(())
+    }
+
+    /// Before `child` moves under `parent`, when `parent` is in its subtree,
+    /// move the highest node between them whose arc the delta has not
+    /// placed yet out under the root. One exists unless the tree the delta
+    /// leaves has a cycle.
+    fn clear_way(&mut self, child: u32, parent: u32) -> Result<(), EditError> {
+        if parent != child && !is_descendant(&self.tree, parent, child) {
+            return Ok(());
+        }
+        let mut highest = None;
+        let mut current = parent;
+        for _ in 0..=self.tree.parent_map.len() {
+            if current == child {
+                break;
+            }
+            if self.arcs.contains_key(&current) && !self.placed.contains(&current) {
+                highest = Some(current);
+            }
+            match self.tree.parent_map.get(&current) {
+                Some(&up) => current = up,
+                None => break,
+            }
+        }
+        highest.map_or_else(
+            || {
+                Err(not_tree_edit(format!(
+                    "moving node {child} under node {parent} closes a cycle"
+                )))
+            },
+            |node| self.park(node),
+        )
+    }
+
+    /// Insert `fan`, after making the nodes it names present: its parent,
+    /// then its members in label order, so the steps do not follow the hash
+    /// order of the fan's child map.
+    fn insert_fan(&mut self, fan: &Fan) -> Result<(), EditError> {
+        let members: BTreeMap<&String, u32> = fan
+            .children
+            .iter()
+            .map(|(label, &id)| (label, id))
+            .collect();
+        for node in std::iter::once(fan.parent).chain(members.into_values()) {
+            if !self.present(node) {
+                self.make_present(node)?;
+            }
+        }
+        self.push(TreeEdit::InsertFan { fan: fan.clone() })
+    }
+
+    /// The edit made so far, in normal form.
+    fn into_edit(self) -> TreeEdit {
+        let mut steps = self.steps;
+        match steps.len() {
+            0 => TreeEdit::Identity,
+            1 => steps.remove(0),
+            _ => TreeEdit::Sequence(steps),
+        }
+    }
+}
+
+/// Whether two trees are the same: the same root and schema root, and the
+/// same graph form, so that their nodes (with `NaN` fields equal), arcs in
+/// order and fans in order agree.
+fn same_tree(a: &WInstance, b: &WInstance) -> bool {
+    if a.root != b.root || a.schema_root != b.schema_root {
+        return false;
+    }
+    match (
+        GInstance::from_wtype_embedded(a, None),
+        GInstance::from_wtype_embedded(b, None),
+    ) {
+        (Ok((ga, ea)), Ok((gb, eb))) => ea == eb && GInstance::identical(&ga, &gb),
+        _ => false,
+    }
+}
+
+impl TreeEdit {
+    /// The tree edit of a graph delta, when there is one: an edit whose
+    /// effect on `tree` is the change `delta` makes to its graph form `g`
+    /// (under `embedding`), so that applying it to `tree` gives the tree
+    /// that `delta` applied to `g` reads as.
+    ///
+    /// It inverts [`GraphDelta::from_tree_edit`] as far as a tree edit can:
+    /// for every edit `e` with `d` its lowering on `g` under `embedding`,
+    /// `d` reads back as an edit `r`; `r` applied to `tree` is `e` applied
+    /// to `tree` (the same nodes, arcs in order, fans in order and root),
+    /// so the graphs the two lower to agree up to fan node ids and edge ids;
+    /// and when `e` is a single step, `r` lowers to `d` exactly and leaves
+    /// the embedding `e` leaves. A tree edit holds no edge ids or fan node
+    /// ids and this reading leaves `embedding` as it is, so for a longer
+    /// edit the lowering of `r` may give arcs and fans other ids than `d`.
+    ///
+    /// The edit is built from the delta: an arc it adds into a new node is
+    /// an `InsertNode` and into a kept node a `MoveSubtree`, and a fan it
+    /// adds is an `InsertFan`, made in ascending id (an arc's edge id, a
+    /// fan's parent edge id), the order tree edits append them in; a node it
+    /// deletes is a `DeleteNode`, children first, and one it deletes and
+    /// adds again under its id is deleted before it goes back in; the fans
+    /// of a name it deletes every fan of go first by a `DeleteFan`, and any
+    /// other fan it deletes goes with a deleted node that names it. `Anchor`
+    /// changes are `RelabelNode` and `Field` changes `SetField` or
+    /// `RemoveField`, last; the label change of a fan edge whose target's
+    /// anchor the delta changes, to the same label with that new anchor as
+    /// its target, is part of that relabel. The
+    /// `Anchor`, `Value`, `Meta` and `Field` changes of a node with a
+    /// `Value` or `Meta` change are instead one `JoinFeatures` of that node
+    /// with nothing joined, whose product is the node as the delta leaves
+    /// it, after every other step. A step that needs a node before the step
+    /// that gives it its arc inserts it early under the root, and a move
+    /// under the moved node's own subtree first moves the highest node on
+    /// the way that the delta moves later out under the root; those nodes
+    /// reach their places by later moves. A fan the delta moves to a new
+    /// node id, because a tree node took its old one, is the same fan of the
+    /// tree.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditError::NotTreeEdit`] when the delta is outside the
+    /// domain: when it changes an edge position, an entry of a fan node, or
+    /// an edge label other than those above (the label of a tree arc, which
+    /// a move changes by deleting the arc and adding one with a fresh id, or
+    /// a fan edge label that does not follow its target's new anchor);
+    /// when an added arc's id is not above every existing arc id (tree
+    /// edits append arcs); when a deleted node is not
+    /// a leaf once the delta's own arc deletions are made; and when a node
+    /// loses its parent arc without gaining one, gains a parent arc without
+    /// losing its old one or gains two, or is added without one (a
+    /// re-parent a `MoveSubtree` does not express). It returns the same
+    /// error when no tree edit leads to the graph the delta leaves: when
+    /// the delta does not apply to `g`, when the graph it leaves is not the
+    /// graph form of a tree (a cycle, a fan node with other data or edges,
+    /// or a tree node whose metadata makes it a hyper-edge node), or when it
+    /// changes the tree in a way no edit makes (a fan deleted while another
+    /// of its name stays and no node it names goes, or a kept fan changed
+    /// in place); no lowering of a tree edit is among those.
+    /// Returns [`EditError::ApplyFailed`] when `tree` has no graph form
+    /// under `embedding`, or is not the tree that graph form reads as
+    /// through it (its arcs and fans in the order of their edge ids).
+    pub fn from_graph_delta(
+        tree: &WInstance,
+        embedding: &TreeEmbedding,
+        delta: &GraphDelta,
+    ) -> Result<Self, EditError> {
+        let mut graph =
+            GInstance::from_wtype_under(tree, embedding, None).map_err(|e| inst_failure(&e))?;
+        let read = read_tree(&graph, embedding)?;
+        if !same_shape(&read, tree) {
+            return Err(not_graph_tree(
+                "its arcs or fans are not in the order of their edge ids",
+            ));
+        }
+        let fans_before = fan_nodes(embedding);
+        let attrs = attr_steps(&graph, delta, &fans_before)?;
+        let fans_after = fans_after(&fans_before, delta);
+        let nodes = TreeNodeChanges::of(delta, &fans_before);
+        let arcs = added_arcs(embedding, delta, &fans_after, &nodes)?;
+        check_deleted_leaves(tree, embedding, delta, &nodes.deleted)?;
+
+        adopt_parent_names(&mut graph, embedding, delta)?;
+        delta.apply(&mut graph).map_err(|err| {
+            not_tree_edit(format!("it does not apply to the tree's graph form: {err}"))
+        })?;
+        let target = target_tree(tree, embedding, &graph)?;
+
+        let mut rebuild = Rebuild {
+            target: &target.tree,
+            arcs: &arcs,
+            tree: tree.clone(),
+            steps: Vec::new(),
+            doomed: nodes.deleted.difference(&nodes.added).copied().collect(),
+            replaced: nodes.deleted.intersection(&nodes.added).copied().collect(),
+            placed: BTreeSet::new(),
+        };
+        for name in &target.dead_names {
+            rebuild.push(Self::DeleteFan {
+                hyper_edge_id: name.clone(),
+            })?;
+        }
+        // The arcs and fans the delta adds, in the order of their ids.
+        let mut adding: Vec<(EdgeId, Option<u32>, Option<&Fan>)> = arcs
+            .iter()
+            .map(|(child, (id, _, _))| (*id, Some(*child), None))
+            .chain(
+                target
+                    .new_fans
+                    .iter()
+                    .map(|(id, fan)| (*id, None, Some(fan))),
+            )
+            .collect();
+        adding.sort_by_key(|(id, _, _)| *id);
+        for (_, child, fan) in adding {
+            if let Some(child) = child
+                && let Some((_, parent, edge)) = arcs.get(&child)
+            {
+                rebuild.place(child, *parent, edge.clone())?;
+            }
+            if let Some(fan) = fan {
+                rebuild.insert_fan(fan)?;
+            }
+        }
+        let doomed: Vec<u32> = rebuild.doomed.iter().copied().collect();
+        for node in doomed {
+            if rebuild.doomed.contains(&node) {
+                rebuild.remove(node)?;
+            }
+        }
+        for step in attrs.steps {
+            rebuild.push(step)?;
+        }
+        for primary in attrs.joins {
+            let produce = target.tree.nodes.get(&primary).cloned().ok_or_else(|| {
+                not_tree_edit(format!("node {primary} is not in the tree it leaves"))
+            })?;
+            rebuild.push(Self::JoinFeatures {
+                primary,
+                joined: Vec::new(),
+                produce,
+            })?;
+        }
+        if !same_tree(&rebuild.tree, &target.tree) {
+            return Err(not_tree_edit(
+                "no tree edit changes the tree as it does: it deletes a fan no deleted node \
+                 names while another of its name stays, or changes a kept fan"
+                    .to_owned(),
+            ));
+        }
+        Ok(rebuild.into_edit())
+    }
+}
+
+/// Whether two trees have the same nodes, arcs in order, fans in order and
+/// root, whatever their schema roots.
+fn same_shape(a: &WInstance, b: &WInstance) -> bool {
+    let mut b = b.clone();
+    b.schema_root.clone_from(&a.schema_root);
+    same_tree(a, &b)
 }
 
 #[cfg(test)]
@@ -814,6 +2189,72 @@ mod tests {
         assert!(edit.apply(&mut inst).is_err());
     }
 
+    /// r(0) -> a(1) -> c(3) and r -> a(2): joining node 1 into node 2 hands
+    /// node 1's child 3 to node 2, keeping its edge with the source set to
+    /// node 2's anchor, so the result is still a tree.
+    #[test]
+    fn joining_features_reparents_the_children_of_joined_nodes() {
+        let nodes = HashMap::from([
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "a")),
+            (2, Node::new(2, "a")),
+            (3, Node::new(3, "c")),
+        ]);
+        let arcs = vec![
+            (0, 1, sample_edge("r", "a")),
+            (1, 3, sample_edge("a", "c")),
+            (0, 2, sample_edge("r", "a")),
+        ];
+        let mut inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("r"));
+        TreeEdit::JoinFeatures {
+            primary: 2,
+            joined: vec![1],
+            produce: Node::new(2, "a"),
+        }
+        .apply(&mut inst)
+        .unwrap();
+
+        assert_eq!(inst.parent_map.get(&3), Some(&2));
+        assert!(!inst.parent_map.contains_key(&1));
+        assert_eq!(inst.children_map[&2].as_slice(), &[3]);
+        assert_eq!(
+            inst.arcs,
+            vec![(0, 2, sample_edge("r", "a")), (2, 3, sample_edge("a", "c")),]
+        );
+        let graph = crate::GInstance::from_wtype(&inst).unwrap();
+        let back = graph.to_wtype(0).unwrap();
+        assert_eq!(back.arcs, inst.arcs);
+        assert_eq!(back.parent_map, inst.parent_map);
+    }
+
+    /// The product of a join replaces the primary node, so it must carry
+    /// the primary's id; anything else is refused and changes nothing.
+    #[test]
+    fn joining_features_rejects_a_foreign_product() {
+        let mut inst = two_node_instance();
+        inst.nodes.insert(2, Node::new(2, "child"));
+        inst.arcs.push((0, 2, sample_edge("root", "child")));
+        let mut inst = WInstance::new(
+            inst.nodes.clone(),
+            inst.arcs.clone(),
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let before = inst.clone();
+        let err = TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![2],
+            produce: Node::new(7, "child"),
+        }
+        .apply(&mut inst)
+        .unwrap_err();
+        assert!(matches!(err, EditError::ApplyFailed(_)), "{err:?}");
+        assert_eq!(inst.nodes.len(), before.nodes.len());
+        assert_eq!(inst.arcs, before.arcs);
+        assert!(!inst.nodes.contains_key(&7));
+    }
+
     #[test]
     fn move_creates_cycle_fails() {
         let mut nodes = HashMap::new();
@@ -836,4 +2277,2524 @@ mod tests {
         };
         assert!(edit.apply(&mut inst).is_err());
     }
+}
+
+#[cfg(test)]
+mod graph_tests {
+    use std::collections::{BTreeMap, HashMap};
+    use std::error::Error;
+    use std::fmt::Write as _;
+
+    use panproto_gat::Name;
+    use panproto_schema::{CanonicalWriter, Edge};
+    use proptest::prelude::*;
+
+    use super::{TreeEdit, canonical_tree_edit_bytes, check_rooted_by};
+    use crate::edit_error::EditError;
+    use crate::fan::Fan;
+    use crate::ginstance::{EdgeId, GEdge, GInstance, TreeEmbedding};
+    use crate::graph_edit::{AttrChange, AttrKey, AttrVal, GraphDelta};
+    use crate::metadata::Node;
+    use crate::value::Value;
+    use crate::wtype::WInstance;
+
+    type TestResult = Result<(), Box<dyn Error>>;
+
+    /// A proptest failure carrying `err`.
+    fn fail(err: impl std::fmt::Debug) -> TestCaseError {
+        TestCaseError::fail(format!("{err:?}"))
+    }
+
+    fn edge(src: &str, tgt: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "prop".into(),
+            name: None,
+        }
+    }
+
+    /// s(0) with words 1 and 4 and a fan `rel` over them; arcs 0 -> 4 (edge
+    /// 0) and 0 -> 1 (edge 1); the fan is node 5 with edges 2 (parent), 3
+    /// (agent) and 4 (theme).
+    fn sentence() -> WInstance {
+        let nodes = HashMap::from([
+            (0, Node::new(0, "s")),
+            (1, Node::new(1, "w")),
+            (4, Node::new(4, "w")),
+        ]);
+        let arcs = vec![(0, 4, edge("s", "w")), (0, 1, edge("s", "w"))];
+        let fan = Fan::new("rel", 0)
+            .with_child("theme", 4)
+            .with_child("agent", 1);
+        WInstance::new(nodes, arcs, vec![fan], 0, "s".into())
+    }
+
+    /// Check that `lowered` is the embedding a lowering of `edit` on `tree`
+    /// leaves from `embedding`. Each step follows
+    /// [`TreeEmbedding::apply_edit`], except that a `MoveSubtree` whose arc
+    /// `apply_edit` lets keep its edge id (a move in place) gives the arc
+    /// the next edge id instead, so every later step allocates from the
+    /// counter after it. With no move in place that is exactly the
+    /// embedding `apply_edit` leaves for the whole edit. Ascending edge ids
+    /// of the arcs also follow the edited tree's arc order.
+    fn assert_follows(
+        lowered: &TreeEmbedding,
+        embedding: &TreeEmbedding,
+        tree: &WInstance,
+        edit: &TreeEdit,
+    ) -> Result<(), EditError> {
+        let mut expected = embedding.clone();
+        let mut edited = tree.clone();
+        let mut in_place = false;
+        for step in edit.steps() {
+            let kept = match step {
+                TreeEdit::MoveSubtree { node_id, .. } => {
+                    expected.arcs.get(node_id).map(|id| (*node_id, *id))
+                }
+                _ => None,
+            };
+            expected.apply_edit(&mut edited, step)?;
+            if let Some((node, id)) = kept
+                && expected.arcs.get(&node) == Some(&id)
+            {
+                expected.arcs.insert(node, EdgeId(expected.next_edge));
+                expected.next_edge += 1;
+                in_place = true;
+            }
+        }
+        if !in_place {
+            let mut followed = embedding.clone();
+            followed.apply_edit(&mut tree.clone(), edit)?;
+            assert_eq!(expected, followed, "{edit:?}");
+        }
+        assert_eq!(*lowered, expected, "{edit:?}");
+        let mut by_id: Vec<(EdgeId, u32)> = lowered.arcs.iter().map(|(c, e)| (*e, *c)).collect();
+        by_id.sort_unstable();
+        assert_eq!(
+            by_id.into_iter().map(|(_, c)| c).collect::<Vec<_>>(),
+            edited.arcs.iter().map(|(_, c, _)| *c).collect::<Vec<_>>(),
+            "{edit:?}"
+        );
+        Ok(())
+    }
+
+    /// The graph delta of `edit` on `tree`, the embedding it leaves, and the
+    /// graph it reaches, checked against the graph form of the edited tree
+    /// under that embedding.
+    fn lower(
+        tree: &WInstance,
+        edit: &TreeEdit,
+    ) -> Result<(GraphDelta, TreeEmbedding, GInstance), Box<dyn Error>> {
+        let (graph, mut embedding) = GInstance::from_wtype_embedded(tree, None)?;
+        let start = embedding.clone();
+        let mut edited = tree.clone();
+        start.clone().apply_edit(&mut edited, edit)?;
+        let delta = GraphDelta::from_tree_edit(&graph, &mut embedding, edit)?;
+        assert_follows(&embedding, &start, tree, edit)?;
+        let mut reached = graph;
+        delta.apply(&mut reached)?;
+        let expected = GInstance::from_wtype_under(&edited, &embedding, None)?;
+        assert!(GInstance::identical(&reached, &expected));
+        Ok((delta, embedding, reached))
+    }
+
+    fn ids<K: Copy, V>(map: &BTreeMap<K, V>) -> Vec<K> {
+        map.keys().copied().collect()
+    }
+
+    /// A chain 0 -> 1 -> ... -> n - 1 rooted at 0.
+    fn chain(n: u32) -> WInstance {
+        let nodes = (0..n).map(|id| (id, Node::new(id, "w"))).collect();
+        let arcs = (1..n).map(|id| (id - 1, id, edge("w", "w"))).collect();
+        WInstance::new(nodes, arcs, Vec::new(), 0, "w".into())
+    }
+
+    #[test]
+    fn checking_a_tree_is_rooted_reads_each_parent_once() -> TestResult {
+        let n = 2000;
+        let tree = chain(n);
+        let mut lookups = 0_usize;
+        check_rooted_by(&tree, |id| {
+            lookups += 1;
+            tree.parent_map.get(&id).copied()
+        })?;
+        // One lookup for the root, then at most one per other node.
+        assert!(
+            lookups <= n as usize,
+            "{lookups} parent lookups for a chain of {n} nodes"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn checking_a_tree_is_rooted_finds_cycles_and_strays() {
+        let mut cyclic = chain(6);
+        // 3 -> 4 -> 5 -> 3: nodes 3 to 5 never reach the root.
+        cyclic.parent_map.insert(3, 5);
+        let err = check_rooted_by(&cyclic, |id| cyclic.parent_map.get(&id).copied());
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason }) if reason.contains("cycle")),
+            "{err:?}"
+        );
+        let mut stray = chain(6);
+        stray.parent_map.remove(&4);
+        let err = check_rooted_by(&stray, |id| stray.parent_map.get(&id).copied());
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason })
+                if reason.contains("does not reach the root")),
+            "{err:?}"
+        );
+        let mut parented_root = chain(3);
+        parented_root.parent_map.insert(0, 2);
+        let err = check_rooted_by(&parented_root, |id| {
+            parented_root.parent_map.get(&id).copied()
+        });
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason })
+                if reason.contains("is not the root")),
+            "{err:?}"
+        );
+    }
+
+    #[test]
+    fn checking_a_tree_is_rooted_gives_one_reason_for_one_tree() {
+        // Every new tree has a node map with its own hash order; the reason
+        // must not depend on it.
+        let reasons = |damage: fn(&mut WInstance)| {
+            (0..64)
+                .map(|_| {
+                    let mut tree = chain(6);
+                    damage(&mut tree);
+                    format!(
+                        "{:?}",
+                        check_rooted_by(&tree, |id| tree.parent_map.get(&id).copied())
+                    )
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let stray = reasons(|tree| {
+            tree.parent_map.remove(&4);
+        });
+        assert_eq!(stray.len(), 1, "{stray:?}");
+        assert!(
+            stray
+                .iter()
+                .all(|r| r.contains("node 4 does not reach the root")),
+            "{stray:?}"
+        );
+        let cyclic = reasons(|tree| {
+            tree.parent_map.insert(3, 5);
+        });
+        assert_eq!(cyclic.len(), 1, "{cyclic:?}");
+        assert!(
+            cyclic.iter().all(|r| r.contains("node 3 is on a cycle")),
+            "{cyclic:?}"
+        );
+    }
+
+    #[test]
+    fn from_tree_edit_cases() -> TestResult {
+        let tree = sentence();
+        insert_and_delete_cases(&tree)?;
+        contract_case()?;
+        relabel_and_field_cases(&tree)?;
+        move_and_fan_cases(&tree)?;
+        sequence_case(&tree)
+    }
+
+    fn insert_and_delete_cases(tree: &WInstance) -> TestResult {
+        // InsertNode: the node and an arc under the next edge id.
+        let (d, emb, _) = lower(
+            tree,
+            &TreeEdit::InsertNode {
+                parent: 1,
+                child_id: 6,
+                node: Node::new(6, "m"),
+                edge: edge("w", "m"),
+            },
+        )?;
+        assert_eq!(ids(d.add_nodes()), vec![6]);
+        assert_eq!(d.add_edges()[&EdgeId(5)], GEdge::new(1, 6, edge("w", "m")));
+        assert!(d.del_nodes().is_empty() && d.del_edges().is_empty() && d.attrs().is_empty());
+        assert_eq!(emb.arcs[&6], EdgeId(5));
+
+        // DeleteNode: the node, its in-arc and the fan naming it.
+        let (d, emb, _) = lower(tree, &TreeEdit::DeleteNode { id: 4 })?;
+        assert_eq!(ids(d.del_nodes()), vec![4, 5]);
+        assert_eq!(
+            ids(d.del_edges()),
+            vec![EdgeId(0), EdgeId(2), EdgeId(3), EdgeId(4)]
+        );
+        assert!(d.add_nodes().is_empty() && d.add_edges().is_empty());
+        assert!(emb.fans.is_empty());
+        Ok(())
+    }
+
+    fn contract_case() -> TestResult {
+        // ContractNode: node 1 of r(0) -> a(1) -> {b(2), c(3)}.
+        let chain = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "r")),
+                (1, Node::new(1, "a")),
+                (2, Node::new(2, "b")),
+                (3, Node::new(3, "c")),
+            ]),
+            vec![
+                (0, 1, edge("r", "a")),
+                (1, 2, edge("a", "b")),
+                (1, 3, edge("a", "c")),
+            ],
+            vec![],
+            0,
+            "r".into(),
+        );
+        let (d, _, _) = lower(&chain, &TreeEdit::ContractNode { id: 1 })?;
+        assert_eq!(ids(d.del_nodes()), vec![1]);
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(0), EdgeId(1), EdgeId(2)]);
+        assert_eq!(d.add_edges()[&EdgeId(3)], GEdge::new(0, 2, edge("r", "b")));
+        assert_eq!(d.add_edges()[&EdgeId(4)], GEdge::new(0, 3, edge("r", "c")));
+        Ok(())
+    }
+
+    fn relabel_and_field_cases(tree: &WInstance) -> TestResult {
+        // RelabelNode: an `Anchor` change, and the label change of the fan
+        // edge reaching the node (it names its target's anchor).
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::RelabelNode {
+                id: 1,
+                new_anchor: "v".into(),
+            },
+        )?;
+        assert_eq!(
+            d.attrs()[&AttrKey::Anchor { node: 1 }],
+            AttrChange {
+                old: AttrVal::Anchor("w".into()),
+                new: AttrVal::Anchor("v".into())
+            }
+        );
+        assert!(
+            d.attrs()
+                .contains_key(&AttrKey::EdgeLabel { edge: EdgeId(3) })
+        );
+        assert_eq!(d.attrs().len(), 2);
+
+        // SetField and RemoveField: `Field` changes with the old value read
+        // from the state.
+        let set = TreeEdit::SetField {
+            node_id: 4,
+            field: "n".into(),
+            value: Value::Int(2),
+        };
+        let (d, _, _) = lower(tree, &set)?;
+        assert_eq!(
+            d.attrs()[&AttrKey::Field {
+                node: 4,
+                field: "n".into()
+            }],
+            AttrChange {
+                old: AttrVal::Field(None),
+                new: AttrVal::Field(Some(Value::Int(2)))
+            }
+        );
+        let mut with_field = tree.clone();
+        set.apply(&mut with_field)?;
+        let (d, _, _) = lower(
+            &with_field,
+            &TreeEdit::RemoveField {
+                node_id: 4,
+                field: "n".into(),
+            },
+        )?;
+        assert_eq!(
+            d.attrs()[&AttrKey::Field {
+                node: 4,
+                field: "n".into()
+            }],
+            AttrChange {
+                old: AttrVal::Field(Some(Value::Int(2))),
+                new: AttrVal::Field(None)
+            }
+        );
+        Ok(())
+    }
+
+    fn move_and_fan_cases(tree: &WInstance) -> TestResult {
+        // MoveSubtree: the old arc deleted, the new one under a fresh id.
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::MoveSubtree {
+                node_id: 4,
+                new_parent: 1,
+                edge: edge("w", "w"),
+            },
+        )?;
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(0)]);
+        assert_eq!(d.add_edges()[&EdgeId(5)], GEdge::new(1, 4, edge("w", "w")));
+        assert_eq!(d.add_edges().len(), 1);
+        // A move of the last arc's node under the parent it has deletes that
+        // arc too and adds the new one under a fresh id.
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::MoveSubtree {
+                node_id: 1,
+                new_parent: 0,
+                edge: edge("s", "w"),
+            },
+        )?;
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(1)]);
+        assert_eq!(ids(d.add_edges()), vec![EdgeId(5)]);
+        assert!(d.attrs().is_empty());
+
+        // InsertFan and DeleteFan: the fan node with its edges.
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::InsertFan {
+                fan: Fan::new("arg", 1).with_child("x", 4),
+            },
+        )?;
+        assert_eq!(ids(d.add_nodes()), vec![6]);
+        assert_eq!(ids(d.add_edges()), vec![EdgeId(5), EdgeId(6)]);
+        let (d, _, _) = lower(
+            tree,
+            &TreeEdit::DeleteFan {
+                hyper_edge_id: "rel".into(),
+            },
+        )?;
+        assert_eq!(ids(d.del_nodes()), vec![5]);
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(2), EdgeId(3), EdgeId(4)]);
+        Ok(())
+    }
+
+    fn sequence_case(tree: &WInstance) -> TestResult {
+        // Sequence: the composite of the steps' deltas.
+        let insert = TreeEdit::InsertNode {
+            parent: 0,
+            child_id: 9,
+            node: Node::new(9, "w"),
+            edge: edge("s", "w"),
+        };
+        let seq = TreeEdit::Sequence(vec![insert.clone(), TreeEdit::DeleteNode { id: 9 }]);
+        let (d, emb, _) = lower(tree, &seq)?;
+        assert!(d.is_identity(), "an add then a delete of one node cancels");
+        assert_eq!(emb.next_edge, 6, "the cancelled arc still took an id");
+        let (first, mid, _) = lower(tree, &insert)?;
+        let mut mid_tree = tree.clone();
+        insert.apply(&mut mid_tree)?;
+        let mid_graph = GInstance::from_wtype_under(&mid_tree, &mid, None)?;
+        let mut follow = mid;
+        let second =
+            GraphDelta::from_tree_edit(&mid_graph, &mut follow, &TreeEdit::DeleteNode { id: 9 })?;
+        assert_eq!(first.compose(&second)?, d);
+        Ok(())
+    }
+
+    #[test]
+    fn from_tree_edit_joins_features_like_tree_apply() -> TestResult {
+        // r(0) -> a(1) -> c(3), r -> a(2): join 1 into 2 with a product
+        // that renames the primary and sets a field.
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "r")),
+                (1, Node::new(1, "a")),
+                (2, Node::new(2, "a")),
+                (3, Node::new(3, "c")),
+            ]),
+            vec![
+                (0, 1, edge("r", "a")),
+                (1, 3, edge("a", "c")),
+                (0, 2, edge("r", "a")),
+            ],
+            vec![],
+            0,
+            "r".into(),
+        );
+        let mut produce = Node::new(2, "b");
+        produce.extra_fields.insert("k".into(), Value::Int(1));
+        let (d, emb, graph) = lower(
+            &tree,
+            &TreeEdit::JoinFeatures {
+                primary: 2,
+                joined: vec![1],
+                produce,
+            },
+        )?;
+        assert_eq!(ids(d.del_nodes()), vec![1]);
+        assert_eq!(ids(d.del_edges()), vec![EdgeId(0), EdgeId(1)]);
+        // Node 3 keeps its edge, with the source set to the product's anchor,
+        // under the next edge id.
+        assert_eq!(d.add_edges()[&EdgeId(3)], GEdge::new(2, 3, edge("b", "c")));
+        assert_eq!(emb.arcs[&3], EdgeId(3));
+        assert_eq!(
+            d.attrs().keys().cloned().collect::<Vec<_>>(),
+            vec![
+                AttrKey::Field {
+                    node: 2,
+                    field: "k".into()
+                },
+                AttrKey::Anchor { node: 2 },
+            ]
+        );
+        assert!(graph.to_wtype(0).is_ok(), "the result is a tree");
+        Ok(())
+    }
+
+    #[test]
+    fn from_tree_edit_allocates_ids_in_apply_order() -> TestResult {
+        let tree = sentence();
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("y", 1).with_child("x", 4),
+            },
+            TreeEdit::MoveSubtree {
+                node_id: 1,
+                new_parent: 4,
+                edge: edge("w", "w"),
+            },
+            TreeEdit::InsertNode {
+                parent: 4,
+                child_id: 6,
+                node: Node::new(6, "w"),
+                edge: edge("w", "w"),
+            },
+        ]);
+        let (d, emb, _) = lower(&tree, &edit)?;
+        // next_node was 6 and next_edge 5: the new fan takes node 6 and edges
+        // 5 (parent), 6 (x) and 7 (y); the move takes 8; the inserted node
+        // takes id 6 from the fan, which moves to node 7, and its arc takes 9.
+        assert_eq!(emb.fans[1].parent_edge, EdgeId(5));
+        assert_eq!(
+            emb.fans[1].child_edges,
+            BTreeMap::from([("x".to_owned(), EdgeId(6)), ("y".to_owned(), EdgeId(7))])
+        );
+        assert_eq!(emb.arcs[&1], EdgeId(8));
+        assert_eq!(emb.arcs[&6], EdgeId(9));
+        assert_eq!(emb.fans[1].node, 7);
+        assert_eq!((emb.next_node, emb.next_edge), (8, 10));
+        assert_eq!(
+            ids(d.add_edges()),
+            vec![EdgeId(5), EdgeId(6), EdgeId(7), EdgeId(8), EdgeId(9)]
+        );
+        assert_eq!(ids(d.add_nodes()), vec![6, 7]);
+        Ok(())
+    }
+
+    /// Check that `from_graph_delta` on `tree` (under `emb`, with graph
+    /// form `graph`) returns `NotTreeEdit` for `delta`, with a reason that
+    /// says `needle`.
+    fn reject_on(tree: &WInstance, emb: &TreeEmbedding, delta: &GraphDelta, needle: &str) {
+        let result = TreeEdit::from_graph_delta(tree, emb, delta);
+        let Err(EditError::NotTreeEdit { reason }) = &result else {
+            panic!("expected NotTreeEdit, got {result:?}");
+        };
+        assert!(
+            reason.contains(needle),
+            "{reason:?} does not say {needle:?}"
+        );
+    }
+
+    /// The label, position and entry changes of [`sentence`] that no tree
+    /// edit makes.
+    fn label_and_entry_rejections(
+        tree: &WInstance,
+        graph: &GInstance,
+        emb: &TreeEmbedding,
+    ) -> TestResult {
+        let reject = |delta: &GraphDelta, needle: &str| reject_on(tree, emb, delta, needle);
+        // A tree arc's label change and an edge position change.
+        let arc_label = GraphDelta::identity().with_change(
+            AttrKey::EdgeLabel { edge: EdgeId(0) },
+            AttrVal::Label(edge("s", "w")),
+            AttrVal::Label(edge("s", "x")),
+        )?;
+        reject(&arc_label, "a tree edit has no change of");
+        // The label change of the last arc, which no arc is above: a move
+        // in place appends its arc with a fresh id, so no tree edit changes
+        // an arc's label.
+        let last_label = GraphDelta::identity().with_change(
+            AttrKey::EdgeLabel { edge: EdgeId(1) },
+            AttrVal::Label(edge("s", "w")),
+            AttrVal::Label(edge("s", "x")),
+        )?;
+        reject(&last_label, "a tree edit has no change of");
+        let position = GraphDelta::identity().with_change(
+            AttrKey::EdgePosition { edge: EdgeId(0) },
+            AttrVal::Position(None),
+            AttrVal::Position(Some(1)),
+        )?;
+        reject(&position, "a tree edit has no change of");
+        // A label change of an arc below the last one following its
+        // target's new anchor is still no tree edit's: a relabel leaves the
+        // arcs into the node as they are, and a move appends its arc.
+        let arc_follows = GraphDelta::identity()
+            .with_change(
+                AttrKey::Anchor { node: 4 },
+                AttrVal::Anchor("w".into()),
+                AttrVal::Anchor("v".into()),
+            )?
+            .with_change(
+                AttrKey::EdgeLabel { edge: EdgeId(0) },
+                AttrVal::Label(edge("s", "w")),
+                AttrVal::Label(edge("s", "v")),
+            )?;
+        reject(&arc_follows, "a tree edit has no change of");
+        let relabel_1 = |delta: GraphDelta| {
+            delta.with_change(
+                AttrKey::Anchor { node: 1 },
+                AttrVal::Anchor("w".into()),
+                AttrVal::Anchor("v".into()),
+            )
+        };
+        // Fan label changes that do not follow the target's new anchor: with
+        // no anchor change, to another anchor, and with another field
+        // changed besides the target.
+        let fan_edge = graph.edge(EdgeId(3)).ok_or("no edge 3")?.edge.clone();
+        assert_eq!(graph.edge(EdgeId(3)).map(|e| e.tgt), Some(1));
+        let fan_label = |tgt: &str, kind: &str| {
+            let mut new = fan_edge.clone();
+            new.tgt = tgt.into();
+            new.kind = kind.into();
+            GraphDelta::identity().with_change(
+                AttrKey::EdgeLabel { edge: EdgeId(3) },
+                AttrVal::Label(fan_edge.clone()),
+                AttrVal::Label(new),
+            )
+        };
+        let kind = fan_edge.kind.to_string();
+        reject(&fan_label("v", &kind)?, "a tree edit has no change of");
+        reject(
+            &relabel_1(fan_label("x", &kind)?)?,
+            "a tree edit has no change of",
+        );
+        reject(
+            &relabel_1(fan_label("v", "prop")?)?,
+            "a tree edit has no change of",
+        );
+        // The value of the fan node 5.
+        let fan_value = GraphDelta::identity().with_change(
+            AttrKey::Value { node: 5 },
+            AttrVal::Presence(None),
+            AttrVal::Presence(Some(crate::value::FieldPresence::Null)),
+        )?;
+        reject(&fan_value, "an entry of the fan node 5");
+        // A tree node made a hyper-edge node: the graph it leaves is not a
+        // tree's graph form.
+        let hyper = GraphDelta::identity().with_change(
+            AttrKey::Meta { node: 1 },
+            AttrVal::Meta(crate::graph_edit::NodeMeta::default()),
+            AttrVal::Meta(crate::graph_edit::NodeMeta {
+                shape: crate::metadata::NodeShape::HyperEdge,
+                ..crate::graph_edit::NodeMeta::default()
+            }),
+        )?;
+        reject(&hyper, "not a well-formed fan");
+        // No tree edit makes that change: a tree with a hyper-edge node has
+        // no graph form.
+        let mut hyper_node = tree.nodes[&1].clone();
+        hyper_node.shape = crate::metadata::NodeShape::HyperEdge;
+        let lowered = GraphDelta::from_tree_edit(
+            graph,
+            &mut emb.clone(),
+            &TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![],
+                produce: hyper_node,
+            },
+        );
+        assert!(
+            matches!(&lowered, Err(EditError::ApplyFailed(_))),
+            "{lowered:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn from_graph_delta_rejections() -> TestResult {
+        let tree = sentence();
+        let (graph, emb) = GInstance::from_wtype_embedded(&tree, None)?;
+        let reject = |delta: &GraphDelta, needle: &str| {
+            let result = TreeEdit::from_graph_delta(&tree, &emb, delta);
+            let Err(EditError::NotTreeEdit { reason }) = &result else {
+                panic!("expected NotTreeEdit, got {result:?}");
+            };
+            assert!(
+                reason.contains(needle),
+                "{reason:?} does not say {needle:?}"
+            );
+        };
+        // An added arc below an existing arc id: tree edits append.
+        let low = GraphDelta::identity()
+            .with_added_node(Node::new(6, "w"))
+            .with_added_edge(EdgeId(1), GEdge::new(0, 6, edge("s", "w")))
+            .with_deleted_edge(EdgeId(1), graph.edge(EdgeId(1)).ok_or("no edge 1")?.clone());
+        reject(&low, "is not above the existing arc");
+        // A deleted node that keeps a child.
+        let not_leaf =
+            GraphDelta::identity().with_deleted_node(graph.node(0).ok_or("no node 0")?.clone());
+        reject(&not_leaf, "keeps its child");
+        // A node that gains a parent without losing its own.
+        let second_parent =
+            GraphDelta::identity().with_added_edge(EdgeId(7), GEdge::new(1, 4, edge("w", "w")));
+        reject(&second_parent, "without losing its own");
+        // A node that loses its parent without gaining one.
+        let orphan = GraphDelta::identity()
+            .with_deleted_edge(EdgeId(0), graph.edge(EdgeId(0)).ok_or("no edge 0")?.clone());
+        reject(&orphan, "loses its parent arc without gaining one");
+        label_and_entry_rejections(&tree, &graph, &emb)?;
+        // An insertion under an arc id far above the next one reads as the
+        // same insertion, whose lowering takes the next edge id: the tree
+        // edits that lower to it spend the ids below it on arcs they remove
+        // again, which the tree does not record.
+        let far = GraphDelta::identity()
+            .with_added_node(Node::new(6, "w"))
+            .with_added_edge(EdgeId(40), GEdge::new(0, 6, edge("s", "w")));
+        let read = TreeEdit::from_graph_delta(&tree, &emb, &far)?;
+        assert!(
+            matches!(
+                &read,
+                TreeEdit::InsertNode {
+                    parent: 0,
+                    child_id: 6,
+                    ..
+                }
+            ),
+            "{read:?}"
+        );
+        let mut again = emb.clone();
+        let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)?;
+        assert_eq!(ids(lowered.add_edges()), vec![EdgeId(5)]);
+        // The same insertion under the next edge id is a tree edit.
+        let next = GraphDelta::identity()
+            .with_added_node(Node::new(6, "w"))
+            .with_added_edge(EdgeId(5), GEdge::new(0, 6, edge("s", "w")));
+        assert!(matches!(
+            TreeEdit::from_graph_delta(&tree, &emb, &next),
+            Ok(TreeEdit::InsertNode { child_id: 6, .. })
+        ));
+        Ok(())
+    }
+
+    #[test]
+    fn from_graph_delta_rejects_deltas_no_tree_edit_lowers_to() -> TestResult {
+        // Two fans of one name over the sentence.
+        let mut tree = sentence();
+        tree.fans.push(Fan::new("rel", 0).with_child("agent", 4));
+        let (graph, emb) = GInstance::from_wtype_embedded(&tree, None)?;
+        let reject = |delta: &GraphDelta, needle: &str| {
+            let result = TreeEdit::from_graph_delta(&tree, &emb, delta);
+            let Err(EditError::NotTreeEdit { reason }) = &result else {
+                panic!("expected NotTreeEdit, got {result:?}");
+            };
+            assert!(
+                reason.contains(needle),
+                "{reason:?} does not say {needle:?}"
+            );
+        };
+        // Deleting the second fan alone: `DeleteFan` deletes both, and no
+        // node it names goes.
+        let second = &emb.fans[1];
+        let mut alone = GraphDelta::identity()
+            .with_deleted_node(graph.node(second.node).ok_or("no fan node")?.clone());
+        for id in std::iter::once(second.parent_edge).chain(second.child_edges.values().copied()) {
+            alone = alone.with_deleted_edge(id, graph.edge(id).ok_or("no fan edge")?.clone());
+        }
+        reject(&alone, "no tree edit changes the tree as it does");
+        // A deletion whose payload is not the node's: it does not apply.
+        let stale = GraphDelta::identity()
+            .with_deleted_node(Node::new(1, "elsewhere"))
+            .with_deleted_edge(EdgeId(1), graph.edge(EdgeId(1)).ok_or("no edge 1")?.clone());
+        reject(&stale, "does not apply");
+        // A move under the moved node's own child: the tree it leaves has a
+        // cycle.
+        let looped = GraphDelta::identity()
+            .with_deleted_edge(EdgeId(1), graph.edge(EdgeId(1)).ok_or("no edge 1")?.clone())
+            .with_added_node(Node::new(7, "w"))
+            .with_added_edge(EdgeId(8), GEdge::new(1, 7, edge("w", "w")))
+            .with_added_edge(EdgeId(9), GEdge::new(7, 1, edge("w", "w")));
+        reject(&looped, "cycle");
+        // The fan deleted with node 4, which both fans name, is a tree edit.
+        let both =
+            GraphDelta::from_tree_edit(&graph, &mut emb.clone(), &TreeEdit::DeleteNode { id: 4 })?;
+        let read = TreeEdit::from_graph_delta(&tree, &emb, &both)?;
+        assert!(
+            matches!(
+                read.steps().as_slice(),
+                [TreeEdit::DeleteFan { hyper_edge_id }, TreeEdit::DeleteNode { id: 4 }]
+                    if hyper_edge_id.as_ref() == "rel"
+            ),
+            "{read:?}"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_named_fan_parent_edge_reads_through_a_relocation() -> TestResult {
+        let tree = sentence();
+        let mut schema = panproto_schema::Schema::default();
+        schema.hyper_edges.insert(
+            "rel".into(),
+            panproto_schema::HyperEdge {
+                id: "rel".into(),
+                kind: "relation".into(),
+                signature: HashMap::from([
+                    ("head".into(), "s".into()),
+                    ("agent".into(), "w".into()),
+                    ("theme".into(), "w".into()),
+                ]),
+                parent_label: "head".into(),
+            },
+        );
+        let (graph, emb) = GInstance::from_wtype_embedded(&tree, Some(&schema))?;
+        let parent_edge = emb.fans[0].parent_edge;
+        assert_eq!(
+            graph.edge(parent_edge).and_then(|e| e.edge.name.as_deref()),
+            Some("head")
+        );
+        // A node inserted under the fan's node id moves the fan, whose
+        // parent edge keeps its name.
+        let insert = TreeEdit::InsertNode {
+            parent: 0,
+            child_id: emb.fans[0].node,
+            node: Node::new(emb.fans[0].node, "w"),
+            edge: edge("s", "w"),
+        };
+        let mut followed = emb.clone();
+        let delta = GraphDelta::from_tree_edit(&graph, &mut followed, &insert)?;
+        assert!(delta.del_edges().contains_key(&parent_edge));
+        let read = TreeEdit::from_graph_delta(&tree, &emb, &delta)?;
+        assert!(
+            matches!(
+                &read,
+                TreeEdit::InsertNode {
+                    parent: 0,
+                    child_id: 5,
+                    ..
+                }
+            ),
+            "{read:?}"
+        );
+        let mut again = emb;
+        assert_eq!(
+            GraphDelta::from_tree_edit(&graph, &mut again, &read)?,
+            delta
+        );
+        assert_eq!(again, followed);
+        Ok(())
+    }
+
+    /// doc(0) -> para(1) -> word(2) -> word(3), doc(0) -> para(4) ->
+    /// word(5), and a fan `rel` over para 1 with children 2 and 5.
+    fn paragraphs() -> WInstance {
+        let nodes = HashMap::from([
+            (0, Node::new(0, "doc")),
+            (1, Node::new(1, "para")),
+            (2, Node::new(2, "word")),
+            (3, Node::new(3, "word")),
+            (4, Node::new(4, "para")),
+            (5, Node::new(5, "word")),
+        ]);
+        let arcs = vec![
+            (0, 1, edge("doc", "para")),
+            (1, 2, edge("para", "word")),
+            (2, 3, edge("word", "word")),
+            (0, 4, edge("doc", "para")),
+            (4, 5, edge("para", "word")),
+        ];
+        let fan = Fan::new("rel", 1).with_child("a", 2).with_child("b", 5);
+        WInstance::new(nodes, arcs, vec![fan], 0, "doc".into())
+    }
+
+    /// Lower `edit` on `tree` and read the delta back as a tree edit: the
+    /// reading must apply to `tree` with the effect `edit` has, and lower to
+    /// a delta that leaves the graph form of that tree under the embedding
+    /// it follows. Returns the reading, the delta and the reading's delta.
+    fn round_trip(tree: &WInstance, edit: &TreeEdit) -> Result<RoundTrip, Box<dyn Error>> {
+        let (graph, emb) = GInstance::from_wtype_embedded(tree, None)?;
+        let mut followed = emb.clone();
+        let delta = GraphDelta::from_tree_edit(&graph, &mut followed, edit)?;
+        let read = TreeEdit::from_graph_delta(tree, &emb, &delta)
+            .map_err(|e| format!("{edit:?} lowers to a delta read as no tree edit: {e}"))?;
+        let mut expected = tree.clone();
+        edit.apply(&mut expected)?;
+        let mut reached = tree.clone();
+        read.apply(&mut reached)?;
+        assert!(
+            super::same_tree(&reached, &expected),
+            "{edit:?} read back as {read:?}"
+        );
+        let mut again = emb;
+        let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)?;
+        Ok(RoundTrip {
+            read,
+            delta,
+            lowered,
+        })
+    }
+
+    /// [`round_trip`], for its checks only.
+    fn assert_round_trips(tree: &WInstance, edit: &TreeEdit) -> TestResult {
+        round_trip(tree, edit).map(|_| ())
+    }
+
+    /// A tree edit read back from its delta, with that delta and the delta
+    /// the reading lowers to.
+    struct RoundTrip {
+        read: TreeEdit,
+        delta: GraphDelta,
+        lowered: GraphDelta,
+    }
+
+    fn move_edit(tree: &WInstance, node_id: u32, new_parent: u32) -> TreeEdit {
+        TreeEdit::MoveSubtree {
+            node_id,
+            new_parent,
+            edge: Edge {
+                src: tree.nodes[&new_parent].anchor.clone(),
+                tgt: tree.nodes[&node_id].anchor.clone(),
+                kind: "prop".into(),
+                name: None,
+            },
+        }
+    }
+
+    #[test]
+    fn a_delta_reads_as_one_tree_edit_whatever_the_hash_order() -> TestResult {
+        // The fan's edges come before the arcs of its members, which the
+        // sequence inserts and then moves, so the reading inserts every
+        // member early, in an order the fan's child map must not set.
+        let tree = paragraphs();
+        let members = [9, 10, 11, 12];
+        let mut fan = Fan::new("pair", 0);
+        let mut steps = Vec::new();
+        for (label, id) in ["x", "y", "z", "w"].into_iter().zip(members) {
+            steps.push(insert_edit(&tree, 0, id, "word"));
+            fan = fan.with_child(label, id);
+        }
+        steps.push(TreeEdit::InsertFan { fan });
+        for id in members {
+            steps.push(TreeEdit::MoveSubtree {
+                node_id: id,
+                new_parent: 3,
+                edge: Edge {
+                    src: "word".into(),
+                    tgt: "word".into(),
+                    kind: "prop".into(),
+                    name: None,
+                },
+            });
+        }
+        let edit = TreeEdit::Sequence(steps);
+        // Canonical bytes, since a fan's derived debug text follows its
+        // child map's hash order.
+        let mut readings = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            let mut writer = CanonicalWriter::new();
+            canonical_tree_edit_bytes(&round_trip(&tree, &edit)?.read, &mut writer);
+            readings.insert(writer.into_bytes());
+        }
+        assert_eq!(readings.len(), 1, "{} readings", readings.len());
+        Ok(())
+    }
+
+    #[test]
+    fn a_sequence_delta_that_skips_ids_reads_as_its_effect() -> TestResult {
+        let tree = paragraphs();
+        // Moving node 4 under 3 and then under 0 leaves it under its old
+        // parent with an arc after every other: the delta replaces its arc
+        // by one whose id skips the id the first move took.
+        let moved_back = round_trip(
+            &tree,
+            &TreeEdit::Sequence(vec![move_edit(&tree, 4, 3), move_edit(&tree, 4, 0)]),
+        )?;
+        assert!(
+            matches!(
+                &moved_back.read,
+                TreeEdit::MoveSubtree {
+                    node_id: 4,
+                    new_parent: 0,
+                    ..
+                }
+            ),
+            "{:?}",
+            moved_back.read
+        );
+        assert_same_up_to_new_edge_ids(&moved_back.delta, &moved_back.lowered);
+        let skipped = ids(moved_back.delta.add_edges());
+        let taken = ids(moved_back.lowered.add_edges());
+        assert_eq!((skipped.len(), taken.len()), (1, 1));
+        assert!(taken[0] < skipped[0], "{taken:?} {skipped:?}");
+        // An insertion deleted again before the move: the same reading.
+        let cancelled = round_trip(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 5, 9, "word"),
+                TreeEdit::DeleteNode { id: 9 },
+                move_edit(&tree, 4, 3),
+            ]),
+        )?;
+        assert!(
+            matches!(
+                &cancelled.read,
+                TreeEdit::MoveSubtree {
+                    node_id: 4,
+                    new_parent: 3,
+                    ..
+                }
+            ),
+            "{:?}",
+            cancelled.read
+        );
+        assert_same_up_to_new_edge_ids(&cancelled.delta, &cancelled.lowered);
+        // A node inserted under the fan node's id 6 and deleted again moves
+        // the fan to the fresh node id 7 and leaves the tree as it was: the
+        // delta reads as the identity, whose own delta is empty. The reading
+        // gives the delta's effect on the tree, not the fan's node ids.
+        let relocated = round_trip(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 6, "word"),
+                TreeEdit::DeleteNode { id: 6 },
+            ]),
+        )?;
+        assert!(relocated.read.is_identity(), "{:?}", relocated.read);
+        assert_eq!(ids(relocated.delta.del_nodes()), vec![6]);
+        assert_eq!(ids(relocated.delta.add_nodes()), vec![7]);
+        assert_eq!(relocated.lowered, GraphDelta::identity());
+        Ok(())
+    }
+
+    /// The canonical bytes of a tree edit, which compare edits.
+    fn edit_bytes(edit: &TreeEdit) -> Vec<u8> {
+        let mut writer = CanonicalWriter::new();
+        canonical_tree_edit_bytes(edit, &mut writer);
+        writer.into_bytes()
+    }
+
+    /// Lower `edit` on `tree`, read the delta back, and check that the
+    /// reading lowers to the delta exactly and leaves the same embedding.
+    /// Returns the delta and the reading.
+    fn reads_back_exactly(
+        tree: &WInstance,
+        edit: &TreeEdit,
+    ) -> Result<(GraphDelta, TreeEdit), Box<dyn Error>> {
+        let (graph, emb) = GInstance::from_wtype_embedded(tree, None)?;
+        let mut followed = emb.clone();
+        let delta = GraphDelta::from_tree_edit(&graph, &mut followed, edit)?;
+        let read = TreeEdit::from_graph_delta(tree, &emb, &delta)?;
+        let mut again = emb;
+        let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)?;
+        assert_eq!(lowered, delta, "{edit:?} read back as {read:?}");
+        assert_eq!(again, followed, "{edit:?} read back as {read:?}");
+        Ok((delta, read))
+    }
+
+    #[test]
+    fn a_fan_member_relabel_reads_back_exactly() -> TestResult {
+        let tree = paragraphs();
+        // Node 1 is the fan's parent and nodes 2 and 5 its members: each
+        // relabel changes the label of the fan edge into the node.
+        for id in [1, 2, 5] {
+            let edit = TreeEdit::RelabelNode {
+                id,
+                new_anchor: "item".into(),
+            };
+            let (delta, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(
+                delta
+                    .attrs()
+                    .keys()
+                    .filter(|k| matches!(k, AttrKey::EdgeLabel { .. }))
+                    .count(),
+                1,
+                "{delta:?}"
+            );
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit));
+        }
+        // The parent and a member together.
+        let both = TreeEdit::Sequence(vec![
+            TreeEdit::RelabelNode {
+                id: 1,
+                new_anchor: "item".into(),
+            },
+            TreeEdit::RelabelNode {
+                id: 5,
+                new_anchor: "item".into(),
+            },
+        ]);
+        let (_, read) = reads_back_exactly(&tree, &both)?;
+        assert_eq!(edit_bytes(&read), edit_bytes(&both));
+        Ok(())
+    }
+
+    #[test]
+    fn a_move_in_place_of_the_last_arc_takes_a_fresh_id() -> TestResult {
+        // Arcs 0 -> 4 (edge 0) and 0 -> 1 (edge 1); the next edge id is 5.
+        // Moving node 1 under its own parent deletes edge 1 and adds the
+        // arc as edge 5, with a new label or with the same one.
+        let tree = sentence();
+        for label in [edge("s", "x"), edge("s", "w")] {
+            let edit = TreeEdit::MoveSubtree {
+                node_id: 1,
+                new_parent: 0,
+                edge: label.clone(),
+            };
+            let (delta, embedding, _) = lower(&tree, &edit)?;
+            assert_eq!(ids(delta.del_edges()), vec![EdgeId(1)]);
+            assert_eq!(
+                delta.add_edges().iter().collect::<Vec<_>>(),
+                vec![(&EdgeId(5), &GEdge::new(0, 1, label))]
+            );
+            assert!(delta.attrs().is_empty(), "{delta:?}");
+            assert_eq!(embedding.arcs[&1], EdgeId(5));
+            let (_, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit));
+        }
+        // Once node 1 goes, edge 0 is the last arc, and the move of node 4
+        // in place still takes a fresh id, so the delta changes no label.
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 1 },
+            TreeEdit::MoveSubtree {
+                node_id: 4,
+                new_parent: 0,
+                edge: edge("s", "x"),
+            },
+        ]);
+        let trip = round_trip(&tree, &edit)?;
+        assert!(trip.delta.attrs().is_empty(), "{:?}", trip.delta);
+        assert_eq!(
+            trip.delta
+                .add_edges()
+                .values()
+                .map(|e| e.tgt)
+                .collect::<Vec<_>>(),
+            vec![4]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_value_or_meta_change_reads_as_an_empty_join() -> TestResult {
+        let tree = paragraphs();
+        let join = |produce: Node| TreeEdit::JoinFeatures {
+            primary: produce.id,
+            joined: vec![],
+            produce,
+        };
+        let mut valued = tree.nodes[&3].clone();
+        valued.value = Some(crate::value::FieldPresence::Present(Value::Int(7)));
+        let mut positioned = tree.nodes[&3].clone();
+        positioned.position = Some(4);
+        let mut discriminated = tree.nodes[&4].clone();
+        discriminated.discriminator = Some("kind".into());
+        let mut annotated = tree.nodes[&0].clone();
+        annotated
+            .annotations
+            .insert("note".into(), Value::Bool(true));
+        // A fan member whose value and anchor change: the fan edge into it
+        // follows the anchor, and the anchor and field change are part of
+        // the join.
+        let mut member = tree.nodes[&2].clone();
+        member.value = Some(crate::value::FieldPresence::Null);
+        member.anchor = "item".into();
+        member.extra_fields.insert("f".into(), Value::Int(1));
+        for produce in [valued, positioned, discriminated, annotated, member] {
+            let edit = join(produce);
+            let (_, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit), "{read:?}");
+        }
+        // A value change and a field change of another node: the field
+        // change stays a `SetField`, and the join comes after it.
+        let mut valued = tree.nodes[&3].clone();
+        valued.value = Some(crate::value::FieldPresence::Null);
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::SetField {
+                node_id: 5,
+                field: "f".into(),
+                value: Value::Int(1),
+            },
+            join(valued),
+        ]);
+        let (_, read) = reads_back_exactly(&tree, &edit)?;
+        assert_eq!(edit_bytes(&read), edit_bytes(&edit), "{read:?}");
+        Ok(())
+    }
+
+    /// Two deltas that delete the same nodes and edges, add the same nodes,
+    /// change the same entries and add the same edges in the same id order,
+    /// whatever ids the added edges take.
+    fn assert_same_up_to_new_edge_ids(a: &GraphDelta, b: &GraphDelta) {
+        assert_eq!(
+            a.del_nodes().keys().collect::<Vec<_>>(),
+            b.del_nodes().keys().collect::<Vec<_>>()
+        );
+        assert_eq!(a.del_edges(), b.del_edges());
+        assert_eq!(ids(a.add_nodes()), ids(b.add_nodes()));
+        assert_eq!(a.attrs(), b.attrs());
+        let added = |d: &GraphDelta| d.add_edges().values().cloned().collect::<Vec<GEdge>>();
+        assert_eq!(added(a), added(b));
+    }
+
+    #[test]
+    fn from_graph_delta_reads_sequences_that_spend_ids() -> TestResult {
+        let tree = paragraphs();
+        // A move superseded by a second move of the same node: the delta's
+        // arc skips the id the first move took.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![move_edit(&tree, 4, 3), move_edit(&tree, 4, 0)]),
+        )?;
+        // An insertion cancelled by a deletion before a move.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 5, 9, "word"),
+                TreeEdit::DeleteNode { id: 9 },
+                move_edit(&tree, 4, 3),
+            ]),
+        )?;
+        // A move of a node that is then deleted, before a new fan: the fan's
+        // edges skip the id the move took.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                move_edit(&tree, 3, 0),
+                TreeEdit::DeleteNode { id: 3 },
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("x", 4),
+                },
+            ]),
+        )?;
+        // A fan inserted and deleted before another fan: the second fan's
+        // node and edges skip those of the first.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                TreeEdit::InsertFan {
+                    fan: Fan::new("tmp", 0).with_child("x", 4).with_child("y", 2),
+                },
+                TreeEdit::DeleteFan {
+                    hyper_edge_id: "tmp".into(),
+                },
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("x", 4),
+                },
+            ]),
+        )?;
+        // An insertion under a high id that is then deleted, before a new
+        // fan: the fan's node id is above the deleted node's.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 30, "word"),
+                TreeEdit::DeleteNode { id: 30 },
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("x", 4),
+                },
+            ]),
+        )?;
+        // An insertion followed by moves of the inserted node.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 9, "word"),
+                TreeEdit::MoveSubtree {
+                    node_id: 9,
+                    new_parent: 3,
+                    edge: edge("word", "word"),
+                },
+                TreeEdit::MoveSubtree {
+                    node_id: 9,
+                    new_parent: 5,
+                    edge: edge("word", "word"),
+                },
+            ]),
+        )?;
+        // A node moved out of the way of a move under its own descendant,
+        // then moved back under its old parent.
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                move_edit(&tree, 3, 0),
+                TreeEdit::MoveSubtree {
+                    node_id: 2,
+                    new_parent: 3,
+                    edge: edge("word", "word"),
+                },
+                TreeEdit::MoveSubtree {
+                    node_id: 3,
+                    new_parent: 0,
+                    edge: edge("doc", "word"),
+                },
+            ]),
+        )?;
+        // Controls: the move alone, and the move before the cancelled
+        // insertion.
+        assert_round_trips(&tree, &move_edit(&tree, 4, 3))?;
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                move_edit(&tree, 4, 3),
+                insert_edit(&tree, 5, 9, "word"),
+                TreeEdit::DeleteNode { id: 9 },
+            ]),
+        )
+    }
+
+    /// Two fans moved to fresh node ids by insertions that take their ids,
+    /// after a fan inserted and deleted again: the delta skips node and edge
+    /// ids that the edit read from it spends before it inserts node 8.
+    #[test]
+    fn from_graph_delta_reads_fans_moved_by_insertions() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (0, 6, edge("doc", "doc"))],
+            vec![
+                Fan::new("rel", 0).with_child("a", 6),
+                Fan::new("rel", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 3).with_child("a", 0),
+                },
+                TreeEdit::ContractNode { id: 3 },
+                insert_edit(&tree, 0, 7, "doc"),
+                insert_edit(&tree, 0, 8, "doc"),
+                TreeEdit::DeleteNode { id: 7 },
+                insert_edit(&tree, 0, 9, "doc"),
+            ]),
+        )
+    }
+
+    /// A fan moved twice by insertions that take its id, the first of
+    /// them deleted again, around two new fans.
+    #[test]
+    fn from_graph_delta_reads_a_fan_moved_through_a_deleted_insertion() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![Fan::new("rel", 0).with_child("a", 0)],
+            0,
+            "doc".into(),
+        );
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                TreeEdit::DeleteNode { id: 3 },
+                insert_edit(&tree, 0, 4, "doc"),
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("a", 0),
+                },
+                TreeEdit::DeleteNode { id: 4 },
+                insert_edit(&tree, 0, 5, "doc"),
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("a", 0),
+                },
+            ]),
+        )
+    }
+
+    /// A move under a new node that is then moved back under its parent:
+    /// the new node goes in early, beside the moved node, not under it.
+    #[test]
+    fn from_graph_delta_reads_a_move_under_a_node_inserted_after_it() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 4, "doc"),
+                TreeEdit::MoveSubtree {
+                    node_id: 3,
+                    new_parent: 4,
+                    edge: edge("doc", "doc"),
+                },
+                TreeEdit::MoveSubtree {
+                    node_id: 4,
+                    new_parent: 0,
+                    edge: edge("doc", "doc"),
+                },
+            ]),
+        )
+    }
+
+    /// A new node inserted before a move of another node under its own
+    /// parent, given a child, and moved under its own parent too.
+    #[test]
+    fn from_graph_delta_reads_a_node_inserted_before_a_move() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (0, 6, edge("doc", "doc"))],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let to = |node_id: u32, new_parent: u32| TreeEdit::MoveSubtree {
+            node_id,
+            new_parent,
+            edge: edge("doc", "doc"),
+        };
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 13, "doc"),
+                to(3, 0),
+                TreeEdit::InsertNode {
+                    parent: 13,
+                    child_id: 14,
+                    node: Node::new(14, "doc"),
+                    edge: edge("doc", "doc"),
+                },
+                to(13, 0),
+            ]),
+        )
+    }
+
+    /// A node inserted under a node that then moves under its own parent
+    /// twice, around a new fan: the new node goes in early to spend the
+    /// node id below the fan's.
+    #[test]
+    fn from_graph_delta_reads_a_node_inserted_before_a_fan() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let to = |node_id: u32, new_parent: u32| TreeEdit::MoveSubtree {
+            node_id,
+            new_parent,
+            edge: edge("doc", "doc"),
+        };
+        assert_round_trips(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 3, 4, "doc"),
+                to(3, 0),
+                TreeEdit::InsertFan {
+                    fan: Fan::new("arg", 0).with_child("a", 4),
+                },
+                to(4, 3),
+                to(3, 0),
+            ]),
+        )
+    }
+
+    #[test]
+    fn delete_node_refuses_the_root() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc"))]),
+            vec![],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let delete = TreeEdit::DeleteNode { id: 0 };
+        let mut applied = tree.clone();
+        let tree_result = delete.apply(&mut applied);
+        assert!(
+            matches!(&tree_result, Err(EditError::ApplyFailed(reason)) if reason.contains("root")),
+            "{tree_result:?}"
+        );
+        assert!(
+            applied.nodes.contains_key(&0),
+            "a refused deletion leaves the tree"
+        );
+        let (graph, mut emb) = GInstance::from_wtype_embedded(&tree, None)?;
+        let graph_result = GraphDelta::from_tree_edit(&graph, &mut emb, &delete);
+        assert_eq!(graph_result.map(|_| ()), tree_result);
+        Ok(())
+    }
+
+    #[test]
+    fn insert_node_refuses_a_node_filed_under_another_id() -> TestResult {
+        let tree = paragraphs();
+        let misfiled = TreeEdit::InsertNode {
+            parent: 5,
+            child_id: 9,
+            node: Node::new(8, "word"),
+            edge: edge("word", "word"),
+        };
+        let mut applied = tree.clone();
+        let tree_result = misfiled.apply(&mut applied);
+        assert!(
+            matches!(
+                &tree_result,
+                Err(EditError::ApplyFailed(reason)) if reason.contains("node 8")
+            ),
+            "{tree_result:?}"
+        );
+        assert!(
+            !applied.nodes.contains_key(&9) && applied.nodes.len() == tree.nodes.len(),
+            "a refused insertion leaves the tree"
+        );
+        assert_eq!(applied.arcs, tree.arcs);
+        let (graph, mut emb) = GInstance::from_wtype_embedded(&tree, None)?;
+        let before = emb.clone();
+        let graph_result = GraphDelta::from_tree_edit(&graph, &mut emb, &misfiled);
+        assert_eq!(graph_result.map(|_| ()), tree_result);
+        assert_eq!(emb, before);
+        Ok(())
+    }
+
+    #[test]
+    fn a_tree_edit_and_its_singleton_sequence_encode_identically() {
+        let edit = TreeEdit::JoinFeatures {
+            primary: 2,
+            joined: vec![1, 3],
+            produce: Node::new(2, "a"),
+        };
+        let bytes = |e: &TreeEdit| {
+            let mut writer = CanonicalWriter::new();
+            canonical_tree_edit_bytes(e, &mut writer);
+            writer.into_bytes()
+        };
+        let single = TreeEdit::Sequence(vec![edit.clone()]);
+        let nested = TreeEdit::Sequence(vec![
+            TreeEdit::Identity,
+            TreeEdit::Sequence(vec![edit.clone(), TreeEdit::Identity]),
+        ]);
+        assert_eq!(bytes(&edit), bytes(&single));
+        assert_eq!(bytes(&edit), bytes(&nested));
+        assert_eq!(edit.digest(), nested.digest());
+        assert_eq!(
+            bytes(&TreeEdit::Identity),
+            bytes(&TreeEdit::Sequence(vec![]))
+        );
+        let two = TreeEdit::Sequence(vec![edit.clone(), TreeEdit::DeleteNode { id: 3 }]);
+        let regrouped = TreeEdit::Sequence(vec![
+            TreeEdit::Sequence(vec![edit]),
+            TreeEdit::DeleteNode { id: 3 },
+        ]);
+        assert_eq!(bytes(&two), bytes(&regrouped));
+        assert_ne!(bytes(&two), bytes(&TreeEdit::DeleteNode { id: 3 }));
+    }
+
+    /// The canonical bytes of one step of each variant, pinned.
+    #[test]
+    fn tree_edit_bytes_are_pinned() -> TestResult {
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::InsertNode {
+                parent: 0,
+                child_id: 6,
+                node: Node::new(6, "w"),
+                edge: edge("s", "w"),
+            },
+            TreeEdit::DeleteNode { id: 1 },
+            TreeEdit::ContractNode { id: 2 },
+            TreeEdit::RelabelNode {
+                id: 3,
+                new_anchor: "v".into(),
+            },
+            TreeEdit::SetField {
+                node_id: 4,
+                field: "f".into(),
+                value: Value::Float(-0.0),
+            },
+            TreeEdit::RemoveField {
+                node_id: 4,
+                field: "g".into(),
+            },
+            TreeEdit::MoveSubtree {
+                node_id: 4,
+                new_parent: 0,
+                edge: edge("s", "w"),
+            },
+            TreeEdit::InsertFan {
+                fan: Fan::new("rel", 0).with_child("b", 4).with_child("a", 1),
+            },
+            TreeEdit::DeleteFan {
+                hyper_edge_id: "rel".into(),
+            },
+            TreeEdit::JoinFeatures {
+                primary: 2,
+                joined: vec![3, 1],
+                produce: Node::new(2, "a"),
+            },
+        ]);
+        let mut writer = CanonicalWriter::new();
+        canonical_tree_edit_bytes(&edit, &mut writer);
+        let mut hex = String::new();
+        for byte in writer.as_bytes() {
+            write!(hex, "{byte:02x}")?;
+        }
+        assert_eq!(hex, PINNED_BYTES);
+        assert_eq!(edit.digest().to_hex(), PINNED_DIGEST);
+        Ok(())
+    }
+
+    /// A node deleted and inserted again under its own id, given a child,
+    /// then re-parented by a contraction: the delta replaces the node, and
+    /// its child's arc comes before the node's own new arc.
+    #[test]
+    fn from_graph_delta_reads_a_replaced_node_with_a_child_older_than_its_arc() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (0, 9, edge("doc", "doc")),
+            ],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let mut produce = Node::new(0, "doc");
+        produce.anchor = "joined".into();
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 6 },
+            TreeEdit::JoinFeatures {
+                primary: 0,
+                joined: vec![9],
+                produce,
+            },
+            insert_edit(&tree, 3, 6, "doc"),
+            TreeEdit::InsertNode {
+                parent: 6,
+                child_id: 7,
+                node: Node::new(7, "para"),
+                edge: edge("doc", "para"),
+            },
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A tree node inserted under the node id of a fan deleted before it,
+    /// then a new fan and a contraction: the delta replaces the fan node by
+    /// the tree node.
+    #[test]
+    fn from_graph_delta_reads_a_tree_node_under_a_deleted_fan_id() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (3, 9, edge("doc", "doc")),
+            ],
+            vec![Fan::new("rel", 0).with_child("a", 3)],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::DeleteFan {
+                hyper_edge_id: "rel".into(),
+            },
+            insert_edit(&tree, 0, 10, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 6),
+            },
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A node inserted under a node that then moves, given a child and
+    /// moved under the root: the early insertion that spends the skipped
+    /// edge id must not go under the node it is later given as a child.
+    #[test]
+    fn from_graph_delta_reads_an_insertion_that_later_takes_a_sibling() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+                (12, Node::new(12, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (0, 9, edge("doc", "doc")),
+                (0, 12, edge("doc", "doc")),
+            ],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 6, 13, "doc"),
+            move_edit(&tree, 6, 9),
+            TreeEdit::MoveSubtree {
+                node_id: 3,
+                new_parent: 13,
+                edge: edge("doc", "doc"),
+            },
+            TreeEdit::MoveSubtree {
+                node_id: 13,
+                new_parent: 0,
+                edge: edge("doc", "doc"),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A contraction that deletes a fan sharing its name with a fan that
+    /// stays, then an insertion under the deleted fan's node id: the fan
+    /// goes with the contracted node before the insertion, whose skipped
+    /// edge id the contraction's re-parented arc takes.
+    #[test]
+    fn from_graph_delta_reads_a_contraction_freeing_a_fan_id() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (3, 9, edge("doc", "doc")),
+            ],
+            vec![
+                Fan::new("arg", 0).with_child("a", 3),
+                Fan::new("arg", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::SetField {
+                node_id: 0,
+                field: "f".into(),
+                value: Value::Int(0),
+            },
+            TreeEdit::ContractNode { id: 3 },
+            insert_edit(&tree, 0, 10, "doc"),
+            move_edit(&tree, 9, 0),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A tree node inserted under a fan's node id, which moves the fan on,
+    /// then a join of the node the fan names and two new fans.
+    #[test]
+    fn from_graph_delta_reads_a_join_after_a_fan_is_moved_on() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (0, 6, edge("doc", "doc"))],
+            vec![Fan::new("rel", 0).with_child("a", 3)],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 6, 7, "doc"),
+            TreeEdit::JoinFeatures {
+                primary: 6,
+                joined: vec![3],
+                produce: Node::new(6, "doc"),
+            },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A tree node inserted under a fan's node id, which moves the fan on,
+    /// then two new fans of the old fan's name, the second naming the new
+    /// node, and a contraction that deletes the old fan.
+    #[test]
+    fn from_graph_delta_reads_new_fans_after_an_old_fan_of_their_name_moves_on() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (3, 6, edge("doc", "doc"))],
+            vec![Fan::new("arg", 0).with_child("a", 3)],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 3, 7, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 6),
+            },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 6).with_child("a", 7),
+            },
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A contraction deleting a fan that shares its name with a fan that
+    /// stays, an insertion under the deleted fan's node id, a deletion, a
+    /// new fan naming the inserted node and a contraction re-parenting it.
+    #[test]
+    fn from_graph_delta_reads_an_insertion_under_a_fan_id_freed_by_a_contraction() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (0, 9, edge("doc", "doc")),
+            ],
+            vec![
+                Fan::new("rel", 0).with_child("a", 6),
+                Fan::new("rel", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::ContractNode { id: 6 },
+            insert_edit(&tree, 3, 10, "doc"),
+            TreeEdit::DeleteNode { id: 9 },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 10),
+            },
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A deletion of the parent a fan names, an insertion under the fan's
+    /// node id, a deletion, a new fan and a contraction: the fan goes with
+    /// its deleted parent, not with the contracted node it also names.
+    #[test]
+    fn from_graph_delta_reads_a_fan_freed_by_its_deleted_parent() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (3, 9, edge("doc", "doc")),
+            ],
+            vec![
+                Fan::new("arg", 6).with_child("a", 3),
+                Fan::new("arg", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 6 },
+            insert_edit(&tree, 3, 10, "doc"),
+            TreeEdit::DeleteNode { id: 9 },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 10),
+            },
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// Two fans of one name, the first moved on by a tree node taking its
+    /// id, then both deleted, a tree node under the second's id and two new
+    /// fans: the fans go between the two insertions.
+    #[test]
+    fn from_graph_delta_reads_fans_deleted_between_insertions_under_their_ids() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![
+                Fan::new("rel", 0).with_child("a", 0),
+                Fan::new("rel", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 0, 4, "doc"),
+            TreeEdit::DeleteFan {
+                hyper_edge_id: "rel".into(),
+            },
+            insert_edit(&tree, 0, 5, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A new fan, an insertion under the node id of a fan whose named
+    /// node is deleted after it, a second new fan and an insertion under
+    /// the node id of a fan that stays: the first old fan moves on before
+    /// it goes, and the second moves on and stays.
+    #[test]
+    fn from_graph_delta_reads_fans_moved_on_before_one_goes() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+                (9, Node::new(9, "doc")),
+                (12, Node::new(12, "doc")),
+                (15, Node::new(15, "doc")),
+            ]),
+            vec![
+                (0, 3, edge("doc", "doc")),
+                (0, 6, edge("doc", "doc")),
+                (0, 9, edge("doc", "doc")),
+                (3, 12, edge("doc", "doc")),
+                (6, 15, edge("doc", "doc")),
+            ],
+            vec![
+                Fan::new("rel", 0).with_child("a", 15),
+                Fan::new("rel", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            insert_edit(&tree, 0, 16, "doc"),
+            TreeEdit::DeleteNode { id: 15 },
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            insert_edit(&tree, 0, 17, "doc"),
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// An insertion deleted again after a new fan and a move of its parent
+    /// under the parent it has: the node spending the edge id below the
+    /// moved arc's fresh one stays until the move is made.
+    #[test]
+    fn from_graph_delta_reads_a_move_in_place_after_a_cancelled_insertion() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 3, 4, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            move_edit(&tree, 3, 0),
+            TreeEdit::DeleteNode { id: 4 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A new fan moved on three times by tree nodes taking its node id,
+    /// two of them deleted again, before a second new fan.
+    #[test]
+    fn from_graph_delta_reads_a_new_fan_moved_on_three_times() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            insert_edit(&tree, 0, 4, "doc"),
+            TreeEdit::JoinFeatures {
+                primary: 0,
+                joined: vec![4],
+                produce: Node::new(0, "doc"),
+            },
+            insert_edit(&tree, 0, 5, "doc"),
+            TreeEdit::DeleteNode { id: 5 },
+            insert_edit(&tree, 0, 6, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A new fan and an old one, each moved on by a tree node taking its
+    /// node id, around a join of the node the old fan names, before a
+    /// second new fan.
+    #[test]
+    fn from_graph_delta_reads_fans_moved_on_around_a_join() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (0, 6, edge("doc", "doc"))],
+            vec![Fan::new("arg", 0).with_child("a", 6)],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+            insert_edit(&tree, 0, 7, "doc"),
+            TreeEdit::JoinFeatures {
+                primary: 0,
+                joined: vec![6],
+                produce: Node::new(0, "doc"),
+            },
+            insert_edit(&tree, 0, 8, "doc"),
+            TreeEdit::InsertFan {
+                fan: Fan::new("arg", 0).with_child("a", 0),
+            },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// A new fan deleted again, a second new fan, an insertion that moves
+    /// an old fan on, a third new fan and an insertion under the deleted
+    /// fan's node id.
+    #[test]
+    fn from_graph_delta_reads_an_insertion_under_a_cancelled_fan_id() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([(0, Node::new(0, "doc")), (3, Node::new(3, "doc"))]),
+            vec![(0, 3, edge("doc", "doc"))],
+            vec![Fan::new("rel", 0).with_child("a", 0)],
+            0,
+            "doc".into(),
+        );
+        let arg = || TreeEdit::InsertFan {
+            fan: Fan::new("arg", 0).with_child("a", 0),
+        };
+        let edit = TreeEdit::Sequence(vec![
+            arg(),
+            TreeEdit::DeleteFan {
+                hyper_edge_id: "arg".into(),
+            },
+            arg(),
+            insert_edit(&tree, 0, 4, "doc"),
+            arg(),
+            insert_edit(&tree, 0, 5, "doc"),
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    /// Insertions under the node ids of two fans in turn, one fan moved on
+    /// twice more by insertions under the ids it moves to and then deleted
+    /// by a contraction that re-parents the first inserted node: that node
+    /// goes in early, under the fan's id, before a node with a lower id.
+    #[test]
+    fn from_graph_delta_reads_insertions_chasing_a_fan() -> TestResult {
+        let tree = WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "doc")),
+                (3, Node::new(3, "doc")),
+                (6, Node::new(6, "doc")),
+            ]),
+            vec![(0, 3, edge("doc", "doc")), (0, 6, edge("doc", "doc"))],
+            vec![
+                Fan::new("rel", 0).with_child("a", 3),
+                Fan::new("rel", 0).with_child("a", 0),
+            ],
+            0,
+            "doc".into(),
+        );
+        let edit = TreeEdit::Sequence(vec![
+            insert_edit(&tree, 3, 7, "doc"),
+            insert_edit(&tree, 0, 8, "doc"),
+            insert_edit(&tree, 6, 9, "doc"),
+            TreeEdit::InsertNode {
+                parent: 7,
+                child_id: 11,
+                node: Node::new(11, "doc"),
+                edge: edge("doc", "doc"),
+            },
+            insert_edit(&tree, 6, 4, "doc"),
+            TreeEdit::ContractNode { id: 3 },
+        ]);
+        assert_round_trips(&tree, &edit)
+    }
+
+    const ANCHORS: [&str; 3] = ["doc", "para", "word"];
+
+    /// A tree over nodes whose ids are spread out, each node below one of
+    /// the nodes before it, with fans over its nodes.
+    fn arb_tree() -> impl Strategy<Value = WInstance> {
+        (2usize..7)
+            .prop_flat_map(|n| {
+                (
+                    prop::collection::vec(any::<prop::sample::Index>(), n),
+                    prop::collection::vec(0..ANCHORS.len(), n),
+                    prop::collection::vec(prop::option::of(-2_i64..2), n),
+                    prop::collection::vec(
+                        (
+                            any::<prop::sample::Index>(),
+                            prop::collection::btree_map(
+                                prop::sample::select(vec!["a", "b", "c"]),
+                                any::<prop::sample::Index>(),
+                                1..3,
+                            ),
+                            prop::sample::select(vec!["rel", "arg"]),
+                        ),
+                        0..3,
+                    ),
+                )
+            })
+            .prop_map(|(parents, anchors, fields, fans)| {
+                let n = parents.len();
+                // Trees have a handful of nodes, so the ids fit.
+                let id = |i: usize| u32::try_from(i * 3).unwrap_or(u32::MAX);
+                let mut nodes = HashMap::new();
+                for i in 0..n {
+                    let mut node = Node::new(id(i), ANCHORS[anchors[i]]);
+                    if let Some(v) = fields[i] {
+                        node.extra_fields.insert("f".into(), Value::Int(v));
+                    }
+                    nodes.insert(id(i), node);
+                }
+                let arcs = (1..n)
+                    .map(|i| {
+                        let p = parents[i].index(i);
+                        (id(p), id(i), edge(ANCHORS[anchors[p]], ANCHORS[anchors[i]]))
+                    })
+                    .collect();
+                let fans = fans
+                    .into_iter()
+                    .map(|(parent, children, name)| {
+                        let mut fan = Fan::new(name, id(parent.index(n)));
+                        for (label, child) in children {
+                            fan.children.insert(label.to_owned(), id(child.index(n)));
+                        }
+                        fan
+                    })
+                    .collect();
+                WInstance::new(nodes, arcs, fans, 0, ANCHORS[anchors[0]].into())
+            })
+    }
+
+    /// One step of a generated edit script, resolved against the tree it
+    /// applies to; `Raw` names ids at random and may not apply.
+    #[derive(Clone, Debug)]
+    enum Intent {
+        Insert(prop::sample::Index, usize, bool),
+        Delete(prop::sample::Index),
+        Contract(prop::sample::Index),
+        Relabel(prop::sample::Index, usize),
+        Set(prop::sample::Index, i64),
+        Remove(prop::sample::Index),
+        Move(prop::sample::Index, prop::sample::Index),
+        AddFan(prop::sample::Index, prop::sample::Index),
+        DropFan(prop::sample::Index),
+        RelabelFan(prop::sample::Index, prop::sample::Index, usize),
+        Join(prop::sample::Index, prop::sample::Index, bool, u8),
+        Touch(prop::sample::Index, u8),
+        Raw(u8, u32, u32),
+    }
+
+    fn intent() -> impl Strategy<Value = Intent> {
+        let ix = any::<prop::sample::Index>;
+        prop_oneof![
+            (ix(), 0..ANCHORS.len(), any::<bool>()).prop_map(|(p, a, f)| Intent::Insert(p, a, f)),
+            ix().prop_map(Intent::Delete),
+            ix().prop_map(Intent::Contract),
+            (ix(), 0..ANCHORS.len()).prop_map(|(n, a)| Intent::Relabel(n, a)),
+            (ix(), -2_i64..2).prop_map(|(n, v)| Intent::Set(n, v)),
+            ix().prop_map(Intent::Remove),
+            (ix(), ix()).prop_map(|(n, p)| Intent::Move(n, p)),
+            (ix(), ix()).prop_map(|(p, c)| Intent::AddFan(p, c)),
+            ix().prop_map(Intent::DropFan),
+            (ix(), ix(), 0..ANCHORS.len()).prop_map(|(f, m, a)| Intent::RelabelFan(f, m, a)),
+            (ix(), ix(), any::<bool>(), 0u8..6).prop_map(|(p, j, r, c)| Intent::Join(p, j, r, c)),
+            (ix(), 0u8..6).prop_map(|(n, c)| Intent::Touch(n, c)),
+            (0u8..5, 0u32..20, 0u32..20).prop_map(|(k, a, b)| Intent::Raw(k, a, b)),
+        ]
+    }
+
+    /// Whether `a` is `b` or an ancestor of it.
+    fn above(tree: &WInstance, a: u32, b: u32) -> bool {
+        a == b || super::is_descendant(tree, b, a)
+    }
+
+    /// An insertion of a node with `anchor` under `parent`.
+    fn insert_edit(tree: &WInstance, parent: u32, child_id: u32, anchor: &str) -> TreeEdit {
+        TreeEdit::InsertNode {
+            parent,
+            child_id,
+            node: Node::new(child_id, anchor),
+            edge: Edge {
+                src: tree.nodes[&parent].anchor.clone(),
+                tgt: anchor.into(),
+                kind: "prop".into(),
+                name: None,
+            },
+        }
+    }
+
+    /// An edit naming ids at random, which may not apply.
+    fn raw_edit(kind: u8, a: u32, b: u32) -> TreeEdit {
+        match kind {
+            0 => TreeEdit::DeleteNode { id: a },
+            1 => TreeEdit::MoveSubtree {
+                node_id: a,
+                new_parent: b,
+                edge: edge("doc", "doc"),
+            },
+            2 => TreeEdit::ContractNode { id: a },
+            3 => TreeEdit::InsertNode {
+                parent: a,
+                child_id: b,
+                node: Node::new(b + 1, "doc"),
+                edge: edge("doc", "doc"),
+            },
+            _ => TreeEdit::InsertNode {
+                parent: a,
+                child_id: b,
+                node: Node::new(b, "doc"),
+                edge: edge("doc", "doc"),
+            },
+        }
+    }
+
+    /// The edit an intent that relabels a fan's node or replaces a node by
+    /// a product names in `tree`, with `ids` its node ids ascending and
+    /// `non_root` those other than the root.
+    fn resolve_attr(
+        tree: &WInstance,
+        ids: &[u32],
+        non_root: &[u32],
+        intent: &Intent,
+    ) -> Option<TreeEdit> {
+        let pick =
+            |from: &[u32], at: &prop::sample::Index| (!from.is_empty()).then(|| *at.get(from));
+        Some(match intent {
+            Intent::RelabelFan(f, m, a) => {
+                if tree.fans.is_empty() {
+                    return None;
+                }
+                let fan = f.get(&tree.fans);
+                let mut named: Vec<u32> = fan.children.values().copied().collect();
+                named.sort_unstable();
+                named.insert(0, fan.parent);
+                TreeEdit::RelabelNode {
+                    id: *m.get(&named),
+                    new_anchor: ANCHORS[*a].into(),
+                }
+            }
+            Intent::Join(p, j, renamed, change) => {
+                let primary = pick(ids, p)?;
+                let joinable: Vec<u32> = non_root
+                    .iter()
+                    .copied()
+                    .filter(|q| !above(tree, *q, primary))
+                    .collect();
+                let joined = pick(&joinable, j)?;
+                let mut produce = tree.nodes[&primary].clone();
+                if *renamed {
+                    produce.anchor = "joined".into();
+                }
+                retouch(&mut produce, *change);
+                TreeEdit::JoinFeatures {
+                    primary,
+                    joined: vec![joined],
+                    produce,
+                }
+            }
+            Intent::Touch(n, change) => {
+                let mut produce = tree.nodes[&pick(ids, n)?].clone();
+                retouch(&mut produce, *change);
+                TreeEdit::JoinFeatures {
+                    primary: produce.id,
+                    joined: vec![],
+                    produce,
+                }
+            }
+            _ => return None,
+        })
+    }
+
+    /// The edit an intent names in `tree` under `embedding`, when there is
+    /// one.
+    fn resolve(tree: &WInstance, embedding: &TreeEmbedding, intent: &Intent) -> Option<TreeEdit> {
+        let mut ids: Vec<u32> = tree.nodes.keys().copied().collect();
+        ids.sort_unstable();
+        let non_root: Vec<u32> = ids.iter().copied().filter(|i| *i != tree.root).collect();
+        let pick =
+            |from: &[u32], at: &prop::sample::Index| (!from.is_empty()).then(|| *at.get(from));
+        let anchor = |id: u32| tree.nodes[&id].anchor.clone();
+        Some(match intent {
+            Intent::Insert(p, a, take_fan) => {
+                let child_id = match embedding.fans.first() {
+                    Some(fan) if *take_fan => fan.node,
+                    _ => ids.last().copied().unwrap_or(0) + 1,
+                };
+                insert_edit(tree, pick(&ids, p)?, child_id, ANCHORS[*a])
+            }
+            Intent::Delete(n) => {
+                let leaves: Vec<u32> = non_root
+                    .iter()
+                    .copied()
+                    .filter(|i| {
+                        tree.children_map
+                            .get(i)
+                            .is_none_or(smallvec::SmallVec::is_empty)
+                    })
+                    .collect();
+                TreeEdit::DeleteNode {
+                    id: pick(&leaves, n)?,
+                }
+            }
+            Intent::Contract(n) => TreeEdit::ContractNode {
+                id: pick(&non_root, n)?,
+            },
+            Intent::Relabel(n, a) => TreeEdit::RelabelNode {
+                id: pick(&ids, n)?,
+                new_anchor: ANCHORS[*a].into(),
+            },
+            Intent::Set(n, v) => TreeEdit::SetField {
+                node_id: pick(&ids, n)?,
+                field: "f".into(),
+                value: Value::Int(*v),
+            },
+            Intent::Remove(n) => TreeEdit::RemoveField {
+                node_id: pick(&ids, n)?,
+                field: "f".into(),
+            },
+            Intent::Move(n, p) => {
+                let node_id = pick(&non_root, n)?;
+                let parents: Vec<u32> = ids
+                    .iter()
+                    .copied()
+                    .filter(|q| !above(tree, node_id, *q))
+                    .collect();
+                let new_parent = pick(&parents, p)?;
+                TreeEdit::MoveSubtree {
+                    node_id,
+                    new_parent,
+                    edge: Edge {
+                        src: anchor(new_parent),
+                        tgt: anchor(node_id),
+                        kind: "prop".into(),
+                        name: None,
+                    },
+                }
+            }
+            Intent::AddFan(p, c) => TreeEdit::InsertFan {
+                fan: Fan::new("arg", pick(&ids, p)?).with_child("a", pick(&ids, c)?),
+            },
+            Intent::DropFan(k) => {
+                let names: Vec<String> =
+                    tree.fans.iter().map(|f| f.hyper_edge_id.clone()).collect();
+                if names.is_empty() {
+                    return None;
+                }
+                TreeEdit::DeleteFan {
+                    hyper_edge_id: Name::from(k.get(&names).as_str()),
+                }
+            }
+            Intent::RelabelFan(..) | Intent::Join(..) | Intent::Touch(..) => {
+                resolve_attr(tree, &ids, &non_root, intent)?
+            }
+            Intent::Raw(kind, a, b) => raw_edit(*kind, *a, *b),
+        })
+    }
+
+    /// Change the value or one metadata field of `node` as `change` names:
+    /// nothing, the value, the position, the discriminator, an annotation
+    /// or the shape.
+    fn retouch(node: &mut Node, change: u8) {
+        match change {
+            1 => {
+                node.value = Some(crate::value::FieldPresence::Present(Value::Int(i64::from(
+                    node.id,
+                ))));
+            }
+            2 => node.position = Some(node.position.map_or(0, |p| p + 1)),
+            3 => node.discriminator = Some("kind".into()),
+            4 => {
+                node.annotations.insert("note".into(), Value::Bool(true));
+            }
+            5 => node.shape = crate::metadata::NodeShape::List,
+            _ => {}
+        }
+    }
+
+    proptest! {
+        #![proptest_config(ProptestConfig::with_cases(2048))]
+
+        #[test]
+        fn from_tree_edit_commutes_with_embedding(
+            tree in arb_tree(),
+            intents in prop::collection::vec(intent(), 1..10),
+        ) {
+            let (mut graph, mut embedding) =
+                GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
+            let mut tree = tree;
+            let start = (graph.clone(), embedding.clone(), tree.clone());
+            let mut script = Vec::new();
+            for intent in &intents {
+                let Some(edit) = resolve(&tree, &embedding, intent) else { continue };
+                let mut lowered = embedding.clone();
+                let delta = GraphDelta::from_tree_edit(&graph, &mut lowered, &edit);
+                let mut followed = embedding.clone();
+                let mut edited = tree.clone();
+                match followed.apply_edit(&mut edited, &edit) {
+                    Ok(()) => {
+                        let delta =
+                            delta.map_err(|e| TestCaseError::fail(format!("{edit:?}: {e}")))?;
+                        assert_follows(&lowered, &embedding, &tree, &edit).map_err(fail)?;
+                        let mut reached = graph.clone();
+                        delta.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
+                        let expected =
+                            GInstance::from_wtype_under(&edited, &lowered, None).map_err(fail)?;
+                        prop_assert!(GInstance::identical(&reached, &expected), "{:?}", edit);
+                        prop_assert!(
+                            !delta.attrs().keys().any(|key| match key {
+                                AttrKey::EdgeLabel { edge } => {
+                                    lowered.arcs.values().any(|id| id == edge)
+                                }
+                                _ => false,
+                            }),
+                            "{:?} changes a tree arc's label: {:?}", edit, delta
+                        );
+                        graph = reached;
+                        embedding = lowered;
+                        tree = edited;
+                        script.push(edit);
+                    }
+                    Err(err) => {
+                        prop_assert_eq!(delta, Err(err));
+                        prop_assert_eq!(
+                            &lowered,
+                            &embedding,
+                            "a failing edit leaves the embedding"
+                        );
+                    }
+                }
+            }
+            // The whole script as one sequence: the composite of its steps.
+            let (start_graph, mut start_embedding, _) = start;
+            let whole = GraphDelta::from_tree_edit(
+                &start_graph,
+                &mut start_embedding,
+                &TreeEdit::Sequence(script),
+            )
+            .map_err(|e| TestCaseError::fail(format!("{e}")))?;
+            prop_assert_eq!(&start_embedding, &embedding);
+            let mut reached = start_graph;
+            whole.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
+            prop_assert!(GInstance::identical(&reached, &graph));
+        }
+
+        #[test]
+        fn tree_edit_round_trips_through_graph_delta(
+            tree in arb_tree(),
+            intents in prop::collection::vec(intent(), 1..8),
+        ) {
+            let (mut graph, mut embedding) =
+                GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
+            let start = (tree.clone(), graph.clone(), embedding.clone());
+            let mut tree = tree;
+            let mut script = Vec::new();
+            for intent in &intents {
+                let Some(edit) = resolve(&tree, &embedding, intent) else { continue };
+                let mut followed = embedding.clone();
+                let Ok(delta) = GraphDelta::from_tree_edit(&graph, &mut followed, &edit) else {
+                    continue;
+                };
+                script.push(edit.clone());
+                // (a) A single step's delta reads back, and (c) the reading
+                // lowers to that delta exactly and leaves the same embedding.
+                let read = TreeEdit::from_graph_delta(&tree, &embedding, &delta).map_err(|e| {
+                    TestCaseError::fail(format!(
+                        "{edit:?} lowers to a delta read as no tree edit: {e}"
+                    ))
+                })?;
+                let mut again = embedding.clone();
+                let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)
+                    .map_err(|e| TestCaseError::fail(format!("{e}")))?;
+                prop_assert_eq!(&lowered, &delta, "{:?} read back as {:?}", edit, read);
+                prop_assert_eq!(&again, &followed);
+                let mut reached = graph.clone();
+                delta.apply(&mut reached).map_err(fail)?;
+                edit.apply(&mut tree).map_err(fail)?;
+                graph = reached;
+                embedding = followed;
+            }
+            // (a) The whole script as one sequence reads back, and (b) the
+            // reading has the script's effect on the tree; its delta may skip
+            // the ids of arcs, nodes and fans that later steps remove again.
+            let (start_tree, start_graph, start_embedding) = start;
+            let whole_edit = TreeEdit::Sequence(script);
+            let mut followed = start_embedding.clone();
+            let whole = GraphDelta::from_tree_edit(&start_graph, &mut followed, &whole_edit)
+                .map_err(|e| TestCaseError::fail(format!("{e}")))?;
+            let read = TreeEdit::from_graph_delta(&start_tree, &start_embedding, &whole)
+                .map_err(|e| {
+                    TestCaseError::fail(format!(
+                        "{whole_edit:?} lowers to a delta read as no tree edit: {e}"
+                    ))
+                })?;
+            let mut reached = start_tree;
+            read.apply(&mut reached).map_err(fail)?;
+            prop_assert!(
+                super::same_tree(&reached, &tree),
+                "{:?} read back as {:?}", whole_edit, read
+            );
+        }
+    }
+
+    const PINNED_BYTES: &str = concat!(
+        "0a000000000000000100000000060000000600000001000000000000007700000000000000000000",
+        "00000000000000000000010000000000000073010000000000000077040000000000000070726f70",
+        "00020100000003020000000403000000010000000000000076050400000001000000000000006602",
+        "00000000000000800604000000010000000000000067070400000000000000010000000000000073",
+        "010000000000000077040000000000000070726f700008030000000000000072656c000000000200",
+        "00000000000001000000000000006101000000010000000000000062040000000903000000000000",
+        "0072656c0a0200000002000000000000000300000001000000020000000100000000000000610000",
+        "000000000000000000000000000000000000",
+    );
+    const PINNED_DIGEST: &str = "719aa916f820295b4b169d0bff86a0bbfddd45bc574dd951e0fcc375b73c20fc";
 }
