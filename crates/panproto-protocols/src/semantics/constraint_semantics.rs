@@ -10,10 +10,21 @@ use std::collections::BTreeMap;
 
 use panproto_schema::ConstraintSemantics;
 
+mod annotation_other;
+mod annotation_xml;
+mod api;
 mod code;
+mod common;
+mod config;
+mod data_schema;
+mod data_science;
+mod database;
+mod domain;
 mod rdf;
+mod serialization;
 mod sql;
 mod text;
+mod web_document;
 
 /// The meaning of one constraint sort of one protocol.
 ///
@@ -31,7 +42,22 @@ pub struct ConstraintRow {
 }
 
 /// The row tables of every family.
-const FAMILIES: &[&[ConstraintRow]] = &[code::ROWS, rdf::ROWS, sql::ROWS, text::ROWS];
+const FAMILIES: &[&[ConstraintRow]] = &[
+    annotation_other::ROWS,
+    annotation_xml::ROWS,
+    api::ROWS,
+    code::ROWS,
+    config::ROWS,
+    data_schema::ROWS,
+    data_science::ROWS,
+    database::ROWS,
+    domain::ROWS,
+    rdf::ROWS,
+    serialization::ROWS,
+    sql::ROWS,
+    text::ROWS,
+    web_document::ROWS,
+];
 
 /// Every constraint-semantics row, family by family.
 pub fn rows() -> impl Iterator<Item = &'static ConstraintRow> {
