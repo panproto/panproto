@@ -1002,18 +1002,28 @@ fn the_raw_file_protocol_carries_its_recipes_in_a_fresh_process() {
 ///
 /// Hash maps are seeded per process, so a composition whose theory,
 /// inclusions, provenance or report depended on a map's iteration order
-/// would encode differently from one process to the next. This runs the
-/// same composition in 32 child processes and compares its
-/// `canonical_composition_bytes` and its serialized form.
+/// would encode differently from one process to the next. This composes,
+/// in each of 32 child processes, every registration diagram (each
+/// multi-block diagram and the one-node diagram of each building block),
+/// every composition that registering a built-in protocol records, and a
+/// span whose clashing names are freshened apart, and compares their
+/// `canonical_composition_bytes` and serialized forms.
 mod cross_process {
-    use std::collections::{BTreeSet, HashMap};
+    use std::collections::{BTreeMap, BTreeSet, HashMap};
     use std::fmt::Write as _;
     use std::sync::Arc;
 
     use panproto_gat::{
-        ClashPolicy, ComposeOptions, CompositionMode, DEFAULT_VERIFY_BUDGET, DiagramEdge,
-        DiagramNode, Equation, OpAssignment, Operation, Sort, Term, Theory, TheoryDiagram,
-        TheoryMorphism, compose,
+        ClashPolicy, ComposeOptions, Composition, CompositionMode, DEFAULT_VERIFY_BUDGET,
+        DiagramEdge, DiagramNode, Equation, OpAssignment, Operation, Sort, Term, Theory,
+        TheoryDiagram, TheoryMorphism, compose,
+    };
+    use panproto_protocols::registry::descriptors;
+    use panproto_protocols::theories::{
+        RegistrationDiagram, constrained_hypergraph_diagram, constrained_multigraph_diagram,
+        constrained_simple_graph_diagram, registered_composition, th_constraint, th_flat,
+        th_functor, th_graph, th_graph_instance, th_hypergraph, th_interface, th_meta, th_multi,
+        th_simple_graph, th_wtype, typed_graph_diagram, wtype_meta_diagram,
     };
     use panproto_schema::canonical_composition_bytes;
 
@@ -1072,9 +1082,8 @@ mod cross_process {
         TheoryMorphism::new(format!("into_{tgt}"), "Apex", tgt, sorts, ops)
     }
 
-    /// The composition's canonical bytes in hex, then its serialized form:
-    /// a span whose unshared halves clash by name and are freshened apart.
-    fn bytes() -> String {
+    /// A span whose unshared halves clash by name and are freshened apart.
+    fn freshened_span() -> Composition {
         let diagram = TheoryDiagram {
             nodes: vec![
                 DiagramNode {
@@ -1111,14 +1120,100 @@ mod cross_process {
         };
         let composition = compose(&diagram, &opts).expect("the span composes");
         assert!(!composition.report.freshened.is_empty());
-        let mut canonical = String::new();
-        for b in canonical_composition_bytes(&composition) {
-            write!(canonical, "{b:02x}").unwrap();
+        composition
+    }
+
+    /// Every diagram registration composes, by the name it is composed
+    /// under here: the multi-block diagrams, then the one-node diagram of
+    /// each building block.
+    fn registration_diagrams() -> Vec<(String, RegistrationDiagram)> {
+        let mut diagrams = vec![
+            (
+                "constrained_multigraph".to_owned(),
+                constrained_multigraph_diagram(),
+            ),
+            ("typed_graph".to_owned(), typed_graph_diagram()),
+            (
+                "constrained_hypergraph".to_owned(),
+                constrained_hypergraph_diagram(),
+            ),
+            (
+                "constrained_simple_graph".to_owned(),
+                constrained_simple_graph_diagram(),
+            ),
+            ("wtype_meta".to_owned(), wtype_meta_diagram("ThNodeValue")),
+        ];
+        for block in [
+            th_graph(),
+            th_constraint(),
+            th_multi(),
+            th_wtype(),
+            th_meta(),
+            th_simple_graph(),
+            th_hypergraph(),
+            th_interface(),
+            th_functor(),
+            th_flat(),
+            th_graph_instance(),
+        ] {
+            diagrams.push((block.name.to_string(), RegistrationDiagram::single(block)));
         }
-        format!(
-            "{canonical} {}",
-            serde_json::to_string(&composition).unwrap()
-        )
+        diagrams
+    }
+
+    /// The composition registration records for each theory that
+    /// registering a built-in protocol (or the raw file protocol) inserts,
+    /// by theory name.
+    fn registered_compositions() -> BTreeMap<String, Composition> {
+        let mut names = BTreeSet::new();
+        for descriptor in descriptors() {
+            let mut registry = HashMap::new();
+            (descriptor.register_theories)(&mut registry)
+                .unwrap_or_else(|e| panic!("{} registers: {e}", descriptor.name));
+            names.extend(registry.into_keys());
+        }
+        let mut registry = HashMap::new();
+        panproto_protocols::raw_file::register_theories(&mut registry);
+        names.extend(registry.into_keys());
+        names
+            .into_iter()
+            .filter_map(|name| registered_composition(&name).map(|c| (name, c)))
+            .collect()
+    }
+
+    /// Each composition's label, its canonical bytes in hex and its
+    /// serialized form, all on one line.
+    fn bytes() -> String {
+        let mut compositions: Vec<(String, Composition)> = registration_diagrams()
+            .into_iter()
+            .map(|(label, diagram)| {
+                let composition = diagram
+                    .compose(&label)
+                    .unwrap_or_else(|e| panic!("{label} composes: {e}"));
+                (format!("diagram {label}"), composition)
+            })
+            .collect();
+        let registered = registered_compositions();
+        assert!(
+            registered.len() > 40,
+            "registration records a composition per theory: {:?}",
+            registered.keys().collect::<Vec<_>>()
+        );
+        compositions.extend(
+            registered
+                .into_iter()
+                .map(|(name, composition)| (format!("registered {name}"), composition)),
+        );
+        compositions.push(("freshened span".to_owned(), freshened_span()));
+        let mut out = String::new();
+        for (label, composition) in &compositions {
+            write!(out, "{label}: ").unwrap();
+            for b in canonical_composition_bytes(composition) {
+                write!(out, "{b:02x}").unwrap();
+            }
+            write!(out, " {}; ", serde_json::to_string(composition).unwrap()).unwrap();
+        }
+        out
     }
 
     #[test]
@@ -1149,6 +1244,20 @@ mod cross_process {
             assert!(line.is_some(), "child printed no bytes: {stdout}");
             seen.extend(line);
         }
+        let differing: BTreeSet<&str> = seen
+            .iter()
+            .flat_map(|line| {
+                line.split("; ")
+                    .zip(bytes.split("; "))
+                    .filter(|(theirs, ours)| theirs != ours)
+                    .map(|(_, ours)| ours.split_once(": ").map_or(ours, |(label, _)| label))
+            })
+            .collect();
+        assert!(
+            differing.is_empty(),
+            "{} distinct encodings; these differ between processes: {differing:?}",
+            seen.len()
+        );
         assert_eq!(seen.len(), 1, "{} distinct encodings", seen.len());
         assert_eq!(seen.into_iter().next(), Some(bytes));
     }
