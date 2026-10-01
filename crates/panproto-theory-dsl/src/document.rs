@@ -525,6 +525,11 @@ pub struct CompiledTheorySet {
     pub protocols: HashMap<String, Protocol>,
     /// Composition recipes (for storage alongside results).
     pub composition_specs: HashMap<String, panproto_gat::CompositionSpec>,
+    /// The report of each composition the document compiles, keyed by the
+    /// composition's result theory name: one report per step, in step
+    /// order. A single composition, each composition of a bundle and each
+    /// inline composed theory of a protocol has an entry.
+    pub composition_reports: HashMap<String, Vec<panproto_gat::CompositionReport>>,
 }
 
 /// Convenience: display all names in the compiled set.
@@ -547,6 +552,7 @@ impl std::fmt::Debug for CompiledTheorySet {
             .field("morphisms", &sorted(&self.morphisms))
             .field("protocols", &sorted(&self.protocols))
             .field("composition_specs", &sorted(&self.composition_specs))
+            .field("composition_reports", &sorted(&self.composition_reports))
             .finish()
     }
 }

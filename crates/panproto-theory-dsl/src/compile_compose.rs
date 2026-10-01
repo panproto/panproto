@@ -829,7 +829,7 @@ mod tests {
 
     use super::*;
     use crate::compile::builtin_resolver;
-    use crate::document::{TheoryBody, TheoryDocument};
+    use crate::document::{CompiledTheorySet, TheoryBody, TheoryDocument};
 
     fn body(json: &str) -> CompositionBody {
         let document: TheoryDocument =
@@ -904,6 +904,166 @@ mod tests {
         let replayed = recompose(&composed.spec, &registry(&["ThGraph", "ThHypergraph"]))
             .unwrap_or_else(|e| panic!("the recipe replays: {e}"));
         assert_eq!(&replayed, theory);
+    }
+
+    /// The composition of [`dsl_compose_with_identify_returns_the_report`]
+    /// as a JSON object, result `GraphHyper`.
+    const GRAPH_HYPER: &str = r#"{
+        "result": "GraphHyper",
+        "bases": ["ThGraph", "ThHypergraph"],
+        "steps": [{
+            "left": "ThGraph",
+            "right": "ThHypergraph",
+            "shared_sorts": ["Vertex"],
+            "mode": "explicit_identity",
+            "identify": [{"kind": "sort", "left": "Edge", "right": "HyperEdge"}]
+        }]
+    }"#;
+
+    /// `GraphHyper` built otherwise: ThGraph and ThHypergraph amalgamated
+    /// over `Vertex`, without identifying the edges.
+    const GRAPH_HYPER_AMALGAMATED: &str = r#"{
+        "result": "GraphHyper",
+        "bases": ["ThGraph", "ThHypergraph"],
+        "steps": [{"left": "ThGraph", "right": "ThHypergraph", "shared_sorts": ["Vertex"]}]
+    }"#;
+
+    /// The document whose body is the JSON object `body` with the `id` and
+    /// `description` keys added.
+    fn document(body: &str) -> TheoryDocument {
+        let body = body.trim();
+        let json = format!(
+            r#"{{"id": "test.doc", "description": "a document", {}"#,
+            &body[1..]
+        );
+        serde_json::from_str(&json).unwrap_or_else(|e| panic!("the document parses: {e}\n{json}"))
+    }
+
+    /// The protocol `P` whose schema and instance theories are `schema` and
+    /// `instance` (JSON values).
+    fn protocol(schema: &str, instance: &str) -> String {
+        format!(r#"{{"protocol": "P", "schema_theory": {schema}, "instance_theory": {instance}}}"#)
+    }
+
+    /// The theory and step reports that compiling [`GRAPH_HYPER`] on its
+    /// own gives.
+    fn graph_hyper() -> (Theory, Vec<CompositionReport>) {
+        let body = body(&format!(
+            r#"{{"id": "test.gh", "description": "", "compose": {GRAPH_HYPER}}}"#
+        ));
+        let composed = compile_composition_with_report(&body, &builtin_resolver(), &HashMap::new())
+            .unwrap_or_else(|e| panic!("GraphHyper compiles: {e}"));
+        assert_eq!(composed.reports.len(), 1);
+        (composed.theory, composed.reports)
+    }
+
+    /// Compile `doc` with the built-in resolver.
+    fn compile_document(doc: &TheoryDocument) -> Result<CompiledTheorySet, TheoryDslError> {
+        crate::compile::compile(doc, &builtin_resolver())
+    }
+
+    /// `set` records `GraphHyper` with its theory and its one step report.
+    fn assert_records_graph_hyper(set: &CompiledTheorySet, what: &str) {
+        let (theory, reports) = graph_hyper();
+        assert_eq!(
+            set.composition_reports.get("GraphHyper"),
+            Some(&reports),
+            "{what}: {set:?}"
+        );
+        assert_eq!(reports[0].mode, CompositionMode::ExplicitIdentity, "{what}");
+        assert_eq!(
+            set.theories.get("GraphHyper"),
+            Some(&theory),
+            "{what}: {set:?}"
+        );
+    }
+
+    #[test]
+    fn document_compile_returns_the_report_of_a_single_composition() {
+        let set = compile_document(&document(&format!(r#"{{"compose": {GRAPH_HYPER}}}"#)))
+            .unwrap_or_else(|e| panic!("the document compiles: {e}"));
+        assert_records_graph_hyper(&set, "single composition");
+        assert_eq!(set.composition_reports.len(), 1);
+    }
+
+    #[test]
+    fn document_compile_returns_the_report_of_each_bundle_composition() {
+        let set = compile_document(&document(&format!(
+            r#"{{"bundle": "b", "compositions": [{GRAPH_HYPER}]}}"#
+        )))
+        .unwrap_or_else(|e| panic!("the bundle compiles: {e}"));
+        assert_records_graph_hyper(&set, "bundle composition");
+        assert_eq!(set.composition_reports.len(), 1);
+    }
+
+    #[test]
+    fn document_compile_records_an_inline_composed_protocol_theory_and_its_report() {
+        let spec = protocol(GRAPH_HYPER, r#""ThGraph""#);
+        let single = compile_document(&document(&spec))
+            .unwrap_or_else(|e| panic!("the protocol compiles: {e}"));
+        let bundle = compile_document(&document(&format!(
+            r#"{{"bundle": "b", "protocols": [{spec}]}}"#
+        )))
+        .unwrap_or_else(|e| panic!("the bundle compiles: {e}"));
+        for (what, set) in [("protocol", &single), ("bundle protocol", &bundle)] {
+            assert_records_graph_hyper(set, what);
+            assert_eq!(set.protocols["P"].schema_theory, "GraphHyper", "{what}");
+            assert_eq!(set.composition_reports.len(), 1, "{what}");
+        }
+    }
+
+    #[test]
+    fn document_compile_records_one_inline_composition_named_twice_alike() {
+        // The schema and instance theories are the same composition.
+        let spec = protocol(GRAPH_HYPER, GRAPH_HYPER);
+        let single = compile_document(&document(&spec))
+            .unwrap_or_else(|e| panic!("the protocol compiles: {e}"));
+        // A bundle composition and an inline one of the same theory.
+        let bundle = compile_document(&document(&format!(
+            r#"{{"bundle": "b", "compositions": [{GRAPH_HYPER}], "protocols": [{spec}]}}"#
+        )))
+        .unwrap_or_else(|e| panic!("the bundle compiles: {e}"));
+        for (what, set) in [("protocol", &single), ("bundle", &bundle)] {
+            assert_records_graph_hyper(set, what);
+            assert_eq!(set.composition_reports.len(), 1, "{what}");
+        }
+    }
+
+    #[test]
+    fn document_compile_refuses_two_different_compositions_of_one_name() {
+        let duplicate = |result: Result<CompiledTheorySet, TheoryDslError>, what: &str| {
+            let Err(TheoryDslError::Duplicate { kind, name }) = result else {
+                panic!("{what}: expected Duplicate, got {result:?}");
+            };
+            assert_eq!(kind, "theory (from composition)", "{what}");
+            assert_eq!(name, "GraphHyper", "{what}");
+        };
+        // Two inline compositions of one name with different theories.
+        let spec = protocol(GRAPH_HYPER, GRAPH_HYPER_AMALGAMATED);
+        duplicate(compile_document(&document(&spec)), "protocol");
+        duplicate(
+            compile_document(&document(&format!(
+                r#"{{"bundle": "b", "protocols": [{spec}]}}"#
+            ))),
+            "bundle protocol",
+        );
+        // An inline composition named as a different bundle composition.
+        let inline = protocol(GRAPH_HYPER, r#""ThGraph""#);
+        duplicate(
+            compile_document(&document(&format!(
+                r#"{{"bundle": "b", "compositions": [{GRAPH_HYPER_AMALGAMATED}], "protocols": [{inline}]}}"#
+            ))),
+            "bundle composition and inline composition",
+        );
+        // An inline composition named as a bundle theory.
+        duplicate(
+            compile_document(&document(&format!(
+                r#"{{"bundle": "b",
+                     "theories": [{{"theory": "GraphHyper", "sorts": [{{"name": "Vertex"}}]}}],
+                     "protocols": [{inline}]}}"#
+            ))),
+            "bundle theory and inline composition",
+        );
     }
 
     #[test]

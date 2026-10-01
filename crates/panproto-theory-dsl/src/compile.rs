@@ -166,6 +166,7 @@ fn compile_single_inductive(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -229,6 +230,7 @@ fn compile_single_theory(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -247,6 +249,7 @@ fn compile_single_morphism(
         morphisms,
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -268,6 +271,7 @@ fn compile_single_composition(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs,
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -287,6 +291,7 @@ fn compile_single_protocol(
         morphisms: HashMap::new(),
         protocols,
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -304,6 +309,7 @@ fn compile_single_class(
         morphisms: HashMap::new(),
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -322,6 +328,7 @@ fn compile_single_instance(
         morphisms,
         protocols: HashMap::new(),
         composition_specs: HashMap::new(),
+        composition_reports: HashMap::new(),
     })
 }
 
@@ -405,6 +412,7 @@ fn compile_bundle_inner(
         morphisms,
         protocols,
         composition_specs,
+        composition_reports: HashMap::new(),
     })
 }
 
