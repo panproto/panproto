@@ -42,8 +42,8 @@ use panproto_schema::{Edge, InstanceShapeKind};
 use proptest::prelude::*;
 
 use validation_support::{
-    Case, arb_graph_spec, arb_table_spec, arb_tree_spec, arb_validation_schema, graph_of, protocol,
-    table_of, tree_of,
+    Case, FanSpec, RecordSpec, TreeSpec, ValueSpec, arb_graph_spec, arb_table_spec, arb_tree_spec,
+    arb_validation_schema, graph_of, protocol, table_of, tree_of,
 };
 
 /// A plan for a generated schema under the protocol of `syntactic`.
@@ -640,68 +640,82 @@ fn shared_keys(
         .collect()
 }
 
+/// The tree square: the diagnostics of every kind a tree shares with
+/// graphs are those of its graph form, element for element through the
+/// tree's embedding. Fan diagnostics, whose subject is the fan's parent
+/// in a tree and the fan node in a graph, are compared as the set of
+/// each fan's record with the reason it breaks.
+fn tree_square(case: &Case, spec: &TreeSpec) -> Result<(), TestCaseError> {
+    let tree = tree_of(spec);
+    let Ok((graph, emb)) = GInstance::from_wtype_embedded(&tree, None) else {
+        // A tree with reserved vocabulary or a fan naming an absent node
+        // has no graph form.
+        return Ok(());
+    };
+    let plan = audited(case, InstanceShapeKind::Tree);
+    let verdicts = audit_verdicts(tree.nodes.keys().map(|id| ViewRef::Node(*id)));
+    let shared = shared_keys(&plan, InstanceShapeKind::Tree, InstanceShapeKind::Graph);
+    let w = plan.validate_tree(&tree, &unlimited(), &verdicts);
+    let g = plan.validate_graph(&graph, &unlimited(), &verdicts);
+    let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
+    let id = |r: &ViewRef| r.clone();
+    let fan_kind = |d: &Diagnostic| d.check.kind == CheckKind::FanWellFormed;
+    let mapped: BTreeSet<String> = w
+        .diagnostics
+        .iter()
+        .filter(|d| shared.contains(&d.check) && !fan_kind(d))
+        .map(|d| compared(d, &map))
+        .collect();
+    let direct: BTreeSet<String> = g
+        .diagnostics
+        .iter()
+        .filter(|d| shared.contains(&d.check) && !fan_kind(d))
+        .map(|d| compared(d, &id))
+        .collect();
+    prop_assert_eq!(&mapped, &direct);
+    let tree_fans: BTreeSet<(FanRecord, FanViolation)> = w
+        .diagnostics
+        .iter()
+        .filter_map(|d| match &d.violation {
+            Violation::MalformedFan {
+                reason,
+                fan: Some(record),
+            } => Some((record.clone(), reason.clone())),
+            _ => None,
+        })
+        .collect();
+    // Equal tree fans are one element of the tree's fan multiset and give
+    // one diagnostic per reason, while the graph form has a fan node, and a
+    // diagnostic, for each; so every graph diagnostic is mapped before the
+    // pairs are compared as a set.
+    let graph_pairs: Vec<(FanRecord, FanViolation)> = g
+        .diagnostics
+        .iter()
+        .filter_map(|d| match (&d.violation, &d.subject) {
+            (Violation::MalformedFan { reason, fan: None }, Some(ViewRef::Node(node))) => {
+                let k = emb.fans.iter().position(|f| f.node == *node)?;
+                Some((FanRecord::of(&tree.fans[k]), reason.clone()))
+            }
+            _ => None,
+        })
+        .collect();
+    prop_assert_eq!(
+        graph_pairs.len(),
+        g.diagnostics.iter().filter(|d| fan_kind(d)).count(),
+        "every graph fan diagnostic is about an embedded fan"
+    );
+    let graph_fans: BTreeSet<(FanRecord, FanViolation)> = graph_pairs.into_iter().collect();
+    prop_assert_eq!(tree_fans, graph_fans);
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
-    /// The tree square: the diagnostics of every kind a tree shares with
-    /// graphs are those of its graph form, element for element through the
-    /// tree's embedding. Fan diagnostics, whose subject is the fan's parent
-    /// in a tree and the fan node in a graph, are compared as the set of
-    /// each fan's record with the reason it breaks.
+    /// The tree square over drawn schemas and trees (see [`tree_square`]).
     #[test]
     fn v8_tree_square(case in arb_validation_schema(), spec in arb_tree_spec(8)) {
-        let tree = tree_of(&spec);
-        let Ok((graph, emb)) = GInstance::from_wtype_embedded(&tree, None) else {
-            // A tree with reserved vocabulary or a fan naming an absent node
-            // has no graph form.
-            return Ok(());
-        };
-        let plan = audited(&case, InstanceShapeKind::Tree);
-        let verdicts = audit_verdicts(tree.nodes.keys().map(|id| ViewRef::Node(*id)));
-        let shared = shared_keys(&plan, InstanceShapeKind::Tree, InstanceShapeKind::Graph);
-        let w = plan.validate_tree(&tree, &unlimited(), &verdicts);
-        let g = plan.validate_graph(&graph, &unlimited(), &verdicts);
-        let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
-        let id = |r: &ViewRef| r.clone();
-        let fan_kind = |d: &Diagnostic| d.check.kind == CheckKind::FanWellFormed;
-        let mapped: BTreeSet<String> = w
-            .diagnostics
-            .iter()
-            .filter(|d| shared.contains(&d.check) && !fan_kind(d))
-            .map(|d| compared(d, &map))
-            .collect();
-        let direct: BTreeSet<String> = g
-            .diagnostics
-            .iter()
-            .filter(|d| shared.contains(&d.check) && !fan_kind(d))
-            .map(|d| compared(d, &id))
-            .collect();
-        prop_assert_eq!(&mapped, &direct);
-        let tree_fans: BTreeSet<(FanRecord, FanViolation)> = w
-            .diagnostics
-            .iter()
-            .filter_map(|d| match &d.violation {
-                Violation::MalformedFan { reason, fan: Some(record) } => Some((record.clone(), reason.clone())),
-                _ => None,
-            })
-            .collect();
-        let graph_fans: BTreeSet<(FanRecord, FanViolation)> = g
-            .diagnostics
-            .iter()
-            .filter_map(|d| match (&d.violation, &d.subject) {
-                (Violation::MalformedFan { reason, fan: None }, Some(ViewRef::Node(node))) => {
-                    let k = emb.fans.iter().position(|f| f.node == *node)?;
-                    Some((FanRecord::of(&tree.fans[k]), reason.clone()))
-                }
-                _ => None,
-            })
-            .collect();
-        prop_assert_eq!(
-            graph_fans.len(),
-            g.diagnostics.iter().filter(|d| fan_kind(d)).count(),
-            "every graph fan diagnostic is about an embedded fan"
-        );
-        prop_assert_eq!(tree_fans, graph_fans);
+        tree_square(&case, &spec)?;
     }
 
     /// The table square: the diagnostics of every kind a table instance
@@ -745,6 +759,68 @@ proptest! {
             .collect();
         prop_assert_eq!(mapped, direct);
     }
+}
+
+/// Two equal fans of a tree are one element of its fan multiset and give
+/// one diagnostic per reason, while the tree's graph form holds a fan node
+/// for each and gives one diagnostic at each node; the square compares them
+/// as the same set of fan records with reasons, every graph diagnostic
+/// mapped to the fan its node embeds.
+#[test]
+fn the_tree_square_holds_for_equal_fans() {
+    use validation_support::{Features, schema_of};
+    let features = Features {
+        max_len: None,
+        num_bounds: None,
+        max_out: None,
+        min_out: None,
+        flags: BTreeSet::new(),
+        item_key: None,
+        item_ref: None,
+        film_ref: None,
+        title_max: None,
+    };
+    let case = Case {
+        schema: schema_of(&features),
+        features,
+    };
+    let fan = FanSpec {
+        declared: true,
+        parent: 1,
+        a: 0,
+        b: None,
+        c: Some(1),
+    };
+    let spec = TreeSpec {
+        root: (0, ValueSpec::Absent),
+        nodes: Vec::new(),
+        fans: vec![fan.clone(), fan],
+        missing_root: false,
+        skew: None,
+        reserved: None,
+        records: vec![RecordSpec {
+            under: 0,
+            name: None,
+            num: None,
+            tag: None,
+            fresh_doc: false,
+        }],
+    };
+    let tree = tree_of(&spec);
+    assert_eq!(tree.fans.len(), 2);
+    assert_eq!(tree.fans[0], tree.fans[1]);
+    let (graph, _) = GInstance::from_wtype_embedded(&tree, None).unwrap();
+    let plan = audited(&case, InstanceShapeKind::Tree);
+    let fan_diagnostics = |r: &ValidationReport| {
+        r.diagnostics
+            .iter()
+            .filter(|d| d.check.kind == CheckKind::FanWellFormed)
+            .count()
+    };
+    let w = plan.validate_tree(&tree, &unlimited(), &no_verdicts());
+    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
+    assert_eq!((fan_diagnostics(&w), fan_diagnostics(&g)), (1, 2));
+    tree_square(&case, &spec).unwrap();
 }
 
 /// The reading the table square leaves out, pinned: a constraint on a
