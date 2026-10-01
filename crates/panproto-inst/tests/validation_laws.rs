@@ -332,8 +332,8 @@ proptest! {
             prop_assert!(instance.verify(d, &plan, None), "does not verify: {d:#?}");
             prop_assert!(instance.verify(d, &plan, Some(&verdicts)), "does not verify: {d:#?}");
             for (what, m) in mutants(d) {
-                let external_witness =
-                    what == "violation" && matches!(m.violation, Violation::ExternalRejected { .. });
+                let external_witness = what == "violation"
+                    && matches!(m.violation, Violation::ExternalRejected { .. });
                 if !external_witness {
                     prop_assert!(
                         !instance.verify(&m, &plan, None),
@@ -502,14 +502,16 @@ proptest! {
         let full = instance.validate(&plan, &unlimited(), &verdicts);
         let reads = unlimited_reads(&instance, &plan, &verdicts);
         for limit in [reads, reads + 3, u64::MAX] {
-            let report = instance.validate(&plan, &ValidationBudget { max_reads: Some(limit) }, &verdicts);
+            let budget = ValidationBudget { max_reads: Some(limit) };
+            let report = instance.validate(&plan, &budget, &verdicts);
             prop_assert_eq!(report.canonical_bytes(), full.canonical_bytes());
         }
         if reads == 0 {
             return Ok(());
         }
         let limit = reads.saturating_sub(1) * fraction / 100;
-        let report = instance.validate(&plan, &ValidationBudget { max_reads: Some(limit) }, &verdicts);
+        let budget = ValidationBudget { max_reads: Some(limit) };
+        let report = instance.validate(&plan, &budget, &verdicts);
         assert_status_sound(&report)?;
         prop_assert!(report.status != CheckStatus::Passed || full.status == CheckStatus::Passed);
         let budget: Vec<(&CheckKey, u64, u64, Option<&ViewRef>)> = report
@@ -551,8 +553,15 @@ proptest! {
             .collect();
         let limited: Vec<&Diagnostic> = report.diagnostics.iter().collect();
         prop_assert_eq!(limited, decided);
-        for i in report.incomplete.iter().filter(|i| !matches!(i.reason, IncompleteReason::Budget { .. })) {
-            prop_assert!(before(&instance_of(&i.check, i.subject.as_ref())), "{i:?} lies past the cut");
+        let unbudgeted = report
+            .incomplete
+            .iter()
+            .filter(|i| !matches!(i.reason, IncompleteReason::Budget { .. }));
+        for i in unbudgeted {
+            prop_assert!(
+                before(&instance_of(&i.check, i.subject.as_ref())),
+                "{i:?} lies past the cut"
+            );
         }
         // Every key after the cut's key that has an instance is cut, from its
         // first instance; no key before it is.
@@ -731,15 +740,22 @@ proptest! {
     #[test]
     fn v8_table_square(case in arb_validation_schema(), spec in arb_table_spec()) {
         let table = table_of(&spec);
-        let (graph, emb) = GInstance::from_finstance(&table).expect("a table instance has a graph form");
+        let (graph, emb) =
+            GInstance::from_finstance(&table).expect("a table instance has a graph form");
         let plan = audited(&case, InstanceShapeKind::Table);
         let verdicts = audit_verdicts(table.row_ids().into_iter().map(ViewRef::Row));
-        let graph_verdicts = audit_verdicts(table.row_ids().into_iter().map(|r| ViewRef::Node(r.0)));
+        let graph_verdicts =
+            audit_verdicts(table.row_ids().into_iter().map(|r| ViewRef::Node(r.0)));
         let columns = column_vertices(&case);
         let shared: BTreeSet<CheckKey> =
             shared_keys(&plan, InstanceShapeKind::Table, InstanceShapeKind::Graph)
                 .into_iter()
-                .filter(|key| !matches!(&key.decl, SchemaRef::Constraint { vertex, .. } if columns.contains(vertex)))
+                .filter(|key| {
+                    !matches!(
+                        &key.decl,
+                        SchemaRef::Constraint { vertex, .. } if columns.contains(vertex)
+                    )
+                })
                 .collect();
         let t = plan.validate_table(&table, &unlimited(), &verdicts);
         let g = plan.validate_graph(&graph, &unlimited(), &graph_verdicts);

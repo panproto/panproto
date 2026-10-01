@@ -10,19 +10,22 @@
 //! [`verify_model`](panproto_gat::verify_model) checks the coherence
 //! equations on it, independently of the instance validator.
 //!
-//! The carriers are:
+//! The carriers are, sort by sort:
 //!
-//! | sort | carrier |
-//! |---|---|
-//! | `IVertex` | every node id, fan nodes included, as an integer |
-//! | `IEdge` | every edge id other than a fan edge (an edge of a reserved fan kind), as an integer |
-//! | `Value` | every node's value, written out, and null |
-//! | `Vertex` | every schema vertex, every node's anchor, and both endpoints of every `IEdge`'s label, by name |
-//! | `Edge` | every schema edge and every `IEdge`'s label as read through its endpoints' families (below), each as its JSON text |
-//! | `FanNode` | every node of the fan shape, as an integer |
-//! | `FanPort` | every `hyper_label` edge leaving a fan node, as an integer |
-//! | `HyperEdge` | every schema hyper-edge and every fan node's anchor, by name |
-//! | `Label` | every signature label of a schema hyper-edge and every port's label, by name |
+//! - `IVertex`: every node id, fan nodes included, as an integer.
+//! - `IEdge`: every edge id other than a fan edge (an edge of a reserved
+//!   fan kind), as an integer.
+//! - `Value`: every node's value, written out, and null.
+//! - `Vertex`: every schema vertex, every node's anchor, and both endpoints
+//!   of every `IEdge`'s label, by name.
+//! - `Edge`: every schema edge and every `IEdge`'s label as read through
+//!   its endpoints' families (below), each as its JSON text.
+//! - `FanNode`: every node of the fan shape, as an integer.
+//! - `FanPort`: every `hyper_label` edge leaving a fan node, as an integer.
+//! - `HyperEdge`: every schema hyper-edge and every fan node's anchor, by
+//!   name.
+//! - `Label`: every signature label of a schema hyper-edge and every
+//!   port's label, by name.
 //!
 //! An edge endpoint may be anchored anywhere in the endpoint's family, as
 //! the validator's endpoint check reads it: a union vertex stands for each

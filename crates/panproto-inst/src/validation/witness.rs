@@ -39,7 +39,8 @@
 //!     "person".into(),
 //!     Vertex { id: "person".into(), kind: "object".into(), nsid: None },
 //! );
-//! let plan = ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+//! let plan =
+//!     ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
 //! let ghost = GInstance::new().with_node(Node::new(0, "ghost"));
 //! let report =
 //!     plan.validate_graph(&ghost, &ValidationBudget::default(), &ExternalVerdicts::default());
@@ -64,7 +65,12 @@
 //!     Constraint, ConstraintSemantics, Edge, Protocol, Schema, Vertex,
 //! };
 //!
-//! let next = Edge { src: "item".into(), tgt: "item".into(), kind: "prop".into(), name: Some("next".into()) };
+//! let next = Edge {
+//!     src: "item".into(),
+//!     tgt: "item".into(),
+//!     kind: "prop".into(),
+//!     name: Some("next".into()),
+//! };
 //! let mut schema = Schema::default();
 //! schema.vertices.insert(
 //!     "item".into(),

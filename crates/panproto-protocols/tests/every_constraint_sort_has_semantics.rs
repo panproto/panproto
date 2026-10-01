@@ -353,7 +353,12 @@ fn sql_enum_labels_are_decided_outside_panproto() {
     let enum_checks: Vec<CheckKind> = plan
         .checks()
         .keys()
-        .filter(|k| matches!(&k.decl, SchemaRef::Constraint { constraint, .. } if constraint.sort == "ENUM"))
+        .filter(|k| {
+            matches!(
+                &k.decl,
+                SchemaRef::Constraint { constraint, .. } if constraint.sort == "ENUM"
+            )
+        })
         .map(|k| k.kind)
         .collect();
     assert_eq!(enum_checks, vec![CheckKind::External]);
