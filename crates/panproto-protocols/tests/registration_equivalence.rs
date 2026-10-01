@@ -16,8 +16,8 @@
 use std::collections::{BTreeSet, HashMap};
 
 use panproto_gat::{
-    CheckOutcome, CheckStatus, ClashPolicy, Composition, CompositionMode, CompositionStep, SymKind,
-    SymRef, Theory, pushout_by_name, recompose,
+    CheckOutcome, CheckStatus, ClashPolicy, Composition, CompositionMode, CompositionSpec,
+    CompositionStep, SymKind, SymRef, Theory, pushout_by_name, recompose,
 };
 use panproto_protocols::registry::descriptors;
 use panproto_protocols::semantics::shapes;
@@ -946,6 +946,56 @@ fn a_built_in_protocol_whose_recipe_is_not_recorded_panics() {
     protocol.schema_composition = None;
     protocol.instance_composition = None;
     attach_recipes(&mut protocol);
+}
+
+#[test]
+fn a_protocol_that_is_not_built_in_keeps_its_recipes() {
+    // The custom protocol reuses sql's theory names, and sql's recipes are
+    // recorded by the time it is attached: its own recipes still stand.
+    let sql = descriptors().iter().find(|d| d.name == "sql").unwrap();
+    let mut registry = HashMap::new();
+    (sql.register_theories)(&mut registry).unwrap();
+    let mut protocol = (sql.protocol)();
+    assert!(registered_recipe(&protocol.schema_theory).is_some());
+    assert!(registered_recipe(&protocol.instance_theory).is_some());
+    protocol.name = "my-custom-protocol".into();
+    let mine = CompositionSpec::new("Mine", vec![]);
+    protocol.schema_composition = Some(mine.clone());
+    protocol.instance_composition = Some(mine.clone());
+    attach_recipes(&mut protocol);
+    assert_eq!(protocol.schema_composition, Some(mine.clone()));
+    assert_eq!(protocol.instance_composition, Some(mine));
+}
+
+#[test]
+fn the_raw_file_protocol_carries_its_recipes_in_a_fresh_process() {
+    // nextest runs each test in its own process, so nothing has registered
+    // the raw file theories when the protocol is built.
+    let protocol = panproto_protocols::raw_file::protocol();
+    assert_eq!(
+        protocol.schema_composition,
+        registered_recipe("ThRawFileSchema")
+    );
+    assert_eq!(
+        protocol.instance_composition,
+        registered_recipe("ThRawFileInstance")
+    );
+    let mut registry = HashMap::new();
+    panproto_protocols::raw_file::register_theories(&mut registry);
+    for (theory_name, carried) in [
+        (&protocol.schema_theory, &protocol.schema_composition),
+        (&protocol.instance_theory, &protocol.instance_composition),
+    ] {
+        let recipe = carried
+            .as_ref()
+            .unwrap_or_else(|| panic!("{theory_name} has no recipe"));
+        let replayed = recompose(recipe, &registry).unwrap();
+        assert_eq!(
+            canonical_theory_bytes(&replayed),
+            canonical_theory_bytes(&registry[theory_name.as_str()]),
+            "{theory_name}"
+        );
+    }
 }
 
 /// `compose` gives the same composition bytes in every process.
