@@ -334,7 +334,10 @@ impl Partition {
     ///
     /// let p = Partition::by_node_ranges(InstanceShapeKind::Graph, &[10], 5, 20)?;
     /// assert_eq!(p.specs()[0].nodes, vec![IdRange { lo: 0, hi: 9 }, IdRange { lo: 20, hi: 24 }]);
-    /// assert_eq!(p.specs()[1].nodes, vec![IdRange { lo: 10, hi: 19 }, IdRange { lo: 25, hi: 29 }]);
+    /// assert_eq!(
+    ///     p.specs()[1].nodes,
+    ///     vec![IdRange { lo: 10, hi: 19 }, IdRange { lo: 25, hi: 29 }]
+    /// );
     /// assert_eq!(p.specs()[1].alloc_edges, Some(IdRange { lo: 25, hi: 29 }));
     /// # Ok::<(), panproto_inst::segment::SegmentError>(())
     /// ```

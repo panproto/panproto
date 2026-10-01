@@ -689,9 +689,10 @@ impl SegmentManifest {
 /// must lie above the largest edge id any record holds; and the segments'
 /// sorted edge id runs, one per record in `runs`, each as long as its
 /// record's owned edges, ending at its record's `max_edge` and with the
-/// record's edge id digest, must hold no edge id twice. The merge holds one id per run at a time. The runs are the
-/// only evidence of the segments' edge ids `seal` sees, so a run that its
-/// record contradicts is refused rather than merged.
+/// record's edge id digest, must hold no edge id twice. The merge holds
+/// one id per run at a time. The runs are the only evidence of the
+/// segments' edge ids `seal` sees, so a run that its record contradicts is
+/// refused rather than merged.
 ///
 /// # Errors
 ///
@@ -786,8 +787,8 @@ pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
 ///
 /// The segment must keep its own contract under the manifest's partition,
 /// its content digest under the manifest's schema must be the recorded one,
-/// and every other field of its record (stats, largest ids, cross digests)
-/// must be the one it yields.
+/// and every other field of its record (ranges, stats, largest ids, edge id
+/// digest, cross digests) must be the one it yields.
 ///
 /// # Errors
 ///

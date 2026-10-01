@@ -142,7 +142,13 @@ pub fn canonical_winstance_bytes(tree: &WInstance) -> Vec<u8> {
 /// use panproto_inst::segment::{canonical_winstance_bytes, winstance_digest};
 /// use panproto_inst::{Node, WInstance};
 ///
-/// let tree = WInstance::new(HashMap::from([(0, Node::new(0, "root"))]), vec![], vec![], 0, "root".into());
+/// let tree = WInstance::new(
+///     HashMap::from([(0, Node::new(0, "root"))]),
+///     vec![],
+///     vec![],
+///     0,
+///     "root".into(),
+/// );
 /// assert_eq!(
 ///     winstance_digest(&tree),
 ///     Digest::derive(TREE_INSTANCE_CONTEXT, &canonical_winstance_bytes(&tree)),

@@ -596,6 +596,64 @@ fn a_modified_segment_fails_verify_segment() -> TestResult {
 }
 
 #[test]
+fn a_record_with_a_forged_edge_id_digest_fails_verify_segment() -> TestResult {
+    let (manifest, parts, _) = ring_manifest(None)?;
+    let honest = manifest.segments[1].leaf();
+    let mut forged = manifest;
+    forged.segments[1].edge_ids = crate::segment::edge_ids_digest([EdgeId(99)]);
+    assert_eq!(
+        verify_segment(&forged, &parts[1]),
+        Err(SegmentError::DigestMismatch {
+            segment: Some(SegmentId(1)),
+            expected: forged.segments[1].leaf(),
+            found: honest,
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn the_segment_edge_id_context_is_a_reserved_constant_distinct_from_every_identity_context() {
+    use crate::identity as id;
+    assert_eq!(
+        crate::segment::SEGMENT_EDGE_IDS_CONTEXT,
+        "panproto 2026-09 segment edge ids v1"
+    );
+    let others = [
+        id::LENS_CONTEXT,
+        id::GRAPH_INSTANCE_CONTEXT,
+        id::TABLE_INSTANCE_CONTEXT,
+        id::TREE_INSTANCE_CONTEXT,
+        id::GRAPH_DELTA_CONTEXT,
+        id::TABLE_DELTA_CONTEXT,
+        id::TREE_EDIT_CONTEXT,
+        id::SCHEMA_CONTEXT,
+        id::THEORY_CONTEXT,
+        id::COMPOSITION_CONTEXT,
+        id::RESOLUTION_CONTEXT,
+        id::VALIDATION_PLAN_CONTEXT,
+        id::VALIDATION_REPORT_CONTEXT,
+        id::VCS_GRAPH_DATASET_CONTEXT,
+        id::VCS_GRAPH_COMPLEMENT_CONTEXT,
+        id::VCS_GRAPH_EDIT_LOG_CONTEXT,
+        id::VCS_TABLE_DATASET_CONTEXT,
+        id::VCS_TABLE_COMPLEMENT_CONTEXT,
+        id::VCS_TABLE_EDIT_LOG_CONTEXT,
+        id::SEGMENT_CONTEXT,
+        id::SEGMENT_COMPLEMENT_CONTEXT,
+        id::SEGMENT_CROSS_CONTEXT,
+        id::SEGMENT_TASK_CONTEXT,
+        id::MANIFEST_LEAF_CONTEXT,
+        id::MANIFEST_NODE_CONTEXT,
+        id::MANIFEST_CONTEXT,
+        id::RUN_JOURNAL_CONTEXT,
+    ];
+    for other in others {
+        assert_ne!(crate::segment::SEGMENT_EDGE_IDS_CONTEXT, other);
+    }
+}
+
+#[test]
 fn one_segment_verifies_against_the_root_with_its_audit_path() -> TestResult {
     let (manifest, _, _) = ring_manifest(None)?;
     let template = manifest.segments[0].clone();

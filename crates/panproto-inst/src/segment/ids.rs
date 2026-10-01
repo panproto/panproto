@@ -677,23 +677,38 @@ mod tests {
 
         #[test]
         fn a_full_range_allocator_agrees_with_add_edge(
-            ids in prop::collection::btree_set(prop_oneof![0_u32..64, (u32::MAX - 2)..=u32::MAX], 0..8),
+            ids in prop::collection::btree_set(
+                prop_oneof![0_u32..64, (u32::MAX - 2)..=u32::MAX],
+                0..8,
+            ),
         ) {
             let mut graph = loops(&ids);
             let mut alloc = IdAllocator::from_source(IdRange::FULL, ids.iter().copied());
             match (graph.add_edge(0, 0, knows()), alloc.allocate()) {
                 (Ok(EdgeId(from_graph)), Ok(from_alloc)) => prop_assert_eq!(from_graph, from_alloc),
                 (Err(InstError::EdgeIdsExhausted), Err(e)) => {
-                    prop_assert!(matches!(e.whole_state(IdKind::Edge), InstError::EdgeIdsExhausted));
+                    prop_assert!(matches!(
+                        e.whole_state(IdKind::Edge),
+                        InstError::EdgeIdsExhausted
+                    ));
                 }
                 (graph_result, alloc_result) => {
-                    prop_assert!(false, "add_edge gave {:?}, the allocator {:?}", graph_result, alloc_result);
+                    prop_assert!(
+                        false,
+                        "add_edge gave {:?}, the allocator {:?}",
+                        graph_result,
+                        alloc_result
+                    );
                 }
             }
         }
 
         #[test]
-        fn segment_errors_round_trip_through_serde(segment in any::<u32>(), lo in any::<u32>(), hi in any::<u32>()) {
+        fn segment_errors_round_trip_through_serde(
+            segment in any::<u32>(),
+            lo in any::<u32>(),
+            hi in any::<u32>(),
+        ) {
             let segment = SegmentId(segment);
             let errors = [
                 SegmentError::InvertedRange { segment, range: IdRange { lo, hi } },
@@ -701,11 +716,15 @@ mod tests {
                 SegmentError::AllocationExhausted { segment, kind: IdKind::Edge },
                 SegmentError::AllocationBelowFloor { segment, kind: IdKind::Edge },
             ];
+            let fail = |e: &dyn std::fmt::Display| TestCaseError::fail(e.to_string());
             for error in errors {
-                let json = serde_json::to_string(&error).map_err(|e| TestCaseError::fail(e.to_string()))?;
-                prop_assert_eq!(&serde_json::from_str::<SegmentError>(&json).map_err(|e| TestCaseError::fail(e.to_string()))?, &error);
-                let packed = rmp_serde::to_vec_named(&error).map_err(|e| TestCaseError::fail(e.to_string()))?;
-                prop_assert_eq!(&rmp_serde::from_slice::<SegmentError>(&packed).map_err(|e| TestCaseError::fail(e.to_string()))?, &error);
+                let json = serde_json::to_string(&error).map_err(|e| fail(&e))?;
+                let from_json = serde_json::from_str::<SegmentError>(&json).map_err(|e| fail(&e))?;
+                prop_assert_eq!(&from_json, &error);
+                let packed = rmp_serde::to_vec_named(&error).map_err(|e| fail(&e))?;
+                let from_packed =
+                    rmp_serde::from_slice::<SegmentError>(&packed).map_err(|e| fail(&e))?;
+                prop_assert_eq!(&from_packed, &error);
             }
         }
     }
