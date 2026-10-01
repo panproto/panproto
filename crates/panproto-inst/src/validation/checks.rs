@@ -538,11 +538,13 @@ impl<'a> InstanceView<'a> {
         }
     }
 
-    /// Whether `edge` is a fan edge, exempt from the edge checks: an edge of
-    /// a reserved kind or one leaving a fan node.
+    /// Whether `edge` is a graph fan edge, exempt from the edge checks: an
+    /// edge of a reserved kind, whatever its endpoints. An edge of any other
+    /// kind is a non-fan edge even where it meets a fan node, in either
+    /// direction; it is checked as declared and coherent, and its fan
+    /// reports it as a foreign incident edge.
     pub(crate) fn is_fan_edge(self, edge: &EdgeRec<'_>) -> bool {
-        matches!(self, Self::Graph(_))
-            && (FanDomain::is_reserved(edge.label) || self.node(&edge.src).is_some_and(|n| n.fan))
+        matches!(self, Self::Graph(_)) && FanDomain::is_reserved(edge.label)
     }
 }
 

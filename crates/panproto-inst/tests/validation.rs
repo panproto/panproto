@@ -2452,6 +2452,69 @@ fn graph_fans_are_checked_by_fan_well_formed_only() {
     }
 }
 
+/// A fan edge is an edge of a reserved kind and nothing else (F): an edge of
+/// a foreign kind incident to a fan node is a non-fan edge, so it is checked
+/// for being declared and for its endpoints, whichever way it points, besides
+/// breaking its fan.
+#[test]
+fn a_foreign_edge_at_a_fan_node_is_a_non_fan_edge_in_either_direction() {
+    let schema = fan_schema();
+    let p = Protocol::default();
+    let fan_node = Node::new(2, "rel").with_shape(NodeShape::HyperEdge);
+    let parent = edge("rel", "sent", "hyper_parent", None);
+    let base = || {
+        GInstance::new()
+            .with_node(Node::new(0, "sent"))
+            .with_node(Node::new(1, "word"))
+            .with_node(fan_node.clone())
+            .with_edge(2, 0, parent.clone())
+    };
+    let foreign = prop("sent", "word", "undeclared");
+    let out_edge = base().with_edge(2, 1, foreign.clone());
+    let in_edge = base().with_edge(1, 2, foreign.clone());
+    let cases = [
+        (out_edge, EndpointSide::Src, "sent", "rel"),
+        (in_edge, EndpointSide::Src, "sent", "word"),
+    ];
+    for (graph, side, expected, found) in cases {
+        let report = validate_graph(&graph, &schema, &p);
+        let subject = Some(ViewRef::Edge(EdgeId(1)));
+        assert_eq!(
+            of_kind(&report, CheckKind::EdgeDeclared),
+            vec![(
+                subject.clone(),
+                Violation::UndeclaredEdge {
+                    label: foreign.clone()
+                }
+            )],
+            "{report:?}"
+        );
+        let coherence = of_kind(&report, CheckKind::EndpointCoherence);
+        assert_eq!(
+            coherence.first(),
+            Some(&(
+                subject,
+                Violation::IncoherentEndpoint {
+                    side,
+                    expected: expected.into(),
+                    found: found.into(),
+                }
+            )),
+            "{report:?}"
+        );
+        assert_eq!(
+            of_kind(&report, CheckKind::FanWellFormed)
+                .into_iter()
+                .map(|(_, v)| v)
+                .collect::<Vec<_>>(),
+            vec![Violation::MalformedFan {
+                reason: FanViolation::ForeignIncidentEdge { edge: EdgeId(1) },
+                fan: None,
+            }]
+        );
+    }
+}
+
 /// A graph fan node breaking the fan form several ways reports each of them,
 /// and every malformed fan node is reported, not only the first.
 #[test]
