@@ -1820,14 +1820,17 @@ mod composition_rule {
 
         /// Whenever the rule fuses a pair, the fused lens is observationally
         /// the pair in sequence, and a pair kept in sequence runs its two
-        /// stages. The pairs are drawn from four families: around an
+        /// stages. The pairs are drawn from six families: around an
         /// expansion (expanding lenses, and second lenses that drop or
         /// rename an expansion's endpoints and intermediate), contracting
-        /// pairs, contraction-free renames, swaps and edge drops, and value
-        /// layers on both lenses.
+        /// pairs, contraction-free renames, swaps and edge drops, value
+        /// layers on both lenses, fan retargets on both lenses (chained, and
+        /// chosen by the children that survive), and a first lens that
+        /// merges a renamed vertex onto one that keeps its name, with value
+        /// layers on the merged anchor.
         #[test]
         fn compiled_and_sequential_tree_composites_agree(
-            family in 0u8..4,
+            family in 0u8..6,
             k1 in 0u8..7,
             k2 in 0u8..4,
             e1 in any::<bool>(),
@@ -1850,7 +1853,17 @@ mod composition_rule {
                     let (second, _, _) = step(mid, both, k1 % 4, e2);
                     (first, second, two_label_source(&values))
                 }
-                _ => (valued_identity(k1 % 4), valued_identity(k2), levelled_source(&levels)),
+                3 => (valued_identity(k1 % 4), valued_identity(k2), levelled_source(&levels)),
+                4 => (
+                    fan_lens([0, 1, 3][usize::from(k1 % 3)]),
+                    fan_lens([0, 2, 4][usize::from(k2 % 3)]),
+                    fan_source(e1),
+                ),
+                _ => {
+                    let (first, second) = merge_pair([0, 2, 3][usize::from(k1 % 3)], k2);
+                    let level = |i: usize| levels.get(i).copied().unwrap_or(3);
+                    (first, second, merge_source((level(0), level(1))))
+                }
             };
             match panproto_lens::compose_tree(&first, &second).unwrap() {
                 TreeComposite::Compiled(fused) => {
@@ -1866,12 +1879,12 @@ mod composition_rule {
         }
     }
 
-    /// Value layers for the value-composition tests: `0` none, `1` the
-    /// invertible transform `level := level + 1` on `c`, `2` the survival
-    /// predicate `level == 3` on `c`, `3` the survival predicate
-    /// `missing == 1` on `c`, which fails to evaluate on every node and so
-    /// keeps it.
-    fn value_layer(lens: &mut Lens, layer: u8) {
+    /// Value layers for the value-composition tests, on `anchor`: `0`
+    /// none, `1` the invertible transform `level := level + 1`, `2` the
+    /// survival predicate `level == 3`, `3` the survival predicate
+    /// `missing == 1`, which fails to evaluate on every node and so keeps
+    /// it.
+    fn value_layer(lens: &mut Lens, anchor: &str, layer: u8) {
         use panproto_expr::{BuiltinOp, Expr, Literal};
         use panproto_inst::FieldTransform;
         let var = |name: &str| Expr::Var(std::sync::Arc::from(name));
@@ -1879,7 +1892,7 @@ mod composition_rule {
         match layer {
             1 => {
                 lens.compiled.field_transforms.insert(
-                    "c".into(),
+                    anchor.into(),
                     vec![FieldTransform::ApplyExpr {
                         key: "level".into(),
                         expr: Expr::Builtin(BuiltinOp::Add, vec![var("level"), int(1)]),
@@ -1890,13 +1903,13 @@ mod composition_rule {
             }
             2 => {
                 lens.compiled.conditional_survival.insert(
-                    "c".into(),
+                    anchor.into(),
                     Expr::Builtin(BuiltinOp::Eq, vec![var("level"), int(3)]),
                 );
             }
             3 => {
                 lens.compiled.conditional_survival.insert(
-                    "c".into(),
+                    anchor.into(),
                     Expr::Builtin(BuiltinOp::Eq, vec![var("missing"), int(1)]),
                 );
             }
@@ -1908,7 +1921,7 @@ mod composition_rule {
     fn valued_identity(layer: u8) -> Lens {
         let src = schema(&[("r", "object"), ("c", "string")], &[prop("r", "c", "c")]);
         let mut lens = identity(&src);
-        value_layer(&mut lens, layer);
+        value_layer(&mut lens, "c", layer);
         lens
     }
 
@@ -2001,13 +2014,369 @@ mod composition_rule {
         }
     }
 
+    /// `r -> a` under `x` and `r -> b` under `y`, or, `merged`, both edges
+    /// into `a`.
+    fn merge_schema(merged: bool) -> Schema {
+        if merged {
+            schema(
+                &[("r", "object"), ("a", "string")],
+                &[prop("r", "a", "x"), prop("r", "a", "y")],
+            )
+        } else {
+            schema(
+                &[("r", "object"), ("a", "string"), ("b", "string")],
+                &[prop("r", "a", "x"), prop("r", "b", "y")],
+            )
+        }
+    }
+
+    /// A first lens that merges `b` onto `a`, which keeps its own name (so
+    /// only `b` is in its vertex remap), with the value layer `first_layer`
+    /// on its source anchor `a`, and the identity on the merged schema with
+    /// the value layer `second_layer` on `a`.
+    fn merge_pair(first_layer: u8, second_layer: u8) -> (Lens, Lens) {
+        let m = migration(
+            &[("r", "r"), ("a", "a"), ("b", "a")],
+            vec![
+                (prop("r", "a", "x"), prop("r", "a", "x")),
+                (prop("r", "b", "y"), prop("r", "a", "y")),
+            ],
+            vec![],
+        );
+        let mut first = lens(merge_schema(false), merge_schema(true), &m);
+        // The remap of identity lenses and protolens instantiations: a
+        // vertex that keeps its name has no entry.
+        first
+            .compiled
+            .vertex_remap
+            .retain(|source, image| source != image);
+        assert_eq!(first.compiled.vertex_remap.len(), 1);
+        value_layer(&mut first, "a", first_layer);
+        let mut second = identity(&merge_schema(true));
+        value_layer(&mut second, "a", second_layer);
+        (first, second)
+    }
+
+    /// `r(0)` with `a(1)` and `b(2)`, whose fields `level` are `levels`.
+    fn merge_source(levels: (i64, i64)) -> WInstance {
+        let node = |id: u32, anchor: &str, level: i64| {
+            let mut node = Node::new(id, anchor)
+                .with_value(FieldPresence::Present(Value::Str(format!("v{id}"))));
+            node.extra_fields.insert("level".into(), Value::Int(level));
+            node
+        };
+        WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "r")),
+                (1, node(1, "a", levels.0)),
+                (2, node(2, "b", levels.1)),
+            ]),
+            vec![(0, 1, prop("r", "a", "x")), (0, 2, prop("r", "b", "y"))],
+            vec![],
+            0,
+            "r".into(),
+        )
+    }
+
+    /// A first lens that merges `b` onto `a`, which keeps its name,
+    /// followed by a survival predicate on `a`: the pair tests the
+    /// predicate on the nodes of both source anchors, and so does the fused
+    /// lens.
+    #[test]
+    fn a_predicate_on_a_merged_anchor_reaches_every_preimage() {
+        let (first, second) = merge_pair(0, 2);
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        for anchor in ["a", "b"] {
+            assert!(
+                fused.compiled.conditional_survival.contains_key(anchor),
+                "no predicate on {anchor}: {:?}",
+                fused.compiled.conditional_survival
+            );
+        }
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let TreeComposite::Compiled(by_rule) = composite else {
+            panic!("the pair meets every condition: {composite:?}");
+        };
+        let sequential = SequentialTreeLens { first, second };
+        let (seq_view, _) = sequential.get(&merge_source((2, 2))).unwrap();
+        assert_eq!(
+            seq_view.nodes.keys().copied().collect::<Vec<_>>(),
+            vec![0],
+            "the pair drops both nodes of level 2"
+        );
+        for levels in [(2, 2), (3, 2), (2, 3), (3, 3)] {
+            agree(&by_rule, &sequential, &merge_source(levels)).unwrap();
+        }
+    }
+
+    /// Hyper-edges over `par`'s children `left` and `right`: `h0` labels
+    /// them `left` and `right`, `h1` `a` and `b`, `h2` `p` and `q`, and `hA`
+    /// labels `left` alone `a`. Without `right`, each spans `left` alone.
+    fn fan_schema(with_right: bool) -> Schema {
+        let protocol = Protocol::default();
+        let mut builder = SchemaBuilder::new(&protocol)
+            .vertex("par", "object", None)
+            .unwrap()
+            .vertex("left", "string", None)
+            .unwrap()
+            .edge("par", "left", "prop", Some("left"))
+            .unwrap();
+        if with_right {
+            builder = builder
+                .vertex("right", "string", None)
+                .unwrap()
+                .edge("par", "right", "prop", Some("right"))
+                .unwrap();
+        }
+        let signature = |labels: &[(&str, &str)]| {
+            labels
+                .iter()
+                .filter(|(_, vertex)| with_right || *vertex != "right")
+                .chain(std::iter::once(&("par", "par")))
+                .map(|(label, vertex)| ((*label).to_owned(), (*vertex).to_owned()))
+                .collect::<HashMap<String, String>>()
+        };
+        for (id, labels) in [
+            ("h0", vec![("left", "left"), ("right", "right")]),
+            ("h1", vec![("a", "left"), ("b", "right")]),
+            ("h2", vec![("p", "left"), ("q", "right")]),
+            ("hA", vec![("a", "left")]),
+        ] {
+            builder = builder
+                .hyper_edge(id, "rel", signature(&labels), "par")
+                .unwrap();
+        }
+        builder.build().unwrap()
+    }
+
+    /// A lens on the fan schema: `0` the identity, `1` retargets `h0`'s fans
+    /// to `h1` (`left` to `a`, `right` to `b`), `2` retargets `h1`'s fans to
+    /// `h2` (`a` to `p`, `b` to `q`), `3` retargets an `h0` fan to `hA` when
+    /// only `left` survives and to `h1` otherwise, and `4` drops `right`.
+    fn fan_lens(kind: u8) -> Lens {
+        let mut fan_lens = if kind == 4 {
+            let m = migration(
+                &[("par", "par"), ("left", "left")],
+                vec![(prop("par", "left", "left"), prop("par", "left", "left"))],
+                vec![],
+            );
+            lens(fan_schema(true), fan_schema(false), &m)
+        } else {
+            identity(&fan_schema(true))
+        };
+        let entry = |he: &str, shape: &[&str], target: &str, labels: &[(&str, &str)]| {
+            (
+                (
+                    Name::from(he),
+                    shape.iter().map(|l| Name::from(*l)).collect::<Vec<_>>(),
+                ),
+                (
+                    Name::from(target),
+                    labels
+                        .iter()
+                        .map(|(a, b)| (Name::from(*a), Name::from(*b)))
+                        .collect::<HashMap<_, _>>(),
+                ),
+            )
+        };
+        let entries = match kind {
+            1 => vec![entry(
+                "h0",
+                &["left", "right"],
+                "h1",
+                &[("left", "a"), ("right", "b")],
+            )],
+            2 => vec![entry("h1", &["a", "b"], "h2", &[("a", "p"), ("b", "q")])],
+            3 => vec![
+                entry("h0", &["left"], "hA", &[("left", "a")]),
+                entry(
+                    "h0",
+                    &["left", "right"],
+                    "h1",
+                    &[("left", "a"), ("right", "b")],
+                ),
+            ],
+            _ => vec![],
+        };
+        fan_lens.compiled.hyper_resolver.extend(entries);
+        fan_lens
+    }
+
+    /// `par(0)` with `left(1)` and `right(2)`, joined by an `h0` fan when
+    /// `fan` is set.
+    fn fan_source(fan: bool) -> WInstance {
+        let fans = if fan {
+            vec![
+                panproto_inst::Fan::new("h0", 0)
+                    .with_child("left", 1)
+                    .with_child("right", 2),
+            ]
+        } else {
+            vec![]
+        };
+        WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "par")),
+                (
+                    1,
+                    Node::new(1, "left").with_value(FieldPresence::Present(Value::Str("l".into()))),
+                ),
+                (
+                    2,
+                    Node::new(2, "right")
+                        .with_value(FieldPresence::Present(Value::Str("r".into()))),
+                ),
+            ]),
+            vec![
+                (0, 1, prop("par", "left", "left")),
+                (0, 2, prop("par", "right", "right")),
+            ],
+            fans,
+            0,
+            "par".into(),
+        )
+    }
+
+    /// Pairs whose fan layers retarget are kept in sequence. A fan's
+    /// resolver entry is chosen by the children that survive, which the pair
+    /// decides in two stages and one migration in one, so no single
+    /// resolver table stands for the pair. `compose` chains the retargets
+    /// of the first lens through the second, which gives the pair's fans
+    /// when both stages see the same children, and not otherwise.
+    #[test]
+    fn pairs_whose_fan_layers_retarget_are_kept_in_sequence() {
+        let source = fan_source(true);
+        let fans = |view: &WInstance| {
+            view.fans
+                .iter()
+                .map(|fan| {
+                    let mut children: Vec<(String, u32)> =
+                        fan.children.iter().map(|(l, n)| (l.clone(), *n)).collect();
+                    children.sort();
+                    (fan.hyper_edge_id.clone(), children)
+                })
+                .collect::<Vec<_>>()
+        };
+
+        // `h0` to `h1`, then `h1` to `h2`.
+        let (first, second) = (fan_lens(1), fan_lens(2));
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        assert!(
+            matches!(composite, TreeComposite::Sequential(_)),
+            "{composite:?}"
+        );
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let sequential = SequentialTreeLens { first, second };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        assert_eq!(
+            fans(&seq_view),
+            vec![(
+                "h2".to_owned(),
+                vec![("p".to_owned(), 1), ("q".to_owned(), 2)]
+            )]
+        );
+        assert_eq!(fans(&view), fans(&seq_view), "compose chains the retargets");
+
+        // An `h0` fan goes to `h1` while both children survive the first
+        // stage, and the second drops `right`; one migration sees only
+        // `left` survive and picks `hA`.
+        let (first, second) = (fan_lens(3), fan_lens(4));
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        assert!(
+            matches!(composite, TreeComposite::Sequential(_)),
+            "{composite:?}"
+        );
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let sequential = SequentialTreeLens { first, second };
+        let (seq_view, _) = sequential.get(&source).unwrap();
+        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        assert_eq!(
+            fans(&seq_view),
+            vec![("h1".to_owned(), vec![("a".to_owned(), 1)])]
+        );
+        assert_eq!(
+            fans(&view),
+            vec![("hA".to_owned(), vec![("a".to_owned(), 1)])]
+        );
+
+        // Fans that neither lens retargets: the pair is fused.
+        let (first, second) = (fan_lens(0), fan_lens(4));
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let TreeComposite::Compiled(fused) = composite else {
+            panic!("no fan is retargeted: {composite:?}");
+        };
+        agree(&fused, &SequentialTreeLens { first, second }, &source).unwrap();
+    }
+
+    /// Every pair of fan lenses and every merge pair, on every source of
+    /// their families: the rule fuses exactly the pairs in which no fan is
+    /// retargeted and the value layers do not meet, every fused lens is
+    /// observationally the pair in sequence, and every pair kept in
+    /// sequence runs its two stages.
+    #[test]
+    fn every_fan_and_merge_pair_follows_the_rule() {
+        let check =
+            |first: Lens, second: Lens, fusable: bool, sources: &[WInstance], case: &str| {
+                match panproto_lens::compose_tree(&first, &second).unwrap() {
+                    TreeComposite::Compiled(fused) => {
+                        assert!(fusable, "{case} was fused");
+                        let sequential = SequentialTreeLens { first, second };
+                        for source in sources {
+                            agree(&fused, &sequential, source)
+                                .unwrap_or_else(|e| panic!("{case}: {e}"));
+                        }
+                    }
+                    TreeComposite::Sequential(sequential) => {
+                        assert!(!fusable, "{case} was kept in sequence");
+                        for source in sources {
+                            let (view, _) = sequential.get(source).unwrap();
+                            let (middle, _) = panproto_lens::get(&first, source).unwrap();
+                            let (expected, _) = panproto_lens::get(&second, &middle).unwrap();
+                            assert_eq!(view_difference(&view, &expected), None, "{case}");
+                        }
+                    }
+                }
+            };
+        let fan_sources = [fan_source(true), fan_source(false)];
+        for a in [0, 1, 3] {
+            for b in [0, 2, 4] {
+                let fusable = a == 0 && b != 2;
+                check(
+                    fan_lens(a),
+                    fan_lens(b),
+                    fusable,
+                    &fan_sources,
+                    &format!("fans {a} then {b}"),
+                );
+            }
+        }
+        let merge_sources: Vec<WInstance> = [(2, 2), (3, 2), (2, 3), (3, 3)]
+            .into_iter()
+            .map(merge_source)
+            .collect();
+        for a in [0, 2, 3] {
+            for b in 0..4 {
+                let (first, second) = merge_pair(a, b);
+                let fusable = b == 0 || (a == 0 && b != 1);
+                check(
+                    first,
+                    second,
+                    fusable,
+                    &merge_sources,
+                    &format!("merge {a} then {b}"),
+                );
+            }
+        }
+    }
+
     /// One case per condition of the composition rule, each kept in
     /// sequence, and a pair meeting every condition, which is fused:
     /// (i) a contracting lens on either side; (ii) migrations that do not
     /// compose; (iii) an edge the pair drops that the composite would carry;
     /// (iv) a non-empty plan in the first lens, the second, or the
     /// composite, including an expansion the second lens truncates; (v)
-    /// value layers that meet.
+    /// value layers that meet; (vi) a fan retarget in either lens.
     #[test]
     fn tree_compose_follows_the_l6_rule() {
         let kept = |first: &Lens, second: &Lens, case: &str| {
@@ -2063,6 +2432,19 @@ mod composition_rule {
             &valued_identity(1),
             &valued_identity(2),
             "value layers that meet",
+        );
+
+        // (vi)
+        kept(&fan_lens(1), &fan_lens(2), "fan retargets that chain");
+        kept(
+            &fan_lens(3),
+            &fan_lens(0),
+            "a first lens that retargets a fan",
+        );
+        kept(
+            &fan_lens(0),
+            &fan_lens(2),
+            "a second lens that retargets a fan",
         );
 
         // Every condition met.

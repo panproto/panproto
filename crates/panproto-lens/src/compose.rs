@@ -41,8 +41,7 @@ pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
 /// either lens maps implicitly (same kind and label across remapped
 /// endpoints) is carried through the other lens's explicit map.
 fn fuse(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
-    let mut compiled =
-        compose_compiled_migrations(&l1.compiled, &l2.compiled, Some(&l1.src_schema))?;
+    let mut compiled = compose_compiled_migrations(&l1.compiled, &l2.compiled, &l1.src_schema)?;
     compiled.edge_remap = l1
         .src_schema
         .edges
@@ -190,7 +189,13 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 ///    leaves as they are; a transform of `l2` also reads the node's children
 ///    and the instance around it, which `l1` restructures, and a predicate of
 ///    each lens on one anchor is fused as a conjunction that an evaluation
-///    error in one conjunct turns from a drop into a survival.
+///    error in one conjunct turns from a drop into a survival;
+/// 6. neither lens retargets a fan: both hyper-edge resolvers are empty. A
+///    resolver selects the entry for a fan by the labels of its children
+///    that survive, which the pair decides in two stages and the fused lens
+///    in one: when `l1` retargets a fan by the shape it sees and `l2` then
+///    drops one of its children, the fused lens sees the smaller shape and
+///    may select another entry.
 ///
 /// Under these conditions the fused lens and the pair in sequence are
 /// observationally equivalent: their views agree, and so do the sources they
@@ -283,6 +288,7 @@ pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
         || !plan_is_empty(l2)
         || !plan_is_empty(&composite)
         || !value_layers_compose(l1, l2)
+        || !fan_layers_compose(l1, l2)
     {
         return Ok(sequential());
     }
@@ -322,6 +328,11 @@ fn value_layers_compose(l1: &Lens, l2: &Lens) -> bool {
         return true;
     }
     !transforms(l1) && !predicates(l1) && !transforms(l2)
+}
+
+/// Condition 6 of [`TreeComposite`]: neither lens retargets a fan.
+fn fan_layers_compose(l1: &Lens, l2: &Lens) -> bool {
+    l1.compiled.hyper_resolver.is_empty() && l2.compiled.hyper_resolver.is_empty()
 }
 
 /// Whether the fused lens gives every direct arc the edge the pair gives it
@@ -401,9 +412,10 @@ fn edge_images_coherent(lens: &Lens) -> bool {
 /// The surviving sets are intersected (a vertex/edge must survive both),
 /// and remaps are composed (l1's output feeds into l2's input).
 ///
-/// `src_schema` is `m1`'s source schema when the caller has it. It is used
-/// only to tell a dropped `extra_fields` key apart from a surviving child
-/// edge of the same name; pass `None` to skip that diagnostic entirely.
+/// `src_schema` is `m1`'s source schema. `m2`'s per-anchor entries are
+/// re-keyed onto every vertex of it that `m1` sends to their anchor, and it
+/// tells a dropped `extra_fields` key apart from a surviving child edge of
+/// the same name.
 ///
 /// # Errors
 ///
@@ -413,7 +425,7 @@ fn edge_images_coherent(lens: &Lens) -> bool {
 pub(crate) fn compose_compiled_migrations(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
-    src_schema: Option<&panproto_schema::Schema>,
+    src_schema: &panproto_schema::Schema,
 ) -> Result<CompiledMigration, LensError> {
     // Both surviving sets are keyed in their migration's target space (the
     // image of its vertex and edge maps), so m1's survivors are carried
@@ -458,15 +470,11 @@ pub(crate) fn compose_compiled_migrations(
     // m1's entries are carried through m2 into the composite's target space.
     let (resolver, expansion_path, _dropped) = compose_contraction_keys(m1, m2);
 
-    // Compose hyper resolvers
-    let mut hyper_resolver = m1.hyper_resolver.clone();
-    for (k, v) in &m2.hyper_resolver {
-        hyper_resolver.entry(k.clone()).or_insert_with(|| v.clone());
-    }
+    let hyper_resolver = compose_hyper_resolvers(m1, m2);
 
     let field_transforms = compose_field_transforms(m1, m2, src_schema)?;
-    let op_term_assignments = compose_op_term_assignments(m1, m2);
-    let conditional_survival = compose_conditional_survival(m1, m2);
+    let op_term_assignments = compose_op_term_assignments(m1, m2, src_schema);
+    let conditional_survival = compose_conditional_survival(m1, m2, src_schema);
 
     Ok(CompiledMigration {
         surviving_verts,
@@ -482,25 +490,91 @@ pub(crate) fn compose_compiled_migrations(
     })
 }
 
-/// Returns `true` iff `name` is a fixed point under `m1`: it lives in
-/// both `m1`'s source and target spaces with the same name. This is
-/// the predicate that lets us re-key per-anchor maps from `m2`'s
-/// source space (= `m1`'s target space) into the composed migration's
-/// source space (= `m1`'s source space) without name-space mixing.
-fn unchanged_by_m1(m1: &CompiledMigration, name: &panproto_gat::Name) -> bool {
-    m1.vertex_remap.get(name).map_or_else(
-        || m1.surviving_verts.contains(name),
-        |remapped| remapped == name,
-    )
+/// Compose two hyper-edge resolvers.
+///
+/// An entry of `m1` is keyed by a fan shape of `m1`'s source and points
+/// into `m1`'s target, which is `m2`'s source, so it is carried through
+/// `m2`: the entry `m2` selects for the shape `m1`'s entry produces (the
+/// image of its labels under its label map) is applied after it, and the
+/// two label maps are composed. An entry of `m2` is kept under its own key
+/// when `m1` retargets no shape of its hyper-edge, since fans of that
+/// hyper-edge reach `m2` as they are.
+///
+/// The table selects an entry by the labels of a fan's surviving children,
+/// which the composite decides in one pass and the two migrations in two,
+/// so the composite gives the pair's fans only when both stages see the
+/// same surviving children; [`compose_tree`] keeps a pair in sequence when
+/// either lens retargets a fan.
+fn compose_hyper_resolvers(
+    m1: &CompiledMigration,
+    m2: &CompiledMigration,
+) -> panproto_inst::HyperResolverTable {
+    let selector = panproto_inst::FanResolver::new(m2);
+    let mut result = panproto_inst::HyperResolverTable::default();
+    for (key, (target, labels)) in &m1.hyper_resolver {
+        let middle = |label: &Name| labels.get(label).unwrap_or(label).clone();
+        let image = panproto_inst::canonical_label_shape(key.1.iter().map(&middle));
+        let entry = match selector.resolve(target, &image, &image) {
+            Some((final_target, final_labels)) => {
+                let last = |label: &Name| final_labels.get(label).unwrap_or(label).clone();
+                let mut composed: HashMap<Name, Name> = key
+                    .1
+                    .iter()
+                    .chain(labels.keys())
+                    .map(|label| (label.clone(), last(&middle(label))))
+                    .collect();
+                for (label, image) in final_labels {
+                    if !labels.contains_key(label) {
+                        composed
+                            .entry(label.clone())
+                            .or_insert_with(|| image.clone());
+                    }
+                }
+                (final_target.clone(), composed)
+            }
+            None => (target.clone(), labels.clone()),
+        };
+        result.insert(key.clone(), entry);
+    }
+    let retargeted: HashSet<&Name> = m1.hyper_resolver.keys().map(|key| &key.0).collect();
+    for (key, entry) in &m2.hyper_resolver {
+        if !retargeted.contains(&key.0) {
+            result.insert(key.clone(), entry.clone());
+        }
+    }
+    result
 }
 
-/// Compose `field_transforms` from two migrations, re-keying through
-/// `vertex_remap`. The composed map is keyed by `m1`-source anchors
-/// throughout. An `m2`-anchor that is neither the image of an
-/// `m1`-source anchor under `m1.vertex_remap` nor a fixed point under
-/// `m1` lives only in `m1`'s target space; its transforms cannot be
-/// expressed against `m1`'s source and are dropped from the composed
-/// map (they would otherwise corrupt the keyspace invariant).
+/// The vertices of `m1`'s source that `m1` sends to `anchor`, a vertex of
+/// its target: those whose image under `m1.vertex_remap` is `anchor`, and
+/// `anchor` itself when it is a source vertex with no entry in the remap and
+/// so keeps its name. These are the anchors an `m2` entry on `anchor` is
+/// re-keyed onto in the composite. Every one of them is needed: when `m1`
+/// merges a renamed vertex onto one that keeps its name, the nodes of both
+/// reach `m2` under `anchor`.
+fn m1_preimages(
+    m1: &CompiledMigration,
+    src_schema: &panproto_schema::Schema,
+    anchor: &Name,
+) -> std::collections::BTreeSet<Name> {
+    let mut preimages: std::collections::BTreeSet<Name> = m1
+        .vertex_remap
+        .iter()
+        .filter(|(_, image)| *image == anchor)
+        .map(|(source, _)| source.clone())
+        .collect();
+    if src_schema.vertices.contains_key(anchor) && !m1.vertex_remap.contains_key(anchor) {
+        preimages.insert(anchor.clone());
+    }
+    preimages
+}
+
+/// Compose `field_transforms` from two migrations, re-keying each `m2`
+/// anchor onto its [`m1_preimages`]. The composed map is keyed by
+/// `m1`-source anchors throughout. An `m2`-anchor with no preimage lives
+/// only in `m1`'s target space; its transforms cannot be expressed against
+/// `m1`'s source and are dropped from the composed map (they would
+/// otherwise corrupt the keyspace invariant).
 ///
 /// Both coordinates are conjugated, not just the anchor. `m2`'s entries
 /// are written against `m1`'s **output** field names, but the composed
@@ -512,8 +586,8 @@ fn unchanged_by_m1(m1: &CompiledMigration, name: &panproto_gat::Name) -> bool {
 /// does not exist in `m2`'s input schema, so composition is not
 /// functorial on value-level transforms.
 ///
-/// The anchor coordinate was already conjugated through
-/// `m1.vertex_remap`; this is the field coordinate's counterpart.
+/// The anchor coordinate is conjugated through [`m1_preimages`]; this is
+/// the field coordinate's counterpart.
 ///
 /// # Errors
 ///
@@ -522,7 +596,7 @@ fn unchanged_by_m1(m1: &CompiledMigration, name: &panproto_gat::Name) -> bool {
 fn compose_field_transforms(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
-    src_schema: Option<&panproto_schema::Schema>,
+    src_schema: &panproto_schema::Schema,
 ) -> Result<HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::FieldTransform>>, LensError> {
     use panproto_gat::Name;
     use panproto_inst::wtype::FieldTransform;
@@ -542,15 +616,8 @@ fn compose_field_transforms(
     };
 
     for (m2_anchor, m2_entries) in &m2.field_transforms {
-        let mut found = false;
-        for (m1_src, m1_tgt) in &m1.vertex_remap {
-            if m1_tgt == m2_anchor {
-                inject(m1_src, m2_entries)?;
-                found = true;
-            }
-        }
-        if !found && unchanged_by_m1(m1, m2_anchor) {
-            inject(m2_anchor, m2_entries)?;
+        for m1_anchor in m1_preimages(m1, src_schema, m2_anchor) {
+            inject(&m1_anchor, m2_entries)?;
         }
     }
 
@@ -637,21 +704,14 @@ fn edge_field_name(edge: &Edge) -> String {
 /// correctly today. `KeepFields` is likewise excluded: it filters
 /// `extra_fields` only, so a name it omits may still be bound as a child
 /// scalar.
-///
-/// Returns empty without `src_schema`, since a dropped key cannot then be
-/// told apart from a child edge of the same name and a false report would
-/// reject a sound composition.
 fn unavailable_fields(
     m1: &CompiledMigration,
     anchor: &panproto_gat::Name,
-    src_schema: Option<&panproto_schema::Schema>,
+    schema: &panproto_schema::Schema,
 ) -> std::collections::HashSet<String> {
     use panproto_inst::wtype::FieldTransform;
 
     let mut unavailable = std::collections::HashSet::new();
-    let Some(schema) = src_schema else {
-        return unavailable;
-    };
 
     // Child-scalar names an edge rename takes away.
     let outgoing = schema.outgoing.get(anchor);
@@ -902,41 +962,37 @@ fn rename_free_vars(expr: &panproto_expr::Expr, renames: &HashMap<String, String
     out
 }
 
-/// Compose `op_term_assignments` from two migrations, re-keying through
-/// `vertex_remap` with the same fixed-point discipline as
-/// [`compose_field_transforms`].
+/// Compose `op_term_assignments` from two migrations, re-keying each `m2`
+/// anchor onto its [`m1_preimages`] as [`compose_field_transforms`] does.
 fn compose_op_term_assignments(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
+    src_schema: &panproto_schema::Schema,
 ) -> HashMap<panproto_gat::Name, Vec<panproto_inst::wtype::TermAssignment>> {
-    compose_anchor_keyed_lists(m1, &m1.op_term_assignments, &m2.op_term_assignments)
+    compose_anchor_keyed_lists(
+        m1,
+        src_schema,
+        &m1.op_term_assignments,
+        &m2.op_term_assignments,
+    )
 }
 
-/// Compose two anchor-keyed transform lists, re-keying `m2`'s entries into
-/// `m1`'s source frame via `m1.vertex_remap`. An `m2`-anchor that is
-/// neither the image of an `m1`-source anchor nor a fixed point under `m1`
-/// lives only in `m1`'s target space; its entries have no representation
-/// in `m1`'s source and are dropped to preserve the keyspace invariant.
+/// Compose two anchor-keyed transform lists, re-keying each `m2` anchor's
+/// entries onto its [`m1_preimages`] in `m1`'s source frame. An
+/// `m2`-anchor with no preimage lives only in `m1`'s target space; its
+/// entries have no representation in `m1`'s source and are dropped to
+/// preserve the keyspace invariant.
 fn compose_anchor_keyed_lists<T: Clone>(
     m1: &CompiledMigration,
+    src_schema: &panproto_schema::Schema,
     m1_map: &HashMap<panproto_gat::Name, Vec<T>>,
     m2_map: &HashMap<panproto_gat::Name, Vec<T>>,
 ) -> HashMap<panproto_gat::Name, Vec<T>> {
     let mut result = m1_map.clone();
     for (m2_anchor, m2_entries) in m2_map {
-        let mut found = false;
-        for (m1_src, m1_tgt) in &m1.vertex_remap {
-            if m1_tgt == m2_anchor {
-                result
-                    .entry(m1_src.clone())
-                    .or_default()
-                    .extend(m2_entries.iter().cloned());
-                found = true;
-            }
-        }
-        if !found && unchanged_by_m1(m1, m2_anchor) {
+        for m1_anchor in m1_preimages(m1, src_schema, m2_anchor) {
             result
-                .entry(m2_anchor.clone())
+                .entry(m1_anchor)
                 .or_default()
                 .extend(m2_entries.iter().cloned());
         }
@@ -945,8 +1001,8 @@ fn compose_anchor_keyed_lists<T: Clone>(
 }
 
 /// Compose `conditional_survival` predicates, AND-ing when both exist.
-/// Re-keys via the same fixed-point discipline as
-/// [`compose_field_transforms`]: predicates whose anchor lives only in
+/// Re-keys each `m2` predicate onto every one of its [`m1_preimages`], as
+/// [`compose_field_transforms`] does: predicates whose anchor lives only in
 /// `m1`'s target space are dropped rather than injected with a foreign
 /// key. The AND-conjunction is taken in the composed-source frame, so
 /// `m2_pred`'s free variables are interpreted against the schema
@@ -965,29 +1021,14 @@ fn compose_anchor_keyed_lists<T: Clone>(
 fn compose_conditional_survival(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
+    src_schema: &panproto_schema::Schema,
 ) -> HashMap<panproto_gat::Name, panproto_expr::Expr> {
     let mut result = m1.conditional_survival.clone();
     for (m2_anchor, m2_pred) in &m2.conditional_survival {
-        let mut found = false;
-        for (m1_src, m1_tgt) in &m1.vertex_remap {
-            if m1_tgt == m2_anchor {
-                found = true;
-                let scoped = scope_check_predicate(m2_pred, m1, m1_src);
-                result
-                    .entry(m1_src.clone())
-                    .and_modify(|existing| {
-                        *existing = panproto_expr::Expr::Builtin(
-                            panproto_expr::BuiltinOp::And,
-                            vec![existing.clone(), scoped.clone()],
-                        );
-                    })
-                    .or_insert(scoped);
-            }
-        }
-        if !found && unchanged_by_m1(m1, m2_anchor) {
-            let scoped = scope_check_predicate(m2_pred, m1, m2_anchor);
+        for m1_anchor in m1_preimages(m1, src_schema, m2_anchor) {
+            let scoped = scope_check_predicate(m2_pred, m1, &m1_anchor);
             result
-                .entry(m2_anchor.clone())
+                .entry(m1_anchor)
                 .and_modify(|existing| {
                     *existing = panproto_expr::Expr::Builtin(
                         panproto_expr::BuiltinOp::And,

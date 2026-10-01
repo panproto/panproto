@@ -7,3 +7,6 @@
 cc 5da9b470a69f3a647d2de831b4bd9d09777b68031150ed4c20dcb30909874b74 # shrinks to steps = [Move(7, 8)]
 cc c03bb82b12a1d3e49e5ad9a324424e58f1ab907630fbfd3d1160e68cca7168b9 # shrinks to pick = 1, values = [""], counts = []
 cc 207179c6ea800b3bff4195815e313588f8189cd8806da4c0728127c7bfe0bfe4 # shrinks to family = 0, k1 = 6, k2 = 0, e1 = true, e2 = false, values = [""], counts = [], levels = []
+cc 38a881b67ec3e4fd20c84144b40affafc2cf3ceb3391af08e1b0a4defbceb2f3 # shrinks to family = 4, k1 = 1, k2 = 1, e1 = true, e2 = false, values = [], counts = [], levels = []
+cc a38e3ff89040e295d405b998cb226cd89d6cc60f33bd09226ea7be406f1fbdcf # shrinks to family = 5, k1 = 3, k2 = 2, e1 = false, e2 = false, values = [], counts = [], levels = [0]
+cc 17d18b3c4fac0c291f880b8230d447a46501370c4eadff80e0b9f48193a69a38 # shrinks to family = 4, k1 = 1, k2 = 2, e1 = true, e2 = false, values = [], counts = [], levels = []
