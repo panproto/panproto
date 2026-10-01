@@ -505,9 +505,30 @@ impl CheckSpec {
     }
 }
 
-/// A named format a [`ConstraintSemantics::Format`] constraint can check.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Format {
+/// A named value format: the fixed set a [`ConstraintSemantics::Format`]
+/// constraint is evaluated for.
+///
+/// The constraint's value names the format. The set is closed:
+///
+/// | Name | Format | A string value matches when |
+/// |---|---|---|
+/// | `date-time` (also `datetime`) | [`Self::DateTime`] | it parses as a date-time ([`Temporal::parse_date_time`](crate::value::Temporal::parse_date_time)) |
+/// | `date` | [`Self::Date`] | it parses as a date ([`Temporal::parse_date`](crate::value::Temporal::parse_date)) |
+/// | `time` | [`Self::Time`] | it parses as a time ([`Temporal::parse_time`](crate::value::Temporal::parse_time)) |
+/// | `uri` | [`Self::Uri`] | it is a scheme (a letter, then letters, digits, `+`, `-` or `.`), a colon and the rest, with no whitespace |
+/// | `uuid` | [`Self::Uuid`] | it is five groups of 8, 4, 4, 4 and 12 hexadecimal digits joined by `-` |
+/// | `ipv4` | [`Self::Ipv4`] | it parses as an IPv4 address |
+/// | `ipv6` | [`Self::Ipv6`] | it parses as an IPv6 address |
+/// | `did` | [`Self::Did`] | it is `did:`, a nonempty method of lowercase letters and digits, a colon and a nonempty identifier with no whitespace |
+///
+/// A temporal value matches `date-time`, `date` or `time` when it is of
+/// that kind; any other value leaves the instance undecided
+/// ([`IncompleteReason::IllFormedDeclaration`](super::IncompleteReason::IllFormedDeclaration)). A constraint naming any other format compiles to a static
+/// finding with
+/// [`IncompleteReason::UnsupportedDeclaration`](super::IncompleteReason::UnsupportedDeclaration),
+/// never to a pass.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum ValueFormat {
     /// `date-time` or `datetime`: a date-time lexeme.
     DateTime,
     /// `date`: a date lexeme.
@@ -526,20 +547,42 @@ pub enum Format {
     Did,
 }
 
-impl Format {
-    /// The format a name denotes, if it is one of the supported set.
-    pub(crate) fn named(name: &str) -> Option<Self> {
-        match name {
-            "date-time" | "datetime" => Some(Self::DateTime),
-            "date" => Some(Self::Date),
-            "time" => Some(Self::Time),
-            "uri" => Some(Self::Uri),
-            "uuid" => Some(Self::Uuid),
-            "ipv4" => Some(Self::Ipv4),
-            "ipv6" => Some(Self::Ipv6),
-            "did" => Some(Self::Did),
-            _ => None,
+impl ValueFormat {
+    /// Every supported format, in declaration order.
+    pub const ALL: [Self; 8] = [
+        Self::DateTime,
+        Self::Date,
+        Self::Time,
+        Self::Uri,
+        Self::Uuid,
+        Self::Ipv4,
+        Self::Ipv6,
+        Self::Did,
+    ];
+
+    /// The format's canonical name.
+    #[must_use]
+    pub const fn name(self) -> &'static str {
+        match self {
+            Self::DateTime => "date-time",
+            Self::Date => "date",
+            Self::Time => "time",
+            Self::Uri => "uri",
+            Self::Uuid => "uuid",
+            Self::Ipv4 => "ipv4",
+            Self::Ipv6 => "ipv6",
+            Self::Did => "did",
         }
+    }
+
+    /// The format a name denotes, if it is one of the supported set; `datetime`
+    /// is accepted as a second name for `date-time`.
+    #[must_use]
+    pub fn named(name: &str) -> Option<Self> {
+        if name == "datetime" {
+            return Some(Self::DateTime);
+        }
+        Self::ALL.into_iter().find(|f| f.name() == name)
     }
 }
 
@@ -568,7 +611,7 @@ pub enum ValueTest {
     /// A match of the regular expression.
     Pattern(regex::Regex),
     /// A lexeme of the format.
-    Format(Format),
+    Format(ValueFormat),
 }
 
 /// What evaluating one compiled check needs, beyond its [`CheckSpec`].
@@ -1091,7 +1134,7 @@ impl Builder<'_> {
                 }
             }
             (ConstraintSemantics::Format(_), ConstraintValue::Format { format, .. }) => {
-                Format::named(&format).map_or_else(
+                ValueFormat::named(&format).map_or_else(
                     || Err(R::UnsupportedDeclaration { sort: sort.clone() }),
                     |f| value_check(ValueTest::Format(f)),
                 )

@@ -627,7 +627,7 @@ fn attribute_key(v: &AttributeViolation) -> &str {
     }
 }
 
-use super::plan::{Bound, Compiled, ExternalVerdicts, Format, ValidationPlan, ValueTest};
+use super::plan::{Bound, Compiled, ExternalVerdicts, ValidationPlan, ValueFormat, ValueTest};
 use super::report::{
     CheckKey, CheckKind, EndpointSide, FanRecord, IncompleteReason, SchemaRef, Violation,
 };
@@ -1338,15 +1338,15 @@ fn member_matches(value: &Value, member: &str) -> Result<bool, String> {
     }
 }
 
-fn format_matches(format: Format, value: &Value) -> Result<bool, String> {
+fn format_matches(format: ValueFormat, value: &Value) -> Result<bool, String> {
     let text = match value {
         Value::Str(s) | Value::Token(s) => s.as_str(),
         Value::Temporal(t) => {
             return Ok(matches!(
                 (format, t),
-                (Format::DateTime, crate::value::Temporal::DateTime(..))
-                    | (Format::Date, crate::value::Temporal::Date(_))
-                    | (Format::Time, crate::value::Temporal::Time(..))
+                (ValueFormat::DateTime, crate::value::Temporal::DateTime(..))
+                    | (ValueFormat::Date, crate::value::Temporal::Date(_))
+                    | (ValueFormat::Time, crate::value::Temporal::Time(..))
             ));
         }
         other => {
@@ -1357,10 +1357,10 @@ fn format_matches(format: Format, value: &Value) -> Result<bool, String> {
         }
     };
     Ok(match format {
-        Format::DateTime => crate::value::Temporal::parse_date_time(text).is_ok(),
-        Format::Date => crate::value::Temporal::parse_date(text).is_ok(),
-        Format::Time => crate::value::Temporal::parse_time(text).is_ok(),
-        Format::Uri => text.split_once(':').is_some_and(|(scheme, _)| {
+        ValueFormat::DateTime => crate::value::Temporal::parse_date_time(text).is_ok(),
+        ValueFormat::Date => crate::value::Temporal::parse_date(text).is_ok(),
+        ValueFormat::Time => crate::value::Temporal::parse_time(text).is_ok(),
+        ValueFormat::Uri => text.split_once(':').is_some_and(|(scheme, _)| {
             scheme
                 .chars()
                 .next()
@@ -1370,7 +1370,7 @@ fn format_matches(format: Format, value: &Value) -> Result<bool, String> {
                     .all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
                 && !text.chars().any(char::is_whitespace)
         }),
-        Format::Uuid => {
+        ValueFormat::Uuid => {
             let groups: Vec<&str> = text.split('-').collect();
             groups.len() == 5
                 && groups
@@ -1378,9 +1378,9 @@ fn format_matches(format: Format, value: &Value) -> Result<bool, String> {
                     .zip([8, 4, 4, 4, 12])
                     .all(|(g, n)| g.len() == n && g.chars().all(|c| c.is_ascii_hexdigit()))
         }
-        Format::Ipv4 => text.parse::<std::net::Ipv4Addr>().is_ok(),
-        Format::Ipv6 => text.parse::<std::net::Ipv6Addr>().is_ok(),
-        Format::Did => text.strip_prefix("did:").is_some_and(|rest| {
+        ValueFormat::Ipv4 => text.parse::<std::net::Ipv4Addr>().is_ok(),
+        ValueFormat::Ipv6 => text.parse::<std::net::Ipv6Addr>().is_ok(),
+        ValueFormat::Did => text.strip_prefix("did:").is_some_and(|rest| {
             rest.split_once(':').is_some_and(|(method, id)| {
                 !method.is_empty()
                     && method

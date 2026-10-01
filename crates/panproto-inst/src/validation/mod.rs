@@ -21,6 +21,11 @@
 //! the tree-only checks of its root, parent map, reachability and reserved
 //! vocabulary.
 //!
+//! A [`ConstraintSemantics::Format`](panproto_schema::ConstraintSemantics::Format)
+//! constraint is evaluated for the fixed set of [`ValueFormat`]s: `date-time`
+//! (also `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`, `ipv6` and
+//! `did`. Any other format is an unsupported declaration.
+//!
 //! ```
 //! use panproto_inst::validation::validate_graph;
 //! use panproto_inst::{GInstance, Node};
@@ -62,7 +67,7 @@ use checks::{Context, InstanceView, evaluate, instances};
 
 pub use plan::{
     CheckSpec, DeltaElementKind, ExternalCheckDecl, ExternalVerdict, ExternalVerdicts,
-    TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan,
+    TriggerTable, ValidationBudget, ValidationOptions, ValidationPlan, ValueFormat,
 };
 pub use report::{
     CheckClass, CheckCoverage, CheckInstance, CheckKey, CheckKind, Diagnostic, EndpointSide,

@@ -1338,6 +1338,45 @@ fn an_unlisted_format_is_unsupported() {
     );
 }
 
+/// The fixed set of formats is public, and each format it lists is
+/// evaluated: a constraint naming one compiles with no finding.
+#[test]
+fn the_listed_formats_are_public_and_each_is_evaluated() {
+    use panproto_inst::validation::ValueFormat;
+    let names: Vec<&str> = ValueFormat::ALL.iter().map(|f| f.name()).collect();
+    assert_eq!(
+        names,
+        [
+            "date-time",
+            "date",
+            "time",
+            "uri",
+            "uuid",
+            "ipv4",
+            "ipv6",
+            "did"
+        ]
+    );
+    for format in ValueFormat::ALL {
+        assert_eq!(ValueFormat::named(format.name()), Some(format));
+        let schema = S::default()
+            .vertex("a", "string")
+            .constraint("a", "format", format.name())
+            .build();
+        let p = protocol(&[("format", ConstraintSemantics::Format("json-schema".into()))]);
+        let plan = plan(&schema, &p);
+        assert_eq!(plan.static_findings(), &[], "{format:?}");
+        assert!(
+            plan.checks()
+                .keys()
+                .any(|k| k.kind == CheckKind::ValueConstraint),
+            "{format:?}"
+        );
+    }
+    assert_eq!(ValueFormat::named("datetime"), Some(ValueFormat::DateTime));
+    assert_eq!(ValueFormat::named("carrier-pigeon"), None);
+}
+
 #[test]
 fn annotation_and_value_parameter_compile_to_no_check() {
     let schema = S::default()
