@@ -1123,6 +1123,10 @@ fn resolved_sakila(data: &Rows) -> R<FInstance> {
     Ok(f)
 }
 
+/// A key case: its name, how its film-actor references resolve, and its
+/// film-actor pairs of actor and film ids.
+type KeyCase = (&'static str, OnUnresolved, &'static [(i64, i64)]);
+
 /// Keys and references: a Sakila composite key held and broken, a
 /// self-referencing foreign key, and a dangling foreign key, strict and
 /// lenient, each as a table instance, as a tree of rows and cells under a
@@ -1133,7 +1137,7 @@ fn resolved_sakila(data: &Rows) -> R<FInstance> {
 /// leaves its holder without the edge, which a non-nullable reference
 /// requires on the semantic shape whether it is strict or lenient.
 fn keys() -> R<Vec<Case>> {
-    let cases: [(&str, OnUnresolved, &[(i64, i64)]); 5] = [
+    let cases: [KeyCase; 5] = [
         (
             "sakila_composite_key",
             OnUnresolved::Error,
@@ -1435,156 +1439,184 @@ fn with_source(mut case: Case, vertex: &str) -> Case {
     case
 }
 
-/// The incompleteness cases of trees and table instances: a budget too
-/// small for the checks of a six-node chain (a tree) or six rows (a table),
-/// a sort the protocol does not know, a pattern the regular-expression
-/// engine cannot compile, an external check with no verdict and one with a
-/// rejecting verdict, a failure beside an undecided check, and a source map
-/// the diagnostics carry. Acyclicity is a graph check, so the budget runs
-/// out on the checks these shapes have.
-fn tree_and_table_incomplete() -> R<Vec<Case>> {
-    let s = |v: &str| Value::Str(v.into());
+/// A case checked by the application check `audit`.
+fn audited(mut case: Case) -> Case {
+    case.options = audit_options();
+    case
+}
+
+/// A case checked by `audit`, whose verdict on `at` rejects it.
+fn rejecting(case: Case, at: ViewRef) -> Case {
+    let mut case = audited(case);
+    case.external.insert(
+        "audit".into(),
+        at,
+        ExternalVerdict {
+            passed: false,
+            witness: Digest([7; 32]),
+        },
+    );
+    case
+}
+
+/// A case validated with a budget of three reads.
+const fn budgeted(mut case: Case) -> Case {
+    case.budget = ValidationBudget { max_reads: Some(3) };
+    case
+}
+
+/// An `item` vertex of kind `kind` with a `name` it reaches through the
+/// edge `name`, the name carrying the constraint `sort = value` if any.
+fn named_schema(kind: &str, constraint: Option<(&str, &str)>) -> Schema {
+    let mut b = S::default()
+        .vertex("item", kind)
+        .vertex("name", "string")
+        .edge(&prop("item", "name", "name"));
+    if let Some((sort, value)) = constraint {
+        b = b.constraint("name", sort, value);
+    }
+    b.build()
+}
+
+/// An `item` vertex of kind `kind` carrying the unregistered sort
+/// `colour`.
+fn colour_schema(kind: &str) -> Schema {
+    S::default()
+        .vertex("item", kind)
+        .constraint("item", "colour", "red")
+        .build()
+}
+
+/// An `item` vertex of kind `kind`.
+fn item_schema(kind: &str) -> Schema {
+    S::default().vertex("item", kind).build()
+}
+
+/// A length bound of three on a name.
+const BOUNDED: Option<(&str, &str)> = Some(("maxLength", "3"));
+
+/// A pattern with a lookahead, which the regular-expression engine cannot
+/// compile.
+const LOOKAHEAD: Option<(&str, &str)> = Some(("pattern", "(?=a)a"));
+
+/// The incompleteness cases of trees: a budget too small for the checks of
+/// a six-node chain, a sort the protocol does not know, a pattern the
+/// regular-expression engine cannot compile, an external check with no
+/// verdict and one with a rejecting verdict, a failure beside an undecided
+/// check, and a source map the diagnostics carry. Acyclicity is a graph
+/// check, so the budget runs out on the checks trees have.
+fn tree_incomplete() -> Vec<Case> {
     let next = prop("item", "item", "next");
     let name = prop("item", "name", "name");
-    let item_tree = || tree(vec![Node::new(0, "item")], &[], vec![]);
-    let item_table =
-        |cells: &[(&str, Value)]| FInstance::new().with_rows("item", [(RowId(0), row(cells))]);
-    // A tree item with a name child, and a table item with a name column;
-    // the name is bounded in length when `bounded`, or a lookahead pattern
-    // when `pattern`.
-    let named = |kind: &str, constraint: Option<(&str, &str)>| {
-        let mut b = S::default()
-            .vertex("item", kind)
-            .vertex("name", "string")
-            .edge(&name);
-        if let Some((sort, value)) = constraint {
-            b = b.constraint("name", sort, value);
-        }
-        b.build()
-    };
-    let named_tree = |value: &str| {
+    let item = || tree(vec![Node::new(0, "item")], &[], vec![]);
+    let named = |value: &str| {
         tree(
-            vec![Node::new(0, "item"), valued(1, "name", s(value))],
+            vec![
+                Node::new(0, "item"),
+                valued(1, "name", Value::Str(value.into())),
+            ],
             &[(0, 1, &name)],
             vec![],
         )
-    };
-    let colour = |kind: &str| {
-        S::default()
-            .vertex("item", kind)
-            .constraint("item", "colour", "red")
-            .build()
-    };
-    let items = |kind: &str| S::default().vertex("item", kind).build();
-    let audited = |mut case: Case| {
-        case.options = audit_options();
-        case
-    };
-    let rejecting = |mut case: Case, at: ViewRef| {
-        case.options = audit_options();
-        case.external.insert(
-            "audit".into(),
-            at,
-            ExternalVerdict {
-                passed: false,
-                witness: Digest([7; 32]),
-            },
-        );
-        case
-    };
-    let budgeted = |mut case: Case| {
-        case.budget = ValidationBudget { max_reads: Some(3) };
-        case
     };
     let chain = tree(
         (0..6).map(|i| Node::new(i, "item")).collect(),
         &(0..5).map(|i| (i, i + 1, &next)).collect::<Vec<_>>(),
         vec![],
     );
-    let six_rows = FInstance::new().with_rows("item", (0..6).map(|i| (RowId(i), row(&[]))))?;
     let chain_schema = S::default().vertex("item", "object").edge(&next).build();
-    let bounded = Some(("maxLength", "3"));
-    let lookahead = Some(("pattern", "(?=a)a"));
-    Ok(vec![
-        budgeted(Case::new(
-            "incomplete/tree_budget",
-            chain_schema,
-            Instance::Tree(chain),
-        )),
-        budgeted(Case::new(
-            "incomplete/table_budget",
-            items("table"),
-            Instance::Table(six_rows),
-        )),
-        Case::new(
+    let case =
+        |name: &str, schema: Schema, t: WInstance| Case::new(name, schema, Instance::Tree(t));
+    vec![
+        budgeted(case("incomplete/tree_budget", chain_schema, chain)),
+        case(
             "incomplete/tree_unregistered_sort",
-            colour("object"),
-            Instance::Tree(item_tree()),
+            colour_schema("object"),
+            item(),
         ),
-        Case::new(
-            "incomplete/table_unregistered_sort",
-            colour("table"),
-            Instance::Table(item_table(&[])?),
-        ),
-        Case::new(
+        case(
             "incomplete/tree_pattern_lookahead",
-            named("object", lookahead),
-            Instance::Tree(named_tree("a")),
+            named_schema("object", LOOKAHEAD),
+            named("a"),
         ),
-        Case::new(
-            "incomplete/table_pattern_lookahead",
-            named("table", lookahead),
-            Instance::Table(item_table(&[("name", s("a"))])?),
-        ),
-        audited(Case::new(
+        audited(case(
             "incomplete/tree_external_missing",
-            items("object"),
-            Instance::Tree(item_tree()),
-        )),
-        audited(Case::new(
-            "incomplete/table_external_missing",
-            items("table"),
-            Instance::Table(item_table(&[])?),
+            item_schema("object"),
+            item(),
         )),
         rejecting(
-            Case::new(
+            case(
                 "incomplete/tree_external_rejected",
-                items("object"),
-                Instance::Tree(item_tree()),
+                item_schema("object"),
+                item(),
             ),
             ViewRef::Node(0),
         ),
+        audited(case(
+            "incomplete/tree_mixed_failure_and_incomplete",
+            named_schema("object", BOUNDED),
+            named("toolong"),
+        )),
+        with_source(
+            case(
+                "incomplete/tree_source_map",
+                named_schema("object", BOUNDED),
+                named("toolong"),
+            ),
+            "name",
+        ),
+    ]
+}
+
+/// The incompleteness cases of [`tree_incomplete`], as table instances:
+/// the budget runs out on six rows of `item`, and the name is a column.
+fn table_incomplete() -> R<Vec<Case>> {
+    let item = |cells: &[(&str, Value)]| -> R<Instance> {
+        Ok(Instance::Table(
+            FInstance::new().with_rows("item", [(RowId(0), row(cells))])?,
+        ))
+    };
+    let named = |value: &str| item(&[("name", Value::Str(value.into()))]);
+    let six_rows = FInstance::new().with_rows("item", (0..6).map(|i| (RowId(i), row(&[]))))?;
+    Ok(vec![
+        budgeted(Case::new(
+            "incomplete/table_budget",
+            item_schema("table"),
+            Instance::Table(six_rows),
+        )),
+        Case::new(
+            "incomplete/table_unregistered_sort",
+            colour_schema("table"),
+            item(&[])?,
+        ),
+        Case::new(
+            "incomplete/table_pattern_lookahead",
+            named_schema("table", LOOKAHEAD),
+            named("a")?,
+        ),
+        audited(Case::new(
+            "incomplete/table_external_missing",
+            item_schema("table"),
+            item(&[])?,
+        )),
         rejecting(
             Case::new(
                 "incomplete/table_external_rejected",
-                items("table"),
-                Instance::Table(item_table(&[])?),
+                item_schema("table"),
+                item(&[])?,
             ),
             ViewRef::Row(RowId(0)),
         ),
         audited(Case::new(
-            "incomplete/tree_mixed_failure_and_incomplete",
-            named("object", bounded),
-            Instance::Tree(named_tree("toolong")),
-        )),
-        audited(Case::new(
             "incomplete/table_mixed_failure_and_incomplete",
-            named("table", bounded),
-            Instance::Table(item_table(&[("name", s("toolong"))])?),
+            named_schema("table", BOUNDED),
+            named("toolong")?,
         )),
-        with_source(
-            Case::new(
-                "incomplete/tree_source_map",
-                named("object", bounded),
-                Instance::Tree(named_tree("toolong")),
-            ),
-            "name",
-        ),
         with_source(
             Case::new(
                 "incomplete/table_source_map",
-                named("table", bounded),
-                Instance::Table(item_table(&[("name", s("toolong"))])?),
+                named_schema("table", BOUNDED),
+                named("toolong")?,
             ),
             "name",
         ),
@@ -1695,7 +1727,7 @@ fn write_three<T: Serialize>(out: &Path, name: &str, value: &T) -> Result<(), Bo
 
 /// Write the corpus to the directory the first argument names, or to the
 /// repository's `tests/fixtures/validation`.
-pub(crate) fn run() -> Result<(), Box<dyn Error>> {
+pub fn run() -> Result<(), Box<dyn Error>> {
     let out = std::env::args_os().nth(1).map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/validation"),
         PathBuf::from,
@@ -1714,7 +1746,8 @@ pub(crate) fn run() -> Result<(), Box<dyn Error>> {
         incomplete(),
         tree_anchors_and_endpoints(),
         tree_and_table_cardinality()?,
-        tree_and_table_incomplete()?,
+        tree_incomplete(),
+        table_incomplete()?,
     ];
     for case in cases.into_iter().flatten() {
         let fixture = case.validate();
