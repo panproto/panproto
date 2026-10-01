@@ -457,6 +457,12 @@ impl FInstance {
 
     /// Insert a row whose id the caller knows to be unused.
     pub(crate) fn place_row(&mut self, vertex: Name, id: RowId, row: Row) {
+        debug_assert!(
+            !self.row_table.contains_key(&id),
+            "place_row: row {} is already in table {:?}",
+            id.0,
+            self.row_table.get(&id)
+        );
         self.row_table.insert(id, vertex.clone());
         self.tables.entry(vertex).or_default().rows.insert(id, row);
     }
@@ -985,10 +991,14 @@ fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
 /// Carry a set-valued functor instance forward along a migration, keeping
 /// the fragment that survives.
 ///
-/// Each surviving target vertex takes the rows of every source vertex the
-/// migration sends to it, each row keeping its [`RowId`] and rewritten by
-/// its source vertex's op-to-term assignments; a target no source reaches
-/// keeps a same-named source table when the instance has one. Foreign keys
+/// Each source vertex sends its rows to its image, the vertex
+/// `vertex_remap` names for it or the vertex itself when it is not renamed,
+/// and they are kept exactly when that image is in `surviving_verts` (the
+/// rule [`crate::ginstance::GInstance`]'s restrict applies to nodes). A kept
+/// row keeps its [`RowId`] and is rewritten by its source vertex's
+/// op-to-term assignments. So every row lands at most once, even when a
+/// renamed vertex's old name is itself listed as surviving (as the
+/// migrations `panproto-lens` builds for a rename list it). Foreign keys
 /// travel for the edges the migration remaps between surviving vertices and
 /// for those it lets survive: a pair survives exactly when both of its rows
 /// landed in the carried edge's endpoint tables. Pairs from source edges the
@@ -1008,31 +1018,20 @@ pub fn functor_restrict(
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
     let mut out = FInstance::new();
-    let mut targets: Vec<&Name> = migration.surviving_verts.iter().collect();
-    targets.sort_unstable();
-    for tgt_vertex in targets {
-        let mut sources: Vec<&Name> = migration
-            .vertex_remap
-            .iter()
-            .filter(|(_, v)| *v == tgt_vertex)
-            .map(|(k, _)| k)
-            .collect();
-        sources.sort_unstable();
-        if sources.is_empty() {
-            sources.push(tgt_vertex);
+    for (src_vertex, table) in instance.tables() {
+        let tgt_vertex = migration.vertex_remap.get(src_vertex).unwrap_or(src_vertex);
+        if !migration.surviving_verts.contains(tgt_vertex) {
+            continue;
         }
-        for src_vertex in sources {
-            let Some(table) = instance.tables.get(src_vertex) else {
-                continue;
-            };
-            let assignments = migration.op_term_assignments.get(src_vertex);
-            for (id, row) in table.rows() {
-                let mut new_row = row.clone();
-                if let Some(assignments) = assignments {
-                    crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
-                }
-                out.place_row(tgt_vertex.clone(), id, new_row);
+        let assignments = migration.op_term_assignments.get(src_vertex);
+        for (id, row) in table.rows() {
+            let mut new_row = row.clone();
+            if let Some(assignments) = assignments {
+                crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
             }
+            // A row id is in exactly one source table, and each source
+            // table goes to one image, so the id is unused in `out`.
+            out.place_row(tgt_vertex.clone(), id, new_row);
         }
     }
 
@@ -1331,6 +1330,60 @@ mod tests {
                 "the result must not depend on hash iteration order"
             );
         }
+    }
+
+    /// A rename whose migration also lists the old name among the survivors
+    /// (the shape `panproto-lens` builds for every vertex rename): each row
+    /// lands once, in its source vertex's image, and the result decodes.
+    #[test]
+    fn functor_restrict_places_each_row_once_under_a_rename() {
+        let inst = FInstance::new()
+            .with_table("a", vec![cell("n", "a0")])
+            .and_then(|f| f.with_foreign_key(fk("a", "a"), [(RowId(0), RowId(0))]))
+            .unwrap();
+        let mut migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("a"), Name::from("b")]),
+            ..CompiledMigration::default()
+        };
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("b"));
+        migration.edge_remap.insert(fk("a", "a"), fk("b", "b"));
+
+        let restricted = functor_restrict(&inst, &migration).unwrap();
+        assert_eq!(restricted.total_row_count(), 1);
+        assert_eq!(restricted.row_count("b"), 1);
+        assert!(!restricted.has_table("a"), "a renamed vertex keeps no copy");
+        assert_eq!(restricted.table_of(RowId(0)).map(|n| &**n), Some("b"));
+        assert_eq!(
+            restricted.pairs(&fk("b", "b")),
+            &std::collections::BTreeSet::from([(RowId(0), RowId(0))])
+        );
+        let bytes = serde_json::to_vec(&restricted).unwrap();
+        let back: FInstance = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(back, restricted);
+        let extended = functor_extend(&inst, &migration).unwrap();
+        assert_eq!(restricted, extended, "restrict agrees with extend on a rename");
+    }
+
+    /// An unremapped surviving vertex keeps its own rows even when another
+    /// vertex is sent onto it: the pushforward of the identity part.
+    #[test]
+    fn functor_restrict_keeps_the_rows_of_an_unremapped_vertex_another_merges_into() {
+        let inst = FInstance::new()
+            .with_table("a", vec![cell("n", "a0")])
+            .and_then(|f| f.with_table("t", vec![cell("n", "t0")]))
+            .unwrap();
+        let mut migration = CompiledMigration {
+            surviving_verts: HashSet::from([Name::from("t")]),
+            ..CompiledMigration::default()
+        };
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        let restricted = functor_restrict(&inst, &migration).unwrap();
+        assert_eq!(restricted.row_count("t"), 2);
+        assert_eq!(restricted, functor_extend(&inst, &migration).unwrap());
     }
 
     /// A migration merging `a` and `b` onto `t`.
