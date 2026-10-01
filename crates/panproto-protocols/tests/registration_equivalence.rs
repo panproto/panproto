@@ -1153,3 +1153,49 @@ mod cross_process {
         assert_eq!(seen.into_iter().next(), Some(bytes));
     }
 }
+
+/// `ThGraph` with one more sort, `Extra`: a caller's own theory under a
+/// building block's name.
+fn custom_th_graph() -> Theory {
+    let mut custom = th_graph();
+    custom.sorts.push(panproto_gat::Sort::simple("Extra"));
+    custom
+}
+
+#[test]
+fn atproto_registration_replaces_a_building_block_already_in_the_registry() {
+    // 0.74 inserted every ATProto building block, replacing a theory the
+    // registry held under its name; the composition recorded for the name
+    // is then the composition of the theory the registry holds.
+    let mut registry = HashMap::from([("ThGraph".to_owned(), custom_th_graph())]);
+    panproto_protocols::atproto::register_theories(&mut registry).unwrap();
+    assert_eq!(
+        canonical_theory_bytes(&registry["ThGraph"]),
+        canonical_theory_bytes(&th_graph())
+    );
+    let recorded = registered_composition("ThGraph").unwrap();
+    assert_eq!(
+        canonical_theory_bytes(&recorded.theory),
+        canonical_theory_bytes(&registry["ThGraph"])
+    );
+}
+
+#[test]
+fn a_group_helper_keeps_a_building_block_already_in_the_registry() {
+    // 0.74's group helpers kept a theory the registry held under a
+    // building block's name; the composition recorded for the name stays
+    // the built-in block's, which the registry then does not hold.
+    let custom = custom_th_graph();
+    let mut registry = HashMap::from([("ThGraph".to_owned(), custom.clone())]);
+    panproto_protocols::theories::register_constrained_multigraph_wtype(
+        &mut registry,
+        "ThCustomSchema",
+        "ThCustomInstance",
+    );
+    assert_eq!(registry["ThGraph"], custom);
+    let recorded = registered_composition("ThGraph").unwrap();
+    assert_eq!(
+        canonical_theory_bytes(&recorded.theory),
+        canonical_theory_bytes(&th_graph())
+    );
+}
