@@ -9,7 +9,7 @@
 //! inserting or deleting nodes, relabeling anchors, setting or removing
 //! fields, moving subtrees, and manipulating hyper-edge fans.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::Edge;
@@ -942,7 +942,9 @@ impl GraphDelta {
     /// parent edge keeps the name `graph` gives it; a new fan's parent edge
     /// is unnamed.
     ///
-    /// The cost is that of rebuilding the graph form once per step.
+    /// Each step costs time linear in the size of the tree: following it
+    /// with [`TreeEmbedding::apply_edit`] reads the whole tree, and its
+    /// delta is the diff of the graph forms before and after it.
     ///
     /// # Errors
     ///
@@ -1359,29 +1361,45 @@ fn target_tree(
 /// Check that `tree` holds its root, which no arc enters, and that every
 /// other node reaches it through arcs.
 fn check_rooted(tree: &WInstance) -> Result<(), EditError> {
-    if !tree.nodes.contains_key(&tree.root) || tree.parent_map.contains_key(&tree.root) {
+    check_rooted_by(tree, |id| tree.parent_map.get(&id).copied())
+}
+
+/// [`check_rooted`] with the parent of each node read through `parent_of`.
+///
+/// Each walk towards the root stops at the first node an earlier walk
+/// showed reaches it, and every node it passes then joins those nodes, so
+/// each parent is read at most once and the check is linear in the tree.
+fn check_rooted_by(
+    tree: &WInstance,
+    mut parent_of: impl FnMut(u32) -> Option<u32>,
+) -> Result<(), EditError> {
+    if !tree.nodes.contains_key(&tree.root) || parent_of(tree.root).is_some() {
         return Err(not_tree_edit(format!(
             "the root {} is not the root of the tree it leaves",
             tree.root
         )));
     }
+    let mut rooted: HashSet<u32> = HashSet::from([tree.root]);
+    let mut path: Vec<u32> = Vec::new();
+    let mut on_path: HashSet<u32> = HashSet::new();
     for &id in tree.nodes.keys() {
         let mut current = id;
-        let mut steps = 0;
-        while current != tree.root {
-            let Some(&parent) = tree.parent_map.get(&current) else {
+        while !rooted.contains(&current) {
+            if !on_path.insert(current) {
+                return Err(not_tree_edit(format!(
+                    "node {current} is on a cycle in the graph it leaves"
+                )));
+            }
+            path.push(current);
+            let Some(parent) = parent_of(current) else {
                 return Err(not_tree_edit(format!(
                     "node {id} does not reach the root in the tree it leaves"
                 )));
             };
             current = parent;
-            steps += 1;
-            if steps > tree.parent_map.len() {
-                return Err(not_tree_edit(format!(
-                    "node {id} is on a cycle in the graph it leaves"
-                )));
-            }
         }
+        rooted.extend(std::mem::take(&mut path));
+        on_path.clear();
     }
     Ok(())
 }
@@ -2123,7 +2141,7 @@ mod graph_tests {
     use panproto_schema::{CanonicalWriter, Edge};
     use proptest::prelude::*;
 
-    use super::{TreeEdit, canonical_tree_edit_bytes};
+    use super::{TreeEdit, canonical_tree_edit_bytes, check_rooted_by};
     use crate::edit_error::EditError;
     use crate::fan::Fan;
     use crate::ginstance::{EdgeId, GEdge, GInstance, TreeEmbedding};
@@ -2185,6 +2203,60 @@ mod graph_tests {
 
     fn ids<K: Copy, V>(map: &BTreeMap<K, V>) -> Vec<K> {
         map.keys().copied().collect()
+    }
+
+    /// A chain 0 -> 1 -> ... -> n - 1 rooted at 0.
+    fn chain(n: u32) -> WInstance {
+        let nodes = (0..n).map(|id| (id, Node::new(id, "w"))).collect();
+        let arcs = (1..n).map(|id| (id - 1, id, edge("w", "w"))).collect();
+        WInstance::new(nodes, arcs, Vec::new(), 0, "w".into())
+    }
+
+    #[test]
+    fn checking_a_tree_is_rooted_reads_each_parent_once() -> TestResult {
+        let n = 2000;
+        let tree = chain(n);
+        let mut lookups = 0_usize;
+        check_rooted_by(&tree, |id| {
+            lookups += 1;
+            tree.parent_map.get(&id).copied()
+        })?;
+        // One lookup for the root, then at most one per other node.
+        assert!(
+            lookups <= n as usize,
+            "{lookups} parent lookups for a chain of {n} nodes"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn checking_a_tree_is_rooted_finds_cycles_and_strays() {
+        let mut cyclic = chain(6);
+        // 3 -> 4 -> 5 -> 3: nodes 3 to 5 never reach the root.
+        cyclic.parent_map.insert(3, 5);
+        let err = check_rooted_by(&cyclic, |id| cyclic.parent_map.get(&id).copied());
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason }) if reason.contains("cycle")),
+            "{err:?}"
+        );
+        let mut stray = chain(6);
+        stray.parent_map.remove(&4);
+        let err = check_rooted_by(&stray, |id| stray.parent_map.get(&id).copied());
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason })
+                if reason.contains("does not reach the root")),
+            "{err:?}"
+        );
+        let mut parented_root = chain(3);
+        parented_root.parent_map.insert(0, 2);
+        let err = check_rooted_by(&parented_root, |id| {
+            parented_root.parent_map.get(&id).copied()
+        });
+        assert!(
+            matches!(&err, Err(EditError::NotTreeEdit { reason })
+                if reason.contains("is not the root")),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -2706,12 +2778,6 @@ mod graph_tests {
         );
         let mut again = emb;
         let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)?;
-        let mut moved = graph;
-        lowered.apply(&mut moved)?;
-        assert!(GInstance::identical(
-            &moved,
-            &GInstance::from_wtype_under(&reached, &again, None)?
-        ));
         Ok(RoundTrip {
             read,
             delta,
@@ -2794,6 +2860,21 @@ mod graph_tests {
             cancelled.read
         );
         assert_same_up_to_new_edge_ids(&cancelled.delta, &cancelled.lowered);
+        // A node inserted under the fan node's id 6 and deleted again moves
+        // the fan to the fresh node id 7 and leaves the tree as it was: the
+        // delta reads as the identity, whose own delta is empty. The reading
+        // gives the delta's effect on the tree, not the fan's node ids.
+        let relocated = round_trip(
+            &tree,
+            &TreeEdit::Sequence(vec![
+                insert_edit(&tree, 0, 6, "word"),
+                TreeEdit::DeleteNode { id: 6 },
+            ]),
+        )?;
+        assert!(relocated.read.is_identity(), "{:?}", relocated.read);
+        assert_eq!(ids(relocated.delta.del_nodes()), vec![6]);
+        assert_eq!(ids(relocated.delta.add_nodes()), vec![7]);
+        assert_eq!(relocated.lowered, GraphDelta::identity());
         Ok(())
     }
 
@@ -4071,8 +4152,7 @@ mod graph_tests {
             }
             // The whole script as one sequence, whose delta may skip the ids
             // of arcs, nodes and fans that later steps remove again: it reads
-            // back as an edit with the script's effect on the tree, whose own
-            // delta leaves the graph form of that tree.
+            // back as an edit with the script's effect on the tree.
             let (start_tree, start_graph, start_embedding) = start;
             let whole_edit = TreeEdit::Sequence(script);
             let mut followed = start_embedding.clone();
@@ -4086,13 +4166,6 @@ mod graph_tests {
                         super::same_tree(&reached, &tree),
                         "{:?} read back as {:?}", whole_edit, read
                     );
-                    let mut again = start_embedding.clone();
-                    let lowered = GraphDelta::from_tree_edit(&start_graph, &mut again, &read)
-                        .map_err(|e| TestCaseError::fail(format!("{e}")))?;
-                    let mut moved = start_graph;
-                    lowered.apply(&mut moved).map_err(fail)?;
-                    let formed = GInstance::from_wtype_under(&reached, &again, None).map_err(fail)?;
-                    prop_assert!(GInstance::identical(&moved, &formed));
                 }
                 Err(err) => {
                     prop_assert!(
