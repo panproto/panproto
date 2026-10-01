@@ -3585,6 +3585,79 @@ fn tree_fan_diagnostics_name_the_fan_they_concern() {
     assert_eq!(fan_entries(&report).len(), 1);
 }
 
+#[test]
+fn tree_fan_diagnostics_name_children_the_tree_does_not_hold() {
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .build();
+    let mut t = WInstance::new(
+        HashMap::from([(0, Node::new(0, "doc"))]),
+        vec![],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    // Two unequal fans at one parent, each naming a child the tree lacks.
+    t.fans = vec![
+        Fan::new("nope", 0).with_child("lab", 5),
+        Fan::new("nope", 0).with_child("lab", 6),
+    ];
+    let unknown = |child: u32| {
+        (
+            Some(ViewRef::Node(0)),
+            vec![ViewRef::Node(0), ViewRef::Node(child)],
+            Violation::MalformedFan {
+                reason: FanViolation::UnknownLabel {
+                    label: "lab".into(),
+                },
+            },
+        )
+    };
+    let report = validate_wtype(&t, &schema, &Protocol::default());
+    assert_eq!(fan_entries(&report), vec![unknown(5), unknown(6)]);
+    assert_eq!(report.coverage[&report.diagnostics[0].check].failed, 1);
+}
+
+#[test]
+fn tree_fan_diagnostics_at_an_absent_parent_name_the_fan() {
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .hyper_edge("he", &[("lab", "doc")], "head")
+        .build();
+    let mut t = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "doc")),
+            (1, Node::new(1, "doc")),
+            (2, Node::new(2, "doc")),
+        ]),
+        vec![
+            (0, 1, prop("doc", "doc", "c")),
+            (0, 2, prop("doc", "doc", "c")),
+        ],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    // Two unequal fans whose parent 9 the tree lacks.
+    t.fans = vec![
+        Fan::new("he", 9).with_child("lab", 1),
+        Fan::new("he", 9).with_child("lab", 2),
+    ];
+    let missing = |child: u32| {
+        (
+            Some(ViewRef::Node(9)),
+            vec![ViewRef::Node(child), ViewRef::Node(9)],
+            Violation::MalformedFan {
+                reason: FanViolation::MissingParent,
+            },
+        )
+    };
+    let report = validate_wtype(&t, &schema, &Protocol::default());
+    assert_eq!(fan_entries(&report), vec![missing(1), missing(2)]);
+}
+
 /// A root with a union `u` of variants `a` and `b`, and an edge from the
 /// root to `a`.
 fn sibling_variant_schema() -> Schema {

@@ -1199,9 +1199,9 @@ fn fan_violation_edges(reason: &FanViolation) -> Vec<ViewRef> {
 /// no labels has no [`FanViolation`] that describes it and is reported as
 /// an [`UnknownAnchor`](Violation::UnknownAnchor) naming the hyper-edge, as
 /// `NodeAnchor` reports the fan node of the graph form. A tree diagnostic
-/// names the parent and every child of its fan that the tree holds, so it
-/// tells apart fans at one parent with different children; equal fans are
-/// one fault and are reported once.
+/// names the parent and every child of its fan, a child or parent the tree
+/// does not hold included, so it tells apart fans at one parent with
+/// different children; equal fans are one fault and are reported once.
 fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
     let schema = &ctx.plan.schema;
     match (ctx.view, f) {
@@ -1218,22 +1218,17 @@ fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
         (InstanceView::Tree(t, _), ViewRef::Node(parent)) => {
             let mut findings: Vec<Finding> = Vec::new();
             for fan in t.fans.iter().filter(|fan| fan.parent == *parent) {
+                let mut elements = vec![f.clone()];
+                elements.extend(fan.children.values().map(|child| ViewRef::Node(*child)));
                 if !t.nodes.contains_key(parent) {
                     findings.push(Finding::new(
-                        vec![f.clone()],
+                        elements,
                         Violation::MalformedFan {
                             reason: FanViolation::MissingParent,
                         },
                     ));
                     continue;
                 }
-                let mut elements = vec![f.clone()];
-                elements.extend(
-                    fan.children
-                        .values()
-                        .filter(|child| t.nodes.contains_key(child))
-                        .map(|child| ViewRef::Node(*child)),
-                );
                 let signature = schema
                     .hyper_edges
                     .get(fan.hyper_edge_id.as_str())
