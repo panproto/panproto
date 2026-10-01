@@ -185,6 +185,10 @@ pub const MANIFEST_CONTEXT: &str = "panproto 2026-09 segment manifest v1";
 /// The blake3 key-derivation context for a segmented run's journal.
 pub const RUN_JOURNAL_CONTEXT: &str = "panproto 2026-09 segment run journal v1";
 
+/// The blake3 key-derivation context for a segment's edge id digest: the
+/// segment's owned edge ids, ascending, each as four little-endian bytes.
+pub const SEGMENT_EDGE_IDS_CONTEXT: &str = "panproto 2026-09 segment edge ids v1";
+
 /// The version of the canonical segment layout.
 pub const SEGMENT_FORMAT_VERSION: u16 = 1;
 
