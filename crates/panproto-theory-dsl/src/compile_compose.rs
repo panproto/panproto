@@ -1036,6 +1036,37 @@ mod tests {
     }
 
     #[test]
+    fn bundle_protocols_compile_alike_in_either_order() {
+        // `P1` builds `GraphHyper` inline; `P2` names it. An inline
+        // composition is not a theory the bundle's protocols can name, in
+        // whichever order the bundle lists them.
+        let builds = format!(
+            r#"{{"protocol": "P1", "schema_theory": {GRAPH_HYPER}, "instance_theory": "ThGraph"}}"#
+        );
+        let names =
+            r#"{"protocol": "P2", "schema_theory": "GraphHyper", "instance_theory": "ThGraph"}"#;
+        for (what, protocols) in [
+            ("P1 then P2", format!("{builds}, {names}")),
+            ("P2 then P1", format!("{names}, {builds}")),
+        ] {
+            let result = compile_document(&document(&format!(
+                r#"{{"bundle": "b", "protocols": [{protocols}]}}"#
+            )));
+            let Err(TheoryDslError::TheoryNotFound { name, context }) = result else {
+                panic!("{what}: expected TheoryNotFound, got {result:?}");
+            };
+            assert_eq!(name, "GraphHyper", "{what}");
+            assert_eq!(context, "protocol 'P2'", "{what}");
+        }
+        // Without `P2`, `P1` compiles and records its composition.
+        let set = compile_document(&document(&format!(
+            r#"{{"bundle": "b", "protocols": [{builds}]}}"#
+        )))
+        .unwrap_or_else(|e| panic!("P1 compiles: {e}"));
+        assert_records_graph_hyper(&set, "P1 alone");
+    }
+
+    #[test]
     fn document_compile_refuses_two_different_compositions_of_one_name() {
         let duplicate = |result: Result<CompiledTheorySet, TheoryDslError>, what: &str| {
             let Err(TheoryDslError::Duplicate { kind, name }) = result else {
@@ -1779,26 +1810,123 @@ mod tests {
         }
     }
 
+    /// `theory` with the operation `f: V -> V`, named `name`.
+    fn with_endo(name: &str, theory: Theory) -> Theory {
+        let mut ops = theory.ops;
+        ops.push(Operation::unary("f", "x", "V", "V"));
+        Theory::new(name, theory.sorts, ops, theory.eqs)
+    }
+
     #[test]
-    fn dsl_step_refuses_a_dependent_shared_sort_whose_parameter_sort_it_does_not_share() {
+    fn dsl_explicit_step_refuses_a_dependent_shared_sort_whose_parameter_sort_it_does_not_share() {
         // Both sides declare `V` and `E(a: V, b: V)`; sharing `E` alone
-        // leaves the sort its parameters range over unshared.
+        // leaves the sort its parameters range over unshared, and explicit
+        // identity glues nothing the step does not name.
         let local = vertex_edge_sides(true, true);
-        for mode in ["amalgamate", "explicit_identity"] {
+        for identify in [&[][..], &[("sort", "E", "E")][..]] {
             let Err(error) = compile_composition_with_report(
-                &step_with(("L", "R"), &["E"], &[], mode, &[]),
+                &step_with(("L", "R"), &["E"], &[], "explicit_identity", identify),
                 &builtin_resolver(),
                 &local,
             ) else {
-                panic!("{mode}: V is not shared");
+                panic!("{identify:?}: V is not shared");
             };
             assert_eq!(
                 user_message(error),
                 "sort 'E', shared or identified with 'E', mentions the sort 'V' in its \
                  declaration, but 'V' is neither shared nor identified",
-                "{mode}"
+                "{identify:?}"
             );
         }
+    }
+
+    #[test]
+    fn dsl_amalgamate_step_glues_the_parameter_sort_of_a_dependent_shared_sort() {
+        // Both sides declare `V` and `E(a: V, b: V)`. Amalgamation glues the
+        // two `V`s by name, so sharing `E` alone composes, as it did in 0.74,
+        // to the theory that sharing `V` and `E` gives.
+        let local = vertex_edge_sides(true, true);
+        let both = compile_and_replay(
+            &step_with(("L", "R"), &["V", "E"], &[], "amalgamate", &[]),
+            &local,
+            &local,
+        )
+        .unwrap_or_else(|e| panic!("sharing V and E: {e}"));
+        assert_eq!(sort_names(&both), ["E", "V"]);
+        assert_eq!(
+            params_of(&both, "E"),
+            [
+                ("a".to_owned(), "V".to_owned()),
+                ("b".to_owned(), "V".to_owned())
+            ]
+        );
+        for identify in [&[][..], &[("sort", "E", "E")][..]] {
+            let theory = compile_and_replay(
+                &step_with(("L", "R"), &["E"], &[], "amalgamate", identify),
+                &local,
+                &local,
+            )
+            .unwrap_or_else(|e| panic!("{identify:?}: {e}"));
+            assert_eq!(theory, both, "{identify:?}");
+        }
+
+        // An operation over `V`, shared in a step composed as a diagram,
+        // composes the same way.
+        let local: HashMap<String, Theory> = [
+            ("L".to_owned(), with_endo("L", vertex_edge("L", "V", true))),
+            ("R".to_owned(), with_endo("R", vertex_edge("R", "V", true))),
+        ]
+        .into();
+        let both = compile_and_replay(
+            &step_with(("L", "R"), &["V", "E"], &["f"], "amalgamate", &[]),
+            &local,
+            &local,
+        )
+        .unwrap_or_else(|e| panic!("sharing V, E and f: {e}"));
+        let theory = compile_and_replay(
+            &step_with(("L", "R"), &[], &["f"], "amalgamate", &[("sort", "E", "E")]),
+            &local,
+            &local,
+        )
+        .unwrap_or_else(|e| panic!("sharing f, identifying E: {e}"));
+        assert_eq!(theory, both);
+    }
+
+    #[test]
+    fn dsl_amalgamate_step_refuses_a_glued_parameter_sort_of_different_arity() {
+        // The right `V` takes a parameter: the `V`s that sharing `E` glues
+        // differ in arity, refused in the step's terms.
+        use panproto_gat::SortParam;
+        let right = Theory::new(
+            "R",
+            vec![
+                Sort::simple("W"),
+                Sort::dependent("V", vec![SortParam::new("w", "W")]),
+                Sort::dependent(
+                    "E",
+                    vec![SortParam::new("a", "V"), SortParam::new("b", "V")],
+                ),
+            ],
+            vec![],
+            vec![],
+        );
+        let local: HashMap<String, Theory> = [
+            ("L".to_owned(), vertex_edge("L", "V", true)),
+            ("R".to_owned(), right),
+        ]
+        .into();
+        let Err(error) = compile_composition_with_report(
+            &step_with(("L", "R"), &["E"], &[], "amalgamate", &[]),
+            &builtin_resolver(),
+            &local,
+        ) else {
+            panic!("the two Vs differ in arity");
+        };
+        assert_eq!(
+            user_message(error),
+            "amalgamated sort 'V' has arity 0 in left theory 'L', but 'V' has arity 1 in right \
+             theory 'R'"
+        );
     }
 }
 
