@@ -1588,13 +1588,38 @@ mod tests {
                 "{mode}"
             );
             // Without the identification the parameter sorts cannot be
-            // mapped: refused in the step's terms.
+            // mapped: refused in the step's terms, whether or not the step
+            // identifies anything else.
+            for identify in [&[][..], &[("sort", "E", "E")][..]] {
+                let Err(error) = compile_composition_with_report(
+                    &step_with(("L", "R"), &["E"], &[], mode, identify),
+                    &builtin_resolver(),
+                    &local,
+                ) else {
+                    panic!("{mode}, {identify:?}: V and N are not one symbol");
+                };
+                assert_eq!(
+                    user_message(error),
+                    "sort 'E', shared or identified with 'E', mentions the sort 'V' in its \
+                     declaration, but 'V' is neither shared nor identified",
+                    "{mode}, {identify:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn dsl_step_refuses_a_dependent_shared_sort_whose_parameter_sort_it_does_not_share() {
+        // Both sides declare `V` and `E(a: V, b: V)`; sharing `E` alone
+        // leaves the sort its parameters range over unshared.
+        let local = vertex_edge_sides(true, true);
+        for mode in ["amalgamate", "explicit_identity"] {
             let Err(error) = compile_composition_with_report(
-                &step_with(("L", "R"), &["E"], &[], mode, &[("sort", "E", "E")]),
+                &step_with(("L", "R"), &["E"], &[], mode, &[]),
                 &builtin_resolver(),
                 &local,
             ) else {
-                panic!("{mode}: V and N are not one symbol");
+                panic!("{mode}: V is not shared");
             };
             assert_eq!(
                 user_message(error),
