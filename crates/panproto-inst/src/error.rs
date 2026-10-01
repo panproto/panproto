@@ -1,7 +1,5 @@
 //! Error types for instance operations.
 
-use std::fmt;
-
 use panproto_gat::Name;
 use panproto_schema::Edge;
 
@@ -382,89 +380,4 @@ pub enum ParseError {
     /// every one in the document, in document order.
     #[error("{} value(s) cannot be read exactly; the first: {}", .0.len(), .0.first().map_or_else(String::new, ToString::to_string))]
     Fidelity(Vec<ValueFidelityError>),
-}
-
-/// A validation error found when checking a W-type instance against a schema.
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
-pub enum ValidationError {
-    /// A node's anchor vertex is not in the schema.
-    InvalidAnchor {
-        /// The offending node ID.
-        node_id: u32,
-        /// The anchor that was not found.
-        anchor: String,
-    },
-
-    /// An arc's edge is not in the schema.
-    InvalidEdge {
-        /// Parent node ID.
-        parent: u32,
-        /// Child node ID.
-        child: u32,
-        /// Details.
-        detail: String,
-    },
-
-    /// The root node is not present in the node set.
-    MissingRoot,
-
-    /// A child node is unreachable from the root.
-    UnreachableNode {
-        /// The unreachable node ID.
-        node_id: u32,
-    },
-
-    /// A required edge is missing from a node.
-    MissingRequiredEdge {
-        /// The node ID.
-        node_id: u32,
-        /// Description of the missing edge.
-        edge: String,
-    },
-
-    /// Parent map inconsistency.
-    ParentMapInconsistent {
-        /// The node with the inconsistency.
-        node_id: u32,
-        /// Details.
-        detail: String,
-    },
-
-    /// Fan references a nonexistent node.
-    InvalidFan {
-        /// The hyper-edge ID.
-        hyper_edge_id: String,
-        /// Details.
-        detail: String,
-    },
-}
-
-impl fmt::Display for ValidationError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidAnchor { node_id, anchor } => {
-                write!(f, "node {node_id} has invalid anchor: {anchor}")
-            }
-            Self::InvalidEdge {
-                parent,
-                child,
-                detail,
-            } => write!(f, "invalid edge ({parent}, {child}): {detail}"),
-            Self::MissingRoot => write!(f, "root node is missing"),
-            Self::UnreachableNode { node_id } => {
-                write!(f, "node {node_id} is unreachable from root")
-            }
-            Self::MissingRequiredEdge { node_id, edge } => {
-                write!(f, "node {node_id} missing required edge: {edge}")
-            }
-            Self::ParentMapInconsistent { node_id, detail } => {
-                write!(f, "parent map inconsistency at node {node_id}: {detail}")
-            }
-            Self::InvalidFan {
-                hyper_edge_id,
-                detail,
-            } => write!(f, "invalid fan for hyper-edge {hyper_edge_id}: {detail}"),
-        }
-    }
 }
