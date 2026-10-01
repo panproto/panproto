@@ -1368,7 +1368,9 @@ fn check_rooted(tree: &WInstance) -> Result<(), EditError> {
 ///
 /// Each walk towards the root stops at the first node an earlier walk
 /// showed reaches it, and every node it passes then joins those nodes, so
-/// each parent is read at most once and the check is linear in the tree.
+/// each parent is read at most once and a tree passes in linear time. A
+/// graph that fails is walked again from its nodes in ascending id, so the
+/// reason names the same node whatever the hash order of `tree.nodes`.
 fn check_rooted_by(
     tree: &WInstance,
     mut parent_of: impl FnMut(u32) -> Option<u32>,
@@ -1379,10 +1381,26 @@ fn check_rooted_by(
             tree.root
         )));
     }
-    let mut rooted: HashSet<u32> = HashSet::from([tree.root]);
+    if walk_to_root(tree.root, tree.nodes.keys().copied(), &mut parent_of).is_ok() {
+        return Ok(());
+    }
+    let mut ids: Vec<u32> = tree.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    walk_to_root(tree.root, ids, &mut parent_of)
+}
+
+/// Walk from each of `starts` towards `root` through `parent_of`, stopping
+/// at the first node that does not reach it: a node with no parent, or one
+/// on a cycle.
+fn walk_to_root(
+    root: u32,
+    starts: impl IntoIterator<Item = u32>,
+    parent_of: &mut impl FnMut(u32) -> Option<u32>,
+) -> Result<(), EditError> {
+    let mut rooted: HashSet<u32> = HashSet::from([root]);
     let mut path: Vec<u32> = Vec::new();
     let mut on_path: HashSet<u32> = HashSet::new();
-    for &id in tree.nodes.keys() {
+    for id in starts {
         let mut current = id;
         while !rooted.contains(&current) {
             if !on_path.insert(current) {
@@ -1579,9 +1597,16 @@ impl Rebuild<'_> {
         )
     }
 
-    /// Insert `fan`, after making the nodes it names present.
+    /// Insert `fan`, after making the nodes it names present: its parent,
+    /// then its members in label order, so the steps do not follow the hash
+    /// order of the fan's child map.
     fn insert_fan(&mut self, fan: &Fan) -> Result<(), EditError> {
-        for node in std::iter::once(fan.parent).chain(fan.children.values().copied()) {
+        let members: BTreeMap<&String, u32> = fan
+            .children
+            .iter()
+            .map(|(label, &id)| (label, id))
+            .collect();
+        for node in std::iter::once(fan.parent).chain(members.into_values()) {
             if !self.present(node) {
                 self.make_present(node)?;
             }
@@ -2260,6 +2285,42 @@ mod graph_tests {
     }
 
     #[test]
+    fn checking_a_tree_is_rooted_gives_one_reason_for_one_tree() {
+        // Every new tree has a node map with its own hash order; the reason
+        // must not depend on it.
+        let reasons = |damage: fn(&mut WInstance)| {
+            (0..64)
+                .map(|_| {
+                    let mut tree = chain(6);
+                    damage(&mut tree);
+                    format!(
+                        "{:?}",
+                        check_rooted_by(&tree, |id| tree.parent_map.get(&id).copied())
+                    )
+                })
+                .collect::<std::collections::BTreeSet<_>>()
+        };
+        let stray = reasons(|tree| {
+            tree.parent_map.remove(&4);
+        });
+        assert_eq!(stray.len(), 1, "{stray:?}");
+        assert!(
+            stray
+                .iter()
+                .all(|r| r.contains("node 4 does not reach the root")),
+            "{stray:?}"
+        );
+        let cyclic = reasons(|tree| {
+            tree.parent_map.insert(3, 5);
+        });
+        assert_eq!(cyclic.len(), 1, "{cyclic:?}");
+        assert!(
+            cyclic.iter().all(|r| r.contains("node 3 is on a cycle")),
+            "{cyclic:?}"
+        );
+    }
+
+    #[test]
     fn from_tree_edit_cases() -> TestResult {
         let tree = sentence();
         insert_and_delete_cases(&tree)?;
@@ -2809,6 +2870,45 @@ mod graph_tests {
                 name: None,
             },
         }
+    }
+
+    #[test]
+    fn a_delta_reads_as_one_tree_edit_whatever_the_hash_order() -> TestResult {
+        // The fan's edges come before the arcs of its members, which the
+        // sequence inserts and then moves, so the reading inserts every
+        // member early, in an order the fan's child map must not set.
+        let tree = paragraphs();
+        let members = [9, 10, 11, 12];
+        let mut fan = Fan::new("pair", 0);
+        let mut steps = Vec::new();
+        for (label, id) in ["x", "y", "z", "w"].into_iter().zip(members) {
+            steps.push(insert_edit(&tree, 0, id, "word"));
+            fan = fan.with_child(label, id);
+        }
+        steps.push(TreeEdit::InsertFan { fan });
+        for id in members {
+            steps.push(TreeEdit::MoveSubtree {
+                node_id: id,
+                new_parent: 3,
+                edge: Edge {
+                    src: "word".into(),
+                    tgt: "word".into(),
+                    kind: "prop".into(),
+                    name: None,
+                },
+            });
+        }
+        let edit = TreeEdit::Sequence(steps);
+        // Canonical bytes, since a fan's derived debug text follows its
+        // child map's hash order.
+        let mut readings = std::collections::BTreeSet::new();
+        for _ in 0..64 {
+            let mut writer = CanonicalWriter::new();
+            canonical_tree_edit_bytes(&round_trip(&tree, &edit)?.read, &mut writer);
+            readings.insert(writer.into_bytes());
+        }
+        assert_eq!(readings.len(), 1, "{} readings", readings.len());
+        Ok(())
     }
 
     #[test]
