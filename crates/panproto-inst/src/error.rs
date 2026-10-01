@@ -128,28 +128,6 @@ pub enum InstError {
         tables: Vec<Name>,
     },
 
-    /// A row cannot move to another table while it takes part in a
-    /// foreign-key pair, since the pair would no longer join its edge's
-    /// endpoint tables.
-    #[error(
-        "row {} cannot move from table \"{from}\" to table \"{to}\" while it takes part in the pair ({}, {}) of foreign key {edge:?}",
-        .row.0, .src.0, .tgt.0
-    )]
-    RowHasForeignKeys {
-        /// The row asked to move.
-        row: RowId,
-        /// The table holding the row.
-        from: Name,
-        /// The table the row was asked to move to.
-        to: Name,
-        /// The foreign-key edge of the first pair the row takes part in.
-        edge: Edge,
-        /// The source row of that pair.
-        src: RowId,
-        /// The target row of that pair.
-        tgt: RowId,
-    },
-
     /// A row map sends a row to a row of another table.
     #[error("row {} is mapped into a table other than its own", .row.0)]
     HomTableMismatch {
@@ -174,6 +152,28 @@ pub enum InstError {
     NotATable {
         /// Why the graph is not a table.
         reason: NotTableReason,
+    },
+
+    /// A row cannot move to another table while it takes part in a
+    /// foreign-key pair, since the pair would no longer join its edge's
+    /// endpoint tables.
+    #[error(
+        "row {} cannot move from table \"{from}\" to table \"{to}\" while it takes part in the pair ({}, {}) of foreign key {edge:?}",
+        .row.0, .src.0, .tgt.0
+    )]
+    RowHasForeignKeys {
+        /// The row asked to move.
+        row: RowId,
+        /// The table holding the row.
+        from: Name,
+        /// The table the row was asked to move to.
+        to: Name,
+        /// The foreign-key edge of the first pair the row takes part in.
+        edge: Edge,
+        /// The source row of that pair.
+        src: RowId,
+        /// The target row of that pair.
+        tgt: RowId,
     },
 
     /// A tree holds reserved fan vocabulary: a node of the fan shape, or an
