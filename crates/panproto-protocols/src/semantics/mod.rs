@@ -15,7 +15,7 @@
 //!   constraint sort;
 //! - [`value_kinds`](crate::semantics::value_kinds): the
 //!   [`ScalarKind`](panproto_schema::ScalarKind) of each scalar vertex
-//!   kind.
+//!   kind, and the vertex kinds that hold no scalar.
 //!
 //! Each table keeps its rows in one file per protocol family and keys them
 //! by the protocol's canonical name, the name its
@@ -29,11 +29,11 @@ pub mod value_kinds;
 
 use constraint_semantics::ConstraintRow;
 use shapes::ShapeRow;
-use value_kinds::ValueKindRow;
+use value_kinds::{NonScalarRow, ValueKindRow};
 
 /// Attaches the semantic declarations of `protocol` (its syntactic and
-/// semantic shapes, the semantics of its constraint sorts and the scalar
-/// kinds of its vertex kinds) to it.
+/// semantic shapes, the semantics of its constraint sorts, the scalar kinds
+/// of its value kinds and the set of its non-value kinds) to it.
 ///
 /// The protocol is looked up by [`canonical_name`] of its `name`, so a
 /// protocol whose `name` is an alias or an underscore spelling of its
@@ -41,7 +41,8 @@ use value_kinds::ValueKindRow;
 /// shape row sets both shapes; a protocol with none keeps the shapes its
 /// constructor gave it. Constraint-semantics and value-kind rows are added
 /// to the maps the constructor built, a row replacing an entry of the same
-/// key. The composition recipes of its schema and instance theories are
+/// key, and each non-scalar row adds its vertex kind to
+/// [`non_value_kinds`](panproto_schema::Protocol::non_value_kinds). The composition recipes of its schema and instance theories are
 /// filled by [`crate::theories::attach_recipes`].
 pub fn attach(protocol: &mut Protocol) {
     attach_from(
@@ -49,6 +50,7 @@ pub fn attach(protocol: &mut Protocol) {
         shapes::rows(),
         constraint_semantics::rows(),
         value_kinds::rows(),
+        value_kinds::non_scalar_rows(),
     );
     crate::theories::attach_recipes(protocol);
 }
@@ -67,6 +69,7 @@ fn attach_from<'a>(
     shapes: impl IntoIterator<Item = &'a ShapeRow>,
     constraints: impl IntoIterator<Item = &'a ConstraintRow>,
     kinds: impl IntoIterator<Item = &'a ValueKindRow>,
+    non_scalar: impl IntoIterator<Item = &'a NonScalarRow>,
 ) {
     let name = canonical_name(&protocol.name);
     if let Some(row) = shapes.into_iter().find(|row| row.protocol == name) {
@@ -83,6 +86,11 @@ fn attach_from<'a>(
             .value_kinds
             .insert(row.vertex_kind.to_owned(), row.kind.clone());
     }
+    for row in non_scalar.into_iter().filter(|row| row.protocol == name) {
+        protocol
+            .non_value_kinds
+            .insert(row.vertex_kind.to_owned());
+    }
 }
 
 #[cfg(test)]
@@ -94,7 +102,7 @@ mod tests {
         ConstraintSemantics, InstanceShapeKind, LengthUnit, Protocol, ScalarKind,
     };
 
-    use super::{ConstraintRow, ShapeRow, ValueKindRow, attach_from, canonical_name};
+    use super::{ConstraintRow, NonScalarRow, ShapeRow, ValueKindRow, attach_from, canonical_name};
 
     const SHAPES: &[ShapeRow] = &[
         ShapeRow {
@@ -145,13 +153,47 @@ mod tests {
         ]
     }
 
+    const NON_SCALAR: &[NonScalarRow] = &[
+        NonScalarRow {
+            protocol: "uima",
+            vertex_kind: "annotation",
+        },
+        NonScalarRow {
+            protocol: "uima",
+            vertex_kind: "feature-structure",
+        },
+        NonScalarRow {
+            protocol: "redis",
+            vertex_kind: "index",
+        },
+    ];
+
     fn attached(name: &str) -> Protocol {
         let mut protocol = Protocol {
             name: name.into(),
             ..Protocol::default()
         };
-        attach_from(&mut protocol, SHAPES, CONSTRAINTS, &kinds());
+        attach_from(&mut protocol, SHAPES, CONSTRAINTS, &kinds(), NON_SCALAR);
         protocol
+    }
+
+    /// The non-value kinds come from the protocol's own non-scalar rows,
+    /// read by canonical name as the value kinds are, and only from them.
+    #[test]
+    fn attach_fills_the_non_value_kinds_from_the_non_scalar_rows() {
+        let uima = attached("uima");
+        assert_eq!(
+            uima.non_value_kinds,
+            ["annotation".to_owned(), "feature-structure".to_owned()]
+                .into_iter()
+                .collect()
+        );
+        assert_eq!(attached("uima-cas").non_value_kinds, uima.non_value_kinds);
+        assert_eq!(
+            attached("redis").non_value_kinds,
+            ["index".to_owned()].into_iter().collect()
+        );
+        assert!(attached("openapi").non_value_kinds.is_empty());
     }
 
     #[test]
@@ -216,7 +258,7 @@ mod tests {
             ..Protocol::default()
         };
         let before = protocol.clone();
-        attach_from(&mut protocol, SHAPES, CONSTRAINTS, &kinds());
+        attach_from(&mut protocol, SHAPES, CONSTRAINTS, &kinds(), NON_SCALAR);
         assert_eq!(protocol, before);
     }
 
@@ -224,7 +266,7 @@ mod tests {
     fn attach_is_idempotent() {
         let once = attached("uima");
         let mut twice = once.clone();
-        attach_from(&mut twice, SHAPES, CONSTRAINTS, &kinds());
+        attach_from(&mut twice, SHAPES, CONSTRAINTS, &kinds(), NON_SCALAR);
         assert_eq!(twice, once);
     }
 }

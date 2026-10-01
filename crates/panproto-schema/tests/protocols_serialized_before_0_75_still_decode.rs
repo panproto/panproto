@@ -68,6 +68,23 @@ fn the_new_protocol_fields_round_trip() -> Result<(), Box<dyn std::error::Error>
     Ok(())
 }
 
+/// A protocol written before it declared its non-value kinds decodes with
+/// none, from JSON and from msgpack, and a declared set round-trips.
+#[test]
+fn a_protocol_without_non_value_kinds_decodes_with_none() -> Result<(), Box<dyn std::error::Error>>
+{
+    let before: Protocol = serde_json::from_str(PROTOCOL_BEFORE)?;
+    assert!(before.non_value_kinds.is_empty());
+    let mut declared = before.clone();
+    declared.non_value_kinds = ["object".to_owned()].into_iter().collect();
+    let json = serde_json::to_string(&declared)?;
+    assert!(json.contains(r#""non_value_kinds":["object"]"#), "{json}");
+    assert_eq!(serde_json::from_str::<Protocol>(&json)?, declared);
+    let msgpack = rmp_serde::to_vec(&declared)?;
+    assert_eq!(rmp_serde::from_slice::<Protocol>(&msgpack)?, declared);
+    Ok(())
+}
+
 /// A schema with one key and one reference on its only vertex pair.
 fn declaring_schema() -> Result<Schema, Box<dyn std::error::Error>> {
     let protocol = Protocol {

@@ -4,7 +4,7 @@
 //! particular data format uses, together with well-formedness rules
 //! for edges and the set of recognized vertex/constraint kinds.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use panproto_gat::CompositionSpec;
 use serde::{Deserialize, Serialize};
@@ -130,6 +130,18 @@ pub struct Protocol {
     /// empty.
     #[serde(default)]
     pub value_kinds: BTreeMap<String, ScalarKind>,
+    /// The vertex kinds whose vertices hold no value of their own: records,
+    /// lists of records and declarations, as opposed to the value kinds of
+    /// [`value_kinds`](Self::value_kinds).
+    ///
+    /// Together the two classify every vertex kind of a table protocol: a
+    /// vertex of a kind listed here is a table of its schema's
+    /// relation-ified form, and a vertex of a value kind is an attribute
+    /// (a column of the table it hangs from). A kind is in at most one of the
+    /// two. Defaults to empty, so a protocol serialized without the field
+    /// decodes with none.
+    #[serde(default)]
+    pub non_value_kinds: BTreeSet<String>,
 }
 
 impl Protocol {
