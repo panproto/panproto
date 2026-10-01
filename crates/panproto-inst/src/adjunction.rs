@@ -1888,4 +1888,43 @@ mod tests {
             .check(&x, &delta_sigma)
             .expect("the unit is a homomorphism into Delta(Sigma X)");
     }
+
+    /// An unmentioned edge whose relabelling under the vertex map is the
+    /// image of a source edge: Sigma and extend both refuse it rather than
+    /// merge its pairs into that image, and restrict drops it.
+    #[test]
+    fn the_table_operations_agree_on_an_edge_relabelled_onto_an_image() {
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "a".into());
+        migration.vertex_remap.insert("c".into(), "a".into());
+        migration.vertex_remap.insert("b".into(), "b".into());
+        migration.surviving_verts.insert("a".into());
+        migration.surviving_verts.insert("b".into());
+        migration
+            .edge_remap
+            .insert(edge("a", "b", "x"), edge("a", "b", "y"));
+        migration.surviving_edges.insert(edge("a", "b", "y"));
+        let z = edge("c", "b", "y");
+        let x = FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::new())])
+            .and_then(|f| f.with_rows("b", [(RowId(1), HashMap::new())]))
+            .and_then(|f| f.with_rows("c", [(RowId(2), HashMap::new())]))
+            .and_then(|f| f.with_foreign_key(edge("a", "b", "x"), [(RowId(0), RowId(1))]))
+            .and_then(|f| f.with_foreign_key(z.clone(), [(RowId(2), RowId(1))]))
+            .unwrap();
+        assert!(matches!(
+            f_sigma(&x, &migration),
+            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == z
+        ));
+        assert!(matches!(
+            crate::functor_extend(&x, &migration),
+            Err(RestrictError::EdgeOutsideDomain { edge: e }) if e == z
+        ));
+        let restricted = crate::functor_restrict(&x, &migration).unwrap();
+        assert_eq!(
+            restricted.pairs(&edge("a", "b", "y")),
+            &BTreeSet::from([(RowId(0), RowId(1))])
+        );
+        assert_eq!(restricted.pair_count(), 1);
+    }
 }

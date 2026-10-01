@@ -1,0 +1,7 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 63adf2fad0acc979618613e468b92417361e9c0fd78b236f471549e404f786e1 # shrinks to migration = CompiledMigration { surviving_verts: {}, surviving_edges: {}, vertex_remap: {Name("a"): Name("a"), Name("d"): Name("a")}, edge_remap: {}, resolver: {}, hyper_resolver: {}, field_transforms: {}, conditional_survival: {}, op_term_assignments: {}, expansion_path: {} }, edges = {0, 3}

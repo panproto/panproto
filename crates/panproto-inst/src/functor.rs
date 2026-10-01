@@ -1128,16 +1128,25 @@ pub fn functor_restrict(
 /// its kind and name between the images of its endpoints, and an edge the
 /// migration names only as a target, the image of some other edge that it
 /// does not remap itself, has no image of its own, so extend refuses pairs
-/// held there. A pair is kept when its rows lie in the carried edge's
-/// endpoint tables.
+/// held there. Relabelling an unmentioned edge can land it on an edge that
+/// something else already reaches: the image of a source edge (whether or
+/// not that source edge holds pairs), or the relabelling of another
+/// unmentioned edge the instance holds pairs on. Extend refuses such an edge
+/// too rather than merge its pairs there unasked; the only merges it makes
+/// are those of source edges that `edge_remap` sends to one image. An
+/// unmentioned edge whose relabelling is a source edge the migration remaps
+/// away is no merge, so it travels. A pair is kept when its rows lie in the
+/// carried edge's endpoint tables.
 ///
 /// # Errors
 ///
 /// Returns [`RestrictError::VertexOutsideDomain`] when a row lies at a
 /// vertex the migration names only as a target,
 /// [`RestrictError::EdgeOutsideDomain`] when a pair lies on an edge the
-/// migration names only as a target, and `RestrictError` if a row's
-/// op-to-term assignment fails to evaluate.
+/// migration names only as a target, or on an unmentioned edge whose
+/// relabelling some other edge already reaches (of two unmentioned edges
+/// that collide, the later in edge order is named), and `RestrictError` if
+/// a row's op-to-term assignment fails to evaluate.
 pub fn functor_extend(
     instance: &FInstance,
     migration: &CompiledMigration,
@@ -1181,14 +1190,38 @@ pub fn functor_extend(
 
     let edge_images = crate::adjunction::edge_images(migration);
     let target_only = crate::adjunction::target_only_edges(migration);
-    for (edge, pairs) in instance.foreign_keys() {
+    // Every edge the migration reaches is claimed by the migration itself,
+    // whether or not the source edges reaching it hold pairs; an unmentioned
+    // edge claims its relabelling only when that edge is still free.
+    let mut claimed: HashMap<Edge, Edge> = edge_images
+        .iter()
+        .map(|(source, image)| (image.clone(), source.clone()))
+        .collect();
+    for edge in &target_only {
+        claimed
+            .entry((*edge).clone())
+            .or_insert_with(|| (*edge).clone());
+    }
+    let foreign_keys = instance.foreign_keys();
+    let mut carried: Vec<(Edge, &PairSet)> = Vec::with_capacity(foreign_keys.len());
+    for (edge, pairs) in foreign_keys {
         let new_edge = match edge_images.get(edge) {
             Some(image) => image.clone(),
             None if target_only.contains(edge) => {
                 return Err(RestrictError::EdgeOutsideDomain { edge: edge.clone() });
             }
-            None => crate::adjunction::map_edge(migration, edge),
+            None => {
+                let relabelled = crate::adjunction::map_edge(migration, edge);
+                if claimed.contains_key(&relabelled) {
+                    return Err(RestrictError::EdgeOutsideDomain { edge: edge.clone() });
+                }
+                claimed.insert(relabelled.clone(), edge.clone());
+                relabelled
+            }
         };
+        carried.push((new_edge, pairs));
+    }
+    for (new_edge, pairs) in carried {
         for &(s, t) in pairs {
             if out.joins(&new_edge, s, t) {
                 out.place_pair(new_edge.clone(), s, t);
@@ -1566,5 +1599,280 @@ mod tests {
             matches!(&err, RestrictError::VertexOutsideDomain { vertex } if vertex == "b"),
             "{err:?}"
         );
+    }
+
+    /// An edge of kind `kind` named `name` from `src` to `tgt`.
+    fn named(src: &str, tgt: &str, kind: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: kind.into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// Rows `a:0`, `b:1`, `c:2`, with the given pairs.
+    fn abc_with(pairs: &[(Edge, (u32, u32))]) -> FInstance {
+        let mut inst = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new())])
+            .and_then(|f| f.with_rows("b", [(RowId(1), Row::new())]))
+            .and_then(|f| f.with_rows("c", [(RowId(2), Row::new())]))
+            .unwrap();
+        for (edge, (s, t)) in pairs {
+            inst = inst
+                .with_foreign_key(edge.clone(), [(RowId(*s), RowId(*t))])
+                .unwrap();
+        }
+        inst
+    }
+
+    /// `c` merges onto `a`, and `a`, `b` survive under their own names.
+    fn c_onto_a() -> CompiledMigration {
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "a".into());
+        migration.vertex_remap.insert("c".into(), "a".into());
+        migration.vertex_remap.insert("b".into(), "b".into());
+        migration.surviving_verts.insert("a".into());
+        migration.surviving_verts.insert("b".into());
+        migration
+    }
+
+    fn refuses_edge(result: Result<FInstance, RestrictError>, expected: &Edge) {
+        match result {
+            Err(RestrictError::EdgeOutsideDomain { edge }) => assert_eq!(&edge, expected),
+            other => panic!("expected EdgeOutsideDomain on {expected:?}, got {other:?}"),
+        }
+    }
+
+    /// An unmentioned edge relabelled onto the image of a remapped source
+    /// edge that holds pairs is refused, not merged into that image.
+    #[test]
+    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_remapped_image() {
+        let mut migration = c_onto_a();
+        migration
+            .edge_remap
+            .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
+        migration.surviving_edges.insert(named("a", "b", "fk", "y"));
+        let z = named("c", "b", "fk", "y");
+        let inst = abc_with(&[(named("a", "b", "fk", "x"), (0, 1)), (z.clone(), (2, 1))]);
+        refuses_edge(functor_extend(&inst, &migration), &z);
+    }
+
+    /// An unmentioned edge relabelled onto the image of a source edge that
+    /// survives under its own name is refused.
+    #[test]
+    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_surviving_edge() {
+        let mut migration = c_onto_a();
+        migration.surviving_edges.insert(named("a", "b", "fk", "w"));
+        let z = named("c", "b", "fk", "w");
+        let inst = abc_with(&[(named("a", "b", "fk", "w"), (0, 1)), (z.clone(), (2, 1))]);
+        refuses_edge(functor_extend(&inst, &migration), &z);
+    }
+
+    /// An unmentioned edge relabelled onto a target-only edge is refused
+    /// even when the edge remapped onto it holds no pairs: the claim comes
+    /// from the migration, not from the instance.
+    #[test]
+    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_target_only_edge() {
+        let mut migration = c_onto_a();
+        migration
+            .edge_remap
+            .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
+        let z = named("c", "b", "fk", "y");
+        let inst = abc_with(&[(z.clone(), (2, 1))]);
+        refuses_edge(functor_extend(&inst, &migration), &z);
+    }
+
+    /// Two unmentioned edges whose relabellings coincide are refused: the
+    /// later one in edge order is named.
+    #[test]
+    fn extend_refuses_two_unmentioned_edges_relabelled_onto_one_edge() {
+        let migration = c_onto_a();
+        let z1 = named("c", "b", "k", "n");
+        let z2 = named("a", "b", "k", "n");
+        let inst = abc_with(&[(z1.clone(), (2, 1)), (z2, (0, 1))]);
+        refuses_edge(functor_extend(&inst, &migration), &z1);
+    }
+
+    /// An unmentioned edge whose relabelling is free travels with its pairs
+    /// between the images of its endpoints, also when it lands on a source
+    /// edge the migration remaps away.
+    #[test]
+    fn extend_carries_an_unmentioned_edge_onto_a_free_relabelling() {
+        let mut migration = c_onto_a();
+        migration
+            .edge_remap
+            .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
+        let z = named("c", "b", "fk", "free");
+        let onto_key = named("c", "b", "fk", "x");
+        let inst = abc_with(&[
+            (named("a", "b", "fk", "x"), (0, 1)),
+            (z, (2, 1)),
+            (onto_key, (2, 1)),
+        ]);
+        let out = functor_extend(&inst, &migration).unwrap();
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "free")),
+            &BTreeSet::from([(RowId(2), RowId(1))])
+        );
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "y")),
+            &BTreeSet::from([(RowId(0), RowId(1))])
+        );
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "x")),
+            &BTreeSet::from([(RowId(2), RowId(1))])
+        );
+        assert_eq!(out.pair_count(), 3);
+    }
+
+    /// Two source edges that `edge_remap` sends to one image merge, as the
+    /// migration states.
+    #[test]
+    fn extend_merges_source_edges_the_migration_merges() {
+        let mut migration = c_onto_a();
+        migration
+            .edge_remap
+            .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
+        migration
+            .edge_remap
+            .insert(named("c", "b", "fk", "x2"), named("a", "b", "fk", "y"));
+        let inst = abc_with(&[
+            (named("a", "b", "fk", "x"), (0, 1)),
+            (named("c", "b", "fk", "x2"), (2, 1)),
+        ]);
+        let out = functor_extend(&inst, &migration).unwrap();
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "y")),
+            &BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(1))])
+        );
+    }
+
+    /// Extend merges two foreign keys only when the migration says so.
+    mod extend_merges_only_what_the_migration_states {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        const VERTS: [&str; 4] = ["a", "b", "c", "d"];
+        const NAMES: [&str; 2] = ["p", "q"];
+
+        /// The edge with index `i` of the 32-edge universe over [`VERTS`]
+        /// and [`NAMES`].
+        fn universe(i: usize) -> Edge {
+            Edge {
+                src: VERTS[i % 4].into(),
+                tgt: VERTS[(i / 4) % 4].into(),
+                kind: "fk".into(),
+                name: Some(NAMES[(i / 16) % 2].into()),
+            }
+        }
+
+        prop_compose! {
+            fn migration()(
+                vertex_map in prop::collection::vec(prop::option::of(0usize..4), 4),
+                fix_images in any::<bool>(),
+                surviving in prop::collection::vec(any::<bool>(), 4),
+                edge_map in prop::collection::vec((0usize..32, 0usize..32), 0..4),
+                surviving_edges in prop::collection::vec(0usize..32, 0..4),
+            ) -> CompiledMigration {
+                let mut migration = CompiledMigration::default();
+                for (v, image) in vertex_map.iter().enumerate() {
+                    if let Some(t) = image {
+                        migration.vertex_remap.insert(VERTS[v].into(), VERTS[*t].into());
+                    }
+                }
+                if fix_images {
+                    let images: Vec<Name> = migration.vertex_remap.values().cloned().collect();
+                    for image in images {
+                        migration.vertex_remap.entry(image.clone()).or_insert(image);
+                    }
+                }
+                for (v, keep) in surviving.iter().enumerate() {
+                    if *keep {
+                        migration.surviving_verts.insert(VERTS[v].into());
+                    }
+                }
+                for (from, to) in edge_map {
+                    migration.edge_remap.insert(universe(from), universe(to));
+                }
+                for e in surviving_edges {
+                    migration.surviving_edges.insert(universe(e));
+                }
+                migration
+            }
+        }
+
+        /// One row per vertex (`RowId(i)` at `VERTS[i]`), and the pair of
+        /// the endpoint rows on each chosen edge.
+        fn instance(edges: &[usize]) -> FInstance {
+            let mut inst = FInstance::new();
+            for (i, v) in VERTS.iter().enumerate() {
+                inst = inst
+                    .with_rows(*v, [(RowId(u32::try_from(i).unwrap()), Row::new())])
+                    .unwrap();
+            }
+            for &i in edges {
+                let e = universe(i);
+                let s = u32::try_from(VERTS.iter().position(|v| e.src == *v).unwrap()).unwrap();
+                let t = u32::try_from(VERTS.iter().position(|v| e.tgt == *v).unwrap()).unwrap();
+                inst = inst.with_foreign_key(e, [(RowId(s), RowId(t))]).unwrap();
+            }
+            inst
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(1024))]
+
+            #[test]
+            fn extend_merges_only_source_edges(
+                migration in migration(),
+                edges in prop::collection::btree_set(0usize..32, 0..8),
+            ) {
+                let edges: Vec<usize> = edges.into_iter().collect();
+                let inst = instance(&edges);
+                let images = crate::adjunction::edge_images(&migration);
+                let target_only = crate::adjunction::target_only_edges(&migration);
+                // Every target-only edge is the image of the edge remapped
+                // onto it, so it is also an image value.
+                for e in &target_only {
+                    prop_assert!(images.values().any(|image| image == *e));
+                }
+                let Ok(out) = functor_extend(&inst, &migration) else {
+                    return Ok(());
+                };
+                // Which input edges sent pairs to each output edge.
+                let mut contributors: HashMap<Edge, Vec<Edge>> = HashMap::new();
+                for (edge, _) in inst.foreign_keys() {
+                    prop_assert!(!target_only.contains(edge));
+                    let carried = images
+                        .get(edge)
+                        .cloned()
+                        .unwrap_or_else(|| crate::adjunction::map_edge(&migration, edge));
+                    contributors.entry(carried).or_default().push(edge.clone());
+                }
+                for (edge, pairs) in out.foreign_keys() {
+                    let from = contributors.get(edge).cloned().unwrap_or_default();
+                    prop_assert!(!from.is_empty(), "{edge:?} has pairs but no preimage");
+                    let mut expected = BTreeSet::new();
+                    for source in &from {
+                        expected.extend(inst.pairs(source).iter().copied());
+                    }
+                    prop_assert!(pairs.is_subset(&expected));
+                    let unmentioned: Vec<&Edge> =
+                        from.iter().filter(|e| !images.contains_key(*e)).collect();
+                    if !unmentioned.is_empty() {
+                        prop_assert_eq!(
+                            from.len(), 1,
+                            "{:?} merges {:?} unasked", edge, from
+                        );
+                        prop_assert!(
+                            !images.values().any(|image| image == edge),
+                            "unmentioned {:?} lands on the image {:?}", unmentioned, edge
+                        );
+                    }
+                }
+            }
+        }
     }
 }
