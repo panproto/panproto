@@ -312,6 +312,19 @@ fn fixture_constraints_read_under_their_semantics() {
     );
 }
 
+/// The `sql` keys, references and defaults are annotations, from which no
+/// check is compiled: keys and references are checked from the schema's
+/// key and reference declarations, and a default constrains no cell.
+#[test]
+fn sql_keys_references_and_defaults_compile_to_no_check() {
+    let sql = (descriptor("sql").expect("sql is registered").protocol)();
+    for sort in ["PRIMARY KEY", "UNIQUE", "FOREIGN KEY", "DEFAULT"] {
+        let meaning = &sql.constraint_semantics[sort];
+        assert_eq!(meaning, &ConstraintSemantics::Annotation, "{sort}");
+        assert!(!meaning.compiles_to_check(), "{sort}");
+    }
+}
+
 /// An enum type's labels are SQL string literals in their quotes, which an
 /// enumeration constraint would compare with the bare cell value and
 /// refute; the labels compile to a check decided outside panproto instead,

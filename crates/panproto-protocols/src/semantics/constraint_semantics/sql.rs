@@ -2,8 +2,9 @@
 //!
 //! `NOT NULL` requires a value in the column's cell of every row. `PRIMARY
 //! KEY`, `UNIQUE` and `FOREIGN KEY` are keys and references, which a schema
-//! declares as such and checks from those declarations, and `DEFAULT` gives
-//! a default; they describe here. A `CHECK` constraint is an SQL expression,
+//! declares as such and checks from those declarations, and `DEFAULT` names
+//! the value a missing cell takes, which constrains no cell. These four are
+//! therefore annotations here, from which no check is compiled. A `CHECK` constraint is an SQL expression,
 //! which validation does not evaluate, so it is decided outside panproto: an
 //! application's verdict decides it, and an instance with no verdict is
 //! undecided.
