@@ -15,9 +15,11 @@ use panproto_gat::CompositionError;
 use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
+use crate::error::RestrictError;
 use crate::fan_violation::FanViolation;
 use crate::graph_edit::EditConflict;
 use crate::identity::{IdentityField, LegacyRejectReason};
+use crate::segment::{ErrorKey, Residual, SegmentError};
 use crate::value::Value;
 use crate::view_ref::ViewRef;
 
@@ -223,4 +225,73 @@ pub enum ErrorDetail {
         /// Every conflict between them, ascending.
         conflicts: Vec<EditConflict>,
     },
+    /// A segmented operation failed.
+    Segment {
+        /// Why.
+        error: SegmentError,
+    },
+    /// A segmented operation was declined within its declared bounds: the
+    /// whole-state path would perform it.
+    Residual {
+        /// What was declined, and why.
+        residual: Residual,
+    },
+    /// A restrict failed. `kind` is the snake-case name of the
+    /// [`RestrictError`] variant and `message` its display text.
+    Restrict {
+        /// The error's position in the graph engine's precedence order.
+        /// [`RestrictError::detail`] leaves it `None`: a [`RestrictError`]
+        /// does not carry its position.
+        key: Option<ErrorKey>,
+        /// The snake-case name of the error's variant.
+        kind: String,
+        /// The error's display text.
+        message: String,
+    },
+}
+
+impl RestrictError {
+    /// The snake-case name of the error's variant.
+    #[must_use]
+    pub const fn kind(&self) -> &'static str {
+        match self {
+            Self::NoEdgeFound { .. } => "no_edge_found",
+            Self::AmbiguousEdge { .. } => "ambiguous_edge",
+            Self::RootPruned => "root_pruned",
+            Self::FanReconstructionFailed { .. } => "fan_reconstruction_failed",
+            Self::ProductSizeExceeded { .. } => "product_size_exceeded",
+            Self::MultiElementFiber { .. } => "multi_element_fiber",
+            Self::UnmappedAnchor { .. } => "unmapped_anchor",
+            Self::AttributeCollision { .. } => "attribute_collision",
+            Self::NonInjectiveVertexMap { .. } => "non_injective_vertex_map",
+            Self::FieldTransformFailed { .. } => "field_transform_failed",
+            Self::RowIdsExhausted => "row_ids_exhausted",
+            Self::VertexOutsideDomain { .. } => "vertex_outside_domain",
+            Self::EdgeOutsideDomain { .. } => "edge_outside_domain",
+        }
+    }
+
+    /// The error's structured detail: [`ErrorDetail::Restrict`] with its
+    /// variant name and display text.
+    ///
+    /// ```
+    /// use panproto_inst::{ErrorDetail, RestrictError};
+    ///
+    /// assert_eq!(
+    ///     RestrictError::RootPruned.detail(),
+    ///     ErrorDetail::Restrict {
+    ///         key: None,
+    ///         kind: "root_pruned".to_owned(),
+    ///         message: "root node was pruned during restriction".to_owned(),
+    ///     },
+    /// );
+    /// ```
+    #[must_use]
+    pub fn detail(&self) -> ErrorDetail {
+        ErrorDetail::Restrict {
+            key: None,
+            kind: self.kind().to_owned(),
+            message: self.to_string(),
+        }
+    }
 }

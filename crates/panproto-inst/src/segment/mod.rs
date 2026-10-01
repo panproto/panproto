@@ -34,9 +34,13 @@ mod reader;
 mod split;
 mod store;
 mod stream;
+#[cfg(test)]
+mod tests;
 mod tree_bytes;
 
-pub use body::{AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment};
+pub use body::{
+    AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment,
+};
 pub use builder::{BuilderEdge, BuilderNode, SegmentBuilder};
 pub use bytes::{write_segment, write_view_ref};
 pub use check::{check_segment, verify_partition};
@@ -48,7 +52,9 @@ pub use manifest::{
     verify_segment, verify_segment_bytes,
 };
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
-pub use split::{assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree};
+pub use split::{
+    assemble_graph, assemble_table, assemble_tree, partition_graph, partition_table, partition_tree,
+};
 pub use store::{ArtifactKey, ArtifactKind, Phase, RunJournal, SegmentStore, TaskKey, TaskRecord};
 pub use stream::{InstanceRecord, RecordSource, SegmentRecords, instance_digest};
 pub use tree_bytes::{

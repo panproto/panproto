@@ -43,7 +43,10 @@ pub(crate) fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
 
 /// Every violation of segment `seg`'s own contract, each with the element it
 /// is about, in the order found.
-pub(crate) fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
+pub(crate) fn contract_violations(
+    seg: &AnySegment,
+    index: &OwnerIndex,
+) -> Vec<(ViewRef, SegmentError)> {
     let me = seg.segment();
     let mut out = Vec::new();
     // (a) owned nodes.
@@ -130,13 +133,19 @@ pub(crate) fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(
     // (c) in-stubs.
     for (key, stub) in &boundary.in_stubs {
         if !stub_matches_key(key, stub) {
-            out.push((key.clone(), SegmentError::InStubMismatch { elem: key.clone() }));
+            out.push((
+                key.clone(),
+                SegmentError::InStubMismatch { elem: key.clone() },
+            ));
             continue;
         }
         let target_here = index.owner_of_node(stub.tgt) == Some(me);
         let source_owner = index.owner_of_node(stub.src);
         if !target_here || source_owner != Some(stub.src_owner) || stub.src_owner == me {
-            out.push((key.clone(), SegmentError::InStubMismatch { elem: key.clone() }));
+            out.push((
+                key.clone(),
+                SegmentError::InStubMismatch { elem: key.clone() },
+            ));
         } else if seg.anchor_of(stub.tgt).is_none() {
             out.push((
                 key.clone(),
@@ -169,11 +178,17 @@ fn stub_matches_key(key: &ViewRef, stub: &InStub) -> bool {
 /// The label a tree segment gives a fan edge: from the fan's hyper-edge to
 /// the target's anchor, of the parent kind with no name or of the label kind
 /// named by the child label.
-pub(crate) fn fan_edge_label(hyper_edge: &str, target_anchor: &str, child_label: Option<&str>) -> Edge {
+pub(crate) fn fan_edge_label(
+    hyper_edge: &str,
+    target_anchor: &str,
+    child_label: Option<&str>,
+) -> Edge {
     Edge {
         src: hyper_edge.into(),
         tgt: target_anchor.into(),
-        kind: child_label.map_or(HYPER_PARENT_KIND, |_| HYPER_LABEL_KIND).into(),
+        kind: child_label
+            .map_or(HYPER_PARENT_KIND, |_| HYPER_LABEL_KIND)
+            .into(),
         name: child_label.map(Into::into),
     }
 }
@@ -247,7 +262,10 @@ pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), 
 
 /// [`check_segment`] with the owner index already built and the segment
 /// known to be listed.
-pub(crate) fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Result<(), SegmentError> {
+pub(crate) fn check_segment_with(
+    segment: &AnySegment,
+    index: &OwnerIndex,
+) -> Result<(), SegmentError> {
     let mut violations = contract_violations(segment, index);
     if violations.is_empty() {
         return Ok(());
@@ -259,7 +277,10 @@ pub(crate) fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Re
 }
 
 /// Check that the partition lists `segment` with its shape.
-pub(crate) fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
+pub(crate) fn check_listed(
+    segment: &AnySegment,
+    partition: &Partition,
+) -> Result<(), SegmentError> {
     if segment.shape() != partition.shape {
         return Err(SegmentError::ShapeMismatch {
             expected: partition.shape,
@@ -470,7 +491,10 @@ fn tree_cross_violations(trees: &[&TreeSegment], index: &OwnerIndex) -> Vec<Loca
 /// The partition's own error, a [`SegmentError::MalformedPartition`] or
 /// [`SegmentError::ShapeMismatch`] when the segments are not laid out under
 /// it, and otherwise the first violation in `(segment, ViewRef)` order.
-pub fn verify_partition(segments: &[AnySegment], partition: &Partition) -> Result<(), SegmentError> {
+pub fn verify_partition(
+    segments: &[AnySegment],
+    partition: &Partition,
+) -> Result<(), SegmentError> {
     let index = partition.owner_index()?;
     let segs = arrange(segments, partition)?;
     first_located(all_violations(&segs, &index))

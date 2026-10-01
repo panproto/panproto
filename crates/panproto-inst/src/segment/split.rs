@@ -35,7 +35,11 @@ fn index_for(partition: &Partition, shape: InstanceShapeKind) -> Result<OwnerInd
 }
 
 /// The owner of node `id`, or the error for `elem`, the element carrying it.
-fn owner(index: &OwnerIndex, id: u32, elem: impl FnOnce() -> ViewRef) -> Result<SegmentId, SegmentError> {
+fn owner(
+    index: &OwnerIndex,
+    id: u32,
+    elem: impl FnOnce() -> ViewRef,
+) -> Result<SegmentId, SegmentError> {
     index
         .owner_of_node(id)
         .ok_or_else(|| SegmentError::Unowned { elem: elem() })
@@ -81,7 +85,10 @@ fn cross(
 /// partition, the partition's own error when it is invalid, and
 /// [`SegmentError::Unowned`] for the first node, then the first edge, in
 /// ascending id, whose id or target no range contains.
-pub fn partition_graph(graph: &GInstance, partition: &Partition) -> Result<Vec<GraphSegment>, SegmentError> {
+pub fn partition_graph(
+    graph: &GInstance,
+    partition: &Partition,
+) -> Result<Vec<GraphSegment>, SegmentError> {
     let index = index_for(partition, InstanceShapeKind::Graph)?;
     let mut segments: Vec<GraphSegment> = partition
         .specs
@@ -118,7 +125,13 @@ pub fn partition_graph(graph: &GInstance, partition: &Partition) -> Result<Vec<G
                 tgt: edge.tgt,
                 label: edge.edge.clone(),
             };
-            cross(&mut boundaries, ViewRef::Edge(id), stub, tgt_owner, &anchor(edge.tgt));
+            cross(
+                &mut boundaries,
+                ViewRef::Edge(id),
+                stub,
+                tgt_owner,
+                &anchor(edge.tgt),
+            );
         }
     }
     for (seg, boundary) in segments.iter_mut().zip(boundaries) {
@@ -140,7 +153,10 @@ pub fn partition_graph(graph: &GInstance, partition: &Partition) -> Result<Vec<G
 /// partition, the partition's own error when it is invalid, and
 /// [`SegmentError::Unowned`] for the first row, in ascending id, that no
 /// range contains.
-pub fn partition_table(tables: &FInstance, partition: &Partition) -> Result<Vec<TableSegment>, SegmentError> {
+pub fn partition_table(
+    tables: &FInstance,
+    partition: &Partition,
+) -> Result<Vec<TableSegment>, SegmentError> {
     let index = index_for(partition, InstanceShapeKind::Table)?;
     let mut segments: Vec<TableSegment> = partition
         .specs
@@ -154,9 +170,11 @@ pub fn partition_table(tables: &FInstance, partition: &Partition) -> Result<Vec<
         .collect();
     for id in tables.row_ids() {
         let o = owner(&index, id.0, || ViewRef::Row(id))?;
-        if let (Some(seg), Some(table), Some(row)) =
-            (segments.get_mut(slot(o)), tables.table_of(id), tables.row(id))
-        {
+        if let (Some(seg), Some(table), Some(row)) = (
+            segments.get_mut(slot(o)),
+            tables.table_of(id),
+            tables.row(id),
+        ) {
             seg.rows.insert(id, (table.clone(), row.clone()));
         }
     }
@@ -199,7 +217,11 @@ pub fn partition_table(tables: &FInstance, partition: &Partition) -> Result<Vec<
 /// order; every fan has its ids, with its fan node not a tree node, the
 /// fan's labels, its endpoints tree nodes, and parent edge ids ascending in
 /// fan order; and no edge id is used twice.
-fn check_embedding(tree: &WInstance, embedding: &TreeEmbedding, index: &OwnerIndex) -> Result<(), SegmentError> {
+fn check_embedding(
+    tree: &WInstance,
+    embedding: &TreeEmbedding,
+    index: &OwnerIndex,
+) -> Result<(), SegmentError> {
     let fail = |elem: ViewRef| Err(SegmentError::NotEmbedded { elem });
     let mut keys: Vec<u32> = tree.nodes.keys().copied().collect();
     keys.sort_unstable();
@@ -382,7 +404,13 @@ pub fn partition_tree(
                     tgt: target,
                     label: edge.clone(),
                 };
-                cross(&mut boundaries, ViewRef::Edge(id), stub, tgt_owner, &anchor(target));
+                cross(
+                    &mut boundaries,
+                    ViewRef::Edge(id),
+                    stub,
+                    tgt_owner,
+                    &anchor(target),
+                );
             }
             if let Some(seg) = segments.get_mut(slot(fan_owner)) {
                 seg.arcs.insert(id, (ids.node, target, edge));
@@ -413,7 +441,11 @@ fn refused(error: &InstError) -> SegmentError {
 
 /// Lay the segments out under `partition` and check every invariant they
 /// must keep together.
-fn checked(segments: &[AnySegment], partition: &Partition, shape: InstanceShapeKind) -> Result<(), SegmentError> {
+fn checked(
+    segments: &[AnySegment],
+    partition: &Partition,
+    shape: InstanceShapeKind,
+) -> Result<(), SegmentError> {
     let index = index_for(partition, shape)?;
     let segs = arrange(segments, partition)?;
     first_located(all_violations(&segs, &index))
@@ -520,7 +552,11 @@ pub fn assemble_tree(
         }
         root = root.or(seg.root);
         for ids in std::mem::take(&mut seg.fans) {
-            let hyper = seg.nodes.remove(&ids.node).map(|n| n.anchor).unwrap_or_default();
+            let hyper = seg
+                .nodes
+                .remove(&ids.node)
+                .map(|n| n.anchor)
+                .unwrap_or_default();
             let target = |id: &EdgeId| seg.arcs.get(id).map_or(0, |(_, tgt, _)| *tgt);
             let mut fan = Fan::new(hyper.as_ref(), target(&ids.parent_edge));
             for (label, id) in &ids.child_edges {
@@ -529,12 +565,19 @@ pub fn assemble_tree(
             fans.push((ids, fan));
         }
         nodes.extend(seg.nodes);
-        arcs.extend(seg.arcs.into_iter().filter(|(id, _)| !fan_edges.contains(id)));
+        arcs.extend(
+            seg.arcs
+                .into_iter()
+                .filter(|(id, _)| !fan_edges.contains(id)),
+        );
     }
     let root = root.ok_or(SegmentError::NotEmbedded {
         elem: ViewRef::Node(0),
     })?;
-    let schema_root = nodes.get(&root).map(|n| n.anchor.clone()).unwrap_or_default();
+    let schema_root = nodes
+        .get(&root)
+        .map(|n| n.anchor.clone())
+        .unwrap_or_default();
     fans.sort_unstable_by_key(|(ids, _)| ids.parent_edge);
     let floor = |max: Option<(u32, SegmentId)>, kind| match max {
         None => Ok(0),
@@ -543,7 +586,10 @@ pub fn assemble_tree(
             .ok_or(SegmentError::AllocationExhausted { segment, kind }),
     };
     let embedding = TreeEmbedding {
-        arcs: arcs.iter().map(|(id, (_, child, _))| (*child, *id)).collect(),
+        arcs: arcs
+            .iter()
+            .map(|(id, (_, child, _))| (*child, *id))
+            .collect(),
         fans: fans.iter().map(|(ids, _)| ids.clone()).collect(),
         next_node: floor(max_node, super::ids::IdKind::Node)?,
         next_edge: floor(max_edge, super::ids::IdKind::Edge)?,

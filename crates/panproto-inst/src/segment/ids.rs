@@ -373,13 +373,11 @@ mod tests {
     use panproto_schema::Edge;
     use proptest::prelude::*;
 
-    use super::{
-        IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId, check_edge_range_above,
-    };
-    use crate::segment::SegmentError;
+    use super::{IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId, check_edge_range_above};
     use crate::error::InstError;
     use crate::ginstance::{EdgeId, GInstance};
     use crate::metadata::Node;
+    use crate::segment::SegmentError;
     use crate::view_ref::IdFloor;
 
     type TestResult = Result<(), Box<dyn std::error::Error>>;

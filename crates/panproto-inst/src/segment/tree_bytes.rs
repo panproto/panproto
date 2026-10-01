@@ -55,7 +55,12 @@ impl FanRecord {
 
 /// Write the record of one arc: parent, child, label. No edge id is
 /// written.
-pub fn write_arc_record<S: CanonicalSink + ?Sized>(sink: &mut S, parent: u32, child: u32, edge: &Edge) {
+pub fn write_arc_record<S: CanonicalSink + ?Sized>(
+    sink: &mut S,
+    parent: u32,
+    child: u32,
+    edge: &Edge,
+) {
     sink.u32(parent);
     sink.u32(child);
     sink.edge(edge);
@@ -63,7 +68,12 @@ pub fn write_arc_record<S: CanonicalSink + ?Sized>(sink: &mut S, parent: u32, ch
 
 /// Write the header of a tree's canonical bytes: its node, arc and fan
 /// counts.
-pub fn write_winstance_header<S: CanonicalSink + ?Sized>(sink: &mut S, nodes: u64, arcs: u64, fans: u64) {
+pub fn write_winstance_header<S: CanonicalSink + ?Sized>(
+    sink: &mut S,
+    nodes: u64,
+    arcs: u64,
+    fans: u64,
+) {
     sink.u64(nodes);
     sink.u64(arcs);
     sink.u64(fans);

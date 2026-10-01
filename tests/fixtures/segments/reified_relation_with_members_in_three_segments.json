@@ -1,0 +1,139 @@
+{
+  "description": "a reified relation node whose labelled member edges reach one member in each of three segments",
+  "schema": "7fd55141c5ffd88e170644619c143a052f595e024d65878cb6713783f711d076",
+  "partition": {
+    "shape": "graph",
+    "specs": [
+      {
+        "id": 0,
+        "nodes": [
+          {
+            "lo": 0,
+            "hi": 9
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      },
+      {
+        "id": 1,
+        "nodes": [
+          {
+            "lo": 10,
+            "hi": 19
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      },
+      {
+        "id": 2,
+        "nodes": [
+          {
+            "lo": 20,
+            "hi": 29
+          }
+        ],
+        "alloc_nodes": null,
+        "alloc_edges": null
+      }
+    ]
+  },
+  "instance": {
+    "nodes": {
+      "1": {
+        "id": 1,
+        "anchor": "rel",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "hyper_edge"
+        },
+        "annotations": {}
+      },
+      "2": {
+        "id": 2,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "12": {
+        "id": 12,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      },
+      "22": {
+        "id": 22,
+        "anchor": "a",
+        "value": null,
+        "discriminator": null,
+        "extra_fields": {},
+        "position": null,
+        "shape": {
+          "kind": "plain"
+        },
+        "annotations": {}
+      }
+    },
+    "edges": {
+      "0": {
+        "src": 1,
+        "tgt": 2,
+        "edge": {
+          "src": "rel",
+          "tgt": "a",
+          "kind": "hyper_label",
+          "name": "agent"
+        },
+        "position": null
+      },
+      "1": {
+        "src": 1,
+        "tgt": 12,
+        "edge": {
+          "src": "rel",
+          "tgt": "a",
+          "kind": "hyper_label",
+          "name": "patient"
+        },
+        "position": null
+      },
+      "2": {
+        "src": 1,
+        "tgt": 22,
+        "edge": {
+          "src": "rel",
+          "tgt": "a",
+          "kind": "hyper_label",
+          "name": "theme"
+        },
+        "position": null
+      }
+    }
+  },
+  "expected": {
+    "instance_digest": "63ef270255b138c6e4f0a88130ea1b850af22e93b152604292fe8cf142d67f86",
+    "segments": [
+      "613789180300f3f63e6b35b23360ec10f58e9bba893e85ae241b0795b3193bc7",
+      "a9fa1afd949616915425426adbc53d30d7d5aff2e302260fb211039b5bdb51bb",
+      "c9d76004d39c1fe3e66e6b38a63f07f3800932d8f380232d4c4ba7b0c7d514f5"
+    ],
+    "manifest_root": "f0cd3346fe8f6a76594ce681d44b1886473a23f1569e014853c6a7c3e3d662da",
+    "manifest_digest": "4903c13457058219cea73522943ef1604858dcd6876f8d3a3a40eceac3491113"
+  }
+}

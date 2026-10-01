@@ -146,7 +146,11 @@ impl AnySegment {
         match self {
             Self::Graph(s) => {
                 records.extend(s.nodes.values().cloned().map(InstanceRecord::Node));
-                records.extend(s.edges.iter().map(|(id, e)| InstanceRecord::Edge(*id, e.clone())));
+                records.extend(
+                    s.edges
+                        .iter()
+                        .map(|(id, e)| InstanceRecord::Edge(*id, e.clone())),
+                );
             }
             Self::Table(s) => {
                 records.extend(
@@ -273,12 +277,8 @@ pub fn instance_digest<'a>(
         InstanceShapeKind::Tree => TREE_INSTANCE_CONTEXT,
     };
     let stats: Vec<SegmentStats> = sources.iter().map(|s| s.stats()).collect();
-    let sum = |field: fn(&SegmentStats) -> u64| {
-        stats
-            .iter()
-            .map(field)
-            .fold(0_u64, u64::saturating_add)
-    };
+    let sum =
+        |field: fn(&SegmentStats) -> u64| stats.iter().map(field).fold(0_u64, u64::saturating_add);
     let (nodes, edges, fans) = (sum(|s| s.nodes), sum(|s| s.edges), sum(|s| s.fans));
     let mut hasher = Digest::hasher(context);
     match shape {
@@ -326,7 +326,9 @@ pub fn instance_digest<'a>(
         if let Some(next_record) = &next {
             let next_key = next_record.key();
             if next_key < key || (next_key == key && !matches!(key, MergeKey::Fan(_))) {
-                return Err(stream_error(format!("{segment} yields records out of order")));
+                return Err(stream_error(format!(
+                    "{segment} yields records out of order"
+                )));
             }
             heap.push(Reverse((next_key, i)));
         }

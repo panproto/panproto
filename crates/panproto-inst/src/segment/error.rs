@@ -149,7 +149,10 @@ impl fmt::Display for Residual {
                 if let Some(segment) = segment {
                     write!(f, " of {segment}")?;
                 }
-                write!(f, " needs {needed} of {resource}, the budget grants {budget}")
+                write!(
+                    f,
+                    " needs {needed} of {resource}, the budget grants {budget}"
+                )
             }
         }
     }

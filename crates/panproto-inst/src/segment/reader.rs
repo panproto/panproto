@@ -181,7 +181,10 @@ impl<'a> Reader<'a> {
         (0..n).map(|_| self.range(segment)).collect()
     }
 
-    pub(crate) fn opt_range(&mut self, segment: SegmentId) -> Result<Option<IdRange>, SegmentError> {
+    pub(crate) fn opt_range(
+        &mut self,
+        segment: SegmentId,
+    ) -> Result<Option<IdRange>, SegmentError> {
         if self.bool()? {
             self.range(segment).map(Some)
         } else {
@@ -207,7 +210,10 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn value_map(&mut self, depth: usize) -> Result<HashMap<String, Value>, SegmentError> {
+    pub(crate) fn value_map(
+        &mut self,
+        depth: usize,
+    ) -> Result<HashMap<String, Value>, SegmentError> {
         let n = self.count(9)?;
         let mut map = HashMap::with_capacity(n);
         let mut last: Option<String> = None;
@@ -303,8 +309,8 @@ impl<'a> Reader<'a> {
             0 => Ok(Offset::Local),
             1 => Ok(Offset::Utc),
             2 => {
-                let minutes = i16::try_from(self.i64()?)
-                    .map_err(|_| self.error("an offset leaves i16"))?;
+                let minutes =
+                    i16::try_from(self.i64()?).map_err(|_| self.error("an offset leaves i16"))?;
                 Offset::fixed(minutes).map_err(|e| self.error(e.to_string()))
             }
             3 => Ok(Offset::Unknown),

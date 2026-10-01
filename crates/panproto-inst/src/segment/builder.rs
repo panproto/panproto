@@ -244,7 +244,9 @@ impl SegmentBuilder {
             (Contents::Graph(_), BuilderEdge::Graph { .. })
             | (Contents::Tree(_), BuilderEdge::Arc { .. })
             | (Contents::Table(_), BuilderEdge::Pair { .. }) => {}
-            (_, BuilderEdge::Graph { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Graph)),
+            (_, BuilderEdge::Graph { .. }) => {
+                return Err(self.wrong_shape(InstanceShapeKind::Graph));
+            }
             (_, BuilderEdge::Arc { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Tree)),
             (_, BuilderEdge::Pair { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Table)),
         }
@@ -253,7 +255,15 @@ impl SegmentBuilder {
             (Contents::Graph(s), BuilderEdge::Graph { id, edge }) => {
                 s.edges.insert(id, edge);
             }
-            (Contents::Tree(s), BuilderEdge::Arc { id, src, tgt, label }) => {
+            (
+                Contents::Tree(s),
+                BuilderEdge::Arc {
+                    id,
+                    src,
+                    tgt,
+                    label,
+                },
+            ) => {
                 s.arcs.insert(id, (src, tgt, label));
             }
             (Contents::Table(s), BuilderEdge::Pair { edge, src, tgt }) => {
@@ -346,7 +356,10 @@ impl SegmentBuilder {
     /// with every violation when the segment breaks its contract (an owned
     /// edge whose target no segment owns, a fan whose edges were not
     /// pushed, an endpoint owned here but never pushed).
-    pub fn finish(self, ghost_anchors: &dyn Fn(u32) -> Option<Name>) -> Result<AnySegment, SegmentError> {
+    pub fn finish(
+        self,
+        ghost_anchors: &dyn Fn(u32) -> Option<Name>,
+    ) -> Result<AnySegment, SegmentError> {
         let me = self.segment();
         let mut segment = match self.contents {
             Contents::Graph(s) => AnySegment::Graph(s),
@@ -361,7 +374,8 @@ impl SegmentBuilder {
             if ghosts.contains_key(&edge.tgt) {
                 continue;
             }
-            let anchor = ghost_anchors(edge.tgt).ok_or(SegmentError::GhostMismatch { node: edge.tgt })?;
+            let anchor =
+                ghost_anchors(edge.tgt).ok_or(SegmentError::GhostMismatch { node: edge.tgt })?;
             ghosts.insert(
                 edge.tgt,
                 Ghost {

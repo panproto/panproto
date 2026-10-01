@@ -37,7 +37,9 @@ use super::body::{AnySegment, Boundary, Ghost, GraphSegment, InStub, TableSegmen
 use super::check::{check_listed, check_segment_with};
 use super::error::{PartitionDefect, SegmentError};
 use super::ids::SegmentId;
-use super::partition::{Partition, SegmentSpec, shape_from_tag, shape_tag, write_opt_range, write_ranges};
+use super::partition::{
+    Partition, SegmentSpec, shape_from_tag, shape_tag, write_opt_range, write_ranges,
+};
 use super::reader::Reader;
 use super::store::ArtifactKind;
 use crate::functor::{write_pair_record, write_row_record};
@@ -213,7 +215,10 @@ pub fn write_segment<S: CanonicalSink + ?Sized>(
 
 /// The spec of `segment` in `partition`, checking that the partition lists
 /// it with its shape.
-fn spec_of<'p>(segment: &AnySegment, partition: &'p Partition) -> Result<&'p SegmentSpec, SegmentError> {
+fn spec_of<'p>(
+    segment: &AnySegment,
+    partition: &'p Partition,
+) -> Result<&'p SegmentSpec, SegmentError> {
     check_listed(segment, partition)?;
     partition
         .spec(segment.segment())
@@ -224,7 +229,11 @@ fn spec_of<'p>(segment: &AnySegment, partition: &'p Partition) -> Result<&'p Seg
 }
 
 /// Fail unless `key` is strictly above the previous key.
-fn ascending<K: Ord + Clone>(reader: &Reader<'_>, last: &mut Option<K>, key: &K) -> Result<(), SegmentError> {
+fn ascending<K: Ord + Clone>(
+    reader: &Reader<'_>,
+    last: &mut Option<K>,
+    key: &K,
+) -> Result<(), SegmentError> {
     if last.as_ref().is_some_and(|l| l >= key) {
         return Err(reader.error("records are not strictly ascending"));
     }
@@ -306,7 +315,11 @@ fn read_header(r: &mut Reader<'_>) -> Result<Header, SegmentError> {
 }
 
 /// Read a segment body of the shape `shape_tag` names.
-fn read_body(r: &mut Reader<'_>, segment: SegmentId, shape_tag: u8) -> Result<AnySegment, SegmentError> {
+fn read_body(
+    r: &mut Reader<'_>,
+    segment: SegmentId,
+    shape_tag: u8,
+) -> Result<AnySegment, SegmentError> {
     match shape_tag {
         2 => {
             let nodes = read_nodes(r)?;
@@ -408,11 +421,23 @@ fn read_body(r: &mut Reader<'_>, segment: SegmentId, shape_tag: u8) -> Result<An
 
 /// The records crossing from a segment into each peer, or into it from
 /// each peer, as `(element, src, src anchor, tgt, tgt anchor, label)`.
-type CrossRecords<'a> = BTreeMap<SegmentId, Vec<(ViewRef, u32, &'a Name, u32, &'a Name, &'a panproto_schema::Edge)>>;
+type CrossRecords<'a> = BTreeMap<
+    SegmentId,
+    Vec<(
+        ViewRef,
+        u32,
+        &'a Name,
+        u32,
+        &'a Name,
+        &'a panproto_schema::Edge,
+    )>,
+>;
 
 /// The cross digest of one peer's records: [`SEGMENT_CROSS_CONTEXT`] over
 /// their count and each record, ascending by element.
-fn cross_digest(mut records: Vec<(ViewRef, u32, &Name, u32, &Name, &panproto_schema::Edge)>) -> Digest {
+fn cross_digest(
+    mut records: Vec<(ViewRef, u32, &Name, u32, &Name, &panproto_schema::Edge)>,
+) -> Digest {
     records.sort_by(|a, b| a.0.cmp(&b.0));
     let mut hasher = Digest::hasher(SEGMENT_CROSS_CONTEXT);
     hasher.len(records.len());
@@ -437,7 +462,11 @@ impl AnySegment {
     /// [`SegmentError::ShapeMismatch`] or
     /// [`SegmentError::MalformedPartition`] when the partition does not
     /// list the segment with its shape.
-    pub fn canonical_bytes(&self, schema: &Digest, partition: &Partition) -> Result<Vec<u8>, SegmentError> {
+    pub fn canonical_bytes(
+        &self,
+        schema: &Digest,
+        partition: &Partition,
+    ) -> Result<Vec<u8>, SegmentError> {
         let spec = spec_of(self, partition)?;
         let mut writer = CanonicalWriter::new();
         write_segment(&mut writer, self, schema, spec);
@@ -478,7 +507,10 @@ impl AnySegment {
     /// [`SegmentError::MalformedPartition`] when the partition does not list
     /// the segment with its shape; [`SegmentError::Invalid`] with every
     /// violation when the segment breaks its contract.
-    pub fn from_canonical_bytes(bytes: &[u8], partition: &Partition) -> Result<(Self, Digest), SegmentError> {
+    pub fn from_canonical_bytes(
+        bytes: &[u8],
+        partition: &Partition,
+    ) -> Result<(Self, Digest), SegmentError> {
         let mut r = Reader::new(bytes, ArtifactKind::Segment);
         let header = read_header(&mut r)?;
         if shape_from_tag(header.shape_tag).is_none() {
@@ -517,7 +549,9 @@ impl AnySegment {
             if self.anchor_of(edge.tgt).is_some() {
                 continue;
             }
-            let (Some(ghost), Some(src_anchor)) = (boundary.ghosts.get(&edge.tgt), self.anchor_of(edge.src)) else {
+            let (Some(ghost), Some(src_anchor)) =
+                (boundary.ghosts.get(&edge.tgt), self.anchor_of(edge.src))
+            else {
                 continue;
             };
             out.entry(ghost.owner).or_default().push((

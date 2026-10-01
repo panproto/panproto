@@ -318,7 +318,13 @@ pub fn audit_path(manifest: &SegmentManifest, id: SegmentId) -> Vec<Digest> {
 /// assert!(!verify_audit_path(&leaf, &leaf, 1, 1, &[]));
 /// ```
 #[must_use]
-pub fn verify_audit_path(root: &Digest, leaf: &Digest, index: usize, n: usize, path: &[Digest]) -> bool {
+pub fn verify_audit_path(
+    root: &Digest,
+    leaf: &Digest,
+    index: usize,
+    n: usize,
+    path: &[Digest],
+) -> bool {
     if index >= n {
         return false;
     }
@@ -355,7 +361,10 @@ fn manifest_error(message: String) -> SegmentError {
 
 /// The partition the records state, checked: dense ids, valid ranges, and
 /// each record's stats naming its own segment.
-fn records_partition(records: &[SegmentRecord], shape: InstanceShapeKind) -> Result<Partition, SegmentError> {
+fn records_partition(
+    records: &[SegmentRecord],
+    shape: InstanceShapeKind,
+) -> Result<Partition, SegmentError> {
     if let Some(r) = records.iter().find(|r| r.stats.segment != r.id) {
         return Err(manifest_error(format!(
             "the record of {} carries the stats of {}",
@@ -377,7 +386,9 @@ fn check_cross_pairs(records: &[SegmentRecord]) -> Result<(), SegmentError> {
     let record = |id: SegmentId| records.get(usize::try_from(id.0).unwrap_or(usize::MAX));
     for rec in records {
         for (to, digest) in &rec.cross_out {
-            if record(*to).and_then(|peer| peer.cross_in.get(&rec.id)) != Some(digest) || *to == rec.id {
+            if record(*to).and_then(|peer| peer.cross_in.get(&rec.id)) != Some(digest)
+                || *to == rec.id
+            {
                 mismatches.push((rec.id, *to));
             }
         }
@@ -389,10 +400,9 @@ fn check_cross_pairs(records: &[SegmentRecord]) -> Result<(), SegmentError> {
             }
         }
     }
-    mismatches
-        .into_iter()
-        .min()
-        .map_or(Ok(()), |(from, to)| Err(SegmentError::CrossMismatch { from, to }))
+    mismatches.into_iter().min().map_or(Ok(()), |(from, to)| {
+        Err(SegmentError::CrossMismatch { from, to })
+    })
 }
 
 /// Check that every edge allocation range lies above the largest edge id
@@ -665,7 +675,10 @@ pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
 /// [`SegmentError::DigestMismatch`] for the segment when its content digest
 /// differs from the record's (or, with the leaf digests, when another field
 /// of the record does).
-pub fn verify_segment(manifest: &SegmentManifest, segment: &AnySegment) -> Result<(), SegmentError> {
+pub fn verify_segment(
+    manifest: &SegmentManifest,
+    segment: &AnySegment,
+) -> Result<(), SegmentError> {
     if segment.shape() != manifest.shape {
         return Err(SegmentError::ShapeMismatch {
             expected: manifest.shape,
@@ -673,10 +686,12 @@ pub fn verify_segment(manifest: &SegmentManifest, segment: &AnySegment) -> Resul
         });
     }
     let id = segment.segment();
-    let record = manifest.record(id).ok_or(SegmentError::MalformedPartition {
-        segment: id,
-        defect: PartitionDefect::UnknownSegment,
-    })?;
+    let record = manifest
+        .record(id)
+        .ok_or(SegmentError::MalformedPartition {
+            segment: id,
+            defect: PartitionDefect::UnknownSegment,
+        })?;
     let partition = manifest.partition()?;
     let index = partition.owner_index()?;
     check_segment_with(segment, &index)?;
@@ -707,7 +722,10 @@ pub fn verify_segment(manifest: &SegmentManifest, segment: &AnySegment) -> Resul
 /// As [`AnySegment::from_canonical_bytes`] under the manifest's partition;
 /// [`SegmentError::SchemaMismatch`] when the bytes carry another schema
 /// digest; and as [`verify_segment`].
-pub fn verify_segment_bytes(manifest: &SegmentManifest, bytes: &[u8]) -> Result<AnySegment, SegmentError> {
+pub fn verify_segment_bytes(
+    manifest: &SegmentManifest,
+    bytes: &[u8],
+) -> Result<AnySegment, SegmentError> {
     let partition = manifest.partition()?;
     let (segment, schema) = AnySegment::from_canonical_bytes(bytes, &partition)?;
     if schema != manifest.schema {
