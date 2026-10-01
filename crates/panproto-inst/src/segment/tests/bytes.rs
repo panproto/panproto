@@ -192,6 +192,52 @@ fn a_segment_replayed_under_another_schema_fails_verification() -> TestResult {
 }
 
 #[test]
+fn a_tree_run_without_a_fan_child_edge_id_is_refused_at_seal() -> TestResult {
+    let tree = small_tree();
+    let (_, embedding) = GInstance::from_wtype_embedded(&tree, None)?;
+    let p = Partition::single(
+        InstanceShapeKind::Tree,
+        Some(embedding.next_node.max(embedding.next_edge)),
+    );
+    let segments: Vec<AnySegment> = partition_tree(&tree, &embedding, &p)?
+        .into_iter()
+        .map(AnySegment::Tree)
+        .collect();
+    let schema = Digest([3; 32]);
+    manifest_of(&segments, &p, schema)?;
+    let fan = &embedding.fans[0];
+    let first_child = *fan.child_edges.values().min().ok_or("a fan child")?;
+    let run = segments[0].edge_id_run();
+    assert!(run.last().is_some_and(|last| *last > first_child));
+    let short = run.into_iter().filter(move |e| *e != first_child);
+    let record = SegmentRecord::of(&segments[0], &p.specs()[0], &schema);
+    let sealed = seal(
+        vec![record],
+        ManifestHeader {
+            shape: InstanceShapeKind::Tree,
+            schema,
+            role: ManifestRole::Source,
+            binding: None,
+        },
+        vec![(
+            SegmentId(0),
+            Box::new(short) as Box<dyn Iterator<Item = EdgeId>>,
+        )],
+    );
+    assert!(
+        matches!(
+            sealed,
+            Err(SegmentError::Decode {
+                artifact: crate::segment::ArtifactKind::EdgeIdRun,
+                ..
+            })
+        ),
+        "{sealed:?}"
+    );
+    Ok(())
+}
+
+#[test]
 fn flipping_a_tree_segment_root_or_fan_changes_its_digest_and_fails_verify_segment() -> TestResult {
     let tree = small_tree();
     let (_, embedding) = GInstance::from_wtype_embedded(&tree, None)?;

@@ -184,6 +184,10 @@ pub enum PartitionDefect {
     SegmentRepeated,
     /// A segment was supplied whose id the partition does not list.
     UnknownSegment,
+    /// A tree segment holds an embedding counter (`next_node` or
+    /// `next_edge`) but not the tree's root; only the segment owning the
+    /// root holds the counters.
+    CountersWithoutRoot,
 }
 
 impl fmt::Display for PartitionDefect {
@@ -200,6 +204,9 @@ impl fmt::Display for PartitionDefect {
             Self::SegmentMissing => f.write_str("it was not supplied"),
             Self::SegmentRepeated => f.write_str("it was supplied more than once"),
             Self::UnknownSegment => f.write_str("the partition does not list it"),
+            Self::CountersWithoutRoot => {
+                f.write_str("it holds an embedding counter but not the tree's root")
+            }
         }
     }
 }

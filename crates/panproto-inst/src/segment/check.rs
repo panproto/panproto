@@ -258,15 +258,16 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
 }
 
 /// The elements a tree segment's embedding counters are wrong about: the
-/// root when it holds the root without both counters, the least counter
-/// value when it holds a counter without the root, and the least node id and
-/// edge id it holds at or above the counter of their kind.
+/// root when it holds the root without both counters, and the least node id
+/// and edge id it holds at or above the counter of their kind. A counter in
+/// a segment without the root is about no element; [`check_counter_holder`]
+/// refuses it.
 fn counter_violations(tree: &TreeSegment) -> Vec<ViewRef> {
     let mut out = Vec::new();
-    match (tree.root, tree.next_node, tree.next_edge) {
-        (Some(_), Some(_), Some(_)) | (None, None, None) => {}
-        (Some(root), _, _) => out.push(ViewRef::Node(root)),
-        (None, node, edge) => out.extend(node.or(edge).map(ViewRef::Node)),
+    if let Some(root) = tree.root
+        && (tree.next_node.is_none() || tree.next_edge.is_none())
+    {
+        out.push(ViewRef::Node(root));
     }
     if let Some(next) = tree.next_node
         && let Some(id) = tree.nodes.range(next..).next()
@@ -287,7 +288,8 @@ fn counter_violations(tree: &TreeSegment) -> Vec<ViewRef> {
 ///
 /// [`SegmentError::ShapeMismatch`] when the segment's shape is not the
 /// partition's, [`SegmentError::MalformedPartition`] when the partition
-/// does not list the segment, the partition's own error when it is invalid,
+/// does not list the segment or a tree segment holds the embedding's
+/// counters without the root, the partition's own error when it is invalid,
 /// and [`SegmentError::Invalid`] with every violation, sorted by the element
 /// it is about, when the segment breaks its contract.
 pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
@@ -296,9 +298,38 @@ pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), 
     check_segment_with(segment, &index)
 }
 
+/// Check that a tree segment holds the embedding's counters only when it
+/// holds the tree's root.
+///
+/// # Errors
+///
+/// [`SegmentError::MalformedPartition`] with
+/// [`PartitionDefect::CountersWithoutRoot`] when it holds `next_node` or
+/// `next_edge` without `root`: the counters' values need not be ids any
+/// segment holds, so no element names the defect.
+pub const fn check_counter_holder(segment: &AnySegment) -> Result<(), SegmentError> {
+    match segment {
+        AnySegment::Tree(tree)
+            if tree.root.is_none() && (tree.next_node.is_some() || tree.next_edge.is_some()) =>
+        {
+            Err(SegmentError::MalformedPartition {
+                segment: tree.segment,
+                defect: PartitionDefect::CountersWithoutRoot,
+            })
+        }
+        _ => Ok(()),
+    }
+}
+
 /// [`check_segment`] with the owner index already built and the segment
 /// known to be listed.
+///
+/// # Errors
+///
+/// As [`check_counter_holder`], then [`SegmentError::Invalid`] with every
+/// violation, sorted by the element it is about.
 pub fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Result<(), SegmentError> {
+    check_counter_holder(segment)?;
     let mut violations = contract_violations(segment, index);
     if violations.is_empty() {
         return Ok(());
@@ -327,7 +358,8 @@ pub fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), S
 }
 
 /// The segments laid out by id under `partition`: each listed, with the
-/// partition's shape, exactly once.
+/// partition's shape, exactly once, and a tree segment holding the
+/// embedding's counters only with the root ([`check_counter_holder`]).
 pub fn arrange<'a>(
     segments: impl IntoIterator<Item = &'a AnySegment>,
     partition: &Partition,
@@ -335,6 +367,7 @@ pub fn arrange<'a>(
     let mut slots: Vec<Option<&AnySegment>> = vec![None; partition.specs().len()];
     for segment in segments {
         check_listed(segment, partition)?;
+        check_counter_holder(segment)?;
         let at = usize::try_from(segment.segment().0).unwrap_or(usize::MAX);
         let slot = slots
             .get_mut(at)

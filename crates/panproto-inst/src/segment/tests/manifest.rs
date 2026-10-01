@@ -498,6 +498,57 @@ fn seal_checks_the_edge_id_runs_against_the_records() -> TestResult {
     Ok(())
 }
 
+/// Two graph segments over nodes 0..2 and 2..4: segment 0 holds edges 3
+/// and 7, segment 1 holds edges 3 and 9.
+fn shared_inner_edge_id() -> Result<(Vec<AnySegment>, Partition), SegmentError> {
+    let mut graph = GInstance::new();
+    for id in 0..4 {
+        graph = graph.with_node(Node::new(id, "a"));
+    }
+    let x = label("a", "a", "prop", None);
+    graph = graph
+        .with_edge_id(EdgeId(3), 0, 1, x.clone())
+        .with_edge_id(EdgeId(7), 1, 0, x.clone());
+    let partition = Partition::by_node_ranges(InstanceShapeKind::Graph, &[2], 0, 10)?;
+    let mut parts = segments(&graph, &partition)?;
+    if let AnySegment::Graph(s) = &mut parts[1] {
+        s.edges.insert(EdgeId(3), GEdge::new(2, 3, x.clone()));
+        s.edges.insert(EdgeId(9), GEdge::new(3, 2, x));
+    }
+    Ok((parts, partition))
+}
+
+#[test]
+fn a_run_with_its_record_s_length_and_last_id_but_other_inner_ids_is_refused() -> TestResult {
+    let (parts, partition) = shared_inner_edge_id()?;
+    let recs = records(&parts, &partition, &Digest([5; 32]));
+    assert_eq!(
+        seal(recs.clone(), header(None), runs(&parts)).err(),
+        Some(SegmentError::DuplicateEdgeId {
+            edge: EdgeId(3),
+            segments: vec![SegmentId(0), SegmentId(1)]
+        })
+    );
+    // Segment 0's run names 5 in place of the 3 it holds: the same length
+    // and the same last id, but not the segment's ids.
+    let forged = seal(
+        recs,
+        header(None),
+        vec![run_of(0, vec![5, 7]), run_of(1, vec![3, 9])],
+    );
+    assert!(
+        matches!(
+            forged,
+            Err(SegmentError::Decode {
+                artifact: ArtifactKind::EdgeIdRun,
+                ..
+            })
+        ),
+        "{forged:?}"
+    );
+    Ok(())
+}
+
 #[test]
 fn a_modified_segment_fails_verify_segment() -> TestResult {
     let (manifest, parts, _) = ring_manifest(None)?;

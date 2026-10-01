@@ -11,9 +11,10 @@ use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GEdge, GInstance};
 use crate::metadata::Node;
 use crate::segment::{
-    AnySegment, BuilderEdge, BuilderNode, Ghost, GraphSegment, InStub, Partition, SegmentBuilder,
-    SegmentError, SegmentId, TreeSegment, assemble_graph, assemble_table, assemble_tree,
-    check_segment, partition_graph, partition_table, partition_tree, verify_partition,
+    AnySegment, BuilderEdge, BuilderNode, Ghost, GraphSegment, InStub, Partition, PartitionDefect,
+    SegmentBuilder, SegmentError, SegmentId, TreeSegment, assemble_graph, assemble_table,
+    assemble_tree, check_segment, partition_graph, partition_table, partition_tree,
+    verify_partition,
 };
 use crate::view_ref::{RowId, ViewRef};
 use crate::wtype::WInstance;
@@ -856,14 +857,43 @@ fn tree_segment_counters_are_checked_in_the_root_segment_and_across_segments() -
         check_segment(&AnySegment::Tree(bare), &p),
         ViewRef::Node(0)
     ));
-    // Counters in a segment without the root.
-    let mut stray = parts[1].clone();
-    stray.next_node = Some(3);
-    stray.next_edge = Some(2);
-    assert!(lists(
-        check_segment(&AnySegment::Tree(stray), &p),
-        ViewRef::Node(3)
-    ));
+    // Counters in a segment without the root: a defect of the segment, not
+    // of any element, since a counter's value need not be any id held.
+    let stray_counters = SegmentError::MalformedPartition {
+        segment: SegmentId(1),
+        defect: PartitionDefect::CountersWithoutRoot,
+    };
+    for (node, edge) in [(Some(3), Some(2)), (Some(3), None), (None, Some(9))] {
+        let mut stray = parts[1].clone();
+        stray.next_node = node;
+        stray.next_edge = edge;
+        let stray = AnySegment::Tree(stray);
+        assert_eq!(
+            check_segment(&stray, &p).err(),
+            Some(stray_counters.clone())
+        );
+        let laid_out = vec![AnySegment::Tree(parts[0].clone()), stray];
+        assert_eq!(
+            verify_partition(&laid_out, &p).err(),
+            Some(stray_counters.clone())
+        );
+    }
+    // An empty segment without the root holding only the edge counter: no
+    // node 9 exists to be named.
+    let empty = TreeSegment {
+        segment: SegmentId(1),
+        nodes: BTreeMap::new(),
+        arcs: BTreeMap::new(),
+        fans: Vec::new(),
+        root: None,
+        next_node: None,
+        next_edge: Some(9),
+        boundary: crate::segment::Boundary::default(),
+    };
+    assert_eq!(
+        check_segment(&AnySegment::Tree(empty), &p).err(),
+        Some(stray_counters)
+    );
     // A counter at or below an id another segment holds: node 1 is in
     // segment 1, so only the check across segments sees it.
     let mut low = parts;

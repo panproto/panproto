@@ -28,9 +28,26 @@ use super::partition::{Partition, SegmentSpec, shape_tag, write_opt_range, write
 use super::stream::{RecordSource, instance_digest};
 use crate::ginstance::EdgeId;
 use crate::identity::{
-    CanonicalSink, ComplementShape, Digest, IdentityEnvelope, MANIFEST_CONTEXT,
+    CanonicalSink, ComplementShape, Digest, DigestHasher, IdentityEnvelope, MANIFEST_CONTEXT,
     MANIFEST_LEAF_CONTEXT, MANIFEST_NODE_CONTEXT, SEGMENT_MANIFEST_VERSION,
 };
+
+/// The context of a segment's edge id digest ([`SegmentRecord::edge_ids`]):
+/// the segment's owned edge ids, ascending, each as four little-endian
+/// bytes.
+pub const SEGMENT_EDGE_IDS_CONTEXT: &str = "panproto 2026-09 segment edge ids v1";
+
+/// The edge id digest of a sorted run of edge ids: each id's four
+/// little-endian bytes in order, under [`SEGMENT_EDGE_IDS_CONTEXT`]. The
+/// ids have one width, so the bytes determine the run.
+#[must_use]
+pub fn edge_ids_digest(ids: impl IntoIterator<Item = EdgeId>) -> Digest {
+    let mut hasher = Digest::hasher(SEGMENT_EDGE_IDS_CONTEXT);
+    for id in ids {
+        hasher.u32(id.0);
+    }
+    hasher.finalize()
+}
 
 /// The record of one segment in a manifest.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -49,6 +66,10 @@ pub struct SegmentRecord {
     pub max_node: Option<u32>,
     /// Its largest owned edge id.
     pub max_edge: Option<u32>,
+    /// The digest of its owned edge ids, ascending ([`edge_ids_digest`] of
+    /// [`AnySegment::edge_id_run`]), fan edges of a tree included: what
+    /// binds the edge id run `seal` merges to the segment.
+    pub edge_ids: Digest,
     /// Its content digest ([`AnySegment::digest`]).
     pub content: Digest,
     /// The cross digest of its edges into each peer.
@@ -181,6 +202,7 @@ impl SegmentRecord {
             stats: segment.stats(),
             max_node: segment.max_node(),
             max_edge: segment.max_edge(),
+            edge_ids: edge_ids_digest(segment.edge_id_run()),
             content: segment.digest_with(schema, spec),
             cross_out: segment.cross_out(),
             cross_in: segment.cross_in(),
@@ -215,6 +237,7 @@ impl SegmentRecord {
                 }
             }
         }
+        sink.write(&self.edge_ids.0);
         sink.write(&self.content.0);
         write_digest_map(sink, &self.cross_out);
         write_digest_map(sink, &self.cross_in);
@@ -424,6 +447,15 @@ struct RunSeen {
     last: Option<EdgeId>,
 }
 
+/// What merging the runs found: what each run held, each run's edge id
+/// digest, and the least edge id two runs hold with every segment holding
+/// it.
+struct MergedRuns {
+    seen: Vec<RunSeen>,
+    digests: Vec<Digest>,
+    duplicate: Option<SegmentError>,
+}
+
 /// The decode error of an edge id run.
 const fn run_error(message: String) -> SegmentError {
     SegmentError::Decode {
@@ -433,15 +465,16 @@ const fn run_error(message: String) -> SegmentError {
 }
 
 /// Merge the runs, holding one id per run at a time, to their end: what
-/// each run held, and the least edge id two runs hold with every segment
-/// holding it.
-fn merge_runs(
-    runs: &mut [EdgeIdRun<'_>],
-) -> Result<(Vec<RunSeen>, Option<SegmentError>), SegmentError> {
+/// each run held, the edge id digest of each run, and the least edge id two
+/// runs hold with every segment holding it.
+fn merge_runs(runs: &mut [EdgeIdRun<'_>]) -> Result<MergedRuns, SegmentError> {
     use std::cmp::Reverse;
     use std::collections::BinaryHeap;
 
     let mut seen = vec![RunSeen::default(); runs.len()];
+    let mut hashers: Vec<DigestHasher> = (0..runs.len())
+        .map(|_| Digest::hasher(SEGMENT_EDGE_IDS_CONTEXT))
+        .collect();
     let mut heap = BinaryHeap::new();
     for (i, (_, run)) in runs.iter_mut().enumerate() {
         if let Some(id) = run.next() {
@@ -463,6 +496,7 @@ fn merge_runs(
         let segment = runs[i].0;
         seen[i].count += 1;
         seen[i].last = Some(id);
+        hashers[i].u32(id.0);
         match &mut group {
             Some((held, segments)) if *held == id => segments.push(segment),
             _ => close(group.replace((id, vec![segment]))),
@@ -477,7 +511,11 @@ fn merge_runs(
         }
     }
     close(group);
-    Ok((seen, duplicate))
+    Ok(MergedRuns {
+        seen,
+        digests: hashers.iter().map(DigestHasher::finalize).collect(),
+        duplicate,
+    })
 }
 
 /// Merge the segments' sorted edge id runs and check that no edge id is
@@ -490,16 +528,16 @@ fn merge_runs(
 /// strictly ascending.
 pub fn check_edge_id_runs(runs: Vec<EdgeIdRun<'_>>) -> Result<(), SegmentError> {
     let mut runs = runs;
-    let (_, duplicate) = merge_runs(&mut runs)?;
-    duplicate.map_or(Ok(()), Err)
+    merge_runs(&mut runs)?.duplicate.map_or(Ok(()), Err)
 }
 
 /// Check the runs against the records they belong to, then merge them: one
 /// run per record; each run as long as its record's owned edges with ids
 /// (exactly `stats.edges` for a graph; at least the tree arcs and one parent
 /// edge per fan for a tree, whose record does not count fan child edges;
-/// none for a table); each run ending at its record's `max_edge`; and no
-/// edge id in two runs.
+/// none for a table); each run ending at its record's `max_edge`; each
+/// run's edge id digest equal to its record's `edge_ids`, which fixes every
+/// id of the run; and no edge id in two runs.
 fn check_runs_against_records(
     records: &[SegmentRecord],
     shape: InstanceShapeKind,
@@ -521,16 +559,24 @@ fn check_runs_against_records(
             records[missing].id
         )));
     }
-    let (seen, duplicate) = merge_runs(&mut runs)?;
+    let MergedRuns {
+        seen,
+        digests,
+        duplicate,
+    } = merge_runs(&mut runs)?;
     for (record, at) in records.iter().zip(&position) {
         let got = at.and_then(|i| seen.get(i)).copied().unwrap_or_default();
+        let digest = at.and_then(|i| digests.get(i));
         let stats = &record.stats;
         let count_fits = match shape {
             InstanceShapeKind::Graph => got.count == stats.edges,
             InstanceShapeKind::Tree => got.count >= stats.edges.saturating_add(stats.fans),
             InstanceShapeKind::Table => got.count == 0,
         };
-        if !count_fits || got.last.map(|e| e.0) != record.max_edge {
+        if !count_fits
+            || got.last.map(|e| e.0) != record.max_edge
+            || digest != Some(&record.edge_ids)
+        {
             return Err(run_error(format!(
                 "the run of {} holds {} ids ending at {:?}, which its record does not state",
                 record.id,
@@ -642,8 +688,8 @@ impl SegmentManifest {
 /// equal to `cross_in[i]` of `j`, both ways); every edge allocation range
 /// must lie above the largest edge id any record holds; and the segments'
 /// sorted edge id runs, one per record in `runs`, each as long as its
-/// record's owned edges and ending at its record's `max_edge`, must hold no
-/// edge id twice. The merge holds one id per run at a time. The runs are the
+/// record's owned edges, ending at its record's `max_edge` and with the
+/// record's edge id digest, must hold no edge id twice. The merge holds one id per run at a time. The runs are the
 /// only evidence of the segments' edge ids `seal` sees, so a run that its
 /// record contradicts is refused rather than merged.
 ///
