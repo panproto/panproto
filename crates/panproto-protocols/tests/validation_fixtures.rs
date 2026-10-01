@@ -57,19 +57,45 @@ fn files(dir: &Path) -> BTreeMap<String, Vec<u8>> {
     out
 }
 
+/// A directory removed, with everything under it, when this value drops,
+/// so a check that fails inside it leaves nothing behind.
+struct ScratchDir(PathBuf);
+
+impl Drop for ScratchDir {
+    fn drop(&mut self) {
+        if !self.0.exists() {
+            return;
+        }
+        if let Err(e) = std::fs::remove_dir_all(&self.0) {
+            // A second panic while unwinding would abort the test binary.
+            assert!(
+                std::thread::panicking(),
+                "removing {}: {e}",
+                self.0.display()
+            );
+            eprintln!("removing {}: {e}", self.0.display());
+        }
+    }
+}
+
+/// Run `f` on a directory under the system temporary directory, named after
+/// `tag` and this process, and remove the directory afterwards, whether `f`
+/// returns or panics.
+fn with_scratch_dir<T>(tag: &str, f: impl FnOnce(&Path) -> T) -> T {
+    let dir = ScratchDir(std::env::temp_dir().join(format!("{tag}-{}", std::process::id())));
+    f(&dir.0)
+}
+
 #[test]
 fn validation_fixtures_match_the_generator() {
-    let out = std::env::temp_dir().join(format!(
-        "panproto-validation-fixtures-{}",
-        std::process::id()
-    ));
-    let status = std::process::Command::new(env!("CARGO_BIN_EXE_validation-fixtures"))
-        .arg(&out)
-        .status()
-        .unwrap();
-    assert!(status.success(), "the generator failed: {status}");
-    let generated = files(&out);
-    std::fs::remove_dir_all(&out).unwrap();
+    let generated = with_scratch_dir("panproto-validation-fixtures", |out| {
+        let status = std::process::Command::new(env!("CARGO_BIN_EXE_validation-fixtures"))
+            .arg(out)
+            .status()
+            .unwrap();
+        assert!(status.success(), "the generator failed: {status}");
+        files(out)
+    });
     let committed = files(&corpus_dir());
     assert_eq!(
         generated.keys().collect::<Vec<_>>(),
@@ -82,6 +108,24 @@ fn validation_fixtures_match_the_generator() {
             "{name} differs from the generator's output; regenerate with `{REGENERATE}`"
         );
     }
+}
+
+/// A check that fails inside the scratch directory, after writing to it,
+/// leaves no directory behind.
+#[test]
+fn a_failing_check_leaves_no_scratch_directory() {
+    let seen = std::sync::Mutex::new(None);
+    let unwound = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        with_scratch_dir("panproto-validation-scratch-probe", |dir| {
+            std::fs::create_dir_all(dir).unwrap();
+            std::fs::write(dir.join("partial"), b"x").unwrap();
+            *seen.lock().unwrap() = Some(dir.to_path_buf());
+            panic!("the check failed");
+        })
+    }));
+    assert!(unwound.is_err());
+    let dir = seen.into_inner().unwrap().unwrap();
+    assert!(!dir.exists(), "{} was left behind", dir.display());
 }
 
 /// The instance of a fixture, in its shape.
@@ -545,6 +589,7 @@ const EXPECTED: &[Expectation] = &[
         CheckStatus::Failed,
         &[(CheckKind::EndpointCoherence, "incoherent_endpoint")],
     ),
+    ("endpoints/table_coherent", CheckStatus::Passed, &[]),
     (
         "endpoints/tgt_side",
         CheckStatus::Failed,
@@ -1168,6 +1213,27 @@ fn fixture_payloads_name_what_they_check() {
     }
 }
 
+/// The coherent endpoint cases pass because their one edge, arc or pair is
+/// checked and found coherent, not because nothing is checked.
+#[test]
+fn the_coherent_endpoint_cases_check_their_one_edge() {
+    let fixtures = fixtures();
+    for name in [
+        "endpoints/coherent",
+        "endpoints/tree_coherent",
+        "endpoints/table_coherent",
+    ] {
+        let coverage: Vec<(u64, u64)> = fixtures[name]
+            .report
+            .coverage
+            .iter()
+            .filter(|(key, _)| key.kind == CheckKind::EndpointCoherence)
+            .map(|(_, c)| (c.instances, c.passed))
+            .collect();
+        assert_eq!(coverage, vec![(1, 1)], "{name}");
+    }
+}
+
 /// Every fixture stores the edits applied to its instance as a trace of
 /// edits of the instance's own shape. Every case so far validates its
 /// instance alone, so every trace is empty.
@@ -1187,7 +1253,8 @@ fn every_fixture_stores_an_edit_trace_of_its_shape() {
 /// Each case of the corpus by the shapes that write it: its graph, tree and
 /// table cases, `None` where the shape cannot express the case. Tables
 /// hold no edge positions, cycles or fans, and construction refuses a pair
-/// between rows of the wrong tables; tree arcs hold no positions, no
+/// between rows of the wrong tables, so a table holds a coherent pair but
+/// no incoherent one; tree arcs hold no positions, no
 /// self-loops, no parallel arcs and no cycles; a tree fan has one parent
 /// and one child per label, and a tree holds no fan nodes for an edge to
 /// meet; `Acyclic` and `PositionDistinct` are graph checks, and the tree
@@ -1207,7 +1274,7 @@ const SHAPES: &[[Option<&str>; 3]] = &[
     [
         Some("endpoints/coherent"),
         Some("endpoints/tree_coherent"),
-        None,
+        Some("endpoints/table_coherent"),
     ],
     [
         Some("endpoints/src_side"),

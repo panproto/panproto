@@ -1308,12 +1308,12 @@ fn two_node_tree(root: &str, child: &str, label: &Edge) -> WInstance {
     )
 }
 
-/// The anchor and endpoint cases of trees beside the tree cases above: an
-/// undeclared arc label, a coherent arc, and arcs incoherent on the source
-/// side and on both sides. A table instance cannot hold a pair between rows
-/// of the wrong tables (construction refuses it), and a tree arc cannot be a
-/// self-loop.
-fn tree_anchors_and_endpoints() -> Vec<Case> {
+/// The anchor and endpoint cases of trees and tables beside the cases
+/// above: an undeclared arc label, a coherent arc, and arcs incoherent on
+/// the source side and on both sides; a coherent foreign-key pair. A table
+/// instance cannot hold a pair between rows of the wrong tables
+/// (construction refuses it), and a tree arc cannot be a self-loop.
+fn tree_and_table_anchors_and_endpoints() -> R<Vec<Case>> {
     let ab = prop("a", "b", "ab");
     let tree_case = |name: &str, root: &str, child: &str, label: &Edge| {
         Case::new(
@@ -1322,7 +1322,7 @@ fn tree_anchors_and_endpoints() -> Vec<Case> {
             Instance::Tree(two_node_tree(root, child, label)),
         )
     };
-    vec![
+    Ok(vec![
         tree_case(
             "anchors/tree_undeclared_label",
             "a",
@@ -1332,7 +1332,28 @@ fn tree_anchors_and_endpoints() -> Vec<Case> {
         tree_case("endpoints/tree_coherent", "a", "b", &ab),
         tree_case("endpoints/tree_src_side", "b", "b", &ab),
         tree_case("endpoints/tree_both_sides", "b", "a", &ab),
-    ]
+        table_coherent()?,
+    ])
+}
+
+/// A foreign-key pair from a row of table `a` to a row of table `b` under
+/// the foreign key `ab: a -> b`.
+fn table_coherent() -> R<Case> {
+    let ab = edge("a", "b", "fk", "ab");
+    let schema = S::default()
+        .vertex("a", "table")
+        .vertex("b", "table")
+        .edge(&ab)
+        .build();
+    let pair = FInstance::new()
+        .with_rows("a", [(RowId(0), row(&[]))])
+        .and_then(|f| f.with_rows("b", [(RowId(1), row(&[]))]))
+        .and_then(|f| f.with_foreign_key(ab, [(RowId(0), RowId(1))]))?;
+    Ok(Case::new(
+        "endpoints/table_coherent",
+        schema,
+        Instance::Table(pair),
+    ))
 }
 
 /// Required edges present and absent, and out-degree bounds at and past the
@@ -1744,7 +1765,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         fans()?,
         keys()?,
         incomplete(),
-        tree_anchors_and_endpoints(),
+        tree_and_table_anchors_and_endpoints()?,
         tree_and_table_cardinality()?,
         tree_incomplete(),
         table_incomplete()?,
