@@ -22,10 +22,12 @@
 //! validation, not of this schema, which is why one value sort is enough.
 //!
 //! Which vertices are tables is read from the protocol's two declarations,
-//! [`Protocol::value_kinds`](panproto_schema::Protocol::value_kinds) and [`Protocol::non_value_kinds`](panproto_schema::Protocol::non_value_kinds), and from the
-//! schema's key and reference declarations, and from nothing else: not from
-//! the kind of an edge, not from the name of a kind, not from whether an
-//! instance holds rows there. So a table with no rows is still a table.
+//! [`Protocol::value_kinds`](panproto_schema::Protocol::value_kinds) and
+//! [`Protocol::non_value_kinds`](panproto_schema::Protocol::non_value_kinds),
+//! and from the schema's key and reference declarations, and from nothing
+//! else: not from the kind of an edge, not from the name of a kind, not from
+//! whether an instance holds rows there. So a table with no rows is still a
+//! table.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -47,7 +49,8 @@ pub enum RelSchemaError {
     /// A vertex that no key or reference declares a table has a kind the
     /// protocol declares neither a value kind nor a non-value kind.
     #[error(
-        "vertex `{vertex}` has kind `{kind}`, which the protocol declares neither a value kind nor a non-value kind"
+        "vertex `{vertex}` has kind `{kind}`, \
+         which the protocol declares neither a value kind nor a non-value kind"
     )]
     UnclassifiedKind {
         /// The least such vertex.
@@ -237,10 +240,10 @@ impl RelSchema {
             .iter()
             .filter(|(vertex, kind)| !declared.contains(*vertex) && is_value_kind(kind))
             .map(|(vertex, _)| *vertex);
-        let values = closure_under(&edges, &vertices, seeds);
         let is_table = |vertex: &Name| {
             declared.contains(vertex) || vertices.get(vertex).is_some_and(|k| is_non_value_kind(k))
         };
+        let values = closure_under(&edges, &vertices, seeds, is_table);
         if let Some(edge) = edges
             .iter()
             .find(|edge| values.contains(&edge.src) && is_table(&edge.tgt))
@@ -465,11 +468,15 @@ fn columns_of(
 }
 
 /// The least set of vertices of `vertices` holding `seeds` and closed under
-/// `edges`: the value vertices of a schema.
+/// `edges` into vertices that are not tables: the value vertices of a
+/// schema. A table the closure reaches is not walked through and not held,
+/// so the edges into tables out of the set are exactly the edges by which a
+/// value reaches a table.
 fn closure_under<'a>(
     edges: &BTreeSet<&'a Edge>,
     vertices: &BTreeMap<&'a Name, &'a Name>,
     seeds: impl Iterator<Item = &'a Name>,
+    is_table: impl Fn(&Name) -> bool,
 ) -> BTreeSet<&'a Name> {
     let mut out_edges: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
     for edge in edges {
@@ -478,7 +485,7 @@ fn closure_under<'a>(
     let mut values: BTreeSet<&Name> = BTreeSet::new();
     let mut frontier: Vec<&Name> = seeds.collect();
     while let Some(vertex) = frontier.pop() {
-        if !vertices.contains_key(vertex) || !values.insert(vertex) {
+        if !vertices.contains_key(vertex) || is_table(vertex) || !values.insert(vertex) {
             continue;
         }
         for edge in out_edges.get(vertex).into_iter().flatten() {
@@ -808,6 +815,23 @@ mod tests {
             RelSchema::new(&s, &protocol(&["array", "string"], &["record"])),
             Err(RelSchemaError::ValueReachesTable {
                 edge: Box::new(edge("post.tags", "user", "fk", "owner"))
+            })
+        );
+    }
+
+    /// The refusal names the edge out of the value vertex, not a relation
+    /// between two tables that the value reaches through it: here `b -> a`
+    /// is the lesser edge, but `b` is a table, not a value vertex.
+    #[test]
+    fn a_value_reaching_a_table_names_the_edge_out_of_the_value() {
+        let s = schema(
+            &[("a", "record"), ("b", "record"), ("v", "string")],
+            &[edge("v", "b", "x", "x"), edge("b", "a", "fk", "fk")],
+        );
+        assert_eq!(
+            RelSchema::new(&s, &protocol(&["string"], &["record"])),
+            Err(RelSchemaError::ValueReachesTable {
+                edge: Box::new(edge("v", "b", "x", "x"))
             })
         );
     }
