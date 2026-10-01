@@ -523,8 +523,8 @@ impl CheckSpec {
 ///
 /// A temporal value matches `date-time`, `date` or `time` when it is of
 /// that kind; any other value leaves the instance undecided
-/// ([`IncompleteReason::IllFormedDeclaration`](super::IncompleteReason::IllFormedDeclaration)). A constraint naming any other format compiles to a static
-/// finding with
+/// ([`IncompleteReason::IllFormedDeclaration`](super::IncompleteReason::IllFormedDeclaration)).
+/// A constraint naming any other format compiles to a static finding with
 /// [`IncompleteReason::UnsupportedDeclaration`](super::IncompleteReason::UnsupportedDeclaration),
 /// never to a pass.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
