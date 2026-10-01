@@ -20,10 +20,11 @@ use crate::error::LensError;
 ///
 /// The target schema of `l1` must be compatible with the source schema of `l2`.
 ///
-/// This fuses the two compiled migrations whatever the pair; the fused lens
-/// behaves as the two run in sequence only under the conditions stated on
-/// [`TreeComposite`]. [`compose_tree`] applies the composition rule and
-/// falls back to [`SequentialTreeLens`] when they fail.
+/// This fuses the two compiled migrations whatever the pair, so the fused
+/// lens can differ from running `l1` and then `l2` in sequence: it is
+/// observationally the pair only under the conditions stated on
+/// [`TreeComposite`]. [`compose_tree`] applies those conditions and keeps
+/// the pair as a [`SequentialTreeLens`] when they fail.
 ///
 /// # Errors
 ///
@@ -158,61 +159,66 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 /// A composite of two tree lenses, by the composition rule shared by every
 /// instance shape.
 ///
-/// The pair is fused into one [`Lens`] exactly when
+/// The pair is fused into one [`Lens`] only when all of the following hold,
+/// and kept in sequence otherwise:
 ///
-/// 1. neither lens contracts a path (no surviving source vertex reaches
-///    another through a vertex whose nodes may be dropped),
-/// 2. their compiled migrations compose,
-/// 3. the composite's edge image compiles: every explicit edge image joins
-///    the images of its endpoints and is an edge of the target (the endpoint
-///    check), and the direct-arc rule of the tree restrict, run on the
-///    composite, gives every source edge the fate the pair gives it in
-///    sequence. The second half is what compiling the composite's edge
-///    fates means for a tree lens, whose migration states a drop only by
-///    leaving an edge out of its edge map: when the pair drops an edge whose
-///    kind and label the target still carries between the endpoints'
-///    images, the composite would carry the arc there implicitly, so its
-///    edge image does not compile, and
-/// 4. the composite's plan is empty: it neither contracts a path nor
-///    expands an arc into synthesized nodes, and
-/// 5. the two value layers do not meet: either `l2` carries no value
-///    layer (no survival predicate, field transform or op-term
-///    assignment), or `l1` carries none and `l2` carries only survival
-///    predicates. The fused lens evaluates every predicate and transform
-///    on the source node in one batch, while the pair evaluates `l2`'s on
-///    the node `l1` produced. A predicate reads only its node's own
-///    fields, which a value-free `l1` leaves as they are; a transform of
-///    `l2` also reads the node's children and the instance around it,
-///    which `l1` restructures, and a predicate of each lens on one anchor
-///    is fused as a conjunction that an evaluation error in one conjunct
-///    turns from a drop into a survival. So any other pair is kept in
-///    sequence even when its migrations compose.
+/// 1. neither lens nor the composite contracts a path: no surviving source
+///    vertex reaches a surviving vertex through a vertex that is dropped or
+///    survives only under a predicate;
+/// 2. the two compiled migrations compose;
+/// 3. the composite's edge image compiles and agrees with the pair edge by
+///    edge: every explicit edge image joins the images of its endpoints and
+///    is an edge of the target (the endpoint check), and the direct-arc rule
+///    of the tree restrict, run on the composite, gives every source edge
+///    the fate obtained by running `l1`'s fate and then `l2`'s. The second
+///    half is needed because a tree migration states a drop only by leaving
+///    an edge out of its edge map: when the pair drops an edge whose kind and
+///    label the target still carries between the endpoints' images, the
+///    composite would carry the arc there implicitly;
+/// 4. the plans of `l1`, of `l2` and of the composite are all empty: none of
+///    the three contracts a path or expands an arc into synthesized nodes.
+///    The composite's plan alone does not suffice: when `l1` expands an arc
+///    into a path through a synthesized node and `l2` drops the arc's
+///    child, the composite carries no expansion, yet the pair still
+///    synthesizes the intermediate node and `l2` may keep it;
+/// 5. the two value layers do not meet: either `l2` carries no value layer
+///    (no survival predicate, field transform or op-term assignment), or
+///    `l1` carries none and `l2` carries only survival predicates. The fused
+///    lens evaluates every predicate and transform on the source node in one
+///    batch, while the pair evaluates `l2`'s on the node `l1` produced. A
+///    predicate reads only its node's own fields, which a value-free `l1`
+///    leaves as they are; a transform of `l2` also reads the node's children
+///    and the instance around it, which `l1` restructures, and a predicate of
+///    each lens on one anchor is fused as a conjunction that an evaluation
+///    error in one conjunct turns from a drop into a survival.
 ///
-/// Queries of this kind compose because their pushforward is restricted to
-/// discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1, proof
-/// sketch; stated), and the endpoint check on edge images is that
-/// restriction here (inferred). Any other pair is kept as the two lenses run
-/// one after the other.
+/// Under these conditions the fused lens and the pair in sequence are
+/// observationally equivalent: their views agree, and so do the sources they
+/// write back. Queries of this kind compose because their pushforward is
+/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1,
+/// proof sketch; stated), and the endpoint check on edge images is that
+/// restriction here (inferred).
+///
+/// Both variants are boxed: a [`Lens`] is large, so an unboxed variant
+/// beside a boxed one would make every composite as large as the larger.
 #[derive(Debug)]
 pub enum TreeComposite {
     /// The pair fused into one lens.
-    Compiled(Lens),
+    Compiled(Box<Lens>),
     /// The pair run in sequence.
-    Sequential(SequentialTreeLens),
+    Sequential(Box<SequentialTreeLens>),
 }
 
 /// Two tree lenses run in sequence: `get` runs `first` then `second`, and
 /// `put` writes back through `second` then `first`.
 ///
-/// Its complement is the pair of the two stages' complements. The second
-/// stage is boxed so that this struct is about the size of one [`Lens`],
-/// which keeps the two variants of [`TreeComposite`] of equal size.
+/// Its complement is the pair of the two stages' complements.
 #[derive(Debug)]
 pub struct SequentialTreeLens {
     /// The lens applied to the source.
     pub first: Lens,
     /// The lens applied to the view of `first`.
-    pub second: Box<Lens>,
+    pub second: Lens,
 }
 
 impl SequentialTreeLens {
@@ -258,24 +264,29 @@ impl SequentialTreeLens {
 pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
     check_boundary(l1, l2)?;
     let sequential = || {
-        TreeComposite::Sequential(SequentialTreeLens {
+        TreeComposite::Sequential(Box::new(SequentialTreeLens {
             first: duplicate(l1),
-            second: Box::new(duplicate(l2)),
-        })
+            second: duplicate(l2),
+        }))
     };
+    // Condition 1 for the two lenses, before their migrations are composed.
     if !contraction_free(l1) || !contraction_free(l2) {
         return Ok(sequential());
     }
+    // Condition 2.
     let Ok(composite) = fuse(l1, l2) else {
         return Ok(sequential());
     };
+    // Condition 1 for the composite is part of its empty plan (condition 4).
     if !edge_image_compiles(l1, l2, &composite)
+        || !plan_is_empty(l1)
+        || !plan_is_empty(l2)
         || !plan_is_empty(&composite)
         || !value_layers_compose(l1, l2)
     {
         return Ok(sequential());
     }
-    Ok(TreeComposite::Compiled(composite))
+    Ok(TreeComposite::Compiled(Box::new(composite)))
 }
 
 /// Condition 3 of [`TreeComposite`]: the composite's explicit edge images
@@ -285,8 +296,9 @@ fn edge_image_compiles(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
     edge_images_coherent(composite) && direct_images_agree(l1, l2, composite)
 }
 
-/// Condition 4 of [`TreeComposite`]: `get` through `lens` neither contracts
-/// a path nor expands an arc into synthesized nodes.
+/// Whether the plan of `get` through `lens` is empty, as condition 4 of
+/// [`TreeComposite`] requires of each lens and of the composite: it neither
+/// contracts a path nor expands an arc into synthesized nodes.
 fn plan_is_empty(lens: &Lens) -> bool {
     contraction_free(lens) && lens.compiled.expansion_path.is_empty()
 }

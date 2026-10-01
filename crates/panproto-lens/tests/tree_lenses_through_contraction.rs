@@ -1278,11 +1278,6 @@ mod composition_rule {
         WInstance::new(nodes, arcs, vec![], 0, "r".into())
     }
 
-    fn arb_source() -> impl Strategy<Value = WInstance> {
-        prop::collection::vec(prop::collection::vec("[a-z]{0,3}", 0..3), 0..4)
-            .prop_map(|counts| source(&counts))
-    }
-
     /// Every leaf value of `view` replaced, as an in-domain edit.
     fn edited(view: &WInstance) -> WInstance {
         let mut view = view.clone();
@@ -1433,22 +1428,175 @@ mod composition_rule {
         assert!(view_difference(&fanned, &tree).is_some());
     }
 
-    /// Contracting pairs are kept in sequence; a pair of renames with no
-    /// dropped vertex is fused.
-    #[test]
-    fn tree_compose_follows_the_l6_rule() {
-        for (first, second) in contracting_pairs() {
-            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-            assert!(
-                matches!(composite, TreeComposite::Sequential(_)),
-                "{composite:?}"
-            );
+    /// `r -> leaf` under the edge `leaf`.
+    fn direct_schema() -> Schema {
+        schema(
+            &[("r", "object"), ("leaf", "string")],
+            &[prop("r", "leaf", "leaf")],
+        )
+    }
+
+    /// `r -> mid -> leaf`.
+    fn expanded_schema() -> Schema {
+        schema(
+            &[("r", "object"), ("mid", "object"), ("leaf", "string")],
+            &[prop("r", "mid", "mid"), prop("mid", "leaf", "leaf")],
+        )
+    }
+
+    /// The lens from `direct_schema` to `expanded_schema` that expands every
+    /// `r -> leaf` arc into `r -> mid -> leaf` through a synthesized `mid`
+    /// node.
+    fn expanding_lens() -> Lens {
+        let compiled = panproto_inst::CompiledMigration {
+            surviving_verts: ["r", "leaf"].into_iter().map(Name::from).collect(),
+            expansion_path: HashMap::from([(
+                (Name::from("r"), Name::from("leaf")),
+                vec![Name::from("mid")],
+            )]),
+            ..Default::default()
+        };
+        Lens {
+            compiled,
+            src_schema: direct_schema(),
+            tgt_schema: expanded_schema(),
         }
-        let first = identity(&renaming_lens().src_schema);
-        let composite = panproto_lens::compose_tree(&first, &renaming_lens()).unwrap();
+    }
+
+    /// A lens out of `expanded_schema`: `1` drops `leaf`, truncating an
+    /// expansion after `mid`; `2` drops `mid`, contracting the path back to
+    /// `r -> leaf`; `3` renames `leaf` to `item`; `4` renames `mid` to
+    /// `hub`; `5` drops `mid` and `leaf`; `6` drops `leaf` and renames `mid`
+    /// to `hub`; anything else is the identity.
+    fn after_expansion(kind: u8) -> Lens {
+        let src = expanded_schema();
+        let (r_mid, mid_leaf) = (prop("r", "mid", "mid"), prop("mid", "leaf", "leaf"));
+        let (r_hub, hub_leaf) = (prop("r", "hub", "mid"), prop("hub", "leaf", "leaf"));
+        match kind {
+            1 => lens(
+                src,
+                schema(
+                    &[("r", "object"), ("mid", "object")],
+                    std::slice::from_ref(&r_mid),
+                ),
+                &migration(
+                    &[("r", "r"), ("mid", "mid")],
+                    vec![(r_mid.clone(), r_mid)],
+                    vec![],
+                ),
+            ),
+            2 => lens(
+                src,
+                direct_schema(),
+                &migration(
+                    &[("r", "r"), ("leaf", "leaf")],
+                    vec![],
+                    vec![(("r", "leaf"), prop("r", "leaf", "leaf"))],
+                ),
+            ),
+            3 => {
+                let mid_item = prop("mid", "item", "leaf");
+                lens(
+                    src,
+                    schema(
+                        &[("r", "object"), ("mid", "object"), ("item", "string")],
+                        &[r_mid.clone(), mid_item.clone()],
+                    ),
+                    &migration(
+                        &[("r", "r"), ("mid", "mid"), ("leaf", "item")],
+                        vec![(r_mid.clone(), r_mid), (mid_leaf, mid_item)],
+                        vec![],
+                    ),
+                )
+            }
+            4 => lens(
+                src,
+                schema(
+                    &[("r", "object"), ("hub", "object"), ("leaf", "string")],
+                    &[r_hub.clone(), hub_leaf.clone()],
+                ),
+                &migration(
+                    &[("r", "r"), ("mid", "hub"), ("leaf", "leaf")],
+                    vec![(r_mid, r_hub), (mid_leaf, hub_leaf)],
+                    vec![],
+                ),
+            ),
+            5 => lens(
+                src,
+                schema(&[("r", "object")], &[]),
+                &migration(&[("r", "r")], vec![], vec![]),
+            ),
+            6 => lens(
+                src,
+                schema(
+                    &[("r", "object"), ("hub", "object")],
+                    std::slice::from_ref(&r_hub),
+                ),
+                &migration(&[("r", "r"), ("mid", "hub")], vec![(r_mid, r_hub)], vec![]),
+            ),
+            _ => identity(&src),
+        }
+    }
+
+    /// A pair around an expansion: with `first_expands`, `expanding_lens`
+    /// then `after_expansion(kind)`; otherwise the identity on
+    /// `direct_schema` then `expanding_lens`. Both read `direct_source`.
+    fn expansion_pair(kind: u8, first_expands: bool) -> (Lens, Lens) {
+        if first_expands {
+            (expanding_lens(), after_expansion(kind))
+        } else {
+            (identity(&direct_schema()), expanding_lens())
+        }
+    }
+
+    /// `r(0)` with one `leaf` child per value.
+    fn direct_source(values: &[String]) -> WInstance {
+        let mut nodes = HashMap::from([(0, Node::new(0, "r"))]);
+        let mut arcs = Vec::new();
+        for (i, value) in values.iter().enumerate() {
+            let id = u32::try_from(i).unwrap() + 1;
+            nodes.insert(id, leaf(id, value));
+            arcs.push((0, id, prop("r", "leaf", "leaf")));
+        }
+        WInstance::new(nodes, arcs, vec![], 0, "r".into())
+    }
+
+    /// The pair the composition rule was found unsound on when it checked
+    /// only the composite's plan: the first lens expands `r -> leaf` into
+    /// `r -> mid -> leaf` and the second drops `leaf`. The composite carries
+    /// no expansion, since its arc's child is dropped, yet the pair
+    /// synthesizes `mid` and the second lens keeps it. The pair is kept in
+    /// sequence, and the fused lens would lose `mid`.
+    #[test]
+    fn a_second_lens_truncating_an_expansion_is_kept_in_sequence() {
+        let (first, second) = expansion_pair(1, true);
+        let source = direct_source(&["x".into()]);
+        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let TreeComposite::Sequential(sequential) = composite else {
+            panic!("an expansion the second lens truncates was fused: {composite:?}");
+        };
+        let (view, (c1, _)) = sequential.get(&source).unwrap();
+        let mids: Vec<u32> = view
+            .nodes
+            .values()
+            .filter(|n| n.anchor.as_ref() == "mid")
+            .map(|n| n.id)
+            .collect();
+        assert_eq!(
+            mids.len(),
+            1,
+            "the pair keeps the synthesized mid: {view:?}"
+        );
+        assert!(c1.synthesized_nodes.contains(&mids[0]));
+        assert!(view.arcs.iter().any(|(p, c, _)| (*p, *c) == (0, mids[0])));
+
+        let fused = panproto_lens::compose(&first, &second).unwrap();
+        let (fused_view, _) = panproto_lens::get(&fused, &source).unwrap();
         assert!(
-            matches!(composite, TreeComposite::Compiled(_)),
-            "{composite:?}"
+            fused_view
+                .nodes
+                .values()
+                .all(|n| n.anchor.as_ref() != "mid")
         );
     }
 
@@ -1543,10 +1691,7 @@ mod composition_rule {
         let (first, mid, both) = step("leaf", true, 0, false);
         let (second, _, _) = step(mid, both, 2, true);
         let source = two_label_source(&["a".into(), "b".into()]);
-        let sequential = SequentialTreeLens {
-            first,
-            second: Box::new(second),
-        };
+        let sequential = SequentialTreeLens { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         let fused = panproto_lens::compose(&sequential.first, &sequential.second).unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
@@ -1572,10 +1717,7 @@ mod composition_rule {
         // The fused lens would keep the `label` arc the pair drops.
         let source = two_label_source(&["a".into(), "b".into()]);
         let fused = panproto_lens::compose(&first, &second).unwrap();
-        let sequential = SequentialTreeLens {
-            first,
-            second: Box::new(second),
-        };
+        let sequential = SequentialTreeLens { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
         assert_eq!(
@@ -1619,7 +1761,7 @@ mod composition_rule {
                 }
             };
             let source = two_label_source(&values);
-            let sequential = SequentialTreeLens { first, second: Box::new(second) };
+            let sequential = SequentialTreeLens { first, second };
             agree(&fused, &sequential, &source)?;
 
             let (view, c) = panproto_lens::get(&fused, &source).unwrap();
@@ -1639,34 +1781,88 @@ mod composition_rule {
     }
 
     proptest! {
-        /// The fused composite of a contracting pair behaves as the pair in
-        /// sequence, on the sources the pair's schema admits.
+        /// Over pairs around an expansion (a first lens that expands followed
+        /// by one that keeps, drops or renames the expansion's endpoints and
+        /// intermediate, and an identity followed by an expansion) and
+        /// contracting pairs, the lens `compose_tree` fuses is the lens
+        /// `compose` returns, and it is observationally the pair in
+        /// sequence. `compose` fuses a contracting pair into a lens that also
+        /// behaves as the pair, though the rule keeps such pairs in sequence.
         #[test]
-        fn tree_compiled_composite_matches_sequential(source in arb_source(), pick in 0usize..2) {
-            let (first, second) = contracting_pairs().swap_remove(pick);
+        fn tree_compiled_composite_matches_sequential(
+            pick in 0u8..10,
+            values in prop::collection::vec("[a-z]{0,3}", 0..4),
+            counts in prop::collection::vec(prop::collection::vec("[a-z]{0,3}", 0..3), 0..4),
+        ) {
+            let (first, second, source, contracting) = if pick < 8 {
+                let (first, second) = expansion_pair(pick, pick < 7);
+                (first, second, direct_source(&values), false)
+            } else {
+                let (first, second) = contracting_pairs().swap_remove(usize::from(pick - 8));
+                (first, second, source(&counts), true)
+            };
             let fused = panproto_lens::compose(&first, &second).unwrap();
-            agree(&fused, &SequentialTreeLens { first, second: Box::new(second) }, &source)?;
+            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+            let sequential = SequentialTreeLens { first, second };
+            match composite {
+                TreeComposite::Compiled(by_rule) => {
+                    let (a, _) = panproto_lens::get(&by_rule, &source).unwrap();
+                    let (b, _) = panproto_lens::get(&fused, &source).unwrap();
+                    prop_assert_eq!(view_difference(&a, &b), None);
+                    agree(&by_rule, &sequential, &source)?;
+                }
+                TreeComposite::Sequential(_) if contracting => {
+                    agree(&fused, &sequential, &source)?;
+                }
+                TreeComposite::Sequential(_) => {}
+            }
         }
 
         /// Whenever the rule fuses a pair, the fused lens is observationally
-        /// the pair in sequence.
+        /// the pair in sequence, and a pair kept in sequence runs its two
+        /// stages. The pairs are drawn from four families: around an
+        /// expansion (expanding lenses, and second lenses that drop or
+        /// rename an expansion's endpoints and intermediate), contracting
+        /// pairs, contraction-free renames, swaps and edge drops, and value
+        /// layers on both lenses.
         #[test]
-        fn compiled_and_sequential_tree_composites_agree(values in prop::collection::vec("[a-z]{0,3}", 0..5)) {
-            let first = identity(&renaming_lens().src_schema);
-            let second = renaming_lens();
-            let TreeComposite::Compiled(fused) = panproto_lens::compose_tree(&first, &second).unwrap() else {
-                return Err(TestCaseError::fail("a rename pair is fused"));
+        fn compiled_and_sequential_tree_composites_agree(
+            family in 0u8..4,
+            k1 in 0u8..7,
+            k2 in 0u8..4,
+            e1 in any::<bool>(),
+            e2 in any::<bool>(),
+            values in prop::collection::vec("[a-z]{0,3}", 0..5),
+            counts in prop::collection::vec(prop::collection::vec("[a-z]{0,3}", 0..3), 0..4),
+            levels in prop::collection::vec(0i64..5, 0..5),
+        ) {
+            let (first, second, instance) = match family {
+                0 => {
+                    let (first, second) = expansion_pair(k1, e1);
+                    (first, second, direct_source(&values))
+                }
+                1 => {
+                    let (first, second) = contracting_pairs().swap_remove(usize::from(e1));
+                    (first, second, source(&counts))
+                }
+                2 => {
+                    let (first, mid, both) = step("leaf", true, k2, e1);
+                    let (second, _, _) = step(mid, both, k1 % 4, e2);
+                    (first, second, two_label_source(&values))
+                }
+                _ => (valued_identity(k1 % 4), valued_identity(k2), levelled_source(&levels)),
             };
-            let mut nodes = HashMap::from([(0, Node::new(0, "r"))]);
-            let mut arcs = Vec::new();
-            for (i, value) in values.iter().enumerate() {
-                let id = u32::try_from(i).unwrap() + 1;
-                nodes.insert(id, leaf(id, value));
-                let name = if i % 2 == 0 { "label" } else { "other" };
-                arcs.push((0, id, prop("r", "leaf", name)));
+            match panproto_lens::compose_tree(&first, &second).unwrap() {
+                TreeComposite::Compiled(fused) => {
+                    agree(&fused, &SequentialTreeLens { first, second }, &instance)?;
+                }
+                TreeComposite::Sequential(sequential) => {
+                    let (view, _) = sequential.get(&instance).unwrap();
+                    let (middle, _) = panproto_lens::get(&first, &instance).unwrap();
+                    let (expected, _) = panproto_lens::get(&second, &middle).unwrap();
+                    prop_assert_eq!(view_difference(&view, &expected), None);
+                }
             }
-            let source = WInstance::new(nodes, arcs, vec![], 0, "r".into());
-            agree(&fused, &SequentialTreeLens { first, second: Box::new(second) }, &source)?;
         }
     }
 
@@ -1743,10 +1939,7 @@ mod composition_rule {
         let fused = panproto_lens::compose(&first, &second).unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
         let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let sequential = SequentialTreeLens {
-            first,
-            second: Box::new(second),
-        };
+        let sequential = SequentialTreeLens { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         assert!(
             seq_view.nodes.contains_key(&1),
@@ -1769,10 +1962,7 @@ mod composition_rule {
         let fused = panproto_lens::compose(&first, &second).unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
         let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let sequential = SequentialTreeLens {
-            first,
-            second: Box::new(second),
-        };
+        let sequential = SequentialTreeLens { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         assert!(!seq_view.nodes.contains_key(&1), "the second lens drops it");
         assert!(view.nodes.contains_key(&1), "the conjunction keeps it");
@@ -1806,8 +1996,81 @@ mod composition_rule {
                     )));
                 }
             };
-            let sequential = SequentialTreeLens { first, second: Box::new(second) };
+            let sequential = SequentialTreeLens { first, second };
             agree(&fused, &sequential, &levelled_source(&levels))?;
         }
+    }
+
+    /// One case per condition of the composition rule, each kept in
+    /// sequence, and a pair meeting every condition, which is fused:
+    /// (i) a contracting lens on either side; (ii) migrations that do not
+    /// compose; (iii) an edge the pair drops that the composite would carry;
+    /// (iv) a non-empty plan in the first lens, the second, or the
+    /// composite, including an expansion the second lens truncates; (v)
+    /// value layers that meet.
+    #[test]
+    fn tree_compose_follows_the_l6_rule() {
+        let kept = |first: &Lens, second: &Lens, case: &str| {
+            let composite = panproto_lens::compose_tree(first, second).unwrap();
+            assert!(
+                matches!(composite, TreeComposite::Sequential(_)),
+                "{case}: {composite:?}"
+            );
+        };
+
+        // (i)
+        for (first, second) in contracting_pairs() {
+            kept(&first, &second, "a contracting pair");
+        }
+
+        // (ii): the first lens drops `level`, which the second one reads.
+        let mut first = valued_identity(0);
+        first.compiled.field_transforms.insert(
+            "c".into(),
+            vec![panproto_inst::FieldTransform::DropField {
+                key: "level".into(),
+            }],
+        );
+        let second = valued_identity(1);
+        assert!(matches!(
+            panproto_lens::compose(&first, &second),
+            Err(panproto_lens::LensError::ComposeUnboundField { .. })
+        ));
+        kept(&first, &second, "migrations that do not compose");
+
+        // (iii)
+        let (first, mid, both) = step("leaf", true, 2, true);
+        let (second, _, _) = step(mid, both, 3, true);
+        kept(&first, &second, "an edge the composite would carry");
+
+        // (iv): the first lens's plan alone (the composite's is empty), the
+        // composite's (and the first lens's), and the second lens's.
+        for kind in [1, 5, 6] {
+            let (first, second) = expansion_pair(kind, true);
+            let fused = panproto_lens::compose(&first, &second).unwrap();
+            assert!(fused.compiled.expansion_path.is_empty(), "kind {kind}");
+            kept(&first, &second, "an expansion the second lens truncates");
+        }
+        for kind in [0, 3, 4] {
+            let (first, second) = expansion_pair(kind, true);
+            kept(&first, &second, "an expansion the second lens keeps");
+        }
+        let (first, second) = expansion_pair(0, false);
+        kept(&first, &second, "an expanding second lens");
+
+        // (v)
+        kept(
+            &valued_identity(1),
+            &valued_identity(2),
+            "value layers that meet",
+        );
+
+        // Every condition met.
+        let first = identity(&renaming_lens().src_schema);
+        let composite = panproto_lens::compose_tree(&first, &renaming_lens()).unwrap();
+        assert!(
+            matches!(composite, TreeComposite::Compiled(_)),
+            "{composite:?}"
+        );
     }
 }
