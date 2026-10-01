@@ -696,7 +696,9 @@ impl ValidationPlan {
     /// The plan's identity: [`VALIDATION_PLAN_CONTEXT`] over the schema
     /// digest, the protocol's constraint semantics, the other protocol
     /// fields compilation reads (the name, vertex kinds, constraint sorts,
-    /// edge rules and the two shapes) and the options.
+    /// edge rules and the two shapes, every list as stored, in order and
+    /// with repeats) and the options. Two plans with equal digests give
+    /// equal reports for every instance.
     #[must_use]
     pub const fn digest(&self) -> &Digest {
         &self.digest
@@ -1470,20 +1472,30 @@ impl Builder<'_> {
     }
 }
 
-/// [`VALIDATION_PLAN_CONTEXT`] over the schema digest, then the protocol's
-/// constraint semantics (count, then each sort and meaning in ascending sort
-/// order), then the other protocol fields compilation reads, then the
-/// options: the requirement overrides, the external checks and the source
-/// map, each behind its count and in key order.
+/// [`VALIDATION_PLAN_CONTEXT`] over exactly the values compilation reads,
+/// in this order:
 ///
-/// The other protocol fields are the name, the vertex kinds and constraint
-/// sorts (each as a set: count, then the distinct entries in ascending
-/// order), the edge rules (count, then each rule in protocol order, since
-/// the first rule for an edge kind governs it: the kind, then its source and
-/// target kinds as sets), and the syntactic and semantic shapes. Every one
-/// of them can change what a compiled plan reports, so plans that can
-/// disagree on an instance never share a digest; the protocol fields
-/// compilation never reads are not inputs.
+/// 1. the schema digest;
+/// 2. the protocol's constraint semantics: the count, then each sort and its
+///    meaning in map order;
+/// 3. the protocol's name;
+/// 4. its vertex kinds (`obj_kinds`);
+/// 5. its constraint sorts;
+/// 6. its edge rules: the count, then each rule in protocol order (the
+///    first rule for an edge kind governs it), as its edge kind, its source
+///    kinds and its target kinds;
+/// 7. its syntactic shape, then its semantic shape;
+/// 8. the options: the requirement overrides, the external checks and the
+///    source map, each behind its count and in key order.
+///
+/// Every list is written as stored: its length, then each entry in protocol
+/// order with repeats kept. No list is read as a set, because the schema
+/// check echoes an edge rule's kinds, in order and with repeats, into the
+/// detail of an ill-formed-declaration finding. Thus two plans with equal
+/// digests give equal reports (equal canonical bytes) for every instance
+/// under equal budgets and cancellation. The protocol fields compilation
+/// does not read are not inputs; a change that makes compilation read
+/// another protocol field adds that field here.
 fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions) -> Digest {
     let mut w = Digest::hasher(VALIDATION_PLAN_CONTEXT);
     w.write(&schema.0);
@@ -1493,13 +1505,13 @@ fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions
         write_semantics(&mut w, semantics);
     }
     w.str(&protocol.name);
-    write_str_set(&mut w, &protocol.obj_kinds);
-    write_str_set(&mut w, &protocol.constraint_sorts);
+    write_str_list(&mut w, &protocol.obj_kinds);
+    write_str_list(&mut w, &protocol.constraint_sorts);
     w.len(protocol.edge_rules.len());
     for rule in &protocol.edge_rules {
         w.str(&rule.edge_kind);
-        write_str_set(&mut w, &rule.src_kinds);
-        write_str_set(&mut w, &rule.tgt_kinds);
+        write_str_list(&mut w, &rule.src_kinds);
+        write_str_list(&mut w, &rule.tgt_kinds);
     }
     write_shape(&mut w, protocol.syntactic_shape);
     write_shape(&mut w, protocol.semantic_shape);
@@ -1526,12 +1538,11 @@ fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions
     w.finalize()
 }
 
-/// A list read as a set: the count of distinct entries, then each in
-/// ascending order.
-fn write_str_set<W: CanonicalSink + ?Sized>(w: &mut W, list: &[String]) {
-    let set: BTreeSet<&str> = list.iter().map(String::as_str).collect();
-    w.len(set.len());
-    for entry in set {
+/// A list written as stored: its length, then each entry in order, repeats
+/// kept.
+fn write_str_list<W: CanonicalSink + ?Sized>(w: &mut W, list: &[String]) {
+    w.len(list.len());
+    for entry in list {
         w.str(entry);
     }
 }
