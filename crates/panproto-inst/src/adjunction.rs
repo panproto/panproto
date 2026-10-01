@@ -1979,6 +1979,52 @@ mod tests {
         (xs, ys)
     }
 
+    /// Why `Delta_F -| Pi_F` refuses cells at a table outside the image:
+    /// with homomorphisms that preserve cells exactly, no instance can stand
+    /// as `Pi_F` there. Two target instances `y0`, `y1` with one row at the
+    /// table `z` outside the image, carrying `v = 0` and `v = 1`, have the
+    /// same `Delta_F` (empty), so `|Hom(Delta_F y_i, x)| = 1` for both; but
+    /// the one row at `z` of any candidate carries one set of cells, which
+    /// equals at most one of theirs. Every candidate below (no cells,
+    /// `v = 0`, `v = 1`) admits a homomorphism from at most one of them.
+    #[test]
+    fn no_row_outside_the_image_receives_every_cell() {
+        let src = table_schema(&["a"], &[]);
+        let tgt = table_schema(&["a", "z"], &[]);
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "a".into());
+        migration.surviving_verts.insert("a".into());
+        let f = MigrationFunctor::new(&src, &tgt, &migration).unwrap();
+        let x = FInstance::new();
+        let carrying = |value: i64| {
+            let cells = HashMap::from([("v".to_owned(), Value::Int(value))]);
+            FInstance::new()
+                .with_rows("z", [(RowId(0), cells)])
+                .unwrap()
+        };
+        let (y0, y1) = (carrying(0), carrying(1));
+        for y in [&y0, &y1] {
+            let delta = f_delta(y, &f).unwrap();
+            assert_eq!(homs(&delta, &x).len(), 1);
+            assert!(matches!(
+                f_pi_unit(y, &f, 16),
+                Err(AdjunctionError::CellsOutsideImage { .. })
+            ));
+        }
+        let candidates = [
+            FInstance::new().with_rows("z", blank(&[0])).unwrap(),
+            carrying(0),
+            carrying(1),
+        ];
+        for candidate in &candidates {
+            let served = homs(&y0, candidate).len() + homs(&y1, candidate).len();
+            assert!(served <= 1, "{candidate:?} received both");
+        }
+        // Without cells the bijection holds: Pi gives the one blank row.
+        let blank_y = FInstance::new().with_rows("z", blank(&[0])).unwrap();
+        assert_eq!(check_pi_bijection(&f, &x, &blank_y, 16), Ok(1));
+    }
+
     #[test]
     fn adjunctions_hold_on_every_tiny_instance() {
         let (src, tgt, migration) = merge_with_loop();
