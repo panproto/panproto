@@ -107,12 +107,20 @@ pub enum TreeEdit {
 
     /// Merge multiple nodes into one via spatial join
     /// (co-located annotations merge into a single node).
+    ///
+    /// `produce` replaces the primary node and must carry its id. Each
+    /// joined node is deleted with its in-arc, and its children move to the
+    /// primary: in `joined` order, and for each joined node in the order of
+    /// its child arcs, each child keeps its arc's schema edge with the
+    /// source set to `produce`'s anchor, appended after every other arc.
+    /// Fans that name a joined node are deleted.
     JoinFeatures {
         /// The primary node that absorbs the others.
         primary: u32,
-        /// Nodes to merge into the primary.
+        /// Nodes to merge into the primary, without repeats; neither the
+        /// primary, nor the root, nor an ancestor of the primary.
         joined: Vec<u32>,
-        /// The resulting merged node data.
+        /// The resulting merged node data, with the primary's id.
         produce: Node,
     },
 
@@ -494,29 +502,75 @@ fn apply_join_features(
     if !instance.nodes.contains_key(&primary) {
         return Err(EditError::NodeNotFound(primary));
     }
+    if produce.id != primary {
+        return Err(EditError::ApplyFailed(format!(
+            "the product of joining into node {primary} carries the id {}",
+            produce.id
+        )));
+    }
+    let mut seen = std::collections::HashSet::with_capacity(joined.len());
     for &jid in joined {
         if !instance.nodes.contains_key(&jid) {
             return Err(EditError::NodeNotFound(jid));
+        }
+        if jid == primary {
+            return Err(EditError::ApplyFailed(format!(
+                "node {primary} cannot be joined into itself"
+            )));
+        }
+        if jid == instance.root {
+            return Err(EditError::ApplyFailed(format!(
+                "the root node {jid} cannot be joined into node {primary}"
+            )));
+        }
+        if !seen.insert(jid) {
+            return Err(EditError::ApplyFailed(format!(
+                "node {jid} is joined into node {primary} twice"
+            )));
+        }
+        // A joined ancestor of the primary would hand the primary to itself.
+        if is_descendant(instance, primary, jid) {
+            return Err(EditError::CycleDetected {
+                node_id: jid,
+                new_parent: primary,
+            });
         }
     }
 
     // Replace the primary node with the merged produce.
     instance.nodes.insert(primary, produce.clone());
 
-    // Delete the joined nodes (they are absorbed).
     for &jid in joined {
-        // Remove arcs.
-        instance.arcs.retain(|&(_, child, _)| child != jid);
-        instance.arcs.retain(|&(parent, _, _)| parent != jid);
-        // Clean up maps.
-        if let Some(&parent_id) = instance.parent_map.get(&jid) {
-            if let Some(siblings) = instance.children_map.get_mut(&parent_id) {
-                siblings.retain(|&c| c != jid);
+        // The joined node's child arcs, in arc order, become arcs of the
+        // primary appended after every other arc.
+        let mut moved = Vec::new();
+        instance.arcs.retain(|(parent, child, edge)| {
+            if *child == jid {
+                return false;
             }
+            if *parent == jid {
+                moved.push((*child, edge.clone()));
+                return false;
+            }
+            true
+        });
+        if let Some(parent_id) = instance.parent_map.remove(&jid)
+            && let Some(siblings) = instance.children_map.get_mut(&parent_id)
+        {
+            siblings.retain(|c| *c != jid);
         }
-        instance.nodes.remove(&jid);
-        instance.parent_map.remove(&jid);
         instance.children_map.remove(&jid);
+        instance.nodes.remove(&jid);
+        for (child, mut edge) in moved {
+            edge.src.clone_from(&produce.anchor);
+            instance.arcs.push((primary, child, edge));
+            instance.parent_map.insert(child, primary);
+            instance
+                .children_map
+                .entry(primary)
+                .or_default()
+                .push(child);
+        }
     }
 
     // Remove fans referencing joined nodes.
@@ -812,6 +866,72 @@ mod tests {
             edge: sample_edge("root", "dup"),
         };
         assert!(edit.apply(&mut inst).is_err());
+    }
+
+    /// r(0) -> a(1) -> c(3) and r -> a(2): joining node 1 into node 2 hands
+    /// node 1's child 3 to node 2, keeping its edge with the source set to
+    /// node 2's anchor, so the result is still a tree.
+    #[test]
+    fn joining_features_reparents_the_children_of_joined_nodes() {
+        let nodes = HashMap::from([
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "a")),
+            (2, Node::new(2, "a")),
+            (3, Node::new(3, "c")),
+        ]);
+        let arcs = vec![
+            (0, 1, sample_edge("r", "a")),
+            (1, 3, sample_edge("a", "c")),
+            (0, 2, sample_edge("r", "a")),
+        ];
+        let mut inst = WInstance::new(nodes, arcs, vec![], 0, Name::from("r"));
+        TreeEdit::JoinFeatures {
+            primary: 2,
+            joined: vec![1],
+            produce: Node::new(2, "a"),
+        }
+        .apply(&mut inst)
+        .unwrap();
+
+        assert_eq!(inst.parent_map.get(&3), Some(&2));
+        assert!(!inst.parent_map.contains_key(&1));
+        assert_eq!(inst.children_map[&2].as_slice(), &[3]);
+        assert_eq!(
+            inst.arcs,
+            vec![(0, 2, sample_edge("r", "a")), (2, 3, sample_edge("a", "c")),]
+        );
+        let graph = crate::GInstance::from_wtype(&inst).unwrap();
+        let back = graph.to_wtype(0).unwrap();
+        assert_eq!(back.arcs, inst.arcs);
+        assert_eq!(back.parent_map, inst.parent_map);
+    }
+
+    /// The product of a join replaces the primary node, so it must carry
+    /// the primary's id; anything else is refused and changes nothing.
+    #[test]
+    fn joining_features_rejects_a_foreign_product() {
+        let mut inst = two_node_instance();
+        inst.nodes.insert(2, Node::new(2, "child"));
+        inst.arcs.push((0, 2, sample_edge("root", "child")));
+        let mut inst = WInstance::new(
+            inst.nodes.clone(),
+            inst.arcs.clone(),
+            vec![],
+            0,
+            Name::from("root"),
+        );
+        let before = inst.clone();
+        let err = TreeEdit::JoinFeatures {
+            primary: 1,
+            joined: vec![2],
+            produce: Node::new(7, "child"),
+        }
+        .apply(&mut inst)
+        .unwrap_err();
+        assert!(matches!(err, EditError::ApplyFailed(_)), "{err:?}");
+        assert_eq!(inst.nodes.len(), before.nodes.len());
+        assert_eq!(inst.arcs, before.arcs);
+        assert!(!inst.nodes.contains_key(&7));
     }
 
     #[test]
