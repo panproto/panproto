@@ -1675,6 +1675,45 @@ fn an_unlisted_format_is_unsupported() {
     );
 }
 
+/// A format constraint's family is descriptive: the constraint's value names
+/// the format, and plans that differ only in the family give the same
+/// findings and the same report apart from the plan digest it names (the
+/// family is a protocol field the digest covers), even for a family named
+/// like no format.
+#[test]
+fn a_format_family_does_not_change_validation() {
+    let schema = S::default()
+        .vertex("a", "string")
+        .vertex("b", "string")
+        .constraint("a", "format", "carrier-pigeon")
+        .constraint("b", "format", "uuid")
+        .build();
+    let instance = GInstance::new()
+        .with_node(str_node(0, "b", "123e4567-e89b-12d3-a456-426614174000"))
+        .with_node(str_node(1, "b", "not-a-uuid"));
+    let outcome = |family: &str| {
+        let plan = plan(
+            &schema,
+            &protocol(&[("format", ConstraintSemantics::Format(family.into()))]),
+        );
+        let reasons = finding_reasons(&plan, CheckKind::ValueConstraint);
+        let mut report = plan.validate_graph(&instance, &unlimited(), &none());
+        assert_eq!(report.plan, *plan.digest());
+        report.plan = Digest([0; 32]);
+        (reasons, report.canonical_bytes())
+    };
+    let json_schema = outcome("json-schema");
+    assert_eq!(
+        json_schema.0,
+        vec![IncompleteReason::UnsupportedDeclaration {
+            sort: "format".into()
+        }]
+    );
+    for family in ["uima", "uuid", "carrier-pigeon"] {
+        assert_eq!(outcome(family), json_schema, "family {family}");
+    }
+}
+
 /// The fixed set of formats is public, and each format it lists is
 /// evaluated: a constraint naming one compiles with no finding.
 #[test]
