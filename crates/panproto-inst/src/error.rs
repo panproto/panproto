@@ -336,7 +336,8 @@ pub enum RestrictError {
     /// endpoints, so it states no functor between the relation-ified
     /// schemas.
     #[error(
-        "the migration carries foreign key {edge:?} to {image:?}, which is not a foreign key between the images of its endpoints"
+        "the migration carries foreign key {edge:?} to {image:?}, \
+         which is not a foreign key between the images of its endpoints"
     )]
     IncoherentEdgeImage {
         /// The source foreign key (boxed, as the image is, to keep the error
