@@ -1063,7 +1063,6 @@ mod tests {
     use smallvec::SmallVec;
 
     use super::*;
-    use crate::functor::Table;
     use crate::ginstance::EdgeId;
     use crate::metadata::Node;
     use crate::pi::{functor_pi_along, functor_pi_along_with_hom};
@@ -2077,6 +2076,29 @@ mod tests {
         FInstance::from_parts(tables, keys).unwrap()
     }
 
+    /// An instance with its row ids relabelled along `ids` (ids not in the
+    /// map are kept).
+    fn relabel_rows(y: &FInstance, ids: &BTreeMap<RowId, RowId>) -> FInstance {
+        let id = |r: RowId| ids.get(&r).copied().unwrap_or(r);
+        let tables = y.tables().into_iter().map(|(name, table)| {
+            (
+                name.clone(),
+                table
+                    .rows()
+                    .into_iter()
+                    .map(|(r, row)| (id(r), row.clone()))
+                    .collect(),
+            )
+        });
+        let keys = y.foreign_keys().into_iter().map(|(e, pairs)| {
+            (
+                e.clone(),
+                pairs.iter().map(|&(s, t)| (id(s), id(t))).collect(),
+            )
+        });
+        FInstance::from_parts(tables, keys).unwrap()
+    }
+
     mod kan_laws {
         use proptest::prelude::*;
 
@@ -2161,21 +2183,16 @@ mod tests {
                 );
                 let pi = functor_pi_along(&case.x, &f, 10_000).unwrap();
                 let renamed = functor_pi_along(&case.x, &g, 10_000).unwrap();
-                let outside: BTreeSet<Name> = f.tables_outside_image().into_iter().cloned().collect();
-                if outside.len() <= 1 {
-                    prop_assert_eq!(rename_instance(&pi, &renaming), renamed);
-                } else {
-                    // The rows of the image tables keep their ids; the rows of
-                    // the tables outside it are one each, without cells.
-                    for (table, rows) in pi.tables() {
-                        let theirs = renamed.table(&renaming[table]).map_or(0, Table::len);
-                        prop_assert_eq!(rows.len(), theirs);
-                        if !outside.contains(table) {
-                            prop_assert_eq!(Some(rows), renamed.table(&renaming[table]));
-                        }
-                    }
-                    prop_assert_eq!(pi.pair_count(), renamed.pair_count());
+                // Each table outside the image holds the one row of the empty
+                // limit, whose id is the only thing a renaming may change:
+                // match those rows by table and compare everything exactly.
+                let mut ids: BTreeMap<RowId, RowId> = BTreeMap::new();
+                for table in f.tables_outside_image() {
+                    let (ours, theirs) = (pi.rows(table), renamed.rows(&renaming[table]));
+                    prop_assert_eq!((ours.len(), theirs.len()), (1, 1));
+                    ids.insert(ours[0].0, theirs[0].0);
                 }
+                prop_assert_eq!(relabel_rows(&rename_instance(&pi, &renaming), &ids), renamed);
             }
 
             /// Adding rows and pairs to the input embeds Pi of the smaller
