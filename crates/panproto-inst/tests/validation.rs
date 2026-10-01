@@ -1120,6 +1120,95 @@ fn plans_for_different_schemas_have_different_digests() {
     assert_eq!(&report.plan, pa.digest());
 }
 
+/// Every protocol field compilation reads is a digest input, so two plans
+/// that can give one instance different statuses never share a digest.
+/// Fields compilation never reads leave the digest unchanged, and the
+/// vertex kinds and constraint sorts count as sets.
+#[test]
+fn plan_digest_covers_every_protocol_field_compilation_reads() {
+    let schema = S::default().vertex("person", "object").build();
+    let base_protocol = Protocol::default();
+    let base = plan(&schema, &base_protocol);
+
+    // A protocol that rejects the vertex kind: same instance, other status.
+    let strict = Protocol {
+        obj_kinds: vec!["string".into()],
+        ..Protocol::default()
+    };
+    let strict_plan = plan(&schema, &strict);
+    let empty = GInstance::new();
+    let a = base.validate_graph(&empty, &unlimited(), &none());
+    let b = strict_plan.validate_graph(&empty, &unlimited(), &none());
+    assert_eq!(a.status, CheckStatus::Passed);
+    assert_eq!(b.status, CheckStatus::Incomplete);
+    assert_ne!(base.digest(), strict_plan.digest(), "obj_kinds");
+
+    let changed: Vec<(&str, Protocol)> = vec![
+        (
+            "name",
+            Protocol {
+                name: "sql".into(),
+                ..Protocol::default()
+            },
+        ),
+        (
+            "edge_rules",
+            Protocol {
+                edge_rules: vec![panproto_schema::EdgeRule {
+                    edge_kind: "prop".into(),
+                    src_kinds: vec!["object".into()],
+                    tgt_kinds: Vec::new(),
+                }],
+                ..Protocol::default()
+            },
+        ),
+        (
+            "constraint_sorts",
+            Protocol {
+                constraint_sorts: vec!["maxLength".into()],
+                ..Protocol::default()
+            },
+        ),
+        (
+            "syntactic_shape",
+            Protocol {
+                syntactic_shape: InstanceShapeKind::Graph,
+                ..Protocol::default()
+            },
+        ),
+        (
+            "semantic_shape",
+            Protocol {
+                semantic_shape: InstanceShapeKind::Table,
+                ..Protocol::default()
+            },
+        ),
+    ];
+    for (field, p) in &changed {
+        assert_ne!(base.digest(), plan(&schema, p).digest(), "{field}");
+    }
+
+    // Fields compilation never reads leave the digest as it is.
+    let unread = Protocol {
+        schema_theory: "ThOther".into(),
+        has_order: true,
+        nominal_identity: true,
+        ..Protocol::default()
+    };
+    assert_eq!(base.digest(), plan(&schema, &unread).digest());
+
+    // Vertex kinds and constraint sorts are sets: order and repeats do not count.
+    let kinds = |list: &[&str]| Protocol {
+        obj_kinds: list.iter().map(|k| (*k).to_owned()).collect(),
+        constraint_sorts: list.iter().map(|k| (*k).to_owned()).collect(),
+        ..Protocol::default()
+    };
+    assert_eq!(
+        plan(&schema, &kinds(&["object", "string"])).digest(),
+        plan(&schema, &kinds(&["string", "object", "string"])).digest()
+    );
+}
+
 /// A plan compiled once and shared (the cache a plan-taking caller keeps)
 /// validates every instance exactly as the schema-taking call, which
 /// compiles a fresh plan per call.

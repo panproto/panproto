@@ -694,7 +694,9 @@ impl ValidationPlan {
     }
 
     /// The plan's identity: [`VALIDATION_PLAN_CONTEXT`] over the schema
-    /// digest, the protocol's constraint semantics and the options.
+    /// digest, the protocol's constraint semantics, the other protocol
+    /// fields compilation reads (the name, vertex kinds, constraint sorts,
+    /// edge rules and the two shapes) and the options.
     #[must_use]
     pub const fn digest(&self) -> &Digest {
         &self.digest
@@ -1470,8 +1472,18 @@ impl Builder<'_> {
 
 /// [`VALIDATION_PLAN_CONTEXT`] over the schema digest, then the protocol's
 /// constraint semantics (count, then each sort and meaning in ascending sort
-/// order), then the options: the requirement overrides, the external checks
-/// and the source map, each behind its count and in key order.
+/// order), then the other protocol fields compilation reads, then the
+/// options: the requirement overrides, the external checks and the source
+/// map, each behind its count and in key order.
+///
+/// The other protocol fields are the name, the vertex kinds and constraint
+/// sorts (each as a set: count, then the distinct entries in ascending
+/// order), the edge rules (count, then each rule in protocol order, since
+/// the first rule for an edge kind governs it: the kind, then its source and
+/// target kinds as sets), and the syntactic and semantic shapes. Every one
+/// of them can change what a compiled plan reports, so plans that can
+/// disagree on an instance never share a digest; the protocol fields
+/// compilation never reads are not inputs.
 fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions) -> Digest {
     let mut w = Digest::hasher(VALIDATION_PLAN_CONTEXT);
     w.write(&schema.0);
@@ -1480,6 +1492,17 @@ fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions
         w.str(sort);
         write_semantics(&mut w, semantics);
     }
+    w.str(&protocol.name);
+    write_str_set(&mut w, &protocol.obj_kinds);
+    write_str_set(&mut w, &protocol.constraint_sorts);
+    w.len(protocol.edge_rules.len());
+    for rule in &protocol.edge_rules {
+        w.str(&rule.edge_kind);
+        write_str_set(&mut w, &rule.src_kinds);
+        write_str_set(&mut w, &rule.tgt_kinds);
+    }
+    write_shape(&mut w, protocol.syntactic_shape);
+    write_shape(&mut w, protocol.semantic_shape);
     w.len(options.requirements.len());
     for (decl, requirement) in &options.requirements {
         write_schema_ref(&mut w, decl);
@@ -1501,6 +1524,24 @@ fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions
         write_source(&mut w, source);
     }
     w.finalize()
+}
+
+/// A list read as a set: the count of distinct entries, then each in
+/// ascending order.
+fn write_str_set<W: CanonicalSink + ?Sized>(w: &mut W, list: &[String]) {
+    let set: BTreeSet<&str> = list.iter().map(String::as_str).collect();
+    w.len(set.len());
+    for entry in set {
+        w.str(entry);
+    }
+}
+
+fn write_shape<W: CanonicalSink + ?Sized>(w: &mut W, shape: InstanceShapeKind) {
+    w.tag(match shape {
+        InstanceShapeKind::Tree => 0,
+        InstanceShapeKind::Table => 1,
+        InstanceShapeKind::Graph => 2,
+    });
 }
 
 fn write_semantics<W: CanonicalSink + ?Sized>(w: &mut W, semantics: &ConstraintSemantics) {
