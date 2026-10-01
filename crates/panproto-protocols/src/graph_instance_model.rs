@@ -46,6 +46,14 @@
 //! reference vertices every family is the endpoint alone, and `ie_anchor`
 //! is the label itself.
 //!
+//! The theory's coherence equations stay strict equalities: only the
+//! reading of `ie_anchor` uses the families, so `verify_model` refutes every
+//! endpoint anchored outside its family. The families are those of the
+//! validator's endpoint check (its anchor families in `panproto-inst`),
+//! which the validator keeps private, so this module computes them itself,
+//! and the endpoint coherence tests compare the two readings on every small
+//! graph.
+//!
 //! Every operation is total on its carrier except `fan_parent`, which is
 //! undefined (an error) at a fan node without exactly one `hyper_parent`
 //! out-edge; no equation of the theory applies it. An instance vertex with
