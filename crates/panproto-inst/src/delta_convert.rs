@@ -409,7 +409,7 @@ mod tests {
     use crate::FInstance;
     use crate::ginstance::GInstance;
     use crate::graph_edit::{EditConflict, ElemRef, GraphEdit, NodeMeta};
-    use crate::table_delta::tests::{arb_instance, cells, fk, sample, sub_delta};
+    use crate::table_delta::tests::{applying_sub_delta, arb_instance, cells, fk, sample};
     use crate::value::{FieldPresence, Value};
 
     type TestResult = Result<(), Box<dyn Error>>;
@@ -691,9 +691,9 @@ mod tests {
             keep_a in prop::collection::vec(any::<bool>(), 64),
             keep_b in prop::collection::vec(any::<bool>(), 64),
         ) {
-            let a = sub_delta(TableDelta::diff(&s, &t), &keep_a);
-            let b = sub_delta(TableDelta::diff(&s, &u), &keep_b);
-            prop_assume!(a.check(&s).is_ok() && b.check(&s).is_ok());
+            let a = applying_sub_delta(&s, TableDelta::diff(&s, &t), &keep_a);
+            let b = applying_sub_delta(&s, TableDelta::diff(&s, &u), &keep_b);
+            prop_assert!(a.check(&s).is_ok() && b.check(&s).is_ok(), "{:?} / {:?}", a.check(&s), b.check(&s));
             let (_, before) = GInstance::from_finstance(&s).map_err(fail)?;
             // One embedding after both, recording every pair either adds.
             let mut after = before.clone();

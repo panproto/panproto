@@ -1582,6 +1582,44 @@ pub(crate) mod tests {
         })
     }
 
+    /// A sub-delta of `delta`, which applies to `state`, that applies to
+    /// `state` too: [`sub_delta`] closed under what a kept element needs (a
+    /// kept row deletion brings the deletions of the row's pairs, and a kept
+    /// pair addition the additions of its rows); when that does not apply,
+    /// the cell and table changes of that, its cell changes alone, or the
+    /// identity, whichever applies first.
+    pub fn applying_sub_delta(state: &FInstance, delta: TableDelta, keep: &[bool]) -> TableDelta {
+        let full = delta.clone().into_parts();
+        let mut parts = sub_delta(delta, keep).into_parts();
+        for pair in &full.del_pairs {
+            if parts.del_rows.contains_key(&pair.1) || parts.del_rows.contains_key(&pair.2) {
+                parts.del_pairs.insert(pair.clone());
+            }
+        }
+        let added: Vec<Pair> = parts.add_pairs.iter().cloned().collect();
+        for (_, src, tgt) in added {
+            for row in [src, tgt] {
+                if let Some(entry) = full.add_rows.get(&row) {
+                    parts.add_rows.insert(row, entry.clone());
+                }
+            }
+        }
+        let closed = TableDelta::normalize(parts);
+        let cells_and_tables = TableDelta::normalize(TableDeltaParts {
+            cells: closed.cells().clone(),
+            tables: closed.tables().clone(),
+            ..TableDeltaParts::default()
+        });
+        let cells_alone = TableDelta::normalize(TableDeltaParts {
+            cells: closed.cells().clone(),
+            ..TableDeltaParts::default()
+        });
+        [closed, cells_and_tables, cells_alone]
+            .into_iter()
+            .find(|candidate| candidate.check(state).is_ok())
+            .unwrap_or_else(TableDelta::identity)
+    }
+
     /// Whether a delta is in normal form.
     fn is_normal(delta: &TableDelta) -> bool {
         let structural =
@@ -1954,11 +1992,10 @@ pub(crate) mod tests {
             keep_b in prop::collection::vec(any::<bool>(), 64),
         ) {
             // Two deltas of one state: sub-deltas of the diffs to t and u,
-            // keeping each element with a coin, then kept only when each
-            // applies alone.
-            let a = sub_delta(TableDelta::diff(&s, &t), &keep_a);
-            let b = sub_delta(TableDelta::diff(&s, &u), &keep_b);
-            prop_assume!(a.check(&s).is_ok() && b.check(&s).is_ok());
+            // keeping each element with a coin, made to apply alone.
+            let a = applying_sub_delta(&s, TableDelta::diff(&s, &t), &keep_a);
+            let b = applying_sub_delta(&s, TableDelta::diff(&s, &u), &keep_b);
+            prop_assert!(a.check(&s).is_ok() && b.check(&s).is_ok(), "{:?} / {:?}", a.check(&s), b.check(&s));
             let conflicts = a.independence(&b);
             prop_assert_eq!(&conflicts, &{
                 let mut sorted = conflicts.clone();
