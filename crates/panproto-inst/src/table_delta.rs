@@ -176,7 +176,10 @@ pub struct TableDeltaParts {
 /// use panproto_inst::{FInstance, RowId, Value};
 ///
 /// let mut tables = FInstance::new()
-///     .with_rows("user", [(RowId(0), HashMap::from([("name".to_owned(), Value::Str("ada".into()))]))])
+///     .with_rows(
+///         "user",
+///         [(RowId(0), HashMap::from([("name".to_owned(), Value::Str("ada".into()))]))],
+///     )
 ///     .unwrap();
 /// let delta = TableDelta::identity().with_cell_change(
 ///     RowId(0),
@@ -1917,7 +1920,11 @@ pub(crate) mod tests {
         #![proptest_config(ProptestConfig::with_cases(256))]
 
         #[test]
-        fn table_check_agrees_with_apply(s in arb_instance(), t in arb_instance(), parts in arb_parts()) {
+        fn table_check_agrees_with_apply(
+            s in arb_instance(),
+            t in arb_instance(),
+            parts in arb_parts(),
+        ) {
             for delta in [TableDelta::diff(&s, &t), TableDelta::normalize(parts)] {
                 let mut state = s.clone();
                 let checked = delta.check(&s);
@@ -1971,7 +1978,8 @@ pub(crate) mod tests {
 
             // Arbitrary triples: associative wherever both adjacent
             // composites are defined, and anti-homomorphic.
-            let (x, y, z) = (TableDelta::normalize(x), TableDelta::normalize(y), TableDelta::normalize(z));
+            let (x, y, z) =
+                (TableDelta::normalize(x), TableDelta::normalize(y), TableDelta::normalize(z));
             if let (Ok(xy), Ok(yz)) = (x.compose(&y), y.compose(&z)) {
                 match (xy.compose(&z), x.compose(&yz)) {
                     (Ok(l), Ok(r)) => prop_assert_eq!(l, r),
@@ -1995,7 +2003,12 @@ pub(crate) mod tests {
             // keeping each element with a coin, made to apply alone.
             let a = applying_sub_delta(&s, TableDelta::diff(&s, &t), &keep_a);
             let b = applying_sub_delta(&s, TableDelta::diff(&s, &u), &keep_b);
-            prop_assert!(a.check(&s).is_ok() && b.check(&s).is_ok(), "{:?} / {:?}", a.check(&s), b.check(&s));
+            prop_assert!(
+                a.check(&s).is_ok() && b.check(&s).is_ok(),
+                "{:?} / {:?}",
+                a.check(&s),
+                b.check(&s)
+            );
             let conflicts = a.independence(&b);
             prop_assert_eq!(&conflicts, &{
                 let mut sorted = conflicts.clone();

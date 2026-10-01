@@ -664,22 +664,34 @@ mod tests {
             let mut end = s.clone();
             delta.apply(&mut end).map_err(fail)?;
             prop_assert!(GInstance::identical(&reached, &graph_of(&end, &after).map_err(fail)?));
-            prop_assert_eq!(&delta.to_graph_delta_between(&before, &after).map_err(fail)?, &lowered);
+            prop_assert_eq!(
+                &delta.to_graph_delta_between(&before, &after).map_err(fail)?,
+                &lowered
+            );
             // And back.
             let mut again = before.clone();
-            prop_assert_eq!(&TableDelta::from_graph_delta(&lowered, &mut again).map_err(fail)?, &delta);
+            prop_assert_eq!(
+                &TableDelta::from_graph_delta(&lowered, &mut again).map_err(fail)?,
+                &delta
+            );
             prop_assert_eq!(&again, &after);
 
             // A graph reconnect goes to the table and back under its edge.
             if let Some(reconnect) = some_reconnect(&graph, &s, pick) {
                 let mut moved = before.clone();
                 let table = TableDelta::from_graph_delta(&reconnect, &mut moved).map_err(fail)?;
-                prop_assert_eq!(&table.to_graph_delta_between(&before, &moved).map_err(fail)?, &reconnect);
+                prop_assert_eq!(
+                    &table.to_graph_delta_between(&before, &moved).map_err(fail)?,
+                    &reconnect
+                );
                 let mut tables = s.clone();
                 table.apply(&mut tables).map_err(|e| TestCaseError::fail(format!("{e}")))?;
                 let mut reached = graph.clone();
                 reconnect.apply(&mut reached).map_err(fail)?;
-                prop_assert!(GInstance::identical(&reached, &graph_of(&tables, &moved).map_err(fail)?));
+                prop_assert!(GInstance::identical(
+                    &reached,
+                    &graph_of(&tables, &moved).map_err(fail)?
+                ));
             }
         }
 
@@ -693,7 +705,12 @@ mod tests {
         ) {
             let a = applying_sub_delta(&s, TableDelta::diff(&s, &t), &keep_a);
             let b = applying_sub_delta(&s, TableDelta::diff(&s, &u), &keep_b);
-            prop_assert!(a.check(&s).is_ok() && b.check(&s).is_ok(), "{:?} / {:?}", a.check(&s), b.check(&s));
+            prop_assert!(
+                a.check(&s).is_ok() && b.check(&s).is_ok(),
+                "{:?} / {:?}",
+                a.check(&s),
+                b.check(&s)
+            );
             let (_, before) = GInstance::from_finstance(&s).map_err(fail)?;
             // One embedding after both, recording every pair either adds.
             let mut after = before.clone();
@@ -717,9 +734,13 @@ mod tests {
                     other => Err(fail(format!("an entry maps to an entry, not {other:?}"))),
                 };
                 Ok(match conflict {
-                    EditConflict::DeleteDelete { elem: e } => EditConflict::DeleteDelete { elem: elem(e)? },
+                    EditConflict::DeleteDelete { elem: e } => {
+                        EditConflict::DeleteDelete { elem: elem(e)? }
+                    }
                     EditConflict::AddAdd { elem: e } => EditConflict::AddAdd { elem: elem(e)? },
-                    EditConflict::UpdateUpdate { key: k } => EditConflict::UpdateUpdate { key: key(k)? },
+                    EditConflict::UpdateUpdate { key: k } => {
+                        EditConflict::UpdateUpdate { key: key(k)? }
+                    }
                     EditConflict::DeleteUse { deleted, user } => EditConflict::DeleteUse {
                         deleted: elem(deleted)?,
                         user: elem(user)?,
@@ -746,7 +767,10 @@ mod tests {
             }
             match (a.compose(&b), ga.compose(&gb)) {
                 (Ok(table), Ok(graph)) => {
-                    prop_assert_eq!(&table.to_graph_delta_between(&before, &after).map_err(fail)?, &graph);
+                    prop_assert_eq!(
+                        &table.to_graph_delta_between(&before, &after).map_err(fail)?,
+                        &graph
+                    );
                 }
                 (Err(table), Err(graph)) => {
                     let crate::graph_edit::ComposeError::Mismatch { elem } = table;

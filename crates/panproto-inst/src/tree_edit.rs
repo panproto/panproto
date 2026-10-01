@@ -1068,9 +1068,10 @@ struct AttrSteps {
 }
 
 /// The steps the entry changes of `delta` read as (see [`AttrSteps`]),
-/// with `graph` the graph form of the tree it applies to. A label change of a fan edge that follows its target's
-/// anchor change is part of that change. Every other entry change, and a
-/// change of an entry of a fan node, is one no tree edit makes.
+/// with `graph` the graph form of the tree it applies to. A label change
+/// of a fan edge that follows its target's anchor change is part of that
+/// change. Every other entry change, and a change of an entry of a fan
+/// node, is one no tree edit makes.
 fn attr_steps(
     graph: &GInstance,
     delta: &GraphDelta,
@@ -1764,8 +1765,9 @@ impl TreeEdit {
     /// of a name it deletes every fan of go first by a `DeleteFan`, and any
     /// other fan it deletes goes with a deleted node that names it. `Anchor`
     /// changes are `RelabelNode` and `Field` changes `SetField` or
-    /// `RemoveField`, last; the label change of a fan edge whose target's anchor the delta changes, to the same label with
-    /// that new anchor as its target, is part of that relabel. The
+    /// `RemoveField`, last; the label change of a fan edge whose target's
+    /// anchor the delta changes, to the same label with that new anchor as
+    /// its target, is part of that relabel. The
     /// `Anchor`, `Value`, `Meta` and `Field` changes of a node with a
     /// `Value` or `Meta` change are instead one `JoinFeatures` of that node
     /// with nothing joined, whose product is the node as the delta leaves
@@ -2328,30 +2330,53 @@ mod graph_tests {
         WInstance::new(nodes, arcs, vec![fan], 0, "s".into())
     }
 
-    /// Whether `edit` has a `MoveSubtree` step, whose lowering gives its
-    /// arc a fresh id where [`TreeEmbedding::apply_edit`] may keep it.
-    fn moves(edit: &TreeEdit) -> bool {
-        edit.steps()
-            .iter()
-            .any(|step| matches!(step, TreeEdit::MoveSubtree { .. }))
-    }
-
-    /// Check that `lowered`, the embedding a lowering left, follows the
-    /// edit that took `followed` (the embedding
-    /// [`TreeEmbedding::apply_edit`] left) to the tree it embeds: the same
-    /// tree nodes with arcs and the same fan nodes, and the very same
-    /// embedding when the edit moves nothing.
-    fn assert_follows(lowered: &TreeEmbedding, followed: &TreeEmbedding, edit: &TreeEdit) {
-        assert_eq!(ids(&lowered.arcs), ids(&followed.arcs), "{edit:?}");
-        assert_eq!(lowered.next_node, followed.next_node, "{edit:?}");
+    /// Check that `lowered` is the embedding a lowering of `edit` on `tree`
+    /// leaves from `embedding`. Each step follows
+    /// [`TreeEmbedding::apply_edit`], except that a `MoveSubtree` whose arc
+    /// `apply_edit` lets keep its edge id (a move in place) gives the arc
+    /// the next edge id instead, so every later step allocates from the
+    /// counter after it. With no move in place that is exactly the
+    /// embedding `apply_edit` leaves for the whole edit. Ascending edge ids
+    /// of the arcs also follow the edited tree's arc order.
+    fn assert_follows(
+        lowered: &TreeEmbedding,
+        embedding: &TreeEmbedding,
+        tree: &WInstance,
+        edit: &TreeEdit,
+    ) -> Result<(), EditError> {
+        let mut expected = embedding.clone();
+        let mut edited = tree.clone();
+        let mut in_place = false;
+        for step in edit.steps() {
+            let kept = match step {
+                TreeEdit::MoveSubtree { node_id, .. } => {
+                    expected.arcs.get(node_id).map(|id| (*node_id, *id))
+                }
+                _ => None,
+            };
+            expected.apply_edit(&mut edited, step)?;
+            if let Some((node, id)) = kept
+                && expected.arcs.get(&node) == Some(&id)
+            {
+                expected.arcs.insert(node, EdgeId(expected.next_edge));
+                expected.next_edge += 1;
+                in_place = true;
+            }
+        }
+        if !in_place {
+            let mut followed = embedding.clone();
+            followed.apply_edit(&mut tree.clone(), edit)?;
+            assert_eq!(expected, followed, "{edit:?}");
+        }
+        assert_eq!(*lowered, expected, "{edit:?}");
+        let mut by_id: Vec<(EdgeId, u32)> = lowered.arcs.iter().map(|(c, e)| (*e, *c)).collect();
+        by_id.sort_unstable();
         assert_eq!(
-            lowered.fans.iter().map(|f| f.node).collect::<Vec<_>>(),
-            followed.fans.iter().map(|f| f.node).collect::<Vec<_>>(),
+            by_id.into_iter().map(|(_, c)| c).collect::<Vec<_>>(),
+            edited.arcs.iter().map(|(_, c, _)| *c).collect::<Vec<_>>(),
             "{edit:?}"
         );
-        if !moves(edit) {
-            assert_eq!(lowered, followed, "{edit:?}");
-        }
+        Ok(())
     }
 
     /// The graph delta of `edit` on `tree`, the embedding it leaves, and the
@@ -2362,11 +2387,11 @@ mod graph_tests {
         edit: &TreeEdit,
     ) -> Result<(GraphDelta, TreeEmbedding, GInstance), Box<dyn Error>> {
         let (graph, mut embedding) = GInstance::from_wtype_embedded(tree, None)?;
-        let mut followed = embedding.clone();
+        let start = embedding.clone();
         let mut edited = tree.clone();
-        followed.apply_edit(&mut edited, edit)?;
+        start.clone().apply_edit(&mut edited, edit)?;
         let delta = GraphDelta::from_tree_edit(&graph, &mut embedding, edit)?;
-        assert_follows(&embedding, &followed, edit);
+        assert_follows(&embedding, &start, tree, edit)?;
         let mut reached = graph;
         delta.apply(&mut reached)?;
         let expected = GInstance::from_wtype_under(&edited, &embedding, None)?;
@@ -3712,7 +3737,10 @@ mod graph_tests {
         let mut applied = tree.clone();
         let tree_result = misfiled.apply(&mut applied);
         assert!(
-            matches!(&tree_result, Err(EditError::ApplyFailed(reason)) if reason.contains("node 8")),
+            matches!(
+                &tree_result,
+                Err(EditError::ApplyFailed(reason)) if reason.contains("node 8")
+            ),
             "{tree_result:?}"
         );
         assert!(
@@ -4641,7 +4669,8 @@ mod graph_tests {
             tree in arb_tree(),
             intents in prop::collection::vec(intent(), 1..10),
         ) {
-            let (mut graph, mut embedding) = GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
+            let (mut graph, mut embedding) =
+                GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
             let mut tree = tree;
             let start = (graph.clone(), embedding.clone(), tree.clone());
             let mut script = Vec::new();
@@ -4653,15 +4682,19 @@ mod graph_tests {
                 let mut edited = tree.clone();
                 match followed.apply_edit(&mut edited, &edit) {
                     Ok(()) => {
-                        let delta = delta.map_err(|e| TestCaseError::fail(format!("{edit:?}: {e}")))?;
-                        assert_follows(&lowered, &followed, &edit);
+                        let delta =
+                            delta.map_err(|e| TestCaseError::fail(format!("{edit:?}: {e}")))?;
+                        assert_follows(&lowered, &embedding, &tree, &edit).map_err(fail)?;
                         let mut reached = graph.clone();
                         delta.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
-                        let expected = GInstance::from_wtype_under(&edited, &lowered, None).map_err(fail)?;
+                        let expected =
+                            GInstance::from_wtype_under(&edited, &lowered, None).map_err(fail)?;
                         prop_assert!(GInstance::identical(&reached, &expected), "{:?}", edit);
                         prop_assert!(
                             !delta.attrs().keys().any(|key| match key {
-                                AttrKey::EdgeLabel { edge } => lowered.arcs.values().any(|id| id == edge),
+                                AttrKey::EdgeLabel { edge } => {
+                                    lowered.arcs.values().any(|id| id == edge)
+                                }
                                 _ => false,
                             }),
                             "{:?} changes a tree arc's label: {:?}", edit, delta
@@ -4673,14 +4706,22 @@ mod graph_tests {
                     }
                     Err(err) => {
                         prop_assert_eq!(delta, Err(err));
-                        prop_assert_eq!(&lowered, &embedding, "a failing edit leaves the embedding");
+                        prop_assert_eq!(
+                            &lowered,
+                            &embedding,
+                            "a failing edit leaves the embedding"
+                        );
                     }
                 }
             }
             // The whole script as one sequence: the composite of its steps.
             let (start_graph, mut start_embedding, _) = start;
-            let whole = GraphDelta::from_tree_edit(&start_graph, &mut start_embedding, &TreeEdit::Sequence(script))
-                .map_err(|e| TestCaseError::fail(format!("{e}")))?;
+            let whole = GraphDelta::from_tree_edit(
+                &start_graph,
+                &mut start_embedding,
+                &TreeEdit::Sequence(script),
+            )
+            .map_err(|e| TestCaseError::fail(format!("{e}")))?;
             prop_assert_eq!(&start_embedding, &embedding);
             let mut reached = start_graph;
             whole.apply(&mut reached).map_err(|e| TestCaseError::fail(format!("{e}")))?;
@@ -4692,19 +4733,24 @@ mod graph_tests {
             tree in arb_tree(),
             intents in prop::collection::vec(intent(), 1..8),
         ) {
-            let (mut graph, mut embedding) = GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
+            let (mut graph, mut embedding) =
+                GInstance::from_wtype_embedded(&tree, None).map_err(fail)?;
             let start = (tree.clone(), graph.clone(), embedding.clone());
             let mut tree = tree;
             let mut script = Vec::new();
             for intent in &intents {
                 let Some(edit) = resolve(&tree, &embedding, intent) else { continue };
                 let mut followed = embedding.clone();
-                let Ok(delta) = GraphDelta::from_tree_edit(&graph, &mut followed, &edit) else { continue };
+                let Ok(delta) = GraphDelta::from_tree_edit(&graph, &mut followed, &edit) else {
+                    continue;
+                };
                 script.push(edit.clone());
                 // (a) A single step's delta reads back, and (c) the reading
                 // lowers to that delta exactly and leaves the same embedding.
                 let read = TreeEdit::from_graph_delta(&tree, &embedding, &delta).map_err(|e| {
-                    TestCaseError::fail(format!("{edit:?} lowers to a delta read as no tree edit: {e}"))
+                    TestCaseError::fail(format!(
+                        "{edit:?} lowers to a delta read as no tree edit: {e}"
+                    ))
                 })?;
                 let mut again = embedding.clone();
                 let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)
@@ -4725,9 +4771,12 @@ mod graph_tests {
             let mut followed = start_embedding.clone();
             let whole = GraphDelta::from_tree_edit(&start_graph, &mut followed, &whole_edit)
                 .map_err(|e| TestCaseError::fail(format!("{e}")))?;
-            let read = TreeEdit::from_graph_delta(&start_tree, &start_embedding, &whole).map_err(|e| {
-                TestCaseError::fail(format!("{whole_edit:?} lowers to a delta read as no tree edit: {e}"))
-            })?;
+            let read = TreeEdit::from_graph_delta(&start_tree, &start_embedding, &whole)
+                .map_err(|e| {
+                    TestCaseError::fail(format!(
+                        "{whole_edit:?} lowers to a delta read as no tree edit: {e}"
+                    ))
+                })?;
             let mut reached = start_tree;
             read.apply(&mut reached).map_err(fail)?;
             prop_assert!(

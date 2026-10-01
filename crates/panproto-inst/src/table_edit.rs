@@ -638,12 +638,19 @@ mod tests {
         );
 
         // A cell change spells out both values; decoding normalizes.
-        let missing_old = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"new":null}]],"tables":{}}"#;
+        let missing_old = concat!(
+            r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"#,
+            r#""cells":[[[0,"n"],{"new":null}]],"tables":{}}"#
+        );
         let err = serde_json::from_str::<TableDelta>(missing_old)
             .err()
             .ok_or("expected an error")?;
         assert!(err.to_string().contains("missing field `old`"), "{err}");
-        let no_op = r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"cells":[[[0,"n"],{"old":{"Int":1},"new":{"Int":1}}]],"tables":{"4":{"old":"a","new":"a"}}}"#;
+        let no_op = concat!(
+            r#"{"del_rows":{},"add_rows":{},"del_pairs":[],"add_pairs":[],"#,
+            r#""cells":[[[0,"n"],{"old":{"Int":1},"new":{"Int":1}}]],"#,
+            r#""tables":{"4":{"old":"a","new":"a"}}}"#
+        );
         assert!(serde_json::from_str::<TableDelta>(no_op)?.is_identity());
         Ok(())
     }
@@ -989,10 +996,12 @@ mod tests {
             json,
             serde_json::json!([
                 "Identity",
-                {"InsertRow": {"table": "user", "id": 3, "row": {"a": {"Int": 1}, "b": {"Int": 2}}}},
+                {"InsertRow": {"table": "user", "id": 3,
+                    "row": {"a": {"Int": 1}, "b": {"Int": 2}}}},
                 {"DeleteRow": {"table": "user", "id": 0, "row": {"name": {"Str": "alice"}},
                     "incident_fks": [[fk_json, 2, 0]]}},
-                {"UpdateCell": {"table": "user", "id": 1, "column": "name", "old": null, "new": null}},
+                {"UpdateCell": {"table": "user", "id": 1, "column": "name",
+                    "old": null, "new": null}},
                 {"MoveRow": {"id": 1, "old_table": "user", "new_table": "admin"}},
                 {"AddForeignKey": {"edge": fk_json, "src": 2, "tgt": 1}},
                 {"RemoveForeignKey": {"edge": fk_json, "src": 2, "tgt": 0}},
@@ -1118,8 +1127,14 @@ mod tests {
         assert!(
             matches!(
                 &refusal,
-                InstError::RowHasForeignKeys { row: RowId(3), from, to, edge, src: RowId(1), tgt: RowId(3) }
-                    if from == "user" && to == "member" && *edge == fk
+                InstError::RowHasForeignKeys {
+                    row: RowId(3),
+                    from,
+                    to,
+                    edge,
+                    src: RowId(1),
+                    tgt: RowId(3),
+                } if from == "user" && to == "member" && *edge == fk
             ),
             "expected RowHasForeignKeys, got {refusal:?}"
         );
@@ -1247,7 +1262,8 @@ mod tests {
             for intent in &intents {
                 let Some(edit) = resolve(&state, intent) else { continue };
                 let before = bytes(&state);
-                edit.apply(&mut state).map_err(|e| TestCaseError::fail(format!("the edit fails: {e}")))?;
+                edit.apply(&mut state)
+                    .map_err(|e| TestCaseError::fail(format!("the edit fails: {e}")))?;
                 // Each step is undone by its own inverse.
                 let mut undone = state.clone();
                 edit.invert()
@@ -1274,7 +1290,11 @@ mod tests {
             // it was, every applied step rolled back.
             let failing = TableEdit::Batch(vec![
                 script,
-                TableEdit::RemoveForeignKey { edge: fk(), src: RowId(u32::MAX), tgt: RowId(u32::MAX) },
+                TableEdit::RemoveForeignKey {
+                    edge: fk(),
+                    src: RowId(u32::MAX),
+                    tgt: RowId(u32::MAX),
+                },
             ]);
             let mut refused = start.clone();
             prop_assert!(failing.apply(&mut refused).is_err());
@@ -1443,7 +1463,9 @@ mod tests {
                 // deletes or adds; re-normalizing changes nothing.
                 prop_assert_eq!(TableDelta::normalize(delta.to_parts()), delta.clone());
                 for ((row, _), change) in delta.cells() {
-                    prop_assert!(!delta.del_rows().contains_key(row) && !delta.add_rows().contains_key(row));
+                    prop_assert!(
+                        !delta.del_rows().contains_key(row) && !delta.add_rows().contains_key(row)
+                    );
                     prop_assert!(change.old.is_some() || change.new.is_some());
                 }
                 for change in delta.tables().values() {
