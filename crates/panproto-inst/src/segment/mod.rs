@@ -38,6 +38,7 @@ mod stream;
 mod tests;
 mod tree_bytes;
 
+pub use crate::identity::SEGMENT_EDGE_IDS_CONTEXT;
 pub use body::{
     AnySegment, Boundary, Ghost, GraphSegment, InStub, SegmentStats, TableSegment, TreeSegment,
 };
@@ -47,9 +48,9 @@ pub use check::{check_segment, verify_partition};
 pub use error::{ErrorAt, ErrorKey, PartitionDefect, Residual, Resource, SegmentError};
 pub use ids::{IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId, check_edge_range_above};
 pub use manifest::{
-    EdgeIdRun, ManifestHeader, ManifestRole, SEGMENT_EDGE_IDS_CONTEXT, SegmentManifest,
-    SegmentRecord, audit_path, check_edge_id_runs, edge_ids_digest, merkle_root, seal, seal_full,
-    verify_audit_path, verify_manifest, verify_segment, verify_segment_bytes,
+    EdgeIdRun, ManifestHeader, ManifestRole, SegmentManifest, SegmentRecord, audit_path,
+    check_edge_id_runs, edge_ids_digest, merkle_root, seal, seal_full, verify_audit_path,
+    verify_manifest, verify_segment, verify_segment_bytes,
 };
 pub use partition::{OwnerIndex, Partition, SegmentSpec, shape_from_tag, shape_tag};
 pub use split::{

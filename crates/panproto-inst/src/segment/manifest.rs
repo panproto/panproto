@@ -29,13 +29,9 @@ use super::stream::{RecordSource, instance_digest};
 use crate::ginstance::EdgeId;
 use crate::identity::{
     CanonicalSink, ComplementShape, Digest, DigestHasher, IdentityEnvelope, MANIFEST_CONTEXT,
-    MANIFEST_LEAF_CONTEXT, MANIFEST_NODE_CONTEXT, SEGMENT_MANIFEST_VERSION,
+    MANIFEST_LEAF_CONTEXT, MANIFEST_NODE_CONTEXT, SEGMENT_EDGE_IDS_CONTEXT,
+    SEGMENT_MANIFEST_VERSION,
 };
-
-/// The context of a segment's edge id digest ([`SegmentRecord::edge_ids`]):
-/// the segment's owned edge ids, ascending, each as four little-endian
-/// bytes.
-pub const SEGMENT_EDGE_IDS_CONTEXT: &str = "panproto 2026-09 segment edge ids v1";
 
 /// The edge id digest of a sorted run of edge ids: each id's four
 /// little-endian bytes in order, under [`SEGMENT_EDGE_IDS_CONTEXT`]. The
