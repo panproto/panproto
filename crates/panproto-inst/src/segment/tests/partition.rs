@@ -24,10 +24,7 @@ fn spec(id: u32, nodes: &[(u32, u32)]) -> SegmentSpec {
 }
 
 fn graph_partition(specs: Vec<SegmentSpec>) -> Partition {
-    Partition {
-        shape: InstanceShapeKind::Graph,
-        specs,
-    }
+    Partition::new(InstanceShapeKind::Graph, specs)
 }
 
 #[test]
@@ -102,11 +99,7 @@ fn partition_validate_rejects_each_malformed_spec() {
     let mut s = spec(0, &[(0, 9)]);
     s.alloc_edges = Some(IdRange { lo: 20, hi: 29 });
     assert_eq!(
-        Partition {
-            shape: InstanceShapeKind::Table,
-            specs: vec![s.clone()],
-        }
-        .validate(),
+        Partition::new(InstanceShapeKind::Table, vec![s.clone()]).validate(),
         malformed(PartitionDefect::EdgeAllocationOnTable)
     );
     assert_eq!(graph_partition(vec![s]).validate(), Ok(()));
@@ -157,8 +150,9 @@ fn an_element_with_an_unowned_id_is_rejected() -> TestResult {
     let mut dangling = GInstance::new().with_node(Node::new(1, "a"));
     dangling.insert_node(Node::new(12, "a"))?;
     dangling.insert_edge(EdgeId(3), GEdge::new(1, 12, ab))?;
-    let mut narrowed = partition;
-    narrowed.specs[1].nodes = vec![IdRange { lo: 11, hi: 11 }];
+    let mut specs = partition.specs().to_vec();
+    specs[1].nodes = vec![IdRange { lo: 11, hi: 11 }];
+    let narrowed = Partition::new(partition.shape(), specs);
     // Node 12 now has no owner; it is reported before any edge.
     assert_eq!(
         partition_graph(&dangling, &narrowed).err(),
@@ -257,20 +251,20 @@ proptest! {
 fn by_node_ranges_carves_consecutive_allocation_ranges() -> TestResult {
     let p = Partition::by_node_ranges(InstanceShapeKind::Graph, &[10, 15], 5, 20)?;
     let r = |lo, hi| IdRange { lo, hi };
-    assert_eq!(p.specs.len(), 3);
-    assert_eq!(p.specs[0].nodes, vec![r(0, 9), r(20, 24)]);
-    assert_eq!(p.specs[1].nodes, vec![r(10, 14), r(25, 29)]);
-    assert_eq!(p.specs[2].nodes, vec![r(15, 19), r(30, 34)]);
-    for (i, s) in p.specs.iter().enumerate() {
+    assert_eq!(p.specs().len(), 3);
+    assert_eq!(p.specs()[0].nodes, vec![r(0, 9), r(20, 24)]);
+    assert_eq!(p.specs()[1].nodes, vec![r(10, 14), r(25, 29)]);
+    assert_eq!(p.specs()[2].nodes, vec![r(15, 19), r(30, 34)]);
+    for (i, s) in p.specs().iter().enumerate() {
         let lo = 20 + 5 * u32::try_from(i)?;
         assert_eq!(s.alloc_nodes, Some(r(lo, lo + 4)));
         assert_eq!(s.alloc_edges, Some(r(lo, lo + 4)));
     }
     let t = Partition::by_node_ranges(InstanceShapeKind::Table, &[10], 5, 20)?;
-    assert!(t.specs.iter().all(|s| s.alloc_edges.is_none()));
+    assert!(t.specs().iter().all(|s| s.alloc_edges.is_none()));
     let none = Partition::by_node_ranges(InstanceShapeKind::Graph, &[10], 0, 20)?;
-    assert_eq!(none.specs[1].nodes, vec![r(10, 19)]);
-    assert_eq!(none.specs[1].alloc_nodes, None);
+    assert_eq!(none.specs()[1].nodes, vec![r(10, 19)]);
+    assert_eq!(none.specs()[1].alloc_nodes, None);
     assert_eq!(
         Partition::by_node_ranges(InstanceShapeKind::Graph, &[10, 10], 0, 20),
         Err(SegmentError::MalformedPartition {
@@ -286,17 +280,56 @@ fn by_node_ranges_carves_consecutive_allocation_ranges() -> TestResult {
         })
     );
     let single = Partition::single(InstanceShapeKind::Graph, Some(41));
-    assert_eq!(single.specs.len(), 1);
-    assert_eq!(single.specs[0].nodes, vec![IdRange::FULL]);
-    assert_eq!(single.specs[0].alloc_nodes, Some(r(42, u32::MAX)));
-    assert_eq!(single.specs[0].alloc_edges, Some(r(42, u32::MAX)));
+    assert_eq!(single.specs().len(), 1);
+    assert_eq!(single.specs()[0].nodes, vec![IdRange::FULL]);
+    assert_eq!(single.specs()[0].alloc_nodes, Some(r(42, u32::MAX)));
+    assert_eq!(single.specs()[0].alloc_edges, Some(r(42, u32::MAX)));
     assert_eq!(
-        Partition::single(InstanceShapeKind::Graph, Some(u32::MAX)).specs[0].alloc_nodes,
+        Partition::single(InstanceShapeKind::Graph, Some(u32::MAX)).specs()[0].alloc_nodes,
         None
     );
     assert_eq!(
-        Partition::single(InstanceShapeKind::Graph, None).specs[0].alloc_nodes,
+        Partition::single(InstanceShapeKind::Graph, None).specs()[0].alloc_nodes,
         Some(IdRange::FULL)
     );
+    Ok(())
+}
+
+#[test]
+fn owner_of_node_is_one_binary_search_over_all_ranges() -> TestResult {
+    // 200,001 segments of one id each. A lookup of the last id that visits
+    // segments one by one does 200,001 range checks; a binary search over
+    // all ranges does 18. Two thousand such lookups take seconds in the
+    // first case and well under a millisecond in the second, so the bound
+    // below separates them with a wide margin.
+    let bounds: Vec<u32> = (1..=200_000).collect();
+    let partition = Partition::by_node_ranges(InstanceShapeKind::Graph, &bounds, 0, 200_001)?;
+    let start = std::time::Instant::now();
+    for _ in 0..2_000 {
+        assert_eq!(partition.owner_of_node(200_000), Some(SegmentId(200_000)));
+    }
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_millis(500),
+        "2,000 lookups took {elapsed:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn a_partition_serializes_as_its_shape_and_specs_and_decodes_with_its_owners() -> TestResult {
+    let p = Partition::by_node_ranges(InstanceShapeKind::Table, &[10], 0, 20)?;
+    let json = serde_json::to_value(&p)?;
+    assert_eq!(
+        json,
+        serde_json::json!({
+            "shape": serde_json::to_value(InstanceShapeKind::Table)?,
+            "specs": serde_json::to_value(p.specs())?,
+        })
+    );
+    let back: Partition = serde_json::from_value(json)?;
+    assert_eq!(back, p);
+    assert_eq!(back.owner_of_node(15), Some(SegmentId(1)));
+    assert_eq!(back.owner_of_node(25), None);
     Ok(())
 }

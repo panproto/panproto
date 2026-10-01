@@ -239,9 +239,9 @@ pub enum ErrorDetail {
     /// A restrict failed. `kind` is the snake-case name of the
     /// [`RestrictError`] variant and `message` its display text.
     Restrict {
-        /// The error's position in the graph engine's precedence order.
-        /// [`RestrictError::detail`] leaves it `None`: a [`RestrictError`]
-        /// does not carry its position.
+        /// The error's position in the graph engine's precedence order, when
+        /// the projection knows it. [`RestrictError::detail`] sets `None`,
+        /// since it reads only the variant and its display text.
         key: Option<ErrorKey>,
         /// The snake-case name of the error's variant.
         kind: String,
@@ -250,29 +250,28 @@ pub enum ErrorDetail {
     },
 }
 
-impl RestrictError {
-    /// The snake-case name of the error's variant.
-    #[must_use]
-    pub const fn kind(&self) -> &'static str {
-        match self {
-            Self::NoEdgeFound { .. } => "no_edge_found",
-            Self::AmbiguousEdge { .. } => "ambiguous_edge",
-            Self::RootPruned => "root_pruned",
-            Self::FanReconstructionFailed { .. } => "fan_reconstruction_failed",
-            Self::ProductSizeExceeded { .. } => "product_size_exceeded",
-            Self::MultiElementFiber { .. } => "multi_element_fiber",
-            Self::UnmappedAnchor { .. } => "unmapped_anchor",
-            Self::AttributeCollision { .. } => "attribute_collision",
-            Self::NonInjectiveVertexMap { .. } => "non_injective_vertex_map",
-            Self::FieldTransformFailed { .. } => "field_transform_failed",
-            Self::RowIdsExhausted => "row_ids_exhausted",
-            Self::VertexOutsideDomain { .. } => "vertex_outside_domain",
-            Self::EdgeOutsideDomain { .. } => "edge_outside_domain",
-        }
+/// The snake-case name of a restrict error's variant.
+const fn restrict_kind(error: &RestrictError) -> &'static str {
+    match error {
+        RestrictError::NoEdgeFound { .. } => "no_edge_found",
+        RestrictError::AmbiguousEdge { .. } => "ambiguous_edge",
+        RestrictError::RootPruned => "root_pruned",
+        RestrictError::FanReconstructionFailed { .. } => "fan_reconstruction_failed",
+        RestrictError::ProductSizeExceeded { .. } => "product_size_exceeded",
+        RestrictError::MultiElementFiber { .. } => "multi_element_fiber",
+        RestrictError::UnmappedAnchor { .. } => "unmapped_anchor",
+        RestrictError::AttributeCollision { .. } => "attribute_collision",
+        RestrictError::NonInjectiveVertexMap { .. } => "non_injective_vertex_map",
+        RestrictError::FieldTransformFailed { .. } => "field_transform_failed",
+        RestrictError::RowIdsExhausted => "row_ids_exhausted",
+        RestrictError::VertexOutsideDomain { .. } => "vertex_outside_domain",
+        RestrictError::EdgeOutsideDomain { .. } => "edge_outside_domain",
     }
+}
 
+impl RestrictError {
     /// The error's structured detail: [`ErrorDetail::Restrict`] with its
-    /// variant name and display text.
+    /// variant name and display text, and no precedence key.
     ///
     /// ```
     /// use panproto_inst::{ErrorDetail, RestrictError};
@@ -290,7 +289,7 @@ impl RestrictError {
     pub fn detail(&self) -> ErrorDetail {
         ErrorDetail::Restrict {
             key: None,
-            kind: self.kind().to_owned(),
+            kind: restrict_kind(self).to_owned(),
             message: self.to_string(),
         }
     }

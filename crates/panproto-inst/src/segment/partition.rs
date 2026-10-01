@@ -153,28 +153,65 @@ fn covered(ranges: &[IdRange], target: IdRange) -> bool {
     false
 }
 
-/// A partition of one instance into segments.
+/// A partition of one instance into segments: its shape and one spec per
+/// segment.
 ///
-/// Segments are numbered densely from 0 in `specs` order.
+/// Segments are numbered densely from 0 in `specs` order. The partition
+/// keeps every node range of every spec sorted beside the specs, so
+/// [`Partition::owner_of_node`] is one binary search over all ranges; the
+/// fields are therefore read through [`Partition::shape`] and
+/// [`Partition::specs`] and set only by [`Partition::new`]. It serializes as
+/// the record `{ shape, specs }`.
 #[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(from = "PartitionParts", into = "PartitionParts")]
 pub struct Partition {
-    /// The shape of the partitioned instance.
-    pub shape: InstanceShapeKind,
-    /// One spec per segment, in id order.
-    pub specs: Vec<SegmentSpec>,
+    shape: InstanceShapeKind,
+    specs: Vec<SegmentSpec>,
+    index: OwnerIndex,
+}
+
+/// The serialized form of a [`Partition`].
+#[derive(Clone, Serialize, Deserialize)]
+struct PartitionParts {
+    shape: InstanceShapeKind,
+    specs: Vec<SegmentSpec>,
+}
+
+impl From<PartitionParts> for Partition {
+    fn from(parts: PartitionParts) -> Self {
+        Self::new(parts.shape, parts.specs)
+    }
+}
+
+impl From<Partition> for PartitionParts {
+    fn from(partition: Partition) -> Self {
+        Self {
+            shape: partition.shape,
+            specs: partition.specs,
+        }
+    }
 }
 
 /// The owner of every node id under a partition, by binary search over all
 /// node ranges.
 ///
-/// Built once from a valid partition by [`Partition::owner_index`]; each
-/// lookup is `O(log R)` for `R` ranges.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// Each lookup is `O(log R)` for `R` ranges.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub struct OwnerIndex {
     ranges: Vec<(IdRange, SegmentId)>,
 }
 
 impl OwnerIndex {
+    /// The index of every node range of `specs`, sorted by range.
+    fn of(specs: &[SegmentSpec]) -> Self {
+        let mut ranges: Vec<(IdRange, SegmentId)> = specs
+            .iter()
+            .flat_map(|s| s.nodes.iter().map(move |r| (*r, s.id)))
+            .collect();
+        ranges.sort_unstable();
+        Self { ranges }
+    }
+
     /// The segment owning node id `id`, or `None` when no range contains
     /// it.
     #[must_use]
@@ -215,13 +252,7 @@ impl Partition {
         for (position, spec) in self.specs.iter().enumerate() {
             spec.check(position_id(position)?, self.shape)?;
         }
-        let mut nodes: Vec<(IdRange, SegmentId)> = self
-            .specs
-            .iter()
-            .flat_map(|s| s.nodes.iter().map(move |r| (*r, s.id)))
-            .collect();
-        nodes.sort_unstable();
-        if let Some(error) = first_overlap(&nodes) {
+        if let Some(error) = first_overlap(&self.index.ranges) {
             return Err(error);
         }
         let mut edges: Vec<(IdRange, SegmentId)> = self
@@ -240,25 +271,41 @@ impl Partition {
     /// The error [`Partition::validate`] reports.
     pub fn owner_index(&self) -> Result<OwnerIndex, SegmentError> {
         self.validate()?;
-        let mut ranges: Vec<(IdRange, SegmentId)> = self
-            .specs
-            .iter()
-            .flat_map(|s| s.nodes.iter().map(move |r| (*r, s.id)))
-            .collect();
-        ranges.sort_unstable();
-        Ok(OwnerIndex { ranges })
+        Ok(self.index.clone())
+    }
+
+    /// The partition of `shape` with `specs`, one per segment in id order.
+    /// The partition is not checked; [`Partition::validate`] checks it.
+    #[must_use]
+    pub fn new(shape: InstanceShapeKind, specs: Vec<SegmentSpec>) -> Self {
+        let index = OwnerIndex::of(&specs);
+        Self {
+            shape,
+            specs,
+            index,
+        }
+    }
+
+    /// The shape of the partitioned instance.
+    #[must_use]
+    pub const fn shape(&self) -> InstanceShapeKind {
+        self.shape
+    }
+
+    /// One spec per segment, in id order.
+    #[must_use]
+    pub fn specs(&self) -> &[SegmentSpec] {
+        &self.specs
     }
 
     /// The segment owning node id `id`, or `None` when no range contains
-    /// it.
-    ///
-    /// Each spec's ranges are searched by binary search, so a lookup is
-    /// `O(S log R)` for `S` segments; a caller looking up many ids builds an
-    /// [`OwnerIndex`] once ([`Partition::owner_index`]), whose lookups are
-    /// `O(log R)`.
+    /// it: one binary search over all node ranges of all segments, so
+    /// `O(log R)` for `R` ranges. On a partition [`Partition::validate`]
+    /// rejects for overlapping ranges, the owner it names for an id two
+    /// ranges contain is one of the two.
     #[must_use]
     pub fn owner_of_node(&self, id: u32) -> Option<SegmentId> {
-        self.specs.iter().find(|s| s.owns(id)).map(|s| s.id)
+        self.index.owner_of_node(id)
     }
 
     /// The spec of segment `id`.
@@ -286,9 +333,9 @@ impl Partition {
     /// use panproto_inst::segment::{IdRange, Partition};
     ///
     /// let p = Partition::by_node_ranges(InstanceShapeKind::Graph, &[10], 5, 20)?;
-    /// assert_eq!(p.specs[0].nodes, vec![IdRange { lo: 0, hi: 9 }, IdRange { lo: 20, hi: 24 }]);
-    /// assert_eq!(p.specs[1].nodes, vec![IdRange { lo: 10, hi: 19 }, IdRange { lo: 25, hi: 29 }]);
-    /// assert_eq!(p.specs[1].alloc_edges, Some(IdRange { lo: 25, hi: 29 }));
+    /// assert_eq!(p.specs()[0].nodes, vec![IdRange { lo: 0, hi: 9 }, IdRange { lo: 20, hi: 24 }]);
+    /// assert_eq!(p.specs()[1].nodes, vec![IdRange { lo: 10, hi: 19 }, IdRange { lo: 25, hi: 29 }]);
+    /// assert_eq!(p.specs()[1].alloc_edges, Some(IdRange { lo: 25, hi: 29 }));
     /// # Ok::<(), panproto_inst::segment::SegmentError>(())
     /// ```
     ///
@@ -345,7 +392,7 @@ impl Partition {
                 alloc_edges: alloc.filter(|_| shape != InstanceShapeKind::Table),
             });
         }
-        let partition = Self { shape, specs };
+        let partition = Self::new(shape, specs);
         partition.validate()?;
         Ok(partition)
     }
@@ -359,24 +406,24 @@ impl Partition {
     /// use panproto_inst::segment::{IdRange, Partition};
     ///
     /// let p = Partition::single(InstanceShapeKind::Table, Some(7));
-    /// assert_eq!(p.specs[0].nodes, vec![IdRange::FULL]);
-    /// assert_eq!(p.specs[0].alloc_nodes, Some(IdRange { lo: 8, hi: u32::MAX }));
-    /// assert_eq!(p.specs[0].alloc_edges, None);
+    /// assert_eq!(p.specs()[0].nodes, vec![IdRange::FULL]);
+    /// assert_eq!(p.specs()[0].alloc_nodes, Some(IdRange { lo: 8, hi: u32::MAX }));
+    /// assert_eq!(p.specs()[0].alloc_edges, None);
     /// assert!(p.validate().is_ok());
     /// ```
     #[must_use]
     pub fn single(shape: InstanceShapeKind, max_id: Option<u32>) -> Self {
         let lo = max_id.map_or(Some(0), |max| max.checked_add(1));
         let alloc = lo.map(|lo| IdRange { lo, hi: u32::MAX });
-        Self {
+        Self::new(
             shape,
-            specs: vec![SegmentSpec {
+            vec![SegmentSpec {
                 id: SegmentId(0),
                 nodes: vec![IdRange::FULL],
                 alloc_nodes: alloc,
                 alloc_edges: alloc.filter(|_| shape != InstanceShapeKind::Table),
             }],
-        }
+        )
     }
 
     /// Write the partition's canonical bytes into `sink`: the shape tag,

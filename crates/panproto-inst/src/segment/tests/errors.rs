@@ -303,7 +303,7 @@ fn a_restrict_error_projects_onto_its_detail() -> TestResult {
 }
 
 #[test]
-fn error_keys_order_by_stage_then_kind_then_ids() {
+fn segment_error_positions_order_by_their_error_keys() {
     let k = |stage, kind, id, id2| ErrorKey {
         stage,
         kind,

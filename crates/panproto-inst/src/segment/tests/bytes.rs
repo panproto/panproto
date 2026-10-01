@@ -134,7 +134,7 @@ fn manifest_of(
 ) -> Result<crate::segment::SegmentManifest, SegmentError> {
     let records: Vec<SegmentRecord> = segments
         .iter()
-        .map(|s| SegmentRecord::of(s, &partition.specs[s.segment().0 as usize], &schema))
+        .map(|s| SegmentRecord::of(s, &partition.specs()[s.segment().0 as usize], &schema))
         .collect();
     let runs = segments
         .iter()
@@ -148,7 +148,7 @@ fn manifest_of(
     seal(
         records,
         ManifestHeader {
-            shape: partition.shape,
+            shape: partition.shape(),
             schema,
             role: ManifestRole::Source,
             binding: None,

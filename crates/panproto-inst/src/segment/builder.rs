@@ -19,15 +19,36 @@ use super::ids::SegmentId;
 use super::partition::{OwnerIndex, Partition};
 use crate::functor::Row;
 use crate::ginstance::{EdgeId, FanEmbedding, GEdge};
-use crate::metadata::Node;
+use crate::metadata::{Node, NodeShape};
 use crate::view_ref::{RowId, ViewRef};
 
-/// A node pushed into a [`SegmentBuilder`]: a graph or tree node, or a
-/// table row with its table.
+/// A node pushed into a [`SegmentBuilder`]: a graph or tree node, a tree's
+/// root with its embedding's counters, a tree's fan, or a table row with its
+/// table.
 #[derive(Clone, Debug)]
 pub enum BuilderNode {
-    /// A graph node, or a tree node (a fan node included).
+    /// A graph node, or a tree node other than the root.
     Node(Node),
+    /// The root of a tree, with the counters of the tree's embedding: the
+    /// least node id and edge id it has not used. The segment owning the
+    /// root carries them.
+    Root {
+        /// The root node.
+        node: Node,
+        /// The embedding's node counter.
+        next_node: u32,
+        /// The embedding's edge counter.
+        next_edge: u32,
+    },
+    /// A fan of a tree, in its graph form: the fan node, anchored at
+    /// `hyper_edge` with the hyper-edge shape, and the ids of its edges. Its
+    /// edges are pushed with [`BuilderEdge::FanEdge`].
+    Fan {
+        /// The fan's embedding.
+        embedding: FanEmbedding,
+        /// The fan's hyper-edge, the fan node's anchor.
+        hyper_edge: Name,
+    },
     /// A table row.
     Row {
         /// The row's id.
@@ -49,13 +70,27 @@ pub enum BuilderEdge {
         /// The edge.
         edge: GEdge,
     },
-    /// A tree arc or a fan edge, under its embedding edge id.
+    /// A tree arc, under its embedding edge id. A misplaced arc is named
+    /// `Arc { parent, child }`, as the tree names it.
     Arc {
         /// Its embedding edge id.
         id: EdgeId,
-        /// The source: the parent, or the fan node.
+        /// The parent.
         src: u32,
-        /// The target: the child, or the fan's parent or child.
+        /// The child.
+        tgt: u32,
+        /// The label.
+        label: Edge,
+    },
+    /// An edge of a tree's fan, under its embedding edge id. A tree has no
+    /// reference of its own for a fan edge, so a misplaced one is named
+    /// `Edge(id)`.
+    FanEdge {
+        /// Its embedding edge id.
+        id: EdgeId,
+        /// The fan node.
+        fan: u32,
+        /// The fan's parent, or one of its children.
         tgt: u32,
         /// The label.
         label: Edge,
@@ -117,7 +152,7 @@ impl SegmentBuilder {
                 defect: PartitionDefect::UnknownSegment,
             });
         }
-        let contents = match partition.shape {
+        let contents = match partition.shape() {
             InstanceShapeKind::Graph => Contents::Graph(GraphSegment {
                 segment,
                 nodes: BTreeMap::new(),
@@ -136,6 +171,8 @@ impl SegmentBuilder {
                 arcs: BTreeMap::new(),
                 fans: Vec::new(),
                 root: None,
+                next_node: None,
+                next_edge: None,
                 boundary: Boundary::default(),
             }),
         };
@@ -193,13 +230,18 @@ impl SegmentBuilder {
     /// segment does not own its id.
     pub fn push_node(&mut self, node: BuilderNode) -> Result<(), SegmentError> {
         let (id, elem) = match &node {
-            BuilderNode::Node(n) => (n.id, ViewRef::Node(n.id)),
+            BuilderNode::Node(n) | BuilderNode::Root { node: n, .. } => (n.id, ViewRef::Node(n.id)),
+            BuilderNode::Fan { embedding, .. } => (embedding.node, ViewRef::Node(embedding.node)),
             BuilderNode::Row { id, .. } => (id.0, ViewRef::Row(*id)),
         };
         match (&self.contents, &node) {
             (Contents::Graph(_) | Contents::Tree(_), BuilderNode::Node(_))
+            | (Contents::Tree(_), BuilderNode::Root { .. } | BuilderNode::Fan { .. })
             | (Contents::Table(_), BuilderNode::Row { .. }) => {}
             (_, BuilderNode::Node(_)) => return Err(self.wrong_shape(InstanceShapeKind::Graph)),
+            (_, BuilderNode::Root { .. } | BuilderNode::Fan { .. }) => {
+                return Err(self.wrong_shape(InstanceShapeKind::Tree));
+            }
             (_, BuilderNode::Row { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Table)),
         }
         self.check_owned(id, elem)?;
@@ -209,6 +251,37 @@ impl SegmentBuilder {
             }
             (Contents::Tree(s), BuilderNode::Node(n)) => {
                 s.nodes.insert(id, n);
+            }
+            (
+                Contents::Tree(s),
+                BuilderNode::Root {
+                    node,
+                    next_node,
+                    next_edge,
+                },
+            ) => {
+                s.nodes.insert(id, node);
+                s.root = Some(id);
+                s.next_node = Some(next_node);
+                s.next_edge = Some(next_edge);
+            }
+            (
+                Contents::Tree(s),
+                BuilderNode::Fan {
+                    embedding,
+                    hyper_edge,
+                },
+            ) => {
+                s.nodes.insert(
+                    id,
+                    Node::new(id, hyper_edge).with_shape(NodeShape::HyperEdge),
+                );
+                let at = s.fans.partition_point(|f| f.node < id);
+                if s.fans.get(at).is_some_and(|f| f.node == id) {
+                    s.fans[at] = embedding;
+                } else {
+                    s.fans.insert(at, embedding);
+                }
             }
             (Contents::Table(s), BuilderNode::Row { id, table, row }) => {
                 s.rows.insert(id, (table, row));
@@ -230,7 +303,14 @@ impl SegmentBuilder {
     pub fn push_edge(&mut self, edge: BuilderEdge) -> Result<(), SegmentError> {
         let (src, elem) = match &edge {
             BuilderEdge::Graph { id, edge } => (edge.src, ViewRef::Edge(*id)),
-            BuilderEdge::Arc { id, src, .. } => (*src, ViewRef::Edge(*id)),
+            BuilderEdge::Arc { src, tgt, .. } => (
+                *src,
+                ViewRef::Arc {
+                    parent: *src,
+                    child: *tgt,
+                },
+            ),
+            BuilderEdge::FanEdge { id, fan, .. } => (*fan, ViewRef::Edge(*id)),
             BuilderEdge::Pair { edge, src, tgt } => (
                 src.0,
                 ViewRef::Pair {
@@ -242,12 +322,14 @@ impl SegmentBuilder {
         };
         match (&self.contents, &edge) {
             (Contents::Graph(_), BuilderEdge::Graph { .. })
-            | (Contents::Tree(_), BuilderEdge::Arc { .. })
+            | (Contents::Tree(_), BuilderEdge::Arc { .. } | BuilderEdge::FanEdge { .. })
             | (Contents::Table(_), BuilderEdge::Pair { .. }) => {}
             (_, BuilderEdge::Graph { .. }) => {
                 return Err(self.wrong_shape(InstanceShapeKind::Graph));
             }
-            (_, BuilderEdge::Arc { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Tree)),
+            (_, BuilderEdge::Arc { .. } | BuilderEdge::FanEdge { .. }) => {
+                return Err(self.wrong_shape(InstanceShapeKind::Tree));
+            }
             (_, BuilderEdge::Pair { .. }) => return Err(self.wrong_shape(InstanceShapeKind::Table)),
         }
         self.check_owned(src, elem)?;
@@ -266,54 +348,21 @@ impl SegmentBuilder {
             ) => {
                 s.arcs.insert(id, (src, tgt, label));
             }
+            (
+                Contents::Tree(s),
+                BuilderEdge::FanEdge {
+                    id,
+                    fan,
+                    tgt,
+                    label,
+                },
+            ) => {
+                s.arcs.insert(id, (fan, tgt, label));
+            }
             (Contents::Table(s), BuilderEdge::Pair { edge, src, tgt }) => {
                 s.pairs.insert((edge, src, tgt));
             }
             _ => {}
-        }
-        Ok(())
-    }
-
-    /// Add the embedding of an owned fan of a tree segment, replacing an
-    /// earlier one of the same fan node. Its fan node and fan edges are
-    /// pushed with [`SegmentBuilder::push_node`] and
-    /// [`SegmentBuilder::push_edge`].
-    ///
-    /// # Errors
-    ///
-    /// [`SegmentError::ShapeMismatch`] unless the segment is a tree segment,
-    /// and [`SegmentError::Unowned`] or [`SegmentError::WrongOwner`] when the
-    /// segment does not own the fan node.
-    pub fn push_fan(&mut self, fan: FanEmbedding) -> Result<(), SegmentError> {
-        if !matches!(self.contents, Contents::Tree(_)) {
-            return Err(self.wrong_shape(InstanceShapeKind::Tree));
-        }
-        self.check_owned(fan.node, ViewRef::Node(fan.node))?;
-        if let Contents::Tree(s) = &mut self.contents {
-            let at = s.fans.partition_point(|f| f.node < fan.node);
-            if s.fans.get(at).is_some_and(|f| f.node == fan.node) {
-                s.fans[at] = fan;
-            } else {
-                s.fans.insert(at, fan);
-            }
-        }
-        Ok(())
-    }
-
-    /// Record that this tree segment owns the tree's root.
-    ///
-    /// # Errors
-    ///
-    /// [`SegmentError::ShapeMismatch`] unless the segment is a tree segment,
-    /// and [`SegmentError::Unowned`] or [`SegmentError::WrongOwner`] when the
-    /// segment does not own the root.
-    pub fn push_root(&mut self, root: u32) -> Result<(), SegmentError> {
-        if !matches!(self.contents, Contents::Tree(_)) {
-            return Err(self.wrong_shape(InstanceShapeKind::Tree));
-        }
-        self.check_owned(root, ViewRef::Node(root))?;
-        if let Contents::Tree(s) = &mut self.contents {
-            s.root = Some(root);
         }
         Ok(())
     }

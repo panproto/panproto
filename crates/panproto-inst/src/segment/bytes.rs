@@ -8,7 +8,7 @@
 //! ```text
 //! header  = version: u16, shape: u8, schema: [u8; 32], segment: u32,
 //!           node ranges, node allocation range?, edge allocation range?
-//!           (trees add) root: u32?
+//!           (trees add) root: u32?, next node: u32?, next edge: u32?
 //! graph   = nodes: count, node records (ascending id);
 //!           edges: count, edge records (ascending edge id)
 //! table   = rows: count, row records (ascending row id);
@@ -186,11 +186,13 @@ pub fn write_segment<S: CanonicalSink + ?Sized>(
             }
         }
         AnySegment::Tree(s) => {
-            match s.root {
-                None => sink.bool(false),
-                Some(root) => {
-                    sink.bool(true);
-                    sink.u32(root);
+            for field in [s.root, s.next_node, s.next_edge] {
+                match field {
+                    None => sink.bool(false),
+                    Some(value) => {
+                        sink.bool(true);
+                        sink.u32(value);
+                    }
                 }
             }
             sink.len(s.nodes.len());
@@ -314,6 +316,33 @@ fn read_header(r: &mut Reader<'_>) -> Result<Header, SegmentError> {
     })
 }
 
+/// Read a tree segment's fans: their count, then each fan's node, parent
+/// edge id and labelled child edge ids, ascending by fan node and label.
+fn read_fans(r: &mut Reader<'_>) -> Result<Vec<FanEmbedding>, SegmentError> {
+    let n = r.count(16)?;
+    let mut fans = Vec::with_capacity(n);
+    let mut last = None;
+    for _ in 0..n {
+        let node = r.u32()?;
+        let parent_edge = EdgeId(r.u32()?);
+        let m = r.count(12)?;
+        let mut child_edges = BTreeMap::new();
+        let mut last_label: Option<String> = None;
+        for _ in 0..m {
+            let label = r.string()?;
+            ascending(r, &mut last_label, &label)?;
+            child_edges.insert(label, EdgeId(r.u32()?));
+        }
+        ascending(r, &mut last, &node)?;
+        fans.push(FanEmbedding {
+            node,
+            parent_edge,
+            child_edges,
+        });
+    }
+    Ok(fans)
+}
+
 /// Read a segment body of the shape `shape_tag` names.
 fn read_body(
     r: &mut Reader<'_>,
@@ -374,6 +403,8 @@ fn read_body(
         }
         0 => {
             let root = r.opt_u32()?;
+            let next_node = r.opt_u32()?;
+            let next_edge = r.opt_u32()?;
             let nodes = read_nodes(r)?;
             let n = r.count(45)?;
             let mut arcs = BTreeMap::new();
@@ -384,27 +415,7 @@ fn read_body(
                 ascending(r, &mut last, &id)?;
                 arcs.insert(id, arc);
             }
-            let n = r.count(16)?;
-            let mut fans = Vec::with_capacity(n);
-            let mut last = None;
-            for _ in 0..n {
-                let node = r.u32()?;
-                let parent_edge = EdgeId(r.u32()?);
-                let m = r.count(12)?;
-                let mut child_edges = BTreeMap::new();
-                let mut last_label: Option<String> = None;
-                for _ in 0..m {
-                    let label = r.string()?;
-                    ascending(r, &mut last_label, &label)?;
-                    child_edges.insert(label, EdgeId(r.u32()?));
-                }
-                ascending(r, &mut last, &node)?;
-                fans.push(FanEmbedding {
-                    node,
-                    parent_edge,
-                    child_edges,
-                });
-            }
+            let fans = read_fans(r)?;
             let boundary = read_boundary(r)?;
             Ok(AnySegment::Tree(TreeSegment {
                 segment,
@@ -412,6 +423,8 @@ fn read_body(
                 arcs,
                 fans,
                 root,
+                next_node,
+                next_edge,
                 boundary,
             }))
         }

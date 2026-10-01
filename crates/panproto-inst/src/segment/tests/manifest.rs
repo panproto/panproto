@@ -18,7 +18,7 @@ use crate::segment::{
     AnySegment, ArtifactKey, ArtifactKind, EdgeIdRun, IdKind, ManifestHeader, ManifestRole,
     Partition, Phase, RunJournal, SegmentError, SegmentId, SegmentManifest, SegmentRecord,
     SegmentStore, TaskKey, TaskRecord, audit_path, merkle_root, partition_graph, seal, seal_full,
-    verify_audit_path, verify_manifest, verify_segment,
+    verify_audit_path, verify_manifest, verify_segment, verify_segment_bytes,
 };
 
 /// The graph of [`segments`]: nodes 0..6, an edge out of every node into
@@ -50,7 +50,7 @@ fn segments(graph: &GInstance, partition: &Partition) -> Result<Vec<AnySegment>,
 fn records(segments: &[AnySegment], partition: &Partition, schema: &Digest) -> Vec<SegmentRecord> {
     segments
         .iter()
-        .map(|s| SegmentRecord::of(s, &partition.specs[s.segment().0 as usize], schema))
+        .map(|s| SegmentRecord::of(s, &partition.specs()[s.segment().0 as usize], schema))
         .collect()
 }
 
@@ -316,8 +316,10 @@ fn duplicate_edge_ids_in_two_segments_are_rejected_at_seal() -> TestResult {
 #[test]
 fn an_allocation_range_below_the_global_max_edge_is_rejected_at_seal() -> TestResult {
     // Edge ids reach 5; segment 1 allocates edges from 5 up.
-    let mut partition = Partition::by_node_ranges(InstanceShapeKind::Graph, &[2, 4], 0, 6)?;
-    partition.specs[1].alloc_edges = Some(crate::segment::IdRange { lo: 5, hi: 9 });
+    let whole = Partition::by_node_ranges(InstanceShapeKind::Graph, &[2, 4], 0, 6)?;
+    let mut specs = whole.specs().to_vec();
+    specs[1].alloc_edges = Some(crate::segment::IdRange { lo: 5, hi: 9 });
+    let partition = Partition::new(InstanceShapeKind::Graph, specs);
     let parts = segments(&ring(), &partition)?;
     assert_eq!(
         seal(
@@ -334,30 +336,32 @@ fn an_allocation_range_below_the_global_max_edge_is_rejected_at_seal() -> TestRe
     Ok(())
 }
 
-/// A store that counts every read, and holds nothing.
+/// A store holding committed artifacts in memory and counting every read.
 #[derive(Default)]
 struct CountingStore {
+    held: BTreeMap<ArtifactKey, Vec<u8>>,
     reads: Cell<u32>,
 }
 
 #[derive(Debug, thiserror::Error)]
-#[error("the counting store holds nothing")]
-struct NothingHeld;
+#[error("the counting store refuses this operation")]
+struct Refused;
 
 impl SegmentStore for CountingStore {
-    type Error = NothingHeld;
+    type Error = Refused;
 
-    fn read(&self, _: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
+    fn read(&self, key: &ArtifactKey) -> Result<Option<Vec<u8>>, Self::Error> {
         self.reads.set(self.reads.get() + 1);
-        Ok(None)
+        Ok(self.held.get(key).cloned())
     }
 
-    fn stage(&mut self, _: &ArtifactKey, _: Vec<u8>) -> Result<(), Self::Error> {
-        Err(NothingHeld)
+    fn stage(&mut self, key: &ArtifactKey, bytes: Vec<u8>) -> Result<(), Self::Error> {
+        self.held.insert(*key, bytes);
+        Ok(())
     }
 
     fn commit(&mut self, _: &ArtifactKey, _: &TaskRecord) -> Result<(), Self::Error> {
-        Err(NothingHeld)
+        Ok(())
     }
 
     fn journal(&self, run: &Digest) -> Result<RunJournal, Self::Error> {
@@ -366,19 +370,52 @@ impl SegmentStore for CountingStore {
     }
 
     fn staged_uncommitted(&self, _: &Digest) -> Result<Vec<ArtifactKey>, Self::Error> {
-        Ok(Vec::new())
+        Err(Refused)
+    }
+}
+
+/// The key a segment's bytes, or the manifest's, are stored under.
+fn stored_key(segment: Option<SegmentId>, kind: ArtifactKind) -> ArtifactKey {
+    ArtifactKey {
+        run: Digest([3; 32]),
+        task: TaskKey {
+            phase: Phase::Seal,
+            segment,
+        },
+        kind,
     }
 }
 
 #[test]
 fn verify_manifest_reads_no_segment() -> TestResult {
-    let (manifest, _, _) = ring_manifest(None)?;
-    // The manifest travels as JSON; verification needs nothing else.
-    let stored = serde_json::to_vec(&manifest)?;
-    let store = CountingStore::default();
-    let read: SegmentManifest = serde_json::from_slice(&stored)?;
+    let (manifest, parts, partition) = ring_manifest(None)?;
+    let schema = Digest([5; 32]);
+    let mut store = CountingStore::default();
+    let manifest_key = stored_key(None, ArtifactKind::Manifest);
+    store.stage(&manifest_key, serde_json::to_vec(&manifest)?)?;
+    for part in &parts {
+        let key = stored_key(Some(part.segment()), ArtifactKind::Segment);
+        store.stage(&key, part.canonical_bytes(&schema, &partition)?)?;
+    }
+    // Reading one segment through the store is counted: the instrument
+    // sees a segment read.
+    let one = store
+        .read(&stored_key(Some(SegmentId(1)), ArtifactKind::Segment))?
+        .ok_or("segment 1 is stored")?;
+    verify_segment_bytes(&manifest, &one)?;
+    assert_eq!(store.reads.get(), 1);
+    // Verifying the manifest reads the manifest and nothing else.
+    let read: SegmentManifest =
+        serde_json::from_slice(&store.read(&manifest_key)?.ok_or("the manifest is stored")?)?;
+    assert_eq!(store.reads.get(), 2);
     verify_manifest(&read)?;
-    assert_eq!(store.reads.get(), 0);
+    assert_eq!(store.reads.get(), 2);
+    // With every segment gone from the store, the manifest still verifies:
+    // verification needs no segment.
+    store
+        .held
+        .retain(|key, _| key.kind != ArtifactKind::Segment);
+    verify_manifest(&read)?;
     let mut tampered = read.clone();
     tampered.segments[1].stats.payload_bytes += 1;
     assert!(matches!(
@@ -395,7 +432,69 @@ fn verify_manifest_reads_no_segment() -> TestResult {
             to: SegmentId(1)
         })
     );
-    assert_eq!(store.reads.get(), 0);
+    assert_eq!(store.reads.get(), 2);
+    Ok(())
+}
+
+/// Two graph segments over nodes 0..2 and 2..4, each holding one edge
+/// under the same id 7.
+fn twin_edge_ids() -> Result<(Vec<AnySegment>, Partition), SegmentError> {
+    let mut graph = GInstance::new();
+    for id in 0..4 {
+        graph = graph.with_node(Node::new(id, "a"));
+    }
+    let x = label("a", "a", "prop", None);
+    graph = graph.with_edge_id(EdgeId(7), 0, 1, x.clone());
+    let partition = Partition::by_node_ranges(InstanceShapeKind::Graph, &[2], 0, 4)?;
+    let mut parts = segments(&graph, &partition)?;
+    if let AnySegment::Graph(s) = &mut parts[1] {
+        s.edges.insert(EdgeId(7), GEdge::new(2, 3, x));
+    }
+    Ok((parts, partition))
+}
+
+/// The run of `ids` for `segment`.
+fn run_of(segment: u32, ids: Vec<u32>) -> EdgeIdRun<'static> {
+    (
+        SegmentId(segment),
+        Box::new(ids.into_iter().map(EdgeId)) as Box<dyn Iterator<Item = EdgeId>>,
+    )
+}
+
+#[test]
+fn seal_checks_the_edge_id_runs_against_the_records() -> TestResult {
+    let (parts, partition) = twin_edge_ids()?;
+    let recs = records(&parts, &partition, &Digest([5; 32]));
+    let refused = |runs: Vec<EdgeIdRun<'static>>| {
+        matches!(
+            seal(recs.clone(), header(None), runs),
+            Err(SegmentError::Decode {
+                artifact: ArtifactKind::EdgeIdRun,
+                ..
+            })
+        )
+    };
+    // No runs, one run missing, a run repeated, a run of an unlisted
+    // segment, a run shorter than its record's edge count, and a run that
+    // does not end at its record's largest edge id.
+    assert!(refused(vec![]));
+    assert!(refused(vec![run_of(0, vec![7])]));
+    assert!(refused(vec![run_of(0, vec![7]), run_of(0, vec![7])]));
+    assert!(refused(vec![
+        run_of(0, vec![7]),
+        run_of(1, vec![7]),
+        run_of(2, vec![])
+    ]));
+    assert!(refused(vec![run_of(0, vec![7]), run_of(1, vec![])]));
+    assert!(refused(vec![run_of(0, vec![7]), run_of(1, vec![6])]));
+    // With the runs the segments hold, the duplicate is found.
+    assert_eq!(
+        seal(recs.clone(), header(None), runs(&parts)).err(),
+        Some(SegmentError::DuplicateEdgeId {
+            edge: EdgeId(7),
+            segments: vec![SegmentId(0), SegmentId(1)]
+        })
+    );
     Ok(())
 }
 

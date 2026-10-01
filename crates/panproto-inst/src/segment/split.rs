@@ -25,10 +25,10 @@ use crate::wtype::WInstance;
 
 /// Check that `partition` is valid and of `shape`, and index its owners.
 fn index_for(partition: &Partition, shape: InstanceShapeKind) -> Result<OwnerIndex, SegmentError> {
-    if partition.shape != shape {
+    if partition.shape() != shape {
         return Err(SegmentError::ShapeMismatch {
             expected: shape,
-            found: partition.shape,
+            found: partition.shape(),
         });
     }
     partition.owner_index()
@@ -91,7 +91,7 @@ pub fn partition_graph(
 ) -> Result<Vec<GraphSegment>, SegmentError> {
     let index = index_for(partition, InstanceShapeKind::Graph)?;
     let mut segments: Vec<GraphSegment> = partition
-        .specs
+        .specs()
         .iter()
         .map(|s| GraphSegment {
             segment: s.id,
@@ -159,7 +159,7 @@ pub fn partition_table(
 ) -> Result<Vec<TableSegment>, SegmentError> {
     let index = index_for(partition, InstanceShapeKind::Table)?;
     let mut segments: Vec<TableSegment> = partition
-        .specs
+        .specs()
         .iter()
         .map(|s| TableSegment {
             segment: s.id,
@@ -216,7 +216,8 @@ pub fn partition_table(
 /// node having at most one parent; every arc has an edge id, ascending in arc
 /// order; every fan has its ids, with its fan node not a tree node, the
 /// fan's labels, its endpoints tree nodes, and parent edge ids ascending in
-/// fan order; and no edge id is used twice.
+/// fan order; no edge id is used twice; and the embedding's counters lie
+/// above every node id (fan nodes included) and every edge id it uses.
 fn check_embedding(
     tree: &WInstance,
     embedding: &TreeEmbedding,
@@ -304,9 +305,20 @@ fn check_embedding(
             holders.entry(id).or_default().push(owner);
         }
     }
-    if let Some((edge, mut segments)) = holders.into_iter().find(|(_, h)| h.len() > 1) {
+    if let Some((edge, holding)) = holders.iter().find(|(_, h)| h.len() > 1) {
+        let mut segments = holding.clone();
         segments.sort_unstable();
-        return Err(SegmentError::DuplicateEdgeId { edge, segments });
+        return Err(SegmentError::DuplicateEdgeId {
+            edge: *edge,
+            segments,
+        });
+    }
+    let node_ids = keys.iter().copied().chain(fan_nodes);
+    if let Some(node) = node_ids.filter(|n| *n >= embedding.next_node).min() {
+        return fail(ViewRef::Node(node));
+    }
+    if let Some((edge, _)) = holders.range(EdgeId(embedding.next_edge)..).next() {
+        return fail(ViewRef::Edge(*edge));
     }
     Ok(())
 }
@@ -339,7 +351,7 @@ pub fn partition_tree(
     let index = index_for(partition, InstanceShapeKind::Tree)?;
     check_embedding(tree, embedding, &index)?;
     let mut segments: Vec<TreeSegment> = partition
-        .specs
+        .specs()
         .iter()
         .map(|s| TreeSegment {
             segment: s.id,
@@ -347,6 +359,8 @@ pub fn partition_tree(
             arcs: BTreeMap::new(),
             fans: Vec::new(),
             root: None,
+            next_node: None,
+            next_edge: None,
             boundary: Boundary::default(),
         })
         .collect();
@@ -358,6 +372,8 @@ pub fn partition_tree(
             seg.nodes.insert(*id, tree.nodes[id].clone());
             if *id == tree.root {
                 seg.root = Some(*id);
+                seg.next_node = Some(embedding.next_node);
+                seg.next_edge = Some(embedding.next_edge);
             }
         }
     }
@@ -517,16 +533,16 @@ pub fn assemble_table(
 ///
 /// The arcs are merged by edge id, which is arc order, and the fans by
 /// parent edge id, which is fan order. The tree's schema root is its root's
-/// anchor. The embedding's floors are the least ids above every node and
-/// edge id the segments hold.
+/// anchor. The embedding's counters are the ones the root's segment
+/// carries, which lie above every node and edge id the segments hold.
 ///
 /// # Errors
 ///
 /// As [`assemble_graph`], for a tree partition, together with
 /// [`SegmentError::NotEmbedded`] when the parts do not form one tree (no
 /// root or two, a node with two parents, a node the root does not reach, a
-/// malformed fan), and [`SegmentError::AllocationExhausted`] when a floor
-/// would pass `u32::MAX`.
+/// malformed fan, an embedding counter that is missing or does not lie above
+/// every id of its kind).
 pub fn assemble_tree(
     segments: impl IntoIterator<Item = TreeSegment>,
     partition: &Partition,
@@ -537,20 +553,14 @@ pub fn assemble_tree(
     let mut arcs: BTreeMap<EdgeId, (u32, u32, Edge)> = BTreeMap::new();
     let mut fans: Vec<(FanEmbedding, Fan)> = Vec::new();
     let mut root = None;
-    let mut max_node: Option<(u32, SegmentId)> = None;
-    let mut max_edge: Option<(u32, SegmentId)> = None;
+    let mut counters = None;
     for segment in segments {
         let AnySegment::Tree(mut seg) = segment else {
             continue;
         };
         let fan_edges = seg.fan_edge_ids();
-        if let Some(id) = seg.nodes.keys().next_back().copied() {
-            max_node = max_node.max(Some((id, seg.segment)));
-        }
-        if let Some(id) = seg.arcs.keys().next_back().copied() {
-            max_edge = max_edge.max(Some((id.0, seg.segment)));
-        }
         root = root.or(seg.root);
+        counters = counters.or_else(|| seg.next_node.zip(seg.next_edge));
         for ids in std::mem::take(&mut seg.fans) {
             let hyper = seg
                 .nodes
@@ -579,20 +589,17 @@ pub fn assemble_tree(
         .map(|n| n.anchor.clone())
         .unwrap_or_default();
     fans.sort_unstable_by_key(|(ids, _)| ids.parent_edge);
-    let floor = |max: Option<(u32, SegmentId)>, kind| match max {
-        None => Ok(0),
-        Some((id, segment)) => id
-            .checked_add(1)
-            .ok_or(SegmentError::AllocationExhausted { segment, kind }),
-    };
+    let (next_node, next_edge) = counters.ok_or(SegmentError::NotEmbedded {
+        elem: ViewRef::Node(root),
+    })?;
     let embedding = TreeEmbedding {
         arcs: arcs
             .iter()
             .map(|(id, (_, child, _))| (*child, *id))
             .collect(),
         fans: fans.iter().map(|(ids, _)| ids.clone()).collect(),
-        next_node: floor(max_node, super::ids::IdKind::Node)?,
-        next_edge: floor(max_edge, super::ids::IdKind::Edge)?,
+        next_node,
+        next_edge,
     };
     let tree = WInstance::new(
         nodes,

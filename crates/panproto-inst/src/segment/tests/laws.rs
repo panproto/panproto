@@ -36,13 +36,17 @@ proptest! {
             let free = next_free(t.row_ids().last().map(|r| r.0), None);
             (Just(t), arb_partition(InstanceShapeKind::Table, free))
         }),
-        ((tree, embedding), wp) in arb_winstance().prop_flat_map(|(t, e)| {
+        // The embedding's counters are raised as an edit that deletes the
+        // newest node and arc leaves them: above every id still in use.
+        ((tree, embedding), wp) in (arb_winstance(), 0u32..3, 0u32..3).prop_flat_map(|((t, mut e), dn, de)| {
+            e.next_node += dn;
+            e.next_edge += de;
             let free = next_free(e.next_node.checked_sub(1), e.next_edge.checked_sub(1));
             (Just((t, e)), arb_partition(InstanceShapeKind::Tree, free))
         }),
     ) {
         let parts = partition_graph(&graph, &gp).map_err(|e| fail(&e))?;
-        prop_assert_eq!(parts.len(), gp.specs.len());
+        prop_assert_eq!(parts.len(), gp.specs().len());
         let back = assemble_graph(parts, &gp).map_err(|e| fail(&e))?;
         prop_assert!(GInstance::identical(&back, &graph));
 

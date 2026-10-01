@@ -102,8 +102,13 @@ pub struct TableSegment {
 /// edge ids; ascending edge id is arc order, so merging the segments' arcs by
 /// edge id gives the whole tree's arc order. `fans` holds the embedding of
 /// each owned fan, ascending by fan node id. `root` is `Some` in exactly the
-/// segment owning the tree's root. A tree segment is a forest: each owned
-/// node whose parent arc is an in-stub roots a local subtree.
+/// segment owning the tree's root, and so are `next_node` and `next_edge`,
+/// the embedding's counters: the least node id and edge id the embedding has
+/// not used. They lie above every id the segments hold and may lie further
+/// above it, since an edit that deletes the newest node or arc leaves them
+/// where they were, so the assembled embedding never hands out a deleted
+/// id again. A tree segment is a forest: each owned node whose parent arc is
+/// an in-stub roots a local subtree.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct TreeSegment {
     /// The segment's id.
@@ -116,6 +121,10 @@ pub struct TreeSegment {
     pub fans: Vec<FanEmbedding>,
     /// The tree's root, when this segment owns it.
     pub root: Option<u32>,
+    /// The embedding's node counter, in the segment owning the root.
+    pub next_node: Option<u32>,
+    /// The embedding's edge counter, in the segment owning the root.
+    pub next_edge: Option<u32>,
     /// Its boundary.
     pub boundary: Boundary,
 }

@@ -20,7 +20,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
-use panproto_schema::Edge;
+use panproto_schema::{Edge, InstanceShapeKind};
 
 use super::body::{AnySegment, InStub, TreeSegment, is_fan_node};
 use super::error::{PartitionDefect, SegmentError};
@@ -140,7 +140,7 @@ fn in_stub_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, Seg
     let me = seg.segment();
     let mut out = Vec::new();
     for (key, stub) in &seg.boundary().in_stubs {
-        if !stub_matches_key(key, stub) {
+        if !stub_matches_key(seg.shape(), key, stub) {
             out.push((
                 key.clone(),
                 SegmentError::InStubMismatch { elem: key.clone() },
@@ -167,16 +167,26 @@ fn in_stub_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, Seg
     out
 }
 
-/// Whether an in-stub's key names the edge the stub describes, for the keys
-/// that carry endpoints.
-fn stub_matches_key(key: &ViewRef, stub: &InStub) -> bool {
-    match key {
-        ViewRef::Edge(_) => true,
-        ViewRef::Arc { parent, child } => *parent == stub.src && *child == stub.tgt,
-        ViewRef::Pair { edge, src, tgt } => {
+/// Whether an in-stub's key is the reference the segment's shape gives the
+/// edge the stub describes: `Edge` for a graph edge; `Arc { parent, child }`
+/// naming the stub's endpoints for a tree arc, and `Edge` for a tree's fan
+/// edge, whose label is of a fan edge kind; `Pair { edge, src, tgt }` naming
+/// the stub's label and endpoints for a table pair.
+fn stub_matches_key(shape: InstanceShapeKind, key: &ViewRef, stub: &InStub) -> bool {
+    let fan_kind = || {
+        stub.label.kind.as_ref() == HYPER_PARENT_KIND
+            || stub.label.kind.as_ref() == HYPER_LABEL_KIND
+    };
+    match (shape, key) {
+        (InstanceShapeKind::Graph, ViewRef::Edge(_)) => true,
+        (InstanceShapeKind::Tree, ViewRef::Edge(_)) => fan_kind(),
+        (InstanceShapeKind::Tree, ViewRef::Arc { parent, child }) => {
+            *parent == stub.src && *child == stub.tgt
+        }
+        (InstanceShapeKind::Table, ViewRef::Pair { edge, src, tgt }) => {
             *edge == stub.label && src.0 == stub.src && tgt.0 == stub.tgt
         }
-        ViewRef::Node(_) | ViewRef::Row(_) => false,
+        _ => false,
     }
 }
 
@@ -243,6 +253,31 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
             out.push(not_embedded(ViewRef::Node(root)));
         }
     }
+    out.extend(counter_violations(tree).into_iter().map(not_embedded));
+    out
+}
+
+/// The elements a tree segment's embedding counters are wrong about: the
+/// root when it holds the root without both counters, the least counter
+/// value when it holds a counter without the root, and the least node id and
+/// edge id it holds at or above the counter of their kind.
+fn counter_violations(tree: &TreeSegment) -> Vec<ViewRef> {
+    let mut out = Vec::new();
+    match (tree.root, tree.next_node, tree.next_edge) {
+        (Some(_), Some(_), Some(_)) | (None, None, None) => {}
+        (Some(root), _, _) => out.push(ViewRef::Node(root)),
+        (None, node, edge) => out.extend(node.or(edge).map(ViewRef::Node)),
+    }
+    if let Some(next) = tree.next_node
+        && let Some(id) = tree.nodes.range(next..).next()
+    {
+        out.push(ViewRef::Node(*id.0));
+    }
+    if let Some(next) = tree.next_edge
+        && let Some(id) = tree.arcs.range(EdgeId(next)..).next()
+    {
+        out.push(ViewRef::Edge(*id.0));
+    }
     out
 }
 
@@ -276,9 +311,9 @@ pub fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Result<()
 
 /// Check that the partition lists `segment` with its shape.
 pub fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
-    if segment.shape() != partition.shape {
+    if segment.shape() != partition.shape() {
         return Err(SegmentError::ShapeMismatch {
-            expected: partition.shape,
+            expected: partition.shape(),
             found: segment.shape(),
         });
     }
@@ -297,7 +332,7 @@ pub fn arrange<'a>(
     segments: impl IntoIterator<Item = &'a AnySegment>,
     partition: &Partition,
 ) -> Result<Vec<&'a AnySegment>, SegmentError> {
-    let mut slots: Vec<Option<&AnySegment>> = vec![None; partition.specs.len()];
+    let mut slots: Vec<Option<&AnySegment>> = vec![None; partition.specs().len()];
     for segment in segments {
         check_listed(segment, partition)?;
         let at = usize::try_from(segment.segment().0).unwrap_or(usize::MAX);
@@ -473,6 +508,46 @@ fn tree_cross_violations(trees: &[&TreeSegment], index: &OwnerIndex) -> Vec<Loca
     }
     if let Some(unreached) = tree_nodes.difference(&reached).next() {
         out.push(not_embedded(*unreached));
+    }
+    out.extend(counters_above_every_id(trees, root, index));
+    out
+}
+
+/// The least node id and the least edge id, across every tree segment, at or
+/// above the embedding counter of its kind that the root's segment carries.
+fn counters_above_every_id(trees: &[&TreeSegment], root: u32, index: &OwnerIndex) -> Vec<Located> {
+    let Some((next_node, next_edge)) = trees
+        .iter()
+        .find(|t| t.root == Some(root))
+        .and_then(|t| t.next_node.zip(t.next_edge))
+    else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    let node = trees
+        .iter()
+        .filter_map(|t| t.nodes.range(next_node..).next().map(|(id, _)| *id))
+        .min();
+    if let Some(node) = node {
+        let elem = ViewRef::Node(node);
+        out.push((
+            index.owner_of_node(node).unwrap_or(SegmentId(0)),
+            elem.clone(),
+            SegmentError::NotEmbedded { elem },
+        ));
+    }
+    let edge = trees
+        .iter()
+        .filter_map(|t| {
+            t.arcs
+                .range(EdgeId(next_edge)..)
+                .next()
+                .map(|(id, _)| (*id, t.segment))
+        })
+        .min();
+    if let Some((edge, holder)) = edge {
+        let elem = ViewRef::Edge(edge);
+        out.push((holder, elem.clone(), SegmentError::NotEmbedded { elem }));
     }
     out
 }

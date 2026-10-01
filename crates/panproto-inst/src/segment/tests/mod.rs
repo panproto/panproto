@@ -289,7 +289,7 @@ pub(super) fn interleaved(shape: InstanceShapeKind, top: u32, k: u32, alloc: u32
             }
         })
         .collect();
-    Partition { shape, specs }
+    Partition::new(shape, specs)
 }
 
 /// Whether two trees are equal: the same canonical bytes (nodes, arcs in

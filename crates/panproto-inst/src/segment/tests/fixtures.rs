@@ -59,9 +59,9 @@ struct Expected {
 
 /// A partition of node ranges, with no allocation ranges.
 fn ranges(specs: &[&[(u32, u32)]]) -> Partition {
-    Partition {
-        shape: InstanceShapeKind::Graph,
-        specs: specs
+    Partition::new(
+        InstanceShapeKind::Graph,
+        specs
             .iter()
             .zip(0u32..)
             .map(|(nodes, id)| SegmentSpec {
@@ -71,7 +71,7 @@ fn ranges(specs: &[&[(u32, u32)]]) -> Partition {
                 alloc_edges: None,
             })
             .collect(),
-    }
+    )
 }
 
 /// A graph from nodes and `(id, src, tgt, edge, position)` edges.
@@ -266,7 +266,7 @@ fn compute(
     assert_eq!(streamed, instance.digest());
     let records: Vec<SegmentRecord> = parts
         .iter()
-        .map(|p| SegmentRecord::of(p, &partition.specs[p.segment().0 as usize], &schema))
+        .map(|p| SegmentRecord::of(p, &partition.specs()[p.segment().0 as usize], &schema))
         .collect();
     let runs = parts
         .iter()

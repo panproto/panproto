@@ -371,10 +371,7 @@ fn records_partition(
             r.id, r.stats.segment
         )));
     }
-    let partition = Partition {
-        shape,
-        specs: records.iter().map(SegmentRecord::spec).collect(),
-    };
+    let partition = Partition::new(shape, records.iter().map(SegmentRecord::spec).collect());
     partition.validate()?;
     Ok(partition)
 }
@@ -420,6 +417,69 @@ fn check_edge_floors(records: &[SegmentRecord]) -> Result<(), SegmentError> {
 /// A sorted run of one segment's owned edge ids.
 pub type EdgeIdRun<'a> = (SegmentId, Box<dyn Iterator<Item = EdgeId> + 'a>);
 
+/// What the merge saw of one run: how many ids it held and the last one.
+#[derive(Clone, Copy, Debug, Default)]
+struct RunSeen {
+    count: u64,
+    last: Option<EdgeId>,
+}
+
+/// The decode error of an edge id run.
+const fn run_error(message: String) -> SegmentError {
+    SegmentError::Decode {
+        artifact: super::store::ArtifactKind::EdgeIdRun,
+        message,
+    }
+}
+
+/// Merge the runs, holding one id per run at a time, to their end: what
+/// each run held, and the least edge id two runs hold with every segment
+/// holding it.
+fn merge_runs(
+    runs: &mut [EdgeIdRun<'_>],
+) -> Result<(Vec<RunSeen>, Option<SegmentError>), SegmentError> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+
+    let mut seen = vec![RunSeen::default(); runs.len()];
+    let mut heap = BinaryHeap::new();
+    for (i, (_, run)) in runs.iter_mut().enumerate() {
+        if let Some(id) = run.next() {
+            heap.push(Reverse((id, i)));
+        }
+    }
+    let mut duplicate: Option<SegmentError> = None;
+    let mut group: Option<(EdgeId, Vec<SegmentId>)> = None;
+    let mut close = |group: Option<(EdgeId, Vec<SegmentId>)>| {
+        if let Some((edge, mut segments)) = group
+            && segments.len() > 1
+            && duplicate.is_none()
+        {
+            segments.sort_unstable();
+            duplicate = Some(SegmentError::DuplicateEdgeId { edge, segments });
+        }
+    };
+    while let Some(Reverse((id, i))) = heap.pop() {
+        let segment = runs[i].0;
+        seen[i].count += 1;
+        seen[i].last = Some(id);
+        match &mut group {
+            Some((held, segments)) if *held == id => segments.push(segment),
+            _ => close(group.replace((id, vec![segment]))),
+        }
+        if let Some(next) = runs[i].1.next() {
+            if next <= id {
+                return Err(run_error(format!(
+                    "the edge id run of {segment} is not strictly ascending"
+                )));
+            }
+            heap.push(Reverse((next, i)));
+        }
+    }
+    close(group);
+    Ok((seen, duplicate))
+}
+
 /// Merge the segments' sorted edge id runs and check that no edge id is
 /// held twice, holding one id per run at a time.
 ///
@@ -429,48 +489,57 @@ pub type EdgeIdRun<'a> = (SegmentId, Box<dyn Iterator<Item = EdgeId> + 'a>);
 /// segment holding it, and [`SegmentError::Decode`] when a run is not
 /// strictly ascending.
 pub fn check_edge_id_runs(runs: Vec<EdgeIdRun<'_>>) -> Result<(), SegmentError> {
-    use std::cmp::Reverse;
-    use std::collections::BinaryHeap;
-
     let mut runs = runs;
-    let mut heap = BinaryHeap::new();
-    for (i, (_, run)) in runs.iter_mut().enumerate() {
-        if let Some(id) = run.next() {
-            heap.push(Reverse((id, i)));
+    let (_, duplicate) = merge_runs(&mut runs)?;
+    duplicate.map_or(Ok(()), Err)
+}
+
+/// Check the runs against the records they belong to, then merge them: one
+/// run per record; each run as long as its record's owned edges with ids
+/// (exactly `stats.edges` for a graph; at least the tree arcs and one parent
+/// edge per fan for a tree, whose record does not count fan child edges;
+/// none for a table); each run ending at its record's `max_edge`; and no
+/// edge id in two runs.
+fn check_runs_against_records(
+    records: &[SegmentRecord],
+    shape: InstanceShapeKind,
+    runs: Vec<EdgeIdRun<'_>>,
+) -> Result<(), SegmentError> {
+    let mut runs = runs;
+    let mut position: Vec<Option<usize>> = vec![None; records.len()];
+    for (i, (segment, _)) in runs.iter().enumerate() {
+        let slot = position
+            .get_mut(usize::try_from(segment.0).unwrap_or(usize::MAX))
+            .ok_or_else(|| run_error(format!("a run names {segment}, which no record lists")))?;
+        if slot.replace(i).is_some() {
+            return Err(run_error(format!("two runs name {segment}")));
         }
     }
-    let mut group: Option<(EdgeId, Vec<SegmentId>)> = None;
-    while let Some(Reverse((id, i))) = heap.pop() {
-        let segment = runs[i].0;
-        match &mut group {
-            Some((held, segments)) if *held == id => segments.push(segment),
-            _ => {
-                if let Some((edge, mut segments)) = group.take()
-                    && segments.len() > 1
-                {
-                    segments.sort_unstable();
-                    return Err(SegmentError::DuplicateEdgeId { edge, segments });
-                }
-                group = Some((id, vec![segment]));
-            }
-        }
-        if let Some(next) = runs[i].1.next() {
-            if next <= id {
-                return Err(SegmentError::Decode {
-                    artifact: super::store::ArtifactKind::EdgeIdRun,
-                    message: format!("the edge id run of {segment} is not strictly ascending"),
-                });
-            }
-            heap.push(Reverse((next, i)));
+    if let Some(missing) = position.iter().position(Option::is_none) {
+        return Err(run_error(format!(
+            "no run is given for the record of {}",
+            records[missing].id
+        )));
+    }
+    let (seen, duplicate) = merge_runs(&mut runs)?;
+    for (record, at) in records.iter().zip(&position) {
+        let got = at.and_then(|i| seen.get(i)).copied().unwrap_or_default();
+        let stats = &record.stats;
+        let count_fits = match shape {
+            InstanceShapeKind::Graph => got.count == stats.edges,
+            InstanceShapeKind::Tree => got.count >= stats.edges.saturating_add(stats.fans),
+            InstanceShapeKind::Table => got.count == 0,
+        };
+        if !count_fits || got.last.map(|e| e.0) != record.max_edge {
+            return Err(run_error(format!(
+                "the run of {} holds {} ids ending at {:?}, which its record does not state",
+                record.id,
+                got.count,
+                got.last.map(|e| e.0)
+            )));
         }
     }
-    match group {
-        Some((edge, mut segments)) if segments.len() > 1 => {
-            segments.sort_unstable();
-            Err(SegmentError::DuplicateEdgeId { edge, segments })
-        }
-        _ => Ok(()),
-    }
+    duplicate.map_or(Ok(()), Err)
 }
 
 /// Write a manifest role: a one-byte tag (`0` source, `1` view, `2`
@@ -572,8 +641,11 @@ impl SegmentManifest {
 /// every cross digest must have its counterpart (`cross_out[j]` of `i`
 /// equal to `cross_in[i]` of `j`, both ways); every edge allocation range
 /// must lie above the largest edge id any record holds; and the segments'
-/// sorted edge id runs, one per segment in `runs`, must hold no edge id
-/// twice. The merge holds one id per run at a time.
+/// sorted edge id runs, one per record in `runs`, each as long as its
+/// record's owned edges and ending at its record's `max_edge`, must hold no
+/// edge id twice. The merge holds one id per run at a time. The runs are the
+/// only evidence of the segments' edge ids `seal` sees, so a run that its
+/// record contradicts is refused rather than merged.
 ///
 /// # Errors
 ///
@@ -581,8 +653,11 @@ impl SegmentManifest {
 /// [`SegmentError::CrossMismatch`] for the least `(from, to)` pair whose
 /// digests disagree or lack a counterpart,
 /// [`SegmentError::AllocationBelowFloor`] for the first segment whose edge
-/// allocation range does not lie above every edge id, and
-/// [`SegmentError::DuplicateEdgeId`] for the least edge id two runs hold.
+/// allocation range does not lie above every edge id,
+/// [`SegmentError::Decode`] of the runs when a record has no run or two, a
+/// run names no record, or a run is not strictly ascending or does not match
+/// its record, and [`SegmentError::DuplicateEdgeId`] for the least edge id
+/// two runs hold.
 pub fn seal(
     records: Vec<SegmentRecord>,
     header: ManifestHeader,
@@ -591,7 +666,7 @@ pub fn seal(
     records_partition(&records, header.shape)?;
     check_cross_pairs(&records)?;
     check_edge_floors(&records)?;
-    check_edge_id_runs(runs)?;
+    check_runs_against_records(&records, header.shape, runs)?;
     let root = merkle_root(&records);
     Ok(SegmentManifest {
         version: SEGMENT_MANIFEST_VERSION,
