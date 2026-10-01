@@ -4084,7 +4084,7 @@ fn a_tree_fan_with_an_absent_child_is_missing_child() {
 /// Every reason a tree fan breaks reaches the report (the order in which
 /// they are produced is the unit test `tree_fan_reasons_are_reported_in_order`
 /// of the checks; the report orders diagnostics with one subject and one
-/// element list by their canonical bytes, V.2).
+/// element list by their canonical bytes).
 #[test]
 fn every_tree_fan_reason_reaches_the_report() {
     // Parent 9 is absent, children 7 and 8 are absent, and `w` and `z` are
