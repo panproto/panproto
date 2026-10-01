@@ -5,8 +5,11 @@
 //! and one out-edge of kind `hyper_label` per labelled participant. A fan node
 //! is well formed when it has exactly one `hyper_parent` out-edge, at most one
 //! `hyper_label` out-edge per label, no other out-edges and no in-edges. The
-//! reserved node shape and edge kinds occur nowhere else. [`FanViolation`]
-//! says which of these conditions a node breaks.
+//! reserved node shape and edge kinds occur nowhere else. Read against a
+//! schema, a fan's hyper-edge must be declared and each of its labels must be
+//! a position of that hyper-edge's signature; and a tree's fan must name only
+//! nodes the tree holds. [`FanViolation`] says which of these conditions a
+//! fan breaks.
 
 use std::fmt;
 
@@ -65,6 +68,19 @@ pub enum FanViolation {
         /// The offending edge.
         edge: EdgeId,
     },
+    /// The fan's hyper-edge (a graph fan node's anchor) is not declared by
+    /// the schema, so none of its labels is checked.
+    UnknownHyperEdge {
+        /// The undeclared hyper-edge.
+        hyper_edge: Name,
+    },
+    /// A tree fan names, at `label`, a child that is not a node of the tree.
+    /// A graph cannot express this: its construction rejects an edge to an
+    /// absent node.
+    MissingChild {
+        /// The label whose child is absent.
+        label: Name,
+    },
 }
 
 /// Writes edge ids as a comma-separated list.
@@ -107,6 +123,15 @@ impl fmt::Display for FanViolation {
                 "edge {} is incident to a fan node but is not one of its fan edges",
                 edge.0
             ),
+            Self::UnknownHyperEdge { hyper_edge } => {
+                write!(
+                    f,
+                    "fan hyper-edge {hyper_edge} is not declared by the schema"
+                )
+            }
+            Self::MissingChild { label } => {
+                write!(f, "fan child at label {label} is not a node of the tree")
+            }
         }
     }
 }
@@ -133,6 +158,12 @@ mod tests {
             },
             FanViolation::ReservedKindOutsideFan { edge: EdgeId(7) },
             FanViolation::ForeignIncidentEdge { edge: EdgeId(8) },
+            FanViolation::UnknownHyperEdge {
+                hyper_edge: "ghost".into(),
+            },
+            FanViolation::MissingChild {
+                label: "arg1".into(),
+            },
         ]
     }
 
@@ -151,6 +182,8 @@ mod tests {
                 r#"{"unknown_label":{"label":"arg9"}}"#,
                 r#"{"reserved_kind_outside_fan":{"edge":7}}"#,
                 r#"{"foreign_incident_edge":{"edge":8}}"#,
+                r#"{"unknown_hyper_edge":{"hyper_edge":"ghost"}}"#,
+                r#"{"missing_child":{"label":"arg1"}}"#,
             ]
         );
         for v in all() {
@@ -188,6 +221,8 @@ mod tests {
                 "fan label arg9 is not in the hyper-edge's signature",
                 "edge 7 has a reserved fan kind but does not leave a fan node",
                 "edge 8 is incident to a fan node but is not one of its fan edges",
+                "fan hyper-edge ghost is not declared by the schema",
+                "fan child at label arg1 is not a node of the tree",
             ]
         );
     }

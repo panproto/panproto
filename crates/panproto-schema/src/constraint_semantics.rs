@@ -48,7 +48,17 @@ pub enum ConstraintSemantics {
     Const,
     /// A regular expression a value matches.
     Pattern,
-    /// A named value format.
+    /// A value format of the named format family (such as `json-schema` or
+    /// `uima`). The family is descriptive: no check reads it.
+    ///
+    /// The constraint's value names the format
+    /// ([`ConstraintValue::Format`]'s `format`), from a fixed set of eight
+    /// names: `date-time` (also read as `datetime`), `date`, `time`, `uri`,
+    /// `uuid`, `ipv4`, `ipv6` and `did`. Validation compiles a constraint
+    /// whose value names any other format to an unsupported declaration
+    /// (`UnsupportedDeclaration`), never to a pass, whatever the family. The
+    /// evaluator is `panproto_inst::validation::ValueFormat`, whose rustdoc
+    /// lists the same set; a change to the set edits both lists together.
     Format(Name),
     /// A lower bound on the number of out-edges of a node.
     MinOutDegree,

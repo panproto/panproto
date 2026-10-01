@@ -2126,12 +2126,14 @@ dependencies = [
  "panproto-gat",
  "panproto-schema",
  "proptest",
+ "regex",
  "rmp-serde",
  "rustc-hash",
  "serde",
  "serde_json",
  "smallvec 2.0.0-alpha.12",
  "thiserror",
+ "unicode-segmentation",
 ]
 
 [[package]]

@@ -20,6 +20,7 @@ use crate::fan_violation::FanViolation;
 use crate::graph_edit::EditConflict;
 use crate::identity::{IdentityField, LegacyRejectReason};
 use crate::segment::{ErrorKey, Residual, SegmentError};
+use crate::validation::ValidationReport;
 use crate::value::Value;
 use crate::view_ref::ViewRef;
 
@@ -224,6 +225,11 @@ pub enum ErrorDetail {
     Independence {
         /// Every conflict between them, ascending.
         conflicts: Vec<EditConflict>,
+    },
+    /// Validation at a boundary did not pass.
+    Validation {
+        /// The report.
+        report: ValidationReport,
     },
     /// A segmented operation failed.
     Segment {

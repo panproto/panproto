@@ -3,6 +3,14 @@
 //! The [`validate`] function checks a finished [`Schema`] against a
 //! [`Protocol`]'s edge rules, vertex kinds, and constraint sorts,
 //! returning a list of all violations found.
+//!
+//! This is a schema-level check, not an instance validation boundary: it
+//! reads no instance and reports no status. The instance validators of
+//! `panproto-inst` (`validate_wtype`, `validate_graph` and `validate_table`)
+//! wrap it in the `SchemaWellFormed` check of their validation plan, which
+//! reports each [`ValidationError`] it returns as an ill-formed declaration:
+//! an incomplete check of every validation report of the plan, never a
+//! failed one, since a schema problem says nothing about the instance.
 
 use std::collections::{BTreeSet, HashMap, VecDeque};
 
@@ -35,6 +43,12 @@ use crate::schema::{Edge, Schema};
 /// search, so a caller loading a schema from bytes has to run it. What it
 /// buys is that a dangling reference is named here instead of surfacing later
 /// as a part quietly missing from an induced sub-schema.
+///
+/// It is schema-level, not an instance validation boundary: the
+/// `SchemaWellFormed` check of the instance validators of `panproto-inst`
+/// wraps it and reports each finding as an incomplete check of their
+/// validation reports, so an instance validator never needs it called
+/// first.
 #[must_use]
 pub fn validate(schema: &Schema, protocol: &Protocol) -> Vec<ValidationError> {
     let mut errors = Vec::new();

@@ -92,7 +92,8 @@ impl FanDomain {
     /// Check that `graph` is in the fan domain.
     ///
     /// Nodes are examined in ascending id and the first offending node is
-    /// reported. For one node, the conditions are tested in this order: an
+    /// reported, with the first violation [`Self::violations_at`] lists for
+    /// it. For one node, the conditions are tested in this order: an
     /// out-edge of a reserved kind from a node that does not have the fan
     /// shape ([`FanViolation::ReservedKindOutsideFan`], the least such edge);
     /// an in-edge, then an out-edge of any other kind
@@ -111,11 +112,13 @@ impl FanDomain {
         }
     }
 
-    /// [`Self::check`], with one more condition that needs a schema: every
-    /// label of a fan names a position of its hyper-edge's signature in
-    /// `schema` ([`FanViolation::UnknownLabel`], tested last). A hyper-edge
-    /// `schema` does not declare has an empty signature, so any label of its
-    /// fans is unknown.
+    /// [`Self::check`], with two more conditions that need a schema, tested
+    /// after the others: a fan node's anchor, its hyper-edge, is declared in
+    /// `schema` ([`FanViolation::UnknownHyperEdge`]); and, when it is, every
+    /// label of the fan names a position of that hyper-edge's signature
+    /// ([`FanViolation::UnknownLabel`], the least such label). A fan of an
+    /// undeclared hyper-edge has no signature to read its labels against, so
+    /// none of them is checked.
     ///
     /// # Errors
     ///
@@ -131,6 +134,123 @@ impl FanDomain {
     #[must_use]
     pub fn contains(graph: &GInstance) -> bool {
         first_violation(graph, None).is_none()
+    }
+
+    /// The nodes that must be well-formed fan nodes: every node of the fan
+    /// shape and every source of a reserved-kind edge, ascending. These are
+    /// the nodes [`Self::check`] examines, and the validator's
+    /// `FanWellFormed` check reads its instances from here.
+    #[must_use]
+    pub(crate) fn candidates(graph: &GInstance) -> Vec<u32> {
+        fan_candidates(graph)
+    }
+
+    /// Whether an edge label has one of the two reserved fan kinds,
+    /// [`HYPER_PARENT_KIND`] or [`HYPER_LABEL_KIND`].
+    #[must_use]
+    pub(crate) fn is_reserved(edge: &Edge) -> bool {
+        is_reserved_kind(edge)
+    }
+
+    /// Every violation of node `node`, in the order [`Self::check`] tests
+    /// them; [`Self::check`] and [`Self::check_with_schema`] report the
+    /// first. The list is empty for a well-formed fan node, for a node that
+    /// holds no reserved vocabulary and for an id `graph` does not hold.
+    ///
+    /// A node without the fan shape lists each out-edge of a reserved kind
+    /// ([`FanViolation::ReservedKindOutsideFan`], ascending). A node of the
+    /// fan shape lists, in this order: each in-edge, then each out-edge of
+    /// neither reserved kind (both [`FanViolation::ForeignIncidentEdge`],
+    /// ascending); [`FanViolation::MultipleParents`] or
+    /// [`FanViolation::MissingParent`]; a [`FanViolation::DuplicateLabel`]
+    /// per label carried twice, labels ascending. With a schema it then lists
+    /// [`FanViolation::UnknownHyperEdge`] when `schema` does not declare the
+    /// node's anchor, and otherwise a [`FanViolation::UnknownLabel`] per label
+    /// the hyper-edge's signature lacks, labels ascending.
+    ///
+    /// ```
+    /// use panproto_inst::{FanDomain, FanViolation, GInstance, Node, NodeShape};
+    /// use panproto_schema::Schema;
+    ///
+    /// let lone = GInstance::new()
+    ///     .with_node(Node::new(0, "arg").with_shape(NodeShape::HyperEdge));
+    /// assert_eq!(
+    ///     FanDomain::violations_at(&lone, 0, Some(&Schema::default())),
+    ///     vec![
+    ///         FanViolation::MissingParent,
+    ///         FanViolation::UnknownHyperEdge { hyper_edge: "arg".into() },
+    ///     ],
+    /// );
+    /// assert_eq!(FanDomain::violations_at(&lone, 0, None), vec![FanViolation::MissingParent]);
+    /// assert!(FanDomain::violations_at(&lone, 7, None).is_empty());
+    /// ```
+    #[must_use]
+    pub fn violations_at(
+        graph: &GInstance,
+        node: u32,
+        schema: Option<&Schema>,
+    ) -> Vec<FanViolation> {
+        let Some(fan) = graph.node(node) else {
+            return Vec::new();
+        };
+        let out = graph.out_edges(node);
+        if fan.shape != NodeShape::HyperEdge {
+            return out
+                .iter()
+                .copied()
+                .filter(|e| is_reserved_kind(&graph.edges[e].edge))
+                .map(|edge| FanViolation::ReservedKindOutsideFan { edge })
+                .collect();
+        }
+        let mut violations: Vec<FanViolation> = graph
+            .in_edges(node)
+            .iter()
+            .map(|&edge| FanViolation::ForeignIncidentEdge { edge })
+            .collect();
+        let mut parents = Vec::new();
+        let mut labels: BTreeMap<&Name, Vec<EdgeId>> = BTreeMap::new();
+        for &edge_id in out {
+            let edge = &graph.edges[&edge_id].edge;
+            if edge.kind == HYPER_PARENT_KIND {
+                parents.push(edge_id);
+            } else if edge.kind == HYPER_LABEL_KIND
+                && let Some(label) = edge.name.as_ref()
+            {
+                labels.entry(label).or_default().push(edge_id);
+            } else {
+                violations.push(FanViolation::ForeignIncidentEdge { edge: edge_id });
+            }
+        }
+        match parents.len() {
+            0 => violations.push(FanViolation::MissingParent),
+            1 => {}
+            _ => violations.push(FanViolation::MultipleParents { edges: parents }),
+        }
+        for (label, edges) in &labels {
+            if edges.len() > 1 {
+                violations.push(FanViolation::DuplicateLabel {
+                    label: (*label).clone(),
+                    edges: edges.clone(),
+                });
+            }
+        }
+        let Some(schema) = schema else {
+            return violations;
+        };
+        match schema.hyper_edges.get(&fan.anchor) {
+            None => violations.push(FanViolation::UnknownHyperEdge {
+                hyper_edge: fan.anchor.clone(),
+            }),
+            Some(hyper_edge) => violations.extend(
+                labels
+                    .keys()
+                    .filter(|label| !hyper_edge.signature.contains_key(**label))
+                    .map(|label| FanViolation::UnknownLabel {
+                        label: (*label).clone(),
+                    }),
+            ),
+        }
+        violations
     }
 }
 
@@ -155,64 +275,15 @@ fn fan_candidates(graph: &GInstance) -> Vec<u32> {
     ids
 }
 
-/// The first node, in ascending id, that breaks the fan domain, and why.
+/// The first node, in ascending id, that breaks the fan domain, and the
+/// first violation [`FanDomain::violations_at`] lists for it.
 fn first_violation(graph: &GInstance, schema: Option<&Schema>) -> Option<(u32, FanViolation)> {
-    fan_candidates(graph)
-        .into_iter()
-        .find_map(|id| fan_violation(graph, id, schema).map(|reason| (id, reason)))
-}
-
-/// Why node `id` is not a well-formed fan node, or `None` when it is one.
-pub(super) fn fan_violation(
-    graph: &GInstance,
-    id: u32,
-    schema: Option<&Schema>,
-) -> Option<FanViolation> {
-    let node = graph.node(id)?;
-    let out = graph.out_edges(id);
-    if node.shape != NodeShape::HyperEdge {
-        return out
-            .iter()
-            .copied()
-            .find(|e| is_reserved_kind(&graph.edges[e].edge))
-            .map(|edge| FanViolation::ReservedKindOutsideFan { edge });
-    }
-    if let Some(&edge) = graph.in_edges(id).first() {
-        return Some(FanViolation::ForeignIncidentEdge { edge });
-    }
-    let mut parents = Vec::new();
-    let mut labels: BTreeMap<&Name, Vec<EdgeId>> = BTreeMap::new();
-    for &edge_id in out {
-        let edge = &graph.edges[&edge_id].edge;
-        if edge.kind == HYPER_PARENT_KIND {
-            parents.push(edge_id);
-        } else if edge.kind == HYPER_LABEL_KIND
-            && let Some(label) = edge.name.as_ref()
-        {
-            labels.entry(label).or_default().push(edge_id);
-        } else {
-            return Some(FanViolation::ForeignIncidentEdge { edge: edge_id });
-        }
-    }
-    match parents.len() {
-        0 => return Some(FanViolation::MissingParent),
-        1 => {}
-        _ => return Some(FanViolation::MultipleParents { edges: parents }),
-    }
-    if let Some((label, edges)) = labels.iter().find(|(_, edges)| edges.len() > 1) {
-        return Some(FanViolation::DuplicateLabel {
-            label: (*label).clone(),
-            edges: edges.clone(),
-        });
-    }
-    let schema = schema?;
-    let signature = schema.hyper_edges.get(&node.anchor).map(|h| &h.signature);
-    labels
-        .keys()
-        .find(|label| signature.is_none_or(|s| !s.contains_key(**label)))
-        .map(|label| FanViolation::UnknownLabel {
-            label: (*label).clone(),
-        })
+    fan_candidates(graph).into_iter().find_map(|id| {
+        FanDomain::violations_at(graph, id, schema)
+            .into_iter()
+            .next()
+            .map(|reason| (id, reason))
+    })
 }
 
 /// The first reserved vocabulary in a graph that is about to receive fans:
@@ -223,7 +294,8 @@ pub(super) fn fan_violation(
 /// [`FanViolation::ReservedKindOutsideFan`].
 pub(super) fn reserved_vocabulary(graph: &GInstance) -> Option<(u32, FanViolation)> {
     fan_candidates(graph).into_iter().next().map(|id| {
-        let reason = fan_violation(graph, id, None).unwrap_or_else(|| {
+        let first = FanDomain::violations_at(graph, id, None).into_iter().next();
+        let reason = first.unwrap_or_else(|| {
             let edge = graph.out_edges(id).first().copied().unwrap_or(EdgeId(0));
             FanViolation::ReservedKindOutsideFan { edge }
         });
@@ -534,14 +606,14 @@ pub fn unreify_fans_owned(graph: GInstance) -> Result<(GInstance, Vec<Fan>), Ins
     Ok(take_fans(graph))
 }
 
-/// [`unreify_fans`], also checking every fan label against the signature
-/// `schema` declares for its hyper-edge.
+/// [`unreify_fans`], also checking that `schema` declares every fan's
+/// hyper-edge and that every fan label is a position of its signature.
 ///
 /// # Errors
 ///
 /// Returns [`InstError::MalformedFan`] as [`FanDomain::check_with_schema`]
-/// does, which adds [`FanViolation::UnknownLabel`] to the conditions of
-/// [`unreify_fans`].
+/// does, which adds [`FanViolation::UnknownHyperEdge`] and
+/// [`FanViolation::UnknownLabel`] to the conditions of [`unreify_fans`].
 pub fn unreify_fans_with_schema(
     graph: &GInstance,
     schema: &Schema,
