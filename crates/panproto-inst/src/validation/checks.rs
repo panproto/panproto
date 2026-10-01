@@ -12,7 +12,7 @@ use panproto_gat::Name;
 use panproto_schema::{Edge, InstanceShapeKind, Schema};
 
 use crate::functor::FInstance;
-use crate::ginstance::{EdgeId, FanDomain, GInstance, fan_candidates, is_reserved_kind};
+use crate::ginstance::{EdgeId, FanDomain, GInstance};
 use crate::metadata::NodeShape;
 use crate::value::{FieldPresence, Value};
 use crate::view_ref::{RowId, ViewRef};
@@ -542,7 +542,7 @@ impl<'a> InstanceView<'a> {
     /// a reserved kind or one leaving a fan node.
     pub(crate) fn is_fan_edge(self, edge: &EdgeRec<'_>) -> bool {
         matches!(self, Self::Graph(_))
-            && (is_reserved_kind(edge.label) || self.node(&edge.src).is_some_and(|n| n.fan))
+            && (FanDomain::is_reserved(edge.label) || self.node(&edge.src).is_some_and(|n| n.fan))
     }
 }
 
@@ -827,9 +827,12 @@ pub fn instances(ctx: &Context<'_>, key: &CheckKey) -> Vec<Option<ViewRef>> {
                 .collect(),
         ),
         CheckKind::FanWellFormed => match view {
-            InstanceView::Graph(g) => {
-                some(fan_candidates(g).into_iter().map(ViewRef::Node).collect())
-            }
+            InstanceView::Graph(g) => some(
+                FanDomain::candidates(g)
+                    .into_iter()
+                    .map(ViewRef::Node)
+                    .collect(),
+            ),
             InstanceView::Tree(t, _) => {
                 some(t.fans.iter().map(|f| ViewRef::Node(f.parent)).collect())
             }

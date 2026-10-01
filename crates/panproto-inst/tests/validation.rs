@@ -4459,6 +4459,118 @@ fn a_tree_node_of_the_fan_shape_is_checked_for_its_required_edges() {
     );
 }
 
+/// A tree whose root, node 0 anchored at `doc`, holds `child` (node 1) with
+/// the fan shape under `child_edge`, and node 1 holds each `(id, anchor)` of
+/// `grandchildren` under `grandchild_edge`.
+fn tree_with_fan_shaped_child(
+    child: Node,
+    child_edge: &Edge,
+    grandchildren: &[(u32, &str)],
+    grandchild_edge: &Edge,
+) -> WInstance {
+    let mut nodes = HashMap::from([
+        (0, Node::new(0, "doc")),
+        (1, child.with_shape(NodeShape::HyperEdge)),
+    ]);
+    let mut arcs = vec![(0, 1, child_edge.clone())];
+    for &(id, anchor) in grandchildren {
+        nodes.insert(id, Node::new(id, anchor));
+        arcs.push((1, id, grandchild_edge.clone()));
+    }
+    WInstance::new(nodes, arcs, vec![], 0, "doc".into())
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_is_checked_for_its_value() {
+    let a = prop("doc", "a", "a");
+    let schema = S::default()
+        .vertex("doc", "object")
+        .vertex("a", "string")
+        .edge(&a)
+        .constraint("a", "maxLength", "3")
+        .build();
+    let p = protocol(&[(
+        "maxLength",
+        ConstraintSemantics::MaxLength(LengthUnit::Chars),
+    )]);
+    let tree = tree_with_fan_shaped_child(str_node(1, "a", "abcd"), &a, &[], &a);
+    let report = validate_wtype(&tree, &schema, &p);
+    assert_eq!(
+        of_kind(&report, CheckKind::ValueConstraint),
+        vec![(
+            Some(ViewRef::Node(1)),
+            Violation::ValueConstraint {
+                sort: "maxLength".into(),
+                bound: "3".into(),
+                value: Some(Value::Str("abcd".into())),
+            }
+        )]
+    );
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_is_checked_for_its_attributes() {
+    // `doc` declares the scalar attribute `title`, so the attributes of a
+    // node anchored there are checked: `title` is mistyped, `stray` is
+    // undeclared.
+    let c = prop("doc", "doc", "c");
+    let schema = S::default()
+        .vertex("doc", "object")
+        .vertex("doc.title", "string")
+        .edge(&c)
+        .edge(&prop("doc", "doc.title", "title"))
+        .build();
+    let mut child = Node::new(1, "doc");
+    child.extra_fields.insert("title".into(), Value::Int(3));
+    child.extra_fields.insert("stray".into(), Value::Int(4));
+    let tree = tree_with_fan_shaped_child(child, &c, &[], &c);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    let found = of_kind(&report, CheckKind::Attribute);
+    assert_eq!(
+        found
+            .iter()
+            .map(|(subject, violation)| (
+                subject.clone(),
+                match violation {
+                    Violation::UndeclaredAttribute { key }
+                    | Violation::MistypedAttribute { key, .. } => {
+                        key.clone()
+                    }
+                    other => panic!("not an attribute violation: {other:?}"),
+                }
+            ))
+            .collect::<Vec<_>>(),
+        vec![
+            (Some(ViewRef::Node(1)), "stray".to_owned()),
+            (Some(ViewRef::Node(1)), "title".to_owned()),
+        ],
+        "{found:?}"
+    );
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_is_checked_for_its_out_degree() {
+    let c = prop("doc", "doc", "c");
+    let schema = S::default()
+        .vertex("doc", "object")
+        .edge(&c)
+        .constraint("doc", "maxOut", "1")
+        .build();
+    let p = protocol(&[("maxOut", ConstraintSemantics::MaxOutDegree)]);
+    let tree = tree_with_fan_shaped_child(Node::new(1, "doc"), &c, &[(2, "doc"), (3, "doc")], &c);
+    let report = validate_wtype(&tree, &schema, &p);
+    assert_eq!(
+        of_kind(&report, CheckKind::OutDegree)
+            .into_iter()
+            .map(|(subject, violation)| (
+                subject,
+                matches!(violation, Violation::OutDegree { found: 2, .. })
+            ))
+            .collect::<Vec<_>>(),
+        vec![(Some(ViewRef::Node(1)), true)]
+    );
+}
+
 /// A graph that may hold reserved vocabulary, as the adversarial generator
 /// of the fan reification tests builds it (nodes of the fan shape, edges of
 /// the reserved kinds between any nodes, so fan-shaped nodes may nest, and
