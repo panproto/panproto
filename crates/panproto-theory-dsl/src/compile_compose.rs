@@ -959,6 +959,34 @@ mod tests {
         let replayed = recompose(&composed.spec, &registry(&["ThGraph", "ThHypergraph"]))
             .unwrap_or_else(|e| panic!("the recipe replays: {e}"));
         assert_eq!(&replayed, theory);
+
+        // Every document path that compiles the composition returns the same
+        // report in `CompiledTheorySet::composition_reports`: a composition
+        // document, a bundle composition, and a protocol's inline composed
+        // schema theory, on its own or in a bundle.
+        let protocol = protocol(GRAPH_HYPER, r#""ThGraph""#);
+        for (what, json) in [
+            ("composition document", format!(r#"{{"compose": {GRAPH_HYPER}}}"#)),
+            (
+                "bundle composition",
+                format!(r#"{{"bundle": "b", "compositions": [{GRAPH_HYPER}]}}"#),
+            ),
+            ("protocol document", protocol.clone()),
+            (
+                "bundle protocol",
+                format!(r#"{{"bundle": "b", "protocols": [{protocol}]}}"#),
+            ),
+        ] {
+            let set = compile_document(&document(&json))
+                .unwrap_or_else(|e| panic!("{what} compiles: {e}"));
+            assert_eq!(
+                set.composition_reports.get("GraphHyper"),
+                Some(&composed.reports),
+                "{what}: {set:?}"
+            );
+            assert_eq!(set.composition_reports.len(), 1, "{what}");
+            assert_records_graph_hyper(&set, what);
+        }
     }
 
     /// The composition of [`dsl_compose_with_identify_returns_the_report`]
