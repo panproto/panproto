@@ -24,7 +24,9 @@ use crate::wtype::CompiledMigration;
 /// target vertices), and the source foreign keys between two
 /// kept tables that the migration carries (keys of `edge_remap`) or lets
 /// survive (members of `surviving_edges` that are edges of the source
-/// schema). A source table in `vertex_remap` goes to its entry, a surviving
+/// schema and that `edge_remap` names as no edge's image, by the same rule
+/// as the tables, since `panproto_mig::compile` lists those images as
+/// surviving target edges). A source table in `vertex_remap` goes to its entry, a surviving
 /// one to itself; a carried foreign key goes to its `edge_remap` entry, a
 /// surviving one to the edge of its kind and name between the images of its
 /// endpoints. The arrows `src_e` and `tgt_e` of a kept foreign key go to the
@@ -98,6 +100,9 @@ impl MigrationFunctor {
             }
             tables.insert(table.clone(), image.clone());
         }
+        // Likewise a listed surviving edge that the edge map names as some
+        // edge's image is a target edge.
+        let edge_images: BTreeSet<&Edge> = migration.edge_remap.values().collect();
         let mut relations = BTreeMap::new();
         for edge in source.relations() {
             let (Some(src), Some(tgt)) = (tables.get(&edge.src), tables.get(&edge.tgt)) else {
@@ -105,12 +110,14 @@ impl MigrationFunctor {
             };
             let image = match migration.edge_remap.get(edge) {
                 Some(image) => image.clone(),
-                None if migration.surviving_edges.contains(edge) => Edge {
-                    src: src.clone(),
-                    tgt: tgt.clone(),
-                    kind: edge.kind.clone(),
-                    name: edge.name.clone(),
-                },
+                None if migration.surviving_edges.contains(edge) && !edge_images.contains(edge) => {
+                    Edge {
+                        src: src.clone(),
+                        tgt: tgt.clone(),
+                        kind: edge.kind.clone(),
+                        name: edge.name.clone(),
+                    }
+                }
                 None => continue,
             };
             if &image.src != src || &image.tgt != tgt || !target.is_relation(&image) {
@@ -399,6 +406,38 @@ mod tests {
         m.surviving_verts.extend(["a".into(), "b".into()]);
         let f = MigrationFunctor::new(&src, &table_schema(&["a", "b"], &[]), &m)?;
         assert_eq!(f.table_map().len(), 2);
+        Ok(())
+    }
+
+    /// The edge twin of [`a_surviving_image_is_not_a_source_table`]: a source
+    /// foreign key that the edge map leaves out but whose edge is the image of
+    /// another foreign key is a listed target edge, so it is dropped, and Pi
+    /// does not intersect with its pairs.
+    #[test]
+    fn a_surviving_image_is_not_a_source_relation() -> Result<(), Box<dyn std::error::Error>> {
+        let (p, q) = (fk("a", "b", "p"), fk("a", "b", "q"));
+        let src = table_schema(&["a", "b"], &[p.clone(), q.clone()]);
+        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&q));
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        m.edge_remap.insert(p.clone(), q.clone());
+        m.surviving_edges.insert(q.clone());
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        assert_eq!(
+            f.relation_map().keys().collect::<Vec<_>>(),
+            [&p],
+            "source q is outside the domain"
+        );
+        let x = crate::FInstance::new()
+            .with_rows("a", [(crate::RowId(0), crate::Row::new())])
+            .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
+            .and_then(|i| i.with_foreign_key(p.clone(), [(crate::RowId(0), crate::RowId(1))]))?;
+        let pi = crate::functor_pi_along(&x, &f, 1000)?;
+        assert_eq!(pi.pairs(&q).len(), 1, "{pi:?}");
+        // Listed under its own image too, it is kept.
+        m.edge_remap.insert(q.clone(), q.clone());
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        assert_eq!(f.relation_fibre(&q), [&p, &q]);
         Ok(())
     }
 
