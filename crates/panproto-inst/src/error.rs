@@ -332,6 +332,33 @@ pub enum RestrictError {
         /// The edge whose pairs have no image.
         edge: Edge,
     },
+
+    /// The migration keeps a foreign key but names an image that is not a
+    /// foreign key of the target running between the images of its
+    /// endpoints, so it states no functor between the relation-ified
+    /// schemas.
+    #[error(
+        "the migration carries foreign key {edge:?} to {image:?}, which is not a foreign key between the images of its endpoints"
+    )]
+    IncoherentEdgeImage {
+        /// The source foreign key (boxed, as the image is, to keep the error
+        /// small).
+        edge: Box<Edge>,
+        /// The image the migration names for it.
+        image: Box<Edge>,
+    },
+
+    /// The migration keeps a source table but sends it to a vertex that is
+    /// not a table of the target.
+    #[error(
+        "the migration sends table `{vertex}` to `{image}`, which is not a table of the target"
+    )]
+    VertexImageNotATable {
+        /// The source table.
+        vertex: Name,
+        /// The image the migration names for it.
+        image: Name,
+    },
 }
 
 /// Errors from JSON parsing.

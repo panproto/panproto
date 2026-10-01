@@ -1,64 +1,42 @@
-//! The Sigma/Delta migration adjunction on instances.
+//! The migration adjunctions on instances: `Sigma_F -| Delta_F -| Pi_F`.
 //!
-//! A total vertex map `F: S -> T` (the vertex remap of a
-//! [`CompiledMigration`]) induces two instance transports:
+//! For table instances ([`FInstance`]) the functor is a [`MigrationFunctor`]
+//! `F: S' -> T` between relation-ified schemas ([`crate::RelSchema`]), on
+//! which a table instance is a presheaf: rows at tables, pairs at foreign
+//! keys read as relations. Three transports follow (formally the Kan
+//! extensions between presheaf categories, which always exist and are
+//! adjoint; stated):
 //!
-//! - **`Sigma_F`** (left Kan extension / pushforward): an `S`-instance
-//!   becomes a `T`-instance by relabelling anchors `v` to `F(v)`. For
-//!   set-valued functor instances this is the coproduct over each fibre
-//!   `F^{-1}(t)`; for W-type instances it is [`wtype_extend`].
-//! - **`Delta_F`** (precomposition / pullback): a `T`-instance becomes an
-//!   `S`-instance by reindexing, `(Delta_F Y)(s) = Y(F s)`.
+//! - **`Delta_F`** (precomposition): `(Delta_F Y)(c) = Y(F c)`.
+//! - **`Sigma_F`** (left Kan extension): the colimit over the comma
+//!   category `F/d` at each target object `d`.
+//! - **`Pi_F`** (right Kan extension, [`crate::functor_pi_along`]): the
+//!   limit over `d/F`.
 //!
-//! `Sigma_F` is left adjoint to `Delta_F`, so their hom-sets correspond:
+//! so that
 //!
 //! ```text
-//! Hom_T(Sigma_F X, Y)  ~=  Hom_S(X, Delta_F Y).
+//! Hom_T(Sigma_F X, Y)  ~=  Hom_S'(X, Delta_F Y)
+//! Hom_S'(Delta_F Y, X)  ~=  Hom_T(Y, Pi_F X).
 //! ```
 //!
-//! This module realises the adjunction concretely. It builds the **unit**
-//! `eta_X : X -> Delta_F(Sigma_F X)` and **counit**
-//! `eps_Y : Sigma_F(Delta_F Y) -> Y` as instance homomorphisms (the
-//! morphisms from [`crate::instance_hom`]), the two **transpose** maps
-//! that witness the hom-set bijection, and it property-tests the triangle
-//! identities and the bijection.
-//!
-//! # Two shapes, two scopes
-//!
-//! Set-valued functor instances ([`FInstance`]) are closed under both
-//! transports for *every* total vertex map, including vertex-merging
-//! (non-injective) maps: precomposition duplicates a merged table into
-//! each source vertex, which is a perfectly good table. The functor-side
-//! adjunction below therefore holds over renamed, identity, and merging
-//! maps.
+//! This module builds the units and counits of both adjunctions as instance
+//! homomorphisms ([`crate::instance_hom`]), the transposes that witness the
+//! hom-set bijections, and the action of each transport on homomorphisms,
+//! and its tests check the bijections (counted and witnessed), the triangle
+//! identities, the identity functor, renaming and monotonicity. Cells are
+//! labels every homomorphism preserves exactly (attribute vertices are not
+//! objects), so the target instances of `Delta_F -| Pi_F` are those whose
+//! rows at tables outside the image of `F` carry no cells: the limit of the
+//! empty diagram there is one row, which carries none.
 //!
 //! W-type instances ([`WInstance`]) are trees, and precomposition along a
 //! merging map would duplicate a node into several anchors at once, which
-//! is no longer a tree. The W-type adjunction is thus **scoped to
-//! vertex-injective total maps** (renamings and the identity), where
+//! is no longer a tree. The W-type adjunction is thus scoped to
+//! vertex-injective total maps (renamings and the identity), where
 //! `Sigma_F` and `Delta_F` are mutually inverse relabellings that preserve
-//! node identity. On that class the adjunction is an adjoint equivalence
-//! onto the image of `F`: the unit and counit are identity-on-nodes
-//! natural isomorphisms and the transpose is the identity on the node map.
-//! Merging maps are rejected by [`w_delta`] with
-//! [`AdjunctionError::NonInjectiveVertexMap`]; the functor-side functions
-//! handle them.
-//!
-//! # What `F` is defined on
-//!
-//! A compiled migration states a vertex's image in one of two ways: it names
-//! the image, or it lets the vertex survive under its own name. Both
-//! transports read the domain of `F` that way, so a vertex `Sigma_F` carries
-//! forward is a vertex `Delta_F` reads back and the unit has a codomain at
-//! every table of `X`. An instance carrying a table at a vertex that is
-//! neither — a vertex `F` says nothing about — is refused by [`f_sigma`] with
-//! [`AdjunctionError::VertexOutsideDomain`] rather than passed through under
-//! its own name into an instance the counit could not come back from. Edges
-//! are read the same way: a foreign key on an edge the
-//! migration neither remaps nor lets survive as a source, including an edge it
-//! names only as another edge's image, is refused with
-//! [`AdjunctionError::EdgeOutsideDomain`], since `Delta_F` copies only the
-//! foreign keys of source edges.
+//! node identity. Merging maps are rejected by [`w_delta`] with
+//! [`AdjunctionError::NonInjectiveVertexMap`].
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -69,6 +47,8 @@ use crate::error::{InstError, RestrictError};
 use crate::functor::{FInstance, allocate_row, row_allocator};
 use crate::ginstance::{GEdge, GInstance};
 use crate::instance_hom::{FInstanceHom, WInstanceHom};
+use crate::migration_functor::MigrationFunctor;
+use crate::pi::pi_limit;
 use crate::view_ref::RowId;
 use crate::wtype::{CompiledMigration, WInstance, wtype_extend};
 
@@ -114,26 +94,24 @@ pub enum AdjunctionError {
     )]
     AnchorOutsideImage(Name),
 
-    /// The instance carries a table at a vertex the migration is not defined
-    /// on, so `Sigma_F` has nowhere to send its rows.
-    #[error(
-        "vertex `{0}` is neither remapped nor surviving, so the migration is \
-         not defined on it and the pushforward has no image for its rows"
-    )]
+    /// The instance holds rows at a table outside the domain of the
+    /// homomorphism asked for (a source table outside `S'`, or a vertex that
+    /// is no table of the target), so the homomorphism would not be total.
+    #[error("table `{0}` lies outside the schema the homomorphism is defined on")]
     VertexOutsideDomain(Name),
 
-    /// The instance carries foreign-key pairs on an edge the migration is
-    /// not defined on, so `Sigma_F` has nowhere to send them.
-    #[error(
-        "edge {0:?} is neither remapped nor surviving as a source, so the \
-         migration is not defined on it and the pushforward has no image for \
-         its pairs"
-    )]
+    /// The instance holds pairs on a foreign key outside the domain of the
+    /// homomorphism asked for, so the homomorphism would not preserve them.
+    #[error("foreign key {0:?} lies outside the schema the homomorphism is defined on")]
     EdgeOutsideDomain(Edge),
 
     /// The underlying left Kan extension ([`wtype_extend`]) failed.
     #[error("Sigma (left Kan extension) failed: {0}")]
     Sigma(#[from] RestrictError),
+
+    /// The right Kan extension ([`crate::functor_pi_along`]) failed.
+    #[error("Pi (right Kan extension) failed: {0}")]
+    Pi(RestrictError),
 
     /// A transport that copies rows found no row id free above the largest
     /// in use.
@@ -144,18 +122,24 @@ pub enum AdjunctionError {
     #[error("the reindexed graph is malformed: {0}")]
     Graph(InstError),
 
-    /// The migration carries a source edge to an image that does not join
-    /// the images of the edge's endpoints, so it states no functor and no
-    /// transport is defined along it.
-    #[error(
-        "the migration carries edge {edge:?} to {image:?}, which does not join \
-         the images of its endpoints, so it states no functor"
-    )]
-    EdgeOffEndpoints {
-        /// The source edge (boxed, as the image is, to keep the error small).
-        edge: Box<Edge>,
-        /// The image the migration names for it.
-        image: Box<Edge>,
+    /// A row of a target instance at a table outside the image of the
+    /// functor carries cells, so no homomorphism sends it to the one row,
+    /// without cells, of the limit there.
+    #[error("row {row:?} of table `{table}`, outside the image of the functor, carries cells")]
+    CellsOutsideImage {
+        /// The table outside the image.
+        table: Name,
+        /// The row carrying cells.
+        row: RowId,
+    },
+
+    /// A map given as a homomorphism sends a row to no row of the transport
+    /// it must land in, so it is no homomorphism between the instances
+    /// given.
+    #[error("row {row:?} has no image in the transport the map must land in")]
+    NotANaturalMap {
+        /// The row without an image.
+        row: RowId,
     },
 }
 
@@ -454,85 +438,141 @@ pub fn w_transpose_right(f: &WInstanceHom) -> WInstanceHom {
 }
 
 // ---------------------------------------------------------------------------
-// Functor (set-valued) adjunction (all total maps, including merging)
+// Functor (set-valued) Kan extensions along a migration functor
 // ---------------------------------------------------------------------------
 
-/// Refuse a migration that states no functor ([`edge_off_endpoints`]).
-fn check_functor(migration: &CompiledMigration) -> Result<(), AdjunctionError> {
-    edge_off_endpoints(migration).map_or(Ok(()), |(edge, image)| {
-        Err(AdjunctionError::EdgeOffEndpoints {
-            edge: Box::new(edge),
-            image: Box::new(image),
-        })
-    })
-}
-
-/// Check that every table of `x` sits at a vertex the migration is defined
-/// on, and every foreign key with pairs at an edge it is defined on.
-///
-/// `Sigma_F` is a transport along `F`, so a table at a vertex outside `F`'s
-/// domain has no image to travel to. Carrying it across under its own name
-/// would put a table in `Sigma_F X` that `Delta_F` never reads back, and the
-/// unit at that vertex would have no codomain. The same holds of the pairs of
-/// an edge outside the domain ([`source_edges`]): `Delta_F` copies only the
-/// foreign keys of source edges, so a pair carried along any other edge would
-/// have no pair of `Delta_F(Sigma_F X)` for the unit to send it to.
-fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), AdjunctionError> {
-    check_functor(migration)?;
-    let domain = source_vertices(migration);
-    if let Some(vertex) = x
+/// Check that every table of `x` is a table of `S'` and every foreign key
+/// with pairs a relation of `S'`, so that a homomorphism out of `x` along
+/// `F` is total.
+fn check_source_instance(x: &FInstance, functor: &MigrationFunctor) -> Result<(), AdjunctionError> {
+    if let Some(table) = x
         .table_names()
         .into_iter()
-        .find(|vertex| !domain.contains(*vertex))
+        .find(|table| functor.table_image(table).is_none())
     {
-        return Err(AdjunctionError::VertexOutsideDomain(vertex.clone()));
+        return Err(AdjunctionError::VertexOutsideDomain(table.clone()));
     }
-    let edges = source_edges(migration);
     x.foreign_keys()
         .into_iter()
-        .find(|(edge, _)| !edges.contains(*edge))
+        .find(|(edge, _)| functor.relation_image(edge).is_none())
         .map_or(Ok(()), |(edge, _)| {
             Err(AdjunctionError::EdgeOutsideDomain(edge.clone()))
         })
 }
 
+/// Check that every table of `y` is a table of `T` and every foreign key with
+/// pairs a relation of `T`, and that no row of a table outside the image of
+/// `F` carries cells, so that a homomorphism out of `y` into `Pi_F` is total.
+fn check_target_instance(y: &FInstance, functor: &MigrationFunctor) -> Result<(), AdjunctionError> {
+    if let Some(table) = y
+        .table_names()
+        .into_iter()
+        .find(|table| !functor.target().is_table(table))
+    {
+        return Err(AdjunctionError::VertexOutsideDomain(table.clone()));
+    }
+    if let Some((edge, _)) = y
+        .foreign_keys()
+        .into_iter()
+        .find(|(edge, _)| !functor.target().is_relation(edge))
+    {
+        return Err(AdjunctionError::EdgeOutsideDomain(edge.clone()));
+    }
+    for table in functor.tables_outside_image() {
+        if let Some((row, _)) = y
+            .rows(table)
+            .into_iter()
+            .find(|(_, cells)| !cells.is_empty())
+        {
+            return Err(AdjunctionError::CellsOutsideImage {
+                table: table.clone(),
+                row,
+            });
+        }
+    }
+    Ok(())
+}
+
 /// `Sigma_F` for set-valued functor instances: the left Kan extension.
 ///
-/// For each target vertex `t` it forms the coproduct of the source tables in
-/// its fibre `F^{-1}(t)`. Row ids are unique across an instance, so the
-/// coproduct is the disjoint union of the fibre's rows under their own ids,
-/// and each foreign-key pair travels to the image edge unchanged.
+/// The first projection of [`f_sigma_with_hom`]; see there.
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] when `x` carries a table
-/// at a vertex the migration neither remaps nor lets survive, so `F` names no
-/// image for its rows, and [`AdjunctionError::EdgeOutsideDomain`] when it
-/// carries pairs on an edge outside the domain: one the migration neither
-/// remaps nor lets survive as a source, including an edge it names only as
-/// another edge's image.
+/// As [`f_sigma_with_hom`].
+pub fn f_sigma(x: &FInstance, functor: &MigrationFunctor) -> Result<FInstance, AdjunctionError> {
+    f_sigma_with_hom(x, functor).map(|(sigma, _)| sigma)
+}
+
+/// `Sigma_F` for set-valued functor instances, with the map from the part of
+/// `x` it reads to the result.
 ///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
-pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance, AdjunctionError> {
-    check_domain(x, migration)?;
+/// The instance is read as a presheaf `I` on `S'`, the part of the source the
+/// functor keeps (rows and pairs outside `S'` are not read). `Sigma_F(I)` at
+/// a target object `d` is the colimit of `I` over the comma category `F/d`.
+/// At a table `d` its objects are the fibre tables and the relations sent to
+/// a relation at `d`, and each pair is glued to its row at `d`, so the
+/// colimit is the disjoint union of the fibre's rows: every row keeps its id
+/// and cells (ids are unique across an instance). At a relation `E` the
+/// objects are the relations sent to `E`, with no arrows between them, so
+/// the colimit is the union of their pairs, read as a set of pairs (the
+/// reflection onto relational instances, which keeps the adjunction, since
+/// every target instance is relational). A target object outside the image
+/// gets the colimit over the empty diagram: no rows, no pairs.
+///
+/// The returned [`FInstanceHom`] sends each row of the restriction of `x` to
+/// `S'` to itself, along `F`.
+///
+/// # Errors
+///
+/// None at present; the `Result` keeps the signature of the other
+/// transports.
+pub fn f_sigma_with_hom(
+    x: &FInstance,
+    functor: &MigrationFunctor,
+) -> Result<(FInstance, FInstanceHom), AdjunctionError> {
     let mut sigma = FInstance::new();
-    for (source, table) in x.tables() {
-        let target = map_vertex(migration, source);
-        for (id, row) in table.rows() {
-            sigma.place_row(target.clone(), id, row.clone());
+    let mut row_map = BTreeMap::new();
+    for (source, image) in functor.table_map() {
+        for (id, row) in x.rows(source) {
+            sigma.place_row(image.clone(), id, row.clone());
+            row_map.insert(id, id);
         }
     }
-    for (edge, pairs) in x.foreign_keys() {
-        let target_edge = map_edge(migration, edge);
-        for &(s, t) in pairs {
-            // `check_domain` refused every edge off its endpoints, so each
-            // pair's rows lie in the image edge's endpoint tables.
-            sigma.place_pair(target_edge.clone(), s, t);
+    for (source, image) in functor.relation_map() {
+        for &(s, t) in x.pairs(source) {
+            sigma.place_pair(image.clone(), s, t);
         }
     }
-    Ok(sigma)
+    let hom = FInstanceHom::new(row_map)
+        .with_table_map(functor.table_map().clone())
+        .with_edge_map(functor.relation_map().clone());
+    Ok((sigma, hom))
+}
+
+/// `Sigma_F(h)`: the image under `Sigma_F` of a homomorphism `h: X -> X'`
+/// of instances on `S'`.
+///
+/// `Sigma_F` keeps row ids, so `Sigma_F(h)` sends each row of `Sigma_F X` to
+/// the image of that row under `h`.
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` is not an instance on
+/// `S'`.
+pub fn f_sigma_on_hom(
+    h: &FInstanceHom,
+    x: &FInstance,
+    functor: &MigrationFunctor,
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_source_instance(x, functor)?;
+    let row_map = x
+        .row_ids()
+        .into_iter()
+        .filter_map(|id| h.image(id).map(|image| (id, image)))
+        .collect();
+    Ok(FInstanceHom::new(row_map))
 }
 
 /// `Delta_F` for set-valued functor instances: precomposition.
@@ -542,91 +582,69 @@ pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance
 /// # Errors
 ///
 /// As [`f_delta_with_hom`].
-pub fn f_delta(y: &FInstance, migration: &CompiledMigration) -> Result<FInstance, AdjunctionError> {
-    f_delta_with_hom(y, migration).map(|(delta, _)| delta)
+pub fn f_delta(y: &FInstance, functor: &MigrationFunctor) -> Result<FInstance, AdjunctionError> {
+    f_delta_with_hom(y, functor).map(|(delta, _)| delta)
 }
 
 /// `Delta_F` for set-valued functor instances, with the row map from each
 /// copy to the row of `y` it copies.
 ///
-/// Each source vertex `s` receives a copy of the target table `F(s)`, and
-/// each source edge `e` a copy of the target foreign key `F(e)` between the
-/// copies of its rows. This is total and stays within the functor category
-/// even for merging maps, where a merged table is copied into each source
-/// vertex of its fibre.
+/// `(Delta_F Y)(c) = Y(F c)` for every object `c` of `S'`: each table `s` of
+/// `S'` receives a copy of the target table `F(s)`, and each relation `e` of
+/// `S'` a copy of the pairs of `F(e)` between the copies of their rows, with
+/// the cells of the rows they copy. Tables and relations of the source
+/// outside `S'` receive nothing.
 ///
-/// Row ids: the copies are made in ascending source vertex name and, within
-/// one source vertex, in ascending target row id. The first copy of a target
-/// row keeps its id, so over an injective fibre every row keeps its id; every
+/// Row ids: the copies are made in ascending source table name and, within
+/// one table, in ascending target row id. The first copy of a target row
+/// keeps its id, so over an injective fibre every row keeps its id; every
 /// later copy takes a fresh id, allocated from the least id above every row
 /// of `y`. The returned [`FInstanceHom`] sends each row of the result to the
-/// row of `y` it copies, along `F`: its table map sends each source vertex
-/// `s` to `F(s)` and its edge map each source edge `e` to `F(e)`.
-///
-/// The source vertices are the whole domain of `F` — the vertices the
-/// migration remaps together with those it lets survive under their own name
-/// — so a vertex that travels through `Sigma_F` travels back through
-/// `Delta_F`.
+/// row of `y` it copies, along `F`: its table map sends each table `s` to
+/// `F(s)` and its edge map each relation `e` to `F(e)`.
 ///
 /// # Errors
 ///
 /// Returns [`AdjunctionError::RowIdsExhausted`] when the fresh row ids run
 /// out.
-///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
 pub fn f_delta_with_hom(
     y: &FInstance,
-    migration: &CompiledMigration,
+    functor: &MigrationFunctor,
 ) -> Result<(FInstance, FInstanceHom), AdjunctionError> {
-    check_functor(migration)?;
     let mut allocator = row_allocator(y.row_ids());
     let mut delta = FInstance::new();
-    let mut copy_of: HashMap<(Name, RowId), RowId> = HashMap::new();
+    let mut copy_of: HashMap<(&Name, RowId), RowId> = HashMap::new();
     let mut to_original: BTreeMap<RowId, RowId> = BTreeMap::new();
     let mut copied: HashSet<RowId> = HashSet::new();
-    for source in source_vertices(migration) {
-        let target = map_vertex(migration, &source);
-        for (original, row) in y.rows(&target) {
+    for (source, target) in functor.table_map() {
+        for (original, row) in y.rows(target) {
             let id = if copied.insert(original) {
                 original
             } else {
                 allocate_row(&mut allocator).map_err(|_| AdjunctionError::RowIdsExhausted)?
             };
             delta.place_row(source.clone(), id, row.clone());
-            copy_of.insert((source.clone(), original), id);
+            copy_of.insert((source, original), id);
             to_original.insert(id, original);
         }
     }
-
-    let edge_map: BTreeMap<Edge, Edge> = edge_images(migration).into_iter().collect();
-    for (source_edge, target_edge) in &edge_map {
+    for (source_edge, target_edge) in functor.relation_map() {
         for &(s, t) in y.pairs(target_edge) {
-            let (Some(&cs), Some(&ct)) = (
-                copy_of.get(&(source_edge.src.clone(), s)),
-                copy_of.get(&(source_edge.tgt.clone(), t)),
-            ) else {
-                continue;
-            };
-            delta.place_pair(source_edge.clone(), cs, ct);
+            if let (Some(&cs), Some(&ct)) = (
+                copy_of.get(&(&source_edge.src, s)),
+                copy_of.get(&(&source_edge.tgt, t)),
+            ) {
+                delta.place_pair(source_edge.clone(), cs, ct);
+            }
         }
     }
-
-    let table_map = source_vertices(migration)
-        .into_iter()
-        .map(|source| {
-            let target = map_vertex(migration, &source);
-            (source, target)
-        })
-        .collect();
     let hom = FInstanceHom::new(to_original)
-        .with_table_map(table_map)
-        .with_edge_map(edge_map);
+        .with_table_map(functor.table_map().clone())
+        .with_edge_map(functor.relation_map().clone());
     Ok((delta, hom))
 }
 
-/// Where each row of `Y` is copied in `Delta_F Y`: `(source vertex, row of
+/// Where each row of `Y` is copied in `Delta_F Y`: `(source table, row of
 /// Y)` to the copy's id, read off the row map of [`f_delta_with_hom`].
 fn copies(delta: &FInstance, to_original: &FInstanceHom) -> HashMap<(Name, RowId), RowId> {
     to_original
@@ -640,28 +658,52 @@ fn copies(delta: &FInstance, to_original: &FInstanceHom) -> HashMap<(Name, RowId
         .collect()
 }
 
-/// The unit `eta_X : X -> Delta_F(Sigma_F X)` of the functor adjunction.
+/// `Delta_F(h)`: the image under `Delta_F` of a homomorphism `h: Y -> Y'` of
+/// target instances, sending the copy at `s` of a row `r` to the copy at `s`
+/// of `h(r)`.
 ///
-/// `Sigma_F` keeps every row's id, so row `r` of `X.table(s)` maps to the
-/// copy of `r` that `Delta_F` places at `s`, read off the row map of
-/// [`f_delta_with_hom`].
+/// # Errors
+///
+/// Returns [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`]
+/// does.
+pub fn f_delta_on_hom(
+    h: &FInstanceHom,
+    y: &FInstance,
+    y_prime: &FInstance,
+    functor: &MigrationFunctor,
+) -> Result<FInstanceHom, AdjunctionError> {
+    let (delta, to_original) = f_delta_with_hom(y, functor)?;
+    let (delta_prime, to_original_prime) = f_delta_with_hom(y_prime, functor)?;
+    let copies_prime = copies(&delta_prime, &to_original_prime);
+    let row_map = to_original
+        .row_map
+        .iter()
+        .filter_map(|(&copy, &original)| {
+            let source = delta.table_of(copy)?;
+            let image = h.image(original)?;
+            copies_prime
+                .get(&(source.clone(), image))
+                .map(|&target| (copy, target))
+        })
+        .collect();
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// The unit `eta_X : X -> Delta_F(Sigma_F X)` of `Sigma_F -| Delta_F`.
+///
+/// `Sigma_F` keeps every row's id, so row `r` of `X` at `s` maps to the copy
+/// of `r` that `Delta_F` places at `s`.
 ///
 /// # Errors
 ///
 /// Returns [`AdjunctionError::VertexOutsideDomain`] or
-/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
-/// the migration is not defined on, exactly as [`f_sigma`] does, and
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` is not an instance on
+/// `S'` (a row or pair outside it would have no image), and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
-///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
-pub fn f_unit(
-    x: &FInstance,
-    migration: &CompiledMigration,
-) -> Result<FInstanceHom, AdjunctionError> {
-    let sigma = f_sigma(x, migration)?;
-    let (delta, to_original) = f_delta_with_hom(&sigma, migration)?;
+pub fn f_unit(x: &FInstance, functor: &MigrationFunctor) -> Result<FInstanceHom, AdjunctionError> {
+    check_source_instance(x, functor)?;
+    let sigma = f_sigma(x, functor)?;
+    let (delta, to_original) = f_delta_with_hom(&sigma, functor)?;
     let copies = copies(&delta, &to_original);
     let mut row_map = BTreeMap::new();
     for (source, table) in x.tables() {
@@ -674,52 +716,38 @@ pub fn f_unit(
     Ok(FInstanceHom::new(row_map))
 }
 
-/// The counit `eps_Y : Sigma_F(Delta_F Y) -> Y` of the functor adjunction.
+/// The counit `eps_Y : Sigma_F(Delta_F Y) -> Y` of `Sigma_F -| Delta_F`.
 ///
-/// `Sigma_F(Delta_F Y).table(t)` holds one copy of `Y.table(t)` per vertex
-/// of the fibre `F^{-1}(t)`, under the copies' own ids; the counit sends each
-/// copy back to the row it copies.
+/// `Sigma_F(Delta_F Y)` holds the copies of `Delta_F Y` under their own ids;
+/// the counit sends each copy back to the row it copies.
 ///
 /// # Errors
 ///
 /// Returns [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`]
 /// does.
-///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
 pub fn f_counit(
     y: &FInstance,
-    migration: &CompiledMigration,
+    functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let (_, to_original) = f_delta_with_hom(y, migration)?;
+    let (_, to_original) = f_delta_with_hom(y, functor)?;
     Ok(FInstanceHom::new(to_original.row_map))
 }
 
-/// Transpose `Hom_T(Sigma_F X, Y) -> Hom_S(X, Delta_F Y)`, sending a
-/// homomorphism `g` to `Delta_F(g) . eta_X`.
-///
-/// Concretely, row `r` of `X.table(s)` maps to the copy at `s` of `g(r)`
-/// (`Sigma_F` keeps `r`'s id).
+/// Transpose `Hom_T(Sigma_F X, Y) -> Hom_S'(X, Delta_F Y)`, sending `g` to
+/// `Delta_F(g) . eta_X`: row `r` of `X` at `s` maps to the copy at `s` of
+/// `g(r)`.
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] or
-/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
-/// the migration is not defined on, exactly as [`f_sigma`] does, and
-/// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
-///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
+/// As [`f_unit`].
 pub fn f_transpose_left(
     g: &FInstanceHom,
     x: &FInstance,
     y: &FInstance,
-    migration: &CompiledMigration,
+    functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    check_domain(x, migration)?;
-    let (delta, to_original) = f_delta_with_hom(y, migration)?;
+    check_source_instance(x, functor)?;
+    let (delta, to_original) = f_delta_with_hom(y, functor)?;
     let copies = copies(&delta, &to_original);
     let mut row_map = BTreeMap::new();
     for (source, table) in x.tables() {
@@ -735,31 +763,21 @@ pub fn f_transpose_left(
     Ok(FInstanceHom::new(row_map))
 }
 
-/// Transpose `Hom_S(X, Delta_F Y) -> Hom_T(Sigma_F X, Y)`, sending a
-/// homomorphism `f` to `eps_Y . Sigma_F(f)`, the inverse of
-/// [`f_transpose_left`].
-///
-/// Concretely, row `r` of `Sigma_F X` (row `r` of `X`, under its own id)
-/// maps to the row of `Y` that `f(r)` copies.
+/// Transpose `Hom_S'(X, Delta_F Y) -> Hom_T(Sigma_F X, Y)`, sending `f` to
+/// `eps_Y . Sigma_F(f)`, the inverse of [`f_transpose_left`]: row `r` of
+/// `Sigma_F X` maps to the row of `Y` that `f(r)` copies.
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::VertexOutsideDomain`] or
-/// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
-/// the migration is not defined on, exactly as [`f_sigma`] does, and
-/// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
-///
-/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
-/// an edge to an image that does not join the images of its endpoints (it
-/// states no functor).
+/// As [`f_unit`].
 pub fn f_transpose_right(
     f: &FInstanceHom,
     x: &FInstance,
     y: &FInstance,
-    migration: &CompiledMigration,
+    functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    check_domain(x, migration)?;
-    let (_, to_original) = f_delta_with_hom(y, migration)?;
+    check_source_instance(x, functor)?;
+    let (_, to_original) = f_delta_with_hom(y, functor)?;
     let row_map = x
         .row_ids()
         .into_iter()
@@ -769,6 +787,180 @@ pub fn f_transpose_right(
                 .map(|original| (id, original))
         })
         .collect();
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// `Pi_F(h)`: the image under `Pi_F` of a homomorphism `h: X -> X'` of
+/// instances on `S'`, sending the row of each tuple to the row of the tuple
+/// of its images (the one row of a table outside the image to the one row).
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::Pi`] when either limit fails
+/// ([`crate::pi::functor_pi_along_with_hom`]) and
+/// [`AdjunctionError::NotANaturalMap`] when `h` sends a tuple to one that is
+/// not a row of `Pi_F X'` (it is then no homomorphism).
+pub fn f_pi_on_hom(
+    h: &FInstanceHom,
+    x: &FInstance,
+    x_prime: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<FInstanceHom, AdjunctionError> {
+    let pi = pi_limit(x, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let pi_prime = pi_limit(x_prime, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let mut row_map = BTreeMap::new();
+    for (&row, (table, tuple)) in &pi.tuples {
+        let image: Option<Vec<RowId>> = tuple.iter().map(|&r| h.image(r)).collect();
+        let target = image
+            .and_then(|image| pi_prime.rows.get(&(table.clone(), image)))
+            .ok_or(AdjunctionError::NotANaturalMap { row })?;
+        row_map.insert(row, *target);
+    }
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// The unit `eta_Y : Y -> Pi_F(Delta_F Y)` of `Delta_F -| Pi_F`.
+///
+/// Row `r` of `Y` at a table `d` maps to the row of `Pi_F(Delta_F Y)` whose
+/// tuple holds the copy of `r` at every table of `d`'s fibre (the one row,
+/// when `d` is outside the image).
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `y` holds rows or pairs
+/// outside `T`, [`AdjunctionError::CellsOutsideImage`] when a row at a table
+/// outside the image of `F` carries cells (the one row of the limit there
+/// carries none), and the errors of [`f_delta_with_hom`] and
+/// [`f_pi_on_hom`].
+pub fn f_pi_unit(
+    y: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_target_instance(y, functor)?;
+    let (delta, to_original) = f_delta_with_hom(y, functor)?;
+    let copies = copies(&delta, &to_original);
+    let pi = pi_limit(&delta, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let mut row_map = BTreeMap::new();
+    for (table, rows) in y.tables() {
+        let fibre = functor.table_fibre(table);
+        for id in rows.ids() {
+            let tuple: Option<Vec<RowId>> = fibre
+                .iter()
+                .map(|&source| copies.get(&(source.clone(), id)).copied())
+                .collect();
+            let image = tuple
+                .and_then(|tuple| pi.rows.get(&(table.clone(), tuple)))
+                .ok_or(AdjunctionError::NotANaturalMap { row: id })?;
+            row_map.insert(id, *image);
+        }
+    }
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// The counit `eps_X : Delta_F(Pi_F X) -> X` of `Delta_F -| Pi_F`: the copy
+/// at `s` of a row of `Pi_F X` maps to that row's component at `s`.
+///
+/// # Errors
+///
+/// Returns [`AdjunctionError::VertexOutsideDomain`] or
+/// [`AdjunctionError::EdgeOutsideDomain`] when `x` is not an instance on
+/// `S'`, and the errors of [`f_delta_with_hom`] and [`f_pi_on_hom`].
+pub fn f_pi_counit(
+    x: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_source_instance(x, functor)?;
+    let pi = pi_limit(x, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let (delta, to_original) = f_delta_with_hom(&pi.instance, functor)?;
+    let mut row_map = BTreeMap::new();
+    for (&copy, original) in &to_original.row_map {
+        let component = delta.table_of(copy).and_then(|source| {
+            let (table, tuple) = pi.tuples.get(original)?;
+            let position = functor
+                .table_fibre(table)
+                .iter()
+                .position(|component| *component == source)?;
+            tuple.get(position).copied()
+        });
+        let component = component.ok_or(AdjunctionError::NotANaturalMap { row: copy })?;
+        row_map.insert(copy, component);
+    }
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// Transpose `Hom_S'(Delta_F Y, X) -> Hom_T(Y, Pi_F X)`, sending `g` to
+/// `Pi_F(g) . eta_Y`: row `r` of `Y` at `d` maps to the row of `Pi_F X`
+/// whose tuple holds `g` of the copy of `r` at every table of `d`'s fibre.
+///
+/// # Errors
+///
+/// As [`f_pi_unit`].
+pub fn f_pi_transpose_left(
+    g: &FInstanceHom,
+    y: &FInstance,
+    x: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<FInstanceHom, AdjunctionError> {
+    check_target_instance(y, functor)?;
+    let (delta, to_original) = f_delta_with_hom(y, functor)?;
+    let copies = copies(&delta, &to_original);
+    let pi = pi_limit(x, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let mut row_map = BTreeMap::new();
+    for (table, rows) in y.tables() {
+        let fibre = functor.table_fibre(table);
+        for id in rows.ids() {
+            let tuple: Option<Vec<RowId>> = fibre
+                .iter()
+                .map(|&source| {
+                    copies
+                        .get(&(source.clone(), id))
+                        .and_then(|&copy| g.image(copy))
+                })
+                .collect();
+            let image = tuple
+                .and_then(|tuple| pi.rows.get(&(table.clone(), tuple)))
+                .ok_or(AdjunctionError::NotANaturalMap { row: id })?;
+            row_map.insert(id, *image);
+        }
+    }
+    Ok(FInstanceHom::new(row_map))
+}
+
+/// Transpose `Hom_T(Y, Pi_F X) -> Hom_S'(Delta_F Y, X)`, sending `f` to
+/// `eps_X . Delta_F(f)`, the inverse of [`f_pi_transpose_left`]: the copy at
+/// `s` of a row `r` of `Y` maps to the component at `s` of `f(r)`.
+///
+/// # Errors
+///
+/// As [`f_pi_counit`], and [`AdjunctionError::NotANaturalMap`] when `f`
+/// sends a row outside `Pi_F X`.
+pub fn f_pi_transpose_right(
+    f: &FInstanceHom,
+    y: &FInstance,
+    x: &FInstance,
+    functor: &MigrationFunctor,
+    max_product_size: usize,
+) -> Result<FInstanceHom, AdjunctionError> {
+    let (delta, to_original) = f_delta_with_hom(y, functor)?;
+    let pi = pi_limit(x, functor, max_product_size).map_err(AdjunctionError::Pi)?;
+    let mut row_map = BTreeMap::new();
+    for (&copy, &original) in &to_original.row_map {
+        let component = delta.table_of(copy).and_then(|source| {
+            let (table, tuple) = pi.tuples.get(&f.image(original)?)?;
+            let position = functor
+                .table_fibre(table)
+                .iter()
+                .position(|component| *component == source)?;
+            tuple.get(position).copied()
+        });
+        let component = component.ok_or(AdjunctionError::NotANaturalMap { row: copy })?;
+        row_map.insert(copy, component);
+    }
     Ok(FInstanceHom::new(row_map))
 }
 
@@ -868,6 +1060,8 @@ mod tests {
     use crate::functor::Table;
     use crate::ginstance::EdgeId;
     use crate::metadata::Node;
+    use crate::pi::{functor_pi_along, functor_pi_along_with_hom};
+    use crate::rel_schema::RelSchema;
     use crate::value::{FieldPresence, Value};
 
     // -- shared builders -------------------------------------------------
@@ -935,10 +1129,6 @@ mod tests {
         }
     }
 
-    fn row(v: i64) -> HashMap<String, Value> {
-        HashMap::from([("v".to_owned(), Value::Int(v))])
-    }
-
     // -- a concrete merging example (functor side) -----------------------
 
     /// Migration merging source vertices `a` and `b` onto target `t`, with
@@ -967,77 +1157,6 @@ mod tests {
         }
     }
 
-    #[test]
-    fn f_sigma_merges_fibres_into_coproduct() {
-        let m = merge_migration();
-        let x = FInstance::new()
-            .with_table("a", vec![row(1), row(2)])
-            .and_then(|f| f.with_table("b", vec![row(3)]))
-            .and_then(|f| f.with_table("c", vec![row(9)]))
-            .unwrap();
-        let sigma = f_sigma(&x, &m).expect("sigma");
-        // a (2 rows) and b (1 row) merge into t (3 rows); c becomes u; every
-        // row keeps its id.
-        assert_eq!(
-            sigma.table("t").map(Table::ids),
-            Some(vec![RowId(0), RowId(1), RowId(2)])
-        );
-        assert_eq!(sigma.table("u").map(Table::ids), Some(vec![RowId(3)]));
-    }
-
-    #[test]
-    fn f_unit_and_counit_check_over_merge() {
-        let m = merge_migration();
-        // a holds rows 0 and 1, b row 2, c row 3.
-        let x = FInstance::new()
-            .with_table("a", vec![row(1), row(2)])
-            .and_then(|f| f.with_table("b", vec![row(3)]))
-            .and_then(|f| f.with_table("c", vec![row(9)]))
-            .and_then(|f| {
-                f.with_foreign_key(
-                    edge("a", "c", "ea"),
-                    [(RowId(0), RowId(3)), (RowId(1), RowId(3))],
-                )
-            })
-            .and_then(|f| f.with_foreign_key(edge("b", "c", "eb"), [(RowId(2), RowId(3))]))
-            .unwrap();
-
-        let sigma = f_sigma(&x, &m).expect("sigma");
-        let delta_sigma = f_delta(&sigma, &m).expect("delta");
-        let unit = f_unit(&x, &m).expect("unit");
-        unit.check(&x, &delta_sigma)
-            .expect("unit is a valid homomorphism into Delta(Sigma X)");
-
-        // First triangle identity: phi(eta_X) = id on Sigma X.
-        let phi_unit = f_transpose_right(&unit, &x, &sigma, &m).expect("transpose");
-        assert_eq!(phi_unit, FInstanceHom::identity(&sigma));
-
-        // t holds rows 0 and 1, u row 2.
-        let y = FInstance::new()
-            .with_table("t", vec![row(5), row(6)])
-            .and_then(|f| f.with_table("u", vec![row(7)]))
-            .and_then(|f| {
-                f.with_foreign_key(
-                    edge("t", "u", "e"),
-                    [(RowId(0), RowId(2)), (RowId(1), RowId(2))],
-                )
-            })
-            .unwrap();
-        let delta_y = f_delta(&y, &m).expect("delta");
-        let sigma_delta_y = f_sigma(&delta_y, &m).expect("sigma");
-        let counit = f_counit(&y, &m).expect("counit");
-        counit
-            .check(&sigma_delta_y, &y)
-            .expect("counit is a valid homomorphism onto Y");
-
-        // Second triangle identity: psi(eps_Y) = id on Delta Y.
-        let psi_counit = f_transpose_left(&counit, &delta_y, &y, &m).expect("transpose");
-        assert_eq!(psi_counit, FInstanceHom::identity(&delta_y));
-    }
-
-    // -- a concrete injective example (W-type side) ----------------------
-
-    /// A rename migration: `root -> box`, `leaf -> item`.
     fn rename_migration() -> CompiledMigration {
         let mut vertex_remap = HashMap::new();
         vertex_remap.insert(Name::from("root"), Name::from("box"));
@@ -1129,54 +1248,6 @@ mod tests {
         }
     }
 
-    /// `a` holds rows 0 and 1, `c` row 2; both `a` rows reference it.
-    fn omission_source() -> FInstance {
-        FInstance::new()
-            .with_table("a", vec![row(1), row(2)])
-            .and_then(|f| f.with_table("c", vec![row(9)]))
-            .and_then(|f| {
-                f.with_foreign_key(
-                    edge("a", "c", "ea"),
-                    [(RowId(0), RowId(2)), (RowId(1), RowId(2))],
-                )
-            })
-            .unwrap()
-    }
-
-    #[test]
-    fn f_delta_reindexes_the_vertices_surviving_by_omission() {
-        let m = omission_migration();
-        let x = omission_source();
-        let sigma = f_sigma(&x, &m).expect("every table of X is anchored in the domain");
-        let delta_sigma = f_delta(&sigma, &m).expect("delta");
-        assert_eq!(
-            delta_sigma.row_count("c"),
-            1,
-            "a vertex surviving under its own name is reindexed like any other",
-        );
-        let unit = f_unit(&x, &m).expect("the unit is defined on X");
-        unit.check(&x, &delta_sigma)
-            .expect("unit is a valid homomorphism into Delta(Sigma X)");
-    }
-
-    #[test]
-    fn f_transposes_invert_each_other_over_omission() {
-        let m = omission_migration();
-        let x = omission_source();
-        let sigma = f_sigma(&x, &m).expect("sigma");
-        let unit = f_unit(&x, &m).expect("unit");
-        let phi_unit = f_transpose_right(&unit, &x, &sigma, &m).expect("transpose");
-        assert_eq!(phi_unit, FInstanceHom::identity(&sigma));
-    }
-
-    #[test]
-    fn f_sigma_refuses_a_table_outside_the_domain() {
-        let m = omission_migration();
-        let x = omission_source().with_table("stray", vec![row(4)]).unwrap();
-        let err = f_sigma(&x, &m).expect_err("`stray` is neither remapped nor surviving");
-        assert!(matches!(err, AdjunctionError::VertexOutsideDomain(v) if v == "stray"));
-    }
-
     #[test]
     fn w_delta_inverts_a_vertex_surviving_by_omission() {
         let m = omission_migration();
@@ -1202,176 +1273,6 @@ mod tests {
     }
 
     // -- row allocation and row maps --------------------------------------
-
-    #[test]
-    fn f_delta_allocates_copies_in_source_name_then_row_order() {
-        let m = merge_migration();
-        // t holds rows 0 and 1, u row 2.
-        let y = FInstance::new()
-            .with_table("t", vec![row(5), row(6)])
-            .and_then(|f| f.with_table("u", vec![row(7)]))
-            .unwrap();
-        let (delta, to_original) = f_delta_with_hom(&y, &m).unwrap();
-        // The domain is a, b, c in name order. `a` takes the first copy of
-        // t's rows and keeps their ids; `b` takes the second copy under fresh
-        // ids from 3 up, in t's row order; `c` is an injective fibre and
-        // keeps u's id.
-        assert_eq!(
-            delta.table("a").map(Table::ids),
-            Some(vec![RowId(0), RowId(1)])
-        );
-        assert_eq!(
-            delta.table("b").map(Table::ids),
-            Some(vec![RowId(3), RowId(4)])
-        );
-        assert_eq!(delta.table("c").map(Table::ids), Some(vec![RowId(2)]));
-        assert_eq!(
-            to_original.row_map,
-            BTreeMap::from([
-                (RowId(0), RowId(0)),
-                (RowId(1), RowId(1)),
-                (RowId(2), RowId(2)),
-                (RowId(3), RowId(0)),
-                (RowId(4), RowId(1)),
-            ])
-        );
-        assert_eq!(delta.row(RowId(4)), y.row(RowId(1)));
-    }
-
-    #[test]
-    fn a_cross_schema_row_map_lands_in_the_image_table() {
-        let m = merge_migration();
-        let y = FInstance::new()
-            .with_table("t", vec![row(5), row(6)])
-            .and_then(|f| f.with_table("u", vec![row(7)]))
-            .and_then(|f| {
-                f.with_foreign_key(
-                    edge("t", "u", "e"),
-                    [(RowId(0), RowId(2)), (RowId(1), RowId(2))],
-                )
-            })
-            .unwrap();
-        // Delta's row map sends the copies at `a`, `b` and `c` into the
-        // tables `t` and `u` of `y`, the images of their own tables.
-        let (delta, to_original) = f_delta_with_hom(&y, &m).unwrap();
-        to_original
-            .check_tables(&delta, &y)
-            .expect("each copy lands in the image of its own table");
-        to_original
-            .check(&delta, &y)
-            .expect("Delta's row map is a homomorphism along F");
-        FInstanceHom::from_row_map_along(
-            to_original.row_map.clone(),
-            to_original.table_map.clone(),
-            &delta,
-            &y,
-        )
-        .expect("the same map decodes along F");
-
-        // A copy at `a` sent to the row of `u` lands outside `F(a) = t`.
-        let wrong_copy = delta.rows(&Name::from("a"))[0].0;
-        let mut wrong = to_original.row_map.clone();
-        wrong.insert(wrong_copy, RowId(2));
-        let err = FInstanceHom::from_row_map_along(wrong, to_original.table_map, &delta, &y)
-            .expect_err("a row outside its image table is refused");
-        assert!(matches!(err, InstError::HomTableMismatch { row } if row == wrong_copy));
-
-        // Pi's projections send the rows of `t` into `a` and `b`.
-        let x = FInstance::new()
-            .with_table("a", vec![row(1)])
-            .and_then(|f| f.with_table("b", vec![row(1)]))
-            .unwrap();
-        let mut pi_migration = CompiledMigration::default();
-        pi_migration.surviving_verts.insert(Name::from("t"));
-        for source in ["a", "b"] {
-            pi_migration
-                .vertex_remap
-                .insert(Name::from(source), Name::from("t"));
-        }
-        let (pi, projections) = crate::pi::functor_pi_with_hom(
-            &x,
-            &Schema::default(),
-            &Schema::default(),
-            &pi_migration,
-            16,
-        )
-        .unwrap();
-        for source in ["a", "b"] {
-            let projection = &projections[&Name::from(source)];
-            projection
-                .check_tables(&pi, &x)
-                .expect("a projection lands in its own fibre vertex");
-            projection
-                .check(&pi, &x)
-                .expect("a projection whose components agree is a homomorphism");
-        }
-    }
-
-    #[test]
-    fn every_row_creating_operation_returns_its_row_map() {
-        let m = merge_migration();
-        let y = FInstance::new()
-            .with_table("t", vec![row(5), row(6)])
-            .and_then(|f| f.with_table("u", vec![row(7)]))
-            .and_then(|f| {
-                f.with_foreign_key(
-                    edge("t", "u", "e"),
-                    [(RowId(0), RowId(2)), (RowId(1), RowId(2))],
-                )
-            })
-            .unwrap();
-        // Delta copies rows: its row map sends every copy to the row it
-        // copies, cells and foreign keys included.
-        let (delta, to_original) = f_delta_with_hom(&y, &m).unwrap();
-        assert_eq!(to_original.row_map.len(), delta.total_row_count());
-        for (copy, original) in &to_original.row_map {
-            assert_eq!(delta.row(*copy), y.row(*original));
-        }
-        for (edge, s, t) in delta.all_pairs() {
-            let image = map_edge(&m, &edge);
-            assert!(y.contains_pair(
-                &image,
-                to_original.image(s).unwrap(),
-                to_original.image(t).unwrap()
-            ));
-        }
-        // The counit is that row map, read on Sigma(Delta Y), whose tables
-        // already sit at the targets.
-        assert_eq!(f_counit(&y, &m).unwrap().row_map, to_original.row_map);
-
-        // Pi creates product rows: its projections send every row to the
-        // component it drew from each fibre vertex.
-        let x = FInstance::new()
-            .with_table("a", vec![row(1), row(2)])
-            .and_then(|f| f.with_table("b", vec![HashMap::from([("w".to_owned(), Value::Int(3))])]))
-            .unwrap();
-        let mut pi_migration = CompiledMigration::default();
-        pi_migration.surviving_verts.insert(Name::from("t"));
-        pi_migration
-            .vertex_remap
-            .insert(Name::from("a"), Name::from("t"));
-        pi_migration
-            .vertex_remap
-            .insert(Name::from("b"), Name::from("t"));
-        let (pi, projections) = crate::pi::functor_pi_with_hom(
-            &x,
-            &Schema::default(),
-            &Schema::default(),
-            &pi_migration,
-            16,
-        )
-        .unwrap();
-        for source in ["a", "b"] {
-            let projection = &projections[&Name::from(source)];
-            assert_eq!(projection.row_map.len(), pi.total_row_count());
-            for (product_row, component) in &projection.row_map {
-                let product = pi.row(*product_row).unwrap();
-                for (column, value) in x.row(*component).unwrap() {
-                    assert_eq!(product.get(column), Some(value));
-                }
-            }
-        }
-    }
 
     #[test]
     fn graph_delta_rejects_a_non_injective_map() {
@@ -1426,7 +1327,20 @@ mod tests {
             .and_then(|f| f.with_foreign_key(edge("box", "item", "child"), [(RowId(0), RowId(1))]))
             .and_then(|f| f.with_foreign_key(edge("box", "item", "other"), [(RowId(0), RowId(1))]))
             .unwrap();
-        let (table_then_graph, _) = GInstance::from_finstance(&f_delta(&y, &m).unwrap()).unwrap();
+        let functor = MigrationFunctor::new(
+            &table_schema(
+                &["root", "leaf"],
+                &[edge("root", "leaf", "child"), edge("root", "leaf", "other")],
+            ),
+            &table_schema(
+                &["box", "item"],
+                &[edge("box", "item", "child"), edge("box", "item", "other")],
+            ),
+            &m,
+        )
+        .unwrap();
+        let (table_then_graph, _) =
+            GInstance::from_finstance(&f_delta(&y, &functor).unwrap()).unwrap();
         let (graph, _) = GInstance::from_finstance(&y).unwrap();
         let graph_then_delta = g_delta(&graph, &m).unwrap();
         assert_eq!(graph_then_delta.edge_count(), 1);
@@ -1436,209 +1350,727 @@ mod tests {
         );
     }
 
-    // -- property tests --------------------------------------------------
+    // -- table Kan extensions along a migration functor -------------------
+
+    /// A foreign key `src -> tgt` named `name`.
+    fn fk(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    /// A schema whose vertices are all tables and whose edges are the given
+    /// foreign keys.
+    fn table_schema(tables: &[&str], relations: &[Edge]) -> Schema {
+        Schema {
+            protocol: "test".into(),
+            vertices: tables
+                .iter()
+                .map(|&v| {
+                    (
+                        Name::from(v),
+                        Vertex {
+                            id: Name::from(v),
+                            kind: crate::rel_schema::TABLE_KIND.into(),
+                            nsid: None,
+                        },
+                    )
+                })
+                .collect(),
+            edges: relations
+                .iter()
+                .map(|e| (e.clone(), e.kind.clone()))
+                .collect(),
+            ..Schema::default()
+        }
+    }
+
+    /// Rows without cells, with the given ids.
+    fn blank(ids: &[u32]) -> Vec<(RowId, crate::functor::Row)> {
+        ids.iter()
+            .map(|&i| (RowId(i), crate::functor::Row::new()))
+            .collect()
+    }
+
+    /// Every homomorphism `dom -> cod` between instances of one schema,
+    /// found by assigning rows in ascending id and pruning on each pair whose
+    /// two rows are assigned.
+    fn homs(dom: &FInstance, cod: &FInstance) -> Vec<FInstanceHom> {
+        let rows = dom.row_ids();
+        let candidates: Vec<Vec<RowId>> = rows
+            .iter()
+            .map(|&r| {
+                let table = dom.table_of(r).cloned().unwrap_or_default();
+                let cells = dom.row(r).cloned().unwrap_or_default();
+                cod.rows(&table)
+                    .into_iter()
+                    .filter(|(_, c)| crate::functor::same_row(c, &cells))
+                    .map(|(id, _)| id)
+                    .collect()
+            })
+            .collect();
+        let pairs = dom.all_pairs();
+        let mut out = Vec::new();
+        let mut chosen: BTreeMap<RowId, RowId> = BTreeMap::new();
+        fn go(
+            i: usize,
+            rows: &[RowId],
+            candidates: &[Vec<RowId>],
+            pairs: &[(Edge, RowId, RowId)],
+            cod: &FInstance,
+            chosen: &mut BTreeMap<RowId, RowId>,
+            out: &mut Vec<FInstanceHom>,
+        ) {
+            let consistent = pairs
+                .iter()
+                .all(|(e, s, t)| match (chosen.get(s), chosen.get(t)) {
+                    (Some(&ms), Some(&mt)) => cod.contains_pair(e, ms, mt),
+                    _ => true,
+                });
+            if !consistent {
+                return;
+            }
+            if i == rows.len() {
+                out.push(FInstanceHom::new(chosen.clone()));
+                return;
+            }
+            for &c in &candidates[i] {
+                chosen.insert(rows[i], c);
+                go(i + 1, rows, candidates, pairs, cod, chosen, out);
+                chosen.remove(&rows[i]);
+            }
+        }
+        go(0, &rows, &candidates, &pairs, cod, &mut chosen, &mut out);
+        out
+    }
+
+    /// Whether `hom` is the identity on `instance`.
+    fn is_identity(hom: &FInstanceHom, instance: &FInstance) -> bool {
+        hom.row_map == FInstanceHom::identity(instance).row_map
+    }
+
+    /// The Hom bijection of `Sigma -| Delta` on `(x, y)`, counted and
+    /// witnessed: the transposes land in the hom-sets they claim and are
+    /// mutually inverse. Returns `|Hom(Sigma x, y)|`.
+    fn check_sigma_bijection(
+        f: &MigrationFunctor,
+        x: &FInstance,
+        y: &FInstance,
+    ) -> Result<usize, String> {
+        let sigma = f_sigma(x, f).map_err(|e| e.to_string())?;
+        let delta = f_delta(y, f).map_err(|e| e.to_string())?;
+        let left = homs(&sigma, y);
+        let right = homs(x, &delta);
+        if left.len() != right.len() {
+            return Err(format!(
+                "|Hom(Sigma x, y)| = {} but |Hom(x, Delta y)| = {}",
+                left.len(),
+                right.len()
+            ));
+        }
+        for g in &left {
+            let t = f_transpose_left(g, x, y, f).map_err(|e| e.to_string())?;
+            t.check(x, &delta)
+                .map_err(|e| format!("transpose of {g:?}: {e}"))?;
+            let back = f_transpose_right(&t, x, y, f).map_err(|e| e.to_string())?;
+            if back.row_map != g.row_map {
+                return Err(format!("the Sigma transposes do not invert {g:?}"));
+            }
+        }
+        for h in &right {
+            let t = f_transpose_right(h, x, y, f).map_err(|e| e.to_string())?;
+            t.check(&sigma, y)
+                .map_err(|e| format!("transpose of {h:?}: {e}"))?;
+            let back = f_transpose_left(&t, x, y, f).map_err(|e| e.to_string())?;
+            if back.row_map != h.row_map {
+                return Err(format!("the Sigma transposes do not invert {h:?}"));
+            }
+        }
+        Ok(left.len())
+    }
+
+    /// The Hom bijection of `Delta -| Pi` on `(y, x)`, counted and
+    /// witnessed. Returns `|Hom(Delta y, x)|`.
+    fn check_pi_bijection(
+        f: &MigrationFunctor,
+        x: &FInstance,
+        y: &FInstance,
+        max: usize,
+    ) -> Result<usize, String> {
+        let delta = f_delta(y, f).map_err(|e| e.to_string())?;
+        let pi = functor_pi_along(x, f, max).map_err(|e| e.to_string())?;
+        let left = homs(&delta, x);
+        let right = homs(y, &pi);
+        if left.len() != right.len() {
+            return Err(format!(
+                "|Hom(Delta y, x)| = {} but |Hom(y, Pi x)| = {}",
+                left.len(),
+                right.len()
+            ));
+        }
+        for g in &left {
+            let t = f_pi_transpose_left(g, y, x, f, max).map_err(|e| e.to_string())?;
+            t.check(y, &pi)
+                .map_err(|e| format!("transpose of {g:?}: {e}"))?;
+            let back = f_pi_transpose_right(&t, y, x, f, max).map_err(|e| e.to_string())?;
+            if back.row_map != g.row_map {
+                return Err(format!("the Pi transposes do not invert {g:?}"));
+            }
+        }
+        for h in &right {
+            let t = f_pi_transpose_right(h, y, x, f, max).map_err(|e| e.to_string())?;
+            t.check(&delta, x)
+                .map_err(|e| format!("transpose of {h:?}: {e}"))?;
+            let back = f_pi_transpose_left(&t, y, x, f, max).map_err(|e| e.to_string())?;
+            if back.row_map != h.row_map {
+                return Err(format!("the Pi transposes do not invert {h:?}"));
+            }
+        }
+        Ok(left.len())
+    }
+
+    /// Both triangle identities of both adjunctions at `x` and `y`, with
+    /// every unit and counit checked as a homomorphism.
+    fn check_triangles(
+        f: &MigrationFunctor,
+        x: &FInstance,
+        y: &FInstance,
+        max: usize,
+    ) -> Result<(), String> {
+        let err = |e: AdjunctionError| e.to_string();
+        // Sigma -| Delta: eps_{Sigma x} . Sigma(eta_x) = id.
+        let sigma_x = f_sigma(x, f).map_err(err)?;
+        let eta_x = f_unit(x, f).map_err(err)?;
+        let delta_sigma_x = f_delta(&sigma_x, f).map_err(err)?;
+        eta_x.check(x, &delta_sigma_x).map_err(|e| e.to_string())?;
+        let sigma_eta = f_sigma_on_hom(&eta_x, x, f).map_err(err)?;
+        let sigma_delta_sigma_x = f_sigma(&delta_sigma_x, f).map_err(err)?;
+        sigma_eta
+            .check(&sigma_x, &sigma_delta_sigma_x)
+            .map_err(|e| e.to_string())?;
+        let eps = f_counit(&sigma_x, f).map_err(err)?;
+        eps.check(&sigma_delta_sigma_x, &sigma_x)
+            .map_err(|e| e.to_string())?;
+        let first = sigma_eta.compose(&eps).map_err(|e| e.to_string())?;
+        if !is_identity(&first, &sigma_x) {
+            return Err(format!("eps . Sigma(eta) = {first:?}"));
+        }
+        // Delta(eps_y) . eta_{Delta y} = id.
+        let delta_y = f_delta(y, f).map_err(err)?;
+        let eta = f_unit(&delta_y, f).map_err(err)?;
+        let sigma_delta_y = f_sigma(&delta_y, f).map_err(err)?;
+        let eps_y = f_counit(y, f).map_err(err)?;
+        eps_y.check(&sigma_delta_y, y).map_err(|e| e.to_string())?;
+        let delta_eps = f_delta_on_hom(&eps_y, &sigma_delta_y, y, f).map_err(err)?;
+        let second = eta.compose(&delta_eps).map_err(|e| e.to_string())?;
+        if !is_identity(&second, &delta_y) {
+            return Err(format!("Delta(eps) . eta = {second:?}"));
+        }
+        // Delta -| Pi: eps'_{Delta y} . Delta(eta'_y) = id.
+        let eta_p = f_pi_unit(y, f, max).map_err(err)?;
+        let pi_delta_y = functor_pi_along(&delta_y, f, max).map_err(|e| e.to_string())?;
+        eta_p.check(y, &pi_delta_y).map_err(|e| e.to_string())?;
+        let delta_eta = f_delta_on_hom(&eta_p, y, &pi_delta_y, f).map_err(err)?;
+        let eps_p = f_pi_counit(&delta_y, f, max).map_err(err)?;
+        let delta_pi_delta_y = f_delta(&pi_delta_y, f).map_err(err)?;
+        eps_p
+            .check(&delta_pi_delta_y, &delta_y)
+            .map_err(|e| e.to_string())?;
+        let third = delta_eta.compose(&eps_p).map_err(|e| e.to_string())?;
+        if !is_identity(&third, &delta_y) {
+            return Err(format!("eps' . Delta(eta') = {third:?}"));
+        }
+        // Pi(eps'_x) . eta'_{Pi x} = id.
+        let pi_x = functor_pi_along(x, f, max).map_err(|e| e.to_string())?;
+        let eta_pi = f_pi_unit(&pi_x, f, max).map_err(err)?;
+        let eps_x = f_pi_counit(x, f, max).map_err(err)?;
+        let delta_pi_x = f_delta(&pi_x, f).map_err(err)?;
+        eps_x.check(&delta_pi_x, x).map_err(|e| e.to_string())?;
+        let pi_eps = f_pi_on_hom(&eps_x, &delta_pi_x, x, f, max).map_err(err)?;
+        let fourth = eta_pi.compose(&pi_eps).map_err(|e| e.to_string())?;
+        if !is_identity(&fourth, &pi_x) {
+            return Err(format!("Pi(eps') . eta' = {fourth:?}"));
+        }
+        Ok(())
+    }
+
+    /// A generated case: a functor between small relation-ified schemas, an
+    /// instance on its domain `S'` and one on its target.
+    #[derive(Clone, Debug)]
+    struct KanCase {
+        src: Schema,
+        tgt: Schema,
+        migration: CompiledMigration,
+        x: FInstance,
+        y: FInstance,
+    }
+
+    /// A small linear congruential generator, so a case is a function of a
+    /// seed.
+    struct Lcg(u64);
+
+    impl Lcg {
+        fn below(&mut self, n: u64) -> u64 {
+            self.0 = self
+                .0
+                .wrapping_mul(6_364_136_223_846_793_005)
+                .wrapping_add(1_442_695_040_888_963_407);
+            (self.0 >> 33) % n.max(1)
+        }
+
+        fn chance(&mut self, percent: u64) -> bool {
+            self.below(100) < percent
+        }
+    }
+
+    /// Rows for `table`, numbered from `next`, carrying cells only when
+    /// `cells` allows (one in five rows holds `v = 0` or `v = 1`).
+    fn gen_rows(
+        r: &mut Lcg,
+        next: &mut u32,
+        count: u64,
+        cells: bool,
+    ) -> Vec<(RowId, crate::functor::Row)> {
+        (0..count)
+            .map(|_| {
+                let id = RowId(*next);
+                *next += 1;
+                let mut row = crate::functor::Row::new();
+                if cells && r.chance(20) {
+                    row.insert(
+                        "v".to_owned(),
+                        Value::Int(i64::try_from(r.below(2)).unwrap()),
+                    );
+                }
+                (id, row)
+            })
+            .collect()
+    }
+
+    /// A random subset of the pairs of rows of `a` and rows of `b`, so the
+    /// relation may be partial and many-valued.
+    fn gen_pairs(
+        r: &mut Lcg,
+        inst: &FInstance,
+        a: &str,
+        b: &str,
+        percent: u64,
+    ) -> Vec<(RowId, RowId)> {
+        let mut pairs = Vec::new();
+        for (s, _) in inst.rows(a) {
+            for (t, _) in inst.rows(b) {
+                if r.chance(percent) {
+                    pairs.push((s, t));
+                }
+            }
+        }
+        pairs
+    }
+
+    /// The case of a seed: up to three source tables (one may be dropped),
+    /// up to three target tables (some may lie outside the image), foreign
+    /// keys between any two tables including self-references, some carried
+    /// (possibly onto one image), some unmentioned, and target-only foreign
+    /// keys; a target-only foreign key is also listed as surviving, as
+    /// `panproto_mig::compile` lists surviving image edges.
+    fn kan_case(seed: u64) -> KanCase {
+        let mut r = Lcg(seed);
+        let s_count = 1 + r.below(3);
+        let t_count = 1 + r.below(3);
+        let s_tables: Vec<String> = (0..s_count).map(|i| format!("s{i}")).collect();
+        let t_tables: Vec<String> = (0..t_count).map(|i| format!("t{i}")).collect();
+        let mut migration = CompiledMigration::default();
+        for s in &s_tables {
+            if r.chance(85) {
+                let t = &t_tables[usize::try_from(r.below(t_count)).unwrap()];
+                migration
+                    .vertex_remap
+                    .insert(s.as_str().into(), t.as_str().into());
+                migration.surviving_verts.insert(t.as_str().into());
+            }
+        }
+        let mut s_edges = Vec::new();
+        let mut t_edges = BTreeSet::new();
+        for i in 0..r.below(4) {
+            let a = &s_tables[usize::try_from(r.below(s_count)).unwrap()];
+            let b = &s_tables[usize::try_from(r.below(s_count)).unwrap()];
+            let e = fk(a, b, &format!("r{i}"));
+            s_edges.push(e.clone());
+            let images = (
+                migration.vertex_remap.get(a.as_str()).cloned(),
+                migration.vertex_remap.get(b.as_str()).cloned(),
+            );
+            if let (Some(fa), Some(fb)) = images {
+                if r.chance(75) {
+                    let image = fk(&fa, &fb, &format!("E{}", r.below(2)));
+                    t_edges.insert(image.clone());
+                    migration.edge_remap.insert(e, image);
+                }
+            }
+        }
+        for i in 0..r.below(3) {
+            let a = &t_tables[usize::try_from(r.below(t_count)).unwrap()];
+            let b = &t_tables[usize::try_from(r.below(t_count)).unwrap()];
+            let e = fk(a, b, &format!("X{i}"));
+            migration.surviving_edges.insert(e.clone());
+            t_edges.insert(e);
+        }
+        let s_refs: Vec<&str> = s_tables.iter().map(String::as_str).collect();
+        let t_refs: Vec<&str> = t_tables.iter().map(String::as_str).collect();
+        let t_edges: Vec<Edge> = t_edges.into_iter().collect();
+        let src = table_schema(&s_refs, &s_edges);
+        let tgt = table_schema(&t_refs, &t_edges);
+        let f = MigrationFunctor::new(&src, &tgt, &migration).unwrap();
+
+        let mut next = 0u32;
+        let mut x = FInstance::new();
+        for s in f.table_map().keys() {
+            let count = r.below(3);
+            x = x
+                .with_rows(s.clone(), gen_rows(&mut r, &mut next, count, true))
+                .unwrap();
+        }
+        for e in f.relation_map().keys() {
+            let pairs = gen_pairs(&mut r, &x, &e.src, &e.tgt, 40);
+            x = x.with_foreign_key(e.clone(), pairs).unwrap();
+        }
+        let outside = f.tables_outside_image();
+        let mut y = FInstance::new();
+        for t in f.target().tables() {
+            let count = r.below(3);
+            let cells = !outside.contains(t);
+            y = y
+                .with_rows(t.clone(), gen_rows(&mut r, &mut next, count, cells))
+                .unwrap();
+        }
+        for e in f.target().relations() {
+            let pairs = gen_pairs(&mut r, &y, &e.src, &e.tgt, 40);
+            y = y.with_foreign_key(e.clone(), pairs).unwrap();
+        }
+        KanCase {
+            src,
+            tgt,
+            migration,
+            x,
+            y,
+        }
+    }
+
+    impl KanCase {
+        fn functor(&self) -> MigrationFunctor {
+            MigrationFunctor::new(&self.src, &self.tgt, &self.migration).unwrap()
+        }
+    }
+
+    /// A merge of `a` and `b` onto `m`, the foreign key `l: a -> b` carried
+    /// to a loop on `m`, the unmentioned `u: b -> a`, and `z`, a target table
+    /// outside the image, with the target-only `w: m -> z`.
+    fn merge_with_loop() -> (Schema, Schema, CompiledMigration) {
+        let l = fk("a", "b", "l");
+        let src = table_schema(&["a", "b"], &[l.clone(), fk("b", "a", "u")]);
+        let tgt = table_schema(&["m", "z"], &[fk("m", "m", "L"), fk("m", "z", "w")]);
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "m".into());
+        migration.vertex_remap.insert("b".into(), "m".into());
+        migration.surviving_verts.insert("m".into());
+        migration.edge_remap.insert(l, fk("m", "m", "L"));
+        (src, tgt, migration)
+    }
+
+    /// Every instance on `S'` of [`merge_with_loop`] with at most one row per
+    /// table, and on its target with at most two rows of `m` and one of `z`,
+    /// all without cells, over every set of pairs.
+    fn tiny_instances() -> (Vec<FInstance>, Vec<FInstance>) {
+        let subsets = |pairs: &[(RowId, RowId)]| -> Vec<Vec<(RowId, RowId)>> {
+            (0..1u32 << pairs.len())
+                .map(|mask| {
+                    pairs
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| mask & (1 << i) != 0)
+                        .map(|(_, p)| *p)
+                        .collect()
+                })
+                .collect()
+        };
+        let mut xs = Vec::new();
+        for a in 0..=1u32 {
+            for b in 0..=1u32 {
+                let base = FInstance::new()
+                    .with_rows("a", blank(&(0..a).collect::<Vec<_>>()))
+                    .and_then(|f| f.with_rows("b", blank(&(10..10 + b).collect::<Vec<_>>())))
+                    .unwrap();
+                let possible: Vec<(RowId, RowId)> = base
+                    .rows("a")
+                    .into_iter()
+                    .flat_map(|(s, _)| base.rows("b").into_iter().map(move |(t, _)| (s, t)))
+                    .collect();
+                for pairs in subsets(&possible) {
+                    xs.push(
+                        base.clone()
+                            .with_foreign_key(fk("a", "b", "l"), pairs)
+                            .unwrap(),
+                    );
+                }
+            }
+        }
+        let mut ys = Vec::new();
+        for m in 0..=2u32 {
+            for z in 0..=1u32 {
+                let base = FInstance::new()
+                    .with_rows("m", blank(&(20..20 + m).collect::<Vec<_>>()))
+                    .and_then(|f| f.with_rows("z", blank(&(30..30 + z).collect::<Vec<_>>())))
+                    .unwrap();
+                let loops: Vec<(RowId, RowId)> = base
+                    .rows("m")
+                    .into_iter()
+                    .flat_map(|(s, _)| base.rows("m").into_iter().map(move |(t, _)| (s, t)))
+                    .collect();
+                let to_z: Vec<(RowId, RowId)> = base
+                    .rows("m")
+                    .into_iter()
+                    .flat_map(|(s, _)| base.rows("z").into_iter().map(move |(t, _)| (s, t)))
+                    .collect();
+                for l in subsets(&loops) {
+                    for w in subsets(&to_z) {
+                        ys.push(
+                            base.clone()
+                                .with_foreign_key(fk("m", "m", "L"), l.clone())
+                                .and_then(|f| f.with_foreign_key(fk("m", "z", "w"), w))
+                                .unwrap(),
+                        );
+                    }
+                }
+            }
+        }
+        (xs, ys)
+    }
+
+    #[test]
+    fn adjunctions_hold_on_every_tiny_instance() {
+        let (src, tgt, migration) = merge_with_loop();
+        let f = MigrationFunctor::new(&src, &tgt, &migration).unwrap();
+        let (xs, ys) = tiny_instances();
+        let mut checked = 0usize;
+        let mut nonempty = [0usize; 2];
+        for x in &xs {
+            for y in &ys {
+                let sigma = check_sigma_bijection(&f, x, y).unwrap();
+                let pi = check_pi_bijection(&f, x, y, 1000).unwrap();
+                check_triangles(&f, x, y, 1000).unwrap();
+                nonempty[0] += usize::from(sigma > 0);
+                nonempty[1] += usize::from(pi > 0);
+                checked += 1;
+            }
+        }
+        assert_eq!(checked, xs.len() * ys.len());
+        assert!(
+            nonempty.iter().all(|&n| n > 0),
+            "some hom-sets are inhabited: {nonempty:?}"
+        );
+        eprintln!(
+            "checked {checked} pairs ({} source, {} target instances); inhabited: {nonempty:?}",
+            xs.len(),
+            ys.len()
+        );
+    }
+
+    /// Rename every target table and foreign key of a case (`t` to `q`, and
+    /// the names of foreign keys reversed), returning the renamed target
+    /// schema and migration and the renaming of tables.
+    fn rename_target(case: &KanCase) -> (Schema, CompiledMigration, BTreeMap<Name, Name>) {
+        // Reverse the table order, so a renaming changes every ascending
+        // order the target names could induce.
+        let tables: Vec<Name> = RelSchema::new(&case.tgt).tables().iter().cloned().collect();
+        let renaming: BTreeMap<Name, Name> = tables
+            .iter()
+            .enumerate()
+            .map(|(i, t)| (t.clone(), Name::from(format!("q{}", tables.len() - i))))
+            .collect();
+        let edge = |e: &Edge| Edge {
+            src: renaming[&e.src].clone(),
+            tgt: renaming[&e.tgt].clone(),
+            kind: e.kind.clone(),
+            name: e.name.as_ref().map(|n| Name::from(format!("~{n}"))),
+        };
+        let renamed_tables: Vec<String> = renaming.values().map(ToString::to_string).collect();
+        let renamed_edges: Vec<Edge> = case.tgt.edges.keys().map(edge).collect();
+        let refs: Vec<&str> = renamed_tables.iter().map(String::as_str).collect();
+        let tgt = table_schema(&refs, &renamed_edges);
+        let mut migration = case.migration.clone();
+        migration.vertex_remap = migration
+            .vertex_remap
+            .iter()
+            .map(|(s, t)| (s.clone(), renaming[t].clone()))
+            .collect();
+        migration.surviving_verts = migration
+            .surviving_verts
+            .iter()
+            .map(|t| renaming[t].clone())
+            .collect();
+        migration.edge_remap = migration
+            .edge_remap
+            .iter()
+            .map(|(s, t)| (s.clone(), edge(t)))
+            .collect();
+        migration.surviving_edges = migration.surviving_edges.iter().map(edge).collect();
+        (tgt, migration, renaming)
+    }
+
+    /// An instance on the target with its tables and foreign keys renamed.
+    fn rename_instance(y: &FInstance, renaming: &BTreeMap<Name, Name>) -> FInstance {
+        let tables = y.tables().into_iter().map(|(name, table)| {
+            (
+                renaming[name].clone(),
+                table
+                    .rows()
+                    .into_iter()
+                    .map(|(id, row)| (id, row.clone()))
+                    .collect(),
+            )
+        });
+        let keys = y.foreign_keys().into_iter().map(|(e, pairs)| {
+            (
+                Edge {
+                    src: renaming[&e.src].clone(),
+                    tgt: renaming[&e.tgt].clone(),
+                    kind: e.kind.clone(),
+                    name: e.name.as_ref().map(|n| Name::from(format!("~{n}"))),
+                },
+                pairs.iter().copied().collect(),
+            )
+        });
+        FInstance::from_parts(tables, keys).unwrap()
+    }
+
+    mod kan_laws {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        proptest! {
+            #![proptest_config(ProptestConfig::with_cases(256))]
+
+            #[test]
+            fn sigma_is_left_adjoint_to_delta(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let count = check_sigma_bijection(&f, &case.x, &case.y);
+                prop_assert!(count.is_ok(), "{:?} on {:?}", count, case);
+            }
+
+            #[test]
+            fn pi_is_right_adjoint_to_delta(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let count = check_pi_bijection(&f, &case.x, &case.y, 10_000);
+                prop_assert!(count.is_ok(), "{:?} on {:?}", count, case);
+            }
+
+            #[test]
+            fn triangle_identities_hold(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let result = check_triangles(&f, &case.x, &case.y, 10_000);
+                prop_assert!(result.is_ok(), "{:?} on {:?}", result, case);
+            }
+
+            /// Along the identity functor, Sigma and Pi return the instance
+            /// itself, and the returned homs are its identity.
+            #[test]
+            fn kan_extensions_along_the_identity_are_identities(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = MigrationFunctor::identity(&case.tgt);
+                let (sigma, to_sigma) = f_sigma_with_hom(&case.y, &f).unwrap();
+                prop_assert_eq!(&sigma, &case.y);
+                prop_assert!(is_identity(&to_sigma, &case.y));
+                let (pi, projections) = functor_pi_along_with_hom(&case.y, &f, 10_000).unwrap();
+                prop_assert_eq!(&pi, &case.y);
+                for (table, hom) in &projections {
+                    for (row, image) in &hom.row_map {
+                        prop_assert_eq!(row, image, "projection onto {}", table);
+                    }
+                }
+                let delta = f_delta(&case.y, &f).unwrap();
+                prop_assert_eq!(&delta, &case.y);
+            }
+
+            /// Renaming the target's tables and foreign keys renames the
+            /// results of Sigma and Delta exactly, and Pi's exactly up to the
+            /// one row of each table outside the image.
+            #[test]
+            fn results_do_not_depend_on_target_names(seed in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let (tgt, migration, renaming) = rename_target(&case);
+                let g = MigrationFunctor::new(&case.src, &tgt, &migration).unwrap();
+                prop_assert_eq!(
+                    rename_instance(&f_sigma(&case.x, &f).unwrap(), &renaming),
+                    f_sigma(&case.x, &g).unwrap()
+                );
+                prop_assert_eq!(
+                    f_delta(&case.y, &f).unwrap(),
+                    f_delta(&rename_instance(&case.y, &renaming), &g).unwrap()
+                );
+                let pi = functor_pi_along(&case.x, &f, 10_000).unwrap();
+                let renamed = functor_pi_along(&case.x, &g, 10_000).unwrap();
+                let outside: BTreeSet<Name> = f.tables_outside_image().into_iter().cloned().collect();
+                if outside.len() <= 1 {
+                    prop_assert_eq!(rename_instance(&pi, &renaming), renamed);
+                } else {
+                    // The rows of the image tables keep their ids; the rows of
+                    // the tables outside it are one each, without cells.
+                    for (table, rows) in pi.tables() {
+                        let theirs = renamed.table(&renaming[table]).map(Table::len).unwrap_or(0);
+                        prop_assert_eq!(rows.len(), theirs);
+                        if !outside.contains(table) {
+                            prop_assert_eq!(Some(rows), renamed.table(&renaming[table]));
+                        }
+                    }
+                    prop_assert_eq!(pi.pair_count(), renamed.pair_count());
+                }
+            }
+
+            /// Adding rows and pairs to the input embeds Pi of the smaller
+            /// instance into Pi of the larger: `Pi(inclusion)` is an injective
+            /// homomorphism.
+            #[test]
+            fn pi_is_monotone(seed in any::<u64>(), grow in any::<u64>()) {
+                let case = kan_case(seed);
+                let f = case.functor();
+                let mut r = Lcg(grow);
+                let mut next = case.x.max_row_id().map_or(0, |m| m.0 + 1);
+                let mut larger = case.x.clone();
+                for table in f.table_map().keys() {
+                    let count = r.below(2);
+                    larger = larger.with_rows(table.clone(), gen_rows(&mut r, &mut next, count, true)).unwrap();
+                }
+                for edge in f.relation_map().keys() {
+                    let extra: Vec<(RowId, RowId)> = gen_pairs(&mut r, &larger, &edge.src, &edge.tgt, 30)
+                        .into_iter()
+                        .filter(|&(s, t)| !larger.contains_pair(edge, s, t))
+                        .collect();
+                    larger = larger.with_foreign_key(edge.clone(), extra).unwrap();
+                }
+                let inclusion = FInstanceHom::identity(&case.x);
+                prop_assert!(inclusion.check(&case.x, &larger).is_ok());
+                let small = functor_pi_along(&case.x, &f, 10_000).unwrap();
+                let big = functor_pi_along(&larger, &f, 10_000).unwrap();
+                let embedded = f_pi_on_hom(&inclusion, &case.x, &larger, &f, 10_000).unwrap();
+                prop_assert!(embedded.check(&small, &big).is_ok());
+                let images: BTreeSet<RowId> = embedded.row_map.values().copied().collect();
+                prop_assert_eq!(images.len(), small.total_row_count(), "Pi(inclusion) is injective");
+            }
+        }
+    }
 
     mod property {
         use proptest::prelude::*;
 
         use super::*;
-
-        /// A generated functor-side scenario: an `S`-instance `x`, a
-        /// `T`-instance `y`, and a total vertex map (possibly merging).
-        #[derive(Debug, Clone)]
-        struct FScenario {
-            x: FInstance,
-            y: FInstance,
-            migration: CompiledMigration,
-        }
-
-        /// Round-robin foreign-key pairs from the rows of `src` into the rows
-        /// of `tgt`: the `i`th source row to the `i mod n`th target row.
-        fn round_robin(f: &FInstance, src: &str, tgt: &str) -> Vec<(RowId, RowId)> {
-            let sources = f.table(src).map(Table::ids).unwrap_or_default();
-            let targets = f.table(tgt).map(Table::ids).unwrap_or_default();
-            if targets.is_empty() {
-                return Vec::new();
-            }
-            sources
-                .iter()
-                .enumerate()
-                .map(|(i, s)| (*s, targets[i % targets.len()]))
-                .collect()
-        }
-
-        /// Generate a scenario with `n` source vertices mapped onto `k`
-        /// target vertices (merging whenever two share an image), one
-        /// source edge per adjacent source-vertex pair, and small tables.
-        fn arb_scenario() -> impl Strategy<Value = FScenario> {
-            (2usize..=4, 1usize..=4).prop_flat_map(|(n, k)| {
-                let k = k.min(n);
-                // Assignment of each source vertex to a target index.
-                let assign = prop::collection::vec(0..k, n);
-                // Row counts for source and target tables.
-                let src_rows = prop::collection::vec(0usize..=3, n);
-                let tgt_rows = prop::collection::vec(0usize..=3, k);
-                (Just(n), Just(k), assign, src_rows, tgt_rows).prop_map(
-                    |(n, k, assign, src_rows, tgt_rows)| {
-                        let s_name = |i: usize| format!("s{i}");
-                        let t_name = |j: usize| format!("t{j}");
-
-                        // Vertex + edge maps.
-                        let mut vertex_remap = HashMap::new();
-                        for (i, &a) in assign.iter().enumerate() {
-                            vertex_remap.insert(Name::from(s_name(i)), Name::from(t_name(a)));
-                        }
-                        // One edge s{i} -> s{i+1} per adjacent pair.
-                        let s_edges: Vec<Edge> = (0..n.saturating_sub(1))
-                            .map(|i| edge(&s_name(i), &s_name(i + 1), &format!("e{i}")))
-                            .collect();
-                        let mut edge_remap = HashMap::new();
-                        for (i, e) in s_edges.iter().enumerate() {
-                            edge_remap.insert(
-                                e.clone(),
-                                edge(
-                                    &t_name(assign[i]),
-                                    &t_name(assign[i + 1]),
-                                    &format!("te{i}"),
-                                ),
-                            );
-                        }
-                        let surviving_verts: HashSet<Name> =
-                            (0..k).map(|j| Name::from(t_name(j))).collect();
-
-                        let migration = CompiledMigration {
-                            surviving_verts,
-                            surviving_edges: HashSet::new(),
-                            vertex_remap,
-                            edge_remap: edge_remap.clone(),
-                            resolver: HashMap::new(),
-                            hyper_resolver: HashMap::new(),
-                            field_transforms: HashMap::new(),
-                            conditional_survival: HashMap::new(),
-                            op_term_assignments: HashMap::new(),
-                            expansion_path: HashMap::new(),
-                        };
-
-                        // Source instance X.
-                        let mut counter = 0i64;
-                        let mut x = FInstance::new();
-                        for (i, &count) in src_rows.iter().enumerate() {
-                            let rows: Vec<_> = (0..count)
-                                .map(|_| {
-                                    counter += 1;
-                                    row(counter)
-                                })
-                                .collect();
-                            x = x.with_table(s_name(i), rows).expect("fresh ids");
-                        }
-                        for (i, e) in s_edges.iter().enumerate() {
-                            let pairs = round_robin(&x, &s_name(i), &s_name(i + 1));
-                            x = x
-                                .with_foreign_key(e.clone(), pairs)
-                                .expect("round robin pairs join");
-                        }
-
-                        // Target instance Y (independent).
-                        let mut y = FInstance::new();
-                        for (j, &count) in tgt_rows.iter().enumerate() {
-                            let rows: Vec<_> = (0..count)
-                                .map(|_| {
-                                    counter += 1;
-                                    row(counter)
-                                })
-                                .collect();
-                            y = y.with_table(t_name(j), rows).expect("fresh ids");
-                        }
-                        for (i, _e) in s_edges.iter().enumerate() {
-                            let te = edge(
-                                &t_name(assign[i]),
-                                &t_name(assign[i + 1]),
-                                &format!("te{i}"),
-                            );
-                            let pairs = round_robin(&y, &t_name(assign[i]), &t_name(assign[i + 1]));
-                            y = y
-                                .with_foreign_key(te, pairs)
-                                .expect("round robin pairs join");
-                        }
-
-                        FScenario { x, y, migration }
-                    },
-                )
-            })
-        }
-
-        proptest! {
-            #![proptest_config(ProptestConfig::with_cases(256))]
-
-            /// Both triangle identities hold for the functor adjunction over
-            /// renamed, identity, and vertex-merging total maps.
-            #[test]
-            fn sigma_delta_triangle_identities(scenario in arb_scenario()) {
-                let FScenario { x, y, migration } = scenario;
-
-                // Unit and its triangle: phi(eta_X) = id on Sigma X.
-                let sigma_x = f_sigma(&x, &migration).expect("the generated instance is anchored in the migration's domain");
-                let delta_sigma_x = f_delta(&sigma_x, &migration).expect("ids are small");
-                let unit = f_unit(&x, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert!(unit.check(&x, &delta_sigma_x).is_ok());
-                let phi_unit = f_transpose_right(&unit, &x, &sigma_x, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert_eq!(phi_unit, FInstanceHom::identity(&sigma_x));
-
-                // Counit and its triangle: psi(eps_Y) = id on Delta Y.
-                let delta_y = f_delta(&y, &migration).expect("ids are small");
-                let sigma_delta_y = f_sigma(&delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
-                let counit = f_counit(&y, &migration).expect("ids are small");
-                prop_assert!(counit.check(&sigma_delta_y, &y).is_ok());
-                let psi_counit = f_transpose_left(&counit, &delta_y, &y, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert_eq!(psi_counit, FInstanceHom::identity(&delta_y));
-            }
-
-            /// The transpose maps are mutually inverse and carry valid
-            /// homomorphisms to valid homomorphisms, both directions of
-            /// `Hom_T(Sigma X, Y) ~= Hom_S(X, Delta Y)`.
-            #[test]
-            fn sigma_delta_hom_bijection(scenario in arb_scenario()) {
-                let FScenario { x, y, migration } = scenario;
-
-                // Direction 1. A valid g : Sigma X -> Y_g, built as the
-                // inclusion of Sigma X into a copy of itself with every
-                // table's rows (and foreign keys) duplicated once.
-                let sigma_x = f_sigma(&x, &migration).expect("the generated instance is anchored in the migration's domain");
-                let mut y_g = sigma_x.clone();
-                let mut duplicate: HashMap<RowId, RowId> = HashMap::new();
-                for id in sigma_x.row_ids() {
-                    let table = sigma_x.table_of(id).expect("a row of Sigma X").clone();
-                    let copy = y_g
-                        .push_row(table, sigma_x.row(id).expect("a row of Sigma X").clone())
-                        .expect("ids are small");
-                    duplicate.insert(id, copy);
-                }
-                for (e, s, t) in sigma_x.all_pairs() {
-                    y_g.insert_foreign_key(e, duplicate[&s], duplicate[&t]).expect("the copies join");
-                }
-                let g = FInstanceHom::identity(&sigma_x);
-                prop_assert!(g.check(&sigma_x, &y_g).is_ok());
-
-                let delta_y_g = f_delta(&y_g, &migration).expect("ids are small");
-                let psi_g = f_transpose_left(&g, &x, &y_g, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert!(psi_g.check(&x, &delta_y_g).is_ok());
-                // Round-trip phi . psi = id.
-                let phi_psi_g = f_transpose_right(&psi_g, &x, &y_g, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert_eq!(phi_psi_g, g);
-
-                // Direction 2. A valid f : X_f -> Delta Y with X_f = Delta Y
-                // and f the identity; phi(f) must be a valid Sigma X_f -> Y.
-                let delta_y = f_delta(&y, &migration).expect("ids are small");
-                let f = FInstanceHom::identity(&delta_y);
-                prop_assert!(f.check(&delta_y, &delta_y).is_ok());
-                let phi_f = f_transpose_right(&f, &delta_y, &y, &migration).expect("the generated instance is anchored in the migration's domain");
-                let sigma_delta_y = f_sigma(&delta_y, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert!(phi_f.check(&sigma_delta_y, &y).is_ok());
-                // Round-trip psi . phi = id.
-                let psi_phi_f = f_transpose_left(&phi_f, &delta_y, &y, &migration).expect("the generated instance is anchored in the migration's domain");
-                prop_assert_eq!(psi_phi_f, f);
-            }
-        }
 
         // -- W-type property tests (injective total maps) ----------------
 
@@ -1791,292 +2223,5 @@ mod tests {
                 prop_assert_eq!(psi_phi_f, f);
             }
         }
-    }
-
-    /// Every table operation reads one compiled migration the same way: with
-    /// `a` renamed onto `b` and `b` listed as surviving, `b` is a target and
-    /// `a` the only source. Sigma, restrict and extend agree on an instance
-    /// over that domain, all three decline `b`'s own rows (Sigma and extend
-    /// refuse them, restrict drops them), and Delta and Pi copy into `a`
-    /// alone.
-    #[test]
-    fn the_table_operations_share_one_domain() {
-        let mut migration = CompiledMigration::default();
-        migration.vertex_remap.insert("a".into(), "b".into());
-        migration.surviving_verts.insert("b".into());
-        assert_eq!(
-            source_vertices(&migration),
-            BTreeSet::from([Name::from("a")])
-        );
-
-        let over_domain = FInstance::new()
-            .with_rows("a", [(RowId(0), HashMap::new())])
-            .unwrap();
-        let sigma = f_sigma(&over_domain, &migration).unwrap();
-        assert_eq!(
-            crate::functor_restrict(&over_domain, &migration).unwrap(),
-            sigma
-        );
-        assert_eq!(
-            crate::functor_extend(&over_domain, &migration).unwrap(),
-            sigma
-        );
-
-        let with_b = over_domain
-            .with_rows("b", [(RowId(1), HashMap::new())])
-            .unwrap();
-        assert!(matches!(
-            f_sigma(&with_b, &migration),
-            Err(AdjunctionError::VertexOutsideDomain(v)) if v == "b"
-        ));
-        assert!(matches!(
-            crate::functor_extend(&with_b, &migration),
-            Err(RestrictError::VertexOutsideDomain { vertex }) if vertex == "b"
-        ));
-        assert_eq!(crate::functor_restrict(&with_b, &migration).unwrap(), sigma);
-
-        let delta = f_delta(&with_b, &migration).unwrap();
-        assert_eq!(delta.table_names(), vec![&Name::from("a")]);
-        let pi = crate::functor_pi(
-            &with_b,
-            &schema_of(&["a", "b"], &[]),
-            &schema_of(&["b"], &[]),
-            &migration,
-            100,
-        )
-        .unwrap();
-        let ids: Vec<RowId> = pi.rows("b").into_iter().map(|(id, _)| id).collect();
-        assert_eq!(ids, vec![RowId(0)]);
-    }
-
-    /// The edge version of [`the_table_operations_share_one_domain`]: with
-    /// `x` remapped onto `y` and `y` listed as surviving (as
-    /// `panproto_mig::compile` lists every target edge between surviving
-    /// vertices), `y` is a target and `x` the only source edge, and `z`,
-    /// which the migration does not mention, is no source edge either.
-    fn edge_domain_migration() -> CompiledMigration {
-        let mut migration = CompiledMigration::default();
-        migration.surviving_verts.insert("a".into());
-        migration.surviving_verts.insert("b".into());
-        migration
-            .edge_remap
-            .insert(edge("a", "b", "x"), edge("a", "b", "y"));
-        migration.surviving_edges.insert(edge("a", "b", "y"));
-        migration
-    }
-
-    /// `a` holds row 0, `b` row 1, and the pair `(0, 1)` sits on `label`.
-    fn pair_on(label: &str) -> FInstance {
-        FInstance::new()
-            .with_rows("a", [(RowId(0), HashMap::new())])
-            .and_then(|f| f.with_rows("b", [(RowId(1), HashMap::new())]))
-            .and_then(|f| f.with_foreign_key(edge("a", "b", label), [(RowId(0), RowId(1))]))
-            .unwrap()
-    }
-
-    #[test]
-    fn the_table_operations_share_one_edge_domain() {
-        let migration = edge_domain_migration();
-        assert_eq!(
-            source_edges(&migration),
-            BTreeSet::from([edge("a", "b", "x")])
-        );
-
-        // Over the domain every operation agrees and the unit is a
-        // homomorphism.
-        let x = pair_on("x");
-        let sigma = f_sigma(&x, &migration).unwrap();
-        assert!(sigma.contains_pair(&edge("a", "b", "y"), RowId(0), RowId(1)));
-        assert_eq!(crate::functor_restrict(&x, &migration).unwrap(), sigma);
-        assert_eq!(crate::functor_extend(&x, &migration).unwrap(), sigma);
-        let delta_sigma = f_delta(&sigma, &migration).unwrap();
-        f_unit(&x, &migration)
-            .unwrap()
-            .check(&x, &delta_sigma)
-            .expect("the unit is a homomorphism into Delta(Sigma X)");
-
-        // A pair on the target-only edge `y`: Sigma and extend refuse it,
-        // restrict and Pi do not carry it.
-        let on_y = pair_on("y");
-        assert!(matches!(
-            f_sigma(&on_y, &migration),
-            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == edge("a", "b", "y")
-        ));
-        assert!(matches!(
-            f_unit(&on_y, &migration),
-            Err(AdjunctionError::EdgeOutsideDomain(_))
-        ));
-        assert!(matches!(
-            crate::functor_extend(&on_y, &migration),
-            Err(RestrictError::EdgeOutsideDomain { edge: e }) if e == edge("a", "b", "y")
-        ));
-        let restricted = crate::functor_restrict(&on_y, &migration).unwrap();
-        assert_eq!(restricted.pair_count(), 0);
-        assert_eq!(restricted.row_ids(), vec![RowId(0), RowId(1)]);
-        let schema = schema_of(
-            &["a", "b"],
-            &[
-                edge("a", "b", "x"),
-                edge("a", "b", "y"),
-                edge("a", "b", "z"),
-            ],
-        );
-        // Pi does not carry the pair: `y`'s pairs are those `x` holds, and
-        // `x` holds none. (`x` and `z` are target edges no edge is carried
-        // to, so their limit is every pair of rows.)
-        let pi = crate::functor_pi(&on_y, &schema, &schema, &migration, 100).unwrap();
-        assert!(pi.pairs(&edge("a", "b", "y")).is_empty());
-        assert_eq!(
-            pi.pairs(&edge("a", "b", "z")),
-            &BTreeSet::from([(RowId(0), RowId(1))])
-        );
-
-        // A pair on the unmentioned edge `z`: Sigma refuses it, restrict and
-        // Pi do not carry it, and extend, which keeps what the migration does not
-        // mention, keeps it under its own name.
-        let on_z = pair_on("z");
-        assert!(matches!(
-            f_sigma(&on_z, &migration),
-            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == edge("a", "b", "z")
-        ));
-        assert!(matches!(
-            f_transpose_left(&FInstanceHom::identity(&on_z), &on_z, &on_z, &migration),
-            Err(AdjunctionError::EdgeOutsideDomain(_))
-        ));
-        assert_eq!(
-            crate::functor_restrict(&on_z, &migration)
-                .unwrap()
-                .pair_count(),
-            0
-        );
-        assert!(
-            crate::functor_pi(&on_z, &schema, &schema, &migration, 100)
-                .unwrap()
-                .pairs(&edge("a", "b", "y"))
-                .is_empty()
-        );
-        assert_eq!(crate::functor_extend(&on_z, &migration).unwrap(), on_z);
-    }
-
-    /// A migration that carries `e: a -> b` to `E: m1 -> m3` while it sends
-    /// `b` to `m2` states no functor: the image of `e` does not join the
-    /// images of its endpoints. Every table operation refuses it, naming
-    /// the images of `e`'s endpoints, rather than drop the pair or return a
-    /// row map that is no homomorphism.
-    #[test]
-    fn every_table_operation_refuses_an_edge_carried_off_its_endpoints() {
-        let mut migration = CompiledMigration::default();
-        for (src, tgt) in [("a", "m1"), ("b", "m2"), ("c", "m3")] {
-            migration.vertex_remap.insert(src.into(), tgt.into());
-            migration.surviving_verts.insert(tgt.into());
-        }
-        let e = edge("a", "b", "e");
-        let image = edge("m1", "m3", "E");
-        migration.edge_remap.insert(e.clone(), image.clone());
-        migration.surviving_edges.insert(image.clone());
-        let x = FInstance::new()
-            .with_rows(
-                "a",
-                [(RowId(0), HashMap::new()), (RowId(1), HashMap::new())],
-            )
-            .and_then(|f| f.with_rows("b", [(RowId(2), HashMap::new())]))
-            .and_then(|f| f.with_rows("c", [(RowId(3), HashMap::new())]))
-            .and_then(|f| f.with_foreign_key(e.clone(), [(RowId(0), RowId(2))]))
-            .unwrap();
-        let off = |err: &RestrictError| matches!(err, RestrictError::NoEdgeFound { src, tgt } if src == "m1" && tgt == "m2");
-        let refused = |err: &AdjunctionError| match err {
-            AdjunctionError::EdgeOffEndpoints { edge, image: i } => **edge == e && **i == image,
-            _ => false,
-        };
-        let sigma = f_sigma(&x, &migration);
-        assert!(
-            matches!(&sigma, Err(err) if refused(err)),
-            "f_sigma: {sigma:?}"
-        );
-        let unit = f_unit(&x, &migration);
-        assert!(
-            matches!(&unit, Err(err) if refused(err)),
-            "f_unit: {unit:?}"
-        );
-        let delta = f_delta(&x, &migration);
-        assert!(
-            matches!(&delta, Err(err) if refused(err)),
-            "f_delta: {delta:?}"
-        );
-        let restrict = crate::functor_restrict(&x, &migration);
-        assert!(
-            matches!(&restrict, Err(err) if off(err)),
-            "restrict: {restrict:?}"
-        );
-        let extend = crate::functor_extend(&x, &migration);
-        assert!(
-            matches!(&extend, Err(err) if off(err)),
-            "extend: {extend:?}"
-        );
-        let src = schema_of(&["a", "b", "c"], &[e]);
-        let tgt = schema_of(&["m1", "m2", "m3"], &[image]);
-        let pi = crate::functor_pi(&x, &src, &tgt, &migration, 100);
-        assert!(matches!(&pi, Err(err) if off(err)), "pi: {pi:?}");
-    }
-
-    /// A surviving edge whose source vertex is renamed travels to the edge
-    /// between the images of its endpoints in every operation, so restrict
-    /// keeps the pair Sigma carries.
-    #[test]
-    fn a_surviving_edge_travels_between_the_images_of_its_endpoints() {
-        let mut migration = CompiledMigration::default();
-        migration.vertex_remap.insert("a".into(), "t".into());
-        migration.surviving_verts.insert("t".into());
-        migration.surviving_verts.insert("b".into());
-        migration.surviving_edges.insert(edge("a", "b", "e"));
-        let x = pair_on("e");
-        let sigma = f_sigma(&x, &migration).unwrap();
-        assert!(sigma.contains_pair(&edge("t", "b", "e"), RowId(0), RowId(1)));
-        assert_eq!(crate::functor_restrict(&x, &migration).unwrap(), sigma);
-        assert_eq!(crate::functor_extend(&x, &migration).unwrap(), sigma);
-        let delta_sigma = f_delta(&sigma, &migration).unwrap();
-        f_unit(&x, &migration)
-            .unwrap()
-            .check(&x, &delta_sigma)
-            .expect("the unit is a homomorphism into Delta(Sigma X)");
-    }
-
-    /// An unmentioned edge whose relabelling under the vertex map is the
-    /// image of a source edge: Sigma and extend both refuse it rather than
-    /// merge its pairs into that image, and restrict drops it.
-    #[test]
-    fn the_table_operations_agree_on_an_edge_relabelled_onto_an_image() {
-        let mut migration = CompiledMigration::default();
-        migration.vertex_remap.insert("a".into(), "a".into());
-        migration.vertex_remap.insert("c".into(), "a".into());
-        migration.vertex_remap.insert("b".into(), "b".into());
-        migration.surviving_verts.insert("a".into());
-        migration.surviving_verts.insert("b".into());
-        migration
-            .edge_remap
-            .insert(edge("a", "b", "x"), edge("a", "b", "y"));
-        migration.surviving_edges.insert(edge("a", "b", "y"));
-        let z = edge("c", "b", "y");
-        let x = FInstance::new()
-            .with_rows("a", [(RowId(0), HashMap::new())])
-            .and_then(|f| f.with_rows("b", [(RowId(1), HashMap::new())]))
-            .and_then(|f| f.with_rows("c", [(RowId(2), HashMap::new())]))
-            .and_then(|f| f.with_foreign_key(edge("a", "b", "x"), [(RowId(0), RowId(1))]))
-            .and_then(|f| f.with_foreign_key(z.clone(), [(RowId(2), RowId(1))]))
-            .unwrap();
-        assert!(matches!(
-            f_sigma(&x, &migration),
-            Err(AdjunctionError::EdgeOutsideDomain(e)) if e == z
-        ));
-        assert!(matches!(
-            crate::functor_extend(&x, &migration),
-            Err(RestrictError::EdgeOutsideDomain { edge: e }) if e == z
-        ));
-        let restricted = crate::functor_restrict(&x, &migration).unwrap();
-        assert_eq!(
-            restricted.pairs(&edge("a", "b", "y")),
-            &BTreeSet::from([(RowId(0), RowId(1))])
-        );
-        assert_eq!(restricted.pair_count(), 1);
     }
 }

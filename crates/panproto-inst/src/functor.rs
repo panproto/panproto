@@ -1535,7 +1535,13 @@ mod tests {
         assert_eq!(restricted.row_count("t"), 3);
         assert_eq!(restricted.table_count(), 1);
 
-        let pushed = crate::adjunction::f_sigma(&x, &m).expect("sigma");
+        let along = crate::MigrationFunctor::between(
+            crate::RelSchema::from_parts([Name::from("a"), Name::from("b")], []).unwrap(),
+            crate::RelSchema::from_parts([Name::from("t")], []).unwrap(),
+            &m,
+        )
+        .unwrap();
+        let pushed = crate::adjunction::f_sigma(&x, &along).expect("sigma");
         assert_eq!(
             restricted, pushed,
             "restrict agrees with Sigma_F on the surviving fragment"
@@ -1543,7 +1549,7 @@ mod tests {
 
         // Precomposition reads `x` as a `t`-instance: `a` and `b` pull back
         // the rows of `t`, which `x` does not have, so both are empty.
-        let precomposed = crate::adjunction::f_delta(&x, &m).expect("delta");
+        let precomposed = crate::adjunction::f_delta(&x, &along).expect("delta");
         assert_eq!(precomposed.total_row_count(), 0);
         assert!(!precomposed.has_table("t"));
     }
