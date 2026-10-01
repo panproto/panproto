@@ -10,7 +10,7 @@ use panproto_inst::validation::{
     ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport,
 };
 use panproto_inst::{
-    Digest, FInstance, Fan, FieldPresence, GInstance, GraphEdit, HYPER_LABEL_KIND,
+    Digest, EdgeId, FInstance, Fan, FieldPresence, GEdge, GInstance, GraphEdit, HYPER_LABEL_KIND,
     HYPER_PARENT_KIND, Node, NodeShape, RowId, TableEdit, TreeEdit, Value, ViewRef, WInstance,
     to_node_link_json,
 };
@@ -25,7 +25,7 @@ use serde::Serialize;
 type R<T> = Result<T, Box<dyn Error>>;
 
 /// The instance of a fixture, in its shape.
-#[derive(Serialize)]
+#[derive(Clone, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Instance {
     /// A graph.
@@ -58,6 +58,38 @@ impl EditTrace {
             Instance::Table(_) => Self::Table(Vec::new()),
         }
     }
+
+    /// The number of edits.
+    fn len(&self) -> usize {
+        match self {
+            Self::Graph(edits) => edits.len(),
+            Self::Tree(edits) => edits.len(),
+            Self::Table(edits) => edits.len(),
+        }
+    }
+
+    /// Apply edit `k` to `instance`, an instance of the trace's shape.
+    fn apply(&self, k: usize, instance: &mut Instance) -> R<Result<(), String>> {
+        let applied = match (self, instance) {
+            (Self::Graph(edits), Instance::Graph(g)) => edits[k].apply(g),
+            (Self::Tree(edits), Instance::Tree(t)) => edits[k].apply(t),
+            (Self::Table(edits), Instance::Table(f)) => edits[k].apply(f),
+            _ => return Err("an edit trace of another shape than its instance".into()),
+        };
+        Ok(applied.map_err(|e| e.to_string()))
+    }
+}
+
+/// What one edit of a trace did.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EditOutcome {
+    /// The edit applied, and validating the instance after it gives this
+    /// report.
+    Applied(ValidationReport),
+    /// Applying the edit failed with this error, and the instance is left
+    /// as it was.
+    Rejected(String),
 }
 
 /// One validation case as it is written to disk.
@@ -79,11 +111,14 @@ struct Fixture {
     external: ExternalVerdicts,
     /// The instance.
     instance: Instance,
-    /// The edits applied to the instance after it is validated; empty in a
-    /// case that validates the instance alone, as every case here does.
+    /// The edits applied to the instance after it is validated, in order;
+    /// empty in a case that validates the instance alone.
     edit_trace: EditTrace,
     /// The report validation gives the instance.
     report: ValidationReport,
+    /// What each edit of the trace did, in order: the report validating the
+    /// instance after it gives, or the error applying it gives.
+    edit_outcomes: Vec<EditOutcome>,
 }
 
 /// One instance that construction or decoding rejects, as it is written to
@@ -279,6 +314,7 @@ struct Case {
     budget: ValidationBudget,
     external: ExternalVerdicts,
     instance: Instance,
+    edits: Option<EditTrace>,
 }
 
 impl Case {
@@ -298,19 +334,44 @@ impl Case {
             budget: ValidationBudget::default(),
             external: ExternalVerdicts::default(),
             instance,
+            edits: None,
         }
     }
 
-    /// The fixture: the case and the report validation gives.
-    fn validate(self) -> Fixture {
+    /// The case with `edits` applied to its instance after it is validated.
+    fn with_edits(mut self, edits: EditTrace) -> Self {
+        self.edits = Some(edits);
+        self
+    }
+
+    /// The fixture: the case, the report validation gives, and what each
+    /// edit of its trace does. An edit that fails leaves the instance as it
+    /// was for the edits after it.
+    fn validate(self) -> R<Fixture> {
         let protocol = fixture_protocol(self.syntactic);
         let plan = ValidationPlan::compile(&self.schema, &protocol, &self.options);
-        let report = match &self.instance {
+        let validate = |instance: &Instance| match instance {
             Instance::Graph(g) => plan.validate_graph(g, &self.budget, &self.external),
             Instance::Tree(t) => plan.validate_tree(t, &self.budget, &self.external),
             Instance::Table(f) => plan.validate_table(f, &self.budget, &self.external),
         };
-        Fixture {
+        let report = validate(&self.instance);
+        let edit_trace = self
+            .edits
+            .unwrap_or_else(|| EditTrace::none_for(&self.instance));
+        let mut current = self.instance.clone();
+        let mut edit_outcomes = Vec::new();
+        for k in 0..edit_trace.len() {
+            let mut next = current.clone();
+            edit_outcomes.push(match edit_trace.apply(k, &mut next)? {
+                Ok(()) => {
+                    current = next;
+                    EditOutcome::Applied(validate(&current))
+                }
+                Err(error) => EditOutcome::Rejected(error),
+            });
+        }
+        Ok(Fixture {
             name: self.name,
             protocol: protocol.name.clone(),
             protocol_definition: Some(protocol),
@@ -318,10 +379,11 @@ impl Case {
             options: self.options,
             budget: self.budget,
             external: self.external,
-            edit_trace: EditTrace::none_for(&self.instance),
+            edit_trace,
             instance: self.instance,
             report,
-        }
+            edit_outcomes,
+        })
     }
 }
 
@@ -427,6 +489,79 @@ fn anchors() -> R<Vec<Case>> {
             probe_schema(),
             Instance::Tree(ghost_root),
         ),
+    ])
+}
+
+/// Edits that break a kept edge or arc, by changing its target's anchor or
+/// its label, in graphs and trees.
+fn endpoint_edits() -> R<Vec<Case>> {
+    let ab = prop("a", "b", "ab");
+    let ba = prop("b", "a", "ba");
+    let schema = S::default()
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge(&ab)
+        .build();
+    let both_ways = S::default()
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge(&ab)
+        .edge(&ba)
+        .build();
+    let coherent = graph(vec![Node::new(0, "a"), Node::new(1, "b")], &[(0, 1, &ab)]);
+    let (kept, _) = coherent
+        .edges_sorted()
+        .next()
+        .ok_or("the coherent pair has no edge")?;
+    let tree_pair = || {
+        tree(
+            vec![Node::new(0, "a"), Node::new(1, "b")],
+            &[(0, 1, &ab)],
+            vec![],
+        )
+    };
+    Ok(vec![
+        Case::new(
+            "endpoints/edit_anchor_change_breaks_kept_edge",
+            schema.clone(),
+            Instance::Graph(coherent.clone()),
+        )
+        .with_edits(EditTrace::Graph(vec![GraphEdit::RelabelNode {
+            node: 1,
+            old_anchor: "b".into(),
+            new_anchor: "a".into(),
+        }])),
+        Case::new(
+            "endpoints/edit_relabel_breaks_kept_edge",
+            both_ways.clone(),
+            Instance::Graph(coherent),
+        )
+        .with_edits(EditTrace::Graph(vec![GraphEdit::RelabelEdge {
+            id: kept,
+            old: ab.clone(),
+            new: ba.clone(),
+        }])),
+        Case::new(
+            "endpoints/tree_edit_anchor_change_breaks_kept_arc",
+            schema,
+            Instance::Tree(tree_pair()),
+        )
+        .with_edits(EditTrace::Tree(vec![TreeEdit::RelabelNode {
+            id: 1,
+            new_anchor: "a".into(),
+        }])),
+        // A tree arc changes its label by moving its child under the same
+        // parent along another edge.
+        Case::new(
+            "endpoints/tree_edit_relabel_breaks_kept_arc",
+            both_ways,
+            Instance::Tree(tree_pair()),
+        )
+        .with_edits(EditTrace::Tree(vec![TreeEdit::MoveSubtree {
+            node_id: 1,
+            new_parent: 0,
+            edge: ba,
+        }])),
     ])
 }
 
@@ -616,7 +751,8 @@ fn cardinality() -> R<Vec<Case>> {
 }
 
 /// Positions of an ordered edge: two out-edges sharing one, absent
-/// positions, distinct positions.
+/// positions, distinct positions, and a reorder that creates a duplicate
+/// position and then repairs it.
 fn ordering() -> R<Vec<Case>> {
     let items = prop("list", "item", "items");
     let schema = S::default()
@@ -640,7 +776,30 @@ fn ordering() -> R<Vec<Case>> {
         }
         Ok(g)
     };
+    let distinct = positioned([Some(0), Some(1)])?;
+    let ids: Vec<EdgeId> = distinct.edges_sorted().map(|(id, _)| id).collect();
+    let [first, second] = ids[..] else {
+        return Err("the ordered list has not two edges".into());
+    };
+    let reorder = vec![
+        GraphEdit::SetEdgePosition {
+            id: second,
+            old: Some(1),
+            new: Some(0),
+        },
+        GraphEdit::SetEdgePosition {
+            id: first,
+            old: Some(0),
+            new: Some(1),
+        },
+    ];
     Ok(vec![
+        Case::new(
+            "ordering/edit_reorder_creates_and_repairs_duplicate",
+            schema.clone(),
+            Instance::Graph(distinct),
+        )
+        .with_edits(EditTrace::Graph(reorder)),
         Case::new(
             "ordering/duplicate_positions",
             schema.clone(),
@@ -656,6 +815,71 @@ fn ordering() -> R<Vec<Case>> {
             schema,
             Instance::Graph(positioned([Some(0), Some(1)])?),
         ),
+    ])
+}
+
+/// Edits of a self-edge declared acyclic: one that closes a cycle and one
+/// that breaks it; and a tree edit moving a subtree under its own
+/// descendant, which applying refuses.
+fn cycle_edits() -> R<Vec<Case>> {
+    let next = prop("item", "item", "next");
+    let acyclic = S::default()
+        .vertex("item", "object")
+        .edge(&next)
+        .constraint("item", "acyclic", "next")
+        .build();
+    let chain = graph(
+        (0..3).map(|i| Node::new(i, "item")).collect(),
+        &[(0, 1, &next), (1, 2, &next)],
+    );
+    let closed = graph(
+        (0..3).map(|i| Node::new(i, "item")).collect(),
+        &[(0, 1, &next), (1, 2, &next), (2, 0, &next)],
+    );
+    let (closing, closing_edge) = closed
+        .edges_sorted()
+        .find(|(_, e)| e.src == 2 && e.tgt == 0)
+        .map(|(id, e)| (id, e.clone()))
+        .ok_or("the ring has no closing edge")?;
+    let free_id = chain
+        .edges_sorted()
+        .map(|(id, _)| id.0 + 1)
+        .max()
+        .unwrap_or(0);
+    Ok(vec![
+        Case::new(
+            "cycles/edit_closes_cycle",
+            acyclic.clone(),
+            Instance::Graph(chain),
+        )
+        .with_edits(EditTrace::Graph(vec![GraphEdit::AddEdge {
+            id: EdgeId(free_id),
+            edge: GEdge::new(2, 0, next.clone()),
+        }])),
+        Case::new("cycles/edit_breaks_cycle", acyclic, Instance::Graph(closed)).with_edits(
+            EditTrace::Graph(vec![GraphEdit::RemoveEdge {
+                id: closing,
+                edge: closing_edge,
+            }]),
+        ),
+        Case::new(
+            "cycles/tree_edit_moves_subtree_under_its_own_descendant",
+            free_tree_schema(),
+            Instance::Tree(tree(
+                vec![
+                    Node::new(0, "item"),
+                    Node::new(1, "item"),
+                    Node::new(2, "item"),
+                ],
+                &[(0, 1, &next), (1, 2, &next)],
+                vec![],
+            )),
+        )
+        .with_edits(EditTrace::Tree(vec![TreeEdit::MoveSubtree {
+            node_id: 1,
+            new_parent: 2,
+            edge: next.clone(),
+        }])),
     ])
 }
 
@@ -1758,10 +1982,12 @@ pub fn run() -> Result<(), Box<dyn Error>> {
     let cases = [
         anchors()?,
         endpoints(),
+        endpoint_edits()?,
         values()?,
         cardinality()?,
         ordering()?,
         cycles(),
+        cycle_edits()?,
         fans()?,
         keys()?,
         incomplete(),
@@ -1771,7 +1997,7 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         table_incomplete()?,
     ];
     for case in cases.into_iter().flatten() {
-        let fixture = case.validate();
+        let fixture = case.validate()?;
         if !names.insert(fixture.name.clone()) {
             return Err(format!("fixture {} is listed twice", fixture.name).into());
         }

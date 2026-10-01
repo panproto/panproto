@@ -129,7 +129,7 @@ fn a_failing_check_leaves_no_scratch_directory() {
 }
 
 /// The instance of a fixture, in its shape.
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 enum Instance {
     Graph(GInstance),
@@ -146,6 +146,16 @@ enum EditTrace {
     Table(Vec<TableEdit>),
 }
 
+/// What one edit of a trace did: the report validating the instance after
+/// it gives, or the error applying it gives, which leaves the instance as
+/// it was.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EditOutcome {
+    Applied(ValidationReport),
+    Rejected(String),
+}
+
 /// One validation fixture as decoded.
 #[derive(Debug, Deserialize, Serialize)]
 struct Fixture {
@@ -159,6 +169,7 @@ struct Fixture {
     instance: Instance,
     edit_trace: EditTrace,
     report: ValidationReport,
+    edit_outcomes: Vec<EditOutcome>,
 }
 
 impl Fixture {
@@ -181,30 +192,78 @@ impl Fixture {
         ValidationPlan::compile(&self.schema, &self.protocol(), &self.options)
     }
 
-    /// The report validating the fixture's instance gives now.
-    fn revalidate(&self) -> ValidationReport {
-        let plan = self.plan();
-        match &self.instance {
+    /// The report validating `instance` under the fixture's plan, budget
+    /// and verdicts gives now.
+    fn validate(&self, plan: &ValidationPlan, instance: &Instance) -> ValidationReport {
+        match instance {
             Instance::Graph(g) => plan.validate_graph(g, &self.budget, &self.external),
             Instance::Tree(t) => plan.validate_tree(t, &self.budget, &self.external),
             Instance::Table(f) => plan.validate_table(f, &self.budget, &self.external),
         }
     }
 
-    /// Whether every diagnostic of the stored report verifies against the
-    /// instance and the verdicts.
-    fn witnesses_verify(&self) -> Vec<String> {
+    /// The report validating the fixture's instance gives now.
+    fn revalidate(&self) -> ValidationReport {
+        self.validate(&self.plan(), &self.instance)
+    }
+
+    /// The diagnostics of `report` that do not verify against `instance`
+    /// and the verdicts.
+    fn unverified(&self, report: &ValidationReport, instance: &Instance) -> Vec<String> {
         let plan = self.plan();
-        self.report
+        report
             .diagnostics
             .iter()
-            .filter(|d| !match &self.instance {
+            .filter(|d| !match instance {
                 Instance::Graph(g) => d.verify_with_verdicts(&plan, g, &self.external),
                 Instance::Tree(t) => d.verify_with_verdicts(&plan, t, &self.external),
                 Instance::Table(f) => d.verify_with_verdicts(&plan, f, &self.external),
             })
             .map(|d| format!("{}: {d}", self.name))
             .collect()
+    }
+
+    /// Whether every diagnostic of the stored report verifies against the
+    /// instance and the verdicts.
+    fn witnesses_verify(&self) -> Vec<String> {
+        self.unverified(&self.report, &self.instance)
+    }
+
+    /// The number of edits of the trace.
+    fn edits(&self) -> usize {
+        match &self.edit_trace {
+            EditTrace::Graph(edits) => edits.len(),
+            EditTrace::Tree(edits) => edits.len(),
+            EditTrace::Table(edits) => edits.len(),
+        }
+    }
+
+    /// The trace replayed now: after each edit, the instance and what the
+    /// edit did. An edit that applies gives the report validating the
+    /// instance after it; one that fails gives its error and leaves the
+    /// instance as it was.
+    fn replay(&self) -> Vec<(Instance, EditOutcome)> {
+        let plan = self.plan();
+        let mut current = self.instance.clone();
+        let mut out = Vec::new();
+        for k in 0..self.edits() {
+            let mut next = current.clone();
+            let applied = match (&mut next, &self.edit_trace) {
+                (Instance::Graph(g), EditTrace::Graph(edits)) => edits[k].apply(g),
+                (Instance::Tree(t), EditTrace::Tree(edits)) => edits[k].apply(t),
+                (Instance::Table(f), EditTrace::Table(edits)) => edits[k].apply(f),
+                (instance, trace) => panic!("{}: a trace {trace:?} of {instance:?}", self.name),
+            };
+            let outcome = match applied {
+                Ok(()) => {
+                    current = next;
+                    EditOutcome::Applied(self.validate(&plan, &current))
+                }
+                Err(e) => EditOutcome::Rejected(e.to_string()),
+            };
+            out.push((current.clone(), outcome));
+        }
+        out
     }
 }
 
@@ -546,6 +605,12 @@ const EXPECTED: &[Expectation] = &[
         &[],
     ),
     ("cycles/acyclic_chain", CheckStatus::Passed, &[]),
+    (
+        "cycles/edit_breaks_cycle",
+        CheckStatus::Failed,
+        &[(CheckKind::Acyclic, "cycle")],
+    ),
+    ("cycles/edit_closes_cycle", CheckStatus::Passed, &[]),
     ("cycles/legal_without_declaration", CheckStatus::Passed, &[]),
     (
         "cycles/long_cycle",
@@ -556,6 +621,11 @@ const EXPECTED: &[Expectation] = &[
         "cycles/self_loop",
         CheckStatus::Failed,
         &[(CheckKind::Acyclic, "cycle")],
+    ),
+    (
+        "cycles/tree_edit_moves_subtree_under_its_own_descendant",
+        CheckStatus::Passed,
+        &[],
     ),
     (
         "cycles/tree_subtree_under_its_own_descendant",
@@ -579,6 +649,16 @@ const EXPECTED: &[Expectation] = &[
         ],
     ),
     ("endpoints/coherent", CheckStatus::Passed, &[]),
+    (
+        "endpoints/edit_anchor_change_breaks_kept_edge",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "endpoints/edit_relabel_breaks_kept_edge",
+        CheckStatus::Passed,
+        &[],
+    ),
     (
         "endpoints/self_loop_on_non_self_edge",
         CheckStatus::Failed,
@@ -604,6 +684,16 @@ const EXPECTED: &[Expectation] = &[
         ],
     ),
     ("endpoints/tree_coherent", CheckStatus::Passed, &[]),
+    (
+        "endpoints/tree_edit_anchor_change_breaks_kept_arc",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "endpoints/tree_edit_relabel_breaks_kept_arc",
+        CheckStatus::Passed,
+        &[],
+    ),
     (
         "endpoints/tree_src_side",
         CheckStatus::Failed,
@@ -834,6 +924,11 @@ const EXPECTED: &[Expectation] = &[
         "ordering/duplicate_positions",
         CheckStatus::Failed,
         &[(CheckKind::PositionDistinct, "duplicate_position")],
+    ),
+    (
+        "ordering/edit_reorder_creates_and_repairs_duplicate",
+        CheckStatus::Passed,
+        &[],
     ),
     (
         "values/graph_values_and_attributes",
@@ -1234,20 +1329,140 @@ fn the_coherent_endpoint_cases_check_their_one_edge() {
     }
 }
 
+/// What one edit of a trace shows: the status of the report after it and
+/// the kind and violation of each of its diagnostics, or `None` where
+/// applying the edit fails.
+type StepExpectation = Option<(CheckStatus, &'static [(CheckKind, &'static str)])>;
+
+/// The diagnostics of an incoherent endpoint on one side.
+const ONE_SIDE: &[(CheckKind, &str)] = &[(CheckKind::EndpointCoherence, "incoherent_endpoint")];
+
+/// The diagnostics of incoherent endpoints on both sides.
+const BOTH_SIDES: &[(CheckKind, &str)] = &[
+    (CheckKind::EndpointCoherence, "incoherent_endpoint"),
+    (CheckKind::EndpointCoherence, "incoherent_endpoint"),
+];
+
+/// The cases whose instance is edited after it is validated, and what each
+/// edit of the trace shows.
+const EDITED: &[(&str, &[StepExpectation])] = &[
+    (
+        "cycles/edit_breaks_cycle",
+        &[Some((CheckStatus::Passed, &[]))],
+    ),
+    (
+        "cycles/edit_closes_cycle",
+        &[Some((
+            CheckStatus::Failed,
+            &[(CheckKind::Acyclic, "cycle")],
+        ))],
+    ),
+    (
+        "cycles/tree_edit_moves_subtree_under_its_own_descendant",
+        &[None],
+    ),
+    (
+        "endpoints/edit_anchor_change_breaks_kept_edge",
+        &[Some((CheckStatus::Failed, ONE_SIDE))],
+    ),
+    (
+        "endpoints/edit_relabel_breaks_kept_edge",
+        &[Some((CheckStatus::Failed, BOTH_SIDES))],
+    ),
+    (
+        "endpoints/tree_edit_anchor_change_breaks_kept_arc",
+        &[Some((CheckStatus::Failed, ONE_SIDE))],
+    ),
+    (
+        "endpoints/tree_edit_relabel_breaks_kept_arc",
+        &[Some((CheckStatus::Failed, BOTH_SIDES))],
+    ),
+    (
+        "ordering/edit_reorder_creates_and_repairs_duplicate",
+        &[
+            Some((
+                CheckStatus::Failed,
+                &[(CheckKind::PositionDistinct, "duplicate_position")],
+            )),
+            Some((CheckStatus::Passed, &[])),
+        ],
+    ),
+];
+
 /// Every fixture stores the edits applied to its instance as a trace of
-/// edits of the instance's own shape. Every case so far validates its
-/// instance alone, so every trace is empty.
+/// edits of the instance's own shape, with one outcome per edit. The
+/// trace is empty exactly in the cases that validate their instance alone;
+/// in the edit cases, each edit shows what the case is named for.
 #[test]
 fn every_fixture_stores_an_edit_trace_of_its_shape() {
-    for (name, fixture) in fixtures() {
-        let edits = match (&fixture.instance, &fixture.edit_trace) {
-            (Instance::Graph(_), EditTrace::Graph(edits)) => edits.len(),
-            (Instance::Tree(_), EditTrace::Tree(edits)) => edits.len(),
-            (Instance::Table(_), EditTrace::Table(edits)) => edits.len(),
-            (instance, trace) => panic!("{name}: a trace {trace:?} of {instance:?}"),
-        };
-        assert_eq!(edits, 0, "{name}");
+    let fixtures = fixtures();
+    let edited: BTreeMap<&str, &[StepExpectation]> = EDITED.iter().copied().collect();
+    for name in edited.keys() {
+        assert!(fixtures.contains_key(*name), "{name} is not in the corpus");
     }
+    for (name, fixture) in &fixtures {
+        match (&fixture.instance, &fixture.edit_trace) {
+            (Instance::Graph(_), EditTrace::Graph(_))
+            | (Instance::Tree(_), EditTrace::Tree(_))
+            | (Instance::Table(_), EditTrace::Table(_)) => {}
+            (instance, trace) => panic!("{name}: a trace {trace:?} of {instance:?}"),
+        }
+        assert_eq!(
+            fixture.edit_outcomes.len(),
+            fixture.edits(),
+            "{name}: one outcome per edit"
+        );
+        let steps = edited.get(name.as_str()).copied().unwrap_or(&[]);
+        assert_eq!(fixture.edits(), steps.len(), "{name}: the number of edits");
+        for (k, (outcome, step)) in fixture.edit_outcomes.iter().zip(steps).enumerate() {
+            match (outcome, step) {
+                (EditOutcome::Applied(report), Some((status, diagnostics))) => {
+                    assert_eq!(report.status, *status, "{name}, edit {k}");
+                    let wanted: Vec<(CheckKind, String, Requirement)> = diagnostics
+                        .iter()
+                        .map(|(kind, v)| (*kind, (*v).to_owned(), Requirement::Required))
+                        .collect();
+                    assert_eq!(summary(report).0, wanted, "{name}, edit {k}");
+                }
+                (EditOutcome::Rejected(_), None) => {}
+                (outcome, step) => panic!("{name}, edit {k}: {outcome:?}, expected {step:?}"),
+            }
+        }
+    }
+}
+
+/// Replaying each fixture's trace now gives its stored outcomes byte for
+/// byte, and every diagnostic of the report after an edit verifies against
+/// the instance after it.
+#[test]
+fn edit_traces_replay_to_their_outcomes() {
+    let mut unverified = Vec::new();
+    for (name, fixture) in fixtures() {
+        let replayed = fixture.replay();
+        assert_eq!(replayed.len(), fixture.edit_outcomes.len(), "{name}");
+        for (k, ((instance, now), stored)) in
+            replayed.iter().zip(&fixture.edit_outcomes).enumerate()
+        {
+            match (now, stored) {
+                (EditOutcome::Applied(now), EditOutcome::Applied(stored)) => {
+                    assert_eq!(
+                        now.canonical_bytes(),
+                        stored.canonical_bytes(),
+                        "{name}, edit {k}: regenerate with `{REGENERATE}`"
+                    );
+                    unverified.extend(fixture.unverified(stored, instance));
+                }
+                (EditOutcome::Rejected(now), EditOutcome::Rejected(stored)) => {
+                    assert_eq!(now, stored, "{name}, edit {k}");
+                }
+                (now, stored) => panic!("{name}, edit {k}: {now:?}, stored {stored:?}"),
+            }
+        }
+    }
+    assert!(
+        unverified.is_empty(),
+        "witnesses that do not verify: {unverified:#?}"
+    );
 }
 
 /// Each case of the corpus by the shapes that write it: its graph, tree and
@@ -1293,6 +1508,16 @@ const SHAPES: &[[Option<&str>; 3]] = &[
     ],
     [Some("endpoints/self_loop_on_non_self_edge"), None, None],
     [
+        Some("endpoints/edit_anchor_change_breaks_kept_edge"),
+        Some("endpoints/tree_edit_anchor_change_breaks_kept_arc"),
+        None,
+    ],
+    [
+        Some("endpoints/edit_relabel_breaks_kept_edge"),
+        Some("endpoints/tree_edit_relabel_breaks_kept_arc"),
+        None,
+    ],
+    [
         Some("values/graph_values_and_attributes"),
         Some("values/tree_values_and_attributes"),
         Some("values/table_values_and_attributes"),
@@ -1331,11 +1556,23 @@ const SHAPES: &[[Option<&str>; 3]] = &[
     [Some("ordering/duplicate_positions"), None, None],
     [Some("ordering/absent_positions_allowed"), None, None],
     [Some("ordering/distinct_positions"), None, None],
+    [
+        Some("ordering/edit_reorder_creates_and_repairs_duplicate"),
+        None,
+        None,
+    ],
     [Some("cycles/legal_without_declaration"), None, None],
     [Some("cycles/two_cycle"), None, None],
     [Some("cycles/long_cycle"), None, None],
     [Some("cycles/self_loop"), None, None],
     [Some("cycles/acyclic_chain"), None, None],
+    [Some("cycles/edit_closes_cycle"), None, None],
+    [Some("cycles/edit_breaks_cycle"), None, None],
+    [
+        None,
+        Some("cycles/tree_edit_moves_subtree_under_its_own_descendant"),
+        None,
+    ],
     [
         None,
         Some("cycles/tree_subtree_under_its_own_descendant"),

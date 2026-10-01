@@ -3,8 +3,10 @@
 //! Each fixture is one validation case: the schema, the protocol it is read
 //! under (its name, and its definition when the name is not a registered
 //! protocol's), the validation options, budget and external verdicts, the
-//! instance, the edit trace applied to it, and the report validation gives.
-//! It is written three times, as named `MessagePack`
+//! instance, the edit trace applied to it after it is validated, the report
+//! validation gives, and what each edit of the trace does: the report
+//! validating the instance after the edit gives, or the error applying it
+//! gives, which leaves the instance as it was. It is written three times, as named `MessagePack`
 //! (`<case>.named.msgpack`), CBOR (`<case>.cbor`) and JSON
 //! (`<case>.json`), and a graph instance is also written as node-link JSON
 //! (`<case>.nodelink.json`). A report's diagnostics carry their failure
