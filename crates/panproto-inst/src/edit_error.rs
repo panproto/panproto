@@ -43,18 +43,9 @@ pub enum EditError {
     #[error("field transform failed: {0}")]
     FieldTransformFailed(String),
 
-    /// A table was not found in a functor instance.
-    #[error("table not found: {0}")]
-    TableNotFound(String),
-
-    /// A row was not found in a functor instance table.
-    #[error("row not found in table {table}: key {key}")]
-    RowNotFound {
-        /// The table name.
-        table: String,
-        /// The row key that was not found.
-        key: String,
-    },
+    /// No row of a table instance has this id.
+    #[error("row not found: {0:?}")]
+    RowNotFound(RowId),
 
     /// The edit would create a cycle in a tree-shaped instance.
     #[error("cycle detected: moving node {node_id} under {new_parent} would create a cycle")]
@@ -323,8 +314,7 @@ impl EditError {
             Self::FanNotFound(_) => "fan_not_found",
             Self::ApplyFailed(_) => "apply_failed",
             Self::FieldTransformFailed(_) => "field_transform_failed",
-            Self::TableNotFound(_) => "table_not_found",
-            Self::RowNotFound { .. } => "row_not_found",
+            Self::RowNotFound(_) => "row_not_found",
             Self::CycleDetected { .. } => "cycle_detected",
             Self::ParentNotFound(_) => "parent_not_found",
             Self::DuplicateNodeId(_) => "duplicate_node_id",
@@ -384,7 +374,8 @@ impl EditError {
             },
             Self::Compose(ComposeError::Mismatch { elem }) => Subject::of(elem),
             Self::BatchStep { source, .. } => source.subject(),
-            Self::DuplicateRow(row)
+            Self::RowNotFound(row)
+            | Self::DuplicateRow(row)
             | Self::StaleCell { row, .. }
             | Self::StaleTable { row }
             | Self::StaleIncidence { row }
@@ -398,8 +389,6 @@ impl EditError {
             Self::FanNotFound(_)
             | Self::ApplyFailed(_)
             | Self::FieldTransformFailed(_)
-            | Self::TableNotFound(_)
-            | Self::RowNotFound { .. }
             | Self::NotTreeEdit { .. }
             | Self::NotTableEdit { .. } => Subject::default(),
         }
