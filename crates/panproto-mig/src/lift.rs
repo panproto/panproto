@@ -880,30 +880,32 @@ mod tests {
         assert_eq!(alone, extended);
         assert_eq!(identity, panproto_inst::FInstanceHom::identity(&extended));
 
-        // Pi over a fibre of two vertices creates product rows.
+        // Pi over a fibre of two tables creates product rows: one for each
+        // pair of rows carrying the same cells.
         let factors = FInstance::new()
-            .with_table("a", vec![named("p"), named("q")])
-            .and_then(|f| f.with_table("b", vec![HashMap::from([("c".to_owned(), Value::Int(3))])]))
+            .with_table("a", vec![named("p"), named("p"), named("q")])
+            .and_then(|f| f.with_table("b", vec![named("p")]))
             .unwrap();
         let mut product = CompiledMigration::default();
         product.surviving_verts.insert("t".into());
         product.vertex_remap.insert("a".into(), "t".into());
         product.vertex_remap.insert("b".into(), "t".into());
-        let schema = Schema::default();
+        let src = test_schema(&[("a", "table"), ("b", "table")], &[]);
+        let tgt = test_schema(&[("t", "table")], &[]);
         let (pi, projections) =
-            lift_functor_pi_with_hom(&product, &schema, &schema, &factors, 16).unwrap();
+            lift_functor_pi_with_hom(&product, &src, &tgt, &factors, 16).unwrap();
         assert_eq!(
             pi,
-            lift_functor_pi(&product, &schema, &schema, &factors, 16).unwrap()
+            lift_functor_pi(&product, &src, &tgt, &factors, 16).unwrap()
         );
-        assert_eq!(pi.row_ids(), vec![RowId(3), RowId(4)]);
+        assert_eq!(pi.row_ids(), vec![RowId(4), RowId(5)]);
         assert_eq!(
             projections[&panproto_gat::Name::from("a")].row_map,
-            [(RowId(3), RowId(0)), (RowId(4), RowId(1))].into()
+            [(RowId(4), RowId(0)), (RowId(5), RowId(1))].into()
         );
         assert_eq!(
             projections[&panproto_gat::Name::from("b")].row_map,
-            [(RowId(3), RowId(2)), (RowId(4), RowId(2))].into()
+            [(RowId(4), RowId(3)), (RowId(5), RowId(3))].into()
         );
     }
 }
