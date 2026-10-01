@@ -23,48 +23,73 @@ use panproto_protocols::semantics::constraint_semantics;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
 use panproto_schema::{ConstraintSemantics, LengthUnit, Schema};
 
-/// The fixture files of each protocol, relative to `fixtures/`, and
-/// whether the protocol reads a JSON document (else source text).
-const FIXTURES: &[(&str, bool, &[&str])] = &[
-    (
-        "atproto",
-        true,
-        &[
-            "atproto/lexicons/app.bsky.actor.profile.json",
-            "atproto/lexicons/app.bsky.feed.like.json",
-            "atproto/lexicons/app.bsky.feed.post.json",
-            "atproto/lexicons/app.bsky.feed.repost.json",
-            "atproto/lexicons/app.bsky.graph.follow.json",
-            "atproto/lexicons/com.atproto.repo.createRecord.json",
-            "atproto/lexicons/site.standard.document.json",
-        ],
-    ),
-    ("graphql", false, &["graphql/swapi.graphql"]),
-    (
-        "json-schema",
-        true,
-        &[
-            "jsonschema/github-workflow.json",
-            "jsonschema/package.json",
-            "jsonschema/tsconfig.json",
-        ],
-    ),
-    (
-        "protobuf",
-        false,
-        &[
-            "protobuf/common.proto",
-            "protobuf/descriptor.proto",
-            "protobuf/resource.proto",
-            "protobuf/trace.proto",
-        ],
-    ),
-    (
-        "sql",
-        false,
-        &["sql/sakila-postgres.sql", "sql/sakila-sqlite.sql"],
-    ),
+/// The directories of `fixtures/` that hold schemas, each with the
+/// protocol its files are read under and whether the protocol reads a JSON
+/// document (else source text). Every file under one of them is a schema
+/// fixture.
+const SCHEMA_DIRS: &[(&str, &str, bool)] = &[
+    ("atproto/lexicons", "atproto", true),
+    ("graphql", "graphql", false),
+    ("jsonschema", "json-schema", true),
+    ("protobuf", "protobuf", false),
+    ("sql", "sql", false),
 ];
+
+/// The files and directories of `fixtures/` that hold no schema: instance
+/// records, and the fixtures' documentation.
+const NOT_SCHEMAS: &[&str] = &["FIXTURES.md", "atproto/records"];
+
+/// One schema fixture: its protocol, whether the protocol reads a JSON
+/// document, and its path relative to the fixture root.
+type SchemaFixture = (&'static str, bool, String);
+
+/// Every schema fixture under `root`, by walking it: each file under a
+/// directory of [`SCHEMA_DIRS`], in path order. A file that is neither
+/// under a schema directory nor one of [`NOT_SCHEMAS`] is an error, so a
+/// fixture added anywhere is either checked or classified here.
+fn schema_fixtures(root: &Path) -> Result<Vec<SchemaFixture>, Vec<String>> {
+    fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
+        for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                walk(root, &path, out);
+            } else {
+                let relative = path.strip_prefix(root).unwrap();
+                let parts: Vec<String> = relative
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect();
+                out.push(parts.join("/"));
+            }
+        }
+    }
+    let under = |file: &str, dir: &str| file == dir || file.starts_with(&format!("{dir}/"));
+    let mut files = Vec::new();
+    walk(root, root, &mut files);
+    files.sort();
+    let mut schemas = Vec::new();
+    let mut unclassified = Vec::new();
+    for file in files {
+        if let Some((_, protocol, document)) = SCHEMA_DIRS.iter().find(|(d, _, _)| under(&file, d))
+        {
+            schemas.push((*protocol, *document, file));
+        } else if !NOT_SCHEMAS.iter().any(|d| under(&file, d)) {
+            unclassified.push(file);
+        }
+    }
+    if unclassified.is_empty() {
+        Ok(schemas)
+    } else {
+        Err(unclassified)
+    }
+}
+
+/// The repository's schema fixtures.
+fn fixtures() -> Vec<SchemaFixture> {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../fixtures");
+    schema_fixtures(&root)
+        .unwrap_or_else(|files| panic!("fixtures that are neither schemas nor listed: {files:?}"))
+}
 
 fn fixture(relative: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -139,23 +164,21 @@ fn every_constraint_semantics_row_names_a_declared_sort() {
 fn no_protocol_fixture_emits_a_sort_without_semantics() {
     let mut missing: BTreeMap<&str, BTreeSet<String>> = BTreeMap::new();
     let mut emitted = 0usize;
-    for (protocol, document, files) in FIXTURES {
+    for (protocol, document, file) in fixtures() {
         let built = (descriptor(protocol)
             .expect("a registered protocol")
             .protocol)();
-        for file in *files {
-            let schema = parse(protocol, *document, file);
-            for constraint in schema.constraints.values().flatten() {
-                emitted += 1;
-                if !built
-                    .constraint_semantics
-                    .contains_key(constraint.sort.as_ref())
-                {
-                    missing
-                        .entry(protocol)
-                        .or_default()
-                        .insert(constraint.sort.to_string());
-                }
+        let schema = parse(protocol, document, &file);
+        for constraint in schema.constraints.values().flatten() {
+            emitted += 1;
+            if !built
+                .constraint_semantics
+                .contains_key(constraint.sort.as_ref())
+            {
+                missing
+                    .entry(protocol)
+                    .or_default()
+                    .insert(constraint.sort.to_string());
             }
         }
     }
@@ -264,20 +287,18 @@ fn fixture_constraints_read_under_their_semantics() {
     use panproto_inst::validation::{IncompleteReason, ValidationOptions, ValidationPlan};
     let mut unexpected = Vec::new();
     let mut unsupported_formats = 0usize;
-    for (protocol, document, files) in FIXTURES {
+    for (protocol, document, file) in fixtures() {
         let built = (descriptor(protocol)
             .expect("a registered protocol")
             .protocol)();
-        for file in *files {
-            let schema = parse(protocol, *document, file);
-            let plan = ValidationPlan::compile(&schema, &built, &ValidationOptions::default());
-            for finding in plan.static_findings() {
-                match &finding.reason {
-                    IncompleteReason::UnsupportedDeclaration { sort } if sort == "format" => {
-                        unsupported_formats += 1;
-                    }
-                    other => unexpected.push(format!("{file}: {:?} {other:?}", finding.check)),
+        let schema = parse(protocol, document, &file);
+        let plan = ValidationPlan::compile(&schema, &built, &ValidationOptions::default());
+        for finding in plan.static_findings() {
+            match &finding.reason {
+                IncompleteReason::UnsupportedDeclaration { sort } if sort == "format" => {
+                    unsupported_formats += 1;
                 }
+                other => unexpected.push(format!("{file}: {:?} {other:?}", finding.check)),
             }
         }
     }
@@ -349,4 +370,50 @@ fn sql_enum_labels_are_decided_outside_panproto() {
     let report = validate_table(&film, &schema, &as_enum);
     assert_eq!(report.status, CheckStatus::Failed, "{report:#?}");
     assert_eq!(report.diagnostics[0].check.kind, CheckKind::ValueConstraint);
+}
+
+/// The schema fixtures are found by walking `fixtures/`: the repository's
+/// tree yields its seventeen schemas, and a file added under a schema
+/// directory is read under that directory's protocol, while a file in a
+/// directory the walk does not classify is an error rather than skipped.
+#[test]
+fn schema_fixtures_are_every_file_under_a_schema_directory() {
+    let found = fixtures();
+    assert_eq!(found.len(), 17, "{found:#?}");
+    for (dir, protocol, _) in SCHEMA_DIRS {
+        assert!(
+            found
+                .iter()
+                .any(|(p, _, f)| p == protocol && f.starts_with(dir)),
+            "no fixture under {dir}"
+        );
+    }
+
+    let root =
+        std::env::temp_dir().join(format!("panproto-schema-fixtures-{}", std::process::id()));
+    let write = |relative: &str| {
+        let path = root.join(relative);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, "").unwrap();
+    };
+    write("FIXTURES.md");
+    write("atproto/records/post.json");
+    write("sql/added.sql");
+    write("jsonschema/nested/added.json");
+    let classified = schema_fixtures(&root);
+    write("avro/added.avsc");
+    let unclassified = schema_fixtures(&root);
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        classified,
+        Ok(vec![
+            (
+                "json-schema",
+                true,
+                "jsonschema/nested/added.json".to_owned()
+            ),
+            ("sql", false, "sql/added.sql".to_owned()),
+        ])
+    );
+    assert_eq!(unclassified, Err(vec!["avro/added.avsc".to_owned()]));
 }
