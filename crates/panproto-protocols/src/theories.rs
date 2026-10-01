@@ -525,30 +525,34 @@ pub fn registered_recipe(theory_name: &str) -> Option<CompositionSpec> {
 /// [`Protocol::instance_composition`] with the recipes that registration
 /// records for its schema and instance theories.
 ///
+/// Only a protocol this crate builds gets recipes: one whose name is a
+/// built-in descriptor's (canonical or alias), or the raw file protocol.
+/// Any other protocol keeps the fields it was given, even when its theory
+/// names have recipes recorded in this process.
+///
 /// The recipes do not depend on what this process registered before: when
 /// a theory's recipe is not recorded yet, the protocol's own theories are
 /// registered into a scratch registry first, and registration is
-/// deterministic, so the recipes are the same either way. A protocol that
-/// is not a built-in descriptor keeps the fields it was given.
+/// deterministic, so the recipes are the same either way.
 ///
 /// # Panics
 ///
-/// Panics if `protocol` is a built-in descriptor whose theories fail to
-/// register, or whose registration records no recipe for its schema or
+/// Panics if `protocol` is one this crate builds and its theories fail to
+/// register, or their registration records no recipe for its schema or
 /// instance theory: both are defects in the static registration
 /// configuration, like a failing registration helper.
 pub fn attach_recipes(protocol: &mut Protocol) {
+    let Some(register) = built_in_registration(&protocol.name) else {
+        return;
+    };
     let lookup = |protocol: &Protocol| {
         registered_recipe(&protocol.schema_theory).zip(registered_recipe(&protocol.instance_theory))
     };
     let recipes = if let Some(recipes) = lookup(protocol) {
         recipes
     } else {
-        let Some(descriptor) = crate::registry::descriptor(&protocol.name) else {
-            return;
-        };
         let mut scratch = HashMap::new();
-        if let Err(err) = (descriptor.register_theories)(&mut scratch) {
+        if let Err(err) = register(&mut scratch) {
             panic!(
                 "the theories of built-in protocol {} fail to register: {err}",
                 protocol.name
@@ -563,6 +567,22 @@ pub fn attach_recipes(protocol: &mut Protocol) {
     };
     protocol.schema_composition = Some(recipes.0);
     protocol.instance_composition = Some(recipes.1);
+}
+
+/// Registers a protocol's theories into a registry.
+type RegisterTheories = fn(&mut HashMap<String, Theory>) -> Result<(), crate::error::ProtocolError>;
+
+/// The theory registration of the protocol this crate builds under `name`:
+/// a built-in descriptor's, or the raw file protocol's, which no descriptor
+/// lists.
+fn built_in_registration(name: &str) -> Option<RegisterTheories> {
+    if let Some(descriptor) = crate::registry::descriptor(name) {
+        return Some(descriptor.register_theories);
+    }
+    (name == "raw_file").then_some(|registry: &mut HashMap<String, Theory>| {
+        crate::raw_file::register_theories(registry);
+        Ok(())
+    })
 }
 
 /// Record the composition registered as `name`. The first registration of
