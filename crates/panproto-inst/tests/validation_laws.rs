@@ -4,17 +4,19 @@
 //! - Failure witnesses: every diagnostic verifies against the instance it
 //!   refutes, and a diagnostic altered in its payload, subject or elements
 //!   does not.
-//! - V1 status soundness: a report is `Passed` exactly when it has no
+//! - Status soundness: a report is `Passed` exactly when it has no
 //!   required diagnostic and no required incomplete check.
-//! - V2 determinism: reports and their failure witnesses have the same
+//! - Determinism: reports and their failure witnesses have the same
 //!   canonical bytes in every process.
-//! - V7 budget: a finite budget never passes what an unlimited one does not,
+//! - Budget: a finite budget never passes what an unlimited one does not,
 //!   a budget at least the unlimited run's reads changes nothing, and the
 //!   instances a budget leaves undecided are a suffix in check-instance
 //!   order.
-//! - V8 shape squares: a tree, and a table instance, validate as their graph
-//!   forms do, element for element through their embeddings.
-//! - V11 keys and references: `KeyUnique` and `ReferenceResolves` agree with
+//! - Shape squares: a tree validates as its graph form does, element for
+//!   element through its embedding; a table instance does too, except for
+//!   constraints on column vertices, which the graph form does not read
+//!   from its rows' cells.
+//! - Keys and references: `KeyUnique` and `ReferenceResolves` agree with
 //!   a brute-force oracle.
 //!
 //! The length units of the protocols are pinned by unit tests: atproto's
@@ -105,7 +107,7 @@ fn no_verdicts() -> ExternalVerdicts {
     ExternalVerdicts::default()
 }
 
-/// Law V1 on one report: `Passed` exactly when nothing required failed or
+/// Status soundness of one report: `Passed` exactly when nothing required failed or
 /// was left undecided.
 fn assert_status_sound(report: &ValidationReport) -> Result<(), TestCaseError> {
     let required_failure = report
@@ -316,7 +318,7 @@ proptest! {
     /// alteration of it (its subject, its elements, its requirement, a
     /// payload field) does not. An external rejection verifies against the
     /// verdicts it was read from, and with its witness altered does not.
-    /// Each report also obeys law V1.
+    /// Each report is also sound in its status.
     #[test]
     fn every_diagnostic_verifies_and_a_mutated_one_does_not(
         case in arb_validation_schema(),
@@ -481,7 +483,7 @@ fn unlimited_reads(
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(256))]
 
-    /// Law V7: no finite-budget report is `Passed` where the unlimited one
+    /// No finite-budget report is `Passed` where the unlimited one
     /// is `Failed` or `Incomplete`; a limit at least the unlimited run's
     /// reads gives the unlimited report; and under a smaller limit the
     /// budget leaves undecided exactly a suffix of the check instances in
@@ -641,7 +643,7 @@ fn shared_keys(
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
-    /// Law V8 for trees: the diagnostics of every kind a tree shares with
+    /// The tree square: the diagnostics of every kind a tree shares with
     /// graphs are those of its graph form, element for element through the
     /// tree's embedding. Fan diagnostics, whose subject is the fan's parent
     /// in a tree and the fan node in a graph, are compared as the set of
@@ -702,7 +704,7 @@ proptest! {
         prop_assert_eq!(tree_fans, graph_fans);
     }
 
-    /// Law V8 for tables: the diagnostics of every kind a table instance
+    /// The table square: the diagnostics of every kind a table instance
     /// shares with graphs are those of its graph form, row for node and pair
     /// for edge through the table's embedding.
     ///
@@ -1182,7 +1184,7 @@ fn oracle_references(refs: &[OracleRef], oracle: Oracle<'_>) -> BTreeSet<String>
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
-    /// Law V11: the `KeyUnique` and `ReferenceResolves` diagnostics of every
+    /// The `KeyUnique` and `ReferenceResolves` diagnostics of every
     /// shape are exactly those of a brute-force oracle, over composite keys,
     /// keys unique within a document, NULL key parts (left out, as SQL
     /// does), and dangling, ambiguous, strict and lenient references.
@@ -1421,7 +1423,7 @@ fn one_process_report_dump() {
     print!("<<<{}>>>", report_dump());
 }
 
-/// Law V2: validation reports, failure witnesses included, have the same
+/// Validation reports, failure witnesses included, have the same
 /// canonical bytes and digests in every process, whatever the process's
 /// hash seed.
 #[test]
@@ -1447,4 +1449,71 @@ fn validation_reports_are_identical_across_processes() {
             "a child process wrote other reports"
         );
     }
+}
+
+/// A fault with several witnesses verifies with each of them, not only with
+/// the one the validator reports: a node entered by two arcs, neither from
+/// the parent the parent map records, is reported with the first arc's
+/// parent, and the diagnostic naming the second arc's parent verifies too.
+/// A diagnostic naming a parent no arc comes from does not.
+#[test]
+fn a_parent_mismatch_verifies_with_any_arc_into_the_node() {
+    use panproto_inst::Node;
+    use panproto_schema::{Protocol, Schema, Vertex};
+    let next = validation_support::e_next();
+    let mut schema = Schema::default();
+    schema.vertices.insert(
+        "item".into(),
+        Vertex {
+            id: "item".into(),
+            kind: "object".into(),
+            nsid: None,
+        },
+    );
+    schema.edges.insert(next.clone(), next.kind.clone());
+    let plan =
+        ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+    let nodes = (0..4).map(|i| (i, Node::new(i, "item"))).collect();
+    let arcs = vec![
+        (0, 1, next.clone()),
+        (0, 2, next.clone()),
+        (1, 3, next.clone()),
+        (2, 3, next),
+    ];
+    let mut tree = WInstance::new(nodes, arcs, Vec::new(), 0, "item".into());
+    tree.parent_map.insert(3, 0);
+    let report = plan.validate_tree(&tree, &unlimited(), &no_verdicts());
+    let reported: Vec<&Diagnostic> = report
+        .diagnostics
+        .iter()
+        .filter(|d| d.check.kind == CheckKind::TreeParentMap)
+        .collect();
+    assert_eq!(reported.len(), 1, "{report:#?}");
+    let mismatch = reported[0];
+    assert_eq!(
+        mismatch.violation,
+        Violation::ParentMismatch {
+            recorded: Some(0),
+            actual: Some(1)
+        }
+    );
+    assert!(mismatch.verify(&plan, &tree));
+    let with_parent = |actual: u32| {
+        let mut other = mismatch.clone();
+        other.violation = Violation::ParentMismatch {
+            recorded: Some(0),
+            actual: Some(actual),
+        };
+        other.elements = vec![
+            ViewRef::Node(3),
+            ViewRef::Arc {
+                parent: actual,
+                child: 3,
+            },
+        ];
+        other.elements.sort();
+        other
+    };
+    assert!(with_parent(2).verify(&plan, &tree));
+    assert!(!with_parent(0).verify(&plan, &tree));
 }
