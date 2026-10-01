@@ -966,7 +966,10 @@ mod tests {
         // schema theory, on its own or in a bundle.
         let protocol = protocol(GRAPH_HYPER, r#""ThGraph""#);
         for (what, json) in [
-            ("composition document", format!(r#"{{"compose": {GRAPH_HYPER}}}"#)),
+            (
+                "composition document",
+                format!(r#"{{"compose": {GRAPH_HYPER}}}"#),
+            ),
             (
                 "bundle composition",
                 format!(r#"{{"bundle": "b", "compositions": [{GRAPH_HYPER}]}}"#),
