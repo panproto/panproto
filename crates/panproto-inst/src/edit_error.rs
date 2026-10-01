@@ -461,12 +461,34 @@ impl Subject {
     }
 }
 
-/// A schema edge as text: `src`, `-`, `kind`, then `:name` when it has a
-/// name, `->`, `tgt`; for instance `person-prop:name->string`.
+/// A schema edge as text, distinct for distinct edges.
+///
+/// The text is `src`, `-`, `kind`, then `:name` when it has a name, `->`,
+/// `tgt`; for instance `person-prop:name->string`. Each part writes each
+/// `\`, `-`, `:` and `>` after a `\`, so `a\-b-k->c` is the edge from
+/// `a-b` of kind `k`.
 #[must_use]
 pub fn edge_text(edge: &Edge) -> String {
-    edge.name.as_ref().map_or_else(
-        || format!("{}-{}->{}", edge.src, edge.kind, edge.tgt),
-        |name| format!("{}-{}:{}->{}", edge.src, edge.kind, name, edge.tgt),
-    )
+    let mut text = escaped(&edge.src);
+    text.push('-');
+    text.push_str(&escaped(&edge.kind));
+    if let Some(name) = &edge.name {
+        text.push(':');
+        text.push_str(&escaped(name));
+    }
+    text.push_str("->");
+    text.push_str(&escaped(&edge.tgt));
+    text
+}
+
+/// `part` with each `\`, `-`, `:` and `>` written after a `\`.
+fn escaped(part: &str) -> String {
+    let mut out = String::with_capacity(part.len());
+    for c in part.chars() {
+        if matches!(c, '\\' | '-' | ':' | '>') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
 }
