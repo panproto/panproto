@@ -1120,6 +1120,43 @@ fn plans_for_different_schemas_have_different_digests() {
     assert_eq!(&report.plan, pa.digest());
 }
 
+/// A plan compiled once and shared (the cache a plan-taking caller keeps)
+/// validates every instance exactly as the schema-taking call, which
+/// compiles a fresh plan per call.
+#[test]
+fn a_cached_plan_validates_like_the_schema_taking_call() {
+    let schema = S::default()
+        .vertex("a", "string")
+        .edge(&prop("a", "a", "next"))
+        .constraint("a", "maxLength", "3")
+        .build();
+    let p = protocol(&[(
+        "maxLength",
+        ConstraintSemantics::MaxLength(LengthUnit::Chars),
+    )]);
+    let cached = std::sync::Arc::new(plan(&schema, &p));
+    let shared = std::sync::Arc::clone(&cached);
+    let instances = [
+        GInstance::new()
+            .with_node(str_node(0, "a", "ok"))
+            .with_node(str_node(1, "a", "abc"))
+            .with_edge(0, 1, prop("a", "a", "next")),
+        GInstance::new()
+            .with_node(str_node(0, "a", "much too long"))
+            .with_node(str_node(1, "ghost", "x"))
+            .with_edge(0, 1, prop("a", "a", "nope")),
+    ];
+    let mut statuses = Vec::new();
+    for graph in &instances {
+        let fresh = validate_graph(graph, &schema, &p);
+        assert_eq!(cached.validate_graph(graph, &unlimited(), &none()), fresh);
+        assert_eq!(shared.validate_graph(graph, &unlimited(), &none()), fresh);
+        assert_eq!(&fresh.plan, cached.digest());
+        statuses.push(fresh.status);
+    }
+    assert_eq!(statuses, [CheckStatus::Passed, CheckStatus::Failed]);
+}
+
 #[test]
 fn a_source_map_does_not_change_the_schema_digest() -> TestResult {
     let schema = S::default()
