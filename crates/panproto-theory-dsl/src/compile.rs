@@ -400,6 +400,10 @@ fn compile_bundle_inner(
     }
 
     // Phase 4: Compile all protocols (reference theories by name or inline).
+    // Every protocol sees the theories of phases 1 and 2, and the inline
+    // compositions are recorded once all protocols are compiled, so no
+    // protocol can name another's inline composition, whatever their order.
+    let mut inline = Vec::new();
     for spec in &bundle.protocols {
         let theories = &recorded.theories;
         if protocols.contains_key(&spec.protocol) {
@@ -412,10 +416,11 @@ fn compile_bundle_inner(
             theories.get(name).cloned().or_else(|| resolver(name))
         };
         let compiled = compile_protocol_with_compositions(spec, &combined, theories)?;
-        for composed in compiled.compositions {
-            recorded.record_inline(composed)?;
-        }
+        inline.extend(compiled.compositions);
         protocols.insert(spec.protocol.clone(), compiled.protocol);
+    }
+    for composed in inline {
+        recorded.record_inline(composed)?;
     }
 
     Ok(CompiledTheorySet {
