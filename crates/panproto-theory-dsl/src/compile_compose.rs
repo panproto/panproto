@@ -920,7 +920,7 @@ mod tests {
         }]
     }"#;
 
-    /// `GraphHyper` built otherwise: ThGraph and ThHypergraph amalgamated
+    /// `GraphHyper` built otherwise: `ThGraph` and `ThHypergraph` amalgamated
     /// over `Vertex`, without identifying the edges.
     const GRAPH_HYPER_AMALGAMATED: &str = r#"{
         "result": "GraphHyper",
@@ -945,16 +945,16 @@ mod tests {
         format!(r#"{{"protocol": "P", "schema_theory": {schema}, "instance_theory": {instance}}}"#)
     }
 
-    /// The theory and step reports that compiling [`GRAPH_HYPER`] on its
-    /// own gives.
-    fn graph_hyper() -> (Theory, Vec<CompositionReport>) {
+    /// The theory, recipe and step reports that compiling [`GRAPH_HYPER`]
+    /// on its own gives.
+    fn graph_hyper() -> (Theory, CompositionSpec, Vec<CompositionReport>) {
         let body = body(&format!(
             r#"{{"id": "test.gh", "description": "", "compose": {GRAPH_HYPER}}}"#
         ));
         let composed = compile_composition_with_report(&body, &builtin_resolver(), &HashMap::new())
             .unwrap_or_else(|e| panic!("GraphHyper compiles: {e}"));
         assert_eq!(composed.reports.len(), 1);
-        (composed.theory, composed.reports)
+        (composed.theory, composed.spec, composed.reports)
     }
 
     /// Compile `doc` with the built-in resolver.
@@ -962,9 +962,15 @@ mod tests {
         crate::compile::compile(doc, &builtin_resolver())
     }
 
-    /// `set` records `GraphHyper` with its theory and its one step report.
+    /// `set` records `GraphHyper` with its theory, its recipe and its one
+    /// step report.
     fn assert_records_graph_hyper(set: &CompiledTheorySet, what: &str) {
-        let (theory, reports) = graph_hyper();
+        let (theory, spec, reports) = graph_hyper();
+        assert_eq!(
+            set.composition_specs.get("GraphHyper"),
+            Some(&spec),
+            "{what}: {set:?}"
+        );
         assert_eq!(
             set.composition_reports.get("GraphHyper"),
             Some(&reports),
