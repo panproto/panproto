@@ -22,7 +22,7 @@
 //! validation, not of this schema, which is why one value sort is enough.
 //!
 //! Which vertices are tables is read from the protocol's two declarations,
-//! [`Protocol::value_kinds`] and [`Protocol::non_value_kinds`], and from the
+//! [`Protocol::value_kinds`](panproto_schema::Protocol::value_kinds) and [`Protocol::non_value_kinds`](panproto_schema::Protocol::non_value_kinds), and from the
 //! schema's key and reference declarations, and from nothing else: not from
 //! the kind of an edge, not from the name of a kind, not from whether an
 //! instance holds rows there. So a table with no rows is still a table.
