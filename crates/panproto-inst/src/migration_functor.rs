@@ -112,7 +112,8 @@ pub struct EntityFunctor {
 /// rename.vertex_remap.insert("post".into(), "post".into());
 /// rename.vertex_remap.insert("post.title".into(), "post.name".into());
 /// rename.edge_remap.insert(column("post", "title"), column("post", "name"));
-/// let f = MigrationFunctor::new(&schema("title"), &protocol, &schema("name"), &protocol, &rename)?;
+/// let f =
+///     MigrationFunctor::new(&schema("title"), &protocol, &schema("name"), &protocol, &rename)?;
 /// assert_eq!(f.column_image("post", "title"), Some("name"));
 /// f.attribute_surjective()?;
 /// # Ok::<(), panproto_inst::RestrictError>(())

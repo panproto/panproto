@@ -44,8 +44,9 @@ use value_kinds::{NonScalarRow, ValueKindRow};
 /// constructor gave it. Constraint-semantics and value-kind rows are added
 /// to the maps the constructor built, a row replacing an entry of the same
 /// key, and each non-scalar row adds its vertex kind to
-/// [`non_value_kinds`](panproto_schema::Protocol::non_value_kinds). The composition recipes of its schema and instance theories are
-/// filled by [`crate::theories::attach_recipes`].
+/// [`non_value_kinds`](panproto_schema::Protocol::non_value_kinds). The
+/// composition recipes of its schema and instance theories are filled by
+/// [`crate::theories::attach_recipes`].
 pub fn attach(protocol: &mut Protocol) {
     attach_from(
         protocol,

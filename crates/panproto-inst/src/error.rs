@@ -365,7 +365,8 @@ pub enum RestrictError {
     /// vertex, or a surviving column has no attribute arrow of its kind and
     /// name in the target.
     #[error(
-        "the migration carries column {edge:?} to {image:?}, which is no column of the image of its table"
+        "the migration carries column {edge:?} to {image:?}, \
+         which is no column of the image of its table"
     )]
     IncoherentAttributeImage {
         /// The source attribute arrow (boxed to keep the error small).
