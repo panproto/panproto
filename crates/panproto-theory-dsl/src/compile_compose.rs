@@ -577,37 +577,40 @@ impl Apex {
     /// (for an earlier step's result, not its label) or, for a side carried
     /// inline, its label; recompose names the legs the same way.
     fn legs(&self, left: &SideNode, right: &SideNode) -> (TheoryMorphism, TheoryMorphism) {
-        let leg =
-            |node: &SideNode,
-             image: &dyn Fn(&HashMap<Arc<str>, Arc<str>>, &Arc<str>) -> Arc<str>| {
-                TheoryMorphism::new(
-                    format!("{}_to_{}", self.theory.name, node.label),
-                    Arc::clone(&self.theory.name),
-                    Arc::clone(&node.theory.name),
-                    self.theory
-                        .sorts
-                        .iter()
-                        .map(|s| (Arc::clone(&s.name), image(&self.sort_images, &s.name)))
-                        .collect::<HashMap<_, _>>(),
-                    self.theory
-                        .ops
-                        .iter()
-                        .map(|o| {
-                            (
-                                Arc::clone(&o.name),
-                                OpAssignment::Op(image(&self.op_images, &o.name)),
-                            )
-                        })
-                        .collect::<HashMap<_, _>>(),
-                )
-            };
-        (
-            leg(left, &|_, name| Arc::clone(name)),
-            leg(right, &|images, name| {
+        (self.leg(left, false), self.leg(right, true))
+    }
+
+    /// The leg into `node`, sending each symbol to its right counterpart
+    /// when `to_right`, else to itself.
+    fn leg(&self, node: &SideNode, to_right: bool) -> TheoryMorphism {
+        let image = |images: &HashMap<Arc<str>, Arc<str>>, name: &Arc<str>| -> Arc<str> {
+            if to_right {
                 images
                     .get(name)
                     .map_or_else(|| Arc::clone(name), Arc::clone)
-            }),
+            } else {
+                Arc::clone(name)
+            }
+        };
+        TheoryMorphism::new(
+            format!("{}_to_{}", self.theory.name, node.label),
+            Arc::clone(&self.theory.name),
+            Arc::clone(&node.theory.name),
+            self.theory
+                .sorts
+                .iter()
+                .map(|s| (Arc::clone(&s.name), image(&self.sort_images, &s.name)))
+                .collect::<HashMap<_, _>>(),
+            self.theory
+                .ops
+                .iter()
+                .map(|o| {
+                    (
+                        Arc::clone(&o.name),
+                        OpAssignment::Op(image(&self.op_images, &o.name)),
+                    )
+                })
+                .collect::<HashMap<_, _>>(),
         )
     }
 }
