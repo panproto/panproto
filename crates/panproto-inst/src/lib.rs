@@ -139,7 +139,7 @@ pub use reachability::ReachabilityIndex;
 pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
-pub use tree_edit::TreeEdit;
+pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};
 pub use value::{FidelityReason, ValueFidelityError, ValueSite};
 pub use value::{FieldPresence, Value};
