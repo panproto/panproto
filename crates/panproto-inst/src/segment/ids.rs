@@ -50,6 +50,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
+use super::error::SegmentError;
 use crate::error::InstError;
 
 /// Identifier of a segment of a partitioned instance.
@@ -365,53 +366,6 @@ pub const fn check_edge_range_above(
     }
 }
 
-/// The typed failure of a segmented operation.
-///
-/// Serialized externally tagged in `snake_case`, for instance
-/// `{"allocation_exhausted": {"segment": 2, "kind": "edge"}}`.
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
-#[serde(rename_all = "snake_case")]
-pub enum SegmentError {
-    /// A range of `segment` has `lo > hi`.
-    #[error("{segment} has the inverted id range {range}")]
-    InvertedRange {
-        /// The segment the range belongs to.
-        segment: SegmentId,
-        /// The inverted range.
-        range: IdRange,
-    },
-
-    /// `segment` must allocate ids of `kind` but its partition assigns it no
-    /// allocation range for them.
-    #[error("{segment} must allocate {kind} ids but has no {kind} allocation range")]
-    NoAllocationRange {
-        /// The segment.
-        segment: SegmentId,
-        /// The kind of id it must allocate.
-        kind: IdKind,
-    },
-
-    /// Every id of `segment`'s allocation range for `kind` is at or below an
-    /// id in use.
-    #[error("{segment} has no free {kind} id left in its allocation range")]
-    AllocationExhausted {
-        /// The segment.
-        segment: SegmentId,
-        /// The kind of id it failed to allocate.
-        kind: IdKind,
-    },
-
-    /// `segment`'s allocation range for `kind` does not lie above every id of
-    /// that kind in the input.
-    #[error("the {kind} allocation range of {segment} does not lie above every {kind} id in use")]
-    AllocationBelowFloor {
-        /// The segment.
-        segment: SegmentId,
-        /// The kind of id.
-        kind: IdKind,
-    },
-}
-
 #[cfg(test)]
 mod tests {
     use std::collections::BTreeSet;
@@ -420,9 +374,9 @@ mod tests {
     use proptest::prelude::*;
 
     use super::{
-        IdAllocator, IdKind, IdRange, RangeExhausted, SegmentError, SegmentId,
-        check_edge_range_above,
+        IdAllocator, IdKind, IdRange, RangeExhausted, SegmentId, check_edge_range_above,
     };
+    use crate::segment::SegmentError;
     use crate::error::InstError;
     use crate::ginstance::{EdgeId, GInstance};
     use crate::metadata::Node;
