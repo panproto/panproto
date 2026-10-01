@@ -5933,18 +5933,18 @@ mod tests {
                 }
             }
 
+            /// The most assignments the isomorphism search may try for the
+            /// renaming laws at one case. At the seeds below the Pi results
+            /// admit `9^9` table-respecting row maps, and the search tries
+            /// about a dozen assignments.
+            const ISO_WORK_BOUND: usize = 100;
+
             /// Renaming invariance on the generated cases whose Pi results
             /// hold the most rows with equal cells: about `4e8`
             /// table-respecting row maps each, which an isomorphism search
             /// that does not prune by injectivity, by pairs and by twins
             /// cannot get through. The assignments the search tries are
             /// counted, so the bound does not depend on the machine's load.
-            /// The most assignments the isomorphism search may try for the
-            /// renaming laws at one case. At these seeds the Pi results
-            /// admit `9^9` table-respecting row maps, and the search tries
-            /// about a dozen assignments.
-            const ISO_WORK_BOUND: usize = 100;
-
             #[test]
             fn renaming_laws_finish_on_pi_results_with_many_equal_rows() {
                 for seed in [1606_u64, 1703, 1873, 2932, 3193] {
