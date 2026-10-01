@@ -18,10 +18,14 @@
 //!
 //! A step may name one left symbol more than once, as a shared sort that is
 //! also identified, or identified with several right symbols: every right
-//! symbol it is named with becomes one symbol with it. Every sort that a
-//! shared operation, or an identified sort or operation, mentions in its
-//! declaration must itself be shared or identified, so the legs can map it;
-//! a step that leaves one out is refused, naming the symbol and the sort.
+//! symbol it is named with becomes one symbol with it. In a step with
+//! `identify` entries, every sort that a shared operation, or an identified
+//! sort or operation, mentions in its declaration must be shared or
+//! identified with the sort in the same place of the right declaration, so
+//! the legs can map it; a step that leaves one out is refused, naming the
+//! symbol and the sort. Every step refuses a shared or identified name that
+//! a side does not declare, and a shared or identified pair whose arities
+//! differ, naming the symbols and the theories.
 //!
 //! [`compile_composition_with_report`] also returns the
 //! [`CompositionReport`] of every step.
@@ -233,8 +237,8 @@ fn compose_step(
         });
     }
 
-    check_mentioned_sorts(&entries).map_err(failed)?;
-    compose_identified(step, left, right, apexes(&shared_name, entries), &step_name).map_err(failed)
+    let apexes = apexes(&shared_name, entries).map_err(failed)?;
+    compose_identified(step, left, right, apexes, &step_name).map_err(failed)
 }
 
 /// Compose a step that has identifications: one diagram over the two sides
@@ -396,7 +400,8 @@ fn options(mode: CompositionMode, result_name: &str) -> ComposeOptions {
 }
 
 /// One symbol a step shares between its sides: the left declaration, which
-/// the shared theory copies, and the name of its right counterpart.
+/// the shared theory copies, the name of its right counterpart, and the
+/// right sort each sort of its declaration must be one symbol with.
 #[derive(Clone)]
 enum SharedEntry {
     /// A shared or identified sort.
@@ -405,6 +410,9 @@ enum SharedEntry {
         decl: Sort,
         /// The right sort it is one symbol with.
         right: Arc<str>,
+        /// The sort itself and each of its parameter sorts, with the right
+        /// sort it must be one symbol with.
+        images: Vec<(Arc<str>, Arc<str>)>,
     },
     /// A shared or identified operation.
     Op {
@@ -412,6 +420,9 @@ enum SharedEntry {
         decl: Operation,
         /// The right operation it is one symbol with.
         right: Arc<str>,
+        /// Each input sort and the output sort, with the sort in the same
+        /// place of the right operation.
+        images: Vec<(Arc<str>, Arc<str>)>,
     },
 }
 
@@ -424,18 +435,36 @@ impl SharedEntry {
         }
     }
 
-    /// The sort names the entry's declaration mentions: an operation's
-    /// input and output sorts, or a sort's parameter sorts.
-    fn mentioned_sorts(&self) -> Vec<&Arc<str>> {
+    /// The name of the entry's right counterpart.
+    const fn right(&self) -> &Arc<str> {
         match self {
-            Self::Sort { decl, .. } => decl.params.iter().map(|p| p.sort.head()).collect(),
-            Self::Op { decl, .. } => decl
-                .inputs
-                .iter()
-                .map(|(_, sort, _)| sort.head())
-                .chain(std::iter::once(decl.output.head()))
-                .collect(),
+            Self::Sort { right, .. } | Self::Op { right, .. } => right,
         }
+    }
+
+    /// The sort images a leg carrying the entry must have.
+    fn images(&self) -> &[(Arc<str>, Arc<str>)] {
+        match self {
+            Self::Sort { images, .. } | Self::Op { images, .. } => images,
+        }
+    }
+
+    /// Whether `other` names the same left and right symbols.
+    fn same(&self, other: &Self) -> bool {
+        self.key() == other.key() && self.right() == other.right()
+    }
+
+    /// The entry as the user wrote it: `sort 'A'` or `operation 'f'`, with
+    /// its right counterpart.
+    fn describe(&self) -> String {
+        let (what, name) = match self.key() {
+            (IdentifyKind::Sort, name) => ("sort", name),
+            (IdentifyKind::Op, name) => ("operation", name),
+        };
+        format!(
+            "{what} '{name}', shared or identified with '{}',",
+            self.right()
+        )
     }
 }
 
@@ -443,79 +472,141 @@ impl SharedEntry {
 /// sorts (simple, as a pushout by name has always built them), its shared
 /// operations as the left theory declares them, then its identified sorts
 /// and operations, each as the left theory declares it.
+///
+/// Every named symbol must be declared on its side, and a shared or
+/// identified pair must agree in arity (an operation's inputs, a sort's
+/// parameters); a step that breaks either is refused, naming the symbols
+/// and the theories as the step does.
 fn shared_entries(
     step: &ColimitStepSpec,
     left: &Theory,
     right: &Theory,
 ) -> Result<Vec<SharedEntry>, String> {
-    let mut entries: Vec<SharedEntry> = step
-        .shared_sorts
-        .iter()
-        .map(|s| SharedEntry::Sort {
-            decl: Sort::simple(s.as_str()),
-            right: Arc::from(s.as_str()),
-        })
-        .collect();
-    for op_name in &step.shared_ops {
-        let op = left.find_op(op_name).ok_or_else(|| {
-            format!(
-                "shared operation '{op_name}' not found in left theory '{}'",
-                step.left
-            )
-        })?;
-        if !right.has_op(op_name) {
-            return Err(format!(
-                "shared operation '{op_name}' not found in right theory '{}'",
-                step.right
-            ));
+    let sides = Sides { step, left, right };
+    let mut entries = Vec::new();
+    for name in &step.shared_sorts {
+        for (theory, side, theory_name) in
+            [(left, "left", &step.left), (right, "right", &step.right)]
+        {
+            if !theory.has_sort(name) {
+                return Err(format!(
+                    "shared sort '{name}' not found in {side} theory '{theory_name}'"
+                ));
+            }
         }
-        entries.push(SharedEntry::Op {
-            decl: op.clone(),
-            right: Arc::from(op_name.as_str()),
+        let name: Arc<str> = Arc::from(name.as_str());
+        entries.push(SharedEntry::Sort {
+            decl: Sort::simple(&*name),
+            images: vec![(Arc::clone(&name), Arc::clone(&name))],
+            right: name,
         });
     }
+    for op_name in &step.shared_ops {
+        entries.push(sides.op_entry("shared", op_name, op_name)?);
+    }
     for pair in &step.identify {
-        let entry = match pair.kind {
-            IdentifyKind::Sort => {
-                let sort = left.find_sort(&pair.left).ok_or_else(|| {
-                    format!(
-                        "identified sort '{}' not found in left theory '{}'",
-                        pair.left, step.left
-                    )
-                })?;
-                if !right.has_sort(&pair.right) {
-                    return Err(format!(
-                        "identified sort '{}' not found in right theory '{}'",
-                        pair.right, step.right
-                    ));
-                }
-                SharedEntry::Sort {
-                    decl: sort.clone(),
-                    right: Arc::from(pair.right.as_str()),
-                }
-            }
-            IdentifyKind::Op => {
-                let op = left.find_op(&pair.left).ok_or_else(|| {
-                    format!(
-                        "identified operation '{}' not found in left theory '{}'",
-                        pair.left, step.left
-                    )
-                })?;
-                if !right.has_op(&pair.right) {
-                    return Err(format!(
-                        "identified operation '{}' not found in right theory '{}'",
-                        pair.right, step.right
-                    ));
-                }
-                SharedEntry::Op {
-                    decl: op.clone(),
-                    right: Arc::from(pair.right.as_str()),
-                }
-            }
-        };
-        entries.push(entry);
+        entries.push(match pair.kind {
+            IdentifyKind::Sort => sides.sort_entry(&pair.left, &pair.right)?,
+            IdentifyKind::Op => sides.op_entry("identified", &pair.left, &pair.right)?,
+        });
     }
     Ok(entries)
+}
+
+/// The two sides of a step, with the names the step gives them.
+struct Sides<'a> {
+    step: &'a ColimitStepSpec,
+    left: &'a Theory,
+    right: &'a Theory,
+}
+
+impl Sides<'_> {
+    /// The entry for the identified sorts `left_name` and `right_name`.
+    fn sort_entry(&self, left_name: &str, right_name: &str) -> Result<SharedEntry, String> {
+        let sort = self.left.find_sort(left_name).ok_or_else(|| {
+            format!(
+                "identified sort '{left_name}' not found in left theory '{}'",
+                self.step.left
+            )
+        })?;
+        let counterpart = self.right.find_sort(right_name).ok_or_else(|| {
+            format!(
+                "identified sort '{right_name}' not found in right theory '{}'",
+                self.step.right
+            )
+        })?;
+        if sort.params.len() != counterpart.params.len() {
+            return Err(format!(
+                "identified sort '{left_name}' takes {} parameters in left theory '{}', but \
+                 '{right_name}' takes {} in right theory '{}'",
+                sort.params.len(),
+                self.step.left,
+                counterpart.params.len(),
+                self.step.right
+            ));
+        }
+        let right: Arc<str> = Arc::from(right_name);
+        let images = std::iter::once((Arc::clone(&sort.name), Arc::clone(&right)))
+            .chain(
+                sort.params
+                    .iter()
+                    .zip(&counterpart.params)
+                    .map(|(a, b)| (Arc::clone(a.sort.head()), Arc::clone(b.sort.head()))),
+            )
+            .collect();
+        Ok(SharedEntry::Sort {
+            decl: sort.clone(),
+            right,
+            images,
+        })
+    }
+
+    /// The entry for the operations `left_name` and `right_name`, shared
+    /// or identified as `what` says.
+    fn op_entry(
+        &self,
+        what: &str,
+        left_name: &str,
+        right_name: &str,
+    ) -> Result<SharedEntry, String> {
+        let op = self.left.find_op(left_name).ok_or_else(|| {
+            format!(
+                "{what} operation '{left_name}' not found in left theory '{}'",
+                self.step.left
+            )
+        })?;
+        let counterpart = self.right.find_op(right_name).ok_or_else(|| {
+            format!(
+                "{what} operation '{right_name}' not found in right theory '{}'",
+                self.step.right
+            )
+        })?;
+        if op.inputs.len() != counterpart.inputs.len() {
+            return Err(format!(
+                "{what} operation '{left_name}' takes {} inputs in left theory '{}', but \
+                 '{right_name}' takes {} in right theory '{}'",
+                op.inputs.len(),
+                self.step.left,
+                counterpart.inputs.len(),
+                self.step.right
+            ));
+        }
+        let images = op
+            .inputs
+            .iter()
+            .zip(&counterpart.inputs)
+            .map(|((_, a, _), (_, b, _))| (Arc::clone(a.head()), Arc::clone(b.head())))
+            .chain(std::iter::once((
+                Arc::clone(op.output.head()),
+                Arc::clone(counterpart.output.head()),
+            )))
+            .collect();
+        Ok(SharedEntry::Op {
+            decl: op.clone(),
+            right: Arc::from(right_name),
+            images,
+        })
+    }
 }
 
 /// The theory a step without identifications shares between its sides,
@@ -554,11 +645,11 @@ impl Apex {
         let mut op_images = HashMap::new();
         for entry in entries {
             match entry {
-                SharedEntry::Sort { decl, right } => {
+                SharedEntry::Sort { decl, right, .. } => {
                     sort_images.insert(Arc::clone(&decl.name), right);
                     sorts.push(decl);
                 }
-                SharedEntry::Op { decl, right } => {
+                SharedEntry::Op { decl, right, .. } => {
                     op_images.insert(Arc::clone(&decl.name), right);
                     ops.push(decl);
                 }
@@ -615,78 +706,105 @@ impl Apex {
     }
 }
 
-/// Check that every sort a shared or identified symbol's declaration
-/// mentions is itself shared or identified, so the legs of the step can
-/// map it.
-fn check_mentioned_sorts(entries: &[SharedEntry]) -> Result<(), String> {
-    let sorts: Vec<&str> = entries
-        .iter()
-        .filter_map(|e| match e.key() {
-            (IdentifyKind::Sort, name) => Some(name),
-            (IdentifyKind::Op, _) => None,
-        })
-        .collect();
-    for entry in entries {
-        for sort in entry.mentioned_sorts() {
-            if !sorts.contains(&&**sort) {
-                let (what, name) = match entry.key() {
-                    (IdentifyKind::Sort, name) => ("sort", name),
-                    (IdentifyKind::Op, name) => ("operation", name),
-                };
+/// `entry` with the sort entries its images need, transitively: for each
+/// image `(a, b)`, the entry sharing or identifying the left sort `a` with
+/// the right sort `b`. `entry` comes first.
+///
+/// # Errors
+///
+/// A message naming `entry` and the sort, in the step's terms, when an
+/// image has no such entry (the sort is neither shared nor identified, or
+/// is not one symbol with the right sort the declaration needs), or when
+/// one left sort would need two right sorts.
+fn closure<'a>(
+    entry: &'a SharedEntry,
+    entries: &'a [SharedEntry],
+) -> Result<Vec<&'a SharedEntry>, String> {
+    let mut members = vec![entry];
+    let mut pending: Vec<&(Arc<str>, Arc<str>)> = entry.images().iter().rev().collect();
+    while let Some((sort, image)) = pending.pop() {
+        let key = (IdentifyKind::Sort, &**sort);
+        if let Some(member) = members.iter().find(|m| m.key() == key) {
+            if member.right() != image {
                 return Err(format!(
-                    "{what} '{name}' is shared or identified, but the sort '{sort}' its \
-                     declaration mentions is neither shared nor identified"
+                    "{} needs the sort '{sort}' to be one symbol with both '{}' and \
+                     '{image}', which one shared symbol cannot be",
+                    entry.describe(),
+                    member.right()
                 ));
             }
+            continue;
         }
+        let mut candidates = entries.iter().filter(|e| e.key() == key).peekable();
+        if candidates.peek().is_none() {
+            return Err(format!(
+                "{} mentions the sort '{sort}' in its declaration, but '{sort}' is neither \
+                 shared nor identified",
+                entry.describe()
+            ));
+        }
+        let Some(found) = candidates.find(|e| e.right() == image) else {
+            return Err(format!(
+                "{} needs the sort '{sort}' to be one symbol with the right sort '{image}', \
+                 but the step neither shares '{sort}' nor identifies it with '{image}'",
+                entry.describe()
+            ));
+        };
+        members.push(found);
+        pending.extend(found.images().iter().rev());
     }
-    Ok(())
+    Ok(members)
 }
 
 /// The shared theories of a step with identifications, labelled `base`,
 /// `{base}_1`, `{base}_2`, ...
 ///
-/// A theory declares each name once, so the entries go into layers: an
-/// entry joins the first layer that does not yet declare its kind and left
-/// name. One left symbol named by several entries (shared and also
+/// Each shared theory has legs into the two sides, so it declares each
+/// name once and maps each of its sorts to one right sort. The entries go
+/// into layers in step order: an entry, together with the sort entries its
+/// declaration needs (see [`closure`]), joins the first layer in which none
+/// of them names a left symbol that the layer already sends to another
+/// right symbol. One left symbol named by several entries (shared and also
 /// identified, or identified with several right symbols) is then one
 /// symbol of each of several shared theories, and every right symbol it is
-/// named with becomes one symbol with it in the result. A step that names
-/// each left symbol once has the one shared theory `base`.
-fn apexes(base: &str, entries: Vec<SharedEntry>) -> Vec<Apex> {
-    let mut layers: Vec<Vec<SharedEntry>> = Vec::new();
+/// named with becomes one symbol with it in the result, whatever the order
+/// of the entries and whether a redundant entry repeats one. A step that
+/// names each left symbol once has the one shared theory `base`.
+///
+/// # Errors
+///
+/// The message of [`closure`] for the first entry whose declaration needs
+/// a sort the step does not share or identify as it must.
+fn apexes(base: &str, entries: Vec<SharedEntry>) -> Result<Vec<Apex>, String> {
+    let mut unique: Vec<SharedEntry> = Vec::with_capacity(entries.len());
     for entry in entries {
-        let free = layers
-            .iter()
-            .position(|layer| layer.iter().all(|e| e.key() != entry.key()));
-        match free {
-            Some(index) => layers[index].push(entry),
-            None => layers.push(vec![entry]),
+        if !unique.iter().any(|u| u.same(&entry)) {
+            unique.push(entry);
         }
     }
-    // A later layer declares the sorts its symbols mention, as the first
-    // layer that declares each, so its legs map them as that layer's do.
-    for index in 1..layers.len() {
-        let (earlier, rest) = layers.split_at_mut(index);
-        let layer = &mut rest[0];
-        let mut pending: Vec<Arc<str>> = layer
-            .iter()
-            .flat_map(SharedEntry::mentioned_sorts)
-            .cloned()
-            .collect();
-        while let Some(sort) = pending.pop() {
-            let key = (IdentifyKind::Sort, &*sort);
-            if layer.iter().any(|e| e.key() == key) {
-                continue;
+    let mut layers: Vec<Vec<SharedEntry>> = Vec::new();
+    for entry in &unique {
+        let members = closure(entry, &unique)?;
+        if layers.iter().flatten().any(|e| e.same(entry)) {
+            continue;
+        }
+        let fits = |layer: &Vec<SharedEntry>| {
+            members
+                .iter()
+                .all(|m| layer.iter().all(|e| e.key() != m.key() || e.same(m)))
+        };
+        let index = layers.iter().position(fits).unwrap_or_else(|| {
+            layers.push(Vec::new());
+            layers.len() - 1
+        });
+        let layer = &mut layers[index];
+        for member in members {
+            if !layer.iter().any(|e| e.same(member)) {
+                layer.push(member.clone());
             }
-            let Some(entry) = earlier.iter().flatten().find(|e| e.key() == key) else {
-                continue;
-            };
-            pending.extend(entry.mentioned_sorts().into_iter().cloned());
-            layer.push(entry.clone());
         }
     }
-    layers
+    Ok(layers
         .into_iter()
         .enumerate()
         .map(|(index, layer)| {
@@ -697,7 +815,7 @@ fn apexes(base: &str, entries: Vec<SharedEntry>) -> Vec<Apex> {
             };
             Apex::new(&label, layer)
         })
-        .collect()
+        .collect())
 }
 
 #[cfg(test)]
