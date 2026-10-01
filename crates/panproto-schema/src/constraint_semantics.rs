@@ -48,7 +48,14 @@ pub enum ConstraintSemantics {
     Const,
     /// A regular expression a value matches.
     Pattern,
-    /// A named value format.
+    /// A named value format, from a fixed set of eight names: `date-time`
+    /// (also read as `datetime`), `date`, `time`, `uri`, `uuid`, `ipv4`,
+    /// `ipv6` and `did`.
+    ///
+    /// Validation compiles any other name to an unsupported declaration
+    /// (`UnsupportedDeclaration`), never to a pass. The evaluator is
+    /// `panproto_inst::validation::ValueFormat`, whose rustdoc lists the
+    /// same set; a change to the set edits both lists together.
     Format(Name),
     /// A lower bound on the number of out-edges of a node.
     MinOutDegree,
