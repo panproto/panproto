@@ -16,6 +16,7 @@ use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
 use crate::fan_violation::FanViolation;
+use crate::graph_edit::EditConflict;
 use crate::identity::{IdentityField, LegacyRejectReason};
 use crate::value::Value;
 use crate::view_ref::ViewRef;
@@ -198,5 +199,28 @@ pub enum ErrorDetail {
     Composition {
         /// Why.
         error: CompositionError,
+    },
+    /// An edit could not be applied or composed. `path` lists the batch
+    /// step indices leading to the failing step, outermost first; `kind` is
+    /// the snake-case name of the error; `node`, `edge`, `row` and `pair`
+    /// name the element it is about, a pair as `(edge, src, tgt)`.
+    EditConflict {
+        /// The batch step indices, outermost first.
+        path: Vec<u32>,
+        /// The snake-case name of the error.
+        kind: String,
+        /// The node the error is about.
+        node: Option<u32>,
+        /// The edge the error is about.
+        edge: Option<u32>,
+        /// The row the error is about.
+        row: Option<u32>,
+        /// The foreign-key pair the error is about.
+        pair: Option<(String, u32, u32)>,
+    },
+    /// Two edits of one state are not independent.
+    Independence {
+        /// Every conflict between them, ascending.
+        conflicts: Vec<EditConflict>,
     },
 }
