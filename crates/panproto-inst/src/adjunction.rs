@@ -533,6 +533,16 @@ impl DeltaProvenance {
             .find(|(_, (t, r))| t.as_ref() == table && *r == row)
             .map(|(copy, _)| *copy)
     }
+
+    /// Every copy keyed by its source table and the row it copies: the
+    /// lookups of [`DeltaProvenance::copy_of`], each one hash lookup.
+    fn copy_index(&self) -> HashMap<(Name, RowId), RowId> {
+        let mut index = HashMap::with_capacity(self.copies.len());
+        for (copy, (table, row)) in &self.copies {
+            index.entry((table.clone(), *row)).or_insert(*copy);
+        }
+        index
+    }
 }
 
 /// The scope an instance is checked against: tables with their columns, and
@@ -704,6 +714,24 @@ pub fn f_restrict_to_domain(
     Ok(restrict_to_domain(x, functor))
 }
 
+#[cfg(test)]
+thread_local! {
+    /// The Kan extensions of whole instances taken on this thread: each
+    /// `Sigma_F`, `Delta_F` and `Pi_F` counts one, so a test can bound how
+    /// many an operation takes.
+    static KAN_WORK: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+}
+
+/// Count one Kan extension of a whole instance on this thread.
+#[cfg(test)]
+fn charge_kan_work() {
+    KAN_WORK.with(|work| work.set(work.get().saturating_add(1)));
+}
+
+/// Count one Kan extension of a whole instance: nothing outside tests.
+#[cfg(not(test))]
+const fn charge_kan_work() {}
+
 /// The labelled nulls in the cells of `instance` (at the top level of a
 /// cell; a conforming instance holds none deeper).
 fn nulls_of(instance: &FInstance) -> BTreeSet<u64> {
@@ -824,6 +852,7 @@ fn sigma_on(
     functor: &MigrationFunctor,
     floor: Option<u64>,
 ) -> Result<(FInstance, SigmaProvenance), AdjunctionError> {
+    charge_kan_work();
     // The equations of non-injective column maps, in (RowId, column) order.
     let mut classes = ValueClasses::default();
     let mut placed: Vec<(RowId, &Name, &Name)> = Vec::new();
@@ -960,6 +989,7 @@ fn delta_on(
     y: &FInstance,
     functor: &MigrationFunctor,
 ) -> Result<(FInstance, DeltaProvenance), AdjunctionError> {
+    charge_kan_work();
     let mut allocator = row_allocator(y.row_ids());
     let mut delta = FInstance::new();
     let mut provenance = DeltaProvenance::default();
@@ -1044,6 +1074,7 @@ pub(crate) fn pi_on_domain(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<PiLimit, AdjunctionError> {
+    charge_kan_work();
     functor
         .attribute_surjective()
         .map_err(AdjunctionError::Pi)?;
@@ -1108,36 +1139,57 @@ fn require_hom(
     Err(AdjunctionError::NotANaturalMap { row })
 }
 
-/// `hom` with its null map cut down to the nulls of `dom` and without
-/// identity entries, which is the form homomorphisms are compared in.
-fn normalised(hom: &FInstanceHom, dom: &FInstance) -> FInstanceHom {
-    let nulls = nulls_of(dom);
-    let null_map = hom
-        .null_map
-        .iter()
+/// `hom` with its null map cut down to `nulls`, the nulls of its domain
+/// ([`nulls_of`]), and without identity entries, which is the form
+/// homomorphisms are compared in.
+fn normalised(mut hom: FInstanceHom, nulls: &BTreeSet<u64>) -> FInstanceHom {
+    let null_map = std::mem::take(&mut hom.null_map)
+        .into_iter()
         .filter(|(null, _)| nulls.contains(null))
-        .map(|(null, value)| (*null, value.clone()))
         .collect();
-    FInstanceHom::new(hom.row_map.clone())
-        .with_table_map(hom.table_map.clone())
-        .with_edge_map(hom.edge_map.clone())
-        .with_null_map(null_map)
+    hom.with_null_map(null_map)
 }
 
-/// `g` followed by `h`, normalised on `dom`.
+/// `g` followed by `h`, normalised on the domain of `g`, whose nulls are
+/// `nulls`.
+///
+/// When neither map renames a table or an edge, which holds for every map
+/// the table adjunctions build, the composite is read off directly: each
+/// row's image under `h` of its image under `g`, and each null of the
+/// domain's image likewise. This is [`FInstanceHom::compose`] followed by
+/// [`normalised`] without the null entries outside the domain that the
+/// normalisation would drop.
 fn then(
     g: &FInstanceHom,
     h: &FInstanceHom,
-    dom: &FInstance,
+    nulls: &BTreeSet<u64>,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let composed = g.compose(h).map_err(|_| AdjunctionError::NotANaturalMap {
+    let not_natural = || AdjunctionError::NotANaturalMap {
         row: g
             .row_map
             .iter()
             .find(|(_, mid)| h.image(**mid).is_none())
             .map_or(RowId(0), |(row, _)| *row),
-    })?;
-    Ok(normalised(&composed, dom))
+    };
+    let renames = |m: &FInstanceHom| !m.table_map.is_empty() || !m.edge_map.is_empty();
+    if renames(g) || renames(h) {
+        let composed = g.compose(h).map_err(|_| not_natural())?;
+        return Ok(normalised(composed, nulls));
+    }
+    let row_map = g
+        .row_map
+        .iter()
+        .map(|(&row, &mid)| h.image(mid).map(|image| (row, image)))
+        .collect::<Option<BTreeMap<RowId, RowId>>>()
+        .ok_or_else(not_natural)?;
+    let null_map = nulls
+        .iter()
+        .map(|&null| {
+            let own = Value::LabeledNull(null);
+            (null, h.image_value(g.image_value(&own)).clone())
+        })
+        .collect();
+    Ok(FInstanceHom::new(row_map).with_null_map(null_map))
 }
 
 /// `Sigma_F(h)`: the image under `Sigma_F` of a homomorphism `h: I -> I'`
@@ -1229,11 +1281,12 @@ fn unit_hom(
     provenance: &SigmaProvenance,
     copies: &DeltaProvenance,
 ) -> Result<FInstanceHom, AdjunctionError> {
+    let index = copies.copy_index();
     let mut row_map = BTreeMap::new();
     for (table, rows) in i.tables() {
         for row in rows.ids() {
-            let copy = copies
-                .copy_of(table, row)
+            let copy = *index
+                .get(&(table.clone(), row))
                 .ok_or(AdjunctionError::NotANaturalMap { row })?;
             row_map.insert(row, copy);
         }
@@ -1257,16 +1310,22 @@ pub fn f_counit(
 ) -> Result<FInstanceHom, AdjunctionError> {
     let (delta, copies) = f_delta_with_provenance(y, functor)?;
     let (sigma, provenance) = sigma_on(&delta, functor, null_floor(&delta))?;
-    counit_hom(y, &sigma, &provenance, &copies)
+    counit_hom(y, &sigma, &provenance, &copies).map_err(not_natural)
 }
 
-/// [`f_counit`] over `Delta_F J`'s copies and the `Sigma_F` of it.
+/// [`AdjunctionError::NotANaturalMap`] at `row`.
+const fn not_natural(row: RowId) -> AdjunctionError {
+    AdjunctionError::NotANaturalMap { row }
+}
+
+/// [`f_counit`] over `Delta_F J`'s copies and the `Sigma_F` of it, or the
+/// row at which it is not natural.
 fn counit_hom(
     y: &FInstance,
     sigma: &FInstance,
     provenance: &SigmaProvenance,
     copies: &DeltaProvenance,
-) -> Result<FInstanceHom, AdjunctionError> {
+) -> Result<FInstanceHom, RowId> {
     let row_map: BTreeMap<RowId, RowId> = copies
         .copies
         .iter()
@@ -1274,18 +1333,16 @@ fn counit_hom(
         .collect();
     let mut null_map = provenance.merged.clone();
     for (null, (copy, column)) in &provenance.fresh {
-        let original = row_map
-            .get(copy)
-            .ok_or(AdjunctionError::NotANaturalMap { row: *copy })?;
+        let original = row_map.get(copy).ok_or(*copy)?;
         let value = y
             .row(*original)
             .and_then(|cells| cells.get(column))
-            .ok_or(AdjunctionError::NotANaturalMap { row: *copy })?;
+            .ok_or(*copy)?;
         null_map.insert(*null, value.clone());
     }
     Ok(normalised(
-        &FInstanceHom::new(row_map).with_null_map(null_map),
-        sigma,
+        FInstanceHom::new(row_map).with_null_map(null_map),
+        &nulls_of(sigma),
     ))
 }
 
@@ -1301,11 +1358,53 @@ pub fn f_transpose_left(
     y: &FInstance,
     functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let (sigma, provenance) = f_sigma_restricted(i, functor)?;
-    let (_, copies) = delta_on(&sigma, functor)?;
-    let unit = unit_hom(i, &provenance, &copies)?;
-    let delta_g = f_delta_on_hom(g, &sigma, y, functor)?;
-    then(&unit, &delta_g, i)
+    SigmaTransposeLeft::new(i, y, functor)?.apply(g)
+}
+
+/// [`f_transpose_left`] at fixed `I` and `J`: what does not depend on the
+/// homomorphism (`Sigma_F I`, the unit, both `Delta_F`) is taken once, so
+/// that transposing every homomorphism of a hom-set costs each one only its
+/// own check and composition. The errors are those of [`f_transpose_left`],
+/// in its order.
+struct SigmaTransposeLeft<'a> {
+    y: &'a FInstance,
+    i_nulls: BTreeSet<u64>,
+    sigma: FInstance,
+    unit: FInstanceHom,
+    delta_nulls: BTreeSet<u64>,
+    copies: DeltaProvenance,
+    index_prime: HashMap<(Name, RowId), RowId>,
+}
+
+impl<'a> SigmaTransposeLeft<'a> {
+    fn new(
+        i: &'a FInstance,
+        y: &'a FInstance,
+        functor: &MigrationFunctor,
+    ) -> Result<Self, AdjunctionError> {
+        let (sigma, provenance) = f_sigma_restricted(i, functor)?;
+        let (_, unit_copies) = delta_on(&sigma, functor)?;
+        let unit = unit_hom(i, &provenance, &unit_copies)?;
+        let (delta, copies) = f_delta_with_provenance(&sigma, functor)?;
+        let (_, copies_prime) = f_delta_with_provenance(y, functor)?;
+        let index_prime = copies_prime.copy_index();
+        Ok(Self {
+            y,
+            i_nulls: nulls_of(i),
+            sigma,
+            unit,
+            delta_nulls: nulls_of(&delta),
+            copies,
+            index_prime,
+        })
+    }
+
+    /// `Delta_F(g) . eta_I` for `g: Sigma_F I -> J`.
+    fn apply(&self, g: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
+        require_hom(g, &self.sigma, self.y)?;
+        let delta_g = delta_hom(g, &self.delta_nulls, &self.copies, &self.index_prime)?;
+        then(&self.unit, &delta_g, &self.i_nulls)
+    }
 }
 
 /// Transpose `Hom_S'(I, Delta_F J) -> Hom_T(Sigma_F I, J)`, sending `f` to
@@ -1320,13 +1419,61 @@ pub fn f_transpose_right(
     y: &FInstance,
     functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let (sigma, provenance) = f_sigma_restricted(i, functor)?;
-    let (delta, copies) = f_delta_with_provenance(y, functor)?;
-    let (sigma_delta, provenance_delta) = sigma_on(&delta, functor, null_floor(&delta))?;
-    require_hom(f, i, &delta)?;
-    let sigma_f = sigma_hom(f, &sigma, &provenance, &sigma_delta, &provenance_delta)?;
-    let counit = counit_hom(y, &sigma_delta, &provenance_delta, &copies)?;
-    then(&sigma_f, &counit, &sigma)
+    SigmaTransposeRight::new(i, y, functor)?.apply(f)
+}
+
+/// [`f_transpose_right`] at fixed `I` and `J`: `Sigma_F I`, `Delta_F J` and
+/// `Sigma_F(Delta_F J)` are taken once. The errors are those of
+/// [`f_transpose_right`], in its order.
+struct SigmaTransposeRight<'a> {
+    i: &'a FInstance,
+    sigma: FInstance,
+    sigma_nulls: BTreeSet<u64>,
+    provenance: SigmaProvenance,
+    delta: FInstance,
+    sigma_delta: FInstance,
+    provenance_delta: SigmaProvenance,
+    /// The counit `eps_J`, or the row at which it is not natural; its
+    /// error is raised after the homomorphism's own, as
+    /// [`f_transpose_right`] raises it.
+    counit: Result<FInstanceHom, RowId>,
+}
+
+impl<'a> SigmaTransposeRight<'a> {
+    fn new(
+        i: &'a FInstance,
+        y: &'a FInstance,
+        functor: &MigrationFunctor,
+    ) -> Result<Self, AdjunctionError> {
+        let (sigma, provenance) = f_sigma_restricted(i, functor)?;
+        let (delta, copies) = f_delta_with_provenance(y, functor)?;
+        let (sigma_delta, provenance_delta) = sigma_on(&delta, functor, null_floor(&delta))?;
+        let counit = counit_hom(y, &sigma_delta, &provenance_delta, &copies);
+        Ok(Self {
+            i,
+            sigma_nulls: nulls_of(&sigma),
+            sigma,
+            provenance,
+            delta,
+            sigma_delta,
+            provenance_delta,
+            counit,
+        })
+    }
+
+    /// `eps_J . Sigma_F(f)` for `f: I -> Delta_F J`.
+    fn apply(&self, f: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
+        require_hom(f, self.i, &self.delta)?;
+        let sigma_f = sigma_hom(
+            f,
+            &self.sigma,
+            &self.provenance,
+            &self.sigma_delta,
+            &self.provenance_delta,
+        )?;
+        let counit = self.counit.as_ref().map_err(|row| not_natural(*row))?;
+        then(&sigma_f, counit, &self.sigma_nulls)
+    }
 }
 
 /// `Delta_F(h)`: the image under `Delta_F` of a homomorphism `h: J -> J'` of
@@ -1350,28 +1497,32 @@ pub fn f_delta_on_hom(
     let (delta, copies) = f_delta_with_provenance(y, functor)?;
     let (_, copies_prime) = f_delta_with_provenance(y_prime, functor)?;
     require_hom(h, y, y_prime)?;
-    delta_hom(h, &delta, &copies, &copies_prime)
+    delta_hom(h, &nulls_of(&delta), &copies, &copies_prime.copy_index())
 }
 
-/// [`f_delta_on_hom`] over the two `Delta_F` results' copies.
+/// [`f_delta_on_hom`] over the nulls and copies of `Delta_F J` and the index
+/// of the copies of `Delta_F J'` ([`DeltaProvenance::copy_index`]).
 fn delta_hom(
     h: &FInstanceHom,
-    delta: &FInstance,
+    delta_nulls: &BTreeSet<u64>,
     copies: &DeltaProvenance,
-    copies_prime: &DeltaProvenance,
+    index_prime: &HashMap<(Name, RowId), RowId>,
 ) -> Result<FInstanceHom, AdjunctionError> {
     let mut row_map = BTreeMap::new();
     for (copy, (table, original)) in &copies.copies {
         let image = h
             .image(*original)
-            .and_then(|image| copies_prime.copy_of(table, image))
+            .and_then(|image| index_prime.get(&(table.clone(), image)).copied())
             .ok_or(AdjunctionError::NotANaturalMap { row: *copy })?;
         row_map.insert(*copy, image);
     }
-    Ok(normalised(
-        &FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
-        delta,
-    ))
+    let null_map = h
+        .null_map
+        .iter()
+        .filter(|(null, _)| delta_nulls.contains(null))
+        .map(|(null, value)| (*null, value.clone()))
+        .collect();
+    Ok(FInstanceHom::new(row_map).with_null_map(null_map))
 }
 
 /// `Pi_F(h)`: the image under `Pi_F` of a homomorphism `h: I -> I'` of
@@ -1396,13 +1547,15 @@ pub fn f_pi_on_hom(
     let pi = pi_on_domain(i, functor, max_product_size)?;
     let pi_prime = pi_on_domain(i_prime, functor, max_product_size)?;
     require_hom(h, i, i_prime)?;
-    pi_hom(h, &pi, &pi_prime)
+    pi_hom(h, &pi, &nulls_of(&pi.instance), &pi_prime)
 }
 
-/// [`f_pi_on_hom`] over the two limits already taken.
+/// [`f_pi_on_hom`] over the two limits already taken and the nulls of the
+/// first.
 fn pi_hom(
     h: &FInstanceHom,
     pi: &PiLimit,
+    pi_nulls: &BTreeSet<u64>,
     pi_prime: &PiLimit,
 ) -> Result<FInstanceHom, AdjunctionError> {
     let mut row_map = BTreeMap::new();
@@ -1413,10 +1566,13 @@ fn pi_hom(
             .ok_or(AdjunctionError::NotANaturalMap { row })?;
         row_map.insert(row, *target);
     }
-    Ok(normalised(
-        &FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
-        &pi.instance,
-    ))
+    let null_map = h
+        .null_map
+        .iter()
+        .filter(|(null, _)| pi_nulls.contains(null))
+        .map(|(null, value)| (*null, value.clone()))
+        .collect();
+    Ok(FInstanceHom::new(row_map).with_null_map(null_map))
 }
 
 /// The unit `J -> Pi_F(Delta_F J)` of `Delta_F -| Pi_F`, for `y` an instance
@@ -1441,27 +1597,29 @@ pub fn f_pi_unit(
         .map_err(AdjunctionError::Pi)?;
     let (delta, copies) = f_delta_with_provenance(y, functor)?;
     let pi = pi_on_domain(&delta, functor, max_product_size)?;
-    pi_unit_hom(y, functor, &copies, &pi)
+    pi_unit_hom(y, functor, &copies, &pi).map_err(not_natural)
 }
 
-/// [`f_pi_unit`] over `Delta_F J`'s copies and the limit of it.
+/// [`f_pi_unit`] over `Delta_F J`'s copies and the limit of it, or the row
+/// at which it is not natural.
 fn pi_unit_hom(
     y: &FInstance,
     functor: &MigrationFunctor,
     copies: &DeltaProvenance,
     pi: &PiLimit,
-) -> Result<FInstanceHom, AdjunctionError> {
+) -> Result<FInstanceHom, RowId> {
+    let index = copies.copy_index();
     let mut row_map = BTreeMap::new();
     for (table, rows) in y.tables() {
         let fibre = functor.table_fibre(table);
         for row in rows.ids() {
             let tuple: Option<Vec<RowId>> = fibre
                 .iter()
-                .map(|source| copies.copy_of(source, row))
+                .map(|source| index.get(&((*source).clone(), row)).copied())
                 .collect();
             let image = tuple
                 .and_then(|tuple| pi.rows.get(&(table.clone(), tuple)))
-                .ok_or(AdjunctionError::NotANaturalMap { row })?;
+                .ok_or(row)?;
             row_map.insert(row, *image);
         }
     }
@@ -1483,15 +1641,16 @@ pub fn f_pi_counit(
 ) -> Result<FInstanceHom, AdjunctionError> {
     let pi = pi_on_domain(i, functor, max_product_size)?;
     let (_, copies) = f_delta_with_provenance(&pi.instance, functor)?;
-    pi_counit_hom(functor, &copies, &pi)
+    pi_counit_hom(functor, &copies, &pi).map_err(not_natural)
 }
 
-/// [`f_pi_counit`] over the limit and the copies of its `Delta_F`.
+/// [`f_pi_counit`] over the limit and the copies of its `Delta_F`, or the
+/// row at which it is not natural.
 fn pi_counit_hom(
     functor: &MigrationFunctor,
     copies: &DeltaProvenance,
     pi: &PiLimit,
-) -> Result<FInstanceHom, AdjunctionError> {
+) -> Result<FInstanceHom, RowId> {
     let mut row_map = BTreeMap::new();
     for (&copy, (source, original)) in &copies.copies {
         let component = pi.tuples.get(original).and_then(|(table, tuple)| {
@@ -1501,7 +1660,7 @@ fn pi_counit_hom(
                 .position(|component| *component == source)?;
             tuple.get(position).copied()
         });
-        let component = component.ok_or(AdjunctionError::NotANaturalMap { row: copy })?;
+        let component = component.ok_or(copy)?;
         row_map.insert(copy, component);
     }
     Ok(FInstanceHom::new(row_map))
@@ -1520,13 +1679,54 @@ pub fn f_pi_transpose_left(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let (delta, copies) = f_delta_with_provenance(y, functor)?;
-    let pi_delta = pi_on_domain(&delta, functor, max_product_size)?;
-    let pi = pi_on_domain(i, functor, max_product_size)?;
-    require_hom(g, &delta, i)?;
-    let unit = pi_unit_hom(y, functor, &copies, &pi_delta)?;
-    let pi_g = pi_hom(g, &pi_delta, &pi)?;
-    then(&unit, &pi_g, y)
+    PiTransposeLeft::new(y, i, functor, max_product_size)?.apply(g)
+}
+
+/// [`f_pi_transpose_left`] at fixed `J` and `I`: `Delta_F J` and the limits
+/// `Pi_F(Delta_F J)` and `Pi_F I` are taken once. The errors are those of
+/// [`f_pi_transpose_left`], in its order.
+struct PiTransposeLeft<'a> {
+    y_nulls: BTreeSet<u64>,
+    i: &'a FInstance,
+    delta: FInstance,
+    pi_delta: PiLimit,
+    pi_delta_nulls: BTreeSet<u64>,
+    pi: PiLimit,
+    /// The unit at `J`, or the row at which it is not natural; its error
+    /// is raised after the homomorphism's own, as [`f_pi_transpose_left`]
+    /// raises it.
+    unit: Result<FInstanceHom, RowId>,
+}
+
+impl<'a> PiTransposeLeft<'a> {
+    fn new(
+        y: &'a FInstance,
+        i: &'a FInstance,
+        functor: &MigrationFunctor,
+        max_product_size: usize,
+    ) -> Result<Self, AdjunctionError> {
+        let (delta, copies) = f_delta_with_provenance(y, functor)?;
+        let pi_delta = pi_on_domain(&delta, functor, max_product_size)?;
+        let pi = pi_on_domain(i, functor, max_product_size)?;
+        let unit = pi_unit_hom(y, functor, &copies, &pi_delta);
+        Ok(Self {
+            y_nulls: nulls_of(y),
+            i,
+            delta,
+            pi_delta_nulls: nulls_of(&pi_delta.instance),
+            pi_delta,
+            pi,
+            unit,
+        })
+    }
+
+    /// `Pi_F(g) . unit_J` for `g: Delta_F J -> I`.
+    fn apply(&self, g: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
+        require_hom(g, &self.delta, self.i)?;
+        let unit = self.unit.as_ref().map_err(|row| not_natural(*row))?;
+        let pi_g = pi_hom(g, &self.pi_delta, &self.pi_delta_nulls, &self.pi)?;
+        then(unit, &pi_g, &self.y_nulls)
+    }
 }
 
 /// Transpose `Hom_T(J, Pi_F I) -> Hom_S'(Delta_F J, I)`, sending `f` to
@@ -1542,13 +1742,53 @@ pub fn f_pi_transpose_right(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let pi = pi_on_domain(i, functor, max_product_size)?;
-    let (delta, copies) = f_delta_with_provenance(y, functor)?;
-    let (_, copies_pi) = f_delta_with_provenance(&pi.instance, functor)?;
-    require_hom(f, y, &pi.instance)?;
-    let delta_f = delta_hom(f, &delta, &copies, &copies_pi)?;
-    let counit = pi_counit_hom(functor, &copies_pi, &pi)?;
-    then(&delta_f, &counit, &delta)
+    PiTransposeRight::new(y, i, functor, max_product_size)?.apply(f)
+}
+
+/// [`f_pi_transpose_right`] at fixed `J` and `I`: `Pi_F I`, `Delta_F J` and
+/// `Delta_F(Pi_F I)` are taken once. The errors are those of
+/// [`f_pi_transpose_right`], in its order.
+struct PiTransposeRight<'a> {
+    y: &'a FInstance,
+    pi: PiLimit,
+    delta_nulls: BTreeSet<u64>,
+    copies: DeltaProvenance,
+    index_pi: HashMap<(Name, RowId), RowId>,
+    /// The counit at `I`, or the row at which it is not natural; its error
+    /// is raised after the homomorphism's own, as [`f_pi_transpose_right`]
+    /// raises it.
+    counit: Result<FInstanceHom, RowId>,
+}
+
+impl<'a> PiTransposeRight<'a> {
+    fn new(
+        y: &'a FInstance,
+        i: &FInstance,
+        functor: &MigrationFunctor,
+        max_product_size: usize,
+    ) -> Result<Self, AdjunctionError> {
+        let pi = pi_on_domain(i, functor, max_product_size)?;
+        let (delta, copies) = f_delta_with_provenance(y, functor)?;
+        let (_, copies_pi) = f_delta_with_provenance(&pi.instance, functor)?;
+        let counit = pi_counit_hom(functor, &copies_pi, &pi);
+        let index_pi = copies_pi.copy_index();
+        Ok(Self {
+            y,
+            pi,
+            delta_nulls: nulls_of(&delta),
+            copies,
+            index_pi,
+            counit,
+        })
+    }
+
+    /// `counit_I . Delta_F(f)` for `f: J -> Pi_F I`.
+    fn apply(&self, f: &FInstanceHom) -> Result<FInstanceHom, AdjunctionError> {
+        require_hom(f, self.y, &self.pi.instance)?;
+        let delta_f = delta_hom(f, &self.delta_nulls, &self.copies, &self.index_pi)?;
+        let counit = self.counit.as_ref().map_err(|row| not_natural(*row))?;
+        then(&delta_f, counit, &self.delta_nulls)
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -2557,8 +2797,9 @@ mod tests {
         /// and direction) and of the nulls in its cells (by column); a null's
         /// colour adds the colours and columns of the cells holding it.
         fn colours(a: &Indexed<'_>, b: &Indexed<'_>) -> [(Vec<usize>, Vec<usize>); 2] {
-            let mut start: BTreeMap<(Name, Vec<(String, Option<Vec<u8>>)>), usize> =
-                BTreeMap::new();
+            /// A row's table and its cells, every null read as one marker.
+            type Shape = (Name, Vec<(String, Option<Vec<u8>>)>);
+            let mut start: BTreeMap<Shape, usize> = BTreeMap::new();
             let mut first = |x: &Indexed<'_>| -> Vec<usize> {
                 (0..x.rows.len())
                     .map(|n| {
@@ -2648,35 +2889,36 @@ mod tests {
         }
 
         impl Search<'_, '_> {
-            /// Assign row `r` of `a` to row `y` of `b` when their cells agree
-            /// under the nulls fixed so far (fixing the new ones) and their
-            /// pairs to the rows assigned so far agree both ways; returns the
-            /// nulls it fixed, or `None` (with nothing changed) when they do
-            /// not.
-            fn assign(&mut self, r: usize, y: usize) -> Option<Vec<u64>> {
+            /// Assign row `row` of `a` to row `target` of `b` when their
+            /// cells agree under the nulls fixed so far (fixing the new ones)
+            /// and their pairs to the rows assigned so far agree both ways;
+            /// returns the nulls it fixed, or `None` (with nothing changed)
+            /// when they do not.
+            fn assign(&mut self, row: usize, target: usize) -> Option<Vec<u64>> {
                 let (a, b) = (self.a, self.b);
-                if a.table[r] != b.table[y] || a.cells[r].len() != b.cells[y].len() {
+                if a.table[row] != b.table[target] || a.cells[row].len() != b.cells[target].len() {
                     return None;
                 }
-                let image =
-                    |w: usize, sigma: &[Option<usize>]| if w == r { Some(y) } else { sigma[w] };
+                let image = |w: usize, sigma: &[Option<usize>]| {
+                    if w == row { Some(target) } else { sigma[w] }
+                };
                 let preimage =
-                    |w: usize, inv: &[Option<usize>]| if w == y { Some(r) } else { inv[w] };
-                let forward = a.out[r].iter().all(|(e, t)| {
-                    image(*t, &self.sigma).is_none_or(|it| b.out[y].contains(&(*e, it)))
-                }) && a.inc[r].iter().all(|(e, s)| {
-                    image(*s, &self.sigma).is_none_or(|is| b.inc[y].contains(&(*e, is)))
+                    |w: usize, inv: &[Option<usize>]| if w == target { Some(row) } else { inv[w] };
+                let forward = a.out[row].iter().all(|(e, t)| {
+                    image(*t, &self.sigma).is_none_or(|it| b.out[target].contains(&(*e, it)))
+                }) && a.inc[row].iter().all(|(e, s)| {
+                    image(*s, &self.sigma).is_none_or(|is| b.inc[target].contains(&(*e, is)))
                 });
-                let backward = b.out[y].iter().all(|(e, t)| {
-                    preimage(*t, &self.sigma_inv).is_none_or(|pt| a.out[r].contains(&(*e, pt)))
-                }) && b.inc[y].iter().all(|(e, s)| {
-                    preimage(*s, &self.sigma_inv).is_none_or(|ps| a.inc[r].contains(&(*e, ps)))
+                let backward = b.out[target].iter().all(|(e, t)| {
+                    preimage(*t, &self.sigma_inv).is_none_or(|pt| a.out[row].contains(&(*e, pt)))
+                }) && b.inc[target].iter().all(|(e, s)| {
+                    preimage(*s, &self.sigma_inv).is_none_or(|ps| a.inc[row].contains(&(*e, ps)))
                 });
                 if !forward || !backward {
                     return None;
                 }
                 let mut fixed: Vec<u64> = Vec::new();
-                for ((ca, va), (cb, vb)) in a.cells[r].iter().zip(&b.cells[y]) {
+                for ((ca, va), (cb, vb)) in a.cells[row].iter().zip(&b.cells[target]) {
                     let agrees = ca == cb
                         && match (va, vb) {
                             (Cell::Constant(x), Cell::Constant(z)) => x == z,
@@ -2699,8 +2941,8 @@ mod tests {
                         return None;
                     }
                 }
-                self.sigma[r] = Some(y);
-                self.sigma_inv[y] = Some(r);
+                self.sigma[row] = Some(target);
+                self.sigma_inv[target] = Some(row);
                 Some(fixed)
             }
 
@@ -3799,6 +4041,9 @@ mod tests {
             f_pi_counit, f_pi_on_hom, f_pi_transpose_left, f_pi_transpose_right, f_pi_unit,
             f_sigma_on_hom, f_sigma_restricted, f_transpose_left, f_transpose_right, f_unit,
         };
+        use crate::adjunction::{
+            PiTransposeLeft, PiTransposeRight, SigmaTransposeLeft, SigmaTransposeRight,
+        };
         use crate::error::RestrictError;
         use crate::functor::{FInstance, Row};
         use crate::instance_hom::FInstanceHom;
@@ -3970,24 +4215,37 @@ mod tests {
                 right.len(),
                 "|Hom(I, Delta J)| = |Hom(Sigma I, J)|: {i:?}, {j:?}"
             );
-            for g in &left {
+            // The transposes at this `(I, J)`, taken once for the hom-set;
+            // the public forms are checked against them on the first hom of
+            // each side.
+            let to_left = SigmaTransposeLeft::new(i, j, f).unwrap_or_else(|e| panic!("{e}"));
+            let to_right = SigmaTransposeRight::new(i, j, f).unwrap_or_else(|e| panic!("{e}"));
+            for (n, g) in left.iter().enumerate() {
                 let g = hom(g);
-                let flat = f_transpose_right(&g, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                let flat = to_right.apply(&g).unwrap_or_else(|e| panic!("{e}"));
+                if n == 0 {
+                    let public = f_transpose_right(&g, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(public.same_as(&flat), "{public:?} vs {flat:?}");
+                }
                 assert!(
                     holds(&right_keys, &flat),
                     "{g:?} transposes to {flat:?}, no hom"
                 );
-                let back = f_transpose_left(&flat, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                let back = to_left.apply(&flat).unwrap_or_else(|e| panic!("{e}"));
                 assert!(back.same_as(&g), "{g:?} -> {flat:?} -> {back:?}");
             }
-            for h in &right {
+            for (n, h) in right.iter().enumerate() {
                 let h = hom(h);
-                let sharp = f_transpose_left(&h, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                let sharp = to_left.apply(&h).unwrap_or_else(|e| panic!("{e}"));
+                if n == 0 {
+                    let public = f_transpose_left(&h, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(public.same_as(&sharp), "{public:?} vs {sharp:?}");
+                }
                 assert!(
                     holds(&left_keys, &sharp),
                     "{h:?} transposes to {sharp:?}, no hom"
                 );
-                let back = f_transpose_right(&sharp, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                let back = to_right.apply(&sharp).unwrap_or_else(|e| panic!("{e}"));
                 assert!(back.same_as(&h), "{h:?} -> {sharp:?} -> {back:?}");
             }
             left.len()
@@ -4112,26 +4370,39 @@ mod tests {
             if !transposes {
                 return right.len();
             }
-            for g in &left {
+            // The transposes at this `(J, I)`, taken once for the hom-set;
+            // the public forms are checked against them on the first hom of
+            // each side.
+            let to_left = PiTransposeLeft::new(j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+            let to_right = PiTransposeRight::new(j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+            for (n, g) in left.iter().enumerate() {
                 let g = hom(g);
-                let sharp = f_pi_transpose_left(&g, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let sharp = to_left.apply(&g).unwrap_or_else(|e| panic!("{e}"));
+                if n == 0 {
+                    let public =
+                        f_pi_transpose_left(&g, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(public.same_as(&sharp), "{public:?} vs {sharp:?}");
+                }
                 assert!(
                     holds(&right_keys, &sharp),
                     "{g:?} transposes to {sharp:?}, no hom"
                 );
-                let back =
-                    f_pi_transpose_right(&sharp, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let back = to_right.apply(&sharp).unwrap_or_else(|e| panic!("{e}"));
                 assert!(back.same_as(&g), "{g:?} -> {sharp:?} -> {back:?}");
             }
-            for h in &right {
+            for (n, h) in right.iter().enumerate() {
                 let h = hom(h);
-                let flat = f_pi_transpose_right(&h, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let flat = to_right.apply(&h).unwrap_or_else(|e| panic!("{e}"));
+                if n == 0 {
+                    let public =
+                        f_pi_transpose_right(&h, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(public.same_as(&flat), "{public:?} vs {flat:?}");
+                }
                 assert!(
                     holds(&left_keys, &flat),
                     "{h:?} transposes to {flat:?}, no hom"
                 );
-                let back =
-                    f_pi_transpose_left(&flat, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                let back = to_left.apply(&flat).unwrap_or_else(|e| panic!("{e}"));
                 assert!(back.same_as(&h), "{h:?} -> {flat:?} -> {back:?}");
             }
             right.len()
@@ -5437,6 +5708,47 @@ mod tests {
             (b, h)
         }
 
+        /// The unit and counit of both adjunctions and `Delta_F` on a
+        /// homomorphism find each row's copy in a `Delta_F` result through
+        /// an index, so along the identity functor over 40 000 rows all
+        /// five finish well inside the time a test is allowed. A search of
+        /// the copies for every row takes about `8 * 10^8` steps each.
+        #[test]
+        fn homs_through_delta_copies_are_linear_in_the_rows() {
+            const ROWS: i64 = 40_000;
+            let (done, finished) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let side = fixture::side(&[("a", &["n"])], &[]);
+                let f =
+                    MigrationFunctor::identity(&fixture::schema_of(&side), &fixture::protocol())
+                        .unwrap_or_else(|e| panic!("{e}"));
+                let x = FInstance::new()
+                    .with_table(
+                        "a",
+                        (0..ROWS).map(|n| fixture::row(&[("n", Value::Int(n))])),
+                    )
+                    .unwrap_or_else(|e| panic!("{e}"));
+                let id = FInstanceHom::identity(&x);
+                for (name, hom) in [
+                    ("unit", f_unit(&x, &f)),
+                    ("counit", f_counit(&x, &f)),
+                    ("Delta on a hom", f_delta_on_hom(&id, &x, &x, &f)),
+                    ("Pi unit", f_pi_unit(&x, &f, usize::MAX)),
+                    ("Pi counit", f_pi_counit(&x, &f, usize::MAX)),
+                ] {
+                    let hom = hom.unwrap_or_else(|e| panic!("{name}: {e}"));
+                    assert!(hom.same_as(&id), "the {name} along the identity");
+                }
+                let _ = done.send(());
+            });
+            assert!(
+                finished
+                    .recv_timeout(std::time::Duration::from_secs(30))
+                    .is_ok(),
+                "the homs over {ROWS} rows did not finish within 30 s"
+            );
+        }
+
         mod generated {
             use proptest::prelude::*;
 
@@ -5450,11 +5762,7 @@ mod tests {
                 /// the hom-sets non-empty.
                 #[test]
                 fn sigma_is_left_adjoint_to_delta(seed in any::<u64>()) {
-                    let case = case(seed);
-                    sigma_delta(&case.spec, &case.f, &case.i, &case.j);
-                    if let Ok((sigma, _)) = f_sigma_restricted(&case.i, &case.f) {
-                        prop_assert!(sigma_delta(&case.spec, &case.f, &case.i, &sigma) > 0);
-                    }
+                    sigma_laws(&case(seed));
                 }
 
                 /// L2 and L2' on generated cases: at a random source
@@ -5584,6 +5892,64 @@ mod tests {
                         "the renaming laws at seed {seed} did not finish within 30 s"
                     );
                 }
+            }
+
+            /// L1 and L1' at one generated case: at its random target
+            /// instance, and at Sigma I itself, where the identity makes the
+            /// hom-sets non-empty.
+            fn sigma_laws(case: &Case) {
+                sigma_delta(&case.spec, &case.f, &case.i, &case.j);
+                if let Ok((sigma, _)) = f_sigma_restricted(&case.i, &case.f) {
+                    assert!(sigma_delta(&case.spec, &case.f, &case.i, &sigma) > 0);
+                }
+            }
+
+            /// The Kan extensions of whole instances taken by `run` on this
+            /// thread.
+            fn kan_work<T>(run: impl FnOnce() -> T) -> (T, usize) {
+                let before = crate::adjunction::KAN_WORK.with(std::cell::Cell::get);
+                let out = run();
+                (
+                    out,
+                    crate::adjunction::KAN_WORK.with(std::cell::Cell::get) - before,
+                )
+            }
+
+            /// The transposes at one pair of instances take Sigma, Delta
+            /// and Pi of the two instances once, not once per homomorphism,
+            /// so the laws take a few dozen Kan extensions however large the
+            /// hom-sets are (counted, not timed; once per homomorphism would
+            /// be over `10^4`). L1 and L1' run on generated cases whose
+            /// Sigma I holds six rows in one table, so that
+            /// `Hom(I, Delta Sigma I)` holds `6^6` homomorphisms, each
+            /// transposed both ways; L2 runs along the identity on five rows
+            /// with equal cells, so that `Hom(J, Pi I)` holds `5^5`.
+            #[test]
+            fn transposing_a_hom_set_takes_each_kan_extension_once() {
+                for seed in [752_u64, 487] {
+                    let case = case(seed);
+                    let sigma = f_sigma_restricted(&case.i, &case.f)
+                        .unwrap_or_else(|e| panic!("{e}"))
+                        .0;
+                    let delta = f_delta(&sigma, &case.f).unwrap_or_else(|e| panic!("{e}"));
+                    assert_eq!(
+                        oracle::brute_homs(&case.i, &delta).len(),
+                        6_usize.pow(6),
+                        "|Hom(I, Delta Sigma I)| at seed {seed}"
+                    );
+                    let ((), work) = kan_work(|| sigma_laws(&case));
+                    assert!(work <= 64, "{work} Kan extensions for L1 at seed {seed}");
+                }
+                let side = fixture::side(&[("a", &["n"])], &[]);
+                let spec =
+                    fixture::spec(side.clone(), side, &[("a", "a")], &[], &[(("a", "n"), "n")]);
+                let f = fixture::functor(&spec);
+                let x = FInstance::new()
+                    .with_table("a", (0..5).map(|_| fixture::row(&[("n", Value::Int(0))])))
+                    .unwrap_or_else(|e| panic!("{e}"));
+                let (homs, work) = kan_work(|| delta_pi(&spec, &f, &x, &x, 81));
+                assert_eq!(homs, Some(5_usize.pow(5)), "|Hom(J, Pi I)|");
+                assert!(work <= 64, "{work} Kan extensions for L2");
             }
 
             /// `x` with its rows renumbered in reverse above 100 and each
