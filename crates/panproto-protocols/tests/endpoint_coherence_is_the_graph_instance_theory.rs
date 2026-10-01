@@ -8,7 +8,11 @@
 //! `verify_model` checks the equations on it. Over every graph of up to four
 //! nodes and four edges, the edges and sides `EndpointCoherence` reports are
 //! exactly the edges and equations `verify_model` refutes, and the check
-//! completes: the carriers stay within the default assignment bound.
+//! completes: the carriers stay within the default assignment bound. The
+//! agreement also holds on a schema whose endpoints have anchor families (a
+//! union and its variants, a recursion point, a reference vertex), which
+//! the validator accepts anywhere in the family and the model reads by
+//! specialising each edge's label to its endpoints.
 //!
 //! The graphs are enumerated up to renaming their nodes: nodes are numbered
 //! by anchor (every `a` node before every `b` node), which reaches a graph
@@ -28,7 +32,7 @@ use panproto_inst::validation::{
 use panproto_inst::{GInstance, Node, ViewRef};
 use panproto_protocols::graph_instance_model;
 use panproto_protocols::theories::th_graph_instance;
-use panproto_schema::{Edge, Protocol, Schema, Vertex};
+use panproto_schema::{Edge, Protocol, RecursionPoint, Schema, Variant, Vertex};
 
 fn edge(src: &str, tgt: &str, name: &str) -> Edge {
     Edge {
@@ -41,18 +45,26 @@ fn edge(src: &str, tgt: &str, name: &str) -> Edge {
 
 /// Vertices `a` and `b`, edges `ab: a -> b` and `aa: a -> a`.
 fn schema() -> Schema {
+    schema_of(
+        &[("a", "object"), ("b", "object")],
+        &[edge("a", "b", "ab"), edge("a", "a", "aa")],
+    )
+}
+
+/// The schema of `vertices` (each with its kind) and `edges`.
+fn schema_of(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     let mut schema = Schema::default();
-    for v in ["a", "b"] {
+    for (v, kind) in vertices {
         schema.vertices.insert(
-            v.into(),
+            (*v).into(),
             Vertex {
-                id: v.into(),
-                kind: "object".into(),
+                id: (*v).into(),
+                kind: (*kind).into(),
                 nsid: None,
             },
         );
     }
-    for e in [edge("a", "b", "ab"), edge("a", "a", "aa")] {
+    for e in edges.iter().cloned() {
         schema.edges.insert(e.clone(), e.kind.clone());
         schema
             .outgoing
@@ -258,4 +270,96 @@ fn v10_endpoint_coherence_agrees_on_undeclared_anchors_and_labels() {
     );
     assert!(graphs > 10_000, "{graphs} graphs");
     assert!(incoherent > 0);
+}
+
+/// A schema whose endpoints have anchor families: `u` is a union of the
+/// variants `w` and `x`, `p` is a recursion point unfolding to `a`, and `f`
+/// is a reference vertex whose reference edge `fw` points at `w`. The
+/// edges `au: a -> u`, `ap: a -> p` and `af: a -> f` end at the
+/// placeholders.
+fn family_schema() -> Schema {
+    let mut schema = schema_of(
+        &[
+            ("a", "object"),
+            ("u", "union"),
+            ("w", "object"),
+            ("x", "object"),
+            ("p", "object"),
+            ("f", "ref"),
+        ],
+        &[
+            edge("a", "u", "au"),
+            edge("a", "p", "ap"),
+            edge("a", "f", "af"),
+            ref_edge("f", "w", "fw"),
+        ],
+    );
+    schema.variants.insert(
+        "u".into(),
+        ["w", "x"]
+            .into_iter()
+            .map(|v| Variant {
+                id: v.into(),
+                parent_vertex: "u".into(),
+                tag: None,
+            })
+            .collect(),
+    );
+    schema.recursion_points.insert(
+        "p".into(),
+        RecursionPoint {
+            target_vertex: "a".into(),
+        },
+    );
+    schema
+}
+
+/// A reference edge named `name`.
+fn ref_edge(src: &str, tgt: &str, name: &str) -> Edge {
+    Edge {
+        kind: "ref".into(),
+        ..edge(src, tgt, name)
+    }
+}
+
+/// An edge into a union vertex whose target is anchored at one of the
+/// union's variants is coherent for the validator and satisfies the
+/// equations of the model.
+#[test]
+fn an_edge_into_a_union_may_end_at_a_variant() {
+    let schema = family_schema();
+    let au = edge("a", "u", "au");
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "w"))
+        .with_edge(0, 1, au);
+    let plan =
+        ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+    assert_eq!(reported(&plan, &graph), BTreeSet::new());
+    assert_eq!(refuted(&graph, &schema), (BTreeSet::new(), true));
+}
+
+/// The agreement on a schema with anchor families (a union with two
+/// variants, a recursion point and a reference vertex), over every graph of
+/// up to three nodes and three edges anchored anywhere in the schema.
+#[test]
+fn v10_endpoint_coherence_agrees_on_anchor_families() {
+    let schema = family_schema();
+    let (graphs, incoherent) = sweep(
+        &schema,
+        &["a", "u", "w", "x", "p", "f"],
+        &[
+            edge("a", "u", "au"),
+            edge("a", "p", "ap"),
+            edge("a", "f", "af"),
+            ref_edge("f", "w", "fw"),
+        ],
+        3,
+        3,
+    );
+    assert!(graphs > 100_000, "{graphs} graphs");
+    assert!(
+        incoherent > graphs / 2,
+        "{incoherent} of {graphs} graphs incoherent"
+    );
 }
