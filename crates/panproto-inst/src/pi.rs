@@ -7,7 +7,7 @@
 //! migrations are supported; a non-injective map is rejected rather than
 //! silently producing `Sigma`-shaped output mislabeled as `Pi`.
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
@@ -66,7 +66,13 @@ pub fn functor_pi(
 /// identity of the target vertex; a product row is kept only when its
 /// components are a pair of that foreign key. The arrows are read from the
 /// schema, not from the instance, so an internal foreign key without pairs
-/// is the empty relation and empties the limit. A fibre component whose
+/// is the empty relation and empties the limit. A source edge of the
+/// migration with both endpoints in the fibre goes to a loop on the target
+/// vertex, not to its identity, and then the limit ranges over every iterate
+/// of that loop; the fibre's limit is that limit only for a single vertex
+/// with no internal arrow whose carried loops go to distinct loops, and every
+/// other fibre holding such an edge is refused rather than returning the
+/// unequalised product. A fibre component whose
 /// table is empty or absent is an empty factor, so the target's table is
 /// empty. A vertex of `tgt_schema` outside the image of `F` has an empty
 /// fibre and gets no table: the schema does not say which of its vertices
@@ -81,10 +87,12 @@ pub fn functor_pi(
 ///
 /// Foreign keys travel along the source edges, each to its image, as every
 /// table operation reads them; the pairs of any other edge are not carried.
-/// A carried foreign key travels through the product: a pair
-/// `(i, j)` of source edge `e` relates every result row drawing `i` from
-/// `e`'s source to every result row drawing `j` from its target, the largest
-/// relation the projections respect.
+/// A target edge relates result rows `p` and `q` exactly when every source
+/// edge `e` carried to it relates the row `p` drew from `e`'s source to the
+/// row `q` drew from `e`'s target. With one such edge this relates every row
+/// drawing `i` to every row drawing `j` for each pair `(i, j)`; edges the
+/// migration merges constrain each its own components, so `Pi` of the merged
+/// edge is their intersection, and a carried edge without pairs empties it.
 ///
 /// The returned map sends each source vertex `s` of a fibre to the
 /// projection of its target's rows onto the rows of `s`, as an
@@ -96,8 +104,10 @@ pub fn functor_pi(
 /// of `src_schema` to an edge `tgt_schema` does not have,
 /// [`RestrictError::ProductSizeExceeded`] if a Cartesian product exceeds
 /// `max_product_size`, [`RestrictError::AttributeCollision`] when two
-/// components of one product row disagree on a shared column, and
-/// [`RestrictError::RowIdsExhausted`] when the fresh row ids run out.
+/// components of one product row disagree on a shared column,
+/// [`RestrictError::CarriedFibreArrow`] when a fibre holds a source edge of
+/// the migration as described above, and [`RestrictError::RowIdsExhausted`]
+/// when the fresh row ids run out.
 pub fn functor_pi_with_hom(
     instance: &FInstance,
     src_schema: &Schema,
@@ -116,6 +126,7 @@ pub fn functor_pi_with_hom(
 
     for (tgt_vertex, src_vertices) in &fiber_map {
         let internal = internal_arrows(src_schema, &edge_images, src_vertices);
+        check_carried_fibre_arrows(tgt_vertex, src_vertices, &edge_images, &internal)?;
         let rows = build_fiber_table(
             instance,
             src_vertices,
@@ -158,11 +169,32 @@ pub fn functor_pi_with_hom(
         })
         .collect();
 
+    carry_foreign_keys(instance, &edge_images, &fibre_of, &provenance, &mut out);
+
+    Ok((out, projections))
+}
+
+/// Carry the foreign keys of `instance` into `out`, the result of `Pi_F`, as
+/// [`functor_pi_with_hom`] states: a target edge relates result rows `p` and
+/// `q` exactly when every source edge carried to it relates the rows `p` and
+/// `q` drew from its endpoints. `fibre_of` sends each source vertex to its
+/// target vertex and `provenance` lists, per target table, each placed row
+/// with the source row it drew from every fibre component.
+fn carry_foreign_keys(
+    instance: &FInstance,
+    edge_images: &HashMap<Edge, Edge>,
+    fibre_of: &HashMap<&Name, &Name>,
+    provenance: &HashMap<Name, PlacedRows>,
+    out: &mut FInstance,
+) {
     // The result rows drawn from each source row, per target table and
-    // fibre component, so carrying a pair reads only the rows it relates.
+    // fibre component, so carrying a pair reads only the rows it relates,
+    // and the components each result row drew.
     let mut drawn_from: HashMap<(&Name, &Name, RowId), Vec<RowId>> = HashMap::new();
-    for (tgt_vertex, placed) in &provenance {
+    let mut components_of: HashMap<RowId, &BTreeMap<Name, RowId>> = HashMap::new();
+    for (tgt_vertex, placed) in provenance {
         for (id, components) in placed {
+            components_of.insert(*id, components);
             for (component, &src_row) in components {
                 drawn_from
                     .entry((tgt_vertex, component, src_row))
@@ -171,26 +203,50 @@ pub fn functor_pi_with_hom(
             }
         }
     }
-    for (edge, pairs) in instance.foreign_keys() {
-        let Some(new_edge) = edge_images.get(edge) else {
+    // Each target edge with the source edges carried to it whose endpoints
+    // lie in the fibres of its endpoints, in ascending order.
+    let mut preimages: BTreeMap<&Edge, Vec<&Edge>> = BTreeMap::new();
+    for (edge, image) in edge_images {
+        if fibre_of.get(&edge.src) == Some(&&image.src)
+            && fibre_of.get(&edge.tgt) == Some(&&image.tgt)
+        {
+            preimages.entry(image).or_default().push(edge);
+        }
+    }
+    for (image, mut edges) in preimages {
+        edges.sort_unstable();
+        let Some((&first, rest)) = edges.split_first() else {
             continue;
         };
-        for &(i, j) in pairs {
+        // A pair of the result relates `p` to `q` exactly when every carried
+        // edge relates the components they drew from its endpoints.
+        let related = |p: RowId, q: RowId| {
+            rest.iter().all(|edge| {
+                match (
+                    components_of.get(&p).and_then(|c| c.get(&edge.src)),
+                    components_of.get(&q).and_then(|c| c.get(&edge.tgt)),
+                ) {
+                    (Some(&i), Some(&j)) => instance.contains_pair(edge, i, j),
+                    _ => false,
+                }
+            })
+        };
+        for &(i, j) in instance.pairs(first) {
             let (Some(sources), Some(targets)) = (
-                drawn_from.get(&(&new_edge.src, &edge.src, i)),
-                drawn_from.get(&(&new_edge.tgt, &edge.tgt, j)),
+                drawn_from.get(&(&image.src, &first.src, i)),
+                drawn_from.get(&(&image.tgt, &first.tgt, j)),
             ) else {
                 continue;
             };
             for &p in sources {
                 for &q in targets {
-                    out.place_pair(new_edge.clone(), p, q);
+                    if related(p, q) {
+                        out.place_pair(image.clone(), p, q);
+                    }
                 }
             }
         }
     }
-
-    Ok((out, projections))
 }
 
 /// Check that every edge of `src` the migration carries lands on an edge of
@@ -233,6 +289,53 @@ fn internal_arrows<'a>(
     arrows.sort_unstable();
     arrows.dedup();
     arrows
+}
+
+/// Refuse a fibre whose limit is not `Pi_F` at its target vertex: one holding
+/// an edge, both endpoints in the fibre, that the migration carries to an
+/// edge rather than to the identity of the target vertex.
+///
+/// Such an edge goes to a loop `l` on the vertex, so the comma category the
+/// right Kan extension takes its limit over holds an object for every
+/// iterate of `l`. The fibre's limit is that limit only when each iterate is
+/// reached from the fibre along exactly one path: the fibre is a single
+/// vertex with no edge sent to the identity, and its carried loops go to
+/// distinct loops on the target vertex. Any other fibre holding a carried
+/// edge is refused, naming the least such edge in a fibre of several
+/// vertices or beside an edge sent to the identity, and otherwise the
+/// first loop, in ascending order, whose image an earlier loop already has.
+///
+/// # Errors
+///
+/// Returns [`RestrictError::CarriedFibreArrow`] as described above.
+fn check_carried_fibre_arrows(
+    vertex: &Name,
+    fiber: &[Name],
+    edge_images: &HashMap<Edge, Edge>,
+    internal: &[&Edge],
+) -> Result<(), RestrictError> {
+    let mut carried: Vec<(&Edge, &Edge)> = edge_images
+        .iter()
+        .filter(|(edge, _)| fiber.contains(&edge.src) && fiber.contains(&edge.tgt))
+        .collect();
+    carried.sort_unstable();
+    let refuse = |edge: &Edge| RestrictError::CarriedFibreArrow {
+        vertex: vertex.clone(),
+        edge: edge.clone(),
+    };
+    if let Some(&(first, _)) = carried.first() {
+        if fiber.len() > 1 || !internal.is_empty() {
+            return Err(refuse(first));
+        }
+    }
+    let mut images: HashSet<&Edge> = HashSet::with_capacity(carried.len());
+    for (edge, image) in carried {
+        let is_loop = image.src == *vertex && image.tgt == *vertex;
+        if !is_loop || !images.insert(image) {
+            return Err(refuse(edge));
+        }
+    }
+    Ok(())
 }
 
 /// Build the rows of one target vertex's limit, each with the source row it
@@ -1037,10 +1140,11 @@ mod tests {
         );
     }
 
-    /// Distinct source edges identified by the edge map contribute a union of
-    /// pairs, and the result does not depend on hash iteration order.
+    /// A loop on each vertex of a two-vertex fibre, both carried to one loop
+    /// on the target: the limit ranges over every iterate of that loop, so
+    /// Pi refuses, naming the least carried edge of the fibre.
     #[test]
-    fn functor_pi_unions_collided_edges_deterministically() {
+    fn carried_loops_in_a_two_vertex_fibre_are_refused() {
         fn self_edge(v: &str) -> Edge {
             Edge {
                 src: v.into(),
@@ -1050,72 +1154,49 @@ mod tests {
             }
         }
 
-        let build = || {
-            let inst = FInstance::new()
-                .with_table(
-                    "a",
-                    vec![
-                        HashMap::from([("n".to_string(), Value::Int(0))]),
-                        HashMap::from([("n".to_string(), Value::Int(1))]),
-                    ],
-                )
-                .and_then(|f| {
-                    f.with_table(
-                        "b",
-                        vec![
-                            HashMap::from([("m".to_string(), Value::Int(0))]),
-                            HashMap::from([("m".to_string(), Value::Int(1))]),
-                        ],
-                    )
-                })
-                .and_then(|f| f.with_foreign_key(self_edge("a"), [(RowId(0), RowId(1))]))
-                .and_then(|f| f.with_foreign_key(self_edge("b"), [(RowId(3), RowId(2))]))
-                .unwrap();
+        let inst = FInstance::new()
+            .with_table("a", vec![HashMap::from([("n".to_string(), Value::Int(0))])])
+            .and_then(|f| {
+                f.with_table("b", vec![HashMap::from([("m".to_string(), Value::Int(0))])])
+            })
+            .and_then(|f| f.with_foreign_key(self_edge("a"), [(RowId(0), RowId(0))]))
+            .and_then(|f| f.with_foreign_key(self_edge("b"), [(RowId(1), RowId(1))]))
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("b"), Name::from("t"));
+        migration.edge_remap.insert(self_edge("a"), self_edge("t"));
+        migration.edge_remap.insert(self_edge("b"), self_edge("t"));
+        assert_carried_fibre_arrow(run_pi(&inst, &migration, &[], 100), "t", &self_edge("a"));
+    }
 
-            let mut migration = CompiledMigration::default();
-            migration.surviving_verts.insert(Name::from("t"));
-            migration
-                .vertex_remap
-                .insert(Name::from("a"), Name::from("t"));
-            migration
-                .vertex_remap
-                .insert(Name::from("b"), Name::from("t"));
-            migration.edge_remap.insert(self_edge("a"), self_edge("t"));
-            migration.edge_remap.insert(self_edge("b"), self_edge("t"));
-            run_pi(&inst, &migration, &[], 100)
-                .map(|(pi, _)| pi)
-                .unwrap()
-        };
+    /// Assert that Pi refused with [`RestrictError::CarriedFibreArrow`] at
+    /// `vertex`, naming `edge`.
+    fn assert_carried_fibre_arrow<T: std::fmt::Debug>(
+        result: Result<T, RestrictError>,
+        vertex: &str,
+        edge: &Edge,
+    ) {
+        match result {
+            Err(RestrictError::CarriedFibreArrow { vertex: v, edge: e }) => {
+                assert_eq!((v.as_ref(), &e), (vertex, edge));
+            }
+            other => panic!("expected CarriedFibreArrow at {vertex} on {edge:?}, got {other:?}"),
+        }
+    }
 
-        let first = build();
-        let pairs = first.pairs(&self_edge("t")).clone();
-        // `a` holds rows 0 and 1, `b` rows 2 and 3. Fiber components are
-        // ordered by name, so the product rows are 4 = (a0, b2), 5 = (a0, b3),
-        // 6 = (a1, b2), 7 = (a1, b3). The `a` edge (0, 1) fans out to every
-        // product row drawing a0 crossed with every row drawing a1; the `b`
-        // edge (3, 2) fans out the same way over b.
-        let r = |a: u32, b: u32| (RowId(a), RowId(b));
-        assert_eq!(
-            pairs,
-            BTreeSet::from([
-                r(4, 6),
-                r(4, 7),
-                r(5, 4),
-                r(5, 6),
-                r(5, 7),
-                r(7, 4),
-                r(7, 6)
-            ]),
-            "both source edges contribute their fanned-out product pairs",
-        );
-
-        for _ in 0..16 {
-            let again = build();
-            assert_eq!(
-                again.pairs(&self_edge("t")),
-                first.pairs(&self_edge("t")),
-                "merged foreign keys must not depend on hash iteration order",
-            );
+    /// A loop edge `v -> v` of kind `fk` named `name`.
+    fn loop_on(v: &str, name: &str) -> Edge {
+        Edge {
+            src: v.into(),
+            tgt: v.into(),
+            kind: "fk".into(),
+            name: Some(name.into()),
         }
     }
 
@@ -1207,27 +1288,167 @@ mod tests {
         ));
     }
 
+    /// The intra-fibre foreign key remapped to a loop on `m`: Pi along a
+    /// functor that sends an arrow of the fibre to a loop is a limit over
+    /// every iterate of the loop, not the product, so it refuses.
     #[test]
-    fn a_carried_intra_fibre_foreign_key_fans_out_over_the_product() {
+    fn pi_dispatch_rejects_a_fibre_with_an_internal_edge() {
         let (inst, mut migration, fk) = intra_fibre_fixture();
-        let loop_edge = Edge {
-            src: "m".into(),
-            tgt: "m".into(),
-            kind: "fk".into(),
-            name: Some("ref".into()),
-        };
-        migration.edge_remap.insert(fk, loop_edge.clone());
-        let result = run_pi(&inst, &migration, &[], 100)
-            .map(|(pi, _)| pi)
+        migration.edge_remap.insert(fk.clone(), loop_on("m", "ref"));
+        assert_carried_fibre_arrow(run_pi(&inst, &migration, &[], 100), "m", &fk);
+    }
+
+    /// The same foreign key listed as surviving: the migration relabels it to
+    /// the loop on `m`, so Pi refuses it as it refuses the remapped one.
+    #[test]
+    fn a_surviving_intra_fibre_edge_is_refused() {
+        let (inst, mut migration, fk) = intra_fibre_fixture();
+        migration.surviving_edges.insert(fk.clone());
+        let src = make_test_schema(&[], std::slice::from_ref(&fk));
+        let tgt = make_test_schema(&[], &[loop_on("m", "ref")]);
+        assert_carried_fibre_arrow(functor_pi(&inst, &src, &tgt, &migration, 100), "m", &fk);
+    }
+
+    /// A one-vertex fibre `{a}` whose loop is relabelled onto `t`: every
+    /// object of the comma category is reached from `a` along exactly one
+    /// path, so the limit is `a`'s table, its rows keep their ids and the
+    /// loop travels with its pairs.
+    #[test]
+    fn a_one_vertex_fibre_carries_its_loop() {
+        let cell = |v: i64| HashMap::from([("n".to_owned(), Value::Int(v))]);
+        let inst = FInstance::new()
+            .with_table("a", vec![cell(0), cell(1)])
+            .and_then(|f| f.with_foreign_key(loop_on("a", "next"), [(RowId(0), RowId(1))]))
             .unwrap();
-        // Not an internal arrow: the product is not equalised, and the pair
-        // (a0, b1) relates every row drawing a0 to every row drawing b1.
-        assert_eq!(result.row_count("m"), 4);
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        migration
+            .edge_remap
+            .insert(loop_on("a", "next"), loop_on("t", "next"));
+        let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
+        let ids: Vec<RowId> = pi.rows("t").into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec![RowId(0), RowId(1)]);
+        assert_eq!(
+            pi.pairs(&loop_on("t", "next")),
+            &BTreeSet::from([(RowId(0), RowId(1))])
+        );
+    }
+
+    /// Two loops of a one-vertex fibre carried to one loop: a path of length
+    /// `n` reaches the `n`-th iterate in `2^n` ways, so the limit equalises
+    /// the two loops on every iterate and Pi refuses, naming the second loop.
+    #[test]
+    fn a_one_vertex_fibre_whose_loops_share_an_image_is_refused() {
+        let inst = FInstance::new()
+            .with_table("a", vec![HashMap::new()])
+            .and_then(|f| f.with_foreign_key(loop_on("a", "p"), [(RowId(0), RowId(0))]))
+            .and_then(|f| f.with_foreign_key(loop_on("a", "q"), [(RowId(0), RowId(0))]))
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        migration
+            .edge_remap
+            .insert(loop_on("a", "p"), loop_on("t", "p"));
+        migration
+            .edge_remap
+            .insert(loop_on("a", "q"), loop_on("t", "p"));
+        assert_carried_fibre_arrow(run_pi(&inst, &migration, &[], 100), "t", &loop_on("a", "q"));
+    }
+
+    /// A one-vertex fibre with one loop sent to the identity and one carried
+    /// to a loop: the factorisations of the carried loop through the fibre
+    /// are not connected, so the limit is not the equalised table and Pi
+    /// refuses.
+    #[test]
+    fn a_carried_loop_beside_a_loop_sent_to_the_identity_is_refused() {
+        let inst = FInstance::new()
+            .with_table("a", vec![HashMap::new()])
+            .and_then(|f| f.with_foreign_key(loop_on("a", "c"), [(RowId(0), RowId(0))]))
+            .and_then(|f| f.with_foreign_key(loop_on("a", "i"), [(RowId(0), RowId(0))]))
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("t"));
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("t"));
+        migration
+            .edge_remap
+            .insert(loop_on("a", "c"), loop_on("t", "c"));
+        assert_carried_fibre_arrow(run_pi(&inst, &migration, &[], 100), "t", &loop_on("a", "c"));
+    }
+
+    /// Two edges `e1: a1 -> b1` and `e2: a2 -> b2` merged into one edge
+    /// `E: m1 -> m2`. `Pi(E)` sends `(x1, x2)` to `(e1 x1, e2 x2)`, so two
+    /// product rows are related exactly when both components are: the
+    /// relation is the intersection of the edges' fan-outs, not their union,
+    /// and a carried edge without pairs empties it.
+    #[test]
+    fn merged_edges_relate_product_rows_componentwise() {
+        let edge = |src: &str, tgt: &str| Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "fk".into(),
+            name: Some("e".into()),
+        };
+        let two = |col: &str| {
+            vec![
+                HashMap::from([(col.to_owned(), Value::Int(0))]),
+                HashMap::from([(col.to_owned(), Value::Int(1))]),
+            ]
+        };
+        // a1 holds rows 0, 1; a2 rows 2, 3; b1 rows 4, 5; b2 rows 6, 7.
+        let base = FInstance::new()
+            .with_table("a1", two("a1"))
+            .and_then(|f| f.with_table("a2", two("a2")))
+            .and_then(|f| f.with_table("b1", two("b1")))
+            .and_then(|f| f.with_table("b2", two("b2")))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    edge("a1", "b1"),
+                    [(RowId(0), RowId(4)), (RowId(1), RowId(5))],
+                )
+            })
+            .unwrap();
+        let inst = base
+            .clone()
+            .with_foreign_key(
+                edge("a2", "b2"),
+                [(RowId(2), RowId(7)), (RowId(3), RowId(6))],
+            )
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration
+            .surviving_verts
+            .extend([Name::from("m1"), Name::from("m2")]);
+        for (src, tgt) in [("a1", "m1"), ("a2", "m1"), ("b1", "m2"), ("b2", "m2")] {
+            migration
+                .vertex_remap
+                .insert(Name::from(src), Name::from(tgt));
+        }
+        migration
+            .edge_remap
+            .insert(edge("a1", "b1"), edge("m1", "m2"));
+        migration
+            .edge_remap
+            .insert(edge("a2", "b2"), edge("m1", "m2"));
+
+        // m1's rows: 8 = (0, 2), 9 = (0, 3), 10 = (1, 2), 11 = (1, 3); m2's:
+        // 12 = (4, 6), 13 = (4, 7), 14 = (5, 6), 15 = (5, 7).
+        let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
         let r = |a: u32, b: u32| (RowId(a), RowId(b));
         assert_eq!(
-            result.pairs(&loop_edge),
-            &BTreeSet::from([r(4, 5), r(4, 7), r(5, 5), r(5, 7)])
+            pi.pairs(&edge("m1", "m2")),
+            &BTreeSet::from([r(8, 13), r(9, 12), r(10, 15), r(11, 14)]),
         );
+
+        let (without, _) = run_pi(&base, &migration, &[], 100).unwrap();
+        assert!(without.pairs(&edge("m1", "m2")).is_empty());
     }
 
     #[test]

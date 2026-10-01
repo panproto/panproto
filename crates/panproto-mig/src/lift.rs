@@ -168,8 +168,8 @@ pub fn lift_functor_sigma_with_hom(
 /// # Errors
 ///
 /// Returns `LiftError::Restrict` if the underlying pi operation fails
-/// (e.g., product size exceeded, or a carried edge missing from
-/// `tgt_schema`).
+/// (e.g., product size exceeded, a carried edge missing from `tgt_schema`,
+/// or a fibre holding an edge the migration sends to a loop).
 pub fn lift_functor_pi(
     compiled: &CompiledMigration,
     src_schema: &Schema,

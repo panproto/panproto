@@ -301,6 +301,24 @@ pub enum RestrictError {
         /// The edge whose pairs have no image.
         edge: Edge,
     },
+
+    /// The right Kan extension (`Pi_F`) at a target vertex is not the limit
+    /// over that vertex's fibre: the migration sends an edge with both
+    /// endpoints in the fibre to a loop on the vertex rather than to its
+    /// identity. The limit then ranges over every iterate of the loop, so
+    /// `Pi_F` refuses rather than returning the unequalised product. The one
+    /// fibre exempt is a single vertex whose carried loops have distinct
+    /// images and which has no edge sent to the identity: there the limit is
+    /// that vertex's table.
+    #[error(
+        "Pi cannot form the limit at `{vertex}`: edge {edge:?} lies in its fibre and is sent to a loop"
+    )]
+    CarriedFibreArrow {
+        /// The target vertex whose fibre holds the edge.
+        vertex: Name,
+        /// The edge the migration sends to a loop.
+        edge: Edge,
+    },
 }
 
 /// Errors from JSON parsing.
