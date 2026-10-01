@@ -17,10 +17,12 @@
 //! from whether an instance holds rows there, so a table with no rows is
 //! still a table.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
+
+use crate::value::Value;
 
 /// The vertex kind that marks a vertex as a table.
 pub const TABLE_KIND: &str = "table";
@@ -28,16 +30,26 @@ pub const TABLE_KIND: &str = "table";
 /// The edge kind that makes its target a column of its source.
 pub const COLUMN_EDGE_KIND: &str = "prop";
 
+/// Whether `kind` is a value kind: one whose values are scalars or lists,
+/// read from the one vocabulary of value kinds,
+/// [`kind_accepts`](crate::attributes::kind_accepts). A value kind refuses a
+/// record value; a record kind (`object`, `struct`, ...) and a kind the
+/// vocabulary does not know accept one, so they are not value kinds.
+fn is_value_kind(kind: &Name) -> bool {
+    !crate::attributes::kind_accepts(kind, &Value::Unknown(HashMap::new()))
+}
+
 /// The relation-ified schema of a [`Schema`]: its tables and its foreign keys
 /// as relation objects.
 ///
 /// A vertex is a table when the schema says so: its kind is
 /// [`TABLE_KIND`], it declares a key, or a declared reference holds at it or
-/// resolves to it. Otherwise a vertex is an attribute exactly when an edge
-/// of kind [`COLUMN_EDGE_KIND`] reaches it (it is a column of that edge's
-/// source) or any edge leaves an attribute for it (it is part of a column's
-/// value, as the element vertex of an array column is), and a table when
-/// neither holds. A foreign key is an edge of the
+/// resolves to it. Otherwise a vertex is an attribute exactly when its kind
+/// is a value kind (a scalar or list kind such as `string` or `integer`,
+/// whatever edge reaches it, or none), an edge of kind [`COLUMN_EDGE_KIND`]
+/// reaches it (it is a column of that edge's source) or any edge leaves an
+/// attribute for it (it is part of a column's value, as the element vertex
+/// of an array column is), and a table when none of these holds. A foreign key is an edge of the
 /// schema between two tables; an edge into an attribute is a column, not an
 /// object. Each foreign key `e` stands for an object with the two arrows
 /// `src_e` and `tgt_e` to its endpoint tables, which the edge itself names.
@@ -109,6 +121,13 @@ impl RelSchema {
             .keys()
             .filter(|edge| edge.kind == COLUMN_EDGE_KIND)
             .map(|edge| edge.tgt.as_ref())
+            .chain(
+                schema
+                    .vertices
+                    .values()
+                    .filter(|vertex| is_value_kind(&vertex.kind))
+                    .map(|vertex| vertex.id.as_ref()),
+            )
             .collect();
         while let Some(vertex) = frontier.pop() {
             if declared_table(vertex) || !attributes.insert(vertex) {
@@ -322,6 +341,34 @@ mod tests {
             rel.relations().iter().all(|e| e.src != "post.tags:items"),
             "an edge out of a cell is no foreign key"
         );
+    }
+
+    /// A vertex whose kind is a value kind (`string`, `integer`, ...) is an
+    /// attribute whatever reaches it: one no edge reaches is not a table,
+    /// and an edge of any kind into it is a column, not a foreign key. A
+    /// vertex of a record or unrecognised kind stays a table, and a declared
+    /// table stays one whatever its kind.
+    #[test]
+    fn a_vertex_of_a_value_kind_is_an_attribute() {
+        let mut schema = sql_like();
+        schema.vertices.extend([
+            vertex("w", "word"),
+            vertex("t", "string"),
+            vertex("lone", "integer"),
+            vertex("n", "upos-tag"),
+        ]);
+        for e in [
+            edge("w", "t", "upos", "upos"),
+            edge("w", "n", "xpos", "xpos"),
+        ] {
+            let kind = e.kind.clone();
+            schema.edges.insert(e, kind);
+        }
+        let rel = RelSchema::new(&schema);
+        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
+        assert_eq!(tables, ["audit", "n", "post", "tag", "user", "w"]);
+        assert!(rel.relations().iter().all(|e| e.tgt != "t"), "{rel:?}");
+        assert!(rel.is_relation(&edge("w", "n", "xpos", "xpos")));
     }
 
     #[test]
