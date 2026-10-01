@@ -22,7 +22,7 @@ use crate::ginstance::{
     EdgeId, FanEmbedding, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, TreeEmbedding,
     write_node_record,
 };
-use crate::graph_edit::{AttrKey, AttrVal, ElemRef, GraphDelta};
+use crate::graph_edit::{AttrChange, AttrKey, AttrVal, ElemRef, GraphDelta};
 use crate::identity::{CanonicalSink, Digest, TREE_EDIT_CONTEXT};
 use crate::metadata::{Node, NodeShape};
 use crate::value::Value;
@@ -992,11 +992,98 @@ fn is_fan_edge(edge: &GEdge, fan_nodes: &BTreeSet<u32>) -> bool {
         || fan_nodes.contains(&edge.src)
 }
 
-/// The steps the entry changes of a graph delta read as: a `RelabelNode`
-/// for each `Anchor` change, then a `SetField` or `RemoveField` for each
-/// `Field` change. Every other entry, and an entry of a fan node, is one no
-/// tree edit changes.
-fn attr_steps(delta: &GraphDelta, fans_before: &BTreeSet<u32>) -> Result<Vec<TreeEdit>, EditError> {
+/// Whether the label change `change` of `edge` follows the anchor change
+/// of its target: `edge` is a fan edge of `graph`, the graph form of the
+/// tree, whose label names its target's anchor; `delta` changes that
+/// target's anchor; and the new label is the old one with that new anchor
+/// as its target.
+fn follows_anchor(
+    graph: &GInstance,
+    delta: &GraphDelta,
+    edge: EdgeId,
+    change: &AttrChange,
+) -> bool {
+    let Some(current) = graph.edge(edge) else {
+        return false;
+    };
+    if current.edge.kind != HYPER_PARENT_KIND && current.edge.kind != HYPER_LABEL_KIND {
+        return false;
+    }
+    let (AttrVal::Label(old), AttrVal::Label(new)) = (&change.old, &change.new) else {
+        return false;
+    };
+    let Some(AttrChange {
+        new: AttrVal::Anchor(anchor),
+        ..
+    }) = delta.attrs().get(&AttrKey::Anchor { node: current.tgt })
+    else {
+        return false;
+    };
+    let mut expected = old.clone();
+    expected.tgt.clone_from(anchor);
+    expected == *new
+}
+
+/// The move in place a label change of a tree arc reads as: when `edge` is
+/// the arc of a node in `embedding` and the delta deletes every arc above
+/// it, moving the node under its own parent with the new label appends the
+/// arc last, so the arc keeps its id and only its label changes.
+fn move_in_place(
+    graph: &GInstance,
+    embedding: &TreeEmbedding,
+    delta: &GraphDelta,
+    edge: EdgeId,
+    change: &AttrChange,
+) -> Option<TreeEdit> {
+    let AttrVal::Label(label) = &change.new else {
+        return None;
+    };
+    let (&child, _) = embedding.arcs.iter().find(|(_, id)| **id == edge)?;
+    let last = embedding
+        .arcs
+        .values()
+        .all(|id| *id <= edge || delta.del_edges().contains_key(id));
+    let parent = graph.edge(edge)?.src;
+    last.then(|| TreeEdit::MoveSubtree {
+        node_id: child,
+        new_parent: parent,
+        edge: label.clone(),
+    })
+}
+
+/// The steps the entry changes of a graph delta read as.
+struct AttrSteps {
+    /// A `MoveSubtree` in place for each label change of a tree arc, which
+    /// go before every other step (see [`move_in_place`]).
+    moves: Vec<TreeEdit>,
+    /// A `RelabelNode` for each `Anchor` change, then a `SetField` or
+    /// `RemoveField` for each `Field` change, of the nodes not in `joins`.
+    steps: Vec<TreeEdit>,
+    /// The tree nodes with a `Value` or `Meta` change, ascending: the
+    /// changes of each read as one `JoinFeatures` with nothing joined.
+    joins: BTreeSet<u32>,
+}
+
+/// The steps the entry changes of `delta` read as (see [`AttrSteps`]),
+/// with `graph` the graph form of the tree it applies to under
+/// `embedding`. A label change of a fan edge that follows its target's
+/// anchor change is part of that change. Every other entry change, and a
+/// change of an entry of a fan node, is one no tree edit makes.
+fn attr_steps(
+    graph: &GInstance,
+    embedding: &TreeEmbedding,
+    delta: &GraphDelta,
+    fans_before: &BTreeSet<u32>,
+) -> Result<AttrSteps, EditError> {
+    let joins: BTreeSet<u32> = delta
+        .attrs()
+        .keys()
+        .filter_map(|key| match key {
+            AttrKey::Value { node } | AttrKey::Meta { node } => Some(*node),
+            _ => None,
+        })
+        .collect();
+    let mut moves = Vec::new();
     let mut relabels = Vec::new();
     let mut fields = Vec::new();
     for (key, change) in delta.attrs() {
@@ -1008,6 +1095,21 @@ fn attr_steps(delta: &GraphDelta, fans_before: &BTreeSet<u32>) -> Result<Vec<Tre
             )));
         }
         match (key, &change.new) {
+            (
+                AttrKey::Value { node }
+                | AttrKey::Meta { node }
+                | AttrKey::Anchor { node }
+                | AttrKey::Field { node, .. },
+                _,
+            ) if joins.contains(node) => {}
+            (AttrKey::EdgeLabel { edge }, _) if follows_anchor(graph, delta, *edge, change) => {}
+            (AttrKey::EdgeLabel { edge }, _) => {
+                let step =
+                    move_in_place(graph, embedding, delta, *edge, change).ok_or_else(|| {
+                        not_tree_edit(format!("a tree edit has no change of {key:?}"))
+                    })?;
+                moves.push(step);
+            }
             (AttrKey::Anchor { node }, AttrVal::Anchor(anchor)) => {
                 relabels.push(TreeEdit::RelabelNode {
                     id: *node,
@@ -1036,7 +1138,11 @@ fn attr_steps(delta: &GraphDelta, fans_before: &BTreeSet<u32>) -> Result<Vec<Tre
         }
     }
     relabels.extend(fields);
-    Ok(relabels)
+    Ok(AttrSteps {
+        moves,
+        steps: relabels,
+        joins,
+    })
 }
 
 /// The fan node ids after `delta`: the fan nodes before it that it neither
@@ -1645,47 +1751,62 @@ impl TreeEdit {
     /// The tree edit of a graph delta, when there is one: an edit whose
     /// effect on `tree` is the change `delta` makes to its graph form `g`
     /// (under `embedding`), so that applying it to `tree` gives the tree
-    /// that `delta` applied to `g` reads as. For every tree edit `e` whose
-    /// delta [`GraphDelta::from_tree_edit`] lowers inside the domain below,
-    /// the result applied to `tree` is `e` applied to `tree`: this inverts
-    /// `from_tree_edit` up to the fresh ids an edit allocates, which a tree
-    /// does not hold. When `delta` is the lowering of a single step, the
-    /// result lowers back to `delta` exactly.
+    /// that `delta` applied to `g` reads as.
+    ///
+    /// It inverts [`GraphDelta::from_tree_edit`] as far as a tree edit can:
+    /// for every edit `e` with `d` its lowering on `g` under `embedding`,
+    /// `d` reads back as an edit `r`; `r` applied to `tree` is `e` applied
+    /// to `tree` (the same nodes, arcs in order, fans in order and root),
+    /// so the graphs the two lower to agree up to fan node ids and edge ids;
+    /// and when `e` is a single step, `r` lowers to `d` exactly and leaves
+    /// the embedding `e` leaves. A tree edit holds no edge ids or fan node
+    /// ids and this reading leaves `embedding` as it is, so for a longer
+    /// edit the lowering of `r` may give arcs and fans other ids than `d`.
     ///
     /// The edit is built from the delta: an arc it adds into a new node is
     /// an `InsertNode` and into a kept node a `MoveSubtree`, and a fan it
     /// adds is an `InsertFan`, made in ascending id (an arc's edge id, a
     /// fan's parent edge id), the order tree edits append them in; a node it
-    /// deletes is a `DeleteNode`, children first, and one it
-    /// deletes and adds again under its id is deleted before it goes back
-    /// in; the fans of a name it deletes every fan of go first by a
-    /// `DeleteFan`, and any other fan it deletes goes with a deleted node
-    /// that names it; `Anchor` changes are `RelabelNode` and `Field` changes
-    /// `SetField` or `RemoveField`, last. A step that needs a node before
-    /// the step that gives it its arc inserts it early under the root, and
-    /// a move under the moved node's own subtree first moves the highest
-    /// node on the way that the delta moves later out under the root; those
-    /// nodes reach their places by later moves. A fan the delta moves to a
-    /// new node id, because a tree node took its old one, is the same fan
-    /// of the tree.
+    /// deletes is a `DeleteNode`, children first, and one it deletes and
+    /// adds again under its id is deleted before it goes back in; the fans
+    /// of a name it deletes every fan of go first by a `DeleteFan`, and any
+    /// other fan it deletes goes with a deleted node that names it. A label
+    /// change of a tree arc above which the delta deletes every arc is a
+    /// `MoveSubtree` of its node under its own parent, first (such a move
+    /// keeps the arc's id). `Anchor` changes are `RelabelNode` and `Field`
+    /// changes `SetField` or `RemoveField`, last; the label change of a fan
+    /// edge whose target's anchor the delta changes, to the same label with
+    /// that new anchor as its target, is part of that relabel. The
+    /// `Anchor`, `Value`, `Meta` and `Field` changes of a node with a
+    /// `Value` or `Meta` change are instead one `JoinFeatures` of that node
+    /// with nothing joined, whose product is the node as the delta leaves
+    /// it, after every other step. A step that needs a node before the step
+    /// that gives it its arc inserts it early under the root, and a move
+    /// under the moved node's own subtree first moves the highest node on
+    /// the way that the delta moves later out under the root; those nodes
+    /// reach their places by later moves. A fan the delta moves to a new
+    /// node id, because a tree node took its old one, is the same fan of the
+    /// tree.
     ///
     /// # Errors
     ///
     /// Returns [`EditError::NotTreeEdit`] when the delta is outside the
-    /// domain: when it changes an edge label, an edge position, a node's
-    /// value or metadata, or an entry of a fan node (a tree edit changes
-    /// none of them); when an added arc's id is not above every existing
-    /// arc id (tree edits append arcs); when a deleted node is not a leaf
-    /// once the delta's own arc deletions are made; and when a node loses
-    /// its parent arc without gaining one, gains a parent arc without
+    /// domain: when it changes an edge position, an entry of a fan node, or
+    /// an edge label other than those above (the label of a tree arc below
+    /// an arc it keeps, or a fan edge label that does not follow its
+    /// target's new anchor); when an added arc's id is not above every
+    /// existing arc id (tree edits append arcs); when a deleted node is not
+    /// a leaf once the delta's own arc deletions are made; and when a node
+    /// loses its parent arc without gaining one, gains a parent arc without
     /// losing its old one or gains two, or is added without one (a
     /// re-parent a `MoveSubtree` does not express). It returns the same
     /// error when no tree edit leads to the graph the delta leaves: when
     /// the delta does not apply to `g`, when the graph it leaves is not the
-    /// graph form of a tree (a cycle, a fan node with other data or edges),
-    /// or when it changes the tree in a way no edit makes (a fan deleted
-    /// while another of its name stays and no node it names goes, or a kept
-    /// fan changed in place); no lowering of a tree edit is among those.
+    /// graph form of a tree (a cycle, a fan node with other data or edges,
+    /// or a tree node whose metadata makes it a hyper-edge node), or when it
+    /// changes the tree in a way no edit makes (a fan deleted while another
+    /// of its name stays and no node it names goes, or a kept fan changed
+    /// in place); no lowering of a tree edit is among those.
     /// Returns [`EditError::ApplyFailed`] when `tree` has no graph form
     /// under `embedding`, or is not the tree that graph form reads as
     /// through it (its arcs and fans in the order of their edge ids).
@@ -1703,7 +1824,7 @@ impl TreeEdit {
             ));
         }
         let fans_before = fan_nodes(embedding);
-        let attrs = attr_steps(delta, &fans_before)?;
+        let attrs = attr_steps(&graph, embedding, delta, &fans_before)?;
         let fans_after = fans_after(&fans_before, delta);
         let nodes = TreeNodeChanges::of(delta, &fans_before);
         let arcs = added_arcs(embedding, delta, &fans_after, &nodes)?;
@@ -1724,6 +1845,9 @@ impl TreeEdit {
             replaced: nodes.deleted.intersection(&nodes.added).copied().collect(),
             placed: BTreeSet::new(),
         };
+        for step in attrs.moves {
+            rebuild.push(step)?;
+        }
         for name in &target.dead_names {
             rebuild.push(Self::DeleteFan {
                 hyper_edge_id: name.clone(),
@@ -1757,8 +1881,18 @@ impl TreeEdit {
                 rebuild.remove(node)?;
             }
         }
-        for step in attrs {
+        for step in attrs.steps {
             rebuild.push(step)?;
+        }
+        for primary in attrs.joins {
+            let produce = target.tree.nodes.get(&primary).cloned().ok_or_else(|| {
+                not_tree_edit(format!("node {primary} is not in the tree it leaves"))
+            })?;
+            rebuild.push(Self::JoinFeatures {
+                primary,
+                joined: Vec::new(),
+                produce,
+            })?;
         }
         if !same_tree(&rebuild.tree, &target.tree) {
             return Err(not_tree_edit(
@@ -2594,6 +2728,126 @@ mod graph_tests {
         Ok(())
     }
 
+    /// Check that `from_graph_delta` on `tree` (under `emb`, with graph
+    /// form `graph`) returns `NotTreeEdit` for `delta`, with a reason that
+    /// says `needle`.
+    fn reject_on(tree: &WInstance, emb: &TreeEmbedding, delta: &GraphDelta, needle: &str) {
+        let result = TreeEdit::from_graph_delta(tree, emb, delta);
+        let Err(EditError::NotTreeEdit { reason }) = &result else {
+            panic!("expected NotTreeEdit, got {result:?}");
+        };
+        assert!(
+            reason.contains(needle),
+            "{reason:?} does not say {needle:?}"
+        );
+    }
+
+    /// The label, position and entry changes of [`sentence`] that no tree
+    /// edit makes.
+    fn label_and_entry_rejections(
+        tree: &WInstance,
+        graph: &GInstance,
+        emb: &TreeEmbedding,
+    ) -> TestResult {
+        let reject = |delta: &GraphDelta, needle: &str| reject_on(tree, emb, delta, needle);
+        // A tree arc's label change and an edge position change.
+        let arc_label = GraphDelta::identity().with_change(
+            AttrKey::EdgeLabel { edge: EdgeId(0) },
+            AttrVal::Label(edge("s", "w")),
+            AttrVal::Label(edge("s", "x")),
+        )?;
+        reject(&arc_label, "a tree edit has no change of");
+        let position = GraphDelta::identity().with_change(
+            AttrKey::EdgePosition { edge: EdgeId(0) },
+            AttrVal::Position(None),
+            AttrVal::Position(Some(1)),
+        )?;
+        reject(&position, "a tree edit has no change of");
+        // A label change of an arc below the last one following its
+        // target's new anchor is still no tree edit's: a relabel leaves the
+        // arcs into the node as they are, and a move appends its arc.
+        let arc_follows = GraphDelta::identity()
+            .with_change(
+                AttrKey::Anchor { node: 4 },
+                AttrVal::Anchor("w".into()),
+                AttrVal::Anchor("v".into()),
+            )?
+            .with_change(
+                AttrKey::EdgeLabel { edge: EdgeId(0) },
+                AttrVal::Label(edge("s", "w")),
+                AttrVal::Label(edge("s", "v")),
+            )?;
+        reject(&arc_follows, "a tree edit has no change of");
+        let relabel_1 = |delta: GraphDelta| {
+            delta.with_change(
+                AttrKey::Anchor { node: 1 },
+                AttrVal::Anchor("w".into()),
+                AttrVal::Anchor("v".into()),
+            )
+        };
+        // Fan label changes that do not follow the target's new anchor: with
+        // no anchor change, to another anchor, and with another field
+        // changed besides the target.
+        let fan_edge = graph.edge(EdgeId(3)).ok_or("no edge 3")?.edge.clone();
+        assert_eq!(graph.edge(EdgeId(3)).map(|e| e.tgt), Some(1));
+        let fan_label = |tgt: &str, kind: &str| {
+            let mut new = fan_edge.clone();
+            new.tgt = tgt.into();
+            new.kind = kind.into();
+            GraphDelta::identity().with_change(
+                AttrKey::EdgeLabel { edge: EdgeId(3) },
+                AttrVal::Label(fan_edge.clone()),
+                AttrVal::Label(new),
+            )
+        };
+        let kind = fan_edge.kind.to_string();
+        reject(&fan_label("v", &kind)?, "a tree edit has no change of");
+        reject(
+            &relabel_1(fan_label("x", &kind)?)?,
+            "a tree edit has no change of",
+        );
+        reject(
+            &relabel_1(fan_label("v", "prop")?)?,
+            "a tree edit has no change of",
+        );
+        // The value of the fan node 5.
+        let fan_value = GraphDelta::identity().with_change(
+            AttrKey::Value { node: 5 },
+            AttrVal::Presence(None),
+            AttrVal::Presence(Some(crate::value::FieldPresence::Null)),
+        )?;
+        reject(&fan_value, "an entry of the fan node 5");
+        // A tree node made a hyper-edge node: the graph it leaves is not a
+        // tree's graph form.
+        let hyper = GraphDelta::identity().with_change(
+            AttrKey::Meta { node: 1 },
+            AttrVal::Meta(crate::graph_edit::NodeMeta::default()),
+            AttrVal::Meta(crate::graph_edit::NodeMeta {
+                shape: crate::metadata::NodeShape::HyperEdge,
+                ..crate::graph_edit::NodeMeta::default()
+            }),
+        )?;
+        reject(&hyper, "not a well-formed fan");
+        // No tree edit makes that change: a tree with a hyper-edge node has
+        // no graph form.
+        let mut hyper_node = tree.nodes[&1].clone();
+        hyper_node.shape = crate::metadata::NodeShape::HyperEdge;
+        let lowered = GraphDelta::from_tree_edit(
+            graph,
+            &mut emb.clone(),
+            &TreeEdit::JoinFeatures {
+                primary: 1,
+                joined: vec![],
+                produce: hyper_node,
+            },
+        );
+        assert!(
+            matches!(&lowered, Err(EditError::ApplyFailed(_))),
+            "{lowered:?}"
+        );
+        Ok(())
+    }
+
     #[test]
     fn from_graph_delta_rejections() -> TestResult {
         let tree = sentence();
@@ -2626,36 +2880,7 @@ mod graph_tests {
         let orphan = GraphDelta::identity()
             .with_deleted_edge(EdgeId(0), graph.edge(EdgeId(0)).ok_or("no edge 0")?.clone());
         reject(&orphan, "loses its parent arc without gaining one");
-        // Label, position, value and metadata changes.
-        for key in [
-            AttrKey::EdgeLabel { edge: EdgeId(0) },
-            AttrKey::EdgePosition { edge: EdgeId(0) },
-            AttrKey::Value { node: 1 },
-            AttrKey::Meta { node: 1 },
-        ] {
-            let (old, new) = match &key {
-                AttrKey::EdgeLabel { .. } => (
-                    AttrVal::Label(edge("s", "w")),
-                    AttrVal::Label(edge("s", "x")),
-                ),
-                AttrKey::EdgePosition { .. } => {
-                    (AttrVal::Position(None), AttrVal::Position(Some(1)))
-                }
-                AttrKey::Value { .. } => (
-                    AttrVal::Presence(None),
-                    AttrVal::Presence(Some(crate::value::FieldPresence::Null)),
-                ),
-                _ => (
-                    AttrVal::Meta(crate::graph_edit::NodeMeta::default()),
-                    AttrVal::Meta(crate::graph_edit::NodeMeta {
-                        position: Some(2),
-                        ..crate::graph_edit::NodeMeta::default()
-                    }),
-                ),
-            };
-            let delta = GraphDelta::identity().with_change(key, old, new)?;
-            reject(&delta, "a tree edit has no change of");
-        }
+        label_and_entry_rejections(&tree, &graph, &emb)?;
         // An insertion under an arc id far above the next one reads as the
         // same insertion, whose lowering takes the next edge id: the tree
         // edits that lower to it spend the ids below it on arcs they remove
@@ -2975,6 +3200,164 @@ mod graph_tests {
         assert_eq!(ids(relocated.delta.del_nodes()), vec![6]);
         assert_eq!(ids(relocated.delta.add_nodes()), vec![7]);
         assert_eq!(relocated.lowered, GraphDelta::identity());
+        Ok(())
+    }
+
+    /// The canonical bytes of a tree edit, which compare edits.
+    fn edit_bytes(edit: &TreeEdit) -> Vec<u8> {
+        let mut writer = CanonicalWriter::new();
+        canonical_tree_edit_bytes(edit, &mut writer);
+        writer.into_bytes()
+    }
+
+    /// Lower `edit` on `tree`, read the delta back, and check that the
+    /// reading lowers to the delta exactly and leaves the same embedding.
+    /// Returns the delta and the reading.
+    fn reads_back_exactly(
+        tree: &WInstance,
+        edit: &TreeEdit,
+    ) -> Result<(GraphDelta, TreeEdit), Box<dyn Error>> {
+        let (graph, emb) = GInstance::from_wtype_embedded(tree, None)?;
+        let mut followed = emb.clone();
+        let delta = GraphDelta::from_tree_edit(&graph, &mut followed, edit)?;
+        let read = TreeEdit::from_graph_delta(tree, &emb, &delta)?;
+        let mut again = emb;
+        let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)?;
+        assert_eq!(lowered, delta, "{edit:?} read back as {read:?}");
+        assert_eq!(again, followed, "{edit:?} read back as {read:?}");
+        Ok((delta, read))
+    }
+
+    #[test]
+    fn a_fan_member_relabel_reads_back_exactly() -> TestResult {
+        let tree = paragraphs();
+        // Node 1 is the fan's parent and nodes 2 and 5 its members: each
+        // relabel changes the label of the fan edge into the node.
+        for id in [1, 2, 5] {
+            let edit = TreeEdit::RelabelNode {
+                id,
+                new_anchor: "item".into(),
+            };
+            let (delta, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(
+                delta
+                    .attrs()
+                    .keys()
+                    .filter(|k| matches!(k, AttrKey::EdgeLabel { .. }))
+                    .count(),
+                1,
+                "{delta:?}"
+            );
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit));
+        }
+        // The parent and a member together.
+        let both = TreeEdit::Sequence(vec![
+            TreeEdit::RelabelNode {
+                id: 1,
+                new_anchor: "item".into(),
+            },
+            TreeEdit::RelabelNode {
+                id: 5,
+                new_anchor: "item".into(),
+            },
+        ]);
+        let (_, read) = reads_back_exactly(&tree, &both)?;
+        assert_eq!(edit_bytes(&read), edit_bytes(&both));
+        Ok(())
+    }
+
+    #[test]
+    fn a_move_in_place_of_the_last_arc_reads_back_exactly() -> TestResult {
+        // Arcs 0 -> 4 (edge 0) and 0 -> 1 (edge 1). Moving node 1 under its
+        // own parent keeps the last arc's id, so the move is a label change
+        // of edge 1.
+        let tree = sentence();
+        let edit = TreeEdit::MoveSubtree {
+            node_id: 1,
+            new_parent: 0,
+            edge: edge("s", "x"),
+        };
+        let (delta, read) = reads_back_exactly(&tree, &edit)?;
+        assert_eq!(
+            delta.attrs().keys().cloned().collect::<Vec<_>>(),
+            vec![AttrKey::EdgeLabel { edge: EdgeId(1) }]
+        );
+        assert_eq!(edit_bytes(&read), edit_bytes(&edit));
+        // Once node 1 goes, edge 0 is the last arc, and a move of node 4 in
+        // place keeps it: the reading has the same effect on the tree
+        // (checked by `round_trip`). It moves node 4 before node 1 goes, so
+        // its own lowering gives the arc a fresh id.
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::DeleteNode { id: 1 },
+            TreeEdit::MoveSubtree {
+                node_id: 4,
+                new_parent: 0,
+                edge: edge("s", "x"),
+            },
+        ]);
+        let trip = round_trip(&tree, &edit)?;
+        assert!(
+            trip.delta
+                .attrs()
+                .contains_key(&AttrKey::EdgeLabel { edge: EdgeId(0) }),
+            "{:?}",
+            trip.delta
+        );
+        assert_eq!(
+            trip.lowered
+                .add_edges()
+                .values()
+                .map(|e| e.tgt)
+                .collect::<Vec<_>>(),
+            vec![4]
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn a_value_or_meta_change_reads_as_an_empty_join() -> TestResult {
+        let tree = paragraphs();
+        let join = |produce: Node| TreeEdit::JoinFeatures {
+            primary: produce.id,
+            joined: vec![],
+            produce,
+        };
+        let mut valued = tree.nodes[&3].clone();
+        valued.value = Some(crate::value::FieldPresence::Present(Value::Int(7)));
+        let mut positioned = tree.nodes[&3].clone();
+        positioned.position = Some(4);
+        let mut discriminated = tree.nodes[&4].clone();
+        discriminated.discriminator = Some("kind".into());
+        let mut annotated = tree.nodes[&0].clone();
+        annotated
+            .annotations
+            .insert("note".into(), Value::Bool(true));
+        // A fan member whose value and anchor change: the fan edge into it
+        // follows the anchor, and the anchor and field change are part of
+        // the join.
+        let mut member = tree.nodes[&2].clone();
+        member.value = Some(crate::value::FieldPresence::Null);
+        member.anchor = "item".into();
+        member.extra_fields.insert("f".into(), Value::Int(1));
+        for produce in [valued, positioned, discriminated, annotated, member] {
+            let edit = join(produce);
+            let (_, read) = reads_back_exactly(&tree, &edit)?;
+            assert_eq!(edit_bytes(&read), edit_bytes(&edit), "{read:?}");
+        }
+        // A value change and a field change of another node: the field
+        // change stays a `SetField`, and the join comes after it.
+        let mut valued = tree.nodes[&3].clone();
+        valued.value = Some(crate::value::FieldPresence::Null);
+        let edit = TreeEdit::Sequence(vec![
+            TreeEdit::SetField {
+                node_id: 5,
+                field: "f".into(),
+                value: Value::Int(1),
+            },
+            join(valued),
+        ]);
+        let (_, read) = reads_back_exactly(&tree, &edit)?;
+        assert_eq!(edit_bytes(&read), edit_bytes(&edit), "{read:?}");
         Ok(())
     }
 
@@ -3984,7 +4367,9 @@ mod graph_tests {
         Move(prop::sample::Index, prop::sample::Index),
         AddFan(prop::sample::Index, prop::sample::Index),
         DropFan(prop::sample::Index),
-        Join(prop::sample::Index, prop::sample::Index, bool),
+        RelabelFan(prop::sample::Index, prop::sample::Index, usize),
+        Join(prop::sample::Index, prop::sample::Index, bool, u8),
+        Touch(prop::sample::Index, u8),
         Raw(u8, u32, u32),
     }
 
@@ -4000,7 +4385,9 @@ mod graph_tests {
             (ix(), ix()).prop_map(|(n, p)| Intent::Move(n, p)),
             (ix(), ix()).prop_map(|(p, c)| Intent::AddFan(p, c)),
             ix().prop_map(Intent::DropFan),
-            (ix(), ix(), any::<bool>()).prop_map(|(p, j, r)| Intent::Join(p, j, r)),
+            (ix(), ix(), 0..ANCHORS.len()).prop_map(|(f, m, a)| Intent::RelabelFan(f, m, a)),
+            (ix(), ix(), any::<bool>(), 0u8..6).prop_map(|(p, j, r, c)| Intent::Join(p, j, r, c)),
+            (ix(), 0u8..6).prop_map(|(n, c)| Intent::Touch(n, c)),
             (0u8..5, 0u32..20, 0u32..20).prop_map(|(k, a, b)| Intent::Raw(k, a, b)),
         ]
     }
@@ -4048,6 +4435,63 @@ mod graph_tests {
                 edge: edge("doc", "doc"),
             },
         }
+    }
+
+    /// The edit an intent that relabels a fan's node or replaces a node by
+    /// a product names in `tree`, with `ids` its node ids ascending and
+    /// `non_root` those other than the root.
+    fn resolve_attr(
+        tree: &WInstance,
+        ids: &[u32],
+        non_root: &[u32],
+        intent: &Intent,
+    ) -> Option<TreeEdit> {
+        let pick =
+            |from: &[u32], at: &prop::sample::Index| (!from.is_empty()).then(|| *at.get(from));
+        Some(match intent {
+            Intent::RelabelFan(f, m, a) => {
+                if tree.fans.is_empty() {
+                    return None;
+                }
+                let fan = f.get(&tree.fans);
+                let mut named: Vec<u32> = fan.children.values().copied().collect();
+                named.sort_unstable();
+                named.insert(0, fan.parent);
+                TreeEdit::RelabelNode {
+                    id: *m.get(&named),
+                    new_anchor: ANCHORS[*a].into(),
+                }
+            }
+            Intent::Join(p, j, renamed, change) => {
+                let primary = pick(ids, p)?;
+                let joinable: Vec<u32> = non_root
+                    .iter()
+                    .copied()
+                    .filter(|q| !above(tree, *q, primary))
+                    .collect();
+                let joined = pick(&joinable, j)?;
+                let mut produce = tree.nodes[&primary].clone();
+                if *renamed {
+                    produce.anchor = "joined".into();
+                }
+                retouch(&mut produce, *change);
+                TreeEdit::JoinFeatures {
+                    primary,
+                    joined: vec![joined],
+                    produce,
+                }
+            }
+            Intent::Touch(n, change) => {
+                let mut produce = tree.nodes[&pick(ids, n)?].clone();
+                retouch(&mut produce, *change);
+                TreeEdit::JoinFeatures {
+                    primary: produce.id,
+                    joined: vec![],
+                    produce,
+                }
+            }
+            _ => return None,
+        })
     }
 
     /// The edit an intent names in `tree` under `embedding`, when there is
@@ -4129,39 +4573,31 @@ mod graph_tests {
                     hyper_edge_id: Name::from(k.get(&names).as_str()),
                 }
             }
-            Intent::Join(p, j, renamed) => {
-                let primary = pick(&ids, p)?;
-                let joinable: Vec<u32> = non_root
-                    .iter()
-                    .copied()
-                    .filter(|q| !above(tree, *q, primary))
-                    .collect();
-                let joined = pick(&joinable, j)?;
-                let mut produce = tree.nodes[&primary].clone();
-                if *renamed {
-                    produce.anchor = "joined".into();
-                }
-                TreeEdit::JoinFeatures {
-                    primary,
-                    joined: vec![joined],
-                    produce,
-                }
+            Intent::RelabelFan(..) | Intent::Join(..) | Intent::Touch(..) => {
+                resolve_attr(tree, &ids, &non_root, intent)?
             }
             Intent::Raw(kind, a, b) => raw_edit(*kind, *a, *b),
         })
     }
 
-    /// Whether a graph delta changes an entry no tree edit changes.
-    fn outside_tree_edits(delta: &GraphDelta) -> bool {
-        delta.attrs().keys().any(|key| {
-            matches!(
-                key,
-                AttrKey::EdgeLabel { .. }
-                    | AttrKey::EdgePosition { .. }
-                    | AttrKey::Value { .. }
-                    | AttrKey::Meta { .. }
-            )
-        })
+    /// Change the value or one metadata field of `node` as `change` names:
+    /// nothing, the value, the position, the discriminator, an annotation
+    /// or the shape.
+    fn retouch(node: &mut Node, change: u8) {
+        match change {
+            1 => {
+                node.value = Some(crate::value::FieldPresence::Present(Value::Int(i64::from(
+                    node.id,
+                ))));
+            }
+            2 => node.position = Some(node.position.map_or(0, |p| p + 1)),
+            3 => node.discriminator = Some("kind".into()),
+            4 => {
+                node.annotations.insert("note".into(), Value::Bool(true));
+            }
+            5 => node.shape = crate::metadata::NodeShape::List,
+            _ => {}
+        }
     }
 
     proptest! {
@@ -4225,57 +4661,39 @@ mod graph_tests {
                 let mut followed = embedding.clone();
                 let Ok(delta) = GraphDelta::from_tree_edit(&graph, &mut followed, &edit) else { continue };
                 script.push(edit.clone());
-                // A single step reads back as an edit that lowers to its
-                // delta exactly and leaves the same embedding.
-                match TreeEdit::from_graph_delta(&tree, &embedding, &delta) {
-                    Ok(read) => {
-                        let mut again = embedding.clone();
-                        let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)
-                            .map_err(|e| TestCaseError::fail(format!("{e}")))?;
-                        prop_assert_eq!(&lowered, &delta, "{:?} read back as {:?}", edit, read);
-                        prop_assert_eq!(&again, &followed);
-                    }
-                    Err(err) => {
-                        prop_assert!(
-                            outside_tree_edits(&delta),
-                            "{:?} lowers to a delta with no tree edit: {}", edit, err
-                        );
-                        let is_not_tree_edit = matches!(err, EditError::NotTreeEdit { .. });
-                        prop_assert!(is_not_tree_edit, "{:?}", err);
-                    }
-                }
+                // (a) A single step's delta reads back, and (c) the reading
+                // lowers to that delta exactly and leaves the same embedding.
+                let read = TreeEdit::from_graph_delta(&tree, &embedding, &delta).map_err(|e| {
+                    TestCaseError::fail(format!("{edit:?} lowers to a delta read as no tree edit: {e}"))
+                })?;
+                let mut again = embedding.clone();
+                let lowered = GraphDelta::from_tree_edit(&graph, &mut again, &read)
+                    .map_err(|e| TestCaseError::fail(format!("{e}")))?;
+                prop_assert_eq!(&lowered, &delta, "{:?} read back as {:?}", edit, read);
+                prop_assert_eq!(&again, &followed);
                 let mut reached = graph.clone();
                 delta.apply(&mut reached).map_err(fail)?;
                 edit.apply(&mut tree).map_err(fail)?;
                 graph = reached;
                 embedding = followed;
             }
-            // The whole script as one sequence, whose delta may skip the ids
-            // of arcs, nodes and fans that later steps remove again: it reads
-            // back as an edit with the script's effect on the tree.
+            // (a) The whole script as one sequence reads back, and (b) the
+            // reading has the script's effect on the tree; its delta may skip
+            // the ids of arcs, nodes and fans that later steps remove again.
             let (start_tree, start_graph, start_embedding) = start;
             let whole_edit = TreeEdit::Sequence(script);
             let mut followed = start_embedding.clone();
             let whole = GraphDelta::from_tree_edit(&start_graph, &mut followed, &whole_edit)
                 .map_err(|e| TestCaseError::fail(format!("{e}")))?;
-            match TreeEdit::from_graph_delta(&start_tree, &start_embedding, &whole) {
-                Ok(read) => {
-                    let mut reached = start_tree.clone();
-                    read.apply(&mut reached).map_err(fail)?;
-                    prop_assert!(
-                        super::same_tree(&reached, &tree),
-                        "{:?} read back as {:?}", whole_edit, read
-                    );
-                }
-                Err(err) => {
-                    prop_assert!(
-                        outside_tree_edits(&whole),
-                        "{:?} lowers to a delta with no tree edit: {}", whole_edit, err
-                    );
-                    let is_not_tree_edit = matches!(err, EditError::NotTreeEdit { .. });
-                    prop_assert!(is_not_tree_edit, "{:?}", err);
-                }
-            }
+            let read = TreeEdit::from_graph_delta(&start_tree, &start_embedding, &whole).map_err(|e| {
+                TestCaseError::fail(format!("{whole_edit:?} lowers to a delta read as no tree edit: {e}"))
+            })?;
+            let mut reached = start_tree;
+            read.apply(&mut reached).map_err(fail)?;
+            prop_assert!(
+                super::same_tree(&reached, &tree),
+                "{:?} read back as {:?}", whole_edit, read
+            );
         }
     }
 
