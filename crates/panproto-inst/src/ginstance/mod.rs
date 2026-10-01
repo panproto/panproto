@@ -32,6 +32,7 @@ mod embed;
 mod embedding;
 mod nodelink;
 mod reify;
+pub(crate) use reify::{fan_candidates, is_reserved_kind};
 mod table_embed;
 mod tree_shape;
 

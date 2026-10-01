@@ -46,7 +46,7 @@ pub const HYPER_PARENT_KIND: &str = "hyper_parent";
 pub const HYPER_LABEL_KIND: &str = "hyper_label";
 
 /// Whether an edge label has one of the two reserved fan kinds.
-pub(super) fn is_reserved_kind(edge: &Edge) -> bool {
+pub fn is_reserved_kind(edge: &Edge) -> bool {
     edge.kind == HYPER_PARENT_KIND || edge.kind == HYPER_LABEL_KIND
 }
 
@@ -239,8 +239,9 @@ impl FanDomain {
 }
 
 /// The nodes that must be well-formed fan nodes: every node of the fan shape
-/// and every source of a reserved-kind edge, ascending.
-fn fan_candidates(graph: &GInstance) -> Vec<u32> {
+/// and every source of a reserved-kind edge, ascending. The validator's
+/// `FanWellFormed` check reads its instances from here.
+pub fn fan_candidates(graph: &GInstance) -> Vec<u32> {
     let mut ids: Vec<u32> = graph
         .nodes()
         .values()

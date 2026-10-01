@@ -10,27 +10,7 @@
 //! [`validation`](crate::validation).
 //!
 //! [`validate_attributes`] is the attribute-only projection of a tree's
-//! validation.
+//! validation, defined in [`attributes`](crate::attributes).
 
-use panproto_schema::Schema;
-
-use crate::attributes::{AttributeSchema, AttributeViolation};
-use crate::wtype::WInstance;
-
+pub use crate::attributes::validate_attributes;
 pub use crate::validation::validate_wtype;
-
-/// The attribute violations of a tree instance against a schema.
-///
-/// It reports each node whose `extra_fields` carry an attribute key its
-/// vertex does not declare, or a value whose kind does not match the
-/// declaration. Nodes over vertices with no declared attributes are
-/// unconstrained.
-///
-/// Not a validation boundary: it returns the attribute violations alone,
-/// with no status. It derives the schema's [`AttributeSchema`] and calls
-/// [`AttributeSchema::validate_wtype`], the projection the `Attribute` check
-/// of [`validate_wtype`] reports as diagnostics.
-#[must_use]
-pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<AttributeViolation> {
-    AttributeSchema::from_schema(schema).validate_wtype(instance)
-}

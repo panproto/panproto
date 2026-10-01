@@ -12,7 +12,7 @@ use panproto_gat::Name;
 use panproto_schema::{Edge, InstanceShapeKind, Schema};
 
 use crate::functor::FInstance;
-use crate::ginstance::{EdgeId, FanDomain, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::ginstance::{EdgeId, FanDomain, GInstance, fan_candidates, is_reserved_kind};
 use crate::metadata::NodeShape;
 use crate::value::{FieldPresence, Value};
 use crate::view_ref::{RowId, ViewRef};
@@ -57,7 +57,10 @@ pub struct NodeRec<'a> {
     pub at: ViewRef,
     /// Its anchor (a table row's, its table).
     pub anchor: &'a Name,
-    /// Whether it has the fan-node shape.
+    /// Whether it is a graph fan node: a graph node of the fan shape. A
+    /// tree's fans are records, not nodes, so a tree node is never a fan
+    /// node, whatever its shape; a tree node of the fan shape is reserved
+    /// vocabulary and is otherwise checked like any other node.
     pub fan: bool,
 }
 
@@ -113,11 +116,6 @@ impl<'a> Presence<'a> {
     }
 }
 
-/// Whether an edge label has one of the two reserved fan kinds.
-pub fn is_reserved_kind(edge: &Edge) -> bool {
-    edge.kind == HYPER_PARENT_KIND || edge.kind == HYPER_LABEL_KIND
-}
-
 const fn row_of(r: &ViewRef) -> Option<RowId> {
     match r {
         ViewRef::Row(id) => Some(*id),
@@ -160,7 +158,7 @@ impl<'a> InstanceView<'a> {
                 .map(|(id, n)| NodeRec {
                     at: ViewRef::Node(*id),
                     anchor: &n.anchor,
-                    fan: n.shape == NodeShape::HyperEdge,
+                    fan: false,
                 })
                 .collect(),
             Self::Table(f) => f
@@ -190,7 +188,7 @@ impl<'a> InstanceView<'a> {
             (Self::Tree(t, _), ViewRef::Node(id)) => t.nodes.get(id).map(|n| NodeRec {
                 at: at.clone(),
                 anchor: &n.anchor,
-                fan: n.shape == NodeShape::HyperEdge,
+                fan: false,
             }),
             (Self::Table(f), ViewRef::Row(id)) => f.table_of(*id).map(|t| NodeRec {
                 at: at.clone(),
@@ -618,27 +616,6 @@ impl<'a> AnchorFamilies<'a> {
     }
 }
 
-/// The nodes of a graph that must be well-formed fan nodes: every node of
-/// the fan shape and every source of a reserved-kind edge, ascending.
-pub fn fan_candidates(graph: &GInstance) -> Vec<u32> {
-    let mut ids: Vec<u32> = graph
-        .nodes()
-        .values()
-        .filter(|n| n.shape == NodeShape::HyperEdge)
-        .map(|n| n.id)
-        .chain(
-            graph
-                .edges()
-                .values()
-                .filter(|e| is_reserved_kind(&e.edge))
-                .map(|e| e.src),
-        )
-        .collect();
-    ids.sort_unstable();
-    ids.dedup();
-    ids
-}
-
 /// The attribute key a violation names.
 fn attribute_key(v: &AttributeViolation) -> &str {
     match v {
@@ -828,11 +805,12 @@ pub fn instances(ctx: &Context<'_>, key: &CheckKey) -> Vec<Option<ViewRef>> {
         | CheckKind::KeyUnique
         | CheckKind::Acyclic => vec![None],
         // A graph fan node's anchor is a hyper-edge, which `FanWellFormed`
-        // checks; `NodeAnchor` is about the other nodes.
+        // checks; `NodeAnchor` is about the other nodes, every tree node
+        // among them.
         CheckKind::NodeAnchor => some(
             view.nodes()
                 .into_iter()
-                .filter(|n| !(n.fan && matches!(view, InstanceView::Graph(_))))
+                .filter(|n| !n.fan)
                 .map(|n| n.at)
                 .collect(),
         ),
@@ -1020,13 +998,7 @@ fn node_anchor(ctx: &Context<'_>, n: &ViewRef) -> Outcome {
     let Some(node) = ctx.view.node(n) else {
         return Outcome::default();
     };
-    let schema = &ctx.plan.schema;
-    let known = if node.fan {
-        schema.hyper_edges.contains_key(node.anchor)
-    } else {
-        schema.has_vertex(node.anchor)
-    };
-    if known {
+    if ctx.plan.schema.has_vertex(node.anchor) {
         Outcome::default()
     } else {
         Outcome::fail(

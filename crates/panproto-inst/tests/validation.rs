@@ -4348,8 +4348,8 @@ fn tree_fan_diagnostics_tell_apart_fans_that_differ_only_in_label_assignment() {
 
 #[test]
 fn a_label_less_fan_of_an_undeclared_hyper_edge_leaves_the_fan_domain() {
-    use panproto_inst::FanDomain;
-    use panproto_inst::ginstance::HYPER_PARENT_KIND;
+    use panproto_inst::ginstance::{HYPER_PARENT_KIND, unreify_fans, unreify_fans_with_schema};
+    use panproto_inst::{FanDomain, InstError};
     let g = GInstance::new()
         .with_node(Node::new(0, "item"))
         .with_node(Node::new(5, "ghost").with_shape(NodeShape::HyperEdge))
@@ -4358,8 +4358,105 @@ fn a_label_less_fan_of_an_undeclared_hyper_edge_leaves_the_fan_domain() {
         FanDomain::check(&g).is_ok(),
         "no schema, no hyper-edge check"
     );
+    let ghost = FanViolation::UnknownHyperEdge {
+        hyper_edge: "ghost".into(),
+    };
     let checked = FanDomain::check_with_schema(&g, &Schema::default());
-    assert!(checked.is_err(), "{checked:?}");
+    assert!(
+        matches!(
+            &checked,
+            Err(InstError::MalformedFan { node: 5, reason }) if reason == &ghost
+        ),
+        "{checked:?}"
+    );
+    assert_eq!(
+        FanDomain::violations_at(&g, 5, Some(&Schema::default())),
+        vec![ghost.clone()]
+    );
+    assert!(unreify_fans(&g).is_ok(), "no schema, no hyper-edge check");
+    let unreified = unreify_fans_with_schema(&g, &Schema::default());
+    assert!(
+        matches!(
+            &unreified,
+            Err(InstError::MalformedFan { node: 5, reason }) if reason == &ghost
+        ),
+        "{unreified:?}"
+    );
+}
+
+/// A doc tree of three nodes, the root and two children under `c`, with a
+/// schema that declares the vertex `doc` and the hyper-edge `h`; node 2 is
+/// anchored at `anchor` and has the fan shape.
+fn doc_tree_with_fan_shaped_leaf(anchor: &str, required: bool) -> (Schema, WInstance) {
+    let mut schema = S::default()
+        .vertex("doc", "object")
+        .edge(&prop("doc", "doc", "c"))
+        .hyper_edge("h", &[], "p");
+    if required {
+        schema = schema.required("doc", &prop("doc", "doc", "c"));
+    }
+    let tree = WInstance::new(
+        HashMap::from([
+            (0, Node::new(0, "doc")),
+            (1, Node::new(1, "doc")),
+            (2, Node::new(2, anchor).with_shape(NodeShape::HyperEdge)),
+        ]),
+        vec![
+            (0, 1, prop("doc", "doc", "c")),
+            (0, 2, prop("doc", "doc", "c")),
+        ],
+        vec![],
+        0,
+        "doc".into(),
+    );
+    (schema.build(), tree)
+}
+
+/// The `ReservedVocabulary` subjects and the `NodeAnchor` findings of the
+/// tree of [`doc_tree_with_fan_shaped_leaf`] with node 2 anchored at
+/// `anchor`.
+fn fan_shaped_leaf_anchor_findings(anchor: &str) -> Vec<(Option<ViewRef>, Violation)> {
+    let (schema, tree) = doc_tree_with_fan_shaped_leaf(anchor, false);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::ReservedVocabulary)
+            .into_iter()
+            .map(|(subject, _)| subject)
+            .collect::<Vec<_>>(),
+        vec![Some(ViewRef::Node(2))]
+    );
+    of_kind(&report, CheckKind::NodeAnchor)
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_anchored_at_a_declared_vertex_has_a_known_anchor() {
+    // One fault, the reserved vocabulary: the anchor is a declared vertex.
+    assert_eq!(fan_shaped_leaf_anchor_findings("doc"), vec![]);
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_anchored_at_a_hyper_edge_has_an_unknown_anchor() {
+    // A hyper-edge is not a vertex, and every tree node is anchored at one.
+    assert_eq!(
+        fan_shaped_leaf_anchor_findings("h"),
+        vec![(
+            Some(ViewRef::Node(2)),
+            Violation::UnknownAnchor { anchor: "h".into() }
+        )]
+    );
+}
+
+#[test]
+fn a_tree_node_of_the_fan_shape_is_checked_for_its_required_edges() {
+    let (schema, tree) = doc_tree_with_fan_shaped_leaf("doc", true);
+    let report = validate_wtype(&tree, &schema, &Protocol::default());
+    assert_eq!(
+        of_kind(&report, CheckKind::RequiredEdge)
+            .into_iter()
+            .map(|(subject, _)| subject)
+            .collect::<Vec<_>>(),
+        vec![Some(ViewRef::Node(1)), Some(ViewRef::Node(2))]
+    );
 }
 
 /// A graph that may hold reserved vocabulary, as the adversarial generator
