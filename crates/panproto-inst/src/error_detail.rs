@@ -266,6 +266,8 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::RowIdsExhausted => "row_ids_exhausted",
         RestrictError::VertexOutsideDomain { .. } => "vertex_outside_domain",
         RestrictError::EdgeOutsideDomain { .. } => "edge_outside_domain",
+        RestrictError::IncoherentEdgeImage { .. } => "incoherent_edge_image",
+        RestrictError::VertexImageNotATable { .. } => "vertex_image_not_a_table",
     }
 }
 
