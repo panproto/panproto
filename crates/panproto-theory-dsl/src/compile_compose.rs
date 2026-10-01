@@ -846,6 +846,45 @@ mod tests {
     }
 
     #[test]
+    fn dsl_identify_step_refuses_an_operation_whose_sorts_it_does_not_share() {
+        let body = body(
+            r#"{
+                "id": "test.op-sorts",
+                "description": "src is identified but Edge is not shared",
+                "compose": {
+                    "result": "R",
+                    "steps": [{
+                        "left": "ThGraph",
+                        "right": "ThGraph",
+                        "shared_sorts": ["Vertex"],
+                        "mode": "explicit_identity",
+                        "identify": [{"kind": "op", "left": "src", "right": "tgt"}]
+                    }]
+                }
+            }"#,
+        );
+        let Err(error) =
+            compile_composition_with_report(&body, &builtin_resolver(), &HashMap::new())
+        else {
+            panic!("src needs Edge shared");
+        };
+        let TheoryDslError::ColimitFailed { step, message } = error else {
+            panic!("expected ColimitFailed, got {error:?}");
+        };
+        assert_eq!(step, 0);
+        // The message names what the user wrote, not a node or edge of the
+        // step's diagram.
+        assert!(
+            message.contains("'src'") && message.contains("'Edge'"),
+            "{message}"
+        );
+        assert!(
+            !message.contains("step_0") && !message.contains("edge 0"),
+            "{message}"
+        );
+    }
+
+    #[test]
     fn dsl_compose_in_explicit_mode_refuses_an_unshared_name() {
         let body = body(
             r#"{
