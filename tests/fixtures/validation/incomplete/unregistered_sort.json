@@ -108,6 +108,9 @@
       "edges": {}
     }
   },
+  "edit_trace": {
+    "graph": []
+  },
   "report": {
     "shape": "graph",
     "scope": "instance",

@@ -17,7 +17,10 @@ use panproto_inst::validation::{
     SourceLocation, ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport,
     Violation,
 };
-use panproto_inst::{EdgeId, FInstance, GInstance, ViewRef, WInstance, from_node_link_json};
+use panproto_inst::{
+    EdgeId, FInstance, GInstance, GraphEdit, TableEdit, TreeEdit, ViewRef, WInstance,
+    from_node_link_json,
+};
 use panproto_protocols::registry::descriptor;
 use panproto_schema::{Constraint, Edge, InstanceShapeKind, Protocol, Schema};
 use serde::de::DeserializeOwned;
@@ -90,6 +93,15 @@ enum Instance {
     Table(FInstance),
 }
 
+/// The edits applied to a fixture's instance, as the edits of its shape.
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EditTrace {
+    Graph(Vec<GraphEdit>),
+    Tree(Vec<TreeEdit>),
+    Table(Vec<TableEdit>),
+}
+
 /// One validation fixture as decoded.
 #[derive(Debug, Deserialize, Serialize)]
 struct Fixture {
@@ -101,6 +113,7 @@ struct Fixture {
     budget: ValidationBudget,
     external: ExternalVerdicts,
     instance: Instance,
+    edit_trace: EditTrace,
     report: ValidationReport,
 }
 
@@ -374,6 +387,11 @@ const EXPECTED: &[Expectation] = &[
         ],
     ),
     (
+        "anchors/tree_undeclared_label",
+        CheckStatus::Failed,
+        &[(CheckKind::EdgeDeclared, "undeclared_edge")],
+    ),
+    (
         "anchors/tree_unknown_root_anchor",
         CheckStatus::Failed,
         &[(CheckKind::NodeAnchor, "unknown_anchor")],
@@ -424,9 +442,64 @@ const EXPECTED: &[Expectation] = &[
         &[],
     ),
     (
+        "cardinality/table_degree_above_upper_bound",
+        CheckStatus::Failed,
+        &[(CheckKind::OutDegree, "out_degree")],
+    ),
+    (
+        "cardinality/table_degree_at_lower_bound",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "cardinality/table_degree_at_upper_bound",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "cardinality/table_degree_below_lower_bound",
+        CheckStatus::Failed,
+        &[(CheckKind::OutDegree, "out_degree")],
+    ),
+    (
         "cardinality/table_required_foreign_key_absent",
         CheckStatus::Failed,
         &[(CheckKind::RequiredEdge, "missing_required_edge")],
+    ),
+    (
+        "cardinality/table_required_foreign_key_present",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "cardinality/tree_degree_above_upper_bound",
+        CheckStatus::Failed,
+        &[(CheckKind::OutDegree, "out_degree")],
+    ),
+    (
+        "cardinality/tree_degree_at_lower_bound",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "cardinality/tree_degree_at_upper_bound",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "cardinality/tree_degree_below_lower_bound",
+        CheckStatus::Failed,
+        &[(CheckKind::OutDegree, "out_degree")],
+    ),
+    (
+        "cardinality/tree_required_edge_absent",
+        CheckStatus::Failed,
+        &[(CheckKind::RequiredEdge, "missing_required_edge")],
+    ),
+    (
+        "cardinality/tree_required_edge_present",
+        CheckStatus::Passed,
+        &[],
     ),
     ("cycles/acyclic_chain", CheckStatus::Passed, &[]),
     ("cycles/legal_without_declaration", CheckStatus::Passed, &[]),
@@ -474,6 +547,20 @@ const EXPECTED: &[Expectation] = &[
     ),
     (
         "endpoints/tgt_side",
+        CheckStatus::Failed,
+        &[(CheckKind::EndpointCoherence, "incoherent_endpoint")],
+    ),
+    (
+        "endpoints/tree_both_sides",
+        CheckStatus::Failed,
+        &[
+            (CheckKind::EndpointCoherence, "incoherent_endpoint"),
+            (CheckKind::EndpointCoherence, "incoherent_endpoint"),
+        ],
+    ),
+    ("endpoints/tree_coherent", CheckStatus::Passed, &[]),
+    (
+        "endpoints/tree_src_side",
         CheckStatus::Failed,
         &[(CheckKind::EndpointCoherence, "incoherent_endpoint")],
     ),
@@ -560,6 +647,68 @@ const EXPECTED: &[Expectation] = &[
         CheckStatus::Failed,
         &[(CheckKind::ValueConstraint, "value_constraint")],
     ),
+    ("incomplete/table_budget", CheckStatus::Incomplete, &[]),
+    (
+        "incomplete/table_external_missing",
+        CheckStatus::Incomplete,
+        &[],
+    ),
+    (
+        "incomplete/table_external_rejected",
+        CheckStatus::Failed,
+        &[(CheckKind::External, "external_rejected")],
+    ),
+    (
+        "incomplete/table_mixed_failure_and_incomplete",
+        CheckStatus::Failed,
+        &[(CheckKind::ValueConstraint, "value_constraint")],
+    ),
+    (
+        "incomplete/table_pattern_lookahead",
+        CheckStatus::Incomplete,
+        &[],
+    ),
+    (
+        "incomplete/table_source_map",
+        CheckStatus::Failed,
+        &[(CheckKind::ValueConstraint, "value_constraint")],
+    ),
+    (
+        "incomplete/table_unregistered_sort",
+        CheckStatus::Incomplete,
+        &[],
+    ),
+    ("incomplete/tree_budget", CheckStatus::Incomplete, &[]),
+    (
+        "incomplete/tree_external_missing",
+        CheckStatus::Incomplete,
+        &[],
+    ),
+    (
+        "incomplete/tree_external_rejected",
+        CheckStatus::Failed,
+        &[(CheckKind::External, "external_rejected")],
+    ),
+    (
+        "incomplete/tree_mixed_failure_and_incomplete",
+        CheckStatus::Failed,
+        &[(CheckKind::ValueConstraint, "value_constraint")],
+    ),
+    (
+        "incomplete/tree_pattern_lookahead",
+        CheckStatus::Incomplete,
+        &[],
+    ),
+    (
+        "incomplete/tree_source_map",
+        CheckStatus::Failed,
+        &[(CheckKind::ValueConstraint, "value_constraint")],
+    ),
+    (
+        "incomplete/tree_unregistered_sort",
+        CheckStatus::Incomplete,
+        &[],
+    ),
     ("incomplete/unregistered_sort", CheckStatus::Incomplete, &[]),
     (
         "keys/dangling_foreign_key_lenient",
@@ -571,6 +720,33 @@ const EXPECTED: &[Expectation] = &[
         CheckStatus::Failed,
         &[(CheckKind::ReferenceResolves, "dangling_reference")],
     ),
+    (
+        "keys/graph_dangling_foreign_key_lenient",
+        CheckStatus::Failed,
+        &[
+            (CheckKind::RequiredEdge, "missing_required_edge"),
+            (CheckKind::ReferenceResolves, "dangling_reference"),
+        ],
+    ),
+    (
+        "keys/graph_dangling_foreign_key_strict",
+        CheckStatus::Failed,
+        &[
+            (CheckKind::RequiredEdge, "missing_required_edge"),
+            (CheckKind::ReferenceResolves, "dangling_reference"),
+        ],
+    ),
+    ("keys/graph_sakila_composite_key", CheckStatus::Passed, &[]),
+    (
+        "keys/graph_sakila_composite_key_duplicate",
+        CheckStatus::Failed,
+        &[(CheckKind::KeyUnique, "duplicate_key")],
+    ),
+    (
+        "keys/graph_self_referencing_foreign_key",
+        CheckStatus::Passed,
+        &[],
+    ),
     ("keys/sakila_composite_key", CheckStatus::Passed, &[]),
     (
         "keys/sakila_composite_key_duplicate",
@@ -579,6 +755,27 @@ const EXPECTED: &[Expectation] = &[
     ),
     (
         "keys/self_referencing_foreign_key",
+        CheckStatus::Passed,
+        &[],
+    ),
+    (
+        "keys/tree_dangling_foreign_key_lenient",
+        CheckStatus::Passed,
+        &[(CheckKind::ReferenceResolves, "dangling_reference")],
+    ),
+    (
+        "keys/tree_dangling_foreign_key_strict",
+        CheckStatus::Failed,
+        &[(CheckKind::ReferenceResolves, "dangling_reference")],
+    ),
+    ("keys/tree_sakila_composite_key", CheckStatus::Passed, &[]),
+    (
+        "keys/tree_sakila_composite_key_duplicate",
+        CheckStatus::Failed,
+        &[(CheckKind::KeyUnique, "duplicate_key")],
+    ),
+    (
+        "keys/tree_self_referencing_foreign_key",
         CheckStatus::Passed,
         &[],
     ),
@@ -623,7 +820,8 @@ const EXPECTED: &[Expectation] = &[
 ];
 
 /// What each fixture is named for: its status, and the kind and violation
-/// of each diagnostic (all required unless the fixture is lenient).
+/// of each diagnostic (all required except the reference diagnostics of a
+/// lenient fixture, which are advisory).
 #[test]
 fn each_fixture_shows_what_it_is_named_for() {
     let fixtures = fixtures();
@@ -643,7 +841,7 @@ fn each_fixture_shows_what_it_is_named_for() {
                 (
                     *k,
                     (*v).to_owned(),
-                    if lenient {
+                    if lenient && *k == CheckKind::ReferenceResolves {
                         Requirement::Advisory
                     } else {
                         Requirement::Required
@@ -757,18 +955,33 @@ fn the_probe_fails_with_five_diagnostics_naming_ids_and_declarations() {
 fn incompleteness_fixtures_are_never_passed() {
     let fixtures = fixtures();
     let cases: [(&str, &str); 7] = [
-        ("incomplete/acyclic_budget", "budget"),
-        ("incomplete/unregistered_sort", "unsupported_declaration"),
-        ("incomplete/pattern_lookahead", "ill_formed_declaration"),
-        ("incomplete/external_missing", "missing_external_witness"),
-        ("incomplete/external_rejected", ""),
-        (
-            "incomplete/mixed_failure_and_incomplete",
-            "missing_external_witness",
-        ),
-        ("incomplete/source_map", ""),
+        ("acyclic_budget", "budget"),
+        ("unregistered_sort", "unsupported_declaration"),
+        ("pattern_lookahead", "ill_formed_declaration"),
+        ("external_missing", "missing_external_witness"),
+        ("external_rejected", ""),
+        ("mixed_failure_and_incomplete", "missing_external_witness"),
+        ("source_map", ""),
     ];
-    for (name, reason) in cases {
+    // Each case in each shape: the tree and table budgets run out on the
+    // checks those shapes have, acyclicity being a graph check.
+    let shaped = cases.into_iter().flat_map(|(case, reason)| {
+        let other = if case == "acyclic_budget" {
+            "budget"
+        } else {
+            case
+        };
+        [
+            format!("incomplete/{case}"),
+            format!("incomplete/tree_{other}"),
+            format!("incomplete/table_{other}"),
+        ]
+        .map(|name| (name, reason))
+    });
+    let mut seen = 0;
+    for (name, reason) in shaped {
+        seen += 1;
+        let name = name.as_str();
         let report = &fixtures[name].report;
         assert_ne!(report.status, CheckStatus::Passed, "{name}");
         assert!(
@@ -782,6 +995,36 @@ fn incompleteness_fixtures_are_never_passed() {
                 "{name}: {incomplete:?}"
             );
         }
+    }
+    assert_eq!(
+        seen,
+        fixtures
+            .keys()
+            .filter(|n| n.starts_with("incomplete/"))
+            .count(),
+        "every incompleteness fixture is checked"
+    );
+    for name in ["incomplete/tree_budget", "incomplete/table_budget"] {
+        assert!(
+            fixtures[name]
+                .report
+                .incomplete
+                .iter()
+                .all(|i| matches!(i.reason, IncompleteReason::Budget { limit: 3, .. })),
+            "{name}"
+        );
+    }
+    for name in [
+        "incomplete/tree_mixed_failure_and_incomplete",
+        "incomplete/table_mixed_failure_and_incomplete",
+    ] {
+        let mixed = &fixtures[name].report;
+        assert_eq!(mixed.status, CheckStatus::Failed, "{name}");
+        assert_eq!(
+            (mixed.diagnostics.len(), mixed.incomplete.len()),
+            (1, 1),
+            "{name}"
+        );
     }
     // The budget cut names its limit and leaves the acyclicity check
     // undecided.
@@ -804,21 +1047,29 @@ fn incompleteness_fixtures_are_never_passed() {
 #[test]
 fn a_source_map_reaches_the_diagnostics() {
     let fixtures = fixtures();
-    let fixture = &fixtures["incomplete/source_map"];
     let location = SourceLocation {
         source: "schemas/name.json".into(),
         start_byte: 12,
         end_byte: 27,
     };
-    assert_eq!(
-        fixture.options.sources.0.values().collect::<Vec<_>>(),
-        vec![&location]
-    );
-    assert_eq!(fixture.report.diagnostics.len(), 1);
-    assert_eq!(
-        fixture.report.diagnostics[0].source.as_ref(),
-        Some(&location)
-    );
+    for name in [
+        "incomplete/source_map",
+        "incomplete/tree_source_map",
+        "incomplete/table_source_map",
+    ] {
+        let fixture = &fixtures[name];
+        assert_eq!(
+            fixture.options.sources.0.values().collect::<Vec<_>>(),
+            vec![&location],
+            "{name}"
+        );
+        assert_eq!(fixture.report.diagnostics.len(), 1, "{name}");
+        assert_eq!(
+            fixture.report.diagnostics[0].source.as_ref(),
+            Some(&location),
+            "{name}"
+        );
+    }
 }
 
 /// The payloads the fan, cardinality, table-anchor and key fixtures are
@@ -915,4 +1166,227 @@ fn fixture_payloads_name_what_they_check() {
         }
         other => panic!("not a duplicate key: {other:?}"),
     }
+}
+
+/// Every fixture stores the edits applied to its instance as a trace of
+/// edits of the instance's own shape. Every case so far validates its
+/// instance alone, so every trace is empty.
+#[test]
+fn every_fixture_stores_an_edit_trace_of_its_shape() {
+    for (name, fixture) in fixtures() {
+        let edits = match (&fixture.instance, &fixture.edit_trace) {
+            (Instance::Graph(_), EditTrace::Graph(edits)) => edits.len(),
+            (Instance::Tree(_), EditTrace::Tree(edits)) => edits.len(),
+            (Instance::Table(_), EditTrace::Table(edits)) => edits.len(),
+            (instance, trace) => panic!("{name}: a trace {trace:?} of {instance:?}"),
+        };
+        assert_eq!(edits, 0, "{name}");
+    }
+}
+
+/// Each case of the corpus by the shapes that write it: its graph, tree and
+/// table cases, `None` where the shape cannot express the case. Tables
+/// hold no edge positions, cycles or fans, and construction refuses a pair
+/// between rows of the wrong tables; tree arcs hold no positions, no
+/// self-loops, no parallel arcs and no cycles; a tree fan has one parent
+/// and one child per label, and a tree holds no fan nodes for an edge to
+/// meet; `Acyclic` and `PositionDistinct` are graph checks, and the tree
+/// checks (`TreeReachable`, and `MissingChild` for a fan child that is not
+/// a node) have no graph or table counterpart.
+const SHAPES: &[[Option<&str>; 3]] = &[
+    [
+        Some("anchors/probe"),
+        Some("anchors/tree_unknown_root_anchor"),
+        Some("anchors/unknown_table"),
+    ],
+    [
+        Some("anchors/probe"),
+        Some("anchors/tree_undeclared_label"),
+        Some("anchors/unknown_fk_label"),
+    ],
+    [
+        Some("endpoints/coherent"),
+        Some("endpoints/tree_coherent"),
+        None,
+    ],
+    [
+        Some("endpoints/src_side"),
+        Some("endpoints/tree_src_side"),
+        None,
+    ],
+    [
+        Some("endpoints/tgt_side"),
+        Some("endpoints/tree_tgt_side"),
+        None,
+    ],
+    [
+        Some("endpoints/both_sides"),
+        Some("endpoints/tree_both_sides"),
+        None,
+    ],
+    [Some("endpoints/self_loop_on_non_self_edge"), None, None],
+    [
+        Some("values/graph_values_and_attributes"),
+        Some("values/tree_values_and_attributes"),
+        Some("values/table_values_and_attributes"),
+    ],
+    [
+        Some("cardinality/required_edge_present"),
+        Some("cardinality/tree_required_edge_present"),
+        Some("cardinality/table_required_foreign_key_present"),
+    ],
+    [
+        Some("cardinality/required_edge_absent"),
+        Some("cardinality/tree_required_edge_absent"),
+        Some("cardinality/table_required_foreign_key_absent"),
+    ],
+    [
+        Some("cardinality/degree_at_upper_bound"),
+        Some("cardinality/tree_degree_at_upper_bound"),
+        Some("cardinality/table_degree_at_upper_bound"),
+    ],
+    [
+        Some("cardinality/degree_above_upper_bound"),
+        Some("cardinality/tree_degree_above_upper_bound"),
+        Some("cardinality/table_degree_above_upper_bound"),
+    ],
+    [
+        Some("cardinality/degree_at_lower_bound"),
+        Some("cardinality/tree_degree_at_lower_bound"),
+        Some("cardinality/table_degree_at_lower_bound"),
+    ],
+    [
+        Some("cardinality/degree_below_lower_bound"),
+        Some("cardinality/tree_degree_below_lower_bound"),
+        Some("cardinality/table_degree_below_lower_bound"),
+    ],
+    [Some("cardinality/parallel_edges_counted"), None, None],
+    [Some("ordering/duplicate_positions"), None, None],
+    [Some("ordering/absent_positions_allowed"), None, None],
+    [Some("ordering/distinct_positions"), None, None],
+    [Some("cycles/legal_without_declaration"), None, None],
+    [Some("cycles/two_cycle"), None, None],
+    [Some("cycles/long_cycle"), None, None],
+    [Some("cycles/self_loop"), None, None],
+    [Some("cycles/acyclic_chain"), None, None],
+    [
+        None,
+        Some("cycles/tree_subtree_under_its_own_descendant"),
+        None,
+    ],
+    [
+        Some("fans/well_formed"),
+        Some("fans/tree_well_formed"),
+        None,
+    ],
+    [
+        Some("fans/missing_parent"),
+        Some("fans/tree_missing_parent"),
+        None,
+    ],
+    [
+        Some("fans/unknown_label"),
+        Some("fans/tree_unknown_label"),
+        None,
+    ],
+    [
+        Some("fans/unknown_hyper_edge"),
+        Some("fans/tree_unknown_hyper_edge"),
+        None,
+    ],
+    [None, Some("fans/tree_missing_child"), None],
+    [Some("fans/multiple_parents"), None, None],
+    [Some("fans/duplicate_label"), None, None],
+    [Some("fans/reserved_kind_outside_fan"), None, None],
+    [Some("fans/foreign_incident_edge"), None, None],
+    [
+        Some("keys/graph_sakila_composite_key"),
+        Some("keys/tree_sakila_composite_key"),
+        Some("keys/sakila_composite_key"),
+    ],
+    [
+        Some("keys/graph_sakila_composite_key_duplicate"),
+        Some("keys/tree_sakila_composite_key_duplicate"),
+        Some("keys/sakila_composite_key_duplicate"),
+    ],
+    [
+        Some("keys/graph_self_referencing_foreign_key"),
+        Some("keys/tree_self_referencing_foreign_key"),
+        Some("keys/self_referencing_foreign_key"),
+    ],
+    [
+        Some("keys/graph_dangling_foreign_key_strict"),
+        Some("keys/tree_dangling_foreign_key_strict"),
+        Some("keys/dangling_foreign_key_strict"),
+    ],
+    [
+        Some("keys/graph_dangling_foreign_key_lenient"),
+        Some("keys/tree_dangling_foreign_key_lenient"),
+        Some("keys/dangling_foreign_key_lenient"),
+    ],
+    [
+        Some("incomplete/acyclic_budget"),
+        Some("incomplete/tree_budget"),
+        Some("incomplete/table_budget"),
+    ],
+    [
+        Some("incomplete/unregistered_sort"),
+        Some("incomplete/tree_unregistered_sort"),
+        Some("incomplete/table_unregistered_sort"),
+    ],
+    [
+        Some("incomplete/pattern_lookahead"),
+        Some("incomplete/tree_pattern_lookahead"),
+        Some("incomplete/table_pattern_lookahead"),
+    ],
+    [
+        Some("incomplete/external_missing"),
+        Some("incomplete/tree_external_missing"),
+        Some("incomplete/table_external_missing"),
+    ],
+    [
+        Some("incomplete/external_rejected"),
+        Some("incomplete/tree_external_rejected"),
+        Some("incomplete/table_external_rejected"),
+    ],
+    [
+        Some("incomplete/mixed_failure_and_incomplete"),
+        Some("incomplete/tree_mixed_failure_and_incomplete"),
+        Some("incomplete/table_mixed_failure_and_incomplete"),
+    ],
+    [
+        Some("incomplete/source_map"),
+        Some("incomplete/tree_source_map"),
+        Some("incomplete/table_source_map"),
+    ],
+];
+
+/// Each case is written in every shape that can express it, each shape's
+/// fixture holds an instance of that shape, and every fixture of the
+/// corpus is one of the cases.
+#[test]
+fn every_case_is_written_in_every_shape_that_can_express_it() {
+    let fixtures = fixtures();
+    let mut listed = std::collections::BTreeSet::new();
+    for row in SHAPES {
+        assert!(row.iter().any(Option::is_some), "an empty row");
+        for (column, name) in row.iter().enumerate() {
+            let Some(name) = name else { continue };
+            listed.insert(*name);
+            let fixture = fixtures
+                .get(*name)
+                .unwrap_or_else(|| panic!("{name} is not in the corpus"));
+            let shape = match fixture.instance {
+                Instance::Graph(_) => 0,
+                Instance::Tree(_) => 1,
+                Instance::Table(_) => 2,
+            };
+            assert_eq!(shape, column, "{name} is written in the wrong shape");
+        }
+    }
+    let unlisted: Vec<&String> = fixtures
+        .keys()
+        .filter(|n| !listed.contains(n.as_str()))
+        .collect();
+    assert!(unlisted.is_empty(), "fixtures in no case: {unlisted:?}");
 }

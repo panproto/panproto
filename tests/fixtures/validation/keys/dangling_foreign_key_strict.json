@@ -814,6 +814,9 @@
       "foreign_keys": []
     }
   },
+  "edit_trace": {
+    "table": []
+  },
   "report": {
     "shape": "table",
     "scope": "instance",

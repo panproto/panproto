@@ -1,26 +1,4 @@
-//! Regenerate the frozen validation corpus.
-//!
-//! Each fixture is one validation case: the schema, the protocol it is read
-//! under (its name, and its definition when the name is not a registered
-//! protocol's), the validation options, budget and external verdicts, the
-//! instance, and the report validation gives. It is written three times, as
-//! named `MessagePack` (`<case>.named.msgpack`), CBOR (`<case>.cbor`) and
-//! JSON (`<case>.json`), and a graph instance is also written as node-link
-//! JSON (`<case>.nodelink.json`). A report's diagnostics carry their
-//! failure witnesses, which `Diagnostic::verify` confirms against the
-//! instance. The cases are grouped by what they exercise: `anchors`,
-//! `endpoints`, `values`, `cardinality`, `ordering`, `cycles`, `fans`,
-//! `keys` and `incomplete`.
-//!
-//! Instances that construction or decoding rejects are written as
-//! rejections (`<case>.rejection.*`): the instance as its wire form, and
-//! the error decoding it gives.
-//!
-//! Built with the `fixtures` feature: `cargo run -p panproto-protocols
-//! --features fixtures --bin validation-fixtures [OUT_DIR]`, where `OUT_DIR`
-//! defaults to the repository's `tests/fixtures/validation`. The validation
-//! fixture tests run this binary into a temporary directory and fail when
-//! its output differs from the committed corpus.
+//! The validation corpus: its cases, and writing them out.
 
 use std::collections::{BTreeSet, HashMap};
 use std::error::Error;
@@ -32,8 +10,9 @@ use panproto_inst::validation::{
     ValidationBudget, ValidationOptions, ValidationPlan, ValidationReport,
 };
 use panproto_inst::{
-    Digest, FInstance, Fan, FieldPresence, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, Node,
-    NodeShape, RowId, Value, ViewRef, WInstance, to_node_link_json,
+    Digest, FInstance, Fan, FieldPresence, GInstance, GraphEdit, HYPER_LABEL_KIND,
+    HYPER_PARENT_KIND, Node, NodeShape, RowId, TableEdit, TreeEdit, Value, ViewRef, WInstance,
+    to_node_link_json,
 };
 use panproto_schema::{
     Cardinality, Constraint, ConstraintSemantics, Edge, HyperEdge, InstanceShapeKind, Key, KeyPart,
@@ -57,6 +36,30 @@ enum Instance {
     Table(FInstance),
 }
 
+/// The edits applied to a fixture's instance after it is validated, in
+/// order, as the edits of the instance's shape.
+#[derive(Serialize)]
+#[serde(rename_all = "snake_case")]
+enum EditTrace {
+    /// Edits of a graph.
+    Graph(Vec<GraphEdit>),
+    /// Edits of a tree.
+    Tree(Vec<TreeEdit>),
+    /// Edits of a table instance.
+    Table(Vec<TableEdit>),
+}
+
+impl EditTrace {
+    /// The trace of no edits, in the shape of `instance`.
+    const fn none_for(instance: &Instance) -> Self {
+        match instance {
+            Instance::Graph(_) => Self::Graph(Vec::new()),
+            Instance::Tree(_) => Self::Tree(Vec::new()),
+            Instance::Table(_) => Self::Table(Vec::new()),
+        }
+    }
+}
+
 /// One validation case as it is written to disk.
 #[derive(Serialize)]
 struct Fixture {
@@ -76,7 +79,10 @@ struct Fixture {
     external: ExternalVerdicts,
     /// The instance.
     instance: Instance,
-    /// The report validation gives.
+    /// The edits applied to the instance after it is validated; empty in a
+    /// case that validates the instance alone, as every case here does.
+    edit_trace: EditTrace,
+    /// The report validation gives the instance.
     report: ValidationReport,
 }
 
@@ -266,7 +272,7 @@ fn row(cells: &[(&str, Value)]) -> HashMap<String, Value> {
 
 /// One validation case before it is validated.
 struct Case {
-    name: &'static str,
+    name: String,
     syntactic: InstanceShapeKind,
     schema: Schema,
     options: ValidationOptions,
@@ -278,14 +284,14 @@ struct Case {
 impl Case {
     /// A case with no options, an unlimited budget and no verdicts, read
     /// under the corpus protocol of its instance's shape.
-    fn new(name: &'static str, schema: Schema, instance: Instance) -> Self {
+    fn new(name: impl Into<String>, schema: Schema, instance: Instance) -> Self {
         let syntactic = match &instance {
             Instance::Graph(_) => InstanceShapeKind::Graph,
             Instance::Tree(_) => InstanceShapeKind::Tree,
             Instance::Table(_) => InstanceShapeKind::Table,
         };
         Self {
-            name,
+            name: name.into(),
             syntactic,
             schema,
             options: ValidationOptions::default(),
@@ -305,13 +311,14 @@ impl Case {
             Instance::Table(f) => plan.validate_table(f, &self.budget, &self.external),
         };
         Fixture {
-            name: self.name.to_owned(),
+            name: self.name,
             protocol: protocol.name.clone(),
             protocol_definition: Some(protocol),
             schema: self.schema,
             options: self.options,
             budget: self.budget,
             external: self.external,
+            edit_trace: EditTrace::none_for(&self.instance),
             instance: self.instance,
             report,
         }
@@ -954,9 +961,16 @@ fn sakila(on_unresolved: OnUnresolved) -> R<Schema> {
     Ok(s.build())
 }
 
+/// The cells of one row, by column, in column order.
+type Cells = Vec<(&'static str, Value)>;
+
+/// The rows of a table instance, table by table, each with its id and
+/// cells.
+type Rows = Vec<(&'static str, Vec<(RowId, Cells)>)>;
+
 /// Sakila rows: two actors, two films, the given film-actor pairs, and a
 /// staff chain.
-fn sakila_rows(film_actor: &[(i64, i64)]) -> R<FInstance> {
+fn sakila_data(film_actor: &[(i64, i64)]) -> Rows {
     let i = Value::Int;
     let s = |v: &str| Value::Str(v.into());
     let mut next = 0_u32;
@@ -964,60 +978,204 @@ fn sakila_rows(film_actor: &[(i64, i64)]) -> R<FInstance> {
         next += 1;
         RowId(next)
     };
-    let actors =
-        [(1, "Ann"), (2, "Bo")].map(|(a, n)| (id(), row(&[("actor_id", i(a)), ("name", s(n))])));
+    let actors = [(1, "Ann"), (2, "Bo")]
+        .map(|(a, n)| (id(), vec![("actor_id", i(a)), ("name", s(n))]))
+        .to_vec();
     let films = [(10, "Alien"), (11, "Heat")]
-        .map(|(f, t)| (id(), row(&[("film_id", i(f)), ("title", s(t))])));
-    let pairs: Vec<_> = film_actor
+        .map(|(f, t)| (id(), vec![("film_id", i(f)), ("title", s(t))]))
+        .to_vec();
+    let pairs = film_actor
         .iter()
-        .map(|(a, f)| (id(), row(&[("actor_id", i(*a)), ("film_id", i(*f))])))
+        .map(|(a, f)| (id(), vec![("actor_id", i(*a)), ("film_id", i(*f))]))
         .collect();
     let staff = [
-        row(&[("staff_id", i(1))]),
-        row(&[("staff_id", i(2)), ("reports_to", i(1))]),
-        row(&[("staff_id", i(3)), ("reports_to", i(2))]),
+        vec![("staff_id", i(1))],
+        vec![("staff_id", i(2)), ("reports_to", i(1))],
+        vec![("staff_id", i(3)), ("reports_to", i(2))],
     ]
-    .map(|r| (id(), r));
-    FInstance::new()
-        .with_rows("actor", actors)
-        .and_then(|f| f.with_rows("film", films))
-        .and_then(|f| f.with_rows("film_actor", pairs))
-        .and_then(|f| f.with_rows("staff", staff))
-        .map_err(Into::into)
+    .map(|r| (id(), r))
+    .to_vec();
+    vec![
+        ("actor", actors),
+        ("film", films),
+        ("film_actor", pairs),
+        ("staff", staff),
+    ]
+}
+
+/// The table instance of `data`.
+fn table_of(data: &Rows) -> R<FInstance> {
+    let mut f = FInstance::new();
+    for (table, rows) in data {
+        f = f.with_rows(*table, rows.iter().map(|(id, cells)| (*id, row(cells))))?;
+    }
+    Ok(f)
+}
+
+/// The tree of `data` under a root `db` node: a node per row, under the
+/// root through the table's edge from `db`, and a valued node per cell,
+/// anchored at the column vertex `<table>.<column>`, under its row through
+/// the column's edge.
+fn tree_of(data: &Rows) -> WInstance {
+    let mut nodes = vec![Node::new(0, "db")];
+    let mut arcs: Vec<(u32, u32, Edge)> = Vec::new();
+    let mut next = 0_u32;
+    for (table, rows) in data {
+        for (_, cells) in rows {
+            next += 1;
+            let row_node = next;
+            nodes.push(Node::new(row_node, *table));
+            arcs.push((0, row_node, prop("db", table, table)));
+            for (column, value) in cells {
+                next += 1;
+                let vertex = format!("{table}.{column}");
+                nodes.push(valued(next, &vertex, value.clone()));
+                arcs.push((row_node, next, prop(table, &vertex, column)));
+            }
+        }
+    }
+    let arcs: Vec<(u32, u32, &Edge)> = arcs.iter().map(|(p, c, e)| (*p, *c, e)).collect();
+    tree(nodes, &arcs, vec![])
+}
+
+/// A schema of tables written as trees: `schema` with a root vertex `db`
+/// and an edge from it to each of `tables`, named for the table.
+fn under_db(schema: Schema, tables: &[&str]) -> Schema {
+    let mut s = S(schema).vertex("db", "object");
+    for t in tables {
+        s = s.edge(&prop("db", t, t));
+    }
+    s.build()
+}
+
+/// The tables of the Sakila schema.
+const SAKILA_TABLES: [&str; 4] = ["actor", "film", "film_actor", "staff"];
+
+/// The pairs of the foreign key that resolves `holder`'s `column` against
+/// `target`'s `target_column`: a pair from each holder row to the target
+/// row whose `target_column` cell equals the holder row's `column` cell.
+/// A holder row with no such cell, or with no matching target row, gets no
+/// pair.
+fn resolve(
+    data: &Rows,
+    holder: &str,
+    column: &str,
+    target: &str,
+    target_column: &str,
+) -> Vec<(RowId, RowId)> {
+    fn rows<'a>(data: &'a Rows, table: &'a str) -> impl Iterator<Item = &'a (RowId, Cells)> {
+        data.iter()
+            .filter(move |(t, _)| *t == table)
+            .flat_map(|(_, rows)| rows.iter())
+    }
+    let cell = |cells: &Cells, column: &str| {
+        cells
+            .iter()
+            .find(|(c, _)| *c == column)
+            .map(|(_, v)| v.clone())
+    };
+    rows(data, holder)
+        .filter_map(|(id, cells)| {
+            let value = cell(cells, column)?;
+            rows(data, target)
+                .find(|(_, target_cells)| {
+                    cell(target_cells, target_column)
+                        .is_some_and(|v| v.canonical_cmp(&value).is_eq())
+                })
+                .map(|(target_id, _)| (*id, *target_id))
+        })
+        .collect()
+}
+
+/// The Sakila table instance of `data` with every reference it can
+/// resolve resolved into its foreign key: the semantic form of the rows,
+/// which a graph-written protocol checks as edges.
+fn resolved_sakila(data: &Rows) -> R<FInstance> {
+    let mut f = table_of(data)?;
+    for (id, holder, column, target, target_column) in [
+        (
+            "film_actor_actor",
+            "film_actor",
+            "actor_id",
+            "actor",
+            "actor_id",
+        ),
+        (
+            "film_actor_film",
+            "film_actor",
+            "film_id",
+            "film",
+            "film_id",
+        ),
+        (
+            "staff_reports_to",
+            "staff",
+            "reports_to",
+            "staff",
+            "staff_id",
+        ),
+    ] {
+        let pairs = resolve(data, holder, column, target, target_column);
+        if !pairs.is_empty() {
+            f = f.with_foreign_key(edge(holder, target, "fk", id), pairs)?;
+        }
+    }
+    Ok(f)
 }
 
 /// Keys and references: a Sakila composite key held and broken, a
 /// self-referencing foreign key, and a dangling foreign key, strict and
-/// lenient.
+/// lenient, each as a table instance, as a tree of rows and cells under a
+/// root, and as a graph. The graph is written by a graph protocol, whose
+/// semantic shape is its syntactic one, so it is the resolved form of the
+/// rows: the graph form of the table instance with every reference that
+/// resolves added as a foreign-key pair. A reference that does not resolve
+/// leaves its holder without the edge, which a non-nullable reference
+/// requires on the semantic shape whether it is strict or lenient.
 fn keys() -> R<Vec<Case>> {
-    let strict = sakila(OnUnresolved::Error)?;
-    Ok(vec![
-        Case::new(
-            "keys/sakila_composite_key",
-            strict.clone(),
-            Instance::Table(sakila_rows(&[(1, 10), (1, 11), (2, 10)])?),
+    let cases: [(&str, OnUnresolved, &[(i64, i64)]); 5] = [
+        (
+            "sakila_composite_key",
+            OnUnresolved::Error,
+            &[(1, 10), (1, 11), (2, 10)],
         ),
-        Case::new(
-            "keys/sakila_composite_key_duplicate",
-            strict.clone(),
-            Instance::Table(sakila_rows(&[(1, 10), (2, 11), (1, 10)])?),
+        (
+            "sakila_composite_key_duplicate",
+            OnUnresolved::Error,
+            &[(1, 10), (2, 11), (1, 10)],
         ),
-        Case::new(
-            "keys/self_referencing_foreign_key",
-            strict.clone(),
-            Instance::Table(sakila_rows(&[])?),
+        ("self_referencing_foreign_key", OnUnresolved::Error, &[]),
+        (
+            "dangling_foreign_key_strict",
+            OnUnresolved::Error,
+            &[(9, 10)],
         ),
-        Case::new(
-            "keys/dangling_foreign_key_strict",
-            strict,
-            Instance::Table(sakila_rows(&[(9, 10)])?),
+        (
+            "dangling_foreign_key_lenient",
+            OnUnresolved::Complement,
+            &[(9, 10)],
         ),
-        Case::new(
-            "keys/dangling_foreign_key_lenient",
-            sakila(OnUnresolved::Complement)?,
-            Instance::Table(sakila_rows(&[(9, 10)])?),
-        ),
-    ])
+    ];
+    let mut out = Vec::new();
+    for (stem, on_unresolved, pairs) in cases {
+        let schema = sakila(on_unresolved)?;
+        let data = sakila_data(pairs);
+        let table = table_of(&data)?;
+        let (graph, _) = GInstance::from_finstance(&resolved_sakila(&data)?)?;
+        let name = |prefix: &str| format!("keys/{prefix}{stem}");
+        out.push(Case::new(
+            name("graph_"),
+            schema.clone(),
+            Instance::Graph(graph),
+        ));
+        out.push(Case::new(
+            name("tree_"),
+            under_db(schema.clone(), &SAKILA_TABLES),
+            Instance::Tree(tree_of(&data)),
+        ));
+        out.push(Case::new(name(""), schema, Instance::Table(table)));
+    }
+    Ok(out)
 }
 
 /// The application check `audit`, about every item.
@@ -1099,7 +1257,7 @@ fn incomplete() -> Vec<Case> {
         .vertex("name", "string")
         .constraint("name", "maxLength", "3")
         .build();
-    let mut sourced = Case::new(
+    let sourced = Case::new(
         "incomplete/source_map",
         bounded,
         Instance::Graph(graph(
@@ -1107,20 +1265,7 @@ fn incomplete() -> Vec<Case> {
             &[],
         )),
     );
-    sourced.options.sources.0.insert(
-        SchemaRef::Constraint {
-            vertex: "name".into(),
-            constraint: Constraint {
-                sort: "maxLength".into(),
-                value: "3".into(),
-            },
-        },
-        SourceLocation {
-            source: "schemas/name.json".into(),
-            start_byte: 12,
-            end_byte: 27,
-        },
-    );
+    let sourced = with_source(sourced, "name");
     vec![
         budget,
         Case::new(
@@ -1138,6 +1283,312 @@ fn incomplete() -> Vec<Case> {
         mixed,
         sourced,
     ]
+}
+
+/// The `a -> b` schema of the endpoint cases.
+fn ab_schema() -> Schema {
+    S::default()
+        .vertex("a", "object")
+        .vertex("b", "object")
+        .edge(&prop("a", "b", "ab"))
+        .build()
+}
+
+/// A tree of a root anchored at `root` and one child anchored at `child`,
+/// under it through `label`.
+fn two_node_tree(root: &str, child: &str, label: &Edge) -> WInstance {
+    tree(
+        vec![Node::new(0, root), Node::new(1, child)],
+        &[(0, 1, label)],
+        vec![],
+    )
+}
+
+/// The anchor and endpoint cases of trees beside the tree cases above: an
+/// undeclared arc label, a coherent arc, and arcs incoherent on the source
+/// side and on both sides. A table instance cannot hold a pair between rows
+/// of the wrong tables (construction refuses it), and a tree arc cannot be a
+/// self-loop.
+fn tree_anchors_and_endpoints() -> Vec<Case> {
+    let ab = prop("a", "b", "ab");
+    let tree_case = |name: &str, root: &str, child: &str, label: &Edge| {
+        Case::new(
+            name,
+            ab_schema(),
+            Instance::Tree(two_node_tree(root, child, label)),
+        )
+    };
+    vec![
+        tree_case(
+            "anchors/tree_undeclared_label",
+            "a",
+            "b",
+            &prop("a", "b", "undeclared"),
+        ),
+        tree_case("endpoints/tree_coherent", "a", "b", &ab),
+        tree_case("endpoints/tree_src_side", "b", "b", &ab),
+        tree_case("endpoints/tree_both_sides", "b", "a", &ab),
+    ]
+}
+
+/// Required edges present and absent, and out-degree bounds at and past the
+/// boundary, in trees (a parent's arcs) and table instances (a row's
+/// foreign-key pairs). Parallel edges are graph cases only: a tree child
+/// has one arc into it, and a foreign key holds a pair of rows once.
+fn tree_and_table_cardinality() -> R<Vec<Case>> {
+    let child = prop("parent", "child", "child");
+    let base = || {
+        S::default()
+            .vertex("parent", "object")
+            .vertex("child", "object")
+            .edge(&child)
+    };
+    let required = base().required("parent", &child).build();
+    let at_most = base().constraint("parent", "maxOut", "2").build();
+    let at_least = base().constraint("parent", "minOut", "1").build();
+    let fan_out = |k: u32| {
+        let mut nodes = vec![Node::new(0, "parent")];
+        nodes.extend((1..=k).map(|i| Node::new(i, "child")));
+        let arcs: Vec<(u32, u32, &Edge)> = (1..=k).map(|i| (0, i, &child)).collect();
+        tree(nodes, &arcs, vec![])
+    };
+    let stars = edge("film", "actor", "fk", "stars");
+    let films = || {
+        S::default()
+            .vertex("film", "table")
+            .vertex("actor", "table")
+            .edge(&stars)
+    };
+    let starred = |k: u32| -> R<FInstance> {
+        let actors: Vec<_> = (1..=3).map(|i| (RowId(i), row(&[]))).collect();
+        let pairs: Vec<_> = (1..=k).map(|i| (RowId(0), RowId(i))).collect();
+        let f = FInstance::new()
+            .with_rows("film", [(RowId(0), row(&[]))])
+            .and_then(|f| f.with_rows("actor", actors))?;
+        Ok(if pairs.is_empty() {
+            f
+        } else {
+            f.with_foreign_key(stars.clone(), pairs)?
+        })
+    };
+    let table_required = films().required("film", &stars).build();
+    let table_at_most = films().constraint("film", "maxOut", "2").build();
+    let table_at_least = films().constraint("film", "minOut", "1").build();
+    let tree_case = |name: &str, schema: &Schema, k: u32| {
+        Case::new(name, schema.clone(), Instance::Tree(fan_out(k)))
+    };
+    let table_case = |name: &str, schema: &Schema, k: u32| -> R<Case> {
+        Ok(Case::new(
+            name,
+            schema.clone(),
+            Instance::Table(starred(k)?),
+        ))
+    };
+    Ok(vec![
+        tree_case("cardinality/tree_required_edge_present", &required, 1),
+        tree_case("cardinality/tree_required_edge_absent", &required, 0),
+        tree_case("cardinality/tree_degree_at_upper_bound", &at_most, 2),
+        tree_case("cardinality/tree_degree_above_upper_bound", &at_most, 3),
+        tree_case("cardinality/tree_degree_at_lower_bound", &at_least, 1),
+        tree_case("cardinality/tree_degree_below_lower_bound", &at_least, 0),
+        table_case(
+            "cardinality/table_required_foreign_key_present",
+            &table_required,
+            1,
+        )?,
+        table_case("cardinality/table_degree_at_upper_bound", &table_at_most, 2)?,
+        table_case(
+            "cardinality/table_degree_above_upper_bound",
+            &table_at_most,
+            3,
+        )?,
+        table_case(
+            "cardinality/table_degree_at_lower_bound",
+            &table_at_least,
+            1,
+        )?,
+        table_case(
+            "cardinality/table_degree_below_lower_bound",
+            &table_at_least,
+            0,
+        )?,
+    ])
+}
+
+/// Record that the `maxLength 3` constraint on `vertex` was read from bytes
+/// 12 to 27 of `schemas/name.json`.
+fn with_source(mut case: Case, vertex: &str) -> Case {
+    case.options.sources.0.insert(
+        SchemaRef::Constraint {
+            vertex: vertex.into(),
+            constraint: Constraint {
+                sort: "maxLength".into(),
+                value: "3".into(),
+            },
+        },
+        SourceLocation {
+            source: "schemas/name.json".into(),
+            start_byte: 12,
+            end_byte: 27,
+        },
+    );
+    case
+}
+
+/// The incompleteness cases of trees and table instances: a budget too
+/// small for the checks of a six-node chain (a tree) or six rows (a table),
+/// a sort the protocol does not know, a pattern the regular-expression
+/// engine cannot compile, an external check with no verdict and one with a
+/// rejecting verdict, a failure beside an undecided check, and a source map
+/// the diagnostics carry. Acyclicity is a graph check, so the budget runs
+/// out on the checks these shapes have.
+fn tree_and_table_incomplete() -> R<Vec<Case>> {
+    let s = |v: &str| Value::Str(v.into());
+    let next = prop("item", "item", "next");
+    let name = prop("item", "name", "name");
+    let item_tree = || tree(vec![Node::new(0, "item")], &[], vec![]);
+    let item_table =
+        |cells: &[(&str, Value)]| FInstance::new().with_rows("item", [(RowId(0), row(cells))]);
+    // A tree item with a name child, and a table item with a name column;
+    // the name is bounded in length when `bounded`, or a lookahead pattern
+    // when `pattern`.
+    let named = |kind: &str, constraint: Option<(&str, &str)>| {
+        let mut b = S::default()
+            .vertex("item", kind)
+            .vertex("name", "string")
+            .edge(&name);
+        if let Some((sort, value)) = constraint {
+            b = b.constraint("name", sort, value);
+        }
+        b.build()
+    };
+    let named_tree = |value: &str| {
+        tree(
+            vec![Node::new(0, "item"), valued(1, "name", s(value))],
+            &[(0, 1, &name)],
+            vec![],
+        )
+    };
+    let colour = |kind: &str| {
+        S::default()
+            .vertex("item", kind)
+            .constraint("item", "colour", "red")
+            .build()
+    };
+    let items = |kind: &str| S::default().vertex("item", kind).build();
+    let audited = |mut case: Case| {
+        case.options = audit_options();
+        case
+    };
+    let rejecting = |mut case: Case, at: ViewRef| {
+        case.options = audit_options();
+        case.external.insert(
+            "audit".into(),
+            at,
+            ExternalVerdict {
+                passed: false,
+                witness: Digest([7; 32]),
+            },
+        );
+        case
+    };
+    let budgeted = |mut case: Case| {
+        case.budget = ValidationBudget { max_reads: Some(3) };
+        case
+    };
+    let chain = tree(
+        (0..6).map(|i| Node::new(i, "item")).collect(),
+        &(0..5).map(|i| (i, i + 1, &next)).collect::<Vec<_>>(),
+        vec![],
+    );
+    let six_rows = FInstance::new().with_rows("item", (0..6).map(|i| (RowId(i), row(&[]))))?;
+    let chain_schema = S::default().vertex("item", "object").edge(&next).build();
+    let bounded = Some(("maxLength", "3"));
+    let lookahead = Some(("pattern", "(?=a)a"));
+    Ok(vec![
+        budgeted(Case::new(
+            "incomplete/tree_budget",
+            chain_schema,
+            Instance::Tree(chain),
+        )),
+        budgeted(Case::new(
+            "incomplete/table_budget",
+            items("table"),
+            Instance::Table(six_rows),
+        )),
+        Case::new(
+            "incomplete/tree_unregistered_sort",
+            colour("object"),
+            Instance::Tree(item_tree()),
+        ),
+        Case::new(
+            "incomplete/table_unregistered_sort",
+            colour("table"),
+            Instance::Table(item_table(&[])?),
+        ),
+        Case::new(
+            "incomplete/tree_pattern_lookahead",
+            named("object", lookahead),
+            Instance::Tree(named_tree("a")),
+        ),
+        Case::new(
+            "incomplete/table_pattern_lookahead",
+            named("table", lookahead),
+            Instance::Table(item_table(&[("name", s("a"))])?),
+        ),
+        audited(Case::new(
+            "incomplete/tree_external_missing",
+            items("object"),
+            Instance::Tree(item_tree()),
+        )),
+        audited(Case::new(
+            "incomplete/table_external_missing",
+            items("table"),
+            Instance::Table(item_table(&[])?),
+        )),
+        rejecting(
+            Case::new(
+                "incomplete/tree_external_rejected",
+                items("object"),
+                Instance::Tree(item_tree()),
+            ),
+            ViewRef::Node(0),
+        ),
+        rejecting(
+            Case::new(
+                "incomplete/table_external_rejected",
+                items("table"),
+                Instance::Table(item_table(&[])?),
+            ),
+            ViewRef::Row(RowId(0)),
+        ),
+        audited(Case::new(
+            "incomplete/tree_mixed_failure_and_incomplete",
+            named("object", bounded),
+            Instance::Tree(named_tree("toolong")),
+        )),
+        audited(Case::new(
+            "incomplete/table_mixed_failure_and_incomplete",
+            named("table", bounded),
+            Instance::Table(item_table(&[("name", s("toolong"))])?),
+        )),
+        with_source(
+            Case::new(
+                "incomplete/tree_source_map",
+                named("object", bounded),
+                Instance::Tree(named_tree("toolong")),
+            ),
+            "name",
+        ),
+        with_source(
+            Case::new(
+                "incomplete/table_source_map",
+                named("table", bounded),
+                Instance::Table(item_table(&[("name", s("toolong"))])?),
+            ),
+            "name",
+        ),
+    ])
 }
 
 /// Replace, anywhere in `value`, the number `from` under the key `key` with
@@ -1242,7 +1693,9 @@ fn write_three<T: Serialize>(out: &Path, name: &str, value: &T) -> Result<(), Bo
     Ok(())
 }
 
-fn main() -> Result<(), Box<dyn Error>> {
+/// Write the corpus to the directory the first argument names, or to the
+/// repository's `tests/fixtures/validation`.
+pub(crate) fn run() -> Result<(), Box<dyn Error>> {
     let out = std::env::args_os().nth(1).map_or_else(
         || PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures/validation"),
         PathBuf::from,
@@ -1259,6 +1712,9 @@ fn main() -> Result<(), Box<dyn Error>> {
         fans()?,
         keys()?,
         incomplete(),
+        tree_anchors_and_endpoints(),
+        tree_and_table_cardinality()?,
+        tree_and_table_incomplete()?,
     ];
     for case in cases.into_iter().flatten() {
         let fixture = case.validate();

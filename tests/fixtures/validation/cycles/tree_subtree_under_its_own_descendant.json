@@ -204,6 +204,9 @@
       }
     }
   },
+  "edit_trace": {
+    "tree": []
+  },
   "report": {
     "shape": "tree",
     "scope": "instance",
