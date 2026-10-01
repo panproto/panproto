@@ -1316,7 +1316,7 @@ mod tests {
             .unwrap();
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("a"), Name::from("b")]),
-            surviving_edges: HashSet::from([edge.clone()]),
+            surviving_edges: HashSet::from([edge]),
             ..CompiledMigration::default()
         };
         let began = std::time::Instant::now();
