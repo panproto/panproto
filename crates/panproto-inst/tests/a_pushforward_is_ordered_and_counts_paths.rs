@@ -10,12 +10,13 @@
 //! A query's path navigation does not: it keeps each node once per step, so
 //! its work is bounded by the graph's size rather than by its number of walks.
 
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+
 use std::collections::HashMap;
 
 use panproto_gat::Name;
 use panproto_inst::{
-    ElementOps, FInstance, GInstance, InstanceQuery, Node, Value, encode_finstance_id,
-    execute_graph,
+    ElementOps, FInstance, GInstance, InstanceQuery, Node, RowId, Value, execute_graph,
 };
 use panproto_schema::{Edge, Protocol, SchemaBuilder};
 
@@ -31,34 +32,28 @@ fn author(src: &str) -> Edge {
     }
 }
 
-/// Three tables whose single rows each point at a different user.
+/// Three tables whose single rows each point at a different user: comments
+/// is row 0, likes row 1, posts row 2, and the users rows 3, 4 and 5.
 fn tables() -> FInstance {
     let row = |v: i64| HashMap::from([("k".to_owned(), Value::Int(v))]);
     FInstance::new()
         .with_table("comments", vec![row(1)])
-        .with_table("likes", vec![row(2)])
-        .with_table("posts", vec![row(3)])
-        .with_table("users", vec![row(10), row(11), row(12)])
-        .with_foreign_key(author("posts"), vec![(0, 0)])
-        .with_foreign_key(author("comments"), vec![(0, 2)])
-        .with_foreign_key(author("likes"), vec![(0, 1)])
+        .and_then(|f| f.with_table("likes", vec![row(2)]))
+        .and_then(|f| f.with_table("posts", vec![row(3)]))
+        .and_then(|f| f.with_table("users", vec![row(10), row(11), row(12)]))
+        .and_then(|f| f.with_foreign_key(author("posts"), [(RowId(2), RowId(3))]))
+        .and_then(|f| f.with_foreign_key(author("comments"), [(RowId(0), RowId(5))]))
+        .and_then(|f| f.with_foreign_key(author("likes"), [(RowId(1), RowId(4))]))
+        .expect("the fixture is well formed")
 }
 
 #[test]
 fn a_table_pushforward_lists_targets_in_foreign_key_order() {
-    // Tables in ascending name order: comments 0, likes 1, posts 2, users 3.
-    let sources = [
-        encode_finstance_id(0, 0),
-        encode_finstance_id(1, 0),
-        encode_finstance_id(2, 0),
-    ];
+    // Element ids are row ids.
+    let sources = [0, 1, 2];
     // Keys in ascending edge order (comments, likes, posts), each key's pairs
-    // in stored order.
-    let expected = vec![
-        encode_finstance_id(3, 2),
-        encode_finstance_id(3, 1),
-        encode_finstance_id(3, 0),
-    ];
+    // in ascending order.
+    let expected = vec![5, 4, 3];
     for attempt in 0..INSTANCES {
         let targets = tables().pushforward(&sources, &"author".into());
         assert_eq!(targets, expected, "instance {attempt}");

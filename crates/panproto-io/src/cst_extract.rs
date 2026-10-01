@@ -3160,7 +3160,9 @@ pub fn extract_tabular_cst(
         rows.push(row);
     }
 
-    let instance = FInstance::new().with_table(table_vertex, rows);
+    let instance = FInstance::new()
+        .with_table(table_vertex, rows)
+        .map_err(|e| CstExtractError::Structure(e.to_string()))?;
 
     let complement = CstComplement {
         format: "tabular".into(),
@@ -3190,7 +3192,7 @@ pub fn inject_tabular_cst(
     let mut cst = complement.cst_schema.clone();
 
     // Find the table (there should be exactly one in the FInstance).
-    for rows in instance.tables.values() {
+    for (_, table) in instance.tables() {
         // Reconstruct headers from the complement's CST.
         let doc_vertex = find_cst_root(&cst)?;
         let row_vertices = cst_children_by_edge_kind(&cst, &doc_vertex, "child_of");
@@ -3208,7 +3210,9 @@ pub fn inject_tabular_cst(
             .map(|f| literal_text_deep(&cst, f))
             .collect();
 
-        for (row_idx, row) in rows.iter().enumerate() {
+        // Rows were numbered in file order, so the rows in ascending id are
+        // the file's data rows in order.
+        for (row_idx, (_, row)) in table.rows().into_iter().enumerate() {
             for (col_idx, col_name) in headers.iter().enumerate() {
                 if let Some(value) = row.get(col_name) {
                     let text = match value {

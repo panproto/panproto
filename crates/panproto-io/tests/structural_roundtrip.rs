@@ -330,11 +330,10 @@ fn assert_tabular_round_trip(protocol: &str, input: &[u8], table: &str) {
     let inst2 = reg
         .parse_functor(protocol, &schema, &emitted)
         .unwrap_or_else(|e| panic!("{protocol}: re-parse_functor failed: {e}"));
-    let rows1 = inst.tables.get(table).expect("table missing in original");
-    let rows2 = inst2
-        .tables
-        .get(table)
-        .expect("table missing after round-trip");
+    assert!(inst.has_table(table), "table missing in original");
+    assert!(inst2.has_table(table), "table missing after round-trip");
+    let rows1 = inst.rows(table);
+    let rows2 = inst2.rows(table);
     assert_eq!(rows1.len(), rows2.len(), "{protocol}: row count diverged");
     for (i, (a, b)) in rows1.iter().zip(rows2.iter()).enumerate() {
         assert_eq!(a, b, "{protocol}: row {i} content diverged");

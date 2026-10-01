@@ -3,10 +3,12 @@
 use std::fmt;
 
 use panproto_gat::Name;
+use panproto_schema::Edge;
 
 use crate::fan_violation::FanViolation;
-use crate::ginstance::{EdgeId, NotTreeReason};
+use crate::ginstance::{EdgeId, NotTableReason, NotTreeReason};
 use crate::value::ValueFidelityError;
+use crate::view_ref::RowId;
 
 /// Errors from instance construction or manipulation.
 #[derive(Debug, thiserror::Error)]
@@ -92,15 +94,14 @@ pub enum InstError {
         reason: NotTreeReason,
     },
 
-    /// A foreign-key pair names a row its table does not have.
-    #[error("foreign key {edge_kind} names row {row} of table `{table}`, which does not exist")]
+    /// A foreign-key pair names a row that is not in the endpoint table of
+    /// its edge.
+    #[error("foreign key {edge:?} names row {}, which its endpoint table does not hold", .row.0)]
     DanglingForeignKey {
-        /// The kind of the foreign-key edge.
-        edge_kind: String,
-        /// The table.
-        table: String,
-        /// The missing row index.
-        row: usize,
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The row the edge's endpoint table does not hold.
+        row: RowId,
     },
 
     /// A node-link document does not have the node-link shape.
@@ -116,6 +117,63 @@ pub enum InstError {
         node: u32,
         /// The condition it breaks.
         reason: FanViolation,
+    },
+
+    /// A row id appears in more than one table of a table instance.
+    #[error("row {} appears in tables {tables:?}", .row.0)]
+    DuplicateRowId {
+        /// The row id.
+        row: RowId,
+        /// The tables holding it, ascending.
+        tables: Vec<Name>,
+    },
+
+    /// A row map sends a row to a row of another table.
+    #[error("row {} is mapped into a table other than its own", .row.0)]
+    HomTableMismatch {
+        /// The domain row.
+        row: RowId,
+    },
+
+    /// A foreign-key pair is listed twice (a foreign key is a set of pairs).
+    #[error("foreign key {edge:?} lists the pair ({}, {}) twice", .src.0, .tgt.0)]
+    DuplicateForeignKey {
+        /// The foreign-key edge.
+        edge: Edge,
+        /// The source row.
+        src: RowId,
+        /// The target row.
+        tgt: RowId,
+    },
+
+    /// A graph instance is not the graph form of a table instance, so it has
+    /// no table form.
+    #[error("not a table: {reason}")]
+    NotATable {
+        /// Why the graph is not a table.
+        reason: NotTableReason,
+    },
+
+    /// A row cannot move to another table while it takes part in a
+    /// foreign-key pair, since the pair would no longer join its edge's
+    /// endpoint tables.
+    #[error(
+        "row {} cannot move from table \"{from}\" to table \"{to}\" while it takes part in the pair ({}, {}) of foreign key {edge:?}",
+        .row.0, .src.0, .tgt.0
+    )]
+    RowHasForeignKeys {
+        /// The row asked to move.
+        row: RowId,
+        /// The table holding the row.
+        from: Name,
+        /// The table the row was asked to move to.
+        to: Name,
+        /// The foreign-key edge of the first pair the row takes part in.
+        edge: Edge,
+        /// The source row of that pair.
+        src: RowId,
+        /// The target row of that pair.
+        tgt: RowId,
     },
 
     /// A tree holds reserved fan vocabulary: a node of the fan shape, or an
@@ -246,6 +304,33 @@ pub enum RestrictError {
         /// The underlying evaluation failure.
         #[source]
         source: panproto_expr::ExprError,
+    },
+
+    /// An operation that creates rows found no row id free above the
+    /// largest in use.
+    #[error("no row id is free above the largest in use")]
+    RowIdsExhausted,
+
+    /// A table instance holds rows at a vertex outside the migration's
+    /// domain that is the image of another vertex: the migration names it as
+    /// a target only, so a total operation has nowhere to send its rows and
+    /// refuses rather than dropping them or merging them unasked.
+    #[error("vertex `{vertex}` holds rows but is a target of the migration, not a source")]
+    VertexOutsideDomain {
+        /// The vertex whose rows have no image.
+        vertex: Name,
+    },
+
+    /// A table instance holds foreign-key pairs on an edge that has no image
+    /// of its own under the migration: either an edge the migration names
+    /// only as the image of another edge, or an edge it does not mention
+    /// whose relabelling through the vertex map lands on an edge some other
+    /// edge already reaches. A total operation has nowhere to send these
+    /// pairs and refuses rather than dropping them or merging them unasked.
+    #[error("edge {edge:?} holds pairs but has no image of its own under the migration")]
+    EdgeOutsideDomain {
+        /// The edge whose pairs have no image.
+        edge: Edge,
     },
 }
 

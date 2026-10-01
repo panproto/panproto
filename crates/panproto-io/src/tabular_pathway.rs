@@ -114,8 +114,12 @@ pub fn parse_tsv(
         rows.push(row);
     }
 
-    let instance = FInstance::new().with_table(table_vertex, rows);
-    Ok(instance)
+    FInstance::new()
+        .with_table(table_vertex, rows)
+        .map_err(|e| ParseInstanceError::Parse {
+            protocol: protocol.to_string(),
+            message: e.to_string(),
+        })
 }
 
 /// Parse CoNLL-U formatted data into an `FInstance`.
@@ -208,11 +212,13 @@ pub fn parse_conllu(
         });
     }
 
-    let instance = FInstance::new()
+    FInstance::new()
         .with_table("sentence", sentence_rows)
-        .with_table("token", token_rows);
-
-    Ok(instance)
+        .and_then(|f| f.with_table("token", token_rows))
+        .map_err(|e| ParseInstanceError::Parse {
+            protocol: protocol.to_string(),
+            message: e.to_string(),
+        })
 }
 
 /// Emit an `FInstance` to tab-separated bytes.
@@ -220,22 +226,23 @@ pub fn parse_conllu(
 /// Writes a header row followed by data rows. The `table_vertex` specifies
 /// which table to emit. Columns are sorted alphabetically.
 ///
+/// A table the instance does not hold has no rows, so it emits no bytes.
+///
 /// # Errors
 ///
-/// Returns [`EmitInstanceError::Emit`] if the table is not found.
+/// This emit does not currently fail; the `Result` and the protocol name
+/// are retained for signature symmetry with the other codecs.
 pub fn emit_tsv(
     instance: &FInstance,
-    protocol: &str,
+    _protocol: &str,
     table_vertex: &str,
     delimiter: u8,
 ) -> Result<Vec<u8>, EmitInstanceError> {
-    let rows = instance
-        .tables
-        .get(table_vertex)
-        .ok_or_else(|| EmitInstanceError::Emit {
-            protocol: protocol.to_string(),
-            message: format!("table '{table_vertex}' not found in instance"),
-        })?;
+    let rows: Vec<&HashMap<String, Value>> = instance
+        .rows(table_vertex)
+        .into_iter()
+        .map(|(_, row)| row)
+        .collect();
 
     if rows.is_empty() {
         return Ok(Vec::new());
@@ -287,19 +294,25 @@ pub fn emit_tsv(
 
 /// Emit an `FInstance` to CoNLL-U format.
 ///
+/// A table the instance does not hold has no rows: without tokens the
+/// document has no token lines.
+///
 /// # Errors
 ///
-/// Returns [`EmitInstanceError::Emit`] if required tables are missing.
-pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, EmitInstanceError> {
-    let token_rows = instance
-        .tables
-        .get("token")
-        .ok_or_else(|| EmitInstanceError::Emit {
-            protocol: protocol.to_string(),
-            message: "token table not found".into(),
-        })?;
+/// This emit does not currently fail; the `Result` and the protocol name
+/// are retained for signature symmetry with the other codecs.
+pub fn emit_conllu(instance: &FInstance, _protocol: &str) -> Result<Vec<u8>, EmitInstanceError> {
+    let token_rows: Vec<&HashMap<String, Value>> = instance
+        .rows("token")
+        .into_iter()
+        .map(|(_, row)| row)
+        .collect();
 
-    let sentence_rows = instance.tables.get("sentence").cloned().unwrap_or_default();
+    let sentence_rows: Vec<&HashMap<String, Value>> = instance
+        .rows("sentence")
+        .into_iter()
+        .map(|(_, row)| row)
+        .collect();
 
     let conllu_columns = [
         "ID", "FORM", "LEMMA", "UPOS", "XPOS", "FEATS", "HEAD", "DEPREL", "DEPS", "MISC",
@@ -326,7 +339,7 @@ pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, Emit
                 .iter()
                 .find(|r| matches!(r.get("sent_idx"), Some(Value::Int(n)) if *n == sent_idx))
             {
-                for (key, val) in sent_row {
+                for (key, val) in *sent_row {
                     if key == "sent_idx" {
                         continue;
                     }
@@ -365,6 +378,14 @@ pub fn emit_conllu(instance: &FInstance, protocol: &str) -> Result<Vec<u8>, Emit
 #[allow(clippy::expect_used)]
 mod tests {
     use super::*;
+
+    /// An instance without the table emits as one whose table has no rows.
+    #[test]
+    fn an_absent_table_emits_no_rows() {
+        let empty = FInstance::new();
+        assert_eq!(emit_tsv(&empty, "tsv", "rows", b'\t').expect("emits"), b"");
+        assert!(emit_conllu(&empty, "conllu").is_ok());
+    }
 
     #[test]
     fn split_lines_basic() {
@@ -427,11 +448,8 @@ mod tests {
         };
 
         let instance = parse_conllu(&schema, input, "conllu").expect("parse");
-        let tokens = instance.tables.get("token").expect("token table");
-        assert_eq!(tokens.len(), 3, "should have 3 tokens");
-
-        let sentences = instance.tables.get("sentence").expect("sentence table");
-        assert_eq!(sentences.len(), 1, "should have 1 sentence");
+        assert_eq!(instance.row_count("token"), 3, "should have 3 tokens");
+        assert_eq!(instance.row_count("sentence"), 1, "should have 1 sentence");
     }
 
     #[test]
@@ -472,8 +490,8 @@ mod tests {
         let emitted = emit_conllu(&instance, "conllu").expect("emit");
         let instance2 = parse_conllu(&schema, &emitted, "conllu").expect("re-parse");
 
-        let t1 = instance.tables.get("token").expect("tokens");
-        let t2 = instance2.tables.get("token").expect("tokens");
+        let t1 = instance.rows("token");
+        let t2 = instance2.rows("token");
         assert_eq!(
             t1.len(),
             t2.len(),

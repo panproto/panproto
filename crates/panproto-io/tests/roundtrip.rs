@@ -150,7 +150,7 @@ macro_rules! tabular_functor_roundtrip {
                 .parse_functor($protocol, &schema, input)
                 .expect(concat!("parse ", $protocol));
 
-            let rows = instance.tables.get($table).expect(concat!(
+            let rows = instance.table($table).expect(concat!(
                 $protocol,
                 " table '",
                 $table,
@@ -171,7 +171,7 @@ macro_rules! tabular_functor_roundtrip {
                 .parse_functor($protocol, &schema, &emitted)
                 .expect(concat!("re-parse ", $protocol));
 
-            let rows2 = instance2.tables.get($table).expect("re-parsed table");
+            let rows2 = instance2.table($table).expect("re-parsed table");
             assert_eq!(
                 rows.len(),
                 rows2.len(),
@@ -430,7 +430,7 @@ fn roundtrip_conllu() {
     let input = include_bytes!("../fixtures/annotation/sample.conllu");
 
     let (instance, complement) = codec.parse(input).expect("parse conllu");
-    let rows = instance.tables.get("rows").expect("rows table");
+    let rows = instance.table("rows").expect("rows table");
     assert!(
         rows.len() >= 100,
         "Real UD CoNLL-U fixture should have many token rows, got {}",
@@ -608,8 +608,8 @@ fn roundtrip_csv() {
         .parse_functor("csv", &schema, &emitted)
         .expect("re-parse csv");
     assert_eq!(
-        instance.tables.len(),
-        reparsed.tables.len(),
+        instance.table_count(),
+        reparsed.table_count(),
         "csv: table count mismatch after round-trip"
     );
 }
@@ -725,13 +725,10 @@ fn tsv_header_and_rows_survive_round_trip() {
     let inst = reg
         .parse_functor("amr", &schema, input)
         .expect("parse should succeed");
-    let rows = inst
-        .tables
-        .get("amr_graph")
-        .expect("amr_graph table present");
+    let rows = inst.rows("amr_graph");
     assert_eq!(rows.len(), 2);
-    let row0 = &rows[0];
-    let row1 = &rows[1];
+    let row0 = rows[0].1;
+    let row1 = rows[1].1;
     let names: std::collections::BTreeSet<&str> = row0.keys().map(String::as_str).collect();
     assert_eq!(
         names,
@@ -752,10 +749,7 @@ fn tsv_header_and_rows_survive_round_trip() {
     let inst2 = reg
         .parse_functor("amr", &schema, &emitted)
         .expect("re-parse should succeed");
-    let rows2 = inst2
-        .tables
-        .get("amr_graph")
-        .expect("re-parsed table present");
+    let rows2 = inst2.rows("amr_graph");
     assert_eq!(
         rows.len(),
         rows2.len(),

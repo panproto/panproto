@@ -83,19 +83,24 @@ pub mod wtype_check;
 // Re-exports for convenience.
 pub use acset::AcsetOps;
 pub use adjunction::{
-    AdjunctionError, f_counit, f_delta, f_sigma, f_transpose_left, f_transpose_right, f_unit,
-    w_counit, w_delta, w_sigma, w_transpose_left, w_transpose_right, w_unit,
+    AdjunctionError, f_counit, f_delta, f_delta_with_hom, f_sigma, f_transpose_left,
+    f_transpose_right, f_unit, g_delta, w_counit, w_delta, w_sigma, w_transpose_left,
+    w_transpose_right, w_unit,
 };
 pub use attributes::{AttributeDecl, AttributeSchema, AttributeViolation};
 pub use complement::Complement;
 pub use contraction::{ContractionRecord, ContractionTracker};
 pub use edit_error::EditError;
-pub use element_ops::{ElementOps, decode_finstance_id, encode_finstance_id};
+pub use element_ops::ElementOps;
 pub use error::{InstError, ParseError, RestrictError, ValidationError};
 pub use error_detail::{ErrorDetail, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
 pub use functor::{FInstance, functor_extend, functor_restrict};
+pub use functor::{
+    ForeignKeyPair, KeyLookupError, Row, Table, canonical_finstance_bytes, write_finstance,
+    write_pair_record, write_row_record,
+};
 pub use ginstance::{
     EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json,
     graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
@@ -105,6 +110,7 @@ pub use ginstance::{
     canonical_ginstance_bytes, reify_fans_owned, unreify_fans_owned, unreify_fans_with_schema,
     write_edge_record, write_ginstance, write_node_record,
 };
+pub use ginstance::{NotTableReason, TableEmbedding, TableShapeReport};
 pub use graph_edit::{GraphDelta, GraphEdit};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
@@ -117,7 +123,7 @@ pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};
 pub use metadata::{Node, NodeShape};
 pub use panproto_schema::InstanceShapeKind;
 pub use parse::{parse_json, to_json};
-pub use pi::{functor_pi, wtype_pi};
+pub use pi::{functor_pi, functor_pi_with_hom, wtype_pi};
 pub use poly::{
     SectionEnrichment, fiber_at_anchor, fiber_at_node, fiber_decomposition, fiber_with_predicate,
     group_by, join, restrict_with_complement, section,

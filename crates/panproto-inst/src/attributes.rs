@@ -48,7 +48,7 @@ pub enum AttributeViolation {
     /// An attribute key is present on an instance node but not declared for
     /// that node's vertex.
     Undeclared {
-        /// The offending node id (W-type) or row index (F-instance).
+        /// The offending node id (W-type) or row id (F-instance).
         node_id: u32,
         /// The vertex the node sits over.
         anchor: Name,
@@ -57,7 +57,7 @@ pub enum AttributeViolation {
     },
     /// An attribute value's kind does not match the declared kind.
     Mistyped {
-        /// The offending node id (W-type) or row index (F-instance).
+        /// The offending node id (W-type) or row id (F-instance).
         node_id: u32,
         /// The vertex the node sits over.
         anchor: Name,
@@ -139,19 +139,21 @@ impl AttributeSchema {
     }
 
     /// Validate the columns of every row of a functor (relational) instance
-    /// against this schema. The reported `node_id` is the row index.
+    /// against this schema. The reported `node_id` is the row's
+    /// [`RowId`](crate::RowId); tables are visited in name order, rows in
+    /// ascending id and cells in ascending column.
     #[must_use]
     pub fn validate_finstance(&self, instance: &FInstance) -> Vec<AttributeViolation> {
         let mut violations = Vec::new();
-        for (table, rows) in &instance.tables {
-            let anchor = Name::from(table.as_str());
-            let Some(decls) = self.attrs.get(&anchor) else {
+        for (anchor, table) in instance.tables() {
+            let Some(decls) = self.attrs.get(anchor) else {
                 continue;
             };
-            for (row_idx, row) in rows.iter().enumerate() {
-                let row_id = u32::try_from(row_idx).unwrap_or(u32::MAX);
-                for (key, value) in row {
-                    Self::check_one(row_id, &anchor, key, value, decls, &mut violations);
+            for (row_id, row) in table.rows() {
+                let mut cells: Vec<(&String, &Value)> = row.iter().collect();
+                cells.sort_unstable_by(|a, b| a.0.cmp(b.0));
+                for (key, value) in cells {
+                    Self::check_one(row_id.0, anchor, key, value, decls, &mut violations);
                 }
             }
         }
@@ -409,12 +411,14 @@ mod tests {
             ("count".to_owned(), Value::Int(1)),
         ]);
         let bad = HashMap::from([("count".to_owned(), Value::Str("nope".into()))]);
-        let inst = FInstance::new().with_table("post", vec![good, bad]);
+        let inst = FInstance::new()
+            .with_rows("post", [(crate::RowId(7), good), (crate::RowId(40), bad)])
+            .expect("distinct row ids");
         let v = attrs.validate_finstance(&inst);
         assert_eq!(v.len(), 1);
         assert!(matches!(
             &v[0],
-            AttributeViolation::Mistyped { node_id: 1, key, .. } if key == "count"
+            AttributeViolation::Mistyped { node_id: 40, key, .. } if key == "count"
         ));
     }
 }

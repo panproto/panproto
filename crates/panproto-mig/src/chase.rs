@@ -22,9 +22,10 @@
 //!    looping. Dependencies are derived from a theory's equations by
 //!    freezing their variables ([`term_dependencies_from_theory`]).
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::{Equation, Term, Theory};
+use panproto_inst::FInstanceHom;
 use panproto_inst::functor::FInstance;
 use panproto_inst::value::Value;
 use panproto_schema::Schema;
@@ -63,6 +64,10 @@ pub enum ChaseError {
         /// The right constant.
         right: String,
     },
+    /// A dependency fired but no row id was free above the largest in use
+    /// for the row it adds.
+    #[error("no row id is free above the largest in use")]
+    RowIdsExhausted,
 }
 
 impl ChaseError {
@@ -79,25 +84,40 @@ impl ChaseError {
     }
 }
 
-/// Returns `true` if the given row matches all of the required column-value pairs.
+/// Whether two values are the same value: equal canonical bytes. Unlike
+/// `Value`'s `==`, this is reflexive on `NaN` and tells `0.0` from `-0.0`,
+/// so the chase agrees with the canonical bytes of the instances it builds.
+fn same_value(a: &Value, b: &Value) -> bool {
+    a.canonical_cmp(b).is_eq()
+}
+
+/// Returns `true` if the given row matches all of the required column-value
+/// pairs ([`same_value`]).
 fn row_matches(row: &HashMap<String, Value>, required: &HashMap<String, Value>) -> bool {
     required
         .iter()
-        .all(|(col, val)| row.get(col).is_some_and(|v| v == val))
+        .all(|(col, val)| row.get(col).is_some_and(|v| same_value(v, val)))
 }
 
-/// Returns `true` if any row in `rows` matches all of the required column-value pairs.
+/// Returns `true` if any row of `vertex`'s table matches all of the required
+/// column-value pairs.
 fn table_contains_match(
-    rows: &[HashMap<String, Value>],
+    instance: &FInstance,
+    vertex: &str,
     required: &HashMap<String, Value>,
 ) -> bool {
-    rows.iter().any(|row| row_matches(row, required))
+    instance
+        .rows(vertex)
+        .into_iter()
+        .any(|(_, row)| row_matches(row, required))
 }
 
 /// Saturate a functor instance under ground row-existence dependencies.
 ///
 /// Iteratively finds active triggers (pattern matches without
-/// corresponding consequences) and adds the missing rows. Returns the
+/// corresponding consequences) and adds the missing rows, each under a
+/// fresh [`RowId`](panproto_inst::RowId) (the least above every row in
+/// use), in the order the dependencies fire. Returns the
 /// fixpoint instance satisfying all dependencies. This is the
 /// referential-integrity closure run after `Sigma_F`; it carries no
 /// variables, labeled nulls, or equalities. For the full term-level chase,
@@ -109,12 +129,33 @@ fn table_contains_match(
 /// # Errors
 ///
 /// Returns [`ChaseError::NonTermination`] if saturation does not
-/// converge within `max_iterations` steps.
+/// converge within `max_iterations` steps, and
+/// [`ChaseError::RowIdsExhausted`] when a fresh row id runs out.
 pub fn saturate_row_existence(
     instance: &FInstance,
     dependencies: &[EmbeddedDependency],
     max_iterations: usize,
 ) -> Result<FInstance, ChaseError> {
+    saturate_row_existence_with_hom(instance, dependencies, max_iterations)
+        .map(|(result, _)| result)
+}
+
+/// [`saturate_row_existence`], with the row map from the input into the
+/// saturated instance.
+///
+/// Saturation only adds rows, so every input row keeps its id, table and
+/// cells and the map is the inclusion: it sends each input row to itself.
+/// The rows outside its image are the ones saturation created.
+///
+/// # Errors
+///
+/// As [`saturate_row_existence`].
+pub fn saturate_row_existence_with_hom(
+    instance: &FInstance,
+    dependencies: &[EmbeddedDependency],
+    max_iterations: usize,
+) -> Result<(FInstance, FInstanceHom), ChaseError> {
+    let inclusion = FInstanceHom::identity(instance);
     let mut result = instance.clone();
 
     for _ in 0..max_iterations {
@@ -128,27 +169,22 @@ pub fn saturate_row_existence(
             // which is what the pattern table was being copied for; a
             // dependency whose pattern table is missing fires no trigger
             // and creates no consequence table.
-            let triggered = result
-                .tables
-                .get(&dep.pattern_vertex)
-                .is_some_and(|rows| rows.iter().any(|row| row_matches(row, &dep.pattern_values)));
-            if !triggered {
+            if !table_contains_match(&result, &dep.pattern_vertex, &dep.pattern_values) {
                 continue;
             }
-
-            let consequence_rows = result
-                .tables
-                .entry(dep.consequence_vertex.clone())
-                .or_default();
-
-            if !table_contains_match(consequence_rows, &dep.consequence_values) {
-                consequence_rows.push(dep.consequence_values.clone());
+            if !table_contains_match(&result, &dep.consequence_vertex, &dep.consequence_values) {
+                result
+                    .push_row(
+                        dep.consequence_vertex.as_str(),
+                        dep.consequence_values.clone(),
+                    )
+                    .map_err(|_| ChaseError::RowIdsExhausted)?;
                 changed = true;
             }
         }
 
         if !changed {
-            return Ok(result);
+            return Ok((result, inclusion));
         }
     }
 
@@ -454,18 +490,49 @@ type Binding = HashMap<String, Value>;
 /// The run is bounded by `budget`: exceeding either the iteration or the
 /// null limit yields [`ChaseOutcome::NonTermination`] rather than looping.
 ///
+/// Every row a firing adds takes a fresh [`RowId`](panproto_inst::RowId),
+/// the least above every row in use, so rows are numbered in firing order:
+/// dependencies in the order given, matches in ascending row id, head atoms
+/// in the order given. Existing rows keep their ids.
+///
 /// # Errors
 ///
 /// Returns [`ChaseError::Inconsistent`] when an equality-generating
-/// dependency tries to equate two distinct constants.
+/// dependency tries to equate two distinct constants, and
+/// [`ChaseError::RowIdsExhausted`] when a fresh row id runs out.
 pub fn chase(
     instance: &FInstance,
     dependencies: &[Dependency],
     budget: ChaseBudget,
 ) -> Result<ChaseOutcome, ChaseError> {
+    chase_with_hom(instance, dependencies, budget).map(|(outcome, _)| outcome)
+}
+
+/// [`chase`], with the homomorphism from the input into the chased instance.
+///
+/// The chase adds rows and replaces labeled nulls in place, but never merges
+/// or removes a row, so every input row keeps its id and table: the row map
+/// sends each input row to itself. Its null map sends each labeled null of
+/// the input to the value the equalities forced on it (a constant, or the
+/// null it was merged into), so the input row's cells, read along the null
+/// map, are the chased row's cells. The rows outside the image are the ones
+/// the chase created, in firing order. On [`ChaseOutcome::NonTermination`]
+/// there is no chased instance, and the map is the one into the partial run.
+///
+/// # Errors
+///
+/// As [`chase`].
+pub fn chase_with_hom(
+    instance: &FInstance,
+    dependencies: &[Dependency],
+    budget: ChaseBudget,
+) -> Result<(ChaseOutcome, FInstanceHom), ChaseError> {
     let mut result = instance.clone();
     let mut next_null = fresh_null_seed(&result);
     let mut nulls_created = 0usize;
+    // Each labeled null of the input, with the value it currently stands at.
+    let mut forced = input_nulls(instance);
+    let hom = |forced: BTreeMap<u64, Value>| FInstanceHom::identity(instance).with_null_map(forced);
 
     for _ in 0..budget.max_iterations {
         let mut changed = false;
@@ -484,7 +551,7 @@ pub fn chase(
                                 if let AtomTerm::Var(v) = term {
                                     if !firing.contains_key(v) {
                                         if nulls_created >= budget.max_nulls {
-                                            return Ok(ChaseOutcome::NonTermination);
+                                            return Ok((ChaseOutcome::NonTermination, hom(forced)));
                                         }
                                         firing.insert(v.clone(), Value::LabeledNull(next_null));
                                         next_null += 1;
@@ -496,10 +563,8 @@ pub fn chase(
                         for atom in head {
                             let row = instantiate_row(atom, &firing);
                             result
-                                .tables
-                                .entry(atom.table.clone())
-                                .or_default()
-                                .push(row);
+                                .push_row(atom.table.as_str(), row)
+                                .map_err(|_| ChaseError::RowIdsExhausted)?;
                         }
                         changed = true;
                     }
@@ -512,13 +577,13 @@ pub fn chase(
                         let a = resolve_term(left, &binding);
                         let b = resolve_term(right, &binding);
                         if let (Some(a), Some(b)) = (a, b) {
-                            if a != b {
+                            if !same_value(&a, &b) {
                                 equalities.push((a, b));
                             }
                         }
                     }
                     for (a, b) in equalities {
-                        if merge_values(&a, &b, &mut result)? {
+                        if merge_values(&a, &b, &mut result, &mut forced)? {
                             changed = true;
                         }
                     }
@@ -527,18 +592,33 @@ pub fn chase(
         }
 
         if !changed {
-            return Ok(ChaseOutcome::Saturated(result));
+            return Ok((ChaseOutcome::Saturated(result), hom(forced)));
         }
     }
 
-    Ok(ChaseOutcome::NonTermination)
+    Ok((ChaseOutcome::NonTermination, hom(forced)))
+}
+
+/// Every labeled null occurring in the instance, each standing at itself.
+fn input_nulls(instance: &FInstance) -> BTreeMap<u64, Value> {
+    let mut nulls = BTreeMap::new();
+    for (_, table) in instance.tables() {
+        for (_, row) in table.rows() {
+            for value in row.values() {
+                if let Value::LabeledNull(id) = value {
+                    nulls.insert(*id, value.clone());
+                }
+            }
+        }
+    }
+    nulls
 }
 
 /// The first labeled-null id not already used anywhere in the instance.
 fn fresh_null_seed(instance: &FInstance) -> u64 {
     let mut max_id: Option<u64> = None;
-    for rows in instance.tables.values() {
-        for row in rows {
+    for (_, table) in instance.tables() {
+        for (_, row) in table.rows() {
             for value in row.values() {
                 if let Value::LabeledNull(id) = value {
                     max_id = Some(max_id.map_or(*id, |m| m.max(*id)));
@@ -580,10 +660,7 @@ fn match_body(body: &[Atom], instance: &FInstance) -> Vec<Binding> {
 /// Extend `binding` with every way of matching `atom` against a row of its
 /// table, pushing each successful extension into `out`.
 fn extend_binding(atom: &Atom, instance: &FInstance, binding: &Binding, out: &mut Vec<Binding>) {
-    let Some(rows) = instance.tables.get(&atom.table) else {
-        return;
-    };
-    for row in rows {
+    for (_, row) in instance.rows(&atom.table) {
         let mut candidate = binding.clone();
         if unify_atom(atom, row, &mut candidate) {
             out.push(candidate);
@@ -599,12 +676,12 @@ fn unify_atom(atom: &Atom, row: &HashMap<String, Value>, binding: &mut Binding) 
         };
         match term {
             AtomTerm::Const(v) => {
-                if v != row_val {
+                if !same_value(v, row_val) {
                     return false;
                 }
             }
             AtomTerm::Var(v) => match binding.get(v) {
-                Some(bound) if bound != row_val => return false,
+                Some(bound) if !same_value(bound, row_val) => return false,
                 Some(_) => {}
                 None => {
                     binding.insert(v.clone(), row_val.clone());
@@ -654,48 +731,50 @@ fn instantiate_row(atom: &Atom, binding: &Binding) -> HashMap<String, Value> {
 /// Merge two values under an equality-generating dependency.
 ///
 /// A labeled null is merged into the other value by substituting it
-/// throughout the instance; two distinct constants are a conflict. Returns
-/// whether the instance changed.
+/// throughout the instance and throughout `forced`, the value each input
+/// null stands at; two distinct constants are a conflict. Returns whether
+/// the instance changed.
 ///
 /// # Errors
 ///
 /// Returns [`ChaseError::Inconsistent`] when both values are distinct
 /// constants.
-fn merge_values(a: &Value, b: &Value, instance: &mut FInstance) -> Result<bool, ChaseError> {
-    if a == b {
+fn merge_values(
+    a: &Value,
+    b: &Value,
+    instance: &mut FInstance,
+    forced: &mut BTreeMap<u64, Value>,
+) -> Result<bool, ChaseError> {
+    if same_value(a, b) {
         return Ok(false);
     }
-    match (a.as_labeled_null(), b.as_labeled_null()) {
+    let (from, to) = match (a.as_labeled_null(), b.as_labeled_null()) {
         // Merge the higher-id null into the lower, or a null into a constant.
-        (Some(na), Some(nb)) => {
-            let (from, to) = if na >= nb {
-                (na, b.clone())
-            } else {
-                (nb, a.clone())
-            };
-            substitute_null(instance, from, &to);
-            Ok(true)
+        (Some(na), Some(nb)) if na >= nb => (na, b),
+        (Some(na), None) => (na, b),
+        (_, Some(nb)) => (nb, a),
+        (None, None) => {
+            return Err(ChaseError::Inconsistent {
+                left: format!("{a:?}"),
+                right: format!("{b:?}"),
+            });
         }
-        (Some(na), None) => {
-            substitute_null(instance, na, b);
-            Ok(true)
+    };
+    substitute_null(instance, from, to);
+    let merged = Value::LabeledNull(from);
+    for value in forced.values_mut() {
+        if *value == merged {
+            *value = to.clone();
         }
-        (None, Some(nb)) => {
-            substitute_null(instance, nb, a);
-            Ok(true)
-        }
-        (None, None) => Err(ChaseError::Inconsistent {
-            left: format!("{a:?}"),
-            right: format!("{b:?}"),
-        }),
     }
+    Ok(true)
 }
 
 /// Replace every occurrence of `Value::LabeledNull(from)` in the instance's
 /// table rows with `to`.
 fn substitute_null(instance: &mut FInstance, from: u64, to: &Value) {
-    for rows in instance.tables.values_mut() {
-        for row in rows.iter_mut() {
+    for id in instance.row_ids() {
+        if let Some(row) = instance.row_mut(id) {
             for value in row.values_mut() {
                 if *value == Value::LabeledNull(from) {
                     *value = to.clone();
@@ -827,38 +906,43 @@ mod tests {
                     Value::Str("b".into()),
                 )],
             )
-            .with_table(
-                "r",
-                vec![row2(
-                    "in0",
-                    Value::Str("b".into()),
-                    "out",
-                    Value::LabeledNull(0),
-                )],
-            );
+            .and_then(|f| {
+                f.with_table(
+                    "r",
+                    vec![row2(
+                        "in0",
+                        Value::Str("b".into()),
+                        "out",
+                        Value::LabeledNull(0),
+                    )],
+                )
+            })
+            .unwrap();
 
         let outcome = chase(&instance, &deps, ChaseBudget::new(50, 50)).unwrap();
         let ChaseOutcome::Saturated(result) = outcome else {
             panic!("expected saturation, got {outcome:?}");
         };
         // r's output null is merged with x = "a".
-        let r_rows = result.tables.get("r").unwrap();
+        let r_rows = result.rows("r");
         assert_eq!(r_rows.len(), 1);
-        assert_eq!(r_rows[0].get("out"), Some(&Value::Str("a".into())));
+        assert_eq!(r_rows[0].1.get("out"), Some(&Value::Str("a".into())));
     }
 
     #[test]
     fn chase_egd_merges_null() {
         // An EGD equating two columns merges a labeled null with a constant.
-        let instance = FInstance::new().with_table(
-            "t",
-            vec![row2(
-                "a",
-                Value::Str("x".into()),
-                "b",
-                Value::LabeledNull(0),
-            )],
-        );
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![row2(
+                    "a",
+                    Value::Str("x".into()),
+                    "b",
+                    Value::LabeledNull(0),
+                )],
+            )
+            .unwrap();
         let egd = Dependency::Egd {
             body: vec![Atom::new(
                 "t",
@@ -875,8 +959,8 @@ mod tests {
         let ChaseOutcome::Saturated(result) = outcome else {
             panic!("expected saturation, got {outcome:?}");
         };
-        let rows = result.tables.get("t").unwrap();
-        assert_eq!(rows[0].get("b"), Some(&Value::Str("x".into())));
+        let rows = result.rows("t");
+        assert_eq!(rows[0].1.get("b"), Some(&Value::Str("x".into())));
         // The constant-versus-null merge conflicting with a constant fails.
         let bad = Dependency::Egd {
             body: vec![Atom::new("t", [("a", AtomTerm::Var("v".into()))])],
@@ -895,7 +979,9 @@ mod tests {
         // A tuple-generating dependency that regenerates itself with a fresh
         // null each round exhausts the null budget and reports
         // non-termination rather than looping.
-        let instance = FInstance::new().with_table("chain", vec![row("val", Value::Int(0))]);
+        let instance = FInstance::new()
+            .with_table("chain", vec![row("val", Value::Int(0))])
+            .unwrap();
         let tgd = Dependency::Tgd {
             body: vec![Atom::new("chain", [("val", AtomTerm::Var("v".into()))])],
             head: vec![Atom::new(
@@ -929,26 +1015,139 @@ mod tests {
                     Value::Str("b".into()),
                 )],
             )
-            .with_table(
-                "r",
-                vec![row2(
-                    "in0",
-                    Value::Str("b".into()),
-                    "out",
-                    Value::Str("a".into()),
-                )],
-            );
+            .and_then(|f| {
+                f.with_table(
+                    "r",
+                    vec![row2(
+                        "in0",
+                        Value::Str("b".into()),
+                        "out",
+                        Value::Str("a".into()),
+                    )],
+                )
+            })
+            .unwrap();
 
         let outcome = chase(&instance, &deps, ChaseBudget::new(50, 50)).unwrap();
         let ChaseOutcome::Saturated(result) = outcome else {
             panic!("expected saturation, got {outcome:?}");
         };
         assert_eq!(
-            result.tables.get("r").unwrap()[0].get("out"),
-            Some(&Value::Str("a".into())),
-            "an already-satisfied instance is unchanged",
+            result, instance,
+            "an already-satisfied instance is unchanged"
         );
-        assert_eq!(result.tables.get("f").unwrap().len(), 1);
+        assert_eq!(result.row_count("f"), 1);
+    }
+
+    #[test]
+    fn chase_allocates_rows_in_firing_order() {
+        use panproto_inst::RowId;
+        // A holds rows 0 (x = 1) and 1 (x = 2); each firing adds a B row and
+        // then a C row.
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1)), row("x", Value::Int(2))])
+            .unwrap();
+        let tgd = Dependency::Tgd {
+            body: vec![Atom::new("A", [("x", AtomTerm::Var("v".into()))])],
+            head: vec![
+                Atom::new("B", [("y", AtomTerm::Var("v".into()))]),
+                Atom::new("C", [("z", AtomTerm::Var("v".into()))]),
+            ],
+        };
+        let outcome = chase(&instance, &[tgd], ChaseBudget::new(10, 10)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        let at = |id: u32| {
+            (
+                result.table_of(RowId(id)).map(ToString::to_string),
+                result.row(RowId(id)).cloned(),
+            )
+        };
+        assert_eq!(at(2), (Some("B".into()), Some(row("y", Value::Int(1)))));
+        assert_eq!(at(3), (Some("C".into()), Some(row("z", Value::Int(1)))));
+        assert_eq!(at(4), (Some("B".into()), Some(row("y", Value::Int(2)))));
+        assert_eq!(at(5), (Some("C".into()), Some(row("z", Value::Int(2)))));
+        assert_eq!(result.total_row_count(), 6);
+        // The input rows keep their ids.
+        assert_eq!(result.row(RowId(0)), instance.row(RowId(0)));
+    }
+
+    #[test]
+    fn the_chase_row_map_carries_the_values_an_egd_forced() {
+        // Two input rows share the labeled null 0 and a third holds null 1;
+        // the EGD forces null 0 to "x", then null 1 to null 0's value.
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![
+                    row2("a", Value::Str("x".into()), "b", Value::LabeledNull(0)),
+                    row2("a", Value::LabeledNull(1), "b", Value::LabeledNull(0)),
+                ],
+            )
+            .unwrap();
+        let egd = Dependency::Egd {
+            body: vec![Atom::new(
+                "t",
+                [
+                    ("a", AtomTerm::Var("v".into())),
+                    ("b", AtomTerm::Var("w".into())),
+                ],
+            )],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Var("w".into()),
+        };
+        let (outcome, hom) = chase_with_hom(&instance, &[egd], ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        for (_, row) in result.rows("t") {
+            assert_eq!(row.get("a"), Some(&Value::Str("x".into())));
+            assert_eq!(row.get("b"), Some(&Value::Str("x".into())));
+        }
+        // The row map sends each input row to its chased row.
+        assert_eq!(hom.check(&instance, &result), Ok(()));
+    }
+
+    #[test]
+    fn every_row_creating_chase_returns_its_row_map() {
+        use panproto_inst::RowId;
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1)), row("x", Value::Int(2))])
+            .unwrap();
+        let tgd = Dependency::Tgd {
+            body: vec![Atom::new("A", [("x", AtomTerm::Var("v".into()))])],
+            head: vec![Atom::new("B", [("y", AtomTerm::Var("v".into()))])],
+        };
+        let (outcome, hom) = chase_with_hom(&instance, &[tgd], ChaseBudget::new(10, 10)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(
+            hom.row_map
+                .iter()
+                .map(|(a, b)| (*a, *b))
+                .collect::<Vec<_>>(),
+            vec![(RowId(0), RowId(0)), (RowId(1), RowId(1))]
+        );
+        hom.check_tables(&instance, &result).unwrap();
+        let created: Vec<RowId> = result
+            .row_ids()
+            .into_iter()
+            .filter(|id| !hom.row_map.values().any(|image| image == id))
+            .collect();
+        assert_eq!(created, vec![RowId(2), RowId(3)]);
+
+        let dep = EmbeddedDependency {
+            pattern_vertex: "A".into(),
+            pattern_values: HashMap::new(),
+            consequence_vertex: "C".into(),
+            consequence_values: row("z", Value::Int(0)),
+        };
+        let (saturated, hom) = saturate_row_existence_with_hom(&instance, &[dep], 10).unwrap();
+        assert_eq!(hom, FInstanceHom::identity(&instance));
+        hom.check_tables(&instance, &saturated).unwrap();
+        assert_eq!(saturated.row_ids(), vec![RowId(0), RowId(1), RowId(2)]);
     }
 
     #[test]
@@ -956,7 +1155,8 @@ mod tests {
         // Instance already has the consequence row.
         let instance = FInstance::new()
             .with_table("A", vec![row("x", Value::Int(1))])
-            .with_table("B", vec![row("y", Value::Int(2))]);
+            .and_then(|f| f.with_table("B", vec![row("y", Value::Int(2))]))
+            .unwrap();
 
         let dep = EmbeddedDependency {
             pattern_vertex: "A".to_owned(),
@@ -973,7 +1173,9 @@ mod tests {
     #[test]
     fn chase_adds_missing_consequence_row() {
         // Instance has the pattern but not the consequence.
-        let instance = FInstance::new().with_table("A", vec![row("x", Value::Int(1))]);
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1))])
+            .unwrap();
 
         let dep = EmbeddedDependency {
             pattern_vertex: "A".to_owned(),
@@ -986,14 +1188,18 @@ mod tests {
         assert_eq!(result.row_count("A"), 1);
         assert_eq!(result.row_count("B"), 1);
 
-        let b_rows = result.tables.get("B").unwrap();
-        assert_eq!(b_rows[0].get("y"), Some(&Value::Int(2)));
+        let b_rows = result.rows("B");
+        assert_eq!(b_rows[0].1.get("y"), Some(&Value::Int(2)));
+        // The added row takes the least id above every row in use.
+        assert_eq!(b_rows[0].0, panproto_inst::RowId(1));
     }
 
     #[test]
     fn chase_multi_iteration_fixpoint() {
         // Chain: A triggers B, B triggers C. Needs two iterations.
-        let instance = FInstance::new().with_table("A", vec![row("x", Value::Int(1))]);
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1))])
+            .unwrap();
 
         let deps = vec![
             EmbeddedDependency {
@@ -1043,7 +1249,9 @@ mod tests {
         // that still converges.
         //
         // The realistic way to test this: use max_iterations = 0.
-        let instance = FInstance::new().with_table("A", vec![row("x", Value::Int(1))]);
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(1))])
+            .unwrap();
 
         let dep = EmbeddedDependency {
             pattern_vertex: "A".to_owned(),
@@ -1062,7 +1270,9 @@ mod tests {
     #[test]
     fn chase_no_trigger_when_pattern_absent() {
         // Pattern vertex has no matching rows, so no consequence added.
-        let instance = FInstance::new().with_table("A", vec![row("x", Value::Int(99))]);
+        let instance = FInstance::new()
+            .with_table("A", vec![row("x", Value::Int(99))])
+            .unwrap();
 
         let dep = EmbeddedDependency {
             pattern_vertex: "A".to_owned(),
@@ -1340,5 +1550,90 @@ mod tests {
 
         let deps = dependencies_from_theory(&theory, &schema);
         assert!(deps.is_empty(), "no equations means no dependencies");
+    }
+
+    /// The equality an equality-generating dependency enforces between two
+    /// columns `a` and `b` of table `t`.
+    fn columns_agree() -> Dependency {
+        Dependency::Egd {
+            body: vec![Atom::new(
+                "t",
+                [
+                    ("a", AtomTerm::Var("v".into())),
+                    ("b", AtomTerm::Var("w".into())),
+                ],
+            )],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Var("w".into()),
+        }
+    }
+
+    /// Values are compared by canonical bytes: two `NaN` cells are the same
+    /// value, so equating them is already satisfied and changes nothing.
+    #[test]
+    fn equating_nan_with_nan_is_satisfied() {
+        let nan = Value::Float(f64::NAN);
+        let instance = FInstance::new()
+            .with_table("t", vec![row2("a", nan.clone(), "b", nan)])
+            .unwrap();
+        let outcome = chase(&instance, &[columns_agree()], ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(result, instance);
+    }
+
+    /// `0.0` and `-0.0` are distinct constants (their canonical bytes
+    /// differ), so equating them is a conflict, not a satisfied equality.
+    #[test]
+    fn equating_signed_zeros_is_inconsistent() {
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![row2("a", Value::Float(0.0), "b", Value::Float(-0.0))],
+            )
+            .unwrap();
+        let err = chase(&instance, &[columns_agree()], ChaseBudget::new(50, 50)).unwrap_err();
+        assert!(matches!(err, ChaseError::Inconsistent { .. }), "{err:?}");
+    }
+
+    /// A constant in a body atom matches a cell exactly: `NaN` matches a
+    /// `NaN` cell, and `0.0` does not match `-0.0`.
+    #[test]
+    fn a_body_constant_matches_cells_exactly() {
+        let fire_on = |constant: Value, cell: Value| {
+            let instance = FInstance::new()
+                .with_table("t", vec![row("a", cell)])
+                .unwrap();
+            let tgd = Dependency::Tgd {
+                body: vec![Atom::new("t", [("a", AtomTerm::Const(constant))])],
+                head: vec![Atom::new("u", [("a", AtomTerm::Const(Value::Int(1)))])],
+            };
+            let ChaseOutcome::Saturated(result) =
+                chase(&instance, &[tgd], ChaseBudget::new(50, 50)).unwrap()
+            else {
+                panic!("expected saturation");
+            };
+            result.row_count("u")
+        };
+        assert_eq!(fire_on(Value::Float(f64::NAN), Value::Float(f64::NAN)), 1);
+        assert_eq!(fire_on(Value::Float(0.0), Value::Float(-0.0)), 0);
+    }
+
+    /// Row-existence saturation finds a consequence row holding `NaN`, so it
+    /// adds it once and stops instead of adding it every round.
+    #[test]
+    fn saturation_finds_a_nan_consequence() {
+        let instance = FInstance::new()
+            .with_table("p", vec![row("k", Value::Int(1))])
+            .unwrap();
+        let dep = EmbeddedDependency {
+            pattern_vertex: "p".into(),
+            pattern_values: row("k", Value::Int(1)),
+            consequence_vertex: "q".into(),
+            consequence_values: row("x", Value::Float(f64::NAN)),
+        };
+        let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
+        assert_eq!(result.row_count("q"), 1);
     }
 }

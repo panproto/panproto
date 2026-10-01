@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_inst::{
     EdgeId, FInstance, Fan, FanViolation, FieldPresence, GEdge, GInstance, HYPER_LABEL_KIND,
-    HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, Value, WInstance,
+    HYPER_PARENT_KIND, InstError, Node, NodeShape, NotTreeReason, RowId, Value, WInstance,
     from_node_link_json, reify_fans, to_node_link_json, unreify_fans,
 };
 use panproto_schema::{Edge, HyperEdge, Protocol, SchemaBuilder};
@@ -431,34 +431,44 @@ fn a_table_instance_lays_out_rows_and_keys_in_order() {
         name: None,
     };
     let row = |k: &str, v: i64| HashMap::from([(k.to_owned(), Value::Int(v))]);
+    // Users are rows 0 and 1, posts rows 2 and 3.
     let tables = FInstance::new()
         .with_table("users", vec![row("uid", 10), row("uid", 11)])
-        .with_table("posts", vec![row("pid", 20), row("pid", 21)])
-        .with_foreign_key(author.clone(), vec![(1, 0), (0, 1)]);
-    let graph = GInstance::from_finstance(&tables).expect("the table instance is a graph");
+        .and_then(|f| f.with_table("posts", vec![row("pid", 20), row("pid", 21)]))
+        .and_then(|f| {
+            f.with_foreign_key(author.clone(), [(RowId(3), RowId(0)), (RowId(2), RowId(1))])
+        })
+        .expect("the table instance is well formed");
+    let (graph, embedding) =
+        GInstance::from_finstance(&tables).expect("the table instance is a graph");
 
-    // "posts" sorts before "users": posts 0 and 1 are nodes 0 and 1.
-    assert_eq!(graph.node(0).map(|n| &n.anchor), Some(&Name::from("posts")));
+    // Row r is node r.0, anchored at its table.
+    assert_eq!(graph.node(2).map(|n| &n.anchor), Some(&Name::from("posts")));
     assert_eq!(
-        graph.node(3).and_then(|n| n.extra_fields.get("uid")),
+        graph.node(1).and_then(|n| n.extra_fields.get("uid")),
         Some(&Value::Int(11))
     );
+    // Pairs take edge ids in ascending (edge, src, tgt).
     assert_eq!(
         graph.edge(EdgeId(0)),
-        Some(&GEdge::new(1, 2, author.clone()))
+        Some(&GEdge::new(2, 1, author.clone()))
     );
     assert_eq!(
         graph.edge(EdgeId(1)),
-        Some(&GEdge::new(0, 3, author.clone()))
+        Some(&GEdge::new(3, 0, author.clone()))
     );
+    assert_eq!(embedding.next_edge, 2);
 
-    let broken = FInstance::new()
-        .with_table("users", vec![row("uid", 10)])
-        .with_table("posts", vec![row("pid", 20)])
-        .with_foreign_key(author, vec![(0, 5)]);
+    let broken = FInstance::from_parts(
+        [
+            (Name::from("users"), vec![(RowId(0), row("uid", 10))]),
+            (Name::from("posts"), vec![(RowId(1), row("pid", 20))]),
+        ],
+        [(author, vec![(RowId(1), RowId(5))])],
+    );
     assert!(matches!(
-        GInstance::from_finstance(&broken),
-        Err(InstError::DanglingForeignKey { row: 5, .. })
+        broken,
+        Err(InstError::DanglingForeignKey { row: RowId(5), .. })
     ));
 }
 

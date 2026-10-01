@@ -41,7 +41,7 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
         ]),
     ];
 
-    let instance = FInstance::new().with_table("workers", src_rows);
+    let instance = FInstance::new().with_table("workers", src_rows)?;
 
     // The "functor" F maps employees -> workers.
     // Delta_F should pull the "workers" table back to "employees".
@@ -63,7 +63,7 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
     // Delta_F should produce an instance with "employees" table
     // containing the same rows as "workers".
     assert_eq!(restricted.table_count(), 1);
-    assert!(restricted.tables.contains_key("employees"));
+    assert!(restricted.has_table("employees"));
     assert_eq!(restricted.row_count("employees"), 2);
 
     Ok(())
@@ -137,10 +137,17 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
         Value::Str("Engineering".into()),
     )])];
 
+    // Employees are rows 0 and 1, the department row 2.
     let instance = FInstance::new()
-        .with_table("employees", emp_rows)
-        .with_table("departments", dept_rows)
-        .with_foreign_key(fk_edge.clone(), vec![(0, 0), (1, 0)]);
+        .with_table("employees", emp_rows)?
+        .with_table("departments", dept_rows)?
+        .with_foreign_key(
+            fk_edge.clone(),
+            [
+                (panproto_inst::RowId(0), panproto_inst::RowId(2)),
+                (panproto_inst::RowId(1), panproto_inst::RowId(2)),
+            ],
+        )?;
 
     // Identity migration: keep both tables.
     let compiled = CompiledMigration {
@@ -160,8 +167,9 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
     assert_eq!(restricted.table_count(), 2, "both tables should survive");
     assert_eq!(restricted.row_count("employees"), 2);
     assert_eq!(restricted.row_count("departments"), 1);
-    assert!(
-        restricted.foreign_keys.contains_key(&fk_edge),
+    assert_eq!(
+        restricted.pairs(&fk_edge).len(),
+        2,
         "FK should be preserved"
     );
 
@@ -204,7 +212,7 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
         "value".into(),
         Value::Str("hello".into()),
     )])];
-    let small_instance = FInstance::new().with_table("A", a_rows);
+    let small_instance = FInstance::new().with_table("A", a_rows)?;
 
     let migration = CompiledMigration {
         surviving_verts: HashSet::from(["A".into(), "B".into()]),
@@ -221,7 +229,8 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
 
     let extended = functor_extend(&small_instance, &migration)?;
 
-    assert_eq!(extended.table_count(), 2, "should have A and B tables");
+    // A table is a vertex with at least one row, so the empty B does not count.
+    assert_eq!(extended.table_count(), 1, "only A holds rows");
     assert_eq!(extended.row_count("A"), 1, "A table should have 1 row");
     assert_eq!(extended.row_count("B"), 0, "B table should be empty");
 

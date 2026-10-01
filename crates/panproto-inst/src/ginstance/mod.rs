@@ -56,6 +56,7 @@ pub use reify::{
     FanDomain, HYPER_LABEL_KIND, HYPER_PARENT_KIND, reify_fans, reify_fans_owned, unreify_fans,
     unreify_fans_owned, unreify_fans_with_schema,
 };
+pub use table_embed::{NotTableReason, TableEmbedding, TableShapeReport};
 pub use tree_shape::{NotTreeReason, TreeShapeReport};
 
 /// Identifier of an edge in a [`GInstance`].

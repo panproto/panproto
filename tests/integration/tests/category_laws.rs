@@ -869,7 +869,7 @@ fn functor_identity_restrict() -> Result<(), Box<dyn std::error::Error>> {
     let mut row = HashMap::new();
     row.insert("name".to_string(), Value::Str("Alice".into()));
 
-    let inst = FInstance::new().with_table("users", vec![row.clone()]);
+    let inst = FInstance::new().with_table("users", vec![row.clone()])?;
 
     let id_mig = CompiledMigration {
         surviving_verts: std::iter::once(Name::from("users")).collect(),

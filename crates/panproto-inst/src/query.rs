@@ -867,7 +867,7 @@ mod tests {
     fn execute_any_finstance_dispatch() {
         let mut row = HashMap::new();
         row.insert("name".to_string(), Value::Str("Alice".into()));
-        let f = FInstance::new().with_table("users", vec![row]);
+        let f = FInstance::new().with_table("users", vec![row]).unwrap();
 
         let schema = make_test_schema();
         let query = InstanceQuery {
