@@ -537,8 +537,8 @@ impl Sides<'_> {
         })?;
         if sort.params.len() != counterpart.params.len() {
             return Err(format!(
-                "identified sort '{left_name}' takes {} parameters in left theory '{}', but \
-                 '{right_name}' takes {} in right theory '{}'",
+                "identified sort '{left_name}' has arity {} in left theory '{}', but \
+                 '{right_name}' has arity {} in right theory '{}'",
                 sort.params.len(),
                 self.step.left,
                 counterpart.params.len(),
@@ -583,8 +583,8 @@ impl Sides<'_> {
         })?;
         if op.inputs.len() != counterpart.inputs.len() {
             return Err(format!(
-                "{what} operation '{left_name}' takes {} inputs in left theory '{}', but \
-                 '{right_name}' takes {} in right theory '{}'",
+                "{what} operation '{left_name}' has arity {} in left theory '{}', but \
+                 '{right_name}' has arity {} in right theory '{}'",
                 op.inputs.len(),
                 self.step.left,
                 counterpart.inputs.len(),
@@ -1390,11 +1390,12 @@ mod tests {
                 panic!("{mode}: src~tgt needs Vertex~Vertex");
             };
             let message = user_message(error);
-            assert!(
-                message.contains("'src'")
-                    && message.contains("'tgt'")
-                    && message.contains("'Vertex'"),
-                "{mode}: {message}"
+            assert_eq!(
+                message,
+                "operation 'src', shared or identified with 'tgt', needs the sort 'Vertex' to be \
+                 one symbol with the right sort 'Vertex', but the step neither shares 'Vertex' \
+                 nor identifies it with 'Vertex'",
+                "{mode}"
             );
         }
     }
@@ -1419,7 +1420,11 @@ mod tests {
             };
             let message = user_message(error);
             assert!(
-                message.contains("'src'") && message.contains(&format!("'{other}'")),
+                message
+                    == format!(
+                        "identified operation 'src' has arity 1 in left theory 'ThGraph', but \
+                         '{other}' has arity 2 in right theory 'ThHypergraph'"
+                    ),
                 "{mode}: {message}"
             );
         }
@@ -1443,9 +1448,9 @@ mod tests {
                     panic!("{mode}, {identify:?}: Nope is in neither theory");
                 };
                 let message = user_message(error);
-                assert!(
-                    message.contains("'Nope'") && message.contains("'ThGraph'"),
-                    "{mode}, {identify:?}: {message}"
+                assert_eq!(
+                    message, "shared sort 'Nope' not found in left theory 'ThGraph'",
+                    "{mode}, {identify:?}"
                 );
             }
             // Present on the left only: the right theory is named.
@@ -1463,9 +1468,9 @@ mod tests {
                 panic!("{mode}: Edge is not in ThHypergraph");
             };
             let message = user_message(error);
-            assert!(
-                message.contains("'Edge'") && message.contains("'ThHypergraph'"),
-                "{mode}: {message}"
+            assert_eq!(
+                message, "shared sort 'Edge' not found in right theory 'ThHypergraph'",
+                "{mode}"
             );
         }
     }
