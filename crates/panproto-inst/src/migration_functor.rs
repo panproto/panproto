@@ -415,29 +415,31 @@ mod tests {
     /// does not intersect with its pairs.
     #[test]
     fn a_surviving_image_is_not_a_source_relation() -> Result<(), Box<dyn std::error::Error>> {
-        let (p, q) = (fk("a", "b", "p"), fk("a", "b", "q"));
-        let src = table_schema(&["a", "b"], &[p.clone(), q.clone()]);
-        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&q));
-        let mut m = CompiledMigration::default();
-        m.surviving_verts.extend(["a".into(), "b".into()]);
-        m.edge_remap.insert(p.clone(), q.clone());
-        m.surviving_edges.insert(q.clone());
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
+        let (carried, listed) = (fk("a", "b", "p"), fk("a", "b", "q"));
+        let src = table_schema(&["a", "b"], &[carried.clone(), listed.clone()]);
+        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&listed));
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.extend(["a".into(), "b".into()]);
+        migration.edge_remap.insert(carried.clone(), listed.clone());
+        migration.surviving_edges.insert(listed.clone());
+        let functor = MigrationFunctor::new(&src, &tgt, &migration)?;
         assert_eq!(
-            f.relation_map().keys().collect::<Vec<_>>(),
-            [&p],
+            functor.relation_map().keys().collect::<Vec<_>>(),
+            [&carried],
             "source q is outside the domain"
         );
-        let x = crate::FInstance::new()
+        let inst = crate::FInstance::new()
             .with_rows("a", [(crate::RowId(0), crate::Row::new())])
             .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
-            .and_then(|i| i.with_foreign_key(p.clone(), [(crate::RowId(0), crate::RowId(1))]))?;
-        let pi = crate::functor_pi_along(&x, &f, 1000)?;
-        assert_eq!(pi.pairs(&q).len(), 1, "{pi:?}");
+            .and_then(|i| {
+                i.with_foreign_key(carried.clone(), [(crate::RowId(0), crate::RowId(1))])
+            })?;
+        let pi = crate::functor_pi_along(&inst, &functor, 1000)?;
+        assert_eq!(pi.pairs(&listed).len(), 1, "{pi:?}");
         // Listed under its own image too, it is kept.
-        m.edge_remap.insert(q.clone(), q.clone());
-        let f = MigrationFunctor::new(&src, &tgt, &m)?;
-        assert_eq!(f.relation_fibre(&q), [&p, &q]);
+        migration.edge_remap.insert(listed.clone(), listed.clone());
+        let functor = MigrationFunctor::new(&src, &tgt, &migration)?;
+        assert_eq!(functor.relation_fibre(&listed), [&carried, &listed]);
         Ok(())
     }
 
