@@ -382,7 +382,11 @@ pub struct CompositionSpec_ {
 /// identified with several right symbols), and then every right symbol it
 /// is named with is one symbol with it. In a step with `identify` entries,
 /// every sort that a shared operation or an identified symbol mentions in
-/// its declaration must be shared or identified too.
+/// its declaration must be shared or identified with the sort in the same
+/// place of its right counterpart's declaration. Every name a step shares
+/// or identifies must be declared on its side, and a shared or identified
+/// pair must take the same number of inputs (operations) or parameters
+/// (sorts).
 /// `mode` says what happens to the other names both sides declare:
 /// [`CompositionMode::Amalgamate`] (the default, and what a step that does
 /// not state a mode has always meant) identifies them too, and
