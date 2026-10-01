@@ -1,0 +1,1208 @@
+{
+  "diagram": {
+    "nodes": [
+      {
+        "label": "Schema",
+        "theory": {
+          "name": "Schema",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Constraint",
+              "params": [
+                {
+                  "name": "v",
+                  "sort": "Vertex"
+                }
+              ],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "EdgeLabel",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "edge_label",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "EdgeLabel"
+            },
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "target",
+              "inputs": [
+                [
+                  "c",
+                  "Constraint",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "ThGraphInstance",
+        "theory": {
+          "name": "ThGraphInstance",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "IVertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "IEdge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Value",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "FanNode",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "FanPort",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "HyperEdge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Label",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "i_src",
+              "inputs": [
+                [
+                  "e",
+                  "IEdge",
+                  "No"
+                ]
+              ],
+              "output": "IVertex"
+            },
+            {
+              "name": "i_tgt",
+              "inputs": [
+                [
+                  "e",
+                  "IEdge",
+                  "No"
+                ]
+              ],
+              "output": "IVertex"
+            },
+            {
+              "name": "iv_anchor",
+              "inputs": [
+                [
+                  "v",
+                  "IVertex",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "ie_anchor",
+              "inputs": [
+                [
+                  "e",
+                  "IEdge",
+                  "No"
+                ]
+              ],
+              "output": "Edge"
+            },
+            {
+              "name": "iv_value",
+              "inputs": [
+                [
+                  "v",
+                  "IVertex",
+                  "No"
+                ]
+              ],
+              "output": "Value"
+            },
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "fan_anchor",
+              "inputs": [
+                [
+                  "f",
+                  "FanNode",
+                  "No"
+                ]
+              ],
+              "output": "HyperEdge"
+            },
+            {
+              "name": "fan_parent",
+              "inputs": [
+                [
+                  "f",
+                  "FanNode",
+                  "No"
+                ]
+              ],
+              "output": "IVertex"
+            },
+            {
+              "name": "port_fan",
+              "inputs": [
+                [
+                  "p",
+                  "FanPort",
+                  "No"
+                ]
+              ],
+              "output": "FanNode"
+            },
+            {
+              "name": "port_label",
+              "inputs": [
+                [
+                  "p",
+                  "FanPort",
+                  "No"
+                ]
+              ],
+              "output": "Label"
+            },
+            {
+              "name": "port_target",
+              "inputs": [
+                [
+                  "p",
+                  "FanPort",
+                  "No"
+                ]
+              ],
+              "output": "IVertex"
+            }
+          ],
+          "eqs": [
+            {
+              "name": "ie_src_anchor",
+              "lhs": {
+                "App": {
+                  "op": "src",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "ie_anchor",
+                        "args": [
+                          {
+                            "Var": "e"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "iv_anchor",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "i_src",
+                        "args": [
+                          {
+                            "Var": "e"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "ie_tgt_anchor",
+              "lhs": {
+                "App": {
+                  "op": "tgt",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "ie_anchor",
+                        "args": [
+                          {
+                            "Var": "e"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              },
+              "rhs": {
+                "App": {
+                  "op": "iv_anchor",
+                  "args": [
+                    {
+                      "App": {
+                        "op": "i_tgt",
+                        "args": [
+                          {
+                            "Var": "e"
+                          }
+                        ]
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          ],
+          "directed_eqs": [],
+          "policies": []
+        }
+      },
+      {
+        "label": "Interface",
+        "theory": {
+          "name": "Interface",
+          "extends": [],
+          "sorts": [
+            {
+              "name": "Vertex",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            },
+            {
+              "name": "Edge",
+              "params": [],
+              "kind": "Structural",
+              "closure": "Open"
+            }
+          ],
+          "ops": [
+            {
+              "name": "src",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            },
+            {
+              "name": "tgt",
+              "inputs": [
+                [
+                  "e",
+                  "Edge",
+                  "No"
+                ]
+              ],
+              "output": "Vertex"
+            }
+          ],
+          "eqs": [],
+          "directed_eqs": [],
+          "policies": []
+        }
+      }
+    ],
+    "edges": [
+      {
+        "src": "Interface",
+        "tgt": "Schema",
+        "morphism": {
+          "name": "Interface_to_Schema",
+          "domain": "Interface",
+          "codomain": "Schema",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {
+            "src": "src",
+            "tgt": "tgt"
+          }
+        }
+      },
+      {
+        "src": "Interface",
+        "tgt": "ThGraphInstance",
+        "morphism": {
+          "name": "Interface_to_ThGraphInstance",
+          "domain": "Interface",
+          "codomain": "ThGraphInstance",
+          "sort_map": {
+            "Edge": "Edge",
+            "Vertex": "Vertex"
+          },
+          "op_map": {
+            "src": "src",
+            "tgt": "tgt"
+          }
+        }
+      }
+    ]
+  },
+  "options": {
+    "mode": "explicit_identity",
+    "result_name": "graph_schema_and_instance",
+    "clash": "reject",
+    "rewrite_budget": 512
+  },
+  "composition": {
+    "theory": {
+      "name": "graph_schema_and_instance",
+      "extends": [],
+      "sorts": [
+        {
+          "name": "Constraint",
+          "params": [
+            {
+              "name": "v",
+              "sort": "Vertex"
+            }
+          ],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Edge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "EdgeLabel",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "FanNode",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "FanPort",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "HyperEdge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "IEdge",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "IVertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Label",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Value",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        },
+        {
+          "name": "Vertex",
+          "params": [],
+          "kind": "Structural",
+          "closure": "Open"
+        }
+      ],
+      "ops": [
+        {
+          "name": "edge_label",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "EdgeLabel"
+        },
+        {
+          "name": "fan_anchor",
+          "inputs": [
+            [
+              "f",
+              "FanNode",
+              "No"
+            ]
+          ],
+          "output": "HyperEdge"
+        },
+        {
+          "name": "fan_parent",
+          "inputs": [
+            [
+              "f",
+              "FanNode",
+              "No"
+            ]
+          ],
+          "output": "IVertex"
+        },
+        {
+          "name": "i_src",
+          "inputs": [
+            [
+              "e",
+              "IEdge",
+              "No"
+            ]
+          ],
+          "output": "IVertex"
+        },
+        {
+          "name": "i_tgt",
+          "inputs": [
+            [
+              "e",
+              "IEdge",
+              "No"
+            ]
+          ],
+          "output": "IVertex"
+        },
+        {
+          "name": "ie_anchor",
+          "inputs": [
+            [
+              "e",
+              "IEdge",
+              "No"
+            ]
+          ],
+          "output": "Edge"
+        },
+        {
+          "name": "iv_anchor",
+          "inputs": [
+            [
+              "v",
+              "IVertex",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "iv_value",
+          "inputs": [
+            [
+              "v",
+              "IVertex",
+              "No"
+            ]
+          ],
+          "output": "Value"
+        },
+        {
+          "name": "port_fan",
+          "inputs": [
+            [
+              "p",
+              "FanPort",
+              "No"
+            ]
+          ],
+          "output": "FanNode"
+        },
+        {
+          "name": "port_label",
+          "inputs": [
+            [
+              "p",
+              "FanPort",
+              "No"
+            ]
+          ],
+          "output": "Label"
+        },
+        {
+          "name": "port_target",
+          "inputs": [
+            [
+              "p",
+              "FanPort",
+              "No"
+            ]
+          ],
+          "output": "IVertex"
+        },
+        {
+          "name": "src",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "target",
+          "inputs": [
+            [
+              "c",
+              "Constraint",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        },
+        {
+          "name": "tgt",
+          "inputs": [
+            [
+              "e",
+              "Edge",
+              "No"
+            ]
+          ],
+          "output": "Vertex"
+        }
+      ],
+      "eqs": [
+        {
+          "name": "ie_src_anchor",
+          "lhs": {
+            "App": {
+              "op": "src",
+              "args": [
+                {
+                  "App": {
+                    "op": "ie_anchor",
+                    "args": [
+                      {
+                        "Var": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "iv_anchor",
+              "args": [
+                {
+                  "App": {
+                    "op": "i_src",
+                    "args": [
+                      {
+                        "Var": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        },
+        {
+          "name": "ie_tgt_anchor",
+          "lhs": {
+            "App": {
+              "op": "tgt",
+              "args": [
+                {
+                  "App": {
+                    "op": "ie_anchor",
+                    "args": [
+                      {
+                        "Var": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          },
+          "rhs": {
+            "App": {
+              "op": "iv_anchor",
+              "args": [
+                {
+                  "App": {
+                    "op": "i_tgt",
+                    "args": [
+                      {
+                        "Var": "e"
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      ],
+      "directed_eqs": [],
+      "policies": []
+    },
+    "inclusions": [
+      {
+        "name": "incl_Schema_graph_schema_and_instance",
+        "domain": "Schema",
+        "codomain": "graph_schema_and_instance",
+        "sort_map": {
+          "Constraint": "Constraint",
+          "Edge": "Edge",
+          "EdgeLabel": "EdgeLabel",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "edge_label": "edge_label",
+          "src": "src",
+          "target": "target",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_ThGraphInstance_graph_schema_and_instance",
+        "domain": "ThGraphInstance",
+        "codomain": "graph_schema_and_instance",
+        "sort_map": {
+          "Edge": "Edge",
+          "FanNode": "FanNode",
+          "FanPort": "FanPort",
+          "HyperEdge": "HyperEdge",
+          "IEdge": "IEdge",
+          "IVertex": "IVertex",
+          "Label": "Label",
+          "Value": "Value",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "fan_anchor": "fan_anchor",
+          "fan_parent": "fan_parent",
+          "i_src": "i_src",
+          "i_tgt": "i_tgt",
+          "ie_anchor": "ie_anchor",
+          "iv_anchor": "iv_anchor",
+          "iv_value": "iv_value",
+          "port_fan": "port_fan",
+          "port_label": "port_label",
+          "port_target": "port_target",
+          "src": "src",
+          "tgt": "tgt"
+        }
+      },
+      {
+        "name": "incl_Interface_graph_schema_and_instance",
+        "domain": "Interface",
+        "codomain": "graph_schema_and_instance",
+        "sort_map": {
+          "Edge": "Edge",
+          "Vertex": "Vertex"
+        },
+        "op_map": {
+          "src": "src",
+          "tgt": "tgt"
+        }
+      }
+    ],
+    "provenance": {
+      "sorts": [
+        [
+          {
+            "node": "Interface",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "Interface",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Constraint"
+          },
+          "Constraint"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "EdgeLabel"
+          },
+          "EdgeLabel"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "Edge"
+          },
+          "Edge"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "FanNode"
+          },
+          "FanNode"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "FanPort"
+          },
+          "FanPort"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "HyperEdge"
+          },
+          "HyperEdge"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "IEdge"
+          },
+          "IEdge"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "IVertex"
+          },
+          "IVertex"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "Label"
+          },
+          "Label"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "Value"
+          },
+          "Value"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "Vertex"
+          },
+          "Vertex"
+        ]
+      ],
+      "ops": [
+        [
+          {
+            "node": "Interface",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "Interface",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "edge_label"
+          },
+          "edge_label"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "target"
+          },
+          "target"
+        ],
+        [
+          {
+            "node": "Schema",
+            "name": "tgt"
+          },
+          "tgt"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "fan_anchor"
+          },
+          "fan_anchor"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "fan_parent"
+          },
+          "fan_parent"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "i_src"
+          },
+          "i_src"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "i_tgt"
+          },
+          "i_tgt"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "ie_anchor"
+          },
+          "ie_anchor"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "iv_anchor"
+          },
+          "iv_anchor"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "iv_value"
+          },
+          "iv_value"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "port_fan"
+          },
+          "port_fan"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "port_label"
+          },
+          "port_label"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "port_target"
+          },
+          "port_target"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "src"
+          },
+          "src"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "tgt"
+          },
+          "tgt"
+        ]
+      ],
+      "eqs": [
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "ie_src_anchor"
+          },
+          "ie_src_anchor"
+        ],
+        [
+          {
+            "node": "ThGraphInstance",
+            "name": "ie_tgt_anchor"
+          },
+          "ie_tgt_anchor"
+        ]
+      ],
+      "directed_eqs": [],
+      "policies": [],
+      "added_eqs": {}
+    },
+    "report": {
+      "mode": "explicit_identity",
+      "status": "passed",
+      "name_clash_free": true,
+      "checks": [
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "leg_is_morphism",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "node_well_formed",
+          "subject": {
+            "node": "ThGraphInstance"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "class_signatures_agree",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 0
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "cocone_commutes",
+          "subject": {
+            "edge": 1
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "inclusion_is_morphism",
+          "subject": {
+            "node": "ThGraphInstance"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Interface"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "Schema"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "equation_image",
+          "subject": {
+            "node": "ThGraphInstance"
+          },
+          "outcome": "passed"
+        },
+        {
+          "check": "universal_identity",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "result_well_typed",
+          "subject": "diagram",
+          "outcome": "passed"
+        },
+        {
+          "check": "name_clash_free",
+          "subject": "diagram",
+          "outcome": "passed"
+        }
+      ],
+      "freshened": []
+    }
+  }
+}

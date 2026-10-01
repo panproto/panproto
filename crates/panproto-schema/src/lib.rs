@@ -22,6 +22,7 @@
 mod abstract_schema;
 mod builder;
 pub mod canonical;
+pub mod canonical_theory;
 mod colimit;
 pub mod constraint_semantics;
 pub mod equivalence;
@@ -42,6 +43,10 @@ pub use abstract_schema::{
 };
 pub use builder::SchemaBuilder;
 pub use canonical::{CanonicalWriter, canonical_bytes, canonical_digest};
+pub use canonical_theory::{
+    COMPOSITION_CONTEXT, THEORY_CONTEXT, canonical_composition_bytes, canonical_theory_bytes,
+    composition_digest, theory_digest,
+};
 pub use colimit::{SchemaOverlap, schema_pushout, schema_pushout_with_report};
 pub use constraint_semantics::{
     ConstraintSemantics, ConstraintValue, ConstraintValueError, ConstraintValueReason, LengthUnit,
