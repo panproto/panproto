@@ -147,7 +147,7 @@ mod tests {
     use crate::validation::report::{CheckInstance, CheckKey, CheckKind, SchemaRef};
     use crate::view_ref::{RowId, ViewRef};
     use crate::wtype::WInstance;
-    use crate::{Fan, reify_fans};
+    use crate::{Fan, InstError, reify_fans};
 
     fn e(src: &str, tgt: &str, kind: &str, name: &str) -> Edge {
         Edge {
@@ -203,11 +203,17 @@ mod tests {
         refs.iter().cloned().collect()
     }
 
+    fn plan() -> ValidationPlan {
+        ValidationPlan::compile(
+            &schema(),
+            &Protocol::default(),
+            &ValidationOptions::default(),
+        )
+    }
+
     #[test]
-    fn footprint_rules_are_the_contract_rules_per_kind() {
-        let schema = schema();
-        let plan =
-            ValidationPlan::compile(&schema, &Protocol::default(), &ValidationOptions::default());
+    fn footprint_rules_are_the_contract_rules_per_kind() -> Result<(), InstError> {
+        let plan = plan();
         let next = e("n", "n", "ref", "next");
         let graph = GInstance::new()
             .with_node(Node::new(0, "n"))
@@ -216,8 +222,7 @@ mod tests {
             .with_edge(0, 1, next.clone())
             .with_edge(1, 0, next)
             .with_edge(0, 2, e("n", "s", "prop", "name"));
-        let graph = reify_fans(&graph, &[Fan::new("rel", 0).with_child("arg", 1)], None)
-            .expect("the fan reifies");
+        let graph = reify_fans(&graph, &[Fan::new("rel", 0).with_child("arg", 1)], None)?;
         let external = ExternalVerdicts::default();
         let ctx = Context::new(&plan, InstanceView::Graph(&graph), &external);
         let (n0, n1, n2, fan) = (
@@ -237,28 +242,28 @@ mod tests {
         assert_eq!(at(CheckKind::SchemaWellFormed, None), set(&[]));
         assert_eq!(
             at(CheckKind::NodeAnchor, Some(n0.clone())),
-            set(&[n0.clone()])
+            set(std::slice::from_ref(&n0))
         );
         assert_eq!(
             at(CheckKind::ValueConstraint, Some(n2.clone())),
-            set(&[n2.clone()])
+            set(std::slice::from_ref(&n2))
         );
         assert_eq!(
             at(CheckKind::Attribute, Some(n0.clone())),
-            set(&[n0.clone()])
+            set(std::slice::from_ref(&n0))
         );
         assert_eq!(
             at(CheckKind::EdgeDeclared, Some(e0.clone())),
-            set(&[e0.clone()])
+            set(std::slice::from_ref(&e0))
         );
         assert_eq!(
             at(CheckKind::EndpointCoherence, Some(e2.clone())),
-            set(&[e2.clone(), n0.clone(), n2.clone()])
+            set(&[e2.clone(), n0.clone(), n2])
         );
         // The fan node, its parent edge and its child edge.
         assert_eq!(
             at(CheckKind::FanWellFormed, Some(fan.clone())),
-            set(&[fan.clone(), e3.clone(), e4.clone()])
+            set(&[fan, e3.clone(), e4])
         );
         for kind in [
             CheckKind::RequiredEdge,
@@ -273,7 +278,7 @@ mod tests {
         }
         assert_eq!(
             at(CheckKind::External, Some(n0.clone())),
-            set(&[n0.clone(), e0.clone(), e1.clone(), e2.clone(), e3.clone()])
+            set(&[n0.clone(), e0, e1, e2, e3])
         );
         let key_unique = CheckInstance {
             check: CheckKey::new(
@@ -285,9 +290,16 @@ mod tests {
             ),
             subject: None,
         };
-        assert_eq!(reads(&ctx, &key_unique), set(&[n0.clone(), n1.clone()]));
+        assert_eq!(reads(&ctx, &key_unique), set(&[n0, n1]));
+        Ok(())
+    }
 
-        // Trees read nodes for nodes and arcs for edges.
+    /// Trees read nodes for nodes and arcs for edges.
+    #[test]
+    fn tree_footprints_read_nodes_and_arcs() {
+        let plan = plan();
+        let external = ExternalVerdicts::default();
+        let (n0, n1, n2) = (ViewRef::Node(0), ViewRef::Node(1), ViewRef::Node(2));
         let tree = WInstance::new(
             HashMap::from([
                 (0, Node::new(0, "n")),
@@ -317,28 +329,30 @@ mod tests {
             at(CheckKind::TreeParentMap, Some(n2.clone())),
             set(&[n2.clone(), a12.clone()])
         );
-        assert_eq!(at(CheckKind::TreeRoot, None), set(&[n0.clone()]));
+        assert_eq!(
+            at(CheckKind::TreeRoot, None),
+            set(std::slice::from_ref(&n0))
+        );
         assert_eq!(
             at(CheckKind::TreeReachable, Some(n2.clone())),
-            set(&[n2.clone(), a12, n1.clone(), a01, n0.clone()])
+            set(&[n2.clone(), a12, n1.clone(), a01, n0])
         );
         assert_eq!(
             at(CheckKind::FanWellFormed, Some(n1.clone())),
             set(&[n1, n2])
         );
+    }
 
-        // Tables read rows for nodes and foreign-key pairs for edges.
+    /// Tables read rows for nodes and foreign-key pairs for edges.
+    #[test]
+    fn table_footprints_read_rows_and_pairs() -> Result<(), InstError> {
+        let plan = plan();
+        let external = ExternalVerdicts::default();
         let fk = e("n", "n", "ref", "next");
         let mut table = FInstance::new();
-        table
-            .insert_row("n", RowId(0), HashMap::new())
-            .expect("row");
-        table
-            .insert_row("n", RowId(1), HashMap::new())
-            .expect("row");
-        table
-            .insert_foreign_key(fk.clone(), RowId(0), RowId(1))
-            .expect("pair");
+        table.insert_row("n", RowId(0), HashMap::new())?;
+        table.insert_row("n", RowId(1), HashMap::new())?;
+        table.insert_foreign_key(fk.clone(), RowId(0), RowId(1))?;
         let ctx = Context::new(&plan, InstanceView::Table(&table), &external);
         let pair = ViewRef::Pair {
             edge: fk,
@@ -359,5 +373,6 @@ mod tests {
             ),
             set(&[pair, ViewRef::Row(RowId(0)), ViewRef::Row(RowId(1))])
         );
+        Ok(())
     }
 }

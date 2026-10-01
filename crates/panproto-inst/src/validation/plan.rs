@@ -629,8 +629,8 @@ pub enum Compiled {
 /// A plan is keyed by the digest of its schema, so plans for different
 /// schemas (including schemas composed in different modes) are different
 /// plans. The plan reads only the instance it is given; trees, tables and
-/// graphs each have their own validator, and validation is never dispatched
-/// through a shape bridge.
+/// graphs each have their own validator, and validation never routes an
+/// instance through a shape bridge.
 #[derive(Clone, Debug)]
 pub struct ValidationPlan {
     schema_digest: Digest,
