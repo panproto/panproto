@@ -84,11 +84,19 @@ impl ChaseError {
     }
 }
 
-/// Returns `true` if the given row matches all of the required column-value pairs.
+/// Whether two values are the same value: equal canonical bytes. Unlike
+/// `Value`'s `==`, this is reflexive on `NaN` and tells `0.0` from `-0.0`,
+/// so the chase agrees with the canonical bytes of the instances it builds.
+fn same_value(a: &Value, b: &Value) -> bool {
+    a.canonical_cmp(b).is_eq()
+}
+
+/// Returns `true` if the given row matches all of the required column-value
+/// pairs ([`same_value`]).
 fn row_matches(row: &HashMap<String, Value>, required: &HashMap<String, Value>) -> bool {
     required
         .iter()
-        .all(|(col, val)| row.get(col).is_some_and(|v| v == val))
+        .all(|(col, val)| row.get(col).is_some_and(|v| same_value(v, val)))
 }
 
 /// Returns `true` if any row of `vertex`'s table matches all of the required
@@ -569,7 +577,7 @@ pub fn chase_with_hom(
                         let a = resolve_term(left, &binding);
                         let b = resolve_term(right, &binding);
                         if let (Some(a), Some(b)) = (a, b) {
-                            if a != b {
+                            if !same_value(&a, &b) {
                                 equalities.push((a, b));
                             }
                         }
@@ -668,12 +676,12 @@ fn unify_atom(atom: &Atom, row: &HashMap<String, Value>, binding: &mut Binding) 
         };
         match term {
             AtomTerm::Const(v) => {
-                if v != row_val {
+                if !same_value(v, row_val) {
                     return false;
                 }
             }
             AtomTerm::Var(v) => match binding.get(v) {
-                Some(bound) if bound != row_val => return false,
+                Some(bound) if !same_value(bound, row_val) => return false,
                 Some(_) => {}
                 None => {
                     binding.insert(v.clone(), row_val.clone());
@@ -737,7 +745,7 @@ fn merge_values(
     instance: &mut FInstance,
     forced: &mut BTreeMap<u64, Value>,
 ) -> Result<bool, ChaseError> {
-    if a == b {
+    if same_value(a, b) {
         return Ok(false);
     }
     let (from, to) = match (a.as_labeled_null(), b.as_labeled_null()) {
@@ -1542,5 +1550,90 @@ mod tests {
 
         let deps = dependencies_from_theory(&theory, &schema);
         assert!(deps.is_empty(), "no equations means no dependencies");
+    }
+
+    /// The equality an equality-generating dependency enforces between two
+    /// columns `a` and `b` of table `t`.
+    fn columns_agree() -> Dependency {
+        Dependency::Egd {
+            body: vec![Atom::new(
+                "t",
+                [
+                    ("a", AtomTerm::Var("v".into())),
+                    ("b", AtomTerm::Var("w".into())),
+                ],
+            )],
+            left: AtomTerm::Var("v".into()),
+            right: AtomTerm::Var("w".into()),
+        }
+    }
+
+    /// Values are compared by canonical bytes: two `NaN` cells are the same
+    /// value, so equating them is already satisfied and changes nothing.
+    #[test]
+    fn equating_nan_with_nan_is_satisfied() {
+        let nan = Value::Float(f64::NAN);
+        let instance = FInstance::new()
+            .with_table("t", vec![row2("a", nan.clone(), "b", nan)])
+            .unwrap();
+        let outcome = chase(&instance, &[columns_agree()], ChaseBudget::new(50, 50)).unwrap();
+        let ChaseOutcome::Saturated(result) = outcome else {
+            panic!("expected saturation, got {outcome:?}");
+        };
+        assert_eq!(result, instance);
+    }
+
+    /// `0.0` and `-0.0` are distinct constants (their canonical bytes
+    /// differ), so equating them is a conflict, not a satisfied equality.
+    #[test]
+    fn equating_signed_zeros_is_inconsistent() {
+        let instance = FInstance::new()
+            .with_table(
+                "t",
+                vec![row2("a", Value::Float(0.0), "b", Value::Float(-0.0))],
+            )
+            .unwrap();
+        let err = chase(&instance, &[columns_agree()], ChaseBudget::new(50, 50)).unwrap_err();
+        assert!(matches!(err, ChaseError::Inconsistent { .. }), "{err:?}");
+    }
+
+    /// A constant in a body atom matches a cell exactly: `NaN` matches a
+    /// `NaN` cell, and `0.0` does not match `-0.0`.
+    #[test]
+    fn a_body_constant_matches_cells_exactly() {
+        let fire_on = |constant: Value, cell: Value| {
+            let instance = FInstance::new()
+                .with_table("t", vec![row("a", cell)])
+                .unwrap();
+            let tgd = Dependency::Tgd {
+                body: vec![Atom::new("t", [("a", AtomTerm::Const(constant))])],
+                head: vec![Atom::new("u", [("a", AtomTerm::Const(Value::Int(1)))])],
+            };
+            let ChaseOutcome::Saturated(result) =
+                chase(&instance, &[tgd], ChaseBudget::new(50, 50)).unwrap()
+            else {
+                panic!("expected saturation");
+            };
+            result.row_count("u")
+        };
+        assert_eq!(fire_on(Value::Float(f64::NAN), Value::Float(f64::NAN)), 1);
+        assert_eq!(fire_on(Value::Float(0.0), Value::Float(-0.0)), 0);
+    }
+
+    /// Row-existence saturation finds a consequence row holding `NaN`, so it
+    /// adds it once and stops instead of adding it every round.
+    #[test]
+    fn saturation_finds_a_nan_consequence() {
+        let instance = FInstance::new()
+            .with_table("p", vec![row("k", Value::Int(1))])
+            .unwrap();
+        let dep = EmbeddedDependency {
+            pattern_vertex: "p".into(),
+            pattern_values: row("k", Value::Int(1)),
+            consequence_vertex: "q".into(),
+            consequence_values: row("x", Value::Float(f64::NAN)),
+        };
+        let result = saturate_row_existence(&instance, &[dep], 10).unwrap();
+        assert_eq!(result.row_count("q"), 1);
     }
 }
