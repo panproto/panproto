@@ -180,42 +180,7 @@ fn entity_maps(
     }
 
     // Step 3: the columns of kept tables.
-    let mut columns = BTreeMap::new();
-    for (table, image_table) in &tables {
-        for (column, arrow) in source.columns(table) {
-            let value_image = migration.vertex_remap.get(&arrow.tgt);
-            let image = if let Some(image) = migration.edge_remap.get(arrow) {
-                let coherent = target.attribute_column(image).is_some()
-                    && image.src == *image_table
-                    && value_image.is_none_or(|v| image.tgt == *v);
-                if !coherent {
-                    return Err(RestrictError::IncoherentAttributeImage {
-                        edge: Box::new(arrow.clone()),
-                        image: Some(Box::new(image.clone())),
-                    });
-                }
-                image.clone()
-            } else if survives_edge(arrow) {
-                let image = Edge {
-                    src: image_table.clone(),
-                    tgt: value_image.unwrap_or(&arrow.tgt).clone(),
-                    kind: arrow.kind.clone(),
-                    name: arrow.name.clone(),
-                };
-                if target.attribute_column(&image).is_none() {
-                    return Err(RestrictError::IncoherentAttributeImage {
-                        edge: Box::new(arrow.clone()),
-                        image: None,
-                    });
-                }
-                image
-            } else {
-                continue;
-            };
-            let image_column = target.attribute_column(&image).unwrap_or_default();
-            columns.insert((table.clone(), column.clone()), image_column.to_owned());
-        }
-    }
+    let columns = column_maps(&source, &target, migration, &tables, &survives_edge)?;
 
     // Step 4a: no remap crosses the divide between entities and values, and
     // the remaps of inner value edges are recorded.
@@ -258,6 +223,54 @@ fn entity_maps(
     })
 }
 
+/// Step 3 of [`entity_maps`]: the image column of each kept column of each
+/// kept table, or the least column whose image is incoherent.
+fn column_maps(
+    source: &RelSchema,
+    target: &RelSchema,
+    migration: &CompiledMigration,
+    tables: &BTreeMap<Name, Name>,
+    survives_edge: &dyn Fn(&Edge) -> bool,
+) -> Result<BTreeMap<(Name, String), String>, RestrictError> {
+    let mut columns = BTreeMap::new();
+    for (table, image_table) in tables {
+        for (column, arrow) in source.columns(table) {
+            let value_image = migration.vertex_remap.get(&arrow.tgt);
+            let image = if let Some(image) = migration.edge_remap.get(arrow) {
+                let coherent = target.attribute_column(image).is_some()
+                    && image.src == *image_table
+                    && value_image.is_none_or(|v| image.tgt == *v);
+                if !coherent {
+                    return Err(RestrictError::IncoherentAttributeImage {
+                        edge: Box::new(arrow.clone()),
+                        image: Some(Box::new(image.clone())),
+                    });
+                }
+                image.clone()
+            } else if survives_edge(arrow) {
+                let image = Edge {
+                    src: image_table.clone(),
+                    tgt: value_image.unwrap_or(&arrow.tgt).clone(),
+                    kind: arrow.kind.clone(),
+                    name: arrow.name.clone(),
+                };
+                if target.attribute_column(&image).is_none() {
+                    return Err(RestrictError::IncoherentAttributeImage {
+                        edge: Box::new(arrow.clone()),
+                        image: None,
+                    });
+                }
+                image
+            } else {
+                continue;
+            };
+            let image_column = target.attribute_column(&image).unwrap_or_default();
+            columns.insert((table.clone(), column.clone()), image_column.to_owned());
+        }
+    }
+    Ok(columns)
+}
+
 impl EntityFunctor {
     /// The entity functor `migration` states between relation-ified schemas
     /// built already.
@@ -290,9 +303,11 @@ impl EntityFunctor {
     /// whose remap is not accepted.
     pub fn into_kan(self) -> Result<MigrationFunctor, RestrictError> {
         let (source, target) = (&self.maps.source, &self.maps.target);
-        let expected = |vertex: &Name| match self.value_remap.get(vertex) {
-            Some(image) => target.value_kind(image),
-            None => source.value_kind(vertex),
+        let expected = |vertex: &Name| {
+            self.value_remap.get(vertex).map_or_else(
+                || source.value_kind(vertex),
+                |image| target.value_kind(image),
+            )
         };
         for (edge, image) in &self.inner_edges {
             let keeps_structure = target.is_inner_edge(image)
@@ -945,7 +960,7 @@ mod tests {
         // A kept relation sent to a column.
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
-        m.edge_remap.insert(e.clone(), column("a", "x"));
+        m.edge_remap.insert(e, column("a", "x"));
         assert!(matches!(
             functor(&src, &tgt, &m),
             Err(RestrictError::IncoherentEdgeImage { .. })
@@ -978,7 +993,7 @@ mod tests {
         s.vertices.insert(
             items.clone(),
             Vertex {
-                id: items.clone(),
+                id: items,
                 kind: element_kind.into(),
                 nsid: None,
             },
@@ -986,7 +1001,7 @@ mod tests {
         s.edges.insert(
             Edge {
                 src: name.into(),
-                tgt: list.clone(),
+                tgt: list,
                 kind: "prop".into(),
                 name: Some("tags".into()),
             },
@@ -1222,10 +1237,10 @@ mod tests {
 
     /// Every restrict error names its variant in its structured detail, in
     /// snake case, and no two variants share a name.
-    #[test]
-    fn every_restrict_error_has_a_kind() {
-        let e = || Box::new(fk("a", "b", "e"));
-        let all = [
+    /// The restrict errors that are not about the migration functor, each
+    /// with its kind.
+    fn other_restrict_errors() -> Vec<(RestrictError, &'static str)> {
+        vec![
             (
                 RestrictError::NoEdgeFound {
                     src: "a".into(),
@@ -1303,6 +1318,13 @@ mod tests {
                 },
                 "edge_outside_domain",
             ),
+        ]
+    }
+
+    /// The restrict errors about the migration functor, each with its kind.
+    fn functor_restrict_errors() -> Vec<(RestrictError, &'static str)> {
+        let e = || Box::new(fk("a", "b", "e"));
+        vec![
             (
                 RestrictError::IncoherentEdgeImage {
                     edge: e(),
@@ -1339,7 +1361,14 @@ mod tests {
                 RestrictError::RelSchema(RelSchemaError::AmbiguousKind { kind: "k".into() }),
                 "rel_schema",
             ),
-        ];
+        ]
+    }
+
+    #[test]
+    fn every_restrict_error_has_a_kind() {
+        let all = other_restrict_errors()
+            .into_iter()
+            .chain(functor_restrict_errors());
         let mut seen = BTreeSet::new();
         for (error, kind) in all {
             match error.detail() {

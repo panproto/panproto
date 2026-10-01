@@ -1553,7 +1553,7 @@ mod tests {
                 })
                 .collect()
         };
-        let mut carried = m.clone();
+        let mut carried = m;
         for table in ["a", "b"] {
             carried.edge_remap.insert(column(table), column("t"));
         }

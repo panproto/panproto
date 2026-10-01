@@ -75,8 +75,8 @@ fn a_protocol_without_non_value_kinds_decodes_with_none() -> Result<(), Box<dyn 
 {
     let before: Protocol = serde_json::from_str(PROTOCOL_BEFORE)?;
     assert!(before.non_value_kinds.is_empty());
-    let mut declared = before.clone();
-    declared.non_value_kinds = ["object".to_owned()].into_iter().collect();
+    let mut declared = before;
+    declared.non_value_kinds = std::collections::BTreeSet::from(["object".to_owned()]);
     let json = serde_json::to_string(&declared)?;
     assert!(json.contains(r#""non_value_kinds":["object"]"#), "{json}");
     assert_eq!(serde_json::from_str::<Protocol>(&json)?, declared);

@@ -5,7 +5,7 @@
 //! the type kinds are value kinds and the record kinds (a table, a
 //! user-defined type, a secondary index, a search index) are not. A kind's
 //! scalar kind follows the format's storage type: CQL integers by width,
-//! `varint` arbitrary-precision, `blob` hexadecimal bytes, a DynamoDB
+//! `varint` arbitrary-precision, `blob` hexadecimal bytes, a `DynamoDB`
 //! `number` an exact decimal and its `binary` base64 bytes, and the
 //! collection and untyped kinds any value.
 

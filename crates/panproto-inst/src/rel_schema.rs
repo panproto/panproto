@@ -233,26 +233,11 @@ impl RelSchema {
         }
 
         let edges: BTreeSet<&Edge> = schema.edges.keys().collect();
-        let mut out_edges: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
-        for edge in &edges {
-            out_edges.entry(&edge.src).or_default().push(edge);
-        }
-        // The value vertices: the least set holding every undeclared vertex
-        // of a value kind and closed under edges.
-        let mut values: BTreeSet<&Name> = BTreeSet::new();
-        let mut frontier: Vec<&Name> = vertices
+        let seeds = vertices
             .iter()
             .filter(|(vertex, kind)| !declared.contains(*vertex) && is_value_kind(kind))
-            .map(|(vertex, _)| *vertex)
-            .collect();
-        while let Some(vertex) = frontier.pop() {
-            if !vertices.contains_key(vertex) || !values.insert(vertex) {
-                continue;
-            }
-            for edge in out_edges.get(vertex).into_iter().flatten() {
-                frontier.push(&edge.tgt);
-            }
-        }
+            .map(|(vertex, _)| *vertex);
+        let values = closure_under(&edges, &vertices, seeds);
         let is_table = |vertex: &Name| {
             declared.contains(vertex) || vertices.get(vertex).is_some_and(|k| is_non_value_kind(k))
         };
@@ -275,29 +260,7 @@ impl RelSchema {
             .filter(|edge| tables.contains(&edge.src) && tables.contains(&edge.tgt))
             .map(|edge| (*edge).clone())
             .collect();
-        let mut columns: BTreeMap<Name, BTreeMap<String, Edge>> = tables
-            .iter()
-            .map(|table| (table.clone(), BTreeMap::new()))
-            .collect();
-        let mut duplicate: Option<(Name, String)> = None;
-        for edge in edges
-            .iter()
-            .filter(|edge| tables.contains(&edge.src) && values.contains(&edge.tgt))
-        {
-            let column = column_name(edge);
-            let table_columns = columns.entry(edge.src.clone()).or_default();
-            if table_columns.contains_key(&column) {
-                let candidate = (edge.src.clone(), column);
-                if duplicate.as_ref().is_none_or(|least| candidate < *least) {
-                    duplicate = Some(candidate);
-                }
-            } else {
-                table_columns.insert(column, (*edge).clone());
-            }
-        }
-        if let Some((table, column)) = duplicate {
-            return Err(RelSchemaError::DuplicateColumn { table, column });
-        }
+        let columns = columns_of(&edges, &tables, &values)?;
         let value_vertices = values
             .iter()
             .filter_map(|vertex| Some(((*vertex).clone(), (*vertices.get(vertex)?).clone())))
@@ -459,6 +422,70 @@ impl RelSchema {
     pub fn value_kind(&self, vertex: &str) -> Option<&Name> {
         self.value_vertices.get(vertex)
     }
+}
+
+/// The columns of each table: every edge from a table to a value vertex,
+/// under its column name.
+///
+/// # Errors
+///
+/// [`RelSchemaError::DuplicateColumn`] for the least table, and column, that
+/// two attribute arrows name.
+fn columns_of(
+    edges: &BTreeSet<&Edge>,
+    tables: &BTreeSet<Name>,
+    values: &BTreeSet<&Name>,
+) -> Result<BTreeMap<Name, BTreeMap<String, Edge>>, RelSchemaError> {
+    let mut columns: BTreeMap<Name, BTreeMap<String, Edge>> = tables
+        .iter()
+        .map(|table| (table.clone(), BTreeMap::new()))
+        .collect();
+    let mut duplicate: Option<(Name, String)> = None;
+    for edge in edges
+        .iter()
+        .filter(|edge| tables.contains(&edge.src) && values.contains(&edge.tgt))
+    {
+        let column = column_name(edge);
+        match columns.entry(edge.src.clone()).or_default().entry(column) {
+            std::collections::btree_map::Entry::Occupied(taken) => {
+                let candidate = (edge.src.clone(), taken.key().clone());
+                if duplicate.as_ref().is_none_or(|least| candidate < *least) {
+                    duplicate = Some(candidate);
+                }
+            }
+            std::collections::btree_map::Entry::Vacant(free) => {
+                free.insert((*edge).clone());
+            }
+        }
+    }
+    if let Some((table, column)) = duplicate {
+        return Err(RelSchemaError::DuplicateColumn { table, column });
+    }
+    Ok(columns)
+}
+
+/// The least set of vertices of `vertices` holding `seeds` and closed under
+/// `edges`: the value vertices of a schema.
+fn closure_under<'a>(
+    edges: &BTreeSet<&'a Edge>,
+    vertices: &BTreeMap<&'a Name, &'a Name>,
+    seeds: impl Iterator<Item = &'a Name>,
+) -> BTreeSet<&'a Name> {
+    let mut out_edges: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
+    for edge in edges {
+        out_edges.entry(&edge.src).or_default().push(edge);
+    }
+    let mut values: BTreeSet<&Name> = BTreeSet::new();
+    let mut frontier: Vec<&Name> = seeds.collect();
+    while let Some(vertex) = frontier.pop() {
+        if !vertices.contains_key(vertex) || !values.insert(vertex) {
+            continue;
+        }
+        for edge in out_edges.get(vertex).into_iter().flatten() {
+            frontier.push(&edge.tgt);
+        }
+    }
+    values
 }
 
 #[cfg(test)]
@@ -866,7 +893,7 @@ mod tests {
         let column = edge("a", "a.x", "prop", "x");
         let ok = RelSchema::from_parts(
             [Name::from("a"), Name::from("b")],
-            [e.clone()],
+            [e],
             BTreeMap::from([(
                 Name::from("a"),
                 BTreeMap::from([("x".to_owned(), column.clone())]),
@@ -876,7 +903,7 @@ mod tests {
         assert!(ok.columns("b").is_empty());
         for (table, name, arrow) in [
             ("a", "y", column.clone()),
-            ("b", "x", column.clone()),
+            ("b", "x", column),
             ("c", "x", edge("c", "c.x", "prop", "x")),
             ("a", "b", edge("a", "b", "prop", "b")),
         ] {

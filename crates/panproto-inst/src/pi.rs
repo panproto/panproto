@@ -143,10 +143,11 @@ pub fn functor_pi_along_with_provenance(
     ))
 }
 
-/// `Pi_F` of `i`, an instance on the kept part `S'` of the source (as
-/// [`crate::f_restrict_to_domain`] gives one), with fresh row ids above
-/// `i`'s: the `Pi_F` the units, counits, transposes and
-/// [`crate::f_pi_on_hom`] use.
+/// `Pi_F` of `i`, an instance on the kept part `S'` of the source.
+///
+/// `i` is in the form [`crate::f_restrict_to_domain`] gives, and fresh row
+/// ids are allocated above `i`'s. This is the `Pi_F` the units, counits,
+/// transposes and [`crate::f_pi_on_hom`] use.
 ///
 /// # Errors
 ///
@@ -177,6 +178,10 @@ pub(crate) struct PiLimit {
     pub(crate) rows: HashMap<(Name, Vec<RowId>), RowId>,
 }
 
+/// A row read at the target columns: each column's value with its canonical
+/// bytes.
+type AtTarget = BTreeMap<String, (Vec<u8>, Value)>;
+
 /// The tuples of one target table with their cells.
 struct TableLimit<'a> {
     /// The target table.
@@ -190,12 +195,8 @@ struct TableLimit<'a> {
 /// One row of a fibre table read at the target columns: the value at each
 /// column its kept columns are sent to, or `None` when two of its own
 /// columns sent to one target column disagree (it is then in no cone).
-fn row_at_target(
-    functor: &MigrationFunctor,
-    component: &Name,
-    cells: &Row,
-) -> Option<BTreeMap<String, (Vec<u8>, Value)>> {
-    let mut at: BTreeMap<String, (Vec<u8>, Value)> = BTreeMap::new();
+fn row_at_target(functor: &MigrationFunctor, component: &Name, cells: &Row) -> Option<AtTarget> {
+    let mut at: AtTarget = BTreeMap::new();
     for alpha in functor.kept_columns(component) {
         let beta = functor.column_image(component, alpha)?;
         let value = cells.get(alpha)?;
@@ -221,11 +222,11 @@ fn table_limit<'a>(
     fibre: Vec<&'a Name>,
     max: usize,
 ) -> Result<TableLimit<'a>, RestrictError> {
-    type Partial = (Vec<RowId>, BTreeMap<String, (Vec<u8>, Value)>);
+    type Partial = (Vec<RowId>, AtTarget);
     let mut partials: Vec<Partial> = vec![(Vec::new(), BTreeMap::new())];
     let last = fibre.len().saturating_sub(1);
     for (position, component) in fibre.iter().enumerate() {
-        let rows: Vec<(RowId, BTreeMap<String, (Vec<u8>, Value)>)> = instance
+        let rows: Vec<(RowId, AtTarget)> = instance
             .rows(component)
             .into_iter()
             .filter_map(|(id, cells)| Some((id, row_at_target(functor, component, cells)?)))
@@ -243,7 +244,7 @@ fn table_limit<'a>(
             .map(str::to_owned)
             .collect();
         let shared: Vec<&String> = assigned.iter().filter(|c| own.contains(c)).collect();
-        let key = |at: &BTreeMap<String, (Vec<u8>, Value)>| -> Option<Vec<Vec<u8>>> {
+        let key = |at: &AtTarget| -> Option<Vec<Vec<u8>>> {
             shared
                 .iter()
                 .map(|c| at.get(*c).map(|(bytes, _)| bytes.clone()))

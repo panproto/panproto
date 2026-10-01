@@ -31,9 +31,11 @@ use constraint_semantics::ConstraintRow;
 use shapes::ShapeRow;
 use value_kinds::{NonScalarRow, ValueKindRow};
 
-/// Attaches the semantic declarations of `protocol` (its syntactic and
-/// semantic shapes, the semantics of its constraint sorts, the scalar kinds
-/// of its value kinds and the set of its non-value kinds) to it.
+/// Attaches the semantic declarations of `protocol` to it.
+///
+/// These are its syntactic and semantic shapes, the semantics of its
+/// constraint sorts, the scalar kinds of its value kinds and the set of its
+/// non-value kinds.
 ///
 /// The protocol is looked up by [`canonical_name`] of its `name`, so a
 /// protocol whose `name` is an alias or an underscore spelling of its
@@ -189,7 +191,7 @@ mod tests {
         assert_eq!(attached("uima-cas").non_value_kinds, uima.non_value_kinds);
         assert_eq!(
             attached("redis").non_value_kinds,
-            ["index".to_owned()].into_iter().collect()
+            std::collections::BTreeSet::from(["index".to_owned()])
         );
         assert!(attached("openapi").non_value_kinds.is_empty());
     }

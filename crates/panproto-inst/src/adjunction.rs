@@ -685,7 +685,9 @@ fn restrict_to_domain(x: &FInstance, functor: &MigrationFunctor) -> FInstance {
 }
 
 /// The part of `x`, an instance on the whole source schema `S`, on the kept
-/// part `S'` of `functor`: its rows at kept tables with their cells at kept
+/// part `S'` of `functor`.
+///
+/// It holds the rows of `x` at kept tables with their cells at kept
 /// columns, and its pairs at kept relations. This is the instance on `S'`
 /// that [`f_sigma`] and [`crate::functor_pi_along`] extend, and the form
 /// the units, counits, transposes and actions on homomorphisms take their
@@ -780,15 +782,15 @@ impl ValueClasses {
     }
 
     /// Join the classes of `a` and `b`; on two different constants, return
-    /// them (`a`'s first) and leave the classes apart.
-    fn union(&mut self, a: &Value, b: &Value) -> Result<(), (Value, Value)> {
+    /// them (`a`'s first, boxed) and leave the classes apart.
+    fn union(&mut self, a: &Value, b: &Value) -> Result<(), Box<(Value, Value)>> {
         let (a, b) = (self.insert(a), self.insert(b));
         let (ra, rb) = (self.root(a), self.root(b));
         if ra == rb {
             return Ok(());
         }
         if let (Some(x), Some(y)) = (&self.constant[ra], &self.constant[rb]) {
-            return Err((x.clone(), y.clone()));
+            return Err(Box::new((x.clone(), y.clone())));
         }
         self.parent[rb] = ra;
         if self.constant[ra].is_none() {
@@ -844,7 +846,8 @@ fn sigma_on(
                 let Some(other) = cells.get(*alpha) else {
                     continue;
                 };
-                classes.union(first, other).map_err(|(left, right)| {
+                classes.union(first, other).map_err(|clash| {
+                    let (left, right) = *clash;
                     AdjunctionError::SigmaConstantClash {
                         row: id,
                         column: column.clone(),
@@ -870,14 +873,13 @@ fn sigma_on(
         let cells = i.row(id).cloned().unwrap_or_default();
         let mut row = Row::new();
         for column in functor.target().columns(image).keys() {
-            let value = match functor.column_preimage(source, column).first() {
-                Some(alpha) => classes.representative(cells.get(*alpha).unwrap_or(&Value::Null)),
-                None => {
-                    let fresh = next.ok_or(AdjunctionError::NullIdsExhausted)?;
-                    next = fresh.checked_add(1);
-                    provenance.fresh.insert(fresh, (id, column.clone()));
-                    Value::LabeledNull(fresh)
-                }
+            let value = if let Some(alpha) = functor.column_preimage(source, column).first() {
+                classes.representative(cells.get(*alpha).unwrap_or(&Value::Null))
+            } else {
+                let fresh = next.ok_or(AdjunctionError::NullIdsExhausted)?;
+                next = fresh.checked_add(1);
+                provenance.fresh.insert(fresh, (id, column.clone()));
+                Value::LabeledNull(fresh)
             };
             row.insert(column.clone(), value);
         }
@@ -935,10 +937,11 @@ pub fn f_sigma_with_provenance(
     sigma_on(&restrict_to_domain(x, functor), functor, null_floor(x))
 }
 
-/// `Sigma_F` of `i`, an instance on the kept part `S'` of the source (as
-/// [`f_restrict_to_domain`] gives one), with fresh nulls numbered from the
-/// least id above `i`'s: the `Sigma_F` the units, counits, transposes and
-/// [`f_sigma_on_hom`] use.
+/// `Sigma_F` of `i`, an instance on the kept part `S'` of the source.
+///
+/// `i` is in the form [`f_restrict_to_domain`] gives, and fresh nulls are
+/// numbered from the least id above `i`'s. This is the `Sigma_F` the units,
+/// counits, transposes and [`f_sigma_on_hom`] use.
 ///
 /// # Errors
 ///
@@ -1107,7 +1110,7 @@ fn require_hom(
 
 /// `hom` with its null map cut down to the nulls of `dom` and without
 /// identity entries, which is the form homomorphisms are compared in.
-fn normalised(hom: FInstanceHom, dom: &FInstance) -> FInstanceHom {
+fn normalised(hom: &FInstanceHom, dom: &FInstance) -> FInstanceHom {
     let nulls = nulls_of(dom);
     let null_map = hom
         .null_map
@@ -1134,7 +1137,7 @@ fn then(
             .find(|(_, mid)| h.image(**mid).is_none())
             .map_or(RowId(0), |(row, _)| *row),
     })?;
-    Ok(normalised(composed, dom))
+    Ok(normalised(&composed, dom))
 }
 
 /// `Sigma_F(h)`: the image under `Sigma_F` of a homomorphism `h: I -> I'`
@@ -1281,7 +1284,7 @@ fn counit_hom(
         null_map.insert(*null, value.clone());
     }
     Ok(normalised(
-        FInstanceHom::new(row_map).with_null_map(null_map),
+        &FInstanceHom::new(row_map).with_null_map(null_map),
         sigma,
     ))
 }
@@ -1317,17 +1320,20 @@ pub fn f_transpose_right(
     y: &FInstance,
     functor: &MigrationFunctor,
 ) -> Result<FInstanceHom, AdjunctionError> {
+    let (sigma, provenance) = f_sigma_restricted(i, functor)?;
     let (delta, copies) = f_delta_with_provenance(y, functor)?;
-    let sigma_f = f_sigma_on_hom(f, i, &delta, functor)?;
-    let (sigma_delta, provenance) = sigma_on(&delta, functor, null_floor(&delta))?;
-    let counit = counit_hom(y, &sigma_delta, &provenance, &copies)?;
-    let (sigma, _) = f_sigma_restricted(i, functor)?;
+    let (sigma_delta, provenance_delta) = sigma_on(&delta, functor, null_floor(&delta))?;
+    require_hom(f, i, &delta)?;
+    let sigma_f = sigma_hom(f, &sigma, &provenance, &sigma_delta, &provenance_delta)?;
+    let counit = counit_hom(y, &sigma_delta, &provenance_delta, &copies)?;
     then(&sigma_f, &counit, &sigma)
 }
 
 /// `Delta_F(h)`: the image under `Delta_F` of a homomorphism `h: J -> J'` of
-/// instances on `T`, sending the copy at `s` of a row `r` to the copy at
-/// `s` of `h(r)`, with `h`'s null map on the nulls of `Delta_F J`.
+/// instances on `T`.
+///
+/// It sends the copy at `s` of a row `r` to the copy at `s` of `h(r)`, with
+/// `h`'s null map on the nulls of `Delta_F J`.
 ///
 /// # Errors
 ///
@@ -1344,6 +1350,16 @@ pub fn f_delta_on_hom(
     let (delta, copies) = f_delta_with_provenance(y, functor)?;
     let (_, copies_prime) = f_delta_with_provenance(y_prime, functor)?;
     require_hom(h, y, y_prime)?;
+    delta_hom(h, &delta, &copies, &copies_prime)
+}
+
+/// [`f_delta_on_hom`] over the two `Delta_F` results' copies.
+fn delta_hom(
+    h: &FInstanceHom,
+    delta: &FInstance,
+    copies: &DeltaProvenance,
+    copies_prime: &DeltaProvenance,
+) -> Result<FInstanceHom, AdjunctionError> {
     let mut row_map = BTreeMap::new();
     for (copy, (table, original)) in &copies.copies {
         let image = h
@@ -1353,15 +1369,17 @@ pub fn f_delta_on_hom(
         row_map.insert(*copy, image);
     }
     Ok(normalised(
-        FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
-        &delta,
+        &FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
+        delta,
     ))
 }
 
 /// `Pi_F(h)`: the image under `Pi_F` of a homomorphism `h: I -> I'` of
-/// instances on `S'`, sending the row of each tuple to the row of the tuple
-/// of its components' images (the one row of a table outside the image to
-/// the one row), with `h`'s null map on the nulls of `Pi_F I`.
+/// instances on `S'`.
+///
+/// It sends the row of each tuple to the row of the tuple of its
+/// components' images (the one row of a table outside the image to the one
+/// row), with `h`'s null map on the nulls of `Pi_F I`.
 ///
 /// # Errors
 ///
@@ -1396,7 +1414,7 @@ fn pi_hom(
         row_map.insert(row, *target);
     }
     Ok(normalised(
-        FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
+        &FInstanceHom::new(row_map).with_null_map(h.null_map.clone()),
         &pi.instance,
     ))
 }
@@ -1502,9 +1520,12 @@ pub fn f_pi_transpose_left(
     functor: &MigrationFunctor,
     max_product_size: usize,
 ) -> Result<FInstanceHom, AdjunctionError> {
-    let unit = f_pi_unit(y, functor, max_product_size)?;
-    let delta = f_delta(y, functor)?;
-    let pi_g = f_pi_on_hom(g, &delta, i, functor, max_product_size)?;
+    let (delta, copies) = f_delta_with_provenance(y, functor)?;
+    let pi_delta = pi_on_domain(&delta, functor, max_product_size)?;
+    let pi = pi_on_domain(i, functor, max_product_size)?;
+    require_hom(g, &delta, i)?;
+    let unit = pi_unit_hom(y, functor, &copies, &pi_delta)?;
+    let pi_g = pi_hom(g, &pi_delta, &pi)?;
     then(&unit, &pi_g, y)
 }
 
@@ -1522,9 +1543,11 @@ pub fn f_pi_transpose_right(
     max_product_size: usize,
 ) -> Result<FInstanceHom, AdjunctionError> {
     let pi = pi_on_domain(i, functor, max_product_size)?;
-    let delta_f = f_delta_on_hom(f, y, &pi.instance, functor)?;
-    let counit = f_pi_counit(i, functor, max_product_size)?;
-    let delta = f_delta(y, functor)?;
+    let (delta, copies) = f_delta_with_provenance(y, functor)?;
+    let (_, copies_pi) = f_delta_with_provenance(&pi.instance, functor)?;
+    require_hom(f, y, &pi.instance)?;
+    let delta_f = delta_hom(f, &delta, &copies, &copies_pi)?;
+    let counit = pi_counit_hom(functor, &copies_pi, &pi)?;
     then(&delta_f, &counit, &delta)
 }
 
@@ -2125,32 +2148,32 @@ mod tests {
 
         /// One side of a functor: tables with their columns, and relations.
         #[derive(Clone, Debug, Default)]
-        pub(crate) struct Side {
+        pub(super) struct Side {
             /// Each table with its column names.
-            pub(crate) tables: BTreeMap<Name, BTreeSet<String>>,
+            pub(super) tables: BTreeMap<Name, BTreeSet<String>>,
             /// The relation objects.
-            pub(crate) relations: BTreeSet<Edge>,
+            pub(super) relations: BTreeSet<Edge>,
         }
 
         /// A functor `F: S' -> T`, given by its maps on the kept tables,
         /// relations and columns of the source.
         #[derive(Clone, Debug, Default)]
-        pub(crate) struct Spec {
+        pub(super) struct Spec {
             /// The whole source `S`.
-            pub(crate) src: Side,
+            pub(super) src: Side,
             /// The target `T`.
-            pub(crate) tgt: Side,
+            pub(super) tgt: Side,
             /// Each kept table with its image.
-            pub(crate) tables: BTreeMap<Name, Name>,
+            pub(super) tables: BTreeMap<Name, Name>,
             /// Each kept relation with its image.
-            pub(crate) relations: BTreeMap<Edge, Edge>,
+            pub(super) relations: BTreeMap<Edge, Edge>,
             /// Each kept column `(table, column)` with its image column.
-            pub(crate) columns: BTreeMap<(Name, String), String>,
+            pub(super) columns: BTreeMap<(Name, String), String>,
         }
 
         impl Spec {
             /// The kept tables sent to `d`, ascending.
-            pub(crate) fn fibre(&self, d: &Name) -> Vec<Name> {
+            pub(super) fn fibre(&self, d: &Name) -> Vec<Name> {
                 self.tables
                     .iter()
                     .filter(|(_, image)| *image == d)
@@ -2159,7 +2182,7 @@ mod tests {
             }
 
             /// The kept relations sent to `e`, ascending.
-            pub(crate) fn relation_fibre(&self, e: &Edge) -> Vec<Edge> {
+            pub(super) fn relation_fibre(&self, e: &Edge) -> Vec<Edge> {
                 self.relations
                     .iter()
                     .filter(|(_, image)| *image == e)
@@ -2168,7 +2191,7 @@ mod tests {
             }
 
             /// The kept columns of `s`, ascending.
-            pub(crate) fn kept_columns(&self, s: &Name) -> Vec<String> {
+            pub(super) fn kept_columns(&self, s: &Name) -> Vec<String> {
                 self.columns
                     .keys()
                     .filter(|(t, _)| t == s)
@@ -2177,7 +2200,7 @@ mod tests {
             }
 
             /// The kept columns of `s` sent to `beta`, ascending.
-            pub(crate) fn preimage(&self, s: &Name, beta: &str) -> Vec<String> {
+            pub(super) fn preimage(&self, s: &Name, beta: &str) -> Vec<String> {
                 self.columns
                     .iter()
                     .filter(|((t, _), image)| t == s && image.as_str() == beta)
@@ -2187,7 +2210,7 @@ mod tests {
 
             /// Whether every column of every target table is the image of a
             /// kept column of its fibre; else the least missing one.
-            pub(crate) fn missing_column(&self) -> Option<(Name, String)> {
+            pub(super) fn missing_column(&self) -> Option<(Name, String)> {
                 for (d, columns) in &self.tgt.tables {
                     for beta in columns {
                         let hit = self
@@ -2204,12 +2227,12 @@ mod tests {
         }
 
         /// The canonical bytes of a value: the equality every oracle uses.
-        pub(crate) fn canon(value: &Value) -> Vec<u8> {
+        pub(super) fn canon(value: &Value) -> Vec<u8> {
             value.canonical_bytes()
         }
 
         /// The labelled nulls in the cells of an instance.
-        pub(crate) fn nulls(instance: &FInstance) -> BTreeSet<u64> {
+        pub(super) fn nulls(instance: &FInstance) -> BTreeSet<u64> {
             instance
                 .row_ids()
                 .into_iter()
@@ -2227,7 +2250,7 @@ mod tests {
 
         /// A homomorphism found by brute force: its row map and its null
         /// map, without identity entries.
-        pub(crate) type Found = (BTreeMap<RowId, RowId>, BTreeMap<u64, Value>);
+        pub(super) type Found = (BTreeMap<RowId, RowId>, BTreeMap<u64, Value>);
 
         /// Extend `nu` by the cells of `row` sent to `image`: key sets must be
         /// equal, the first occurrence of a null fixes its value, and every
@@ -2264,7 +2287,7 @@ mod tests {
         /// Whether a row map from `a` to `b` is a homomorphism, with the
         /// null map its cells fix (scanned in `(RowId, column)` order, as
         /// far as the scan got).
-        pub(crate) fn brute_accepts(
+        pub(super) fn brute_accepts(
             a: &FInstance,
             b: &FInstance,
             row_map: &BTreeMap<RowId, RowId>,
@@ -2299,7 +2322,7 @@ mod tests {
 
         /// Every table-respecting row map from `a` to `b`, in ascending
         /// order of the image of each row (rows ascending).
-        pub(crate) fn candidates(a: &FInstance, b: &FInstance) -> Vec<BTreeMap<RowId, RowId>> {
+        pub(super) fn candidates(a: &FInstance, b: &FInstance) -> Vec<BTreeMap<RowId, RowId>> {
             let rows = a.row_ids();
             let choices: Vec<Vec<RowId>> = rows
                 .iter()
@@ -2325,7 +2348,7 @@ mod tests {
         }
 
         /// Drop the identity entries of a null map.
-        pub(crate) fn normalise(nu: BTreeMap<u64, Value>) -> BTreeMap<u64, Value> {
+        pub(super) fn normalise(nu: BTreeMap<u64, Value>) -> BTreeMap<u64, Value> {
             nu.into_iter()
                 .filter(|(n, v)| canon(v) != canon(&Value::LabeledNull(*n)))
                 .collect()
@@ -2338,7 +2361,7 @@ mod tests {
         /// ascending id, and a partial map whose rows already disagree is not
         /// extended, which the `(RowId, column)` scan order makes the same as
         /// testing every complete map.
-        pub(crate) fn brute_homs(a: &FInstance, b: &FInstance) -> Vec<Found> {
+        pub(super) fn brute_homs(a: &FInstance, b: &FInstance) -> Vec<Found> {
             fn go(
                 i: usize,
                 rows: &[RowId],
@@ -2385,7 +2408,7 @@ mod tests {
         /// Whether `a` and `b` are isomorphic: some homomorphism `a -> b` is
         /// a bijection on rows and on nulls, and its inverse is a
         /// homomorphism `b -> a`.
-        pub(crate) fn brute_iso(a: &FInstance, b: &FInstance) -> bool {
+        pub(super) fn brute_iso(a: &FInstance, b: &FInstance) -> bool {
             if a.total_row_count() != b.total_row_count() {
                 return false;
             }
@@ -2419,7 +2442,7 @@ mod tests {
 
         /// `rho_{S'}(x)`: the rows at kept tables with their cells at kept
         /// columns, and the pairs at kept relations.
-        pub(crate) fn restrict(spec: &Spec, x: &FInstance) -> FInstance {
+        pub(super) fn restrict(spec: &Spec, x: &FInstance) -> FInstance {
             let tables = spec.tables.keys().map(|s| {
                 let kept = spec.kept_columns(s);
                 let rows = x
@@ -2443,18 +2466,24 @@ mod tests {
             FInstance::from_parts(tables, pairs).expect("a restriction is an instance")
         }
 
+        /// A pair of copies, each named by its table and the row it copies.
+        pub(super) type CopyPair = ((Name, RowId), (Name, RowId));
+
+        /// A pair of tuples.
+        pub(super) type TuplePair = (Vec<RowId>, Vec<RowId>);
+
         /// The Delta oracle: the copy of each row `r'` of `J(F s)` at every
         /// kept table `s`, keyed by `(s, r')`, with its cells, and the pairs
         /// of each kept relation between copies.
-        pub(crate) struct DeltaOracle {
+        pub(super) struct DeltaOracle {
             /// Each copy's cells.
-            pub(crate) copies: BTreeMap<(Name, RowId), Row>,
+            pub(super) copies: BTreeMap<(Name, RowId), Row>,
             /// Each kept relation's pairs between copies.
-            pub(crate) pairs: BTreeMap<Edge, BTreeSet<((Name, RowId), (Name, RowId))>>,
+            pub(super) pairs: BTreeMap<Edge, BTreeSet<CopyPair>>,
         }
 
         /// [`DeltaOracle`] by the direct formula.
-        pub(crate) fn delta(spec: &Spec, j: &FInstance) -> DeltaOracle {
+        pub(super) fn delta(spec: &Spec, j: &FInstance) -> DeltaOracle {
             let mut copies = BTreeMap::new();
             for (s, d) in &spec.tables {
                 for (r, row) in j.rows(d) {
@@ -2484,15 +2513,15 @@ mod tests {
         /// column agree, with their cells; at each target relation the
         /// pairs of tuples meeting every relation carried to it (every pair
         /// when none is).
-        pub(crate) struct PiOracle {
+        pub(super) struct PiOracle {
             /// Each target table's tuples with their cells.
-            pub(crate) rows: BTreeMap<Name, BTreeMap<Vec<RowId>, Row>>,
+            pub(super) rows: BTreeMap<Name, BTreeMap<Vec<RowId>, Row>>,
             /// Each target relation's pairs of tuples.
-            pub(crate) pairs: BTreeMap<Edge, BTreeSet<(Vec<RowId>, Vec<RowId>)>>,
+            pub(super) pairs: BTreeMap<Edge, BTreeSet<TuplePair>>,
         }
 
         /// [`PiOracle`] over `i`, an instance on `S'`.
-        pub(crate) fn pi(spec: &Spec, i: &FInstance) -> PiOracle {
+        pub(super) fn pi(spec: &Spec, i: &FInstance) -> PiOracle {
             let mut rows = BTreeMap::new();
             for (d, columns) in &spec.tgt.tables {
                 let fibre = spec.fibre(d);
@@ -2584,7 +2613,7 @@ mod tests {
         /// changes, after each equation in `(RowId, column)` order). A class
         /// with two constants is the clash at the first equation that made
         /// it. Fresh nulls are numbered from `fresh_base` in that order.
-        pub(crate) fn sigma(
+        pub(super) fn sigma(
             spec: &Spec,
             i: &FInstance,
             fresh_base: u64,
@@ -2725,7 +2754,7 @@ mod tests {
         use crate::wtype::CompiledMigration;
 
         /// The attribute arrow of `column` of `table`.
-        pub(crate) fn attribute(table: &str, column: &str) -> Edge {
+        pub(super) fn attribute(table: &str, column: &str) -> Edge {
             Edge {
                 src: table.into(),
                 tgt: format!("{table}.{column}").into(),
@@ -2735,7 +2764,7 @@ mod tests {
         }
 
         /// A relation `src -> tgt` named `name`.
-        pub(crate) fn fk(src: &str, tgt: &str, name: &str) -> Edge {
+        pub(super) fn fk(src: &str, tgt: &str, name: &str) -> Edge {
             Edge {
                 src: src.into(),
                 tgt: tgt.into(),
@@ -2745,7 +2774,7 @@ mod tests {
         }
 
         /// One side of a spec.
-        pub(crate) fn side(tables: &[(&str, &[&str])], relations: &[Edge]) -> Side {
+        pub(super) fn side(tables: &[(&str, &[&str])], relations: &[Edge]) -> Side {
             Side {
                 tables: tables
                     .iter()
@@ -2756,7 +2785,7 @@ mod tests {
         }
 
         /// A spec from its two sides and its maps.
-        pub(crate) fn spec(
+        pub(super) fn spec(
             src: Side,
             tgt: Side,
             tables: &[(&str, &str)],
@@ -2779,7 +2808,7 @@ mod tests {
         }
 
         /// The schema of one side.
-        pub(crate) fn schema_of(side: &Side) -> Schema {
+        pub(super) fn schema_of(side: &Side) -> Schema {
             let mut vertices = HashMap::new();
             let mut edges = HashMap::new();
             for (t, columns) in &side.tables {
@@ -2816,7 +2845,7 @@ mod tests {
         }
 
         /// The protocol of both sides: `table` non-value, `integer` value.
-        pub(crate) fn protocol() -> Protocol {
+        pub(super) fn protocol() -> Protocol {
             Protocol {
                 value_kinds: BTreeMap::from([("integer".to_owned(), ScalarKind::Any)]),
                 non_value_kinds: BTreeSet::from(["table".to_owned()]),
@@ -2825,7 +2854,7 @@ mod tests {
         }
 
         /// The migration stating the spec's functor.
-        pub(crate) fn migration_of(spec: &Spec) -> CompiledMigration {
+        pub(super) fn migration_of(spec: &Spec) -> CompiledMigration {
             let mut m = CompiledMigration::default();
             for (s, d) in &spec.tables {
                 m.vertex_remap.insert(s.clone(), d.clone());
@@ -2843,7 +2872,7 @@ mod tests {
         }
 
         /// The functor of a spec, as the code under test builds it.
-        pub(crate) fn functor(spec: &Spec) -> MigrationFunctor {
+        pub(super) fn functor(spec: &Spec) -> MigrationFunctor {
             MigrationFunctor::new(
                 &schema_of(&spec.src),
                 &protocol(),
@@ -2855,7 +2884,7 @@ mod tests {
         }
 
         /// A row from its cells.
-        pub(crate) fn row(cells: &[(&str, Value)]) -> Row {
+        pub(super) fn row(cells: &[(&str, Value)]) -> Row {
             cells
                 .iter()
                 .map(|(c, v)| ((*c).to_owned(), v.clone()))
@@ -3362,6 +3391,1807 @@ mod tests {
             assert!(oracle::brute_homs(&one, &other).is_empty());
             assert!(FInstanceHom::identity(&one).check(&one, &other).is_err());
             assert!(FInstanceHom::identity(&one).check(&one, &one).is_ok());
+        }
+    }
+
+    /// The laws of the table Kan extensions, each on its stated domain,
+    /// checked against the oracles: exhaustively on the tiny family, and on
+    /// generated cases.
+    mod laws {
+        use std::collections::{BTreeMap, BTreeSet};
+
+        use panproto_gat::Name;
+        use panproto_schema::Edge;
+
+        use super::fixture;
+        use super::oracle::{self, Found, Side, Spec};
+        use crate::adjunction::{
+            AdjunctionError, f_counit, f_delta, f_delta_on_hom, f_delta_with_provenance,
+            f_pi_counit, f_pi_on_hom, f_pi_transpose_left, f_pi_transpose_right, f_pi_unit,
+            f_sigma_on_hom, f_sigma_restricted, f_transpose_left, f_transpose_right, f_unit,
+        };
+        use crate::error::RestrictError;
+        use crate::functor::{FInstance, Row};
+        use crate::instance_hom::FInstanceHom;
+        use crate::migration_functor::MigrationFunctor;
+        use crate::pi::functor_pi_restricted;
+        use crate::value::Value;
+        use crate::view_ref::RowId;
+
+        /// A brute-force homomorphism as an [`FInstanceHom`].
+        fn hom(found: &Found) -> FInstanceHom {
+            FInstanceHom::new(found.0.clone()).with_null_map(found.1.clone())
+        }
+
+        /// `g` then `h`, its null map cut to the nulls of `dom`.
+        fn compose(g: &FInstanceHom, h: &FInstanceHom, dom: &FInstance) -> FInstanceHom {
+            let composed = g.compose(h).unwrap_or_else(|e| panic!("{e}"));
+            let nulls = oracle::nulls(dom);
+            let null_map = composed
+                .null_map
+                .into_iter()
+                .filter(|(n, _)| nulls.contains(n))
+                .collect();
+            FInstanceHom::new(composed.row_map).with_null_map(null_map)
+        }
+
+        /// A homomorphism as the key [`FInstanceHom::same_as`] compares: its
+        /// row map, and its null map's non-identity entries by canonical
+        /// bytes.
+        type HomKey = (BTreeMap<RowId, RowId>, BTreeMap<u64, Vec<u8>>);
+
+        fn key(h: &FInstanceHom) -> HomKey {
+            let nulls = h
+                .null_map
+                .iter()
+                .map(|(n, v)| (*n, oracle::canon(v)))
+                .filter(|(n, bytes)| *bytes != oracle::canon(&Value::LabeledNull(*n)))
+                .collect();
+            (h.row_map.clone(), nulls)
+        }
+
+        /// The keys of a list of homomorphisms.
+        fn index(list: &[Found]) -> BTreeSet<HomKey> {
+            list.iter().map(|found| key(&hom(found))).collect()
+        }
+
+        /// Whether the indexed list holds a homomorphism equal to `h`.
+        fn holds(list: &BTreeSet<HomKey>, h: &FInstanceHom) -> bool {
+            list.contains(&key(h))
+        }
+
+        /// The first way an instance fails to conform to the tables, columns
+        /// and relations given (rows ascending; for a row: table, then the
+        /// least missing or stray column, then the least column holding a
+        /// nested null; a pair outside the relations at its source row,
+        /// after that row's own violation).
+        fn first_violation(
+            tables: &BTreeMap<Name, BTreeSet<String>>,
+            relations: &BTreeSet<Edge>,
+            inst: &FInstance,
+        ) -> Option<(RowId, Option<String>)> {
+            fn nested(v: &Value) -> bool {
+                fn any(v: &Value) -> bool {
+                    matches!(v, Value::LabeledNull(_)) || nested(v)
+                }
+                match v {
+                    Value::List(items) => items.iter().any(any),
+                    Value::Unknown(fields) | Value::Opaque { fields, .. } => {
+                        fields.values().any(any)
+                    }
+                    _ => false,
+                }
+            }
+            let mut found: Option<(RowId, Option<String>)> = None;
+            for id in inst.row_ids() {
+                let table = inst.table_of(id)?;
+                let Some(columns) = tables.get(table) else {
+                    found = Some((id, None));
+                    break;
+                };
+                let cells = inst.row(id)?;
+                let keys: BTreeSet<&String> = cells.keys().collect();
+                let wrong = columns
+                    .iter()
+                    .filter(|c| !keys.contains(c))
+                    .chain(keys.iter().copied().filter(|k| !columns.contains(*k)))
+                    .min();
+                if let Some(column) = wrong {
+                    found = Some((id, Some(column.clone())));
+                    break;
+                }
+                if let Some(column) = columns.iter().find(|c| cells.get(*c).is_some_and(nested)) {
+                    found = Some((id, Some(column.clone())));
+                    break;
+                }
+            }
+            let pair = inst
+                .foreign_keys()
+                .into_iter()
+                .filter(|(e, p)| !p.is_empty() && !relations.contains(*e))
+                .filter_map(|(_, p)| p.iter().next().map(|(s, _)| *s))
+                .min();
+            match (found, pair) {
+                (Some(row), Some(src)) if row.0 <= src => Some(row),
+                (_, Some(src)) => Some((src, None)),
+                (row, None) => row,
+            }
+        }
+
+        /// The tables and columns of a side, with its relations.
+        fn whole(side: &Side) -> (BTreeMap<Name, BTreeSet<String>>, BTreeSet<Edge>) {
+            (side.tables.clone(), side.relations.clone())
+        }
+
+        /// The kept part `S'` of a spec's source.
+        fn kept(spec: &Spec) -> (BTreeMap<Name, BTreeSet<String>>, BTreeSet<Edge>) {
+            let tables = spec
+                .tables
+                .keys()
+                .map(|s| (s.clone(), spec.kept_columns(s).into_iter().collect()))
+                .collect();
+            (tables, spec.relations.keys().cloned().collect())
+        }
+
+        /// `Sigma_F(i)` checked against the oracle, clash included: the
+        /// result, or `None` when both refuse with a clash at one equation.
+        fn sigma_checked(spec: &Spec, f: &MigrationFunctor, i: &FInstance) -> Option<FInstance> {
+            match f_sigma_restricted(i, f) {
+                Err(AdjunctionError::SigmaConstantClash { row, column, .. }) => {
+                    assert_eq!(oracle::sigma(spec, i, 0), Err((row, column)), "{i:?}");
+                    None
+                }
+                Err(e) => panic!("Sigma of {i:?}: {e}"),
+                Ok((sigma, _)) => {
+                    let expected = oracle::sigma(spec, i, 1 << 40)
+                        .unwrap_or_else(|clash| panic!("the oracle clashes at {clash:?} on {i:?}"));
+                    assert!(
+                        oracle::brute_iso(&sigma, &expected),
+                        "{sigma:?} vs {expected:?}"
+                    );
+                    Some(sigma)
+                }
+            }
+        }
+
+        /// L1 and L1' at `(i, j)` given `sigma = Sigma_F(i)` (`None` on a
+        /// clash) and `delta = Delta_F(j)`: on a clash `Hom(I, Delta J)` is
+        /// empty; otherwise `g -> eps . Sigma g` is a bijection
+        /// `Hom(I, Delta J) -> Hom(Sigma I, J)` with inverse
+        /// `h -> Delta h . eta`. Returns `|Hom(I, Delta J)|`.
+        fn sigma_bijection(
+            f: &MigrationFunctor,
+            i: &FInstance,
+            sigma: Option<&FInstance>,
+            delta: &FInstance,
+            j: &FInstance,
+        ) -> usize {
+            let left = oracle::brute_homs(i, delta);
+            let Some(sigma) = sigma else {
+                assert!(
+                    left.is_empty(),
+                    "a clash has no homs into Delta: {i:?} -> {delta:?}"
+                );
+                return 0;
+            };
+            let right = oracle::brute_homs(sigma, j);
+            let (left_keys, right_keys) = (index(&left), index(&right));
+            assert_eq!(
+                left.len(),
+                right.len(),
+                "|Hom(I, Delta J)| = |Hom(Sigma I, J)|: {i:?}, {j:?}"
+            );
+            for g in &left {
+                let g = hom(g);
+                let flat = f_transpose_right(&g, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                assert!(
+                    holds(&right_keys, &flat),
+                    "{g:?} transposes to {flat:?}, no hom"
+                );
+                let back = f_transpose_left(&flat, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                assert!(back.same_as(&g), "{g:?} -> {flat:?} -> {back:?}");
+            }
+            for h in &right {
+                let h = hom(h);
+                let sharp = f_transpose_left(&h, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                assert!(
+                    holds(&left_keys, &sharp),
+                    "{h:?} transposes to {sharp:?}, no hom"
+                );
+                let back = f_transpose_right(&sharp, i, j, f).unwrap_or_else(|e| panic!("{e}"));
+                assert!(back.same_as(&h), "{h:?} -> {sharp:?} -> {back:?}");
+            }
+            left.len()
+        }
+
+        /// The Sigma -| Delta laws at `(i, j)`, `i` on `S'` and `j` on `T`:
+        /// [`sigma_checked`] and [`sigma_bijection`].
+        fn sigma_delta(spec: &Spec, f: &MigrationFunctor, i: &FInstance, j: &FInstance) -> usize {
+            let delta = f_delta(j, f).unwrap_or_else(|e| panic!("Delta of {j:?}: {e}"));
+            let sigma = sigma_checked(spec, f, i);
+            sigma_bijection(f, i, sigma.as_ref(), &delta, j)
+        }
+
+        /// Whether the Pi oracle's result exceeds `max` rows at a table, or
+        /// `max` pairs at a relation nothing is carried to.
+        fn over_bound(spec: &Spec, expected: &oracle::PiOracle, max: usize) -> bool {
+            expected.rows.values().any(|rows| rows.len() > max)
+                || expected.pairs.keys().any(|e| {
+                    spec.relation_fibre(e).is_empty()
+                        && expected.rows[&e.src].len() * expected.rows[&e.tgt].len() > max
+                })
+        }
+
+        /// `Pi_F(i)` checked against the oracle: refused exactly when the
+        /// functor misses a column (the least one named) or the result
+        /// exceeds `max`; otherwise equal to the oracle through its
+        /// provenance. Returns it when it is computed.
+        fn pi_checked(
+            spec: &Spec,
+            f: &MigrationFunctor,
+            i: &FInstance,
+            max: usize,
+        ) -> Option<FInstance> {
+            let result = functor_pi_restricted(i, f, max);
+            if let Some((table, column)) = spec.missing_column() {
+                assert!(
+                    matches!(
+                        &result,
+                        Err(AdjunctionError::Pi(RestrictError::AttributeOutsideImage { table: t, column: c }))
+                            if *t == table && *c == column
+                    ),
+                    "{result:?}"
+                );
+                return None;
+            }
+            let expected = oracle::pi(spec, i);
+            let (pi, provenance) = match result {
+                Err(AdjunctionError::Pi(RestrictError::ProductSizeExceeded { .. })) => {
+                    assert!(
+                        over_bound(spec, &expected, max),
+                        "refused within the bound: {i:?}"
+                    );
+                    return None;
+                }
+                Err(e) => panic!("Pi of {i:?}: {e}"),
+                Ok(ok) => ok,
+            };
+            assert!(
+                !over_bound(spec, &expected, max),
+                "not refused over the bound: {i:?}"
+            );
+            let mut seen: BTreeMap<Name, BTreeSet<Vec<RowId>>> = BTreeMap::new();
+            let mut by_tuple: BTreeMap<(Name, Vec<RowId>), RowId> = BTreeMap::new();
+            for (row, (table, tuple)) in &provenance.tuples {
+                let cells = expected.rows[table]
+                    .get(tuple)
+                    .unwrap_or_else(|| panic!("{tuple:?} is no cone at {table}"));
+                let ours = pi.row(*row).unwrap_or_else(|| panic!("row {row:?}"));
+                assert_eq!(ours.len(), cells.len());
+                for (c, v) in cells {
+                    assert_eq!(
+                        oracle::canon(&ours[c]),
+                        oracle::canon(v),
+                        "{table} {tuple:?} {c}"
+                    );
+                }
+                assert_eq!(pi.table_of(*row), Some(table));
+                seen.entry(table.clone()).or_default().insert(tuple.clone());
+                by_tuple.insert((table.clone(), tuple.clone()), *row);
+            }
+            for (table, rows) in &expected.rows {
+                let ours = seen.remove(table).unwrap_or_default();
+                assert_eq!(ours, rows.keys().cloned().collect(), "the cones at {table}");
+            }
+            for (relation, pairs) in &expected.pairs {
+                let theirs: BTreeSet<(RowId, RowId)> = pairs
+                    .iter()
+                    .map(|(x, y)| {
+                        (
+                            by_tuple[&(relation.src.clone(), x.clone())],
+                            by_tuple[&(relation.tgt.clone(), y.clone())],
+                        )
+                    })
+                    .collect();
+                assert_eq!(pi.pairs(relation), &theirs, "the pairs at {relation:?}");
+            }
+            Some(pi)
+        }
+
+        /// L2 at `(i, j)` given `pi = Pi_F(i)` and `delta = Delta_F(j)`:
+        /// `|Hom(Delta J, I)| = |Hom(J, Pi I)|`, and, when the unit's codomain
+        /// `Pi_F(Delta J)` is within the bound too (`transposes`),
+        /// `g -> Pi g . unit` is a bijection with inverse
+        /// `f -> counit . Delta f`. Returns `|Hom(J, Pi I)|`.
+        fn pi_bijection(
+            f: &MigrationFunctor,
+            (i, pi): (&FInstance, &FInstance),
+            (j, delta): (&FInstance, &FInstance),
+            transposes: bool,
+            max: usize,
+        ) -> usize {
+            let left = oracle::brute_homs(delta, i);
+            let right = oracle::brute_homs(j, pi);
+            let (left_keys, right_keys) = (index(&left), index(&right));
+            assert_eq!(
+                left.len(),
+                right.len(),
+                "|Hom(Delta J, I)| = |Hom(J, Pi I)|: {i:?}, {j:?}"
+            );
+            if !transposes {
+                return right.len();
+            }
+            for g in &left {
+                let g = hom(g);
+                let sharp = f_pi_transpose_left(&g, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                assert!(
+                    holds(&right_keys, &sharp),
+                    "{g:?} transposes to {sharp:?}, no hom"
+                );
+                let back =
+                    f_pi_transpose_right(&sharp, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                assert!(back.same_as(&g), "{g:?} -> {sharp:?} -> {back:?}");
+            }
+            for h in &right {
+                let h = hom(h);
+                let flat = f_pi_transpose_right(&h, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                assert!(
+                    holds(&left_keys, &flat),
+                    "{h:?} transposes to {flat:?}, no hom"
+                );
+                let back =
+                    f_pi_transpose_left(&flat, j, i, f, max).unwrap_or_else(|e| panic!("{e}"));
+                assert!(back.same_as(&h), "{h:?} -> {flat:?} -> {back:?}");
+            }
+            right.len()
+        }
+
+        /// The Delta -| Pi laws at `(i, j)`: for an attribute-surjective
+        /// functor within the bound, L2 by [`pi_bijection`]; otherwise Pi
+        /// refuses with the documented error (L2', checked by
+        /// [`pi_checked`]). Returns `|Hom(J, Pi I)|`, or `None` when Pi
+        /// refuses.
+        fn delta_pi(
+            spec: &Spec,
+            f: &MigrationFunctor,
+            i: &FInstance,
+            j: &FInstance,
+            max: usize,
+        ) -> Option<usize> {
+            let pi = pi_checked(spec, f, i, max)?;
+            let delta = f_delta(j, f).unwrap_or_else(|e| panic!("{e}"));
+            let transposes = pi_checked(spec, f, &delta, max).is_some();
+            Some(pi_bijection(f, (i, &pi), (j, &delta), transposes, max))
+        }
+
+        /// `Delta_F(j)` checked against the oracle through its provenance,
+        /// and its conformance to `S'` (L8).
+        fn delta_checked(spec: &Spec, f: &MigrationFunctor, j: &FInstance) -> FInstance {
+            let (delta, provenance) =
+                f_delta_with_provenance(j, f).unwrap_or_else(|e| panic!("{e}"));
+            let expected = oracle::delta(spec, j);
+            let mut copy_of = BTreeMap::new();
+            for (copy, key) in &provenance.copies {
+                let same = match (delta.row(*copy), expected.copies.get(key)) {
+                    (Some(ours), Some(theirs)) => crate::functor::same_row(ours, theirs),
+                    _ => false,
+                };
+                assert!(same, "the copy {key:?}: {:?}", delta.row(*copy));
+                assert_eq!(delta.table_of(*copy), Some(&key.0));
+                copy_of.insert(key.clone(), *copy);
+            }
+            assert_eq!(copy_of.len(), expected.copies.len());
+            assert_eq!(delta.total_row_count(), expected.copies.len());
+            for (e, pairs) in &expected.pairs {
+                let ours: BTreeSet<(RowId, RowId)> = pairs
+                    .iter()
+                    .map(|(a, b)| (copy_of[a], copy_of[b]))
+                    .collect();
+                assert_eq!(delta.pairs(e), &ours, "the pairs at {e:?}");
+            }
+            let (tables, relations) = kept(spec);
+            assert_eq!(
+                first_violation(&tables, &relations, &delta),
+                None,
+                "{delta:?}"
+            );
+            delta
+        }
+
+        /// Whether an error is the product bound's.
+        fn over(e: &AdjunctionError) -> bool {
+            matches!(
+                e,
+                AdjunctionError::Pi(RestrictError::ProductSizeExceeded { .. })
+            )
+        }
+
+        /// The triangle identities of both adjunctions at `(i, j)` (L3), on
+        /// their domains: Sigma accepting `i`; `F` surjective on attributes
+        /// with every limit involved within `max`.
+        fn triangles(spec: &Spec, f: &MigrationFunctor, i: &FInstance, j: &FInstance, max: usize) {
+            let delta_j = f_delta(j, f).unwrap_or_else(|e| panic!("{e}"));
+            // (Delta eps) . (eta Delta) = id at Delta J.
+            let eta = f_unit(&delta_j, f).unwrap_or_else(|e| panic!("{e}"));
+            let (sigma_delta, _) =
+                f_sigma_restricted(&delta_j, f).unwrap_or_else(|e| panic!("{e}"));
+            let eps = f_counit(j, f).unwrap_or_else(|e| panic!("{e}"));
+            let delta_eps =
+                f_delta_on_hom(&eps, &sigma_delta, j, f).unwrap_or_else(|e| panic!("{e}"));
+            let id = FInstanceHom::identity(&delta_j);
+            assert!(
+                compose(&eta, &delta_eps, &delta_j).same_as(&id),
+                "(Delta eps)(eta Delta) at {j:?}"
+            );
+            // (eps Sigma) . (Sigma eta) = id at Sigma I.
+            if let Ok((sigma, _)) = f_sigma_restricted(i, f) {
+                let eta = f_unit(i, f).unwrap_or_else(|e| panic!("{e}"));
+                let delta_sigma = f_delta(&sigma, f).unwrap_or_else(|e| panic!("{e}"));
+                let sigma_eta =
+                    f_sigma_on_hom(&eta, i, &delta_sigma, f).unwrap_or_else(|e| panic!("{e}"));
+                let eps = f_counit(&sigma, f).unwrap_or_else(|e| panic!("{e}"));
+                let id = FInstanceHom::identity(&sigma);
+                assert!(
+                    compose(&sigma_eta, &eps, &sigma).same_as(&id),
+                    "(eps Sigma)(Sigma eta) at {i:?}"
+                );
+            }
+            if spec.missing_column().is_some() {
+                return;
+            }
+            // (counit Delta) . (Delta unit) = id at Delta J.
+            let first = (|| {
+                let unit = f_pi_unit(j, f, max)?;
+                let (pi_delta, _) = functor_pi_restricted(&delta_j, f, max)?;
+                let delta_unit = f_delta_on_hom(&unit, j, &pi_delta, f)?;
+                let counit = f_pi_counit(&delta_j, f, max)?;
+                Ok::<_, AdjunctionError>(compose(&delta_unit, &counit, &delta_j))
+            })();
+            match first {
+                Ok(composite) => assert!(
+                    composite.same_as(&FInstanceHom::identity(&delta_j)),
+                    "at {j:?}"
+                ),
+                Err(e) => assert!(over(&e), "{e}"),
+            }
+            // (Pi counit) . (unit Pi) = id at Pi I.
+            let second = (|| {
+                let (pi, _) = functor_pi_restricted(i, f, max)?;
+                let unit = f_pi_unit(&pi, f, max)?;
+                let counit = f_pi_counit(i, f, max)?;
+                let delta_pi = f_delta(&pi, f)?;
+                let pi_counit = f_pi_on_hom(&counit, &delta_pi, i, f, max)?;
+                Ok::<_, AdjunctionError>((
+                    compose(&unit, &pi_counit, &pi),
+                    FInstanceHom::identity(&pi),
+                ))
+            })();
+            match second {
+                Ok((composite, id)) => assert!(composite.same_as(&id), "at {i:?}"),
+                Err(e) => assert!(over(&e), "{e}"),
+            }
+        }
+
+        /// L4: along the identity functor of a side, Sigma, Delta and Pi
+        /// return `x` exactly, and the units and counits are identities.
+        fn identity_laws(side: &Side, x: &FInstance) {
+            let f = MigrationFunctor::identity(&fixture::schema_of(side), &fixture::protocol())
+                .unwrap_or_else(|e| panic!("{e}"));
+            let max = usize::MAX;
+            assert_eq!(
+                &crate::adjunction::f_sigma(x, &f).unwrap_or_else(|e| panic!("{e}")),
+                x
+            );
+            assert_eq!(&f_delta(x, &f).unwrap_or_else(|e| panic!("{e}")), x);
+            assert_eq!(
+                &crate::pi::functor_pi_along(x, &f, max).unwrap_or_else(|e| panic!("{e}")),
+                x
+            );
+            let id = FInstanceHom::identity(x);
+            for unit in [
+                f_unit(x, &f),
+                f_counit(x, &f),
+                f_pi_unit(x, &f, max),
+                f_pi_counit(x, &f, max),
+            ] {
+                assert!(unit.unwrap_or_else(|e| panic!("{e}")).same_as(&id));
+            }
+        }
+
+        /// L6 for Delta: `j` within `j_big` gives `Delta j` within
+        /// `Delta j_big`, by the injective homomorphism keeping copies.
+        fn delta_monotone(f: &MigrationFunctor, j: &FInstance, j_big: &FInstance) {
+            let (small, copies) = f_delta_with_provenance(j, f).unwrap_or_else(|e| panic!("{e}"));
+            let (big, copies_big) =
+                f_delta_with_provenance(j_big, f).unwrap_or_else(|e| panic!("{e}"));
+            let row_map: BTreeMap<RowId, RowId> = copies
+                .copies
+                .iter()
+                .map(|(copy, (table, original))| {
+                    (
+                        *copy,
+                        copies_big
+                            .copy_of(table, *original)
+                            .unwrap_or_else(|| panic!("{original:?}")),
+                    )
+                })
+                .collect();
+            let images: BTreeSet<&RowId> = row_map.values().collect();
+            assert_eq!(images.len(), row_map.len());
+            let witness = FInstanceHom::new(row_map);
+            assert!(witness.check(&small, &big).is_ok(), "{small:?} -> {big:?}");
+        }
+
+        /// L6 for Sigma: with both inputs accepted, rows keep their ids,
+        /// each fresh null goes to the fresh null of its row and column, and
+        /// each null of `i` to its representative in `Sigma i_big`; when
+        /// only the larger input is refused, the test asserts the refusal.
+        fn sigma_monotone(f: &MigrationFunctor, i: &FInstance, i_big: &FInstance) {
+            let big = f_sigma_restricted(i_big, f);
+            let (small, provenance) = match f_sigma_restricted(i, f) {
+                Ok(ok) => ok,
+                Err(AdjunctionError::SigmaConstantClash { .. }) => {
+                    assert!(matches!(
+                        big,
+                        Err(AdjunctionError::SigmaConstantClash { .. })
+                    ));
+                    return;
+                }
+                Err(e) => panic!("{e}"),
+            };
+            let (big, provenance_big) = match big {
+                Ok(ok) => ok,
+                Err(AdjunctionError::SigmaConstantClash { .. }) => return,
+                Err(e) => panic!("{e}"),
+            };
+            let fresh_big: BTreeMap<&(RowId, String), u64> = provenance_big
+                .fresh
+                .iter()
+                .map(|(n, at)| (at, *n))
+                .collect();
+            let null_map = oracle::nulls(&small)
+                .into_iter()
+                .map(|n| {
+                    let image = match provenance.fresh.get(&n) {
+                        Some(at) => Value::LabeledNull(fresh_big[at]),
+                        None => provenance_big
+                            .merged
+                            .get(&n)
+                            .cloned()
+                            .unwrap_or(Value::LabeledNull(n)),
+                    };
+                    (n, image)
+                })
+                .collect();
+            let witness = FInstanceHom::identity(&small).with_null_map(null_map);
+            assert!(witness.check(&small, &big).is_ok(), "{small:?} -> {big:?}");
+        }
+
+        /// L6 for Pi: within the bound, each row of `Pi i` goes to the row of
+        /// `Pi i_big` with its tuple, an injective homomorphism.
+        fn pi_monotone(f: &MigrationFunctor, i: &FInstance, i_big: &FInstance, max: usize) {
+            let (Ok((small, tuples)), Ok((big, tuples_big))) = (
+                functor_pi_restricted(i, f, max),
+                functor_pi_restricted(i_big, f, max),
+            ) else {
+                return;
+            };
+            let by_tuple: BTreeMap<&(Name, Vec<RowId>), RowId> =
+                tuples_big.tuples.iter().map(|(row, t)| (t, *row)).collect();
+            let row_map: BTreeMap<RowId, RowId> = tuples
+                .tuples
+                .iter()
+                .map(|(row, t)| {
+                    (
+                        *row,
+                        by_tuple.get(t).copied().unwrap_or_else(|| panic!("{t:?}")),
+                    )
+                })
+                .collect();
+            let images: BTreeSet<&RowId> = row_map.values().collect();
+            assert_eq!(images.len(), row_map.len());
+            assert!(FInstanceHom::new(row_map).check(&small, &big).is_ok());
+        }
+
+        /// Whether `small` is within `big`: every row of `small` is a row of
+        /// `big` with the same id, table and cells, and every pair a pair.
+        fn within(small: &FInstance, big: &FInstance) -> bool {
+            small.row_ids().into_iter().all(|id| {
+                small.table_of(id) == big.table_of(id)
+                    && match (small.row(id), big.row(id)) {
+                        (Some(a), Some(b)) => crate::functor::same_row(a, b),
+                        _ => false,
+                    }
+            }) && small
+                .foreign_keys()
+                .into_iter()
+                .all(|(e, pairs)| pairs.iter().all(|p| big.pairs(e).contains(p)))
+        }
+
+        /// L7: each action on homomorphisms keeps identities, and composites
+        /// along `h1: a -> b` and `h2: b -> c` (instances on `S'` for Sigma
+        /// and Pi; their Delta images are checked through `f_delta_on_hom`
+        /// on the target instances `ta -> tb -> tc` when given).
+        fn functorial(
+            f: &MigrationFunctor,
+            (a, b, c): (&FInstance, &FInstance, &FInstance),
+            (h1, h2): (&FInstanceHom, &FInstanceHom),
+            max: usize,
+        ) {
+            let h12 = compose(h1, h2, a);
+            if let Ok((sa, _)) = f_sigma_restricted(a, f) {
+                if f_sigma_restricted(b, f).is_ok() && f_sigma_restricted(c, f).is_ok() {
+                    let id = f_sigma_on_hom(&FInstanceHom::identity(a), a, a, f)
+                        .unwrap_or_else(|e| panic!("{e}"));
+                    assert!(id.same_as(&FInstanceHom::identity(&sa)));
+                    let one = f_sigma_on_hom(h1, a, b, f).unwrap_or_else(|e| panic!("{e}"));
+                    let two = f_sigma_on_hom(h2, b, c, f).unwrap_or_else(|e| panic!("{e}"));
+                    let both = f_sigma_on_hom(&h12, a, c, f).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(both.same_as(&compose(&one, &two, &sa)), "Sigma({h12:?})");
+                }
+            }
+            if let Ok((pa, _)) = functor_pi_restricted(a, f, max) {
+                if functor_pi_restricted(b, f, max).is_ok()
+                    && functor_pi_restricted(c, f, max).is_ok()
+                {
+                    let id = f_pi_on_hom(&FInstanceHom::identity(a), a, a, f, max)
+                        .unwrap_or_else(|e| panic!("{e}"));
+                    assert!(id.same_as(&FInstanceHom::identity(&pa)));
+                    let one = f_pi_on_hom(h1, a, b, f, max).unwrap_or_else(|e| panic!("{e}"));
+                    let two = f_pi_on_hom(h2, b, c, f, max).unwrap_or_else(|e| panic!("{e}"));
+                    let both = f_pi_on_hom(&h12, a, c, f, max).unwrap_or_else(|e| panic!("{e}"));
+                    assert!(both.same_as(&compose(&one, &two, &pa)), "Pi({h12:?})");
+                }
+            }
+        }
+
+        /// L7 for Delta along `h1: a -> b`, `h2: b -> c` of instances on `T`.
+        fn delta_functorial(
+            f: &MigrationFunctor,
+            (a, b, c): (&FInstance, &FInstance, &FInstance),
+            (h1, h2): (&FInstanceHom, &FInstanceHom),
+        ) {
+            let da = f_delta(a, f).unwrap_or_else(|e| panic!("{e}"));
+            let id = f_delta_on_hom(&FInstanceHom::identity(a), a, a, f)
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert!(id.same_as(&FInstanceHom::identity(&da)));
+            let one = f_delta_on_hom(h1, a, b, f).unwrap_or_else(|e| panic!("{e}"));
+            let two = f_delta_on_hom(h2, b, c, f).unwrap_or_else(|e| panic!("{e}"));
+            let both =
+                f_delta_on_hom(&compose(h1, h2, a), a, c, f).unwrap_or_else(|e| panic!("{e}"));
+            assert!(both.same_as(&compose(&one, &two, &da)));
+        }
+
+        /// L8 for Sigma and Pi: Sigma's result conforms to `T` (its tables
+        /// outside the image are empty), Pi's too.
+        fn outputs_conform(spec: &Spec, f: &MigrationFunctor, i: &FInstance, max: usize) {
+            let (tables, relations) = whole(&spec.tgt);
+            if let Ok((sigma, _)) = f_sigma_restricted(i, f) {
+                assert_eq!(
+                    first_violation(&tables, &relations, &sigma),
+                    None,
+                    "{sigma:?}"
+                );
+                let image: BTreeSet<&Name> = spec.tables.values().collect();
+                assert!(sigma.table_names().into_iter().all(|t| image.contains(t)));
+            }
+            if let Ok((pi, _)) = functor_pi_restricted(i, f, max) {
+                assert_eq!(first_violation(&tables, &relations, &pi), None, "{pi:?}");
+            }
+        }
+
+        /// A relation with a set of its pairs.
+        type RelationPairs = (Edge, Vec<(RowId, RowId)>);
+
+        /// Every instance of a side: at most `rows` rows per table numbered
+        /// in table order, every cell drawn from `cells`, and every subset of
+        /// the possible pairs of each relation.
+        fn every_instance(side: &Side, rows: usize, cells: &[Value]) -> Vec<FInstance> {
+            // Each table's possible row lists (cells only), table by table.
+            let mut tables: Vec<(Name, Vec<Vec<Row>>)> = Vec::new();
+            for (table, columns) in &side.tables {
+                let mut options: Vec<Vec<Row>> = Vec::new();
+                for n in 0..=rows {
+                    let mut lists: Vec<Vec<Row>> = vec![Vec::new()];
+                    for _ in 0..n {
+                        let mut rows_with_cells: Vec<Row> = vec![Row::new()];
+                        for column in columns {
+                            rows_with_cells = rows_with_cells
+                                .into_iter()
+                                .flat_map(|r| {
+                                    cells.iter().map(move |v| {
+                                        let mut r = r.clone();
+                                        r.insert(column.clone(), v.clone());
+                                        r
+                                    })
+                                })
+                                .collect();
+                        }
+                        lists = lists
+                            .into_iter()
+                            .flat_map(|l| {
+                                rows_with_cells.iter().map(move |r| {
+                                    let mut l = l.clone();
+                                    l.push(r.clone());
+                                    l
+                                })
+                            })
+                            .collect();
+                    }
+                    options.extend(lists);
+                }
+                tables.push((table.clone(), options));
+            }
+            let mut layouts: Vec<Vec<(Name, Vec<Row>)>> = vec![Vec::new()];
+            for (table, options) in &tables {
+                layouts = layouts
+                    .into_iter()
+                    .flat_map(|l| {
+                        options.iter().map(move |o| {
+                            let mut l = l.clone();
+                            l.push((table.clone(), o.clone()));
+                            l
+                        })
+                    })
+                    .collect();
+            }
+            let mut out = Vec::new();
+            for layout in layouts {
+                let mut next = 0u32;
+                let mut ids: BTreeMap<Name, Vec<RowId>> = BTreeMap::new();
+                let mut parts = Vec::new();
+                for (table, rows) in layout {
+                    let mut placed = Vec::new();
+                    for row in rows {
+                        placed.push((RowId(next), row));
+                        ids.entry(table.clone()).or_default().push(RowId(next));
+                        next += 1;
+                    }
+                    parts.push((table, placed));
+                }
+                let mut pair_sets: Vec<Vec<RelationPairs>> = vec![Vec::new()];
+                for relation in &side.relations {
+                    let empty = Vec::new();
+                    let (from, to) = (
+                        ids.get(&relation.src).unwrap_or(&empty),
+                        ids.get(&relation.tgt).unwrap_or(&empty),
+                    );
+                    let possible: Vec<(RowId, RowId)> = from
+                        .iter()
+                        .flat_map(|a| to.iter().map(move |b| (*a, *b)))
+                        .collect();
+                    let subsets: Vec<Vec<(RowId, RowId)>> = (0u32..(1u32 << possible.len()))
+                        .map(|mask| {
+                            possible
+                                .iter()
+                                .enumerate()
+                                .filter(|(k, _)| mask & (1 << k) != 0)
+                                .map(|(_, p)| *p)
+                                .collect()
+                        })
+                        .collect();
+                    pair_sets = pair_sets
+                        .into_iter()
+                        .flat_map(|s| {
+                            subsets.iter().map(move |sub| {
+                                let mut s = s.clone();
+                                s.push((relation.clone(), sub.clone()));
+                                s
+                            })
+                        })
+                        .collect();
+                }
+                for pairs in pair_sets {
+                    out.push(
+                        FInstance::from_parts(parts.clone(), pairs)
+                            .unwrap_or_else(|e| panic!("{e}")),
+                    );
+                }
+            }
+            out
+        }
+
+        /// The cells of the exhaustive family.
+        fn tiny_cells() -> Vec<Value> {
+            vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::LabeledNull(0),
+                Value::LabeledNull(1),
+            ]
+        }
+
+        /// The float cells of family (8').
+        fn float_cells() -> Vec<Value> {
+            vec![
+                Value::Float(0.0),
+                Value::Float(-0.0),
+                Value::Float(f64::NAN),
+                Value::Float(-f64::NAN),
+            ]
+        }
+
+        /// The schema pairs of the exhaustive family, (1) to (9).
+        fn family() -> Vec<(&'static str, Spec)> {
+            use fixture::{fk, side, spec};
+            let l = fk("a", "b", "l");
+            let big_l = fk("m", "m", "L");
+            let k = fk("e", "e", "k");
+            let r = fk("a", "b", "r");
+            vec![
+                (
+                    "(1) a merge of tables with disjoint columns",
+                    spec(
+                        side(&[("a", &["x"]), ("b", &["y"])], &[]),
+                        side(&[("m", &["x", "y"])], &[]),
+                        &[("a", "m"), ("b", "m")],
+                        &[],
+                        &[(("a", "x"), "x"), (("b", "y"), "y")],
+                    ),
+                ),
+                (
+                    "(2) a merge with a shared column",
+                    spec(
+                        side(&[("a", &["x"]), ("b", &["x"])], &[]),
+                        side(&[("m", &["x"])], &[]),
+                        &[("a", "m"), ("b", "m")],
+                        &[],
+                        &[(("a", "x"), "x"), (("b", "x"), "x")],
+                    ),
+                ),
+                (
+                    "(3) a column rename",
+                    spec(
+                        side(&[("post", &["title"])], &[]),
+                        side(&[("post", &["name"])], &[]),
+                        &[("post", "post")],
+                        &[],
+                        &[(("post", "title"), "name")],
+                    ),
+                ),
+                (
+                    "(4) an inclusion that adds a column",
+                    spec(
+                        side(&[("a", &["x"])], &[]),
+                        side(&[("a", &["x", "y"])], &[]),
+                        &[("a", "a")],
+                        &[],
+                        &[(("a", "x"), "x")],
+                    ),
+                ),
+                (
+                    "(5) a target-only table without columns",
+                    spec(
+                        side(&[("a", &["x"])], &[]),
+                        side(&[("a", &["x"]), ("z", &[])], &[]),
+                        &[("a", "a")],
+                        &[],
+                        &[(("a", "x"), "x")],
+                    ),
+                ),
+                (
+                    "(6) an intra-fibre relation carried to a loop",
+                    spec(
+                        side(&[("a", &["x"]), ("b", &[])], std::slice::from_ref(&l)),
+                        side(&[("m", &["x"])], std::slice::from_ref(&big_l)),
+                        &[("a", "m"), ("b", "m")],
+                        &[(l.clone(), big_l.clone())],
+                        &[(("a", "x"), "x")],
+                    ),
+                ),
+                (
+                    "(7) a partial, many-valued self key",
+                    spec(
+                        side(&[("e", &["x"])], std::slice::from_ref(&k)),
+                        side(&[("e", &["x"])], std::slice::from_ref(&k)),
+                        &[("e", "e")],
+                        &[(k.clone(), k.clone())],
+                        &[(("e", "x"), "x")],
+                    ),
+                ),
+                (
+                    "(8) two columns of one table sent to one column",
+                    spec(
+                        side(&[("t", &["a1", "a2"])], &[]),
+                        side(&[("t", &["b"])], &[]),
+                        &[("t", "t")],
+                        &[],
+                        &[(("t", "a1"), "b"), (("t", "a2"), "b")],
+                    ),
+                ),
+                (
+                    "(9) the identity",
+                    spec(
+                        side(&[("a", &["x"]), ("b", &[])], std::slice::from_ref(&r)),
+                        side(&[("a", &["x"]), ("b", &[])], std::slice::from_ref(&r)),
+                        &[("a", "a"), ("b", "b")],
+                        &[(r.clone(), r.clone())],
+                        &[(("a", "x"), "x")],
+                    ),
+                ),
+            ]
+        }
+
+        /// The family with its cells: (1) to (9) over the integer and null
+        /// cells, and (8') over the float cells.
+        fn family_with_cells() -> Vec<(&'static str, Spec, Vec<Value>)> {
+            let mut out: Vec<(&'static str, Spec, Vec<Value>)> = family()
+                .into_iter()
+                .map(|(name, spec)| (name, spec, tiny_cells()))
+                .collect();
+            let eight = family()
+                .into_iter()
+                .find(|(name, _)| name.starts_with("(8)"))
+                .map(|(_, spec)| spec);
+            if let Some(spec) = eight {
+                out.push(("(8') family (8) over float cells", spec, float_cells()));
+            }
+            out
+        }
+
+        /// Run `check` on every element of `items`, spread over the
+        /// machine's threads.
+        fn par<T: Sync>(items: &[T], check: impl Fn(&T) + Sync) {
+            let threads = std::thread::available_parallelism().map_or(4, std::num::NonZero::get);
+            let chunk = items.len().div_ceil(threads).max(1);
+            std::thread::scope(|scope| {
+                for part in items.chunks(chunk) {
+                    let check = &check;
+                    scope.spawn(move || part.iter().for_each(check));
+                }
+            });
+        }
+
+        /// The bound of the exhaustive family: no limit there exceeds it.
+        const TINY_MAX: usize = 81;
+
+        /// L1, L1', L2, L2', L3, L4, L6 and L8 on every pair of tiny
+        /// instances of every schema pair of the family.
+        #[test]
+        fn adjunctions_hold_on_every_tiny_instance() {
+            for (name, spec, cells) in family_with_cells() {
+                let f = fixture::functor(&spec);
+                let sources = every_instance(&spec.src, 2, &cells);
+                let targets = every_instance(&spec.tgt, 2, &cells);
+                let empty = FInstance::new();
+                // Everything that depends on one instance is checked once.
+                let prepared: Vec<(&FInstance, FInstance, bool)> = targets
+                    .iter()
+                    .map(|j| {
+                        let delta = delta_checked(&spec, &f, j);
+                        identity_laws(&spec.tgt, j);
+                        triangles(&spec, &f, &empty, j, TINY_MAX);
+                        let within_bound = spec.missing_column().is_none()
+                            && pi_checked(&spec, &f, &delta, TINY_MAX).is_some();
+                        (j, delta, within_bound)
+                    })
+                    .collect();
+                par(&sources, |i| {
+                    identity_laws(&spec.src, i);
+                    outputs_conform(&spec, &f, i, TINY_MAX);
+                    triangles(&spec, &f, i, &empty, TINY_MAX);
+                    let sigma = sigma_checked(&spec, &f, i);
+                    let pi = pi_checked(&spec, &f, i, TINY_MAX);
+                    assert_eq!(
+                        pi.is_none(),
+                        spec.missing_column().is_some(),
+                        "{name}: {i:?}"
+                    );
+                    for (j, delta, within_bound) in &prepared {
+                        sigma_bijection(&f, i, sigma.as_ref(), delta, j);
+                        if let Some(pi) = &pi {
+                            pi_bijection(&f, (i, pi), (j, delta), *within_bound, TINY_MAX);
+                        }
+                    }
+                    for big in sources.iter().filter(|big| within(i, big)) {
+                        sigma_monotone(&f, i, big);
+                        pi_monotone(&f, i, big, TINY_MAX);
+                    }
+                });
+                par(&targets, |j| {
+                    for big in targets.iter().filter(|big| within(j, big)) {
+                        delta_monotone(&f, j, big);
+                    }
+                });
+            }
+        }
+
+        /// L1' on the family: an instance Sigma refuses with a clash of
+        /// constants has no homomorphism into any `Delta J`.
+        #[test]
+        fn a_sigma_clash_has_no_homs_into_delta() {
+            let mut clashes = 0usize;
+            for (_, spec, cells) in family_with_cells() {
+                let f = fixture::functor(&spec);
+                let targets: Vec<FInstance> = every_instance(&spec.tgt, 2, &cells)
+                    .iter()
+                    .map(|j| f_delta(j, &f).unwrap_or_else(|e| panic!("{e}")))
+                    .collect();
+                for i in every_instance(&spec.src, 2, &cells) {
+                    if let Err(AdjunctionError::SigmaConstantClash { .. }) =
+                        f_sigma_restricted(&i, &f)
+                    {
+                        clashes += 1;
+                        for delta in &targets {
+                            assert!(
+                                oracle::brute_homs(&i, delta).is_empty(),
+                                "{i:?} -> {delta:?}"
+                            );
+                        }
+                    }
+                }
+            }
+            assert!(clashes > 0, "the family has clashing instances");
+        }
+
+        /// `FInstanceHom::check` accepts a table-respecting row map exactly
+        /// when the brute-force enumerator does, for every candidate between
+        /// any two instances of each schema of the family.
+        #[test]
+        fn hom_check_agrees_with_the_brute_force_enumerator() {
+            for (_, spec, cells) in family_with_cells() {
+                for side in [&spec.src, &spec.tgt] {
+                    let instances = every_instance(side, 2, &cells);
+                    par(&instances, |a| {
+                        for b in &instances {
+                            for candidate in oracle::candidates(a, b) {
+                                let (accepted, nu) = oracle::brute_accepts(a, b, &candidate);
+                                let h = FInstanceHom::new(candidate).with_null_map(nu);
+                                assert_eq!(
+                                    h.check(a, b).is_ok(),
+                                    accepted,
+                                    "{a:?} -> {b:?}: {h:?}"
+                                );
+                            }
+                        }
+                    });
+                }
+            }
+        }
+
+        /// Sigma, Delta and Pi agree with their oracles on every tiny
+        /// instance of the family.
+        #[test]
+        fn sigma_delta_pi_agree_with_their_oracles() {
+            for (_, spec, cells) in family_with_cells() {
+                let f = fixture::functor(&spec);
+                for j in every_instance(&spec.tgt, 2, &cells) {
+                    delta_checked(&spec, &f, &j);
+                }
+                for i in every_instance(&spec.src, 2, &cells) {
+                    match (
+                        f_sigma_restricted(&i, &f),
+                        oracle::sigma(&spec, &i, 1 << 40),
+                    ) {
+                        (Ok((sigma, _)), Ok(expected)) => {
+                            assert!(oracle::brute_iso(&sigma, &expected));
+                        }
+                        (Err(AdjunctionError::SigmaConstantClash { row, column, .. }), Err(at)) => {
+                            assert_eq!((row, column), at);
+                        }
+                        (ours, theirs) => panic!("{i:?}: {ours:?} vs {theirs:?}"),
+                    }
+                    pi_checked(&spec, &f, &i, TINY_MAX);
+                }
+            }
+        }
+
+        /// The larger of two inputs may clash while the smaller does not:
+        /// Sigma's monotonicity is then vacuous, and the refusal is asserted.
+        #[test]
+        fn sigma_monotonicity_is_vacuous_when_the_larger_input_clashes() {
+            let spec = family()
+                .into_iter()
+                .find(|(name, _)| name.starts_with("(8)"))
+                .map_or_else(|| panic!("family (8)"), |(_, spec)| spec);
+            let f = fixture::functor(&spec);
+            let row = |a1: Value, a2: Value| fixture::row(&[("a1", a1), ("a2", a2)]);
+            let small = FInstance::new()
+                .with_rows("t", [(RowId(1), row(Value::Int(0), Value::LabeledNull(5)))])
+                .unwrap_or_else(|e| panic!("{e}"));
+            let big = small
+                .clone()
+                .with_rows("t", [(RowId(2), row(Value::LabeledNull(5), Value::Int(1)))])
+                .unwrap_or_else(|e| panic!("{e}"));
+            assert!(within(&small, &big));
+            assert!(f_sigma_restricted(&small, &f).is_ok());
+            assert!(matches!(
+                f_sigma_restricted(&big, &f),
+                Err(AdjunctionError::SigmaConstantClash { row, .. }) if row == RowId(2)
+            ));
+            sigma_monotone(&f, &small, &big);
+        }
+
+        /// A bijective renaming of a spec's target: tables, columns and
+        /// relation names each sent to a fresh name in the reverse of their
+        /// order, so the renaming also reorders them.
+        struct Renaming {
+            tables: BTreeMap<Name, Name>,
+            columns: BTreeMap<String, String>,
+            relations: BTreeMap<Edge, Edge>,
+        }
+
+        impl Renaming {
+            fn of(side: &Side) -> Self {
+                let reversed = |names: Vec<String>, prefix: &str| -> BTreeMap<String, String> {
+                    let n = names.len();
+                    names
+                        .into_iter()
+                        .enumerate()
+                        .map(|(k, name)| (name, format!("{prefix}{:02}", n - k)))
+                        .collect()
+                };
+                let tables: BTreeMap<Name, Name> =
+                    reversed(side.tables.keys().map(ToString::to_string).collect(), "t")
+                        .into_iter()
+                        .map(|(a, b)| (Name::from(a), Name::from(b)))
+                        .collect();
+                let columns: BTreeSet<String> = side.tables.values().flatten().cloned().collect();
+                let columns = reversed(columns.into_iter().collect(), "c");
+                let names = reversed(
+                    side.relations.iter().map(|e| format!("{e:?}")).collect(),
+                    "r",
+                );
+                let relations = side
+                    .relations
+                    .iter()
+                    .map(|e| {
+                        let image = Edge {
+                            src: tables[&e.src].clone(),
+                            tgt: tables[&e.tgt].clone(),
+                            kind: e.kind.clone(),
+                            name: Some(names[&format!("{e:?}")].clone().into()),
+                        };
+                        (e.clone(), image)
+                    })
+                    .collect();
+                Self {
+                    tables,
+                    columns,
+                    relations,
+                }
+            }
+
+            fn side(&self, side: &Side) -> Side {
+                Side {
+                    tables: side
+                        .tables
+                        .iter()
+                        .map(|(t, cs)| {
+                            (
+                                self.tables[t].clone(),
+                                cs.iter().map(|c| self.columns[c].clone()).collect(),
+                            )
+                        })
+                        .collect(),
+                    relations: side
+                        .relations
+                        .iter()
+                        .map(|e| self.relations[e].clone())
+                        .collect(),
+                }
+            }
+
+            fn spec(&self, spec: &Spec) -> Spec {
+                Spec {
+                    src: spec.src.clone(),
+                    tgt: self.side(&spec.tgt),
+                    tables: spec
+                        .tables
+                        .iter()
+                        .map(|(s, d)| (s.clone(), self.tables[d].clone()))
+                        .collect(),
+                    relations: spec
+                        .relations
+                        .iter()
+                        .map(|(e, image)| (e.clone(), self.relations[image].clone()))
+                        .collect(),
+                    columns: spec
+                        .columns
+                        .iter()
+                        .map(|(k, b)| (k.clone(), self.columns[b].clone()))
+                        .collect(),
+                }
+            }
+
+            /// A target instance renamed, its nulls sent along `nulls`.
+            fn instance(&self, inst: &FInstance, nulls: &BTreeMap<u64, u64>) -> FInstance {
+                let tables = inst.tables().into_iter().map(|(t, table)| {
+                    let rows: Vec<(RowId, Row)> = table
+                        .rows()
+                        .into_iter()
+                        .map(|(id, row)| {
+                            let cells = row
+                                .iter()
+                                .map(|(c, v)| {
+                                    let v = match v {
+                                        Value::LabeledNull(n) => {
+                                            Value::LabeledNull(nulls.get(n).copied().unwrap_or(*n))
+                                        }
+                                        other => other.clone(),
+                                    };
+                                    (self.columns[c].clone(), v)
+                                })
+                                .collect();
+                            (id, cells)
+                        })
+                        .collect();
+                    (self.tables[t].clone(), rows)
+                });
+                let pairs = inst.foreign_keys().into_iter().map(|(e, p)| {
+                    (
+                        self.relations[e].clone(),
+                        p.iter().copied().collect::<Vec<_>>(),
+                    )
+                });
+                FInstance::from_parts(tables, pairs).unwrap_or_else(|e| panic!("{e}"))
+            }
+        }
+
+        /// L5 at `(i, j)`: along `F' = rho . F`, Delta of `rho J` is Delta of
+        /// `J`; Sigma is the renaming of Sigma up to permuting each row's fresh
+        /// nulls; Pi is the renaming of Pi up to the ids of the one row of each
+        /// table outside the image; and the units and counits agree under the
+        /// same correspondence.
+        fn renaming_laws(
+            spec: &Spec,
+            f: &MigrationFunctor,
+            i: &FInstance,
+            j: &FInstance,
+            max: usize,
+        ) {
+            let rho = Renaming::of(&spec.tgt);
+            let renamed = rho.spec(spec);
+            let g = fixture::functor(&renamed);
+            let none = BTreeMap::new();
+            let rho_j = rho.instance(j, &none);
+            assert_eq!(
+                f_delta(&rho_j, &g).unwrap_or_else(|e| panic!("{e}")),
+                f_delta(j, f).unwrap_or_else(|e| panic!("{e}")),
+                "Delta"
+            );
+            match (f_sigma_restricted(i, f), f_sigma_restricted(i, &g)) {
+                (Ok((sigma, provenance)), Ok((sigma_r, provenance_r))) => {
+                    let at: BTreeMap<(RowId, String), u64> = provenance_r
+                        .fresh
+                        .iter()
+                        .map(|(n, (r, c))| ((*r, c.clone()), *n))
+                        .collect();
+                    let phi: BTreeMap<u64, u64> = provenance
+                        .fresh
+                        .iter()
+                        .map(|(n, (r, c))| (*n, at[&(*r, rho.columns[c].clone())]))
+                        .collect();
+                    assert_eq!(rho.instance(&sigma, &phi), sigma_r, "Sigma");
+                    let canonical = |m: &BTreeMap<u64, Value>| -> BTreeMap<u64, Vec<u8>> {
+                        m.iter().map(|(n, v)| (*n, oracle::canon(v))).collect()
+                    };
+                    assert_eq!(
+                        canonical(&provenance.merged),
+                        canonical(&provenance_r.merged)
+                    );
+                    let (eta, eta_r) = (f_unit(i, f), f_unit(i, &g));
+                    assert!(
+                        eta.unwrap_or_else(|e| panic!("{e}"))
+                            .same_as(&eta_r.unwrap_or_else(|e| panic!("{e}")))
+                    );
+                }
+                (
+                    Err(AdjunctionError::SigmaConstantClash { row, .. }),
+                    Err(AdjunctionError::SigmaConstantClash { row: row_r, .. }),
+                ) => {
+                    assert_eq!(row, row_r);
+                }
+                (ours, theirs) => panic!("{ours:?} vs {theirs:?}"),
+            }
+            // The counits: Sigma of Delta J against J, and of Delta rho J.
+            let (eps, eps_r) = (
+                f_counit(j, f).unwrap_or_else(|e| panic!("{e}")),
+                f_counit(&rho_j, &g).unwrap_or_else(|e| panic!("{e}")),
+            );
+            assert_eq!(eps.row_map, eps_r.row_map);
+            let delta = f_delta(j, f).unwrap_or_else(|e| panic!("{e}"));
+            let (_, fresh) = f_sigma_restricted(&delta, f).unwrap_or_else(|e| panic!("{e}"));
+            let (_, fresh_r) = f_sigma_restricted(&delta, &g).unwrap_or_else(|e| panic!("{e}"));
+            let at: BTreeMap<(RowId, String), u64> = fresh_r
+                .fresh
+                .iter()
+                .map(|(n, (r, c))| ((*r, c.clone()), *n))
+                .collect();
+            // A null with no entry goes to itself.
+            let image_of = |h: &FInstanceHom, n: u64| {
+                oracle::canon(h.null_map.get(&n).unwrap_or(&Value::LabeledNull(n)))
+            };
+            for (n, (r, c)) in &fresh.fresh {
+                let image = at[&(*r, rho.columns[c].clone())];
+                assert_eq!(
+                    image_of(&eps, *n),
+                    image_of(&eps_r, image),
+                    "the counit at {n}"
+                );
+            }
+            if spec.missing_column().is_some() {
+                return;
+            }
+            let (Ok((pi, _)), Ok((pi_r, _))) = (
+                functor_pi_restricted(i, f, max),
+                functor_pi_restricted(i, &g, max),
+            ) else {
+                return;
+            };
+            let outside: BTreeSet<Name> = spec
+                .tgt
+                .tables
+                .keys()
+                .filter(|d| spec.fibre(d).is_empty())
+                .map(|d| rho.tables[d].clone())
+                .collect();
+            let renamed_pi = rho.instance(&pi, &none);
+            assert!(oracle::brute_iso(&renamed_pi, &pi_r), "Pi");
+            for (table, rows) in renamed_pi.tables() {
+                if !outside.contains(table) {
+                    assert_eq!(Some(rows), pi_r.table(table), "Pi at {table}");
+                }
+            }
+            if let (Ok(counit), Ok(counit_r)) = (f_pi_counit(i, f, max), f_pi_counit(i, &g, max)) {
+                assert!(counit.same_as(&counit_r), "the Pi counit");
+            }
+            if let (Ok(unit), Ok(unit_r)) = (f_pi_unit(j, f, max), f_pi_unit(&rho_j, &g, max)) {
+                for (row, image) in &unit.row_map {
+                    let table = j.table_of(*row).unwrap_or_else(|| panic!("{row:?}"));
+                    let image_r = unit_r.row_map[row];
+                    if spec.fibre(table).is_empty() {
+                        assert_eq!(
+                            pi_r_table(&unit_r, &rho_j, *row, &g, max),
+                            Some(rho.tables[table].clone())
+                        );
+                    } else {
+                        assert_eq!(*image, image_r, "the Pi unit at {row:?}");
+                    }
+                }
+            }
+        }
+
+        /// The table of the image of `row` under the Pi unit of `j`.
+        fn pi_r_table(
+            unit: &FInstanceHom,
+            j: &FInstance,
+            row: RowId,
+            f: &MigrationFunctor,
+            max: usize,
+        ) -> Option<Name> {
+            let delta = f_delta(j, f).ok()?;
+            let (pi, _) = functor_pi_restricted(&delta, f, max).ok()?;
+            pi.table_of(unit.image(row)?).cloned()
+        }
+
+        /// A small deterministic generator (splitmix64), so a proptest seed
+        /// names one whole case.
+        struct Rng(u64);
+
+        impl Rng {
+            fn next(&mut self) -> u64 {
+                self.0 = self.0.wrapping_add(0x9E37_79B9_7F4A_7C15);
+                let mut z = self.0;
+                z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+                z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+                z ^ (z >> 31)
+            }
+
+            /// A number below `n` (`0` when `n` is `0`).
+            fn below(&mut self, n: usize) -> usize {
+                if n == 0 {
+                    return 0;
+                }
+                usize::try_from(self.next() % u64::try_from(n).unwrap_or(u64::MAX)).unwrap_or(0)
+            }
+
+            fn chance(&mut self, percent: usize) -> bool {
+                self.below(100) < percent
+            }
+
+            fn pick<'a, T>(&mut self, items: &'a [T]) -> Option<&'a T> {
+                if items.is_empty() {
+                    None
+                } else {
+                    items.get(self.below(items.len()))
+                }
+            }
+        }
+
+        /// The cells of the generated instances: integers, labelled nulls,
+        /// both zeros and both NaNs (only `f64::NAN` and `-f64::NAN`).
+        fn generated_cells() -> Vec<Value> {
+            vec![
+                Value::Int(0),
+                Value::Int(1),
+                Value::LabeledNull(0),
+                Value::LabeledNull(1),
+                Value::LabeledNull(2),
+                Value::Float(0.0),
+                Value::Float(-0.0),
+                Value::Float(f64::NAN),
+                Value::Float(-f64::NAN),
+            ]
+        }
+
+        /// A generated side: at most 4 tables with at most 3 columns each,
+        /// and at most 4 relations (self-references included).
+        fn gen_side(rng: &mut Rng, prefix: &str) -> Side {
+            let tables: BTreeMap<Name, BTreeSet<String>> = (0..=rng.below(4))
+                .map(|k| {
+                    let columns = (0..rng.below(4)).map(|c| format!("c{c}")).collect();
+                    (Name::from(format!("{prefix}{k}")), columns)
+                })
+                .collect();
+            let names: Vec<Name> = tables.keys().cloned().collect();
+            let mut relations = BTreeSet::new();
+            for k in 0..rng.below(5) {
+                if let (Some(a), Some(b)) = (rng.pick(&names).cloned(), rng.pick(&names).cloned()) {
+                    relations.insert(fixture::fk(&a, &b, &format!("{prefix}e{k}")));
+                }
+            }
+            Side { tables, relations }
+        }
+
+        /// A generated spec: a source and target side, a table map that may
+        /// merge tables and drop some, relations carried to target relations
+        /// between the images of their endpoints (some added to the target
+        /// for it, up to 4) or dropped, and columns sent to columns of the
+        /// image table or dropped, so column maps may be non-injective and
+        /// non-surjective and the target may have objects outside the image.
+        fn gen_spec(rng: &mut Rng) -> Spec {
+            let src = gen_side(rng, "s");
+            let mut tgt = gen_side(rng, "d");
+            let targets: Vec<Name> = tgt.tables.keys().cloned().collect();
+            let mut tables = BTreeMap::new();
+            for s in src.tables.keys() {
+                if rng.chance(85) {
+                    if let Some(d) = rng.pick(&targets) {
+                        tables.insert(s.clone(), d.clone());
+                    }
+                }
+            }
+            let mut relations = BTreeMap::new();
+            for (k, e) in src.relations.iter().enumerate() {
+                let (Some(a), Some(b)) = (tables.get(&e.src), tables.get(&e.tgt)) else {
+                    continue;
+                };
+                if tgt.relations.len() < 4 && rng.chance(50) {
+                    tgt.relations.insert(fixture::fk(a, b, &format!("dk{k}")));
+                }
+                let candidates: Vec<Edge> = tgt
+                    .relations
+                    .iter()
+                    .filter(|r| r.src == *a && r.tgt == *b)
+                    .cloned()
+                    .collect();
+                if rng.chance(80) {
+                    if let Some(image) = rng.pick(&candidates) {
+                        relations.insert(e.clone(), image.clone());
+                    }
+                }
+            }
+            let mut columns = BTreeMap::new();
+            for (s, d) in &tables {
+                let image_columns: Vec<String> = tgt.tables[d].iter().cloned().collect();
+                for alpha in &src.tables[s] {
+                    if rng.chance(80) {
+                        if let Some(beta) = rng.pick(&image_columns) {
+                            columns.insert((s.clone(), alpha.clone()), beta.clone());
+                        }
+                    }
+                }
+            }
+            // Half the specs are made surjective on attributes, so the
+            // laws of Pi, which hold exactly there, are exercised as often
+            // as its refusals: every target column no kept column reaches
+            // is removed from the target.
+            if rng.chance(50) {
+                let hit: BTreeSet<(Name, String)> = columns
+                    .iter()
+                    .map(|((s, _), beta)| (tables[s].clone(), beta.clone()))
+                    .collect();
+                for (d, target_columns) in &mut tgt.tables {
+                    target_columns.retain(|beta| hit.contains(&(d.clone(), beta.clone())));
+                }
+            }
+            Spec {
+                src,
+                tgt,
+                tables,
+                relations,
+                columns,
+            }
+        }
+
+        /// A generated instance of a side: at most 3 rows per table and 6 in
+        /// all, cells from [`generated_cells`], and a random set of pairs per
+        /// relation (partial and many-valued). Row ids start at `first`.
+        fn gen_instance(rng: &mut Rng, side: &Side, first: u32) -> FInstance {
+            let cells = generated_cells();
+            let mut next = first;
+            let mut total = 0usize;
+            let mut ids: BTreeMap<Name, Vec<RowId>> = BTreeMap::new();
+            let mut parts = Vec::new();
+            for (table, columns) in &side.tables {
+                let n = rng.below(4).min(6 - total);
+                total += n;
+                let mut rows = Vec::new();
+                for _ in 0..n {
+                    let row: Row = columns
+                        .iter()
+                        .map(|c| {
+                            (
+                                c.clone(),
+                                rng.pick(&cells).cloned().unwrap_or(Value::Int(0)),
+                            )
+                        })
+                        .collect();
+                    rows.push((RowId(next), row));
+                    ids.entry(table.clone()).or_default().push(RowId(next));
+                    next += 1;
+                }
+                parts.push((table.clone(), rows));
+            }
+            let empty = Vec::new();
+            let pairs: Vec<(Edge, Vec<(RowId, RowId)>)> = side
+                .relations
+                .iter()
+                .map(|e| {
+                    let from = ids.get(&e.src).unwrap_or(&empty);
+                    let to = ids.get(&e.tgt).unwrap_or(&empty);
+                    let chosen = from
+                        .iter()
+                        .flat_map(|a| to.iter().map(move |b| (*a, *b)))
+                        .filter(|_| rng.chance(35))
+                        .collect();
+                    (e.clone(), chosen)
+                })
+                .collect();
+            FInstance::from_parts(parts, pairs).unwrap_or_else(|e| panic!("{e}"))
+        }
+
+        /// `small` with up to two more rows and some more pairs: an instance
+        /// it is within.
+        fn grow(rng: &mut Rng, side: &Side, small: &FInstance) -> FInstance {
+            let extra = gen_instance(rng, side, small.max_row_id().map_or(0, |r| r.0 + 1));
+            let mut big = small.clone();
+            let mut added = 0;
+            for (table, rows) in extra.tables() {
+                for (id, row) in rows.rows() {
+                    let room = big.row_count(table) < 3 && big.total_row_count() < 6;
+                    if room && added < 2 && rng.chance(60) {
+                        big = big
+                            .with_rows(table.clone(), [(id, row.clone())])
+                            .unwrap_or_else(|e| panic!("{e}"));
+                        added += 1;
+                    }
+                }
+            }
+            for e in &side.relations {
+                let from: Vec<RowId> = big.rows(&e.src).into_iter().map(|(id, _)| id).collect();
+                let to: Vec<RowId> = big.rows(&e.tgt).into_iter().map(|(id, _)| id).collect();
+                for a in &from {
+                    for b in &to {
+                        if !big.contains_pair(e, *a, *b) && rng.chance(20) {
+                            big.insert_foreign_key(e.clone(), *a, *b)
+                                .unwrap_or_else(|e| panic!("{e}"));
+                        }
+                    }
+                }
+            }
+            big
+        }
+
+        /// A generated case: a spec, its functor, an instance on `S'` (the
+        /// restriction of one on `S`), one on `T`, and the product bound
+        /// drawn from {4, 81}.
+        struct Case {
+            spec: Spec,
+            f: MigrationFunctor,
+            x: FInstance,
+            i: FInstance,
+            j: FInstance,
+            max: usize,
+            rng: Rng,
+        }
+
+        fn case(seed: u64) -> Case {
+            let mut rng = Rng(seed);
+            let spec = gen_spec(&mut rng);
+            let f = fixture::functor(&spec);
+            let x = gen_instance(&mut rng, &spec.src, 0);
+            let i =
+                crate::adjunction::f_restrict_to_domain(&x, &f).unwrap_or_else(|e| panic!("{e}"));
+            assert_eq!(i, oracle::restrict(&spec, &x), "the restriction");
+            let first = u32::try_from(rng.below(8)).unwrap_or(0);
+            let j = gen_instance(&mut rng, &spec.tgt, first);
+            let max = if rng.chance(50) { 4 } else { 81 };
+            Case {
+                spec,
+                f,
+                x,
+                i,
+                j,
+                max,
+                rng,
+            }
+        }
+
+        /// A homomorphism out of `a`: `a` with one null replaced by a value
+        /// and then grown, reached by the identity on rows and that one null
+        /// entry.
+        fn hom_out(rng: &mut Rng, side: &Side, a: &FInstance) -> (FInstance, FInstanceHom) {
+            let nulls: Vec<u64> = oracle::nulls(a).into_iter().collect();
+            let mut null_map = BTreeMap::new();
+            let mut b = a.clone();
+            if let Some(&n) = rng.pick(&nulls) {
+                let cells = generated_cells();
+                let value = rng.pick(&cells).cloned().unwrap_or(Value::Int(0));
+                for id in a.row_ids() {
+                    if let Some(row) = b.row_mut(id) {
+                        for cell in row.values_mut() {
+                            if *cell == Value::LabeledNull(n) {
+                                *cell = value.clone();
+                            }
+                        }
+                    }
+                }
+                null_map.insert(n, value);
+            }
+            let b = grow(rng, side, &b);
+            let h = FInstanceHom::identity(a).with_null_map(null_map);
+            assert!(h.check(a, &b).is_ok(), "{a:?} -> {b:?}");
+            (b, h)
+        }
+
+        mod generated {
+            use proptest::prelude::*;
+
+            use super::*;
+
+            proptest! {
+                #![proptest_config(ProptestConfig::with_cases(256))]
+
+                /// L1 and L1' on generated cases: at a random target
+                /// instance, and at Sigma I itself, where the identity makes
+                /// the hom-sets non-empty.
+                #[test]
+                fn sigma_is_left_adjoint_to_delta(seed in any::<u64>()) {
+                    let case = case(seed);
+                    sigma_delta(&case.spec, &case.f, &case.i, &case.j);
+                    if let Ok((sigma, _)) = f_sigma_restricted(&case.i, &case.f) {
+                        prop_assert!(sigma_delta(&case.spec, &case.f, &case.i, &sigma) > 0);
+                    }
+                }
+
+                /// L2 and L2' on generated cases: at a random source
+                /// instance, and at Delta J.
+                #[test]
+                fn pi_is_right_adjoint_to_delta(seed in any::<u64>()) {
+                    let case = case(seed);
+                    delta_pi(&case.spec, &case.f, &case.i, &case.j, case.max);
+                    // At Delta J itself, where the identity makes the
+                    // hom-sets non-empty, when Delta J is within the bounds
+                    // of a generated instance.
+                    let delta = f_delta(&case.j, &case.f).unwrap_or_else(|e| panic!("{e}"));
+                    let bounded = delta.total_row_count() <= 6
+                        && delta.tables().iter().all(|(_, rows)| rows.len() <= 3);
+                    if bounded {
+                        if let Some(count) = delta_pi(&case.spec, &case.f, &delta, &case.j, case.max) {
+                            prop_assert!(count > 0);
+                        }
+                    }
+                }
+
+                #[test]
+                fn triangle_identities_hold(seed in any::<u64>()) {
+                    let case = case(seed);
+                    triangles(&case.spec, &case.f, &case.i, &case.j, case.max);
+                }
+
+                #[test]
+                fn kan_extensions_along_the_identity_are_identities(seed in any::<u64>()) {
+                    let case = case(seed);
+                    identity_laws(&case.spec.src, &case.x);
+                    identity_laws(&case.spec.tgt, &case.j);
+                }
+
+                #[test]
+                fn results_do_not_depend_on_target_names(seed in any::<u64>()) {
+                    let case = case(seed);
+                    renaming_laws(&case.spec, &case.f, &case.i, &case.j, case.max);
+                }
+
+                #[test]
+                fn pi_is_monotone(seed in any::<u64>()) {
+                    let mut case = case(seed);
+                    let (tables, relations) = kept(&case.spec);
+                    let kept_side = Side { tables, relations };
+                    let big = grow(&mut case.rng, &kept_side, &case.i);
+                    prop_assert!(within(&case.i, &big));
+                    pi_monotone(&case.f, &case.i, &big, case.max);
+                }
+
+                #[test]
+                fn sigma_and_delta_are_monotone(seed in any::<u64>()) {
+                    let mut case = case(seed);
+                    let (tables, relations) = kept(&case.spec);
+                    let kept_side = Side { tables, relations };
+                    let big = grow(&mut case.rng, &kept_side, &case.i);
+                    sigma_monotone(&case.f, &case.i, &big);
+                    let big_j = grow(&mut case.rng, &case.spec.tgt, &case.j);
+                    prop_assert!(within(&case.j, &big_j));
+                    delta_monotone(&case.f, &case.j, &big_j);
+                }
+
+                /// L7: identities and composites of homomorphisms that fill
+                /// nulls and add rows.
+                #[test]
+                fn kan_extensions_are_functorial(seed in any::<u64>()) {
+                    let mut case = case(seed);
+                    let (tables, relations) = kept(&case.spec);
+                    let kept_side = Side { tables, relations };
+                    let (b, h1) = hom_out(&mut case.rng, &kept_side, &case.i);
+                    let (c, h2) = hom_out(&mut case.rng, &kept_side, &b);
+                    functorial(&case.f, (&case.i, &b, &c), (&h1, &h2), case.max);
+                    let (tb, t1) = hom_out(&mut case.rng, &case.spec.tgt, &case.j);
+                    let (tc, t2) = hom_out(&mut case.rng, &case.spec.tgt, &tb);
+                    delta_functorial(&case.f, (&case.j, &tb, &tc), (&t1, &t2));
+                }
+
+                /// L8: outputs conform, and an input that does not is refused
+                /// with the first offender the oracle names.
+                #[test]
+                fn outputs_conform_and_refusals_are_typed(seed in any::<u64>()) {
+                    let mut case = case(seed);
+                    outputs_conform(&case.spec, &case.f, &case.i, case.max);
+                    delta_checked(&case.spec, &case.f, &case.j);
+                    let (src_tables, src_relations) = whole(&case.spec.src);
+                    let bad = corrupt(&mut case.rng, &case.x);
+                    let expected = first_violation(&src_tables, &src_relations, &bad);
+                    let refused = |result: Result<(), AdjunctionError>| match result {
+                        Err(AdjunctionError::NonConforming { row, column, .. }) => Some((row, column)),
+                        _ => None,
+                    };
+                    let sigma = refused(crate::adjunction::f_sigma(&bad, &case.f).map(|_| ()));
+                    prop_assert_eq!(&sigma, &expected);
+                    if case.spec.missing_column().is_none() {
+                        let pi = crate::pi::functor_pi_along(&bad, &case.f, 81).map(|_| ());
+                        prop_assert_eq!(refused(pi), expected);
+                    }
+                    let (tgt_tables, tgt_relations) = whole(&case.spec.tgt);
+                    let bad_j = corrupt(&mut case.rng, &case.j);
+                    let expected = first_violation(&tgt_tables, &tgt_relations, &bad_j);
+                    prop_assert_eq!(refused(f_delta(&bad_j, &case.f).map(|_| ())), expected);
+                }
+            }
+
+            /// `inst` with one row corrupted: a stray cell, a missing cell or
+            /// a labelled null nested in a list; unchanged when it has no row.
+            fn corrupt(rng: &mut super::Rng, inst: &FInstance) -> FInstance {
+                let mut out = inst.clone();
+                let rows = inst.row_ids();
+                let Some(&row) = rng.pick(&rows) else {
+                    return out;
+                };
+                if let Some(cells) = out.row_mut(row) {
+                    let columns: Vec<String> = cells.keys().cloned().collect();
+                    match (rng.below(3), rng.pick(&columns)) {
+                        (0, _) | (_, None) => {
+                            cells.insert("zz-stray".to_owned(), Value::Int(0));
+                        }
+                        (1, Some(column)) => {
+                            cells.remove(column);
+                        }
+                        (_, Some(column)) => {
+                            cells.insert(column.clone(), Value::List(vec![Value::LabeledNull(9)]));
+                        }
+                    }
+                }
+                out
+            }
         }
     }
 }
