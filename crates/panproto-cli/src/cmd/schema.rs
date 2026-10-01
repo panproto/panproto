@@ -256,9 +256,21 @@ pub fn cmd_lift_functor(
         "sigma" => inst::functor_extend(&instance, compiled)
             .into_diagnostic()
             .wrap_err("source-to-target functor `Sigma_F` lift failed")?,
-        "pi" => mig::lift_functor_pi(compiled, src_schema, tgt_schema, &instance, 10_000)
+        "pi" => {
+            let src_protocol = super::helpers::resolve_protocol(&src_schema.protocol)?;
+            let tgt_protocol = super::helpers::resolve_protocol(&tgt_schema.protocol)?;
+            mig::lift_functor_pi(
+                compiled,
+                src_schema,
+                &src_protocol,
+                tgt_schema,
+                &tgt_protocol,
+                &instance,
+                10_000,
+            )
             .into_diagnostic()
-            .wrap_err("source-to-target functor `Pi_F` lift failed")?,
+            .wrap_err("source-to-target functor `Pi_F` lift failed")?
+        }
         other => miette::bail!("unknown lift direction: {other:?}. Use: restrict, sigma, or pi"),
     };
 

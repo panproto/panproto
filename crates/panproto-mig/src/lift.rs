@@ -4,11 +4,8 @@
 //! implementations in `panproto-inst`, passing the compiled
 //! migration's precomputed tables.
 
-use std::collections::BTreeMap;
-
-use panproto_gat::Name;
-use panproto_inst::{CompiledMigration, FInstance, FInstanceHom, WInstance};
-use panproto_schema::Schema;
+use panproto_inst::{CompiledMigration, FInstance, FInstanceHom, PiProvenance, WInstance};
+use panproto_schema::{Protocol, Schema};
 
 use crate::error::LiftError;
 
@@ -161,61 +158,80 @@ pub fn lift_functor_sigma_with_hom(
 
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
 ///
-/// Delegates to [`panproto_inst::functor_pi`], which reads every foreign key
-/// as a relation and takes the limit over each comma category of the
-/// migration functor: at each target table the tuples of one row of each
-/// fibre table that carry the same cells (one row without cells at a table
-/// outside the image), and at each target foreign key the pairs of those
-/// rows that every foreign key carried to it relates (every pair when none
-/// is).
+/// The first projection of [`lift_functor_pi_with_provenance`]; see there.
 ///
 /// # Errors
 ///
-/// Returns `LiftError::Restrict` if the underlying pi operation fails
-/// (e.g., product size exceeded, a kept table sent to a vertex that is no
-/// table of `tgt_schema`, or a carried foreign key whose image is not a
-/// foreign key of `tgt_schema` between the images of its endpoints).
+/// As [`lift_functor_pi_with_provenance`].
 pub fn lift_functor_pi(
     compiled: &CompiledMigration,
     src_schema: &Schema,
+    src_protocol: &Protocol,
     tgt_schema: &Schema,
+    tgt_protocol: &Protocol,
     instance: &FInstance,
     max_product_size: usize,
 ) -> Result<FInstance, LiftError> {
-    lift_functor_pi_with_hom(compiled, src_schema, tgt_schema, instance, max_product_size)
-        .map(|(result, _)| result)
+    lift_functor_pi_with_provenance(
+        compiled,
+        src_schema,
+        src_protocol,
+        tgt_schema,
+        tgt_protocol,
+        instance,
+        max_product_size,
+    )
+    .map(|(result, _)| result)
 }
 
-/// [`lift_functor_pi`], with the projections of the rows `Pi_F` creates.
+/// [`lift_functor_pi`], with the tuple of source rows behind each row it
+/// returns.
 ///
-/// Delegates to [`panproto_inst::functor_pi_with_hom`]: the returned map
-/// sends each source vertex of a fibre to the projection of its target's
-/// rows onto that vertex's rows, as an [`FInstanceHom`] into `instance`.
+/// Builds the [`MigrationFunctor`](panproto_inst::MigrationFunctor) the
+/// migration states between the schemas, each classified under its
+/// protocol, and delegates to
+/// [`panproto_inst::functor_pi_along_with_provenance`]: at each target table
+/// the natural join of its fibre's tables on the columns they share there
+/// (one row without cells at a table outside the image), and at each target
+/// foreign key the pairs of those rows that every foreign key carried to it
+/// relates (every pair when none is).
 ///
 /// # Errors
 ///
-/// As [`lift_functor_pi`].
-pub fn lift_functor_pi_with_hom(
+/// Returns [`LiftError::Adjunction`] when the functor cannot be built (a
+/// schema with no relation-ified form under its protocol, a kept table sent
+/// to a vertex that is no table of `tgt_schema`, or a carried foreign key or
+/// column whose image does not fit), when the functor is not surjective on
+/// attributes, when the instance does not conform to `src_schema`, and when
+/// the product bound is exceeded.
+pub fn lift_functor_pi_with_provenance(
     compiled: &CompiledMigration,
     src_schema: &Schema,
+    src_protocol: &Protocol,
     tgt_schema: &Schema,
+    tgt_protocol: &Protocol,
     instance: &FInstance,
     max_product_size: usize,
-) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), LiftError> {
-    let result = panproto_inst::functor_pi_with_hom(
-        instance,
+) -> Result<(FInstance, PiProvenance), LiftError> {
+    let functor = panproto_inst::MigrationFunctor::new(
         src_schema,
+        src_protocol,
         tgt_schema,
+        tgt_protocol,
         compiled,
+    )
+    .map_err(panproto_inst::AdjunctionError::Pi)?;
+    Ok(panproto_inst::functor_pi_along_with_provenance(
+        instance,
+        &functor,
         max_product_size,
-    )?;
-    Ok(result)
+    )?)
 }
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeMap, HashMap, HashSet};
 
     use super::*;
     use panproto_inst::value::FieldPresence;
@@ -881,32 +897,67 @@ mod tests {
         assert_eq!(alone, extended);
         assert_eq!(identity, panproto_inst::FInstanceHom::identity(&extended));
 
+        pi_lift_joins_on_the_shared_column(&named);
+    }
+
+    /// The Pi part of [`row_creating_lifts_return_their_row_maps`].
+    fn pi_lift_joins_on_the_shared_column(named: &dyn Fn(&str) -> HashMap<String, Value>) {
+        use panproto_inst::{FInstance, RowId};
+
         // Pi over a fibre of two tables creates product rows: one for each
-        // pair of rows carrying the same cells.
+        // pair of rows that agree on their shared column `a`.
         let factors = FInstance::new()
             .with_table("a", vec![named("p"), named("p"), named("q")])
             .and_then(|f| f.with_table("b", vec![named("p")]))
             .unwrap();
+        let column = |table: &str| Edge {
+            src: table.into(),
+            tgt: format!("{table}.a").into(),
+            kind: "prop".into(),
+            name: Some("a".into()),
+        };
         let mut product = CompiledMigration::default();
         product.surviving_verts.insert("t".into());
-        product.vertex_remap.insert("a".into(), "t".into());
-        product.vertex_remap.insert("b".into(), "t".into());
-        let src = test_schema(&[("a", "table"), ("b", "table")], &[]);
-        let tgt = test_schema(&[("t", "table")], &[]);
-        let (pi, projections) =
-            lift_functor_pi_with_hom(&product, &src, &tgt, &factors, 16).unwrap();
+        for table in ["a", "b"] {
+            product.vertex_remap.insert(table.into(), "t".into());
+            product
+                .vertex_remap
+                .insert(format!("{table}.a").into(), "t.a".into());
+            product.edge_remap.insert(column(table), column("t"));
+        }
+        let src = test_schema(
+            &[
+                ("a", "table"),
+                ("b", "table"),
+                ("a.a", "string"),
+                ("b.a", "string"),
+            ],
+            &[column("a"), column("b")],
+        );
+        let tgt = test_schema(&[("t", "table"), ("t.a", "string")], &[column("t")]);
+        let protocol = Protocol {
+            value_kinds: BTreeMap::from([("string".to_owned(), panproto_schema::ScalarKind::Str)]),
+            non_value_kinds: std::collections::BTreeSet::from(["table".to_owned()]),
+            ..Protocol::default()
+        };
+        let (pi, provenance) = lift_functor_pi_with_provenance(
+            &product, &src, &protocol, &tgt, &protocol, &factors, 16,
+        )
+        .unwrap();
         assert_eq!(
             pi,
-            lift_functor_pi(&product, &src, &tgt, &factors, 16).unwrap()
+            lift_functor_pi(&product, &src, &protocol, &tgt, &protocol, &factors, 16).unwrap()
         );
         assert_eq!(pi.row_ids(), vec![RowId(4), RowId(5)]);
         assert_eq!(
-            projections[&panproto_gat::Name::from("a")].row_map,
-            [(RowId(4), RowId(0)), (RowId(5), RowId(1))].into()
+            provenance.tuples,
+            BTreeMap::from([
+                (RowId(4), ("t".into(), vec![RowId(0), RowId(3)])),
+                (RowId(5), ("t".into(), vec![RowId(1), RowId(3)])),
+            ])
         );
-        assert_eq!(
-            projections[&panproto_gat::Name::from("b")].row_map,
-            [(RowId(4), RowId(3)), (RowId(5), RowId(3))].into()
-        );
+        for id in pi.row_ids() {
+            assert_eq!(pi.row(id), Some(&named("p")), "the joined row holds a = p");
+        }
     }
 }

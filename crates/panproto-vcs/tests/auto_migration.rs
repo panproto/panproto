@@ -331,82 +331,133 @@ fn sigma_then_chase_workflow() {
 // Test 4: pi_functor_product_workflow
 // ===========================================================================
 
+/// The attribute arrow `src -prop(column)-> src.column`.
+fn prop(src: &str, column: &str) -> Edge {
+    Edge {
+        src: src.into(),
+        tgt: format!("{src}.{column}").into(),
+        kind: "prop".into(),
+        name: Some(column.into()),
+    }
+}
+
+/// Tables of kind `table`, each with `integer` columns reached by `prop`
+/// edges.
+fn column_schema(tables: &[(&str, &[&str])]) -> Schema {
+    let mut vertices = HashMap::new();
+    let mut edges = HashMap::new();
+    for (table, columns) in tables {
+        vertices.insert(
+            Name::from(*table),
+            Vertex {
+                id: (*table).into(),
+                kind: "table".into(),
+                nsid: None,
+            },
+        );
+        for column in *columns {
+            let edge = prop(table, column);
+            vertices.insert(
+                edge.tgt.clone(),
+                Vertex {
+                    id: edge.tgt.clone(),
+                    kind: "integer".into(),
+                    nsid: None,
+                },
+            );
+            edges.insert(edge, Name::from("prop"));
+        }
+    }
+    Schema {
+        vertices,
+        edges,
+        ..Schema::default()
+    }
+}
+
 #[test]
 fn pi_functor_product_workflow() {
-    // Two source tables map to the same target table. Pi takes the limit
-    // over the fibre: the pairs of one row of each table that carry the same
-    // cells, each keeping those cells.
-    let rows_a = vec![row("x", Value::Int(1)), row("x", Value::Int(2))];
-    let rows_b = vec![
-        row("x", Value::Int(1)),
-        row("x", Value::Int(1)),
-        row("x", Value::Int(2)),
-    ];
-    let instance = FInstance::new()
-        .with_table("table_a", rows_a)
-        .and_then(|f| f.with_table("table_b", rows_b))
-        .unwrap();
-
-    let tables = |names: &[&str]| Schema {
-        vertices: names
-            .iter()
-            .map(|&n| {
-                (
-                    Name::from(n),
-                    Vertex {
-                        id: n.into(),
-                        kind: "table".into(),
-                        nsid: None,
-                    },
-                )
-            })
-            .collect(),
-        ..Schema::default()
+    // Two source tables map to the same target table, each carrying its own
+    // column there. Pi takes the limit over the fibre: the two tables share
+    // no target column, so every pair of one row of each is a cone, and each
+    // limit row holds the cells of both.
+    let src_schema = column_schema(&[("table_a", &["x"]), ("table_b", &["y"])]);
+    let tgt_schema = column_schema(&[("merged", &["x", "y"])]);
+    let protocol = Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "integer".to_owned(),
+            panproto_schema::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["table".to_owned()]),
+        ..test_protocol()
     };
-    let src_schema = tables(&["table_a", "table_b"]);
-    let tgt_schema = tables(&["merged"]);
-
-    // Migration: table_a -> merged, table_b -> merged
-    let mut vertex_remap = HashMap::new();
-    vertex_remap.insert(Name::from("table_a"), Name::from("merged"));
-    vertex_remap.insert(Name::from("table_b"), Name::from("merged"));
 
     let compiled = panproto_inst::CompiledMigration {
-        surviving_verts: HashSet::from([Name::from("merged")]),
-        surviving_edges: HashSet::new(),
-        vertex_remap,
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
+        vertex_remap: HashMap::from([
+            (Name::from("table_a"), Name::from("merged")),
+            (Name::from("table_b"), Name::from("merged")),
+            (Name::from("table_a.x"), Name::from("merged.x")),
+            (Name::from("table_b.y"), Name::from("merged.y")),
+        ]),
+        edge_remap: HashMap::from([
+            (prop("table_a", "x"), prop("merged", "x")),
+            (prop("table_b", "y"), prop("merged", "y")),
+        ]),
+        ..panproto_inst::CompiledMigration::default()
     };
 
-    let result =
-        panproto_inst::functor_pi(&instance, &src_schema, &tgt_schema, &compiled, 1000).unwrap();
-
-    // x = 1 pairs a0 with b0 and b1; x = 2 pairs a1 with b2.
-    let mut cells: Vec<Value> = result
-        .rows("merged")
-        .into_iter()
-        .map(|(_, r)| r["x"].clone())
-        .collect();
-    cells.sort_by_key(|v| match v {
-        Value::Int(i) => *i,
-        _ => i64::MAX,
-    });
-    assert_eq!(cells, [Value::Int(1), Value::Int(1), Value::Int(2)]);
-
-    // Rows without cells agree on every cell: the whole 2 x 3 product.
-    let blank = FInstance::new()
-        .with_table("table_a", vec![HashMap::new(); 2])
-        .and_then(|f| f.with_table("table_b", vec![HashMap::new(); 3]))
+    let instance = FInstance::new()
+        .with_table(
+            "table_a",
+            vec![row("x", Value::Int(1)), row("x", Value::Int(2))],
+        )
+        .and_then(|f| {
+            f.with_table(
+                "table_b",
+                vec![
+                    row("y", Value::Int(10)),
+                    row("y", Value::Int(20)),
+                    row("y", Value::Int(30)),
+                ],
+            )
+        })
         .unwrap();
-    let product =
-        panproto_inst::functor_pi(&blank, &src_schema, &tgt_schema, &compiled, 1000).unwrap();
-    assert_eq!(product.row_count("merged"), 6);
+
+    let result = panproto_inst::functor_pi(
+        &instance,
+        &src_schema,
+        &protocol,
+        &tgt_schema,
+        &protocol,
+        &compiled,
+        1000,
+    )
+    .unwrap();
+
+    assert_eq!(result.row_count("merged"), 6);
+    let mut pairs = Vec::new();
+    for (_, cells) in result.rows("merged") {
+        let mut columns: Vec<&String> = cells.keys().collect();
+        columns.sort();
+        assert_eq!(
+            columns,
+            ["x", "y"],
+            "each row has exactly the cells x and y"
+        );
+        match (&cells["x"], &cells["y"]) {
+            (Value::Int(x), Value::Int(y)) => pairs.push((*x, *y)),
+            other => panic!("integer cells, not {other:?}"),
+        }
+    }
+    pairs.sort_unstable();
+    assert_eq!(
+        pairs,
+        [(1, 10), (1, 20), (1, 30), (2, 10), (2, 20), (2, 30)],
+        "the six pairs of one row of each table"
+    );
 }
 
 // ===========================================================================
