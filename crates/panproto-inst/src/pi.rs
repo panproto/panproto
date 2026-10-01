@@ -13,7 +13,7 @@ use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
 
 use crate::error::RestrictError;
-use crate::functor::{FInstance, Row, allocate_row, row_allocator};
+use crate::functor::{FInstance, Row, allocate_row, row_allocator, same_value};
 use crate::instance_hom::FInstanceHom;
 use crate::metadata::Node;
 use crate::view_ref::RowId;
@@ -293,10 +293,11 @@ fn build_fiber_table(
                 let mut merged = existing.clone();
                 for (col, val) in *row {
                     // Attribute discipline: a column already contributed by an
-                    // earlier fibre component must agree, or the product-row
-                    // merge would silently overwrite one value with another.
+                    // earlier fibre component must agree, cell for cell by
+                    // canonical bytes, or the product-row merge would silently
+                    // overwrite one value with another.
                     if let Some(prior) = merged.get(col) {
-                        if prior != val {
+                        if !same_value(prior, val) {
                             return Err(RestrictError::AttributeCollision {
                                 vertex: tgt_vertex.to_string(),
                                 column: col.clone(),
@@ -324,29 +325,20 @@ fn build_fiber_table(
     Ok(product)
 }
 
-/// Build the fiber map from a migration's vertex remap and surviving vertices.
+/// Build the fiber map of a migration: each target vertex with the source
+/// vertices it is the image of.
 ///
-/// Target vertices come in ascending name and each fiber's source vertices
-/// in name order, so downstream
-/// consumers see a factor order that does not depend on hash iteration order.
+/// The source vertices are the migration's domain as
+/// [`crate::adjunction::source_vertices`] reads it, the one reading every
+/// table operation shares. Target vertices come in ascending name and each
+/// fiber's source vertices in name order, so downstream consumers see a
+/// factor order that does not depend on hash iteration order.
 fn build_fiber_map(migration: &CompiledMigration) -> BTreeMap<Name, Vec<Name>> {
     let mut fiber_map: BTreeMap<Name, Vec<Name>> = BTreeMap::new();
-    let remap_targets: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
-
-    for (src, tgt) in &migration.vertex_remap {
-        fiber_map.entry(tgt.clone()).or_default().push(src.clone());
+    for source in crate::adjunction::source_vertices(migration) {
+        let target = crate::adjunction::map_vertex(migration, &source);
+        fiber_map.entry(target).or_default().push(source);
     }
-
-    for sv in &migration.surviving_verts {
-        if !migration.vertex_remap.contains_key(sv) && !remap_targets.contains(sv) {
-            fiber_map.entry(sv.clone()).or_default().push(sv.clone());
-        }
-    }
-
-    for sources in fiber_map.values_mut() {
-        sources.sort_unstable();
-    }
-
     fiber_map
 }
 
@@ -1326,6 +1318,47 @@ mod tests {
         assert!(
             took < std::time::Duration::from_secs(3),
             "Pi over {ROWS} pairs took {took:?}"
+        );
+    }
+
+    /// A two-component fibre `{a, b} -> m` whose rows `0` (in `a`) and `1`
+    /// (in `b`) both hold the column `x`.
+    fn shared_column_fibre(left: Value, right: Value) -> (FInstance, CompiledMigration) {
+        let inst = FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::from([("x".to_owned(), left)]))])
+            .and_then(|f| f.with_rows("b", [(RowId(1), HashMap::from([("x".to_owned(), right)]))]))
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.surviving_verts.insert(Name::from("m"));
+        migration
+            .vertex_remap
+            .insert(Name::from("a"), Name::from("m"));
+        migration
+            .vertex_remap
+            .insert(Name::from("b"), Name::from("m"));
+        (inst, migration)
+    }
+
+    /// Fibre components agree on a shared column exactly when the cells
+    /// have the same canonical bytes, so two `NaN` cells agree.
+    #[test]
+    fn components_holding_nan_agree() {
+        let (inst, migration) = shared_column_fibre(Value::Float(f64::NAN), Value::Float(f64::NAN));
+        let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
+        let rows = pi.rows("m");
+        assert_eq!(rows.len(), 1);
+        assert!(matches!(rows[0].1.get("x"), Some(Value::Float(v)) if v.is_nan()));
+    }
+
+    /// `0.0` and `-0.0` are different cells, so components holding them
+    /// collide rather than merging into whichever came last.
+    #[test]
+    fn components_holding_signed_zeros_collide() {
+        let (inst, migration) = shared_column_fibre(Value::Float(0.0), Value::Float(-0.0));
+        let err = run_pi(&inst, &migration, &[], 100).unwrap_err();
+        assert!(
+            matches!(&err, RestrictError::AttributeCollision { vertex, column } if vertex == "m" && column == "x"),
+            "{err:?}"
         );
     }
 }

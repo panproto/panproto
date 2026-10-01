@@ -21,7 +21,7 @@ use panproto_schema::Edge;
 
 use crate::error::InstError;
 use crate::fan::Fan;
-use crate::functor::FInstance;
+use crate::functor::{FInstance, same_value};
 use crate::value::Value;
 use crate::view_ref::RowId;
 use crate::wtype::WInstance;
@@ -501,7 +501,9 @@ impl FInstanceHom {
     /// Checks totality (every domain row has an image), table membership
     /// (the image is a codomain row of the image of its table), attribute
     /// preservation (the image row carries the domain row's cells, each
-    /// labeled null replaced along `null_map`) and foreign-key naturality
+    /// labeled null replaced along `null_map`, compared by canonical bytes so
+    /// a `NaN` cell is preserved by itself and `0.0` is not by `-0.0`) and
+    /// foreign-key naturality
     /// (each domain pair maps to a pair of the image edge).
     ///
     /// # Errors
@@ -528,7 +530,9 @@ impl FInstanceHom {
                 (Some(cells), Some(image_cells)) => {
                     cells.len() == image_cells.len()
                         && cells.iter().all(|(column, value)| {
-                            image_cells.get(column) == Some(self.image_value(value))
+                            image_cells.get(column).is_some_and(|image_cell| {
+                                same_value(image_cell, self.image_value(value))
+                            })
                         })
                 }
                 _ => false,
@@ -1052,5 +1056,39 @@ mod tests {
         let trivial = FInstanceHom::new(BTreeMap::new())
             .with_null_map(BTreeMap::from([(3, Value::LabeledNull(3))]));
         assert!(trivial.null_map.is_empty());
+    }
+
+    /// One row `0` in table `a` holding `x = value`.
+    fn one_cell(value: Value) -> FInstance {
+        FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::from([("x".to_owned(), value)]))])
+            .expect("one row")
+    }
+
+    /// Cells are compared exactly, by canonical bytes: the identity on an
+    /// instance with a `NaN` cell is a homomorphism and an isomorphism, as
+    /// the identity law of the category asks.
+    #[test]
+    fn the_identity_preserves_a_nan_cell() {
+        let inst = one_cell(Value::Float(f64::NAN));
+        let identity = FInstanceHom::identity(&inst);
+        assert_eq!(identity.check(&inst, &inst), Ok(()));
+        assert!(identity.is_isomorphism(&inst, &inst));
+    }
+
+    /// `0.0` and `-0.0` are different cells (their canonical bytes and the
+    /// instances' digests differ), so the map between them that keeps the
+    /// row is no homomorphism, let alone an isomorphism.
+    #[test]
+    fn a_row_map_does_not_carry_zero_to_negative_zero() {
+        let positive = one_cell(Value::Float(0.0));
+        let negative = one_cell(Value::Float(-0.0));
+        assert_ne!(positive.digest(), negative.digest());
+        let map = FInstanceHom::identity(&positive);
+        assert_eq!(
+            map.check(&positive, &negative),
+            Err(HomError::AttributeMismatch { src: 0, tgt: 0 })
+        );
+        assert!(!map.is_isomorphism(&positive, &negative));
     }
 }

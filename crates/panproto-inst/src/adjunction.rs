@@ -137,7 +137,7 @@ pub enum AdjunctionError {
 
 /// The image of a vertex under the migration's vertex map, defaulting to
 /// the identity for vertices the map leaves untouched.
-fn map_vertex(migration: &CompiledMigration, vertex: &Name) -> Name {
+pub(crate) fn map_vertex(migration: &CompiledMigration, vertex: &Name) -> Name {
     migration
         .vertex_remap
         .get(vertex)
@@ -169,10 +169,12 @@ fn map_edge(migration: &CompiledMigration, edge: &Edge) -> Edge {
 /// image. A surviving vertex that is some other vertex's image is a target of
 /// `F`, not a source, and is in the domain only if it is also a key.
 ///
-/// This is the same reading of a compiled migration that [`wtype_extend`] and
-/// its fiber map take, so `Sigma_F` and `Delta_F` agree on which vertices they
-/// travel between.
-fn source_vertices(migration: &CompiledMigration) -> BTreeSet<Name> {
+/// Every table operation reads a compiled migration through this one
+/// function: `Sigma_F`, `Delta_F`, the fibres of `Pi_F`
+/// ([`crate::functor_pi`]), [`crate::functor_restrict`] and
+/// [`crate::functor_extend`], so they agree on which vertices they travel
+/// between.
+pub(crate) fn source_vertices(migration: &CompiledMigration) -> BTreeSet<Name> {
     let images: HashSet<&Name> = migration.vertex_remap.values().collect();
     let mut domain: BTreeSet<Name> = migration.vertex_remap.keys().cloned().collect();
     for vertex in &migration.surviving_verts {
@@ -1648,5 +1650,61 @@ mod tests {
                 prop_assert_eq!(psi_phi_f, f);
             }
         }
+    }
+
+    /// Every table operation reads one compiled migration the same way: with
+    /// `a` renamed onto `b` and `b` listed as surviving, `b` is a target and
+    /// `a` the only source. Sigma, restrict and extend agree on an instance
+    /// over that domain, all three decline `b`'s own rows (Sigma and extend
+    /// refuse them, restrict drops them), and Delta and Pi copy into `a`
+    /// alone.
+    #[test]
+    fn the_table_operations_share_one_domain() {
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "b".into());
+        migration.surviving_verts.insert("b".into());
+        assert_eq!(
+            source_vertices(&migration),
+            BTreeSet::from([Name::from("a")])
+        );
+
+        let over_domain = FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::new())])
+            .unwrap();
+        let sigma = f_sigma(&over_domain, &migration).unwrap();
+        assert_eq!(
+            crate::functor_restrict(&over_domain, &migration).unwrap(),
+            sigma
+        );
+        assert_eq!(
+            crate::functor_extend(&over_domain, &migration).unwrap(),
+            sigma
+        );
+
+        let with_b = over_domain
+            .with_rows("b", [(RowId(1), HashMap::new())])
+            .unwrap();
+        assert!(matches!(
+            f_sigma(&with_b, &migration),
+            Err(AdjunctionError::VertexOutsideDomain(v)) if v == "b"
+        ));
+        assert!(matches!(
+            crate::functor_extend(&with_b, &migration),
+            Err(RestrictError::VertexOutsideDomain { vertex }) if vertex == "b"
+        ));
+        assert_eq!(crate::functor_restrict(&with_b, &migration).unwrap(), sigma);
+
+        let delta = f_delta(&with_b, &migration).unwrap();
+        assert_eq!(delta.table_names(), vec![&Name::from("a")]);
+        let pi = crate::functor_pi(
+            &with_b,
+            &schema_of(&["a", "b"], &[]),
+            &schema_of(&["b"], &[]),
+            &migration,
+            100,
+        )
+        .unwrap();
+        let ids: Vec<RowId> = pi.rows("b").into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec![RowId(0)]);
     }
 }

@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::edit_error::EditError;
 use crate::error::InstError;
-use crate::functor::{FInstance, ForeignKeyPair, Row};
+use crate::functor::{FInstance, ForeignKeyPair, Row, same_row, same_value};
 use crate::value::Value;
 use crate::view_ref::RowId;
 
@@ -375,23 +375,6 @@ fn roll_back(instance: &mut FInstance, applied: &[TableEdit]) -> Result<(), Edit
         })?;
     }
     Ok(())
-}
-
-/// Whether two cells hold the same value: equal canonical bytes. Unlike
-/// `Value`'s `==`, this is reflexive on `NaN` and tells `0.0` from `-0.0`,
-/// so an edit naming a cell's value always matches that cell.
-fn same_value(a: &Value, b: &Value) -> bool {
-    a.canonical_cmp(b).is_eq()
-}
-
-/// Whether two rows hold the same columns with the same values
-/// ([`same_value`]).
-fn same_row(a: &Row, b: &Row) -> bool {
-    a.len() == b.len()
-        && a.iter().all(|(column, value)| {
-            b.get(column)
-                .is_some_and(|theirs| same_value(value, theirs))
-        })
 }
 
 fn row_not_found(table: &Name, id: RowId) -> EditError {

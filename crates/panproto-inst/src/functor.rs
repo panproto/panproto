@@ -20,7 +20,10 @@
 //! contributes none, and only the edges it remaps or lets survive carry their
 //! foreign keys across. [`functor_extend`] keeps everything: a vertex the
 //! migration says nothing about travels under its own name and merged rows are
-//! padded to a common column set. Both keep every row's id.
+//! padded to a common column set, and rows at a vertex the migration names
+//! only as another vertex's image are refused rather than dropped. Both keep
+//! every row's id, and both read the migration's source vertices as
+//! [`crate::adjunction`] does.
 //!
 //! Neither is precomposition. Both take the coproduct over a fibre when the
 //! vertex map merges two vertices, which is what `Sigma_F` does. `Delta_F`
@@ -55,7 +58,7 @@ static NO_PAIRS: PairSet = BTreeSet::new();
 /// The pairs of one foreign key, held by source and again by target, each
 /// ascending, so that the pairs at either end of a row are one range read
 /// and adding or removing a pair costs logarithmic time.
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 struct ForeignKey {
     /// The pairs `(src, tgt)`, ascending.
     pairs: PairSet,
@@ -97,14 +100,48 @@ impl ForeignKey {
     }
 }
 
+/// Whether two cells hold the same value: equal canonical bytes. Unlike
+/// `Value`'s `==`, this is reflexive on `NaN` and tells `0.0` from `-0.0`,
+/// so it agrees with the canonical bytes and digests of an instance.
+pub(crate) fn same_value(a: &Value, b: &Value) -> bool {
+    a.canonical_cmp(b).is_eq()
+}
+
+/// Whether two rows hold the same columns with the same values
+/// ([`same_value`]).
+pub(crate) fn same_row(a: &Row, b: &Row) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(column, value)| {
+            b.get(column)
+                .is_some_and(|theirs| same_value(value, theirs))
+        })
+}
+
 /// One table of an [`FInstance`]: its rows, by [`RowId`].
 ///
 /// A table enumerates its rows in ascending id; nothing about a row depends
-/// on the order in which it was inserted.
-#[derive(Clone, Debug, Default, PartialEq)]
+/// on the order in which it was inserted. Two tables are equal when they
+/// hold the same ids with the same cells compared by canonical bytes, so
+/// equality is an equivalence (a `NaN` cell equals itself) and agrees with
+/// the canonical bytes (`0.0` and `-0.0` differ).
+#[derive(Clone, Debug, Default)]
 pub struct Table {
     rows: HashMap<RowId, Row>,
 }
+
+impl PartialEq for Table {
+    fn eq(&self, other: &Self) -> bool {
+        self.rows.len() == other.rows.len()
+            && self.rows.iter().all(|(id, row)| {
+                other
+                    .rows
+                    .get(id)
+                    .is_some_and(|theirs| same_row(row, theirs))
+            })
+    }
+}
+
+impl Eq for Table {}
 
 impl Table {
     /// The number of rows.
@@ -160,6 +197,9 @@ impl Table {
 /// with no rows sends the functor to the empty set, so the instance holds a
 /// table only while it has a row: an empty table and an absent one are the
 /// same instance, with the same wire form, canonical bytes and graph form.
+/// Equality compares cells by canonical bytes, as [`Table`]'s does, so it
+/// is an equivalence and two instances are equal exactly when their
+/// canonical bytes are.
 /// The fields are private so that these invariants hold for every value:
 /// the constructors and the decoder check them, and a private index from
 /// row to table is rebuilt whenever an instance is decoded.
@@ -188,7 +228,7 @@ impl Table {
 /// assert_eq!(tables.fresh_row_id()?, RowId(2));
 /// # Ok::<(), panproto_inst::InstError>(())
 /// ```
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct FInstance {
     tables: HashMap<Name, Table>,
     /// The pairs of each foreign key with at least one pair.
@@ -722,7 +762,8 @@ impl FInstance {
     }
 
     /// The single row of `vertex`'s table whose cells agree with every
-    /// `(column, value)` of `key`.
+    /// `(column, value)` of `key`, cells compared by canonical bytes (so a
+    /// `NaN` key finds a row holding `NaN`, and `0.0` does not find `-0.0`).
     ///
     /// A key is data: this is a lookup helper, and every operation addresses
     /// rows by [`RowId`].
@@ -741,7 +782,10 @@ impl FInstance {
         let matches: Vec<RowId> = self
             .rows(vertex)
             .into_iter()
-            .filter(|(_, row)| key.iter().all(|(col, val)| row.get(*col) == Some(*val)))
+            .filter(|(_, row)| {
+                key.iter()
+                    .all(|(col, val)| row.get(*col).is_some_and(|cell| same_value(cell, val)))
+            })
             .map(|(id, _)| id)
             .collect();
         match matches.as_slice() {
@@ -991,10 +1035,16 @@ fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
 /// Carry a set-valued functor instance forward along a migration, keeping
 /// the fragment that survives.
 ///
-/// Each source vertex sends its rows to its image, the vertex
-/// `vertex_remap` names for it or the vertex itself when it is not renamed,
-/// and they are kept exactly when that image is in `surviving_verts` (the
-/// rule [`crate::ginstance::GInstance`]'s restrict applies to nodes). A kept
+/// The source vertices are the migration's domain, read as every table
+/// operation reads it: the vertices `vertex_remap` renames, together with
+/// those `surviving_verts` lists that it neither renames nor names as some
+/// other vertex's image. A vertex outside the domain contributes no rows; in
+/// particular a vertex another vertex is renamed onto is a target, so the
+/// rows it holds under its own name are not carried. Each source vertex
+/// sends its rows to its image, the vertex `vertex_remap` names for it or
+/// the vertex itself when it is not renamed, and they are kept exactly when
+/// that image is in `surviving_verts` (the rule
+/// [`crate::ginstance::GInstance`]'s restrict applies to nodes). A kept
 /// row keeps its [`RowId`] and is rewritten by its source vertex's
 /// op-to-term assignments. So every row lands at most once, even when a
 /// renamed vertex's old name is itself listed as surviving (as the
@@ -1006,8 +1056,12 @@ fn carried_edge(migration: &CompiledMigration, edge: &Edge) -> Option<Edge> {
 ///
 /// This is a pushforward, not precomposition: over a vertex map that merges
 /// two vertices it returns the fibre's disjoint union, which is `Sigma_F`'s
-/// answer; the row ids keep the union disjoint without any renumbering. For
-/// `Delta_F` see [`crate::adjunction::f_delta`].
+/// answer; the row ids keep the union disjoint without any renumbering. On
+/// an instance whose rows all lie in the domain it agrees with
+/// [`crate::adjunction::f_sigma`] whenever every image survives; where
+/// `f_sigma` refuses rows outside the domain, this drops them, as it drops
+/// every row whose image does not survive. For `Delta_F` see
+/// [`crate::adjunction::f_delta`].
 ///
 /// # Errors
 ///
@@ -1017,8 +1071,12 @@ pub fn functor_restrict(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
+    let domain = crate::adjunction::source_vertices(migration);
     let mut out = FInstance::new();
     for (src_vertex, table) in instance.tables() {
+        if !domain.contains(src_vertex) {
+            continue;
+        }
         let tgt_vertex = migration.vertex_remap.get(src_vertex).unwrap_or(src_vertex);
         if !migration.surviving_verts.contains(tgt_vertex) {
             continue;
@@ -1058,8 +1116,14 @@ pub fn functor_restrict(
 ///
 /// This is the left Kan extension: given an instance of the source schema
 /// and a migration mapping (source -> target), produce an instance of the
-/// target schema by moving every table to its image (a vertex the migration
-/// does not remap keeps its name); a surviving target vertex no row reaches
+/// target schema by moving every table to its image. A vertex in the
+/// migration's domain (read as [`functor_restrict`] and every other table
+/// operation read it) goes to the image `vertex_remap` names, or keeps its
+/// name when it survives unrenamed; a vertex the migration does not mention
+/// at all keeps its name. A vertex the migration names only as a target,
+/// the image of some other vertex that it does not rename itself, has no
+/// image of its own, and extend refuses rows held there rather than merge
+/// them into that fibre unasked; a surviving target vertex no row reaches
 /// is sent to the empty set, so it has no table. Rows keep their [`RowId`]s,
 /// so the coproduct over a merging fibre is a disjoint union with no
 /// renumbering, and the operation creates no rows. Within each target table
@@ -1069,14 +1133,22 @@ pub fn functor_restrict(
 ///
 /// # Errors
 ///
-/// Returns `RestrictError` if a row's op-to-term assignment fails to
-/// evaluate.
+/// Returns [`RestrictError::VertexOutsideDomain`] when a row lies at a
+/// vertex the migration names only as a target, and `RestrictError` if a
+/// row's op-to-term assignment fails to evaluate.
 pub fn functor_extend(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
+    let domain = crate::adjunction::source_vertices(migration);
+    let images: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
     let mut out = FInstance::new();
     for (src_vertex, table) in instance.tables() {
+        if !domain.contains(src_vertex) && images.contains(src_vertex) {
+            return Err(RestrictError::VertexOutsideDomain {
+                vertex: src_vertex.clone(),
+            });
+        }
         let tgt_vertex = migration
             .vertex_remap
             .get(src_vertex)
@@ -1369,26 +1441,6 @@ mod tests {
         );
     }
 
-    /// An unremapped surviving vertex keeps its own rows even when another
-    /// vertex is sent onto it: the pushforward of the identity part.
-    #[test]
-    fn functor_restrict_keeps_the_rows_of_an_unremapped_vertex_another_merges_into() {
-        let inst = FInstance::new()
-            .with_table("a", vec![cell("n", "a0")])
-            .and_then(|f| f.with_table("t", vec![cell("n", "t0")]))
-            .unwrap();
-        let mut migration = CompiledMigration {
-            surviving_verts: HashSet::from([Name::from("t")]),
-            ..CompiledMigration::default()
-        };
-        migration
-            .vertex_remap
-            .insert(Name::from("a"), Name::from("t"));
-        let restricted = functor_restrict(&inst, &migration).unwrap();
-        assert_eq!(restricted.row_count("t"), 2);
-        assert_eq!(restricted, functor_extend(&inst, &migration).unwrap());
-    }
-
     /// A migration merging `a` and `b` onto `t`.
     fn merging_migration() -> CompiledMigration {
         let mut migration = CompiledMigration {
@@ -1438,5 +1490,73 @@ mod tests {
         let precomposed = crate::adjunction::f_delta(&x, &m).expect("delta");
         assert_eq!(precomposed.total_row_count(), 0);
         assert!(!precomposed.has_table("t"));
+    }
+
+    /// One row `0` in table `a` holding `x = value`.
+    fn one_cell(value: Value) -> FInstance {
+        FInstance::new()
+            .with_rows("a", [(RowId(0), HashMap::from([("x".to_owned(), value)]))])
+            .unwrap()
+    }
+
+    /// A key matches what a row holds exactly: a `NaN` key cell finds its
+    /// row, and `0.0` does not find a row holding `-0.0`.
+    #[test]
+    fn a_key_matches_cells_exactly() {
+        let nan = one_cell(Value::Float(f64::NAN));
+        assert_eq!(
+            nan.find_row_by_key("a", &[("x", &Value::Float(f64::NAN))]),
+            Ok(RowId(0))
+        );
+        let negative = one_cell(Value::Float(-0.0));
+        assert_eq!(
+            negative.find_row_by_key("a", &[("x", &Value::Float(0.0))]),
+            Err(KeyLookupError::Missing {
+                table: Name::from("a")
+            })
+        );
+        assert_eq!(
+            negative.find_row_by_key("a", &[("x", &Value::Float(-0.0))]),
+            Ok(RowId(0))
+        );
+    }
+
+    /// Two instances are equal exactly when they hold the same cells by
+    /// canonical bytes, so an instance with a `NaN` cell equals itself and
+    /// `0.0` differs from `-0.0`, in agreement with their digests.
+    #[test]
+    fn instance_equality_is_exact_on_cells() {
+        let nan = one_cell(Value::Float(f64::NAN));
+        assert_eq!(nan, nan.clone());
+        let positive = one_cell(Value::Float(0.0));
+        let negative = one_cell(Value::Float(-0.0));
+        assert_ne!(positive.digest(), negative.digest());
+        assert_ne!(positive, negative);
+    }
+
+    /// A vertex that survives under its own name but is also another
+    /// vertex's image is a target of the migration, not a source: restrict
+    /// keeps only the rows that reach it from its sources, and extend
+    /// refuses the rows it holds itself.
+    #[test]
+    fn an_image_vertex_is_not_a_source() {
+        let inst = FInstance::new()
+            .with_rows("a", [(RowId(0), Row::new())])
+            .and_then(|f| f.with_rows("b", [(RowId(1), Row::new())]))
+            .unwrap();
+        let mut migration = CompiledMigration::default();
+        migration.vertex_remap.insert("a".into(), "b".into());
+        migration.surviving_verts.insert("b".into());
+
+        let restricted = functor_restrict(&inst, &migration).unwrap();
+        let ids: Vec<RowId> = restricted.rows("b").into_iter().map(|(id, _)| id).collect();
+        assert_eq!(ids, vec![RowId(0)]);
+        assert_eq!(restricted.total_row_count(), 1);
+
+        let err = functor_extend(&inst, &migration).unwrap_err();
+        assert!(
+            matches!(&err, RestrictError::VertexOutsideDomain { vertex } if vertex == "b"),
+            "{err:?}"
+        );
     }
 }

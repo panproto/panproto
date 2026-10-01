@@ -279,6 +279,16 @@ pub enum RestrictError {
     /// largest in use.
     #[error("no row id is free above the largest in use")]
     RowIdsExhausted,
+
+    /// A table instance holds rows at a vertex outside the migration's
+    /// domain that is the image of another vertex: the migration names it as
+    /// a target only, so a total operation has nowhere to send its rows and
+    /// refuses rather than dropping them or merging them unasked.
+    #[error("vertex `{vertex}` holds rows but is a target of the migration, not a source")]
+    VertexOutsideDomain {
+        /// The vertex whose rows have no image.
+        vertex: Name,
+    },
 }
 
 /// Errors from JSON parsing.
