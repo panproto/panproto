@@ -1,0 +1,53 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "name",
+        "src": "item",
+        "tgt": "name"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {
+        "colour": {
+          "Str": "red"
+        },
+        "name": {
+          "Int": 5
+        }
+      },
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "name",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": {
+        "Present": {
+          "Str": "toolong"
+        }
+      }
+    }
+  ]
+}

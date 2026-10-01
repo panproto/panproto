@@ -1,0 +1,374 @@
+{
+  "name": "cardinality/parallel_edges_counted",
+  "protocol": "validation-fixtures-graph",
+  "protocol_definition": {
+    "name": "validation-fixtures-graph",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "graph",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {}
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "child": {
+        "id": "child",
+        "kind": "object",
+        "nsid": null
+      },
+      "parent": {
+        "id": "parent",
+        "kind": "object",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "parent",
+          "tgt": "child",
+          "kind": "prop",
+          "name": "child"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {
+      "parent": [
+        {
+          "sort": "maxOut",
+          "value": "1"
+        }
+      ]
+    },
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "parent": [
+        {
+          "src": "parent",
+          "tgt": "child",
+          "kind": "prop",
+          "name": "child"
+        }
+      ]
+    },
+    "incoming": {
+      "child": [
+        {
+          "src": "parent",
+          "tgt": "child",
+          "kind": "prop",
+          "name": "child"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "parent",
+          "child"
+        ],
+        [
+          {
+            "src": "parent",
+            "tgt": "child",
+            "kind": "prop",
+            "name": "child"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "graph": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "parent",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "1": {
+          "id": 1,
+          "anchor": "child",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "edges": {
+        "0": {
+          "src": 0,
+          "tgt": 1,
+          "edge": {
+            "src": "parent",
+            "tgt": "child",
+            "kind": "prop",
+            "name": "child"
+          },
+          "position": null
+        },
+        "1": {
+          "src": 0,
+          "tgt": 1,
+          "edge": {
+            "src": "parent",
+            "tgt": "child",
+            "kind": "prop",
+            "name": "child"
+          },
+          "position": null
+        }
+      }
+    }
+  },
+  "report": {
+    "shape": "graph",
+    "scope": "instance",
+    "plan": "c65b089d9255e2115ffdab7f10c4afe8c23a5bbe111786276b282b14291a621d",
+    "status": "failed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "out_degree",
+          "decl": {
+            "constraint": {
+              "vertex": "parent",
+              "constraint": {
+                "sort": "maxOut",
+                "value": "1"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "node": 0
+        },
+        "elements": [
+          {
+            "node": 0
+          },
+          {
+            "edge": 0
+          },
+          {
+            "edge": 1
+          }
+        ],
+        "violation": {
+          "out_degree": {
+            "edge": null,
+            "min": null,
+            "max": 1,
+            "found": 2,
+            "edges": [
+              {
+                "edge": 0
+              },
+              {
+                "edge": 1
+              }
+            ]
+          }
+        },
+        "source": null
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "out_degree",
+          "decl": {
+            "constraint": {
+              "vertex": "parent",
+              "constraint": {
+                "sort": "maxOut",
+                "value": "1"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "parent"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  }
+}
