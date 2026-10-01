@@ -63,8 +63,8 @@ pub enum RelSchemaError {
     /// record.
     #[error("edge {edge:?} leads from a value vertex to a table")]
     ValueReachesTable {
-        /// The least such edge (boxed to keep the error small).
-        edge: Box<Edge>,
+        /// The least such edge.
+        edge: Edge,
     },
     /// Two attribute arrows of one table have one column name.
     #[error("table `{table}` has two attribute arrows with the column name `{column}`")]
@@ -78,8 +78,8 @@ pub enum RelSchemaError {
     /// not among its tables.
     #[error("relation {edge:?} has an endpoint that is not a table")]
     RelationEndpointNotATable {
-        /// The least such relation (boxed to keep the error small).
-        edge: Box<Edge>,
+        /// The least such relation.
+        edge: Edge,
     },
     /// A column given to [`RelSchema::from_parts`] is not an attribute arrow
     /// of its table under its own column name: its table is no table, its
@@ -249,7 +249,7 @@ impl RelSchema {
             .find(|edge| values.contains(&edge.src) && is_table(&edge.tgt))
         {
             return Err(RelSchemaError::ValueReachesTable {
-                edge: Box::new((*edge).clone()),
+                edge: (*edge).clone(),
             });
         }
 
@@ -306,9 +306,7 @@ impl RelSchema {
             .iter()
             .find(|edge| !tables.contains(&edge.src) || !tables.contains(&edge.tgt))
         {
-            return Err(RelSchemaError::RelationEndpointNotATable {
-                edge: Box::new(edge.clone()),
-            });
+            return Err(RelSchemaError::RelationEndpointNotATable { edge: edge.clone() });
         }
         for (table, table_columns) in &columns {
             for (column, edge) in table_columns {
@@ -814,7 +812,7 @@ mod tests {
         assert_eq!(
             RelSchema::new(&s, &protocol(&["array", "string"], &["record"])),
             Err(RelSchemaError::ValueReachesTable {
-                edge: Box::new(edge("post.tags", "user", "fk", "owner"))
+                edge: edge("post.tags", "user", "fk", "owner")
             })
         );
     }
@@ -831,7 +829,7 @@ mod tests {
         assert_eq!(
             RelSchema::new(&s, &protocol(&["string"], &["record"])),
             Err(RelSchemaError::ValueReachesTable {
-                edge: Box::new(edge("v", "b", "x", "x"))
+                edge: edge("v", "b", "x", "x")
             })
         );
     }
@@ -852,7 +850,7 @@ mod tests {
         assert_eq!(
             RelSchema::new(&s, &protocol(&["json"], &["record"])),
             Err(RelSchemaError::ValueReachesTable {
-                edge: Box::new(edge("post.meta", "inner", "field", "inner"))
+                edge: edge("post.meta", "inner", "field", "inner")
             })
         );
     }
@@ -910,9 +908,7 @@ mod tests {
         let e = edge("a", "b", "fk", "e");
         assert_eq!(
             RelSchema::from_parts([Name::from("a")], [e.clone()], BTreeMap::new()),
-            Err(RelSchemaError::RelationEndpointNotATable {
-                edge: Box::new(e.clone())
-            })
+            Err(RelSchemaError::RelationEndpointNotATable { edge: e.clone() })
         );
         let column = edge("a", "a.x", "prop", "x");
         let ok = RelSchema::from_parts(

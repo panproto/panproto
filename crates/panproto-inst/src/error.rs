@@ -336,13 +336,13 @@ pub enum RestrictError {
     /// endpoints, so it states no functor between the relation-ified
     /// schemas.
     #[error(
-        "the migration carries foreign key {edge:?} to {image:?}, \
+        "the migration carries foreign key {source_edge:?} to {image:?}, \
          which is not a foreign key between the images of its endpoints"
     )]
     IncoherentEdgeImage {
-        /// The source foreign key (boxed, as the image is, to keep the error
-        /// small).
-        edge: Box<Edge>,
+        /// The source foreign key (boxed, as the image is, so that the
+        /// error stays within the size `clippy::result_large_err` allows).
+        source_edge: Box<Edge>,
         /// The image the migration names for it.
         image: Box<Edge>,
     },
@@ -370,7 +370,8 @@ pub enum RestrictError {
          which is no column of the image of its table"
     )]
     IncoherentAttributeImage {
-        /// The source attribute arrow (boxed to keep the error small).
+        /// The source attribute arrow (boxed, as the image is, so that the
+        /// error stays within the size `clippy::result_large_err` allows).
         edge: Box<Edge>,
         /// The image the migration names for it, or `None` when a
         /// surviving column has none in the target.
@@ -394,8 +395,8 @@ pub enum RestrictError {
     /// structure of the values cells hold.
     #[error("the migration changes the structure of the values inside cells at edge {edge:?}")]
     ValueStructureRemap {
-        /// The source edge inside a value (boxed to keep the error small).
-        edge: Box<Edge>,
+        /// The source edge inside a value.
+        edge: Edge,
     },
 
     /// A schema the migration runs between has no attributed relation-ified

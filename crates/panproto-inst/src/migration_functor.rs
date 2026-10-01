@@ -173,7 +173,7 @@ fn entity_maps(
         };
         if &image.src != src || &image.tgt != tgt || !target.is_relation(&image) {
             return Err(RestrictError::IncoherentEdgeImage {
-                edge: Box::new(edge.clone()),
+                source_edge: Box::new(edge.clone()),
                 image: Box::new(image),
             });
         }
@@ -191,7 +191,7 @@ fn entity_maps(
     for (edge, image) in entries {
         if source.is_relation(edge) && target.attribute_column(image).is_some() {
             return Err(RestrictError::IncoherentEdgeImage {
-                edge: Box::new(edge.clone()),
+                source_edge: Box::new(edge.clone()),
                 image: Box::new(image.clone()),
             });
         }
@@ -319,9 +319,7 @@ impl EntityFunctor {
                 && target.value_kind(&image.tgt).is_some()
                 && target.value_kind(&image.tgt) == expected(&edge.tgt);
             if !keeps_structure {
-                return Err(RestrictError::ValueStructureRemap {
-                    edge: Box::new(edge.clone()),
-                });
+                return Err(RestrictError::ValueStructureRemap { edge: edge.clone() });
             }
         }
         Ok(MigrationFunctor { maps: self.maps })
@@ -780,7 +778,7 @@ mod tests {
         m.edge_remap.insert(e.clone(), fk("a", "c", "E"));
         assert!(matches!(
             functor(&src, &tgt, &m),
-            Err(RestrictError::IncoherentEdgeImage { edge, image })
+            Err(RestrictError::IncoherentEdgeImage { source_edge: edge, image })
                 if *edge == e && *image == fk("a", "c", "E")
         ));
         // An image between the right tables that the target lacks.
@@ -955,7 +953,7 @@ mod tests {
         m.edge_remap.insert(fk("c", "b", "f"), column("a", "x"));
         assert!(matches!(
             functor(&src2, &tgt, &m),
-            Err(RestrictError::IncoherentEdgeImage { edge, image })
+            Err(RestrictError::IncoherentEdgeImage { source_edge: edge, image })
                 if *edge == fk("c", "b", "f") && *image == column("a", "x")
         ));
         // A kept relation sent to a column.
@@ -1081,7 +1079,7 @@ mod tests {
         )?;
         assert!(matches!(
             entity.into_kan(),
-            Err(RestrictError::ValueStructureRemap { edge }) if *edge == inner("posts", "item")
+            Err(RestrictError::ValueStructureRemap { edge }) if edge == inner("posts", "item")
         ));
         Ok(())
     }
@@ -1095,7 +1093,7 @@ mod tests {
         let refused = |tgt: &Schema, m: &CompiledMigration| {
             matches!(
                 functor(&src, tgt, m),
-                Err(RestrictError::ValueStructureRemap { edge }) if *edge == inner("posts", "item")
+                Err(RestrictError::ValueStructureRemap { edge }) if edge == inner("posts", "item")
             )
         };
         // Renamed.
@@ -1324,12 +1322,12 @@ mod tests {
 
     /// The restrict errors about the migration functor, each with its kind.
     fn functor_restrict_errors() -> Vec<(RestrictError, &'static str)> {
-        let e = || Box::new(fk("a", "b", "e"));
+        let e = || fk("a", "b", "e");
         vec![
             (
                 RestrictError::IncoherentEdgeImage {
-                    edge: e(),
-                    image: e(),
+                    source_edge: Box::new(e()),
+                    image: Box::new(e()),
                 },
                 "incoherent_edge_image",
             ),
@@ -1342,7 +1340,7 @@ mod tests {
             ),
             (
                 RestrictError::IncoherentAttributeImage {
-                    edge: e(),
+                    edge: Box::new(e()),
                     image: None,
                 },
                 "incoherent_attribute_image",
@@ -1363,6 +1361,46 @@ mod tests {
                 "rel_schema",
             ),
         ]
+    }
+
+    /// The coherence errors carry their edges under the names the
+    /// contract gives them: the incoherent edge image's source edge as
+    /// `source_edge`. The errors with one edge carry it as a plain `Edge`;
+    /// the two with two edges box both, so that `RestrictError` stays within
+    /// the size `clippy::result_large_err` allows.
+    #[test]
+    fn coherence_errors_carry_their_edges_under_their_names() {
+        let e = fk("a", "b", "e");
+        let edges: Vec<Edge> = [
+            RestrictError::IncoherentEdgeImage {
+                source_edge: Box::new(e.clone()),
+                image: Box::new(e.clone()),
+            },
+            RestrictError::IncoherentAttributeImage {
+                edge: Box::new(e.clone()),
+                image: Some(Box::new(e.clone())),
+            },
+            RestrictError::ValueStructureRemap { edge: e.clone() },
+            RestrictError::RelSchema(RelSchemaError::ValueReachesTable { edge: e.clone() }),
+            RestrictError::RelSchema(RelSchemaError::RelationEndpointNotATable { edge: e.clone() }),
+        ]
+        .into_iter()
+        .flat_map(|error| match error {
+            RestrictError::IncoherentEdgeImage { source_edge, image } => {
+                vec![*source_edge, *image]
+            }
+            RestrictError::IncoherentAttributeImage { edge, image } => {
+                std::iter::once(*edge).chain(image.map(|i| *i)).collect()
+            }
+            RestrictError::ValueStructureRemap { edge }
+            | RestrictError::RelSchema(
+                RelSchemaError::ValueReachesTable { edge }
+                | RelSchemaError::RelationEndpointNotATable { edge },
+            ) => vec![edge],
+            other => panic!("{other:?}"),
+        })
+        .collect();
+        assert_eq!(edges, vec![e; 7]);
     }
 
     #[test]
