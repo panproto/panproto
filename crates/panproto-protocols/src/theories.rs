@@ -1469,4 +1469,40 @@ mod tests {
             "both endpoint coherence axioms must be stated",
         );
     }
+
+    /// One theory name stands for one composition: registering a name again
+    /// with a different composition is a defect in the static registration
+    /// configuration.
+    #[test]
+    #[should_panic(
+        expected = "theory `RecordedTwiceSchema` is registered twice with different compositions"
+    )]
+    fn a_theory_name_registered_again_with_another_composition_panics() {
+        let mut first: HashMap<String, Theory> = HashMap::new();
+        register_hypergraph_functor(&mut first, "RecordedTwiceSchema", "RecordedTwiceInstance");
+        let mut second: HashMap<String, Theory> = HashMap::new();
+        register_simple_graph_flat(&mut second, "RecordedTwiceSchema", "RecordedTwiceFlat");
+    }
+
+    /// Registering a name again with the same composition keeps the first
+    /// record and its recipe.
+    #[test]
+    fn a_theory_name_registered_again_with_the_same_composition_is_kept() {
+        let mut first: HashMap<String, Theory> = HashMap::new();
+        register_hypergraph_functor(&mut first, "RecordedAgainSchema", "RecordedAgainInstance");
+        let composition = registered_composition("RecordedAgainSchema")
+            .unwrap_or_else(|| panic!("the first registration is recorded"));
+        let recipe = registered_recipe("RecordedAgainSchema")
+            .unwrap_or_else(|| panic!("the first registration's recipe is recorded"));
+        let mut second: HashMap<String, Theory> = HashMap::new();
+        register_hypergraph_functor(&mut second, "RecordedAgainSchema", "RecordedAgainInstance");
+        assert_eq!(first, second);
+        let again = registered_composition("RecordedAgainSchema")
+            .unwrap_or_else(|| panic!("the record is kept"));
+        assert_eq!(
+            canonical_composition_bytes(&again),
+            canonical_composition_bytes(&composition)
+        );
+        assert_eq!(registered_recipe("RecordedAgainSchema"), Some(recipe));
+    }
 }
