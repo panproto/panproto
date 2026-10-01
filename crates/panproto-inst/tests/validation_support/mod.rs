@@ -96,6 +96,12 @@ pub fn e_aname() -> Edge {
 pub fn e_stars() -> Edge {
     edge("film", "actor", "fk", "stars")
 }
+/// `film -cast-> actor`: a named `prop` edge into a table vertex, which
+/// labels foreign-key pairs as well as naming a cell of a film.
+#[must_use]
+pub fn e_cast() -> Edge {
+    edge("film", "actor", "prop", "cast")
+}
 /// `film -ghost-> actor`: a foreign key the schema never declares.
 #[must_use]
 pub fn e_ghost_fk() -> Edge {
@@ -139,6 +145,22 @@ pub enum Flag {
     /// Items also carry the composite key `nk` (`name`, `num`) within their
     /// document (with the item key).
     Composite,
+    /// A film's `year` cell requires a value (`RequiredValue` on a column
+    /// vertex).
+    RequiredYear,
+    /// A film's `lead` cell is judged by the external sort `external` (an
+    /// `External` constraint on a column vertex).
+    ExternalLead,
+    /// The table vertex `actor` requires a value (`RequiredValue` on a table
+    /// vertex: an actor row has no value of its own, and a film's `cast`
+    /// cell is a value of `actor` when no `cast` pair leaves the film).
+    RequiredActor,
+    /// The values of the table vertex `actor` are at most one character
+    /// long (`ValueConstraint` on a table vertex).
+    BoundedActor,
+    /// Every film is judged by the external sort `external` (an `External`
+    /// constraint on a table vertex).
+    ExternalFilm,
 }
 
 /// Which declarations a generated schema carries.
@@ -196,6 +218,7 @@ pub fn semantics() -> Vec<(&'static str, ConstraintSemantics)> {
         ("minOut", ConstraintSemantics::MinOutDegree),
         ("acyclic", ConstraintSemantics::Acyclic),
         ("required", ConstraintSemantics::RequiredValue),
+        ("external", ConstraintSemantics::External),
     ]
 }
 
@@ -216,7 +239,7 @@ pub fn protocol(syntactic: InstanceShapeKind) -> Protocol {
 
 /// A schema under construction, its adjacency indices kept up to date.
 #[derive(Default)]
-struct Builder(Schema);
+pub struct Builder(Schema);
 
 impl Features {
     /// Whether the schema carries the declaration `flag`.
@@ -227,7 +250,15 @@ impl Features {
 }
 
 impl Builder {
-    fn vertex(mut self, id: &str, kind: &str) -> Self {
+    /// The schema built.
+    #[must_use]
+    pub fn build(self) -> Schema {
+        self.0
+    }
+
+    /// Add the vertex `id` of `kind`.
+    #[must_use]
+    pub fn vertex(mut self, id: &str, kind: &str) -> Self {
         self.0.vertices.insert(
             id.into(),
             Vertex {
@@ -239,7 +270,9 @@ impl Builder {
         self
     }
 
-    fn edge(mut self, e: &Edge) -> Self {
+    /// Add the edge `e`.
+    #[must_use]
+    pub fn edge(mut self, e: &Edge) -> Self {
         self.0.edges.insert(e.clone(), e.kind.clone());
         self.0
             .outgoing
@@ -259,7 +292,9 @@ impl Builder {
         self
     }
 
-    fn constraint(mut self, vertex: &str, sort: &str, value: &str) -> Self {
+    /// Add the constraint `sort = value` on `vertex`.
+    #[must_use]
+    pub fn constraint(mut self, vertex: &str, sort: &str, value: &str) -> Self {
         self.0
             .constraints
             .entry(vertex.into())
@@ -337,6 +372,7 @@ pub fn schema_of(features: &Features) -> Schema {
         e_lead(),
         e_aname(),
         e_stars(),
+        e_cast(),
     ] {
         b = b.edge(&e);
     }
@@ -369,6 +405,17 @@ pub fn schema_of(features: &Features) -> Schema {
     }
     if let Some(limit) = features.title_max {
         b = b.constraint("title", "maxChars", &limit.to_string());
+    }
+    for (flag, vertex, sort, value) in [
+        (Flag::RequiredYear, "year", "required", "true"),
+        (Flag::ExternalLead, "lead", "external", "lead_ok"),
+        (Flag::RequiredActor, "actor", "required", "true"),
+        (Flag::BoundedActor, "actor", "maxChars", "1"),
+        (Flag::ExternalFilm, "film", "external", "film_ok"),
+    ] {
+        if features.has(flag) {
+            b = b.constraint(vertex, sort, value);
+        }
     }
     let mut schema = b.0;
     if features.has(Flag::RequiredName) {
@@ -460,8 +507,9 @@ fn arb_policy() -> impl Strategy<Value = (bool, OnUnresolved)> {
 
 /// A schema with required edges, keys (composite and scoped), references
 /// (strict and lenient, nullable or not), degree bounds, an acyclic
-/// self-edge, an ordered edge, value bounds and a fan hyper-edge, each
-/// declaration drawn present or absent.
+/// self-edge, an ordered edge, value bounds, a fan hyper-edge, and value,
+/// required-value and external constraints on column vertices and on table
+/// vertices, each declaration drawn present or absent.
 pub fn arb_validation_schema() -> impl Strategy<Value = Case> {
     let unit = prop_oneof![
         Just(LengthUnit::Chars),
@@ -484,12 +532,20 @@ pub fn arb_validation_schema() -> impl Strategy<Value = Case> {
             proptest::option::of(arb_policy()),
             proptest::option::of(1_u64..4),
         ),
+        (
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+            any::<bool>(),
+        ),
     )
         .prop_map(
             |(
                 (max_len, num_bounds, max_out, min_out),
                 (acyclic, required_name, required_tag, ordered),
                 (item_key, composite, item_ref, film_ref, title_max),
+                (required_year, external_lead, required_actor, bounded_actor, external_film),
             )| {
                 let flags = [
                     (acyclic, Flag::Acyclic),
@@ -497,6 +553,11 @@ pub fn arb_validation_schema() -> impl Strategy<Value = Case> {
                     (required_tag, Flag::RequiredTag),
                     (ordered, Flag::Ordered),
                     (composite, Flag::Composite),
+                    (required_year, Flag::RequiredYear),
+                    (external_lead, Flag::ExternalLead),
+                    (required_actor, Flag::RequiredActor),
+                    (bounded_actor, Flag::BoundedActor),
+                    (external_film, Flag::ExternalFilm),
                 ]
                 .into_iter()
                 .filter_map(|(on, flag)| on.then_some(flag))
@@ -954,6 +1015,9 @@ pub struct FilmSpec {
     pub lead: Option<usize>,
     /// Whether the row carries a cell `note`, which no column declares.
     pub note: bool,
+    /// The row's `cast` cell (an index into [`STRINGS`]), which is a value
+    /// of the table vertex `actor` unless a `cast` pair leaves the row.
+    pub cast: Option<usize>,
 }
 
 /// A drawn table instance of films and actors.
@@ -965,8 +1029,9 @@ pub struct TableSpec {
     pub actors: Vec<Option<usize>>,
     /// Foreign-key pairs: a film and an actor (indices) and the kind of
     /// pair: 0 `stars`, 1 the undeclared `ghost`, 2 the undeclared
-    /// `knows` between two actors. A pair whose rows are not of its edge's
-    /// tables cannot be built: construction rejects it.
+    /// `knows` between two actors, 3 the `prop` edge `cast`. A pair whose
+    /// rows are not of its edge's tables cannot be built: construction
+    /// rejects it.
     pub pairs: Vec<(usize, usize, u8)>,
     /// Whether a row of the undeclared table `ghost_t` is present.
     pub ghost_row: bool,
@@ -984,12 +1049,14 @@ pub fn arb_table_spec() -> impl Strategy<Value = TableSpec> {
         ],
         proptest::option::weighted(0.8, 0..4_usize),
         proptest::bool::weighted(0.1),
+        proptest::option::weighted(0.5, 0..STRINGS.len()),
     )
-        .prop_map(|(title, year, lead, note)| FilmSpec {
+        .prop_map(|(title, year, lead, note, cast)| FilmSpec {
             title,
             year,
             lead,
             note,
+            cast,
         });
     (
         proptest::collection::vec(film, 0..5),
@@ -998,7 +1065,12 @@ pub fn arb_table_spec() -> impl Strategy<Value = TableSpec> {
             (
                 any::<usize>(),
                 any::<usize>(),
-                prop_oneof![6 => Just(0_u8), 1 => Just(1_u8), 1 => Just(2_u8)],
+                prop_oneof![
+                    6 => Just(0_u8),
+                    1 => Just(1_u8),
+                    1 => Just(2_u8),
+                    3 => Just(3_u8),
+                ],
             ),
             0..6,
         ),
@@ -1030,6 +1102,9 @@ pub fn table_of(spec: &TableSpec) -> FInstance {
         if f.note {
             row.insert("note".to_owned(), Value::Str("n".into()));
         }
+        if let Some(v) = cell(f.cast) {
+            row.insert("cast".to_owned(), v);
+        }
         (RowId(u32::try_from(i).expect("small")), row)
     });
     let actors = spec.actors.iter().enumerate().map(|(i, a)| {
@@ -1056,8 +1131,12 @@ pub fn table_of(spec: &TableSpec) -> FInstance {
         }
         let actor = RowId(10 + u32::try_from(a % na).expect("small"));
         let (label, src) = match kind {
-            0 | 1 if nf > 0 => (
-                if *kind == 0 { e_stars() } else { e_ghost_fk() },
+            0 | 1 | 3 if nf > 0 => (
+                match kind {
+                    0 => e_stars(),
+                    1 => e_ghost_fk(),
+                    _ => e_cast(),
+                },
                 RowId(u32::try_from(f % nf).expect("small")),
             ),
             _ => (

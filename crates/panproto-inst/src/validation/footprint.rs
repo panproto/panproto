@@ -7,11 +7,12 @@
 //!
 //! | kind | footprint |
 //! |---|---|
-//! | `NodeAnchor(n)`, `ReservedVocabulary(n)`, `ValueConstraint(n)`, `RequiredValue(n)`, `Attribute(n)` | `{n}` |
+//! | `NodeAnchor(n)`, `ReservedVocabulary(n)`, `Attribute(n)` | `{n}` |
 //! | `EdgeDeclared(e)` | `{e}` |
 //! | `EndpointCoherence(e)` | `{e, src(e), tgt(e)}` |
 //! | `FanWellFormed(f)` | `{f}` and the in- and out-edges of `f`; for a tree, the parent and the children of its fans at `f` |
 //! | `RequiredEdge(n)`, `OutDegree(n)`, `PositionDistinct(n)` | `{n}` and the out-edges of `n` |
+//! | `ValueConstraint(n)`, `RequiredValue(n)` | `{n}` and the out-edges of `n`, whose labels decide which fields of `n` are value sites |
 //! | `TreeParentMap(n)` | `{n}` and the arcs into `n` |
 //! | `TreeRoot` | the root, when it is a node |
 //! | `KeyUnique` | every element anchored at the keyed vertex |
@@ -41,8 +42,6 @@ pub fn reads(ctx: &Context<'_>, instance: &CheckInstance) -> BTreeSet<ViewRef> {
             CheckKind::NodeAnchor
             | CheckKind::ReservedVocabulary
             | CheckKind::EdgeDeclared
-            | CheckKind::ValueConstraint
-            | CheckKind::RequiredValue
             | CheckKind::Attribute,
             Some(n),
         ) => {
@@ -56,7 +55,14 @@ pub fn reads(ctx: &Context<'_>, instance: &CheckInstance) -> BTreeSet<ViewRef> {
             }
         }
         (CheckKind::FanWellFormed, Some(f)) => fan_reads(view, f, &mut out),
-        (CheckKind::RequiredEdge | CheckKind::OutDegree | CheckKind::PositionDistinct, Some(n)) => {
+        (
+            CheckKind::RequiredEdge
+            | CheckKind::OutDegree
+            | CheckKind::PositionDistinct
+            | CheckKind::ValueConstraint
+            | CheckKind::RequiredValue,
+            Some(n),
+        ) => {
             out.insert(n.clone());
             out.extend(view.out_edges(n).into_iter().map(|e| e.at));
         }
@@ -244,10 +250,20 @@ mod tests {
             at(CheckKind::NodeAnchor, Some(n0.clone())),
             set(std::slice::from_ref(&n0))
         );
-        assert_eq!(
-            at(CheckKind::ValueConstraint, Some(n2.clone())),
-            set(std::slice::from_ref(&n2))
-        );
+        // A value check reads its subject's fields only where no out-edge
+        // carries the field's edge, so it reads the out-edges too.
+        for kind in [CheckKind::ValueConstraint, CheckKind::RequiredValue] {
+            assert_eq!(
+                at(kind, Some(n0.clone())),
+                set(&[n0.clone(), e0.clone(), e2.clone()]),
+                "{kind:?}"
+            );
+            assert_eq!(
+                at(kind, Some(n2.clone())),
+                set(std::slice::from_ref(&n2)),
+                "{kind:?}"
+            );
+        }
         assert_eq!(
             at(CheckKind::Attribute, Some(n0.clone())),
             set(std::slice::from_ref(&n0))
@@ -329,6 +345,13 @@ mod tests {
             at(CheckKind::TreeParentMap, Some(n2.clone())),
             set(&[n2.clone(), a12.clone()])
         );
+        for kind in [CheckKind::ValueConstraint, CheckKind::RequiredValue] {
+            assert_eq!(
+                at(kind, Some(n1.clone())),
+                set(&[n1.clone(), a12.clone()]),
+                "{kind:?}"
+            );
+        }
         assert_eq!(
             at(CheckKind::TreeRoot, None),
             set(std::slice::from_ref(&n0))
@@ -359,13 +382,22 @@ mod tests {
             src: RowId(0),
             tgt: RowId(1),
         };
-        assert_eq!(
-            reads(
-                &ctx,
-                &instance(CheckKind::OutDegree, Some(ViewRef::Row(RowId(0))))
-            ),
-            set(&[ViewRef::Row(RowId(0)), pair.clone()])
-        );
+        for kind in [
+            CheckKind::OutDegree,
+            CheckKind::ValueConstraint,
+            CheckKind::RequiredValue,
+        ] {
+            assert_eq!(
+                reads(&ctx, &instance(kind, Some(ViewRef::Row(RowId(0))))),
+                set(&[ViewRef::Row(RowId(0)), pair.clone()]),
+                "{kind:?}"
+            );
+            assert_eq!(
+                reads(&ctx, &instance(kind, Some(ViewRef::Row(RowId(1))))),
+                set(&[ViewRef::Row(RowId(1))]),
+                "{kind:?}"
+            );
+        }
         assert_eq!(
             reads(
                 &ctx,

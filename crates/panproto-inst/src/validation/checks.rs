@@ -116,13 +116,6 @@ impl<'a> Presence<'a> {
     }
 }
 
-const fn row_of(r: &ViewRef) -> Option<RowId> {
-    match r {
-        ViewRef::Row(id) => Some(*id),
-        _ => None,
-    }
-}
-
 const fn node_id(r: &ViewRef) -> Option<u32> {
     match r {
         ViewRef::Node(id) => Some(*id),
@@ -407,82 +400,63 @@ impl<'a> InstanceView<'a> {
         }
     }
 
-    /// The values a constraint on `vertex` applies to, by subject: the own
-    /// value of every typed node anchored at `vertex`, and, in a table
-    /// instance, the cell of every row whose table has a `prop` column edge
-    /// to `vertex`, keyed by the edge's name. Each entry is the subject, the
-    /// field (`None` for a node's own value) and the value.
+    /// The value sites of `vertex`, one rule for every shape, by subject and
+    /// field (`None` for an element's own value), with their values:
+    ///
+    /// - the own value of every typed node anchored at `vertex` (a row has
+    ///   none, so its own site is absent);
+    /// - for every `prop` edge `e` named `c` with target `vertex`, the field
+    ///   `c` (a node's extra field, a row's cell) of every typed node
+    ///   anchored at `e`'s source that has no out-edge labelled `e`: when
+    ///   one has, the value at `e` is its target's, read there as an own
+    ///   value, so each value has one site.
     pub(crate) fn value_sites(
         self,
         schema: &Schema,
         vertex: &Name,
     ) -> Vec<(ViewRef, Option<String>, Presence<'a>)> {
-        match self {
-            Self::Graph(_) | Self::Tree(..) => self
-                .anchored(vertex)
-                .into_iter()
-                .map(|n| {
-                    let v = self.own_value(&n);
-                    (n, None, v)
-                })
-                .collect(),
-            Self::Table(f) => {
-                let mut out = Vec::new();
-                for (table, rows) in f.tables() {
-                    let columns: Vec<&Name> = schema
-                        .outgoing_edges(table.as_ref())
-                        .iter()
-                        .filter(|e| e.kind == "prop" && &e.tgt == vertex)
-                        .filter_map(|e| e.name.as_ref())
-                        .collect();
-                    for column in columns {
-                        for (id, row) in rows.rows() {
-                            out.push((
-                                ViewRef::Row(id),
-                                Some(column.to_string()),
-                                Presence::of_value(row.get(column.as_ref())),
-                            ));
-                        }
-                    }
-                }
-                out.sort_by(|a, b| (&a.0, &a.1).cmp(&(&b.0, &b.1)));
-                out
-            }
-        }
+        self.nodes()
+            .into_iter()
+            .filter(|n| !n.fan)
+            .flat_map(|n| {
+                self.value_sites_at(schema, vertex, &n.at)
+                    .into_iter()
+                    .map(move |(field, value)| (n.at.clone(), field, value))
+            })
+            .collect()
     }
 
-    /// The entries of [`Self::value_sites`] whose subject is `subject`, read
-    /// without visiting the rest of the instance.
+    /// The entries of [`Self::value_sites`] whose subject is `subject`, by
+    /// field, read from the subject and its out-edges only.
     pub fn value_sites_at(
         self,
         schema: &Schema,
         vertex: &Name,
         subject: &ViewRef,
     ) -> Vec<(Option<String>, Presence<'a>)> {
-        match self {
-            Self::Graph(_) | Self::Tree(..) => self
-                .node(subject)
-                .filter(|n| !n.fan && n.anchor == vertex)
-                .map(|_| (None, self.own_value(subject)))
-                .into_iter()
-                .collect(),
-            Self::Table(f) => {
-                let Some(table) = row_of(subject).and_then(|id| f.table_of(id)) else {
-                    return Vec::new();
-                };
-                let mut columns: Vec<&Name> = schema
-                    .outgoing_edges(table.as_ref())
-                    .iter()
-                    .filter(|e| e.kind == "prop" && &e.tgt == vertex)
-                    .filter_map(|e| e.name.as_ref())
-                    .collect();
-                columns.sort();
-                columns
-                    .into_iter()
-                    .map(|c| (Some(c.to_string()), self.field(subject, c)))
-                    .collect()
+        let Some(node) = self.node(subject).filter(|n| !n.fan) else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        if node.anchor == vertex {
+            out.push((None, self.own_value(subject)));
+        }
+        let fields: Vec<(&Edge, &Name)> = schema
+            .outgoing_edges(node.anchor.as_ref())
+            .iter()
+            .filter(|e| e.kind == "prop" && &e.tgt == vertex)
+            .filter_map(|e| e.name.as_ref().map(|c| (e, c)))
+            .collect();
+        if !fields.is_empty() {
+            let out_edges = self.out_edges(subject);
+            for (e, c) in fields {
+                if out_edges.iter().all(|rec| rec.label != e) {
+                    out.push((Some(c.to_string()), self.field(subject, c)));
+                }
             }
         }
+        out.sort_by(|a, b| a.0.cmp(&b.0));
+        out
     }
 
     /// The index of `node` among the targets of the ordered edge `within`
@@ -848,15 +822,24 @@ pub fn instances(ctx: &Context<'_>, key: &CheckKey) -> Vec<Option<ViewRef>> {
             SchemaRef::Key { .. } => some(anchored_at(ctx, &spec.anchors)),
             _ => some(value_subjects(ctx, &spec.anchors)),
         },
+        // A constraint sort meaning `External` concerns the values of its
+        // vertex, so it has an instance per element holding a value site
+        // there; an application check has one per element anchored at one
+        // of its anchors.
+        CheckKind::External => match &key.decl {
+            SchemaRef::Constraint { .. } => some(value_subjects(ctx, &spec.anchors)),
+            _ => some(anchored_at(ctx, &spec.anchors)),
+        },
         CheckKind::RequiredEdge
         | CheckKind::OutDegree
         | CheckKind::PositionDistinct
         | CheckKind::Attribute
-        | CheckKind::ReferenceResolves
-        | CheckKind::External => some(anchored_at(ctx, &spec.anchors)),
+        | CheckKind::ReferenceResolves => some(anchored_at(ctx, &spec.anchors)),
     }
 }
 
+/// The elements holding a value site of one of `anchors` that the schema
+/// declares (see [`InstanceView::value_sites`]).
 fn value_subjects(ctx: &Context<'_>, anchors: &BTreeSet<Name>) -> Vec<ViewRef> {
     anchors
         .iter()

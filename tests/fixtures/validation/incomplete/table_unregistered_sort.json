@@ -283,10 +283,10 @@
         {
           "class": "graph_local",
           "requirement": "required",
-          "instances": 0,
+          "instances": 1,
           "passed": 0,
           "failed": 0,
-          "incomplete": 0
+          "incomplete": 1
         }
       ]
     ]

@@ -390,6 +390,127 @@ fn sql_enum_labels_are_decided_outside_panproto() {
     assert_eq!(report.diagnostics[0].check.kind, CheckKind::ValueConstraint);
 }
 
+/// Two rows of the table holding the column constrained by `sort` in
+/// `schema`, with the cells `cells`, under `protocol`: with no verdict each
+/// row is undecided for want of a witness, so the status is not `Passed`,
+/// and a verdict rejecting row 1 fails that row alone.
+fn check_external_column_rows(protocol: &str, sort: &str, schema: &Schema, cells: [Value; 2]) {
+    use panproto_gat::Name;
+    use panproto_inst::Digest;
+    use panproto_inst::validation::{
+        ExternalVerdict, ExternalVerdicts, IncompleteReason, ValidationBudget, ValidationOptions,
+        ValidationPlan,
+    };
+    let built = (descriptor(protocol).expect("registered").protocol)();
+    assert_eq!(
+        built.constraint_semantics.get(sort),
+        Some(&ConstraintSemantics::External),
+        "{protocol} {sort}"
+    );
+    let column = schema
+        .edges
+        .keys()
+        .find(|e| {
+            e.kind == "prop"
+                && schema
+                    .constraints
+                    .get(&e.tgt)
+                    .is_some_and(|cs| cs.iter().any(|c| c.sort == sort))
+        })
+        .expect("the constrained column's edge")
+        .clone();
+    let cell = column.name.as_ref().expect("a named column").to_string();
+    let rows = cells.into_iter().enumerate().map(|(i, v)| {
+        (
+            RowId(u32::try_from(i).unwrap()),
+            HashMap::from([(cell.clone(), v)]),
+        )
+    });
+    let table = FInstance::new()
+        .with_rows(column.src, rows)
+        .expect("the rows are new");
+    let plan = ValidationPlan::compile(schema, &built, &ValidationOptions::default());
+    let budget = ValidationBudget::default();
+    let report = plan.validate_table(&table, &budget, &ExternalVerdicts::default());
+    let undecided: Vec<(Option<ViewRef>, IncompleteReason)> = report
+        .incomplete
+        .iter()
+        .filter(|i| i.check.kind == CheckKind::External)
+        .map(|i| (i.subject.clone(), i.reason.clone()))
+        .collect();
+    let missing = IncompleteReason::MissingExternalWitness {
+        name: Name::from(sort),
+    };
+    assert_eq!(
+        undecided,
+        vec![
+            (Some(ViewRef::Row(RowId(0))), missing.clone()),
+            (Some(ViewRef::Row(RowId(1))), missing),
+        ],
+        "{protocol} {sort}: {report:#?}"
+    );
+    assert_ne!(report.status, CheckStatus::Passed, "{protocol} {sort}");
+    let mut verdicts = ExternalVerdicts::default();
+    for (row, passed) in [(0, true), (1, false)] {
+        verdicts.insert(
+            Name::from(sort),
+            ViewRef::Row(RowId(row)),
+            ExternalVerdict {
+                passed,
+                witness: Digest([7; 32]),
+            },
+        );
+    }
+    let report = plan.validate_table(&table, &budget, &verdicts);
+    assert_eq!(report.status, CheckStatus::Failed, "{protocol} {sort}");
+    let rejected: Vec<(CheckKind, Option<ViewRef>, Violation)> = report
+        .diagnostics
+        .iter()
+        .map(|d| (d.check.kind, d.subject.clone(), d.violation.clone()))
+        .collect();
+    assert_eq!(
+        rejected,
+        vec![(
+            CheckKind::External,
+            Some(ViewRef::Row(RowId(1))),
+            Violation::ExternalRejected {
+                witness: Digest([7; 32])
+            }
+        )],
+        "{protocol} {sort}"
+    );
+}
+
+/// The registered `External` column rows, sql `ENUM` and dataframe `gt`,
+/// compile to a check with one instance per row holding the column's cell
+/// (see [`check_external_column_rows`]).
+#[test]
+fn external_column_rows_have_an_instance_per_row() {
+    use panproto_protocols::data_science::dataframe::parse_dataframe_schema;
+    let sql = parse_schema_source(
+        "sql",
+        "CREATE TYPE rating AS ENUM ('G', 'PG');\nCREATE TABLE film (r rating);",
+    )
+    .expect("the script parses");
+    check_external_column_rows(
+        "sql",
+        "ENUM",
+        &sql,
+        [Value::Str("PG".into()), Value::Str("R".into())],
+    );
+    let dataframe = parse_dataframe_schema(&serde_json::json!({
+        "name": "df",
+        "columns": {"x": {"dtype": "int64", "checks": {"gt": 0}}},
+    }))
+    .expect("the dataframe schema parses");
+    check_external_column_rows(
+        "dataframe",
+        "gt",
+        &dataframe,
+        [Value::Int(1), Value::Int(-1)],
+    );
+}
+
 /// The schema fixtures are found by walking `fixtures/`: the repository's
 /// tree yields its seventeen schemas, and a file added under a schema
 /// directory is read under that directory's protocol, while a file in a

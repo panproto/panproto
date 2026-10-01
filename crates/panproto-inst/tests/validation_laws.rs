@@ -13,9 +13,9 @@
 //!   instances a budget leaves undecided are a suffix in check-instance
 //!   order.
 //! - Shape squares: a tree validates as its graph form does, element for
-//!   element through its embedding; a table instance does too, except for
-//!   constraints on column vertices, which the graph form does not read
-//!   from its rows' cells.
+//!   element through its embedding, and a table instance does too, every
+//!   shared check compared, constraints on column and table vertices
+//!   among them.
 //! - Keys and references: `KeyUnique` and `ReferenceResolves` agree with
 //!   a brute-force oracle.
 //!
@@ -27,7 +27,7 @@
 
 mod validation_support;
 
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::{CheckStatus, Name};
 use panproto_inst::validation::{
@@ -36,14 +36,15 @@ use panproto_inst::validation::{
     ValidationOptions, ValidationPlan, ValidationReport, Violation,
 };
 use panproto_inst::{
-    Digest, EdgeId, FInstance, FanRecord, FanViolation, GInstance, Value, ViewRef, WInstance,
+    Digest, EdgeId, FInstance, FanRecord, FanViolation, GInstance, RowId, Value, ViewRef, WInstance,
 };
 use panproto_schema::{Edge, InstanceShapeKind};
 use proptest::prelude::*;
 
 use validation_support::{
-    Case, FanSpec, RecordSpec, TreeSpec, ValueSpec, arb_graph_spec, arb_table_spec, arb_tree_spec,
-    arb_validation_schema, graph_of, protocol, table_of, tree_of,
+    Builder, Case, FanSpec, Features, Flag, RecordSpec, TreeSpec, ValueSpec, arb_graph_spec,
+    arb_table_spec, arb_tree_spec, arb_validation_schema, e_cast, e_items, e_tag, graph_of,
+    protocol, schema_of, table_of, tree_of,
 };
 
 /// A plan for a generated schema under the protocol of `syntactic`.
@@ -75,9 +76,9 @@ fn audited(case: &Case, syntactic: InstanceShapeKind) -> ValidationPlan {
     ValidationPlan::compile(&case.schema, &protocol(syntactic), &options)
 }
 
-/// The verdicts of `audit` on an instance's elements: an element whose id
-/// is divisible by three has none, an odd one is rejected, and the rest
-/// pass.
+/// The verdicts of `audit` and of the external constraint sort `external`
+/// on an instance's elements: an element whose id is divisible by three
+/// has none, an odd one is rejected, and the rest pass.
 fn audit_verdicts(elements: impl IntoIterator<Item = ViewRef>) -> ExternalVerdicts {
     let mut verdicts = ExternalVerdicts::default();
     for element in elements {
@@ -86,14 +87,16 @@ fn audit_verdicts(elements: impl IntoIterator<Item = ViewRef>) -> ExternalVerdic
         };
         if id % 3 != 0 {
             let byte = u8::try_from(id % 256).unwrap();
-            verdicts.insert(
-                audit(),
-                element,
-                ExternalVerdict {
-                    passed: id % 2 == 0,
-                    witness: Digest([byte; 32]),
-                },
-            );
+            for name in [audit(), Name::from("external")] {
+                verdicts.insert(
+                    name,
+                    element.clone(),
+                    ExternalVerdict {
+                        passed: id % 2 == 0,
+                        witness: Digest([byte; 32]),
+                    },
+                );
+            }
         }
     }
     verdicts
@@ -618,22 +621,31 @@ fn compared(d: &Diagnostic, map: &impl Fn(&ViewRef) -> ViewRef) -> String {
     )
 }
 
+/// The vertices of the generated schema of kind `kind`.
+fn vertices_of_kind(case: &Case, kind: &str) -> BTreeSet<Name> {
+    case.schema
+        .vertices
+        .values()
+        .filter(|v| v.kind == kind)
+        .map(|v| v.id.clone())
+        .collect()
+}
+
 /// The column vertices of the generated schema: the targets of the `prop`
-/// edges of its tables.
+/// edges of its tables that are not tables themselves.
 fn column_vertices(case: &Case) -> BTreeSet<Name> {
+    let tables = vertices_of_kind(case, "table");
     case.schema
         .edges
         .keys()
-        .filter(|e| {
-            e.kind == "prop"
-                && case
-                    .schema
-                    .vertices
-                    .get(&e.src)
-                    .is_some_and(|v| v.kind == "table")
-        })
+        .filter(|e| e.kind == "prop" && tables.contains(&e.src) && !tables.contains(&e.tgt))
         .map(|e| e.tgt.clone())
         .collect()
+}
+
+/// Whether `d` is a diagnostic of a constraint on one of `vertices`.
+fn constrains(d: &Diagnostic, vertices: &BTreeSet<Name>) -> bool {
+    matches!(&d.check.decl, SchemaRef::Constraint { vertex, .. } if vertices.contains(vertex))
 }
 
 /// The check keys a plan applies to both `a` and `b`.
@@ -729,14 +741,8 @@ proptest! {
 
     /// The table square: the diagnostics of every kind a table instance
     /// shares with graphs are those of its graph form, row for node and pair
-    /// for edge through the table's embedding.
-    ///
-    /// A constraint on a column vertex is left out of the comparison: a
-    /// table instance checks it on each row's cell, while validation reads a
-    /// graph's values from the nodes anchored at the constrained vertex, and
-    /// the graph form of a table keeps a row's cells as fields of its node,
-    /// anchored at the table. `column_constraints_are_read_from_cells_only`
-    /// pins that reading.
+    /// for edge through the table's embedding. Every shared check is
+    /// compared, the constraints on column and table vertices among them.
     #[test]
     fn v8_table_square(case in arb_validation_schema(), spec in arb_table_spec()) {
         let table = table_of(&spec);
@@ -746,17 +752,7 @@ proptest! {
         let verdicts = audit_verdicts(table.row_ids().into_iter().map(ViewRef::Row));
         let graph_verdicts =
             audit_verdicts(table.row_ids().into_iter().map(|r| ViewRef::Node(r.0)));
-        let columns = column_vertices(&case);
-        let shared: BTreeSet<CheckKey> =
-            shared_keys(&plan, InstanceShapeKind::Table, InstanceShapeKind::Graph)
-                .into_iter()
-                .filter(|key| {
-                    !matches!(
-                        &key.decl,
-                        SchemaRef::Constraint { vertex, .. } if columns.contains(vertex)
-                    )
-                })
-                .collect();
+        let shared = shared_keys(&plan, InstanceShapeKind::Table, InstanceShapeKind::Graph);
         let t = plan.validate_table(&table, &unlimited(), &verdicts);
         let g = plan.validate_graph(&graph, &unlimited(), &graph_verdicts);
         let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
@@ -784,7 +780,6 @@ proptest! {
 /// mapped to the fan its node embeds.
 #[test]
 fn the_tree_square_holds_for_equal_fans() {
-    use validation_support::{Features, schema_of};
     let features = Features {
         max_len: None,
         num_bounds: None,
@@ -839,35 +834,61 @@ fn the_tree_square_holds_for_equal_fans() {
     tree_square(&case, &spec).unwrap();
 }
 
-/// The reading the table square leaves out, pinned: a constraint on a
-/// column vertex is checked on each row's cell in a table instance, and on
-/// the values of nodes anchored at the column vertex in a graph, so the
-/// graph form of a table, which keeps cells as fields of the row nodes,
-/// is not checked for it.
-#[test]
-fn column_constraints_are_read_from_cells_only() {
-    use validation_support::{Features, schema_of};
+/// A case whose schema carries only the declarations `flags` and the title
+/// bound `title_max`.
+fn case_of(flags: &[Flag], title_max: Option<u64>) -> Case {
     let features = Features {
         max_len: None,
         num_bounds: None,
         max_out: None,
         min_out: None,
-        flags: BTreeSet::new(),
+        flags: flags.iter().copied().collect(),
         item_key: None,
         item_ref: None,
         film_ref: None,
-        title_max: Some(1),
+        title_max,
     };
-    let case = Case {
+    Case {
         schema: schema_of(&features),
         features,
-    };
+    }
+}
+
+/// The diagnostics of a report whose check is a constraint on `vertex`, as
+/// subject and violation.
+fn constraint_diagnostics(
+    report: &ValidationReport,
+    vertex: &str,
+) -> Vec<(Option<ViewRef>, Violation)> {
+    let vertices = BTreeSet::from([Name::from(vertex)]);
+    report
+        .diagnostics
+        .iter()
+        .filter(|d| constrains(d, &vertices))
+        .map(|d| (d.subject.clone(), d.violation.clone()))
+        .collect()
+}
+
+/// A missing value of `field` (`None` for an element's own value).
+fn missing(field: Option<&str>) -> Violation {
+    Violation::MissingValue {
+        field: field.map(str::to_owned),
+    }
+}
+
+/// A constraint on a column vertex is read from each row's cell in a table
+/// instance and from the same field of the row's node in its graph form,
+/// which keeps the cells as fields, so both give one diagnostic: at the
+/// row, and at its node.
+#[test]
+fn column_constraints_are_read_from_cells_in_every_shape() {
+    let case = case_of(&[], Some(1));
     let table = FInstance::new()
         .with_rows(
             "film",
             [(
-                panproto_inst::RowId(0),
-                std::collections::HashMap::from([
+                RowId(0),
+                HashMap::from([
                     ("title".to_owned(), Value::Str("bb".into())),
                     ("year".to_owned(), Value::Int(2000)),
                 ]),
@@ -875,23 +896,372 @@ fn column_constraints_are_read_from_cells_only() {
         )
         .unwrap();
     let (graph, _) = GInstance::from_finstance(&table).unwrap();
-    let plan = plan(&case, InstanceShapeKind::Table);
-    let t = plan.validate_table(&table, &unlimited(), &no_verdicts());
-    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
-    let kinds = |r: &ValidationReport| -> Vec<CheckKind> {
-        r.diagnostics.iter().map(|d| d.check.kind).collect()
-    };
-    assert_eq!(kinds(&t), vec![CheckKind::ValueConstraint]);
-    assert_eq!(kinds(&g), Vec::<CheckKind>::new());
     assert_eq!(
         graph.node(0).unwrap().extra_fields.get("title"),
         Some(&Value::Str("bb".into()))
     );
+    let plan = plan(&case, InstanceShapeKind::Table);
+    let t = plan.validate_table(&table, &unlimited(), &no_verdicts());
+    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
+    let at = |r: &ValidationReport| -> Vec<(CheckKind, Option<ViewRef>)> {
+        r.diagnostics
+            .iter()
+            .map(|d| (d.check.kind, d.subject.clone()))
+            .collect()
+    };
+    assert_eq!(
+        at(&t),
+        vec![(CheckKind::ValueConstraint, Some(ViewRef::Row(RowId(0))))]
+    );
+    assert_eq!(
+        at(&g),
+        vec![(CheckKind::ValueConstraint, Some(ViewRef::Node(0)))]
+    );
+    let bound = Violation::ValueConstraint {
+        sort: "maxChars".into(),
+        bound: "1".into(),
+        value: Some(Value::Str("bb".into())),
+    };
+    assert_eq!(t.diagnostics[0].violation, bound);
+    assert_eq!(g.diagnostics[0].violation, bound);
+}
+
+/// A value of the column vertex `tag` held by a child node at the edge
+/// `tag` is read at the child, so the parent holds no field site for that
+/// edge: under `RequiredValue` on `tag`, an item with a valued `tag` child
+/// has no diagnostic (whatever its own `tag` field), an item with a `tag`
+/// field and no child has none either, and an item with neither is missing
+/// the field `tag`, in a tree, in its graph form, and in a table of items.
+#[test]
+fn a_column_value_held_by_a_child_node_is_not_a_field_site() {
+    use panproto_inst::{FieldPresence, Node};
+    let case = case_of(&[Flag::RequiredTag], None);
+    let item = |id: u32| Node::new(id, "item");
+    let tag = |id: u32, v: &str| {
+        Node::new(id, "tag").with_value(FieldPresence::Present(Value::Str(v.into())))
+    };
+    let nodes = HashMap::from([
+        (0, Node::new(0, "doc")),
+        (1, item(1)),
+        (2, tag(2, "a")),
+        (3, item(3)),
+        (4, item(4).with_extra_field("tag", Value::Str("b".into()))),
+        (5, item(5).with_extra_field("tag", Value::Null)),
+        (6, tag(6, "c")),
+    ]);
+    let arcs = vec![
+        (0, 1, e_items()),
+        (1, 2, e_tag()),
+        (0, 3, e_items()),
+        (0, 4, e_items()),
+        (0, 5, e_items()),
+        (5, 6, e_tag()),
+    ];
+    let tree = WInstance::new(nodes, arcs, Vec::new(), 0, "doc".into());
+    let (graph, emb) = GInstance::from_wtype_embedded(&tree, None).unwrap();
+    let plan = plan(&case, InstanceShapeKind::Tree);
+    let w = plan.validate_tree(&tree, &unlimited(), &no_verdicts());
+    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
+    let expected = vec![(Some(ViewRef::Node(3)), missing(Some("tag")))];
+    assert_eq!(constraint_diagnostics(&w, "tag"), expected);
+    assert_eq!(
+        emb.map_ref(&ViewRef::Node(3)),
+        Some(ViewRef::Node(3)),
+        "the embedding keeps node ids"
+    );
+    assert_eq!(constraint_diagnostics(&g, "tag"), expected);
+    // The matching table: rows of the vertex `item`, one with a `tag` cell
+    // and one without.
+    let table = FInstance::new()
+        .with_rows(
+            "item",
+            [
+                (
+                    RowId(0),
+                    HashMap::from([("tag".to_owned(), Value::Str("a".into()))]),
+                ),
+                (RowId(1), HashMap::new()),
+            ],
+        )
+        .unwrap();
+    let t = plan.validate_table(&table, &unlimited(), &no_verdicts());
+    assert_eq!(
+        constraint_diagnostics(&t, "tag"),
+        vec![(Some(ViewRef::Row(RowId(1))), missing(Some("tag")))]
+    );
+}
+
+/// A row has no value of its own, so `RequiredValue` on a table vertex
+/// finds each row's own value missing, and the row's node in the graph form
+/// (whose value is absent) likewise. A `prop` edge into the table vertex
+/// adds the field sites of the rows it leaves: a film whose `cast` pair
+/// leaves it holds none, a film with a `cast` cell holds a value, and a
+/// film with neither is missing the field `cast`.
+#[test]
+fn a_required_value_on_a_table_vertex_reads_the_absent_row_value() {
+    let case = case_of(&[Flag::RequiredActor], None);
+    let film = |cast: Option<&str>| {
+        let mut row = HashMap::from([
+            ("title".to_owned(), Value::Str("t".into())),
+            ("year".to_owned(), Value::Int(2000)),
+        ]);
+        if let Some(c) = cast {
+            row.insert("cast".to_owned(), Value::Str(c.into()));
+        }
+        row
+    };
+    let actor = |name: &str| HashMap::from([("aname".to_owned(), Value::Str(name.into()))]);
+    let mut table = FInstance::new()
+        .with_rows(
+            "film",
+            [
+                (RowId(0), film(None)),
+                (RowId(1), film(Some("x"))),
+                (RowId(2), film(None)),
+            ],
+        )
+        .unwrap()
+        .with_rows("actor", [(RowId(10), actor("a")), (RowId(11), actor("b"))])
+        .unwrap();
+    table
+        .insert_foreign_key(e_cast(), RowId(0), RowId(10))
+        .unwrap();
+    let (graph, _) = GInstance::from_finstance(&table).unwrap();
+    let plan = plan(&case, InstanceShapeKind::Table);
+    let t = plan.validate_table(&table, &unlimited(), &no_verdicts());
+    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
+    assert_eq!(
+        constraint_diagnostics(&t, "actor"),
+        vec![
+            (Some(ViewRef::Row(RowId(2))), missing(Some("cast"))),
+            (Some(ViewRef::Row(RowId(10))), missing(None)),
+            (Some(ViewRef::Row(RowId(11))), missing(None)),
+        ]
+    );
+    assert_eq!(
+        constraint_diagnostics(&g, "actor"),
+        vec![
+            (Some(ViewRef::Node(2)), missing(Some("cast"))),
+            (Some(ViewRef::Node(10)), missing(None)),
+            (Some(ViewRef::Node(11)), missing(None)),
+        ]
+    );
+}
+
+/// A schema and protocol of two tables whose columns carry `External`
+/// constraints, as the sql `ENUM` and dataframe `gt` rows declare them: the
+/// column `t.kind` of table `t` under `ENUM`, and the column `df.x` of table
+/// `df` under `gt`.
+fn external_columns() -> (panproto_schema::Schema, panproto_schema::Protocol) {
+    use panproto_schema::{ConstraintSemantics, Protocol};
+    let kind = validation_support::edge("t", "t.kind", "prop", "kind");
+    let x = validation_support::edge("df", "df.x", "prop", "x");
+    let schema = Builder::default()
+        .vertex("t", "table")
+        .vertex("t.kind", "string")
+        .vertex("df", "table")
+        .vertex("df.x", "integer")
+        .edge(&kind)
+        .edge(&x)
+        .constraint("t.kind", "ENUM", "'a','b'")
+        .constraint("df.x", "gt", "0")
+        .build();
+    let sorts = ["ENUM", "gt"];
+    let protocol = Protocol {
+        name: "external-columns".into(),
+        constraint_sorts: sorts.iter().map(|s| (*s).to_owned()).collect(),
+        constraint_semantics: sorts
+            .iter()
+            .map(|s| ((*s).to_owned(), ConstraintSemantics::External))
+            .collect(),
+        syntactic_shape: InstanceShapeKind::Table,
+        semantic_shape: InstanceShapeKind::Graph,
+        ..Protocol::default()
+    };
+    (schema, protocol)
+}
+
+/// The rows of [`external_columns`]: rows 0 and 1 of `t`, of kinds `a` and
+/// `z`, and rows 2 and 3 of `df`, with `x` 1 and -1.
+fn external_rows() -> FInstance {
+    let cell = |c: &str, v: Value| HashMap::from([(c.to_owned(), v)]);
+    FInstance::new()
+        .with_rows(
+            "t",
+            [
+                (RowId(0), cell("kind", Value::Str("a".into()))),
+                (RowId(1), cell("kind", Value::Str("z".into()))),
+            ],
+        )
+        .unwrap()
+        .with_rows(
+            "df",
+            [
+                (RowId(2), cell("x", Value::Int(1))),
+                (RowId(3), cell("x", Value::Int(-1))),
+            ],
+        )
+        .unwrap()
+}
+
+/// The key of the `External` check of `sort` on `vertex`.
+fn external_key(plan: &ValidationPlan, vertex: &str, sort: &str) -> CheckKey {
+    plan.checks()
+        .keys()
+        .find(|k| {
+            k.kind == CheckKind::External
+                && matches!(
+                    &k.decl,
+                    SchemaRef::Constraint { vertex: v, constraint }
+                        if v.as_ref() == vertex && constraint.sort.as_ref() == sort
+                )
+        })
+        .cloned()
+        .unwrap_or_else(|| panic!("{sort} on {vertex} compiles to an External check"))
+}
+
+/// The verdicts on [`external_rows`], each row read as `at(row)`: rows 1
+/// and 3 rejected, rows 0 and 2 passed, each with the witness of its row.
+fn external_row_verdicts(at: &dyn Fn(u32) -> ViewRef) -> ExternalVerdicts {
+    let mut v = ExternalVerdicts::default();
+    for (name, row, passed) in [
+        ("ENUM", 0, true),
+        ("ENUM", 1, false),
+        ("gt", 2, true),
+        ("gt", 3, false),
+    ] {
+        v.insert(
+            name.into(),
+            at(row),
+            ExternalVerdict {
+                passed,
+                witness: Digest([u8::try_from(row).unwrap(); 32]),
+            },
+        );
+    }
+    v
+}
+
+/// The check, subject (through `m`) and payload of each `External` entry of
+/// a report: its incomplete entries when `undecided`, else its diagnostics.
+fn external_entries(
+    r: &ValidationReport,
+    m: &dyn Fn(&ViewRef) -> ViewRef,
+    undecided: bool,
+) -> Vec<(CheckKey, Option<ViewRef>, String)> {
+    if undecided {
+        r.incomplete
+            .iter()
+            .filter(|i| i.check.kind == CheckKind::External)
+            .map(|i| {
+                (
+                    i.check.clone(),
+                    i.subject.as_ref().map(m),
+                    format!("{:?}", i.reason),
+                )
+            })
+            .collect()
+    } else {
+        r.diagnostics
+            .iter()
+            .map(|d| {
+                (
+                    d.check.clone(),
+                    d.subject.as_ref().map(m),
+                    format!("{:?}", d.violation),
+                )
+            })
+            .collect()
+    }
+}
+
+/// An `External` constraint on a column vertex has one instance per row
+/// that holds a cell of the column, though no element is anchored at the
+/// column vertex: with no verdict each row is undecided for want of a
+/// witness and the status is not `Passed`, a rejecting verdict fails the
+/// row, and the graph form of the table agrees node for row.
+#[test]
+fn an_external_column_constraint_has_an_instance_per_row() {
+    let (schema, protocol) = external_columns();
+    let table = external_rows();
+    let (graph, emb) = GInstance::from_finstance(&table).unwrap();
+    let plan = ValidationPlan::compile(&schema, &protocol, &ValidationOptions::default());
+    let kind_key = external_key(&plan, "t.kind", "ENUM");
+    let x_key = external_key(&plan, "df.x", "gt");
+    let map = |r: &ViewRef| emb.map_ref(r).unwrap_or_else(|| r.clone());
+    let id = |r: &ViewRef| r.clone();
+    let row = |r: u32| Some(ViewRef::Row(RowId(r)));
+    // No verdict: one undecided instance per row.
+    let t = plan.validate_table(&table, &unlimited(), &no_verdicts());
+    let g = plan.validate_graph(&graph, &unlimited(), &no_verdicts());
+    for key in [&kind_key, &x_key] {
+        assert_eq!(t.coverage[key].instances, 2, "{key:?}");
+        assert_eq!(g.coverage[key].instances, 2, "{key:?}");
+    }
+    let witness = |name: &str| {
+        format!(
+            "{:?}",
+            IncompleteReason::MissingExternalWitness { name: name.into() }
+        )
+    };
+    // In check-key order: `df.x` before `t.kind`.
+    let expected = vec![
+        (x_key.clone(), row(2), witness("gt")),
+        (x_key.clone(), row(3), witness("gt")),
+        (kind_key.clone(), row(0), witness("ENUM")),
+        (kind_key.clone(), row(1), witness("ENUM")),
+    ];
+    assert_eq!(external_entries(&t, &id, true), expected);
+    assert_ne!(t.status, CheckStatus::Passed);
+    assert_eq!(
+        external_entries(&g, &id, true),
+        external_entries(&t, &map, true)
+    );
+    assert_ne!(g.status, CheckStatus::Passed);
+    // Rows 1 and 3 rejected, rows 0 and 2 passed.
+    let row_verdicts = external_row_verdicts(&|r| ViewRef::Row(RowId(r)));
+    let node_verdicts = external_row_verdicts(&ViewRef::Node);
+    let t = plan.validate_table(&table, &unlimited(), &row_verdicts);
+    let g = plan.validate_graph(&graph, &unlimited(), &node_verdicts);
+    assert_eq!(t.status, CheckStatus::Failed);
+    assert_eq!(g.status, CheckStatus::Failed);
+    let rejection = |r: u8| {
+        format!(
+            "{:?}",
+            Violation::ExternalRejected {
+                witness: Digest([r; 32]),
+            }
+        )
+    };
+    assert_eq!(
+        external_entries(&t, &id, false),
+        vec![
+            (x_key, row(3), rejection(3)),
+            (kind_key, row(1), rejection(1)),
+        ]
+    );
+    assert_eq!(
+        external_entries(&g, &id, false),
+        external_entries(&t, &map, false)
+    );
+    let verified = |r: &ValidationReport, v: &ExternalVerdicts, graph_form: bool| {
+        r.diagnostics.iter().all(|d| {
+            if graph_form {
+                d.verify_with_verdicts(&plan, &graph, v)
+            } else {
+                d.verify_with_verdicts(&plan, &table, v)
+            }
+        })
+    };
+    assert!(verified(&t, &row_verdicts, false));
+    assert!(verified(&g, &node_verdicts, true));
 }
 
 /// The squares above compare something: over fixed draws, many trees have a
-/// graph form and a shared diagnostic, some of them a fan diagnostic, and
-/// many table instances have a shared diagnostic.
+/// graph form and a shared diagnostic, some of them a fan diagnostic, many
+/// table instances have a shared diagnostic, and the shared diagnostics of
+/// table instances include many of constraints on column vertices and on
+/// table vertices.
 #[test]
 fn the_squares_compare_diagnostics() {
     use proptest::strategy::ValueTree as _;
@@ -902,6 +1272,7 @@ fn the_squares_compare_diagnostics() {
     );
     let strategy = (arb_validation_schema(), arb_tree_spec(8), arb_table_spec());
     let (mut trees, mut fans, mut tables) = (0, 0, 0);
+    let (mut column_diagnostics, mut table_vertex_diagnostics) = (0, 0);
     for _ in 0..1000 {
         let (case, tree_spec, table_spec) = strategy.new_tree(&mut runner).unwrap().current();
         let tree = tree_of(&tree_spec);
@@ -926,10 +1297,29 @@ fn the_squares_compare_diagnostics() {
         if report.diagnostics.iter().any(|d| shared.contains(&d.check)) {
             tables += 1;
         }
+        let (columns, table_vertices) = (column_vertices(&case), vertices_of_kind(&case, "table"));
+        let compared = || {
+            report
+                .diagnostics
+                .iter()
+                .filter(|d| shared.contains(&d.check))
+        };
+        column_diagnostics += compared().filter(|d| constrains(d, &columns)).count();
+        table_vertex_diagnostics += compared()
+            .filter(|d| constrains(d, &table_vertices))
+            .count();
     }
     assert!(trees > 300, "{trees} trees with a shared diagnostic");
     assert!(fans > 30, "{fans} trees with a fan diagnostic");
     assert!(tables > 300, "{tables} tables with a shared diagnostic");
+    assert!(
+        column_diagnostics > 300,
+        "{column_diagnostics} compared diagnostics of column-vertex constraints"
+    );
+    assert!(
+        table_vertex_diagnostics > 300,
+        "{table_vertex_diagnostics} compared diagnostics of table-vertex constraints"
+    );
 }
 
 /// An instance read the way the key oracle reads it, written apart from the
