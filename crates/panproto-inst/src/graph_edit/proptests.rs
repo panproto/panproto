@@ -729,15 +729,41 @@ proptest! {
     }
 
     #[test]
-    fn graph_edit_apply_is_delta_apply(s in arb_graph(), o1 in arb_ops(), o2 in arb_ops(), x in arb_graph()) {
+    fn graph_edit_apply_is_delta_apply(s in arb_graph(), o1 in arb_ops(), o2 in arb_ops(), x in arb_graph(), kind in 0usize..2, pos in prop::option::of(0u32..3)) {
         let d1 = GraphDelta::diff(&s, &mutate(&s, &o1));
         let d2 = GraphDelta::diff(&x, &mutate(&x, &o2));
         let mut steps = vec![GraphEdit::Delta(d1.clone()), GraphEdit::Delta(d2)];
-        // A reconnect of the first edge, as the constructor's step and as a
-        // bare `Reconnect`, which does not lower without the instance.
+        // Reconnects of the first edge: the constructor's step, a bare one,
+        // and each after a relabel or a position change of the same edge,
+        // naming the edge as that step leaves it (the batch applies) or as
+        // it was before (the batch does not compose).
+        let mut applying = Vec::new();
         if let Some((id, e)) = s.edges_sorted().next() {
+            let e = e.clone();
+            let flipped = (e.tgt, e.src);
+            let reconnect = |edge: &GEdge| GraphEdit::Reconnect { id, edge: edge.clone(), new: flipped };
             steps.push(GraphEdit::reconnect(&s, id, e.tgt, e.src).map_err(fail)?);
-            steps.push(GraphEdit::Reconnect { id, old: (e.src, e.tgt), new: (e.tgt, e.src) });
+            steps.push(reconnect(&e));
+            let relabelled = GEdge { edge: label(kind), ..e };
+            let repositioned = GEdge { position: pos, ..e.clone() };
+            let relabel = GraphEdit::relabel_edge(&s, id, label(kind)).map_err(fail)?;
+            let reposition = GraphEdit::set_edge_position(&s, id, pos).map_err(fail)?;
+            applying.push(GraphEdit::Batch(vec![relabel.clone(), reconnect(&relabelled)]));
+            applying.push(GraphEdit::Batch(vec![reposition.clone(), reconnect(&repositioned)]));
+            applying.push(GraphEdit::Batch(vec![reposition, relabel.clone(), reconnect(&GEdge { edge: label(kind), ..repositioned })]));
+            steps.push(GraphEdit::Batch(vec![relabel, reconnect(&e)]));
+            steps.push(GraphEdit::Batch(vec![GraphEdit::reconnect(&s, id, e.tgt, e.src).map_err(fail)?, reconnect(&e)]));
+        }
+        // Every reconnect of an edge of `s` named as `s` holds it lowers and
+        // applies, as do the batches that name the edge as the earlier steps
+        // leave it.
+        for edit in &steps[2..4.min(steps.len())] {
+            let mut t = s.clone();
+            prop_assert!(edit.to_delta().is_ok() && edit.apply(&mut t).is_ok(), "{:?}", edit);
+        }
+        for edit in &applying {
+            let mut t = s.clone();
+            prop_assert!(edit.to_delta().is_ok() && edit.apply(&mut t).is_ok(), "{:?}", edit);
         }
         let mut edits = vec![
             GraphEdit::Batch(steps[..2].to_vec()),
@@ -745,6 +771,7 @@ proptest! {
             GraphEdit::Batch(steps.iter().rev().cloned().collect()),
         ];
         edits.extend(steps);
+        edits.extend(applying);
         for edit in edits {
             let mut by_edit = s.clone();
             let mut by_delta = s.clone();

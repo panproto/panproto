@@ -72,14 +72,6 @@ pub enum ComposeError {
         /// The element.
         elem: ElemRef,
     },
-    /// An edit names an element whose payload only an instance holds, so it
-    /// lowers to a delta only against one
-    /// ([`GraphEdit::to_delta_in`](super::GraphEdit::to_delta_in)).
-    #[error("{elem:?} needs the instance to lower to a delta")]
-    NeedsState {
-        /// The element.
-        elem: ElemRef,
-    },
 }
 
 /// What one delta does to one element.
@@ -317,7 +309,12 @@ impl GraphDelta {
     /// [`GraphDelta::identity`] is a unit on both sides. Composition is
     /// associative on composable triples: when `a.compose(&b)` and
     /// `b.compose(&c)` are both defined, the two bracketings of `a`, `b`,
-    /// `c` are both defined or both undefined, and equal when defined. On
+    /// `c` are both defined or both undefined, and equal when defined. Both
+    /// can be undefined: with `a` an add of node q, `b` a change of its
+    /// entry k from q\[k\] to n, and `c` a delete of a node r of the same
+    /// id with r\[k\] == n but r != q\[k := n\], `a.compose(&b)` and
+    /// `b.compose(&c)` are defined, while `a.compose(&b)?.compose(&c)` and
+    /// `a.compose(&b.compose(&c)?)` are both mismatches on the node. On
     /// other triples one bracketing can be defined without the other, since
     /// the cancelling cell meets a mismatching one. With `add` and `del` an
     /// add and a delete of one node, and `attr` a change of that node's

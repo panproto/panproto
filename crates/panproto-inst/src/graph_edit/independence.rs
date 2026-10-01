@@ -82,7 +82,11 @@ impl EditConflict {
     /// payloads are equal, an `UpdateUpdate` whose two `new` values are
     /// equal, or an `AddAdd` whose two added payloads are equal. `a` and `b`
     /// are the two deltas the conflict was found between, in either order.
-    /// Every other conflict is not benign.
+    /// It is false for every other conflict: for those three variants when
+    /// the compared payloads or values differ or are absent, for
+    /// `DeleteUse`, `AnchorUse` and `FanUse` always, and for a conflict
+    /// that names a table element (a row, a foreign-key pair, a cell or a
+    /// row's table), which a graph delta does not hold.
     ///
     /// Only the part the variant names is compared. A replacement deletes
     /// too, so a delete and a replacement of one node with equal deleted

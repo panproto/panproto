@@ -5,7 +5,7 @@ use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use super::compose::{ComposeError, ElemRef};
-use super::delta::{AttrChange, AttrKey, AttrVal, GraphDelta, GraphDeltaParts, NodeMeta, Payload};
+use super::delta::{AttrChange, AttrKey, AttrVal, GraphDelta, GraphDeltaParts, NodeMeta};
 use crate::edit_error::EditError;
 use crate::ginstance::{EdgeId, GEdge, GInstance};
 use crate::metadata::Node;
@@ -95,12 +95,13 @@ pub enum GraphEdit {
         edge: GEdge,
     },
     /// Move an edge to new endpoints, keeping its id: a replacement of the
-    /// edge under the id the caller names.
+    /// edge under the id the caller names, by the same edge with `src` and
+    /// `tgt` set to `new`.
     Reconnect {
         /// The edge id.
         id: EdgeId,
-        /// Its `(src, tgt)` before the edit.
-        old: (u32, u32),
+        /// The edge, as it is before the edit.
+        edge: GEdge,
         /// Its `(src, tgt)` after the edit.
         new: (u32, u32),
     },
@@ -136,86 +137,6 @@ fn change(key: AttrKey, old: AttrVal, new: AttrVal) -> GraphDelta {
     GraphDelta::from_valid_parts(parts)
 }
 
-/// Reads the payload of an edge a reconnect moves, after the steps before
-/// it, and checks its old endpoints.
-trait ResolveEdge {
-    /// The error a failed read reports.
-    type Error: From<ComposeError>;
-    /// The payload of edge `id` after the steps of `prior` (when tracked),
-    /// whose endpoints must be `old`.
-    fn edge(
-        &self,
-        id: EdgeId,
-        old: (u32, u32),
-        prior: Option<&GraphDelta>,
-    ) -> Result<GEdge, Self::Error>;
-    /// Whether [`Self::edge`] reads `prior`, so a batch must track it.
-    fn tracks_prior(&self) -> bool;
-}
-
-/// No instance: a reconnect does not lower.
-struct Stateless;
-
-impl ResolveEdge for Stateless {
-    type Error = ComposeError;
-
-    fn edge(
-        &self,
-        id: EdgeId,
-        _old: (u32, u32),
-        _prior: Option<&GraphDelta>,
-    ) -> Result<GEdge, ComposeError> {
-        Err(ComposeError::NeedsState {
-            elem: ElemRef::Edge(id),
-        })
-    }
-
-    fn tracks_prior(&self) -> bool {
-        false
-    }
-}
-
-/// The instance the edit applies to.
-struct Stateful<'a>(&'a GInstance);
-
-impl ResolveEdge for Stateful<'_> {
-    type Error = EditError;
-
-    fn edge(
-        &self,
-        id: EdgeId,
-        old: (u32, u32),
-        prior: Option<&GraphDelta>,
-    ) -> Result<GEdge, EditError> {
-        let empty = GraphDelta::identity();
-        let prior = prior.unwrap_or(&empty);
-        let edge = if let Some(added) = prior.add_edges().get(&id) {
-            added.clone()
-        } else if prior.del_edges().contains_key(&id) {
-            return Err(EditError::EdgeNotFound(id));
-        } else {
-            let mut edge = self.0.edge(id).ok_or(EditError::EdgeNotFound(id))?.clone();
-            for key in [
-                AttrKey::EdgeLabel { edge: id },
-                AttrKey::EdgePosition { edge: id },
-            ] {
-                if let Some(c) = prior.attrs().get(&key) {
-                    edge.set(&key, &c.new);
-                }
-            }
-            edge
-        };
-        if (edge.src, edge.tgt) != old {
-            return Err(EditError::StaleEdge { edge: id });
-        }
-        Ok(edge)
-    }
-
-    fn tracks_prior(&self) -> bool {
-        true
-    }
-}
-
 impl GraphEdit {
     /// The identity edit.
     #[must_use]
@@ -237,37 +158,14 @@ impl GraphEdit {
     /// and `EdgePosition` entries; `SetValue`, `SetField`, `RemoveField` and
     /// `SetNodeMeta` change the `Value`, `Field` and `Meta` entries;
     /// `AddNode`, `AddEdge` and `RemoveEdge` add or delete the element;
-    /// `Delta` is itself; `Batch` is the left-to-right composite.
+    /// `Delta` is itself; `Batch` is the left-to-right composite. Every
+    /// variant carries the payloads it needs, so lowering reads no instance.
     ///
     /// # Errors
     ///
     /// Returns [`ComposeError::Mismatch`] when a batch's steps do not
-    /// compose or a `RemoveNode` lists one edge id with two payloads, and
-    /// [`ComposeError::NeedsState`] for a `Reconnect`, whose edge's label
-    /// and position only the instance holds; [`Self::to_delta_in`] lowers
-    /// those.
+    /// compose or a `RemoveNode` lists one edge id with two payloads.
     pub fn to_delta(&self) -> Result<GraphDelta, ComposeError> {
-        self.lower(&Stateless, None)
-    }
-
-    /// Lower this edit to its canonical delta against `graph`, the instance
-    /// it applies to: as [`Self::to_delta`], with a `Reconnect` reading its
-    /// edge's payload from `graph` after the batch's earlier steps.
-    ///
-    /// # Errors
-    ///
-    /// [`EditError::Compose`] as [`Self::to_delta`] reports it, and, for a
-    /// `Reconnect`, [`EditError::EdgeNotFound`] when the edge does not exist
-    /// and [`EditError::StaleEdge`] when its endpoints are not `old`.
-    pub fn to_delta_in(&self, graph: &GInstance) -> Result<GraphDelta, EditError> {
-        self.lower(&Stateful(graph), Some(&GraphDelta::identity()))
-    }
-
-    fn lower<R: ResolveEdge>(
-        &self,
-        resolve: &R,
-        prior: Option<&GraphDelta>,
-    ) -> Result<GraphDelta, R::Error> {
         let id = GraphDelta::identity;
         Ok(match self {
             Self::Identity => id(),
@@ -282,8 +180,7 @@ impl GraphEdit {
                     {
                         return Err(ComposeError::Mismatch {
                             elem: ElemRef::Edge(*edge_id),
-                        }
-                        .into());
+                        });
                     }
                     delta = delta.with_deleted_edge(*edge_id, edge.clone());
                 }
@@ -295,14 +192,15 @@ impl GraphEdit {
             }
             Self::Reconnect {
                 id: edge_id,
-                old,
-                new,
+                edge,
+                new: (src, tgt),
             } => {
-                let before = resolve.edge(*edge_id, *old, prior)?;
-                let mut after = before.clone();
-                after.src = new.0;
-                after.tgt = new.1;
-                id().with_deleted_edge(*edge_id, before)
+                let after = GEdge {
+                    src: *src,
+                    tgt: *tgt,
+                    ..edge.clone()
+                };
+                id().with_deleted_edge(*edge_id, edge.clone())
                     .with_added_edge(*edge_id, after)
             }
             Self::SetValue { .. }
@@ -314,15 +212,8 @@ impl GraphEdit {
             | Self::SetEdgePosition { .. } => self.attr_delta(),
             Self::Batch(steps) => {
                 let mut net = id();
-                let mut seen = prior.cloned();
                 for step in steps {
-                    let delta = step.lower(resolve, seen.as_ref())?;
-                    if resolve.tracks_prior()
-                        && let Some(before) = seen.as_mut()
-                    {
-                        *before = before.compose(&delta)?;
-                    }
-                    net = net.compose(&delta)?;
+                    net = net.compose(&step.to_delta()?)?;
                 }
                 net
             }
@@ -399,11 +290,6 @@ impl GraphEdit {
     /// Apply this edit to `graph`: [`Self::to_delta`], then
     /// [`GraphDelta::apply`]. `graph` is unchanged on error.
     ///
-    /// An edit that needs the instance to lower (a `Reconnect`, or a `Batch`
-    /// holding one) does not apply; apply its lowering against the instance
-    /// instead, `edit.to_delta_in(graph)?.apply(graph)`, or build the step
-    /// with [`Self::reconnect`].
-    ///
     /// A failing [`Self::Batch`] is diagnosed by replaying its steps on a
     /// copy of `graph`: the error is [`EditError::BatchStep`] naming the
     /// first step that fails and its error. Steps that all replay apply
@@ -442,11 +328,6 @@ impl GraphEdit {
     }
 
     /// The inverse edit: `Delta(to_delta()?.invert())`.
-    ///
-    /// An edit that needs the instance to lower (a `Reconnect`, or a `Batch`
-    /// holding one) has no stateless inverse; invert its lowering against
-    /// the instance instead,
-    /// `GraphEdit::Delta(edit.to_delta_in(instance)?.invert())`.
     ///
     /// # Errors
     ///
@@ -589,22 +470,20 @@ impl GraphEdit {
         Ok(Self::RemoveEdge { id, edge })
     }
 
-    /// Move edge `id` to the endpoints `(src, tgt)`: the replacement of the
-    /// edge under the same id, reading its old endpoints, label and position
-    /// from `graph`, as a [`Self::Delta`]. Unlike a bare [`Self::Reconnect`],
-    /// the step lowers, applies and inverts without the instance.
+    /// Move edge `id` to the endpoints `(src, tgt)`, reading the edge (its
+    /// old endpoints, label and position) from `graph`: a
+    /// [`Self::Reconnect`] of that edge.
     ///
     /// # Errors
     ///
     /// Returns [`EditError::EdgeNotFound`] when `graph` has no such edge.
     pub fn reconnect(graph: &GInstance, id: EdgeId, src: u32, tgt: u32) -> Result<Self, EditError> {
-        let edge = graph.edge(id).ok_or(EditError::EdgeNotFound(id))?;
-        let step = Self::Reconnect {
+        let edge = graph.edge(id).ok_or(EditError::EdgeNotFound(id))?.clone();
+        Ok(Self::Reconnect {
             id,
-            old: (edge.src, edge.tgt),
+            edge,
             new: (src, tgt),
-        };
-        Ok(Self::Delta(step.to_delta_in(graph)?))
+        })
     }
 
     /// Change the label of edge `id`, reading its old label.

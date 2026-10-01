@@ -12,15 +12,14 @@
 //! [`GraphDelta::apply`] is double-pushout rewriting at that match: it checks
 //! the delta once against the input, then applies it in full, and leaves the
 //! input unchanged on any error. The algebra ([`GraphDelta::invert`],
-//! [`GraphDelta::compose`], [`GraphDelta::identity`]) is total and state free
-//! on the representation, [`GraphDelta::independence`] names the ways two
-//! deltas of one state can interfere, and [`GraphDelta::diff`] computes the
-//! delta between two states.
+//! [`GraphDelta::compose`], [`GraphDelta::identity`]) is state free on the
+//! representation, `compose` being partial; [`GraphDelta::independence`]
+//! names the ways two deltas of one state can interfere, and
+//! [`GraphDelta::diff`] computes the delta between two states.
 //!
-//! [`GraphEdit`] is the surface a caller writes. Every variant lowers to a
-//! delta with [`GraphEdit::to_delta`] (or [`GraphEdit::to_delta_in`] when a
-//! step needs the instance, as [`GraphEdit::Reconnect`] does), and the
-//! state-reading constructors ([`GraphEdit::remove_node_cascade`],
+//! [`GraphEdit`] is the surface a caller writes. Every variant carries the
+//! payloads it needs and lowers to a delta with [`GraphEdit::to_delta`]
+//! without the instance, and the state-reading constructors ([`GraphEdit::remove_node_cascade`],
 //! [`GraphEdit::set_field`], [`GraphEdit::reconnect`], ...) read the incident
 //! set or old value from an instance, lowering a delete-with-cascade intent
 //! to a reversible double-pushout step (Harmer and Oshurko 2020, Def 2.1 and

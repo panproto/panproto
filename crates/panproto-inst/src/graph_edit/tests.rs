@@ -619,6 +619,76 @@ fn elem_ref_orders_graph_variants_before_table_variants() {
     assert_eq!(sorted, declared);
 }
 
+/// The element reference with an unboxed foreign-key edge: the wire form
+/// `ElemRef` must keep.
+mod unboxed {
+    use panproto_schema::Edge;
+    use serde::Serialize;
+
+    use crate::ginstance::EdgeId;
+    use crate::graph_edit::AttrKey;
+    use crate::view_ref::RowId;
+
+    #[derive(Serialize)]
+    pub(super) enum ElemRef {
+        Node(u32),
+        Edge(EdgeId),
+        Attr(AttrKey),
+        Row(RowId),
+        Pair { edge: Edge, src: RowId, tgt: RowId },
+    }
+}
+
+#[test]
+fn a_boxed_pair_serializes_as_its_unboxed_fields() -> TestResult {
+    let edge = Edge {
+        src: "order".into(),
+        tgt: "customer".into(),
+        kind: "fk".into(),
+        name: Some("buyer".into()),
+    };
+    let key = AttrKey::Cell {
+        row: RowId(3),
+        column: "c".into(),
+    };
+    let cases = [
+        (ElemRef::Node(1), unboxed::ElemRef::Node(1)),
+        (ElemRef::Edge(EdgeId(2)), unboxed::ElemRef::Edge(EdgeId(2))),
+        (ElemRef::Attr(key.clone()), unboxed::ElemRef::Attr(key)),
+        (ElemRef::Row(RowId(3)), unboxed::ElemRef::Row(RowId(3))),
+        (
+            ElemRef::Pair {
+                edge: Box::new(edge.clone()),
+                src: RowId(3),
+                tgt: RowId(9),
+            },
+            unboxed::ElemRef::Pair {
+                edge,
+                src: RowId(3),
+                tgt: RowId(9),
+            },
+        ),
+    ];
+    for (boxed, plain) in &cases {
+        assert_eq!(serde_json::to_vec(boxed)?, serde_json::to_vec(plain)?);
+        assert_eq!(
+            rmp_serde::to_vec_named(boxed)?,
+            rmp_serde::to_vec_named(plain)?
+        );
+        assert_eq!(rmp_serde::to_vec(boxed)?, rmp_serde::to_vec(plain)?);
+        let (mut boxed_cbor, mut plain_cbor) = (Vec::new(), Vec::new());
+        ciborium::into_writer(boxed, &mut boxed_cbor)?;
+        ciborium::into_writer(plain, &mut plain_cbor)?;
+        assert_eq!(boxed_cbor, plain_cbor);
+        // The unboxed wire form reads back as the boxed reference.
+        let json = serde_json::to_string(plain)?;
+        assert_eq!(&serde_json::from_str::<ElemRef>(&json)?, boxed);
+        let packed = rmp_serde::to_vec_named(plain)?;
+        assert_eq!(&rmp_serde::from_slice::<ElemRef>(&packed)?, boxed);
+    }
+    Ok(())
+}
+
 #[test]
 fn compose_case_table() -> TestResult {
     let (p, q, r, t) = (n("p"), n("q"), n("r"), n("t"));
@@ -877,7 +947,7 @@ fn independence_reports_delete_use() -> TestResult {
         vec![used(ElemRef::Edge(EdgeId(8)))]
     );
     // Replacing an edge so that it ends at the deleted node.
-    let reconnect = GraphEdit::reconnect(&g, EdgeId(2), 2, 1)?.to_delta_in(&g)?;
+    let reconnect = GraphEdit::reconnect(&g, EdgeId(2), 2, 1)?.to_delta()?;
     assert_eq!(
         delete.independence(&reconnect),
         vec![used(ElemRef::Edge(EdgeId(2)))]
@@ -945,6 +1015,20 @@ fn independence_reports_anchor_use() -> TestResult {
             user: ElemRef::Edge(EdgeId(8)),
         }]
     );
+    // A replaced edge whose new payload ends at the node is reported.
+    let moved = GraphEdit::reconnect(&g, EdgeId(0), 0, 2)?.to_delta()?;
+    assert_eq!(
+        anchor.independence(&moved),
+        vec![EditConflict::AnchorUse {
+            node: 2,
+            user: ElemRef::Edge(EdgeId(0)),
+        }]
+    );
+    assert_eq!(moved.independence(&anchor), anchor.independence(&moved));
+    // An added edge with neither endpoint at the node is not.
+    let away = GraphDelta::identity().with_added_edge(EdgeId(9), GEdge::new(0, 1, label("likes")));
+    assert!(anchor.independence(&away).is_empty());
+    assert!(away.independence(&anchor).is_empty());
     let relabel = GraphEdit::relabel_edge(&g, EdgeId(1), label("likes"))?.to_delta()?;
     assert_eq!(
         relabel.independence(&anchor),
@@ -1143,33 +1227,28 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
     let g = triangle();
     let bare = GraphEdit::Reconnect {
         id: EdgeId(1),
-        old: (1, 2),
+        edge: edge_of(&g, 1)?,
         new: (0, 0),
     };
-    // Without the instance a bare reconnect has no inverse.
-    assert!(matches!(
-        bare.invert(),
-        Err(ComposeError::NeedsState {
-            elem: ElemRef::Edge(EdgeId(1))
-        })
-    ));
-    let inverse = GraphEdit::Delta(bare.to_delta_in(&g)?.invert());
+    // A bare reconnect inverts without the instance, to its lowering's
+    // inverse.
+    let inverse = bare.invert()?;
+    assert!(matches!(&inverse, GraphEdit::Delta(d) if *d == bare.to_delta()?.invert()));
     let mut h = g.clone();
-    bare.to_delta_in(&g)?.apply(&mut h)?;
+    bare.apply(&mut h)?;
     assert_eq!(edge_of(&h, 1)?.src, 0);
     inverse.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
-    // The state-reading constructor's step inverts without the instance.
+    // The state-reading constructor's step is that reconnect.
     let step = GraphEdit::reconnect(&g, EdgeId(1), 0, 0)?;
-    let lowered = bare.to_delta_in(&g)?;
-    assert!(matches!(&step, GraphEdit::Delta(d) if *d == lowered));
+    assert_eq!(step.to_delta()?, bare.to_delta()?);
     let mut h = g.clone();
     step.apply(&mut h)?;
     assert_eq!(edge_of(&h, 1)?.src, 0);
     step.invert()?.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
-    // A batch mixing a delta step and reconnects inverts through its
-    // lowering against the instance.
+    // A batch that adds an edge and reconnects it twice inverts as one
+    // delta.
     let batch = GraphEdit::Batch(vec![
         GraphEdit::AddEdge {
             id: EdgeId(7),
@@ -1177,89 +1256,113 @@ fn graph_edit_invert_of_a_reconnect_restores_the_state() -> TestResult {
         },
         GraphEdit::Reconnect {
             id: EdgeId(7),
-            old: (1, 2),
+            edge: GEdge::new(1, 2, label("likes")),
             new: (0, 2),
         },
         GraphEdit::Reconnect {
             id: EdgeId(7),
-            old: (0, 2),
+            edge: GEdge::new(0, 2, label("likes")),
             new: (0, 1),
         },
     ]);
-    let lowered = batch.to_delta_in(&g)?;
-    let inverse = GraphEdit::Delta(lowered.invert());
+    let inverse = batch.invert()?;
     let mut h = g.clone();
-    lowered.apply(&mut h)?;
+    batch.apply(&mut h)?;
     let seven = edge_of(&h, 7)?;
     assert_eq!((seven.src, seven.tgt), (0, 1));
     inverse.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
-    // An edit that lowers without the instance inverts to a delta.
-    let relabel = GraphEdit::relabel_node(&g, 1, "agent")?;
-    assert!(matches!(relabel.invert()?, GraphEdit::Delta(_)));
     Ok(())
 }
 
 #[test]
-fn graph_edit_apply_is_its_stateless_lowering_applied() -> TestResult {
+fn graph_edit_apply_of_a_reconnect_is_its_lowering_applied() -> TestResult {
     let g = triangle();
-    // A bare reconnect does not lower without the instance, so it does not
-    // apply either, and the instance is unchanged.
     let bare = GraphEdit::Reconnect {
         id: EdgeId(1),
-        old: (1, 2),
+        edge: edge_of(&g, 1)?,
         new: (2, 1),
     };
-    let needs_state = ComposeError::NeedsState {
-        elem: ElemRef::Edge(EdgeId(1)),
-    };
+    let mut by_edit = g.clone();
+    bare.apply(&mut by_edit)?;
+    let mut by_delta = g.clone();
+    bare.to_delta()?.apply(&mut by_delta)?;
+    assert!(GInstance::identical(&by_edit, &by_delta));
+    let moved = edge_of(&by_edit, 1)?;
+    assert_eq!((moved.src, moved.tgt), (2, 1));
+    assert_eq!(moved.edge, edge_of(&g, 1)?.edge);
+    // In a batch after a relabel of the same edge, the reconnect names the
+    // relabelled edge, and the batch applies as its lowering does.
+    let relabel = GraphEdit::relabel_edge(&g, EdgeId(1), label("likes"))?;
+    let mut relabelled = g.clone();
+    relabel.apply(&mut relabelled)?;
+    let batch = GraphEdit::Batch(vec![
+        relabel.clone(),
+        GraphEdit::reconnect(&relabelled, EdgeId(1), 2, 1)?,
+    ]);
+    let mut by_edit = g.clone();
+    batch.apply(&mut by_edit)?;
+    let mut by_delta = g.clone();
+    batch.to_delta()?.apply(&mut by_delta)?;
+    assert!(GInstance::identical(&by_edit, &by_delta));
+    assert_eq!(edge_of(&by_edit, 1)?, GEdge::new(2, 1, label("likes")));
+    // A reconnect that names the edge as it was before the relabel does not
+    // compose with it, a mismatch on the label entry; the replay names the
+    // reconnect step, and the instance is unchanged.
+    let stale = GraphEdit::Batch(vec![relabel, bare]);
+    assert_eq!(
+        stale.to_delta().err(),
+        Some(ComposeError::Mismatch {
+            elem: ElemRef::Attr(AttrKey::EdgeLabel { edge: EdgeId(1) })
+        })
+    );
     let mut h = g.clone();
     assert_eq!(
-        bare.apply(&mut h),
-        Err(EditError::Compose(needs_state.clone()))
-    );
-    assert!(GInstance::identical(&h, &g));
-    // In a batch the replay names the reconnect step.
-    let batch = GraphEdit::Batch(vec![GraphEdit::relabel_node(&g, 1, "agent")?, bare.clone()]);
-    assert_eq!(
-        batch.apply(&mut h),
+        stale.apply(&mut h),
         Err(EditError::BatchStep {
             index: 1,
-            source: Box::new(EditError::Compose(needs_state)),
+            source: Box::new(EditError::StaleEdge { edge: EdgeId(1) }),
         })
     );
     assert!(GInstance::identical(&h, &g));
-    // Its lowering against the instance applies, as does the constructor's
-    // step, and both give the same state.
-    let mut by_lowering = g.clone();
-    bare.to_delta_in(&g)?.apply(&mut by_lowering)?;
-    let mut by_step = g.clone();
-    GraphEdit::reconnect(&g, EdgeId(1), 2, 1)?.apply(&mut by_step)?;
-    assert!(GInstance::identical(&by_lowering, &by_step));
-    let moved = edge_of(&by_step, 1)?;
-    assert_eq!((moved.src, moved.tgt), (2, 1));
     Ok(())
 }
 
 #[test]
-fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() {
+fn reconnect_reads_the_edge_and_moves_it() -> TestResult {
+    let g = triangle();
+    let step = GraphEdit::reconnect(&g, EdgeId(1), 2, 0)?;
+    let GraphEdit::Reconnect { id, edge, new } = &step else {
+        return Err(format!("not a Reconnect: {step:?}").into());
+    };
+    assert_eq!((*id, edge, *new), (EdgeId(1), &edge_of(&g, 1)?, (2, 0)));
+    let mut h = g.clone();
+    step.apply(&mut h)?;
+    let moved = edge_of(&h, 1)?;
+    assert_eq!((moved.src, moved.tgt), (2, 0));
+    assert_eq!(
+        GraphEdit::reconnect(&g, EdgeId(9), 2, 0).err(),
+        Some(EditError::EdgeNotFound(EdgeId(9)))
+    );
+    Ok(())
+}
+
+#[test]
+fn graph_edit_invert_is_the_inverse_of_the_lowering_in_any_step_order() -> TestResult {
+    let g = triangle();
     let add = GraphEdit::AddEdge {
         id: EdgeId(7),
         edge: GEdge::new(1, 2, label("likes")),
     };
-    let reconnect = GraphEdit::Reconnect {
-        id: EdgeId(1),
-        old: (1, 2),
-        new: (0, 2),
-    };
-    // Two adds of one id do not compose; the reconnect does not lower
-    // without the instance. Either order must invert as `to_delta` lowers.
+    let reconnect = GraphEdit::reconnect(&g, EdgeId(1), 0, 2)?;
+    // Two adds of one id do not compose, wherever the reconnect sits; the
+    // reconnect alone does. Each must invert as `to_delta` lowers.
     let orders = [
-        vec![reconnect.clone(), add.clone(), add.clone()],
-        vec![add.clone(), add, reconnect.clone()],
-        vec![reconnect],
+        (vec![reconnect.clone(), add.clone(), add.clone()], false),
+        (vec![add.clone(), add, reconnect.clone()], false),
+        (vec![reconnect], true),
     ];
-    for steps in orders {
+    for (steps, lowers) in orders {
         let batch = GraphEdit::Batch(steps);
         let expected = batch.to_delta().map(|d| GraphEdit::Delta(d.invert()));
         let agrees = match (batch.invert(), expected) {
@@ -1268,48 +1371,111 @@ fn graph_edit_invert_is_the_inverse_of_to_delta_in_any_step_order() {
             _ => false,
         };
         assert!(agrees, "{batch:?}");
-        assert!(batch.invert().is_err(), "{batch:?}");
+        assert_eq!(batch.invert().is_ok(), lowers, "{batch:?}");
     }
+    Ok(())
 }
 
 #[test]
 fn benign_conflicts_are_exactly_the_three_equal_payload_cases() -> TestResult {
+    // `is_benign` in both argument orders, which must agree.
+    let benign = |conflict: &EditConflict, x: &GraphDelta, y: &GraphDelta| {
+        let forward = conflict.is_benign(x, y);
+        assert_eq!(forward, conflict.is_benign(y, x), "{conflict:?}");
+        forward
+    };
     let g = triangle();
+
+    // DeleteDelete: benign exactly when both deleted payloads are equal.
     let delete = GraphEdit::remove_edge(&g, EdgeId(1))?.to_delta()?;
     let dd = EditConflict::DeleteDelete {
         elem: ElemRef::Edge(EdgeId(1)),
     };
-    assert!(dd.is_benign(&delete, &delete));
+    assert!(benign(&dd, &delete, &delete.clone()));
     let other_payload =
         GraphDelta::identity().with_deleted_edge(EdgeId(1), GEdge::new(1, 1, label("knows")));
-    assert!(!dd.is_benign(&delete, &other_payload));
+    assert!(!benign(&dd, &delete, &other_payload));
+    let dd_node = EditConflict::DeleteDelete {
+        elem: ElemRef::Node(4),
+    };
+    assert!(benign(&dd_node, &del(&n("a")), &del(&n("a"))));
+    assert!(!benign(&dd_node, &del(&n("a")), &del(&n("b"))));
 
+    // UpdateUpdate: benign exactly when both `new` values are equal, the
+    // `old` values aside.
     let a = anchor_change(2, "person", "agent")?;
     let b = anchor_change(2, "other", "agent")?;
     let c = anchor_change(2, "person", "thing")?;
     let uu = EditConflict::UpdateUpdate {
         key: AttrKey::Anchor { node: 2 },
     };
-    assert!(uu.is_benign(&a, &b));
-    assert!(!uu.is_benign(&a, &c));
+    assert!(benign(&uu, &a, &b));
+    assert!(!benign(&uu, &a, &c));
 
+    // AddAdd: benign exactly when both added payloads are equal.
     let aa = EditConflict::AddAdd {
         elem: ElemRef::Node(4),
     };
-    assert!(aa.is_benign(&add(&n("a")), &add(&n("a"))));
-    assert!(!aa.is_benign(&add(&n("a")), &add(&n("b"))));
+    assert!(benign(&aa, &add(&n("a")), &add(&n("a"))));
+    assert!(!benign(&aa, &add(&n("a")), &add(&n("b"))));
+    let edge_add = |e: GEdge| GraphDelta::identity().with_added_edge(EdgeId(7), e);
+    let aa_edge = EditConflict::AddAdd {
+        elem: ElemRef::Edge(EdgeId(7)),
+    };
+    assert!(benign(
+        &aa_edge,
+        &edge_add(GEdge::new(0, 1, label("likes"))),
+        &edge_add(GEdge::new(0, 1, label("likes")))
+    ));
+    assert!(!benign(
+        &aa_edge,
+        &edge_add(GEdge::new(0, 1, label("likes"))),
+        &edge_add(GEdge::new(1, 0, label("likes")))
+    ));
 
+    // The other variants are never benign, even between equal deltas.
     let delete_node = GraphEdit::remove_node_cascade(&g, 1)?.to_delta()?;
     let du = EditConflict::DeleteUse {
         deleted: ElemRef::Node(1),
         user: ElemRef::Node(1),
     };
-    assert!(!du.is_benign(&delete_node, &delete_node));
+    assert!(!benign(&du, &delete_node, &delete_node));
     let au = EditConflict::AnchorUse {
         node: 2,
         user: ElemRef::Edge(EdgeId(8)),
     };
-    assert!(!au.is_benign(&a, &a));
+    assert!(!benign(&au, &a, &a));
+    let fan_add = edge_add(GEdge::new(0, 1, label("likes")));
+    let fu = EditConflict::FanUse {
+        first: ElemRef::Edge(EdgeId(7)),
+        second: ElemRef::Edge(EdgeId(7)),
+    };
+    assert!(!benign(&fu, &fan_add, &fan_add));
+
+    // A table element reference is never benign against graph deltas.
+    for elem in [
+        ElemRef::Row(RowId(4)),
+        ElemRef::Pair {
+            edge: Box::new(label("fk")),
+            src: RowId(4),
+            tgt: RowId(5),
+        },
+    ] {
+        let id = GraphDelta::identity();
+        assert!(!benign(
+            &EditConflict::DeleteDelete { elem: elem.clone() },
+            &id,
+            &id
+        ));
+        assert!(!benign(&EditConflict::AddAdd { elem }, &id, &id));
+    }
+    let cell = EditConflict::UpdateUpdate {
+        key: AttrKey::Cell {
+            row: RowId(4),
+            column: "c".into(),
+        },
+    };
+    assert!(!benign(&cell, &a, &a));
     Ok(())
 }
 
@@ -1495,10 +1661,10 @@ fn edge_wire_cases(e: &GEdge) -> Result<Vec<(GraphEdit, serde_json::Value)>, ser
         (
             GraphEdit::Reconnect {
                 id: EdgeId(2),
-                old: (0, 1),
+                edge: e.clone(),
                 new: (1, 0),
             },
-            json!({ "Reconnect": { "id": 2, "old": [0, 1], "new": [1, 0] } }),
+            json!({ "Reconnect": { "id": 2, "edge": edge, "new": [1, 0] } }),
         ),
         (
             GraphEdit::RelabelEdge {
@@ -1557,28 +1723,50 @@ fn graph_edit_to_delta_cases() -> TestResult {
         vec![EdgeId(0), EdgeId(2)]
     );
 
+    // A reconnect lowers without the instance to the replacement of the
+    // edge it names under the same id, with the new endpoints.
+    let positioned = GEdge {
+        position: Some(3),
+        ..GEdge::new(1, 2, label("knows"))
+    };
     let reconnect = GraphEdit::Reconnect {
         id: EdgeId(1),
-        old: (1, 2),
+        edge: positioned.clone(),
         new: (1, 0),
     };
+    let lowered = reconnect.to_delta()?;
     assert_eq!(
-        reconnect.to_delta().err(),
-        Some(ComposeError::NeedsState {
-            elem: ElemRef::Edge(EdgeId(1))
-        })
+        lowered,
+        GraphDelta::identity()
+            .with_deleted_edge(EdgeId(1), positioned.clone())
+            .with_added_edge(
+                EdgeId(1),
+                GEdge {
+                    position: Some(3),
+                    ..GEdge::new(1, 0, label("knows"))
+                }
+            )
     );
-    let lowered = reconnect.to_delta_in(&g)?;
-    // The state-reading constructor emits that replacement as its step.
-    assert!(matches!(
-        GraphEdit::reconnect(&g, EdgeId(1), 1, 0)?,
-        GraphEdit::Delta(d) if d == lowered
-    ));
-    assert_eq!(lowered.del_edges().get(&EdgeId(1)), Some(&edge_of(&g, 1)?));
+    assert!(lowered.attrs().is_empty() && lowered.del_nodes().is_empty());
+    // The state-reading constructor's step lowers to the replacement of the
+    // edge the instance holds.
+    let read = GraphEdit::reconnect(&g, EdgeId(1), 1, 0)?.to_delta()?;
+    assert_eq!(read.del_edges().get(&EdgeId(1)), Some(&edge_of(&g, 1)?));
     assert_eq!(
-        lowered.add_edges().get(&EdgeId(1)),
+        read.add_edges().get(&EdgeId(1)),
         Some(&GEdge::new(1, 0, label("knows")))
     );
+    // Unchanged endpoints give a replacement with equal payloads, which the
+    // normal form keeps: a replacement is a new element under the old id.
+    let same = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        edge: positioned.clone(),
+        new: (1, 2),
+    }
+    .to_delta()?;
+    assert_eq!(same.del_edges().get(&EdgeId(1)), Some(&positioned));
+    assert_eq!(same.add_edges().get(&EdgeId(1)), Some(&positioned));
+    assert_eq!(GraphDelta::normalize(same.clone().into_parts())?, same);
 
     let single_key = |edit: GraphEdit, key: AttrKey| -> TestResult {
         let delta = edit.to_delta()?;
@@ -1678,12 +1866,12 @@ fn graph_edit_to_delta_cases_for_structure_and_batches() -> TestResult {
         },
         GraphEdit::Reconnect {
             id: EdgeId(6),
-            old: (0, 1),
+            edge: GEdge::new(0, 1, label("likes")),
             new: (2, 2),
         },
     ]);
     assert_eq!(
-        moved.to_delta_in(&g)?,
+        moved.to_delta()?,
         GraphDelta::identity().with_added_edge(EdgeId(6), GEdge::new(2, 2, label("likes")))
     );
     Ok(())
@@ -1703,6 +1891,22 @@ fn graph_edit_invert_is_a_delta() -> TestResult {
     );
     let mut h = g.clone();
     edit.apply(&mut h)?;
+    inverse.apply(&mut h)?;
+    assert!(GInstance::identical(&h, &g));
+    // A reconnect inverts to the delta that moves the edge back.
+    let reconnect = GraphEdit::Reconnect {
+        id: EdgeId(1),
+        edge: edge_of(&g, 1)?,
+        new: (0, 0),
+    };
+    let inverse = reconnect.invert()?;
+    let GraphEdit::Delta(back) = &inverse else {
+        return Err(format!("not a Delta: {inverse:?}").into());
+    };
+    assert_eq!(*back, reconnect.to_delta()?.invert());
+    assert_eq!(back.add_edges().get(&EdgeId(1)), Some(&edge_of(&g, 1)?));
+    let mut h = g.clone();
+    reconnect.apply(&mut h)?;
     inverse.apply(&mut h)?;
     assert!(GInstance::identical(&h, &g));
     Ok(())
@@ -1789,6 +1993,25 @@ fn error_detail_independence_round_trips() -> TestResult {
     round_trips(&detail)
 }
 
+#[test]
+fn error_detail_independence_carries_fan_use() -> TestResult {
+    let fan = one_fan();
+    let a = GraphDelta::identity().with_added_edge(EdgeId(10), GEdge::new(5, 1, fan_label("x")));
+    let b = GraphDelta::identity().with_added_edge(EdgeId(11), GEdge::new(5, 0, fan_label("x")));
+    a.check(&fan)?;
+    b.check(&fan)?;
+    let detail = ErrorDetail::Independence {
+        conflicts: a.independence(&b),
+    };
+    assert_eq!(
+        serde_json::to_value(&detail)?,
+        json!({ "independence": { "conflicts": [
+            { "FanUse": { "first": { "Edge": 10 }, "second": { "Edge": 11 } } }
+        ] } })
+    );
+    round_trips(&detail)
+}
+
 /// One value of every `EditError` variant, with the `kind` its detail
 /// carries.
 fn every_edit_error() -> Vec<(EditError, &'static str)> {
@@ -1872,12 +2095,6 @@ fn every_edit_error() -> Vec<(EditError, &'static str)> {
             "compose_mismatch",
         ),
         (
-            EditError::Compose(ComposeError::NeedsState {
-                elem: ElemRef::Edge(EdgeId(1)),
-            }),
-            "compose_needs_state",
-        ),
-        (
             EditError::NotTreeEdit {
                 reason: "label change".into(),
             },
@@ -1944,6 +2161,25 @@ fn every_table_edit_error() -> Vec<(EditError, &'static str)> {
 
 #[test]
 fn every_edit_error_has_a_detail() -> TestResult {
+    let listed: std::collections::BTreeSet<&str> = every_edit_error()
+        .iter()
+        .chain(&every_table_edit_error())
+        .map(|(_, kind)| *kind)
+        .collect();
+    for kind in [
+        "not_tree_edit",
+        "duplicate_row",
+        "stale_cell",
+        "stale_table",
+        "stale_incidence",
+        "foreign_key_not_found",
+        "duplicate_foreign_key",
+        "missing_row_endpoint",
+        "dangling_foreign_keys",
+        "not_table_edit",
+    ] {
+        assert!(listed.contains(kind), "{kind} is not exercised");
+    }
     for (err, kind) in every_edit_error()
         .into_iter()
         .chain(every_table_edit_error())
@@ -1969,6 +2205,42 @@ fn every_edit_error_has_a_detail() -> TestResult {
         round_trips(&err.detail())?;
     }
     Ok(())
+}
+
+#[test]
+fn every_table_edit_error_detail_names_its_element() {
+    let detail =
+        |kind: &str, row: Option<u32>, pair: Option<(u32, u32)>| ErrorDetail::EditConflict {
+            path: vec![],
+            kind: kind.into(),
+            node: None,
+            edge: None,
+            row,
+            pair: pair.map(|(src, tgt)| ("person-fk->person".to_owned(), src, tgt)),
+        };
+    let expected = [
+        detail("duplicate_row", Some(1), None),
+        detail("stale_cell", Some(1), None),
+        detail("stale_table", Some(1), None),
+        detail("stale_incidence", Some(1), None),
+        detail("foreign_key_not_found", None, Some((1, 2))),
+        detail("duplicate_foreign_key", None, Some((1, 2))),
+        detail("missing_row_endpoint", Some(2), None),
+        detail("dangling_foreign_keys", Some(1), None),
+        detail("not_table_edit", None, None),
+    ];
+    let table = every_table_edit_error();
+    assert_eq!(table.len(), expected.len());
+    for ((err, _), want) in table.iter().zip(expected) {
+        assert_eq!(err.detail(), want, "{err:?}");
+    }
+    assert_eq!(
+        EditError::NotTreeEdit {
+            reason: "label change".into(),
+        }
+        .detail(),
+        detail("not_tree_edit", None, None)
+    );
 }
 
 #[test]
@@ -2309,5 +2581,31 @@ fn compose_is_associative_only_on_composable_triples() -> TestResult {
             elem: ElemRef::Node(4)
         })
     );
+    Ok(())
+}
+
+/// A composable triple whose two bracketings are both undefined: `a` adds
+/// node q, `b` changes its anchor from q's to `n`, and `c` deletes a node r
+/// with anchor `n` that differs from q re-anchored in its value.
+#[test]
+fn compose_bracketings_of_a_composable_triple_can_both_fail() -> TestResult {
+    let added = Node::new(4, "q");
+    let mut deleted = Node::new(4, "n");
+    deleted.value = Some(FieldPresence::Null);
+    assert_ne!(deleted.value, Node::new(4, "n").value);
+    let first = add(&added);
+    let second = anchor_change(4, "q", "n")?;
+    let third = del(&deleted);
+    let first_second = first.compose(&second)?;
+    let second_third = second.compose(&third)?;
+    assert_eq!(first_second, add(&Node::new(4, "n")));
+    let mut unanchored = deleted;
+    unanchored.anchor = "q".into();
+    assert_eq!(second_third, del(&unanchored));
+    let mismatch = Err(ComposeError::Mismatch {
+        elem: ElemRef::Node(4),
+    });
+    assert_eq!(first_second.compose(&third), mismatch);
+    assert_eq!(first.compose(&second_third), mismatch);
     Ok(())
 }

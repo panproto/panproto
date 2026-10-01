@@ -342,7 +342,6 @@ impl EditError {
             Self::StalePosition { .. } => "stale_position",
             Self::MalformedFan { .. } => "malformed_fan",
             Self::Compose(ComposeError::Mismatch { .. }) => "compose_mismatch",
-            Self::Compose(ComposeError::NeedsState { .. }) => "compose_needs_state",
             Self::BatchStep { .. } => "batch_step",
             Self::NotTreeEdit { .. } => "not_tree_edit",
             Self::DuplicateRow(_) => "duplicate_row",
@@ -383,9 +382,7 @@ impl EditError {
                 edge: Some(edge.0),
                 ..Subject::default()
             },
-            Self::Compose(ComposeError::Mismatch { elem } | ComposeError::NeedsState { elem }) => {
-                Subject::of(elem)
-            }
+            Self::Compose(ComposeError::Mismatch { elem }) => Subject::of(elem),
             Self::BatchStep { source, .. } => source.subject(),
             Self::DuplicateRow(row)
             | Self::StaleCell { row, .. }
