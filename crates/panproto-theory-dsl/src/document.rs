@@ -384,9 +384,12 @@ pub struct CompositionSpec_ {
 /// result declares it with its left parameters. In a step with `identify`
 /// entries, or one that shares a dependent sort, every sort that a shared
 /// or identified symbol mentions in its declaration (a sort's parameter
-/// sorts, an operation's input and output sorts) must be shared or
-/// identified with the sort in the same place of its right counterpart's
-/// declaration. Every name a step shares or identifies must be declared on
+/// sorts, an operation's input and output sorts) must be one symbol with
+/// the sort in the same place of its right counterpart's declaration: in
+/// `explicit_identity` mode the step shares or identifies the two, and in
+/// `amalgamate` mode two such sorts of one name need not be named, since
+/// amalgamation glues them by name, but must take the same number of
+/// parameters. Every name a step shares or identifies must be declared on
 /// its side, and a shared or identified pair must take the same number of
 /// inputs (operations) or parameters (sorts); a step that breaks either
 /// rule is refused with a message naming the symbols, the sort or the two

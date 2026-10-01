@@ -25,8 +25,12 @@
 //! with becomes one symbol with it. In a step composed as a diagram, every
 //! sort that a shared or identified symbol mentions in its declaration (a
 //! sort's parameter sorts, an operation's input and output sorts) must be
-//! shared or identified with the sort in the same place of the right
-//! declaration, so the legs can map it; a step that leaves one out is
+//! one symbol with the sort in the same place of the right declaration, so
+//! the legs can map it. In `explicit_identity` mode the step must share or
+//! identify the two; in `amalgamate` mode two such sorts of one name need
+//! not be named, since amalgamation glues them by name (so sharing a
+//! dependent sort alone composes as a pushout by name did in 0.74), but
+//! they must agree in arity. A step that leaves a needed sort out is
 //! refused, naming the symbol and the sort. Every step refuses a shared or
 //! identified name that a side does not declare, and a shared or identified
 //! pair whose arities differ (an operation's inputs, a sort's parameters),
@@ -248,8 +252,59 @@ fn compose_step(
         });
     }
 
+    let entries = match step.mode {
+        CompositionMode::Amalgamate => {
+            glue_same_named_sorts(step, left, right, entries).map_err(failed)?
+        }
+        CompositionMode::ExplicitIdentity => entries,
+    };
     let apexes = apexes(&shared_name, entries).map_err(failed)?;
     compose_diagram(step, left, right, apexes, &step_name).map_err(failed)
+}
+
+/// `entries` with an entry sharing each sort that a declaration needs to be
+/// one symbol with the right sort of the same name, when no entry already
+/// shares or identifies it with that sort, transitively: the sorts that
+/// amalgamation glues by name anyway.
+///
+/// In [`CompositionMode::Amalgamate`] every name both sides declare is one
+/// symbol of the result, so a dependent shared sort over `V`, or a shared
+/// or identified operation over `V`, composes without `V` being named, as
+/// a pushout by name did in 0.74. The added entries come after the step's
+/// own, in the order their declarations first need them.
+///
+/// # Errors
+///
+/// A message naming the sort, its two arities and the theories, as for a
+/// shared sort, when the two sorts of one name differ in arity, or naming
+/// the side that does not declare it.
+fn glue_same_named_sorts(
+    step: &ColimitStepSpec,
+    left: &Theory,
+    right: &Theory,
+    mut entries: Vec<SharedEntry>,
+) -> Result<Vec<SharedEntry>, String> {
+    let sides = Sides { step, left, right };
+    let mut next = 0;
+    while next < entries.len() {
+        let needed: Vec<Arc<str>> = entries[next]
+            .images()
+            .iter()
+            .filter(|(sort, image)| sort == image)
+            .map(|(sort, _)| Arc::clone(sort))
+            .collect();
+        for sort in needed {
+            let key = (IdentifyKind::Sort, &*sort);
+            if !entries
+                .iter()
+                .any(|e| e.key() == key && **e.right() == *sort)
+            {
+                entries.push(sides.sort_entry("amalgamated", &sort, &sort)?);
+            }
+        }
+        next += 1;
+    }
+    Ok(entries)
 }
 
 /// Compose a step that has identifications, or that shares a dependent
@@ -1577,28 +1632,69 @@ mod tests {
         // `src` is identified with `tgt`, which needs the left `Vertex` to be
         // one symbol with the right `Vertex`; it is only identified with the
         // right `Edge`.
-        for mode in ["amalgamate", "explicit_identity"] {
-            let Err(error) = compile_composition_with_report(
-                &step_with(
-                    ("ThGraph", "ThGraph"),
-                    &["Edge"],
-                    &[],
-                    mode,
-                    &[("sort", "Vertex", "Edge"), ("op", "src", "tgt")],
-                ),
-                &builtin_resolver(),
-                &HashMap::new(),
-            ) else {
-                panic!("{mode}: src~tgt needs Vertex~Vertex");
+        let identify = [("sort", "Vertex", "Edge"), ("op", "src", "tgt")];
+        let Err(error) = compile_composition_with_report(
+            &step_with(
+                ("ThGraph", "ThGraph"),
+                &["Edge"],
+                &[],
+                "explicit_identity",
+                &identify,
+            ),
+            &builtin_resolver(),
+            &HashMap::new(),
+        ) else {
+            panic!("src~tgt needs Vertex~Vertex");
+        };
+        assert_eq!(
+            user_message(error),
+            "operation 'src', shared or identified with 'tgt', needs the sort 'Vertex' to be \
+             one symbol with the right sort 'Vertex', but the step neither shares 'Vertex' \
+             nor identifies it with 'Vertex'"
+        );
+        // Amalgamation glues the two `Vertex`es by name, so the step
+        // composes as the step that also shares `Vertex` does: `Vertex` and
+        // `Edge` are one sort, and `src` and `tgt` one operation over it.
+        // Which name the sort keeps depends on the members of its class, so
+        // the two are compared up to that name.
+        let registry = registry(&["ThGraph"]);
+        let local = HashMap::new();
+        let glued = compile_and_replay(
+            &step_with(
+                ("ThGraph", "ThGraph"),
+                &["Edge"],
+                &[],
+                "amalgamate",
+                &identify,
+            ),
+            &local,
+            &registry,
+        )
+        .unwrap_or_else(|e| panic!("amalgamate: {e}"));
+        let shared = compile_and_replay(
+            &step_with(
+                ("ThGraph", "ThGraph"),
+                &["Vertex", "Edge"],
+                &[],
+                "amalgamate",
+                &identify,
+            ),
+            &local,
+            &registry,
+        )
+        .unwrap_or_else(|e| panic!("amalgamate, Vertex shared: {e}"));
+        for theory in [&glued, &shared] {
+            let [sort] = theory.sorts.as_slice() else {
+                panic!("one sort: {theory:?}");
             };
-            let message = user_message(error);
-            assert_eq!(
-                message,
-                "operation 'src', shared or identified with 'tgt', needs the sort 'Vertex' to be \
-                 one symbol with the right sort 'Vertex', but the step neither shares 'Vertex' \
-                 nor identifies it with 'Vertex'",
-                "{mode}"
-            );
+            let [op] = theory.ops.as_slice() else {
+                panic!("one operation: {theory:?}");
+            };
+            assert!(["Vertex", "Edge"].contains(&&*sort.name), "{theory:?}");
+            assert_eq!(&*op.name, "src", "{theory:?}");
+            assert_eq!(op.inputs.len(), 1, "{theory:?}");
+            assert_eq!(op.inputs[0].1.head(), &sort.name, "{theory:?}");
+            assert_eq!(op.output.head(), &sort.name, "{theory:?}");
         }
     }
 
