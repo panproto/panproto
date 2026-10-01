@@ -41,6 +41,7 @@ pub mod fan_violation;
 pub mod functor;
 /// Graph-shaped instance representation.
 pub mod ginstance;
+pub mod graph_edit;
 /// Internal hom schema construction and evaluation.
 pub mod hom;
 pub mod identity;
@@ -108,6 +109,7 @@ pub use ginstance::{
     write_edge_record, write_ginstance, write_node_record,
 };
 pub use ginstance::{NotTableReason, TableEmbedding, TableShapeReport};
+pub use graph_edit::{GraphDelta, GraphEdit};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
 pub use identity::{
