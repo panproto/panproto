@@ -143,6 +143,20 @@ pub enum AdjunctionError {
     /// Building the reindexed graph failed.
     #[error("the reindexed graph is malformed: {0}")]
     Graph(InstError),
+
+    /// The migration carries a source edge to an image that does not join
+    /// the images of the edge's endpoints, so it states no functor and no
+    /// transport is defined along it.
+    #[error(
+        "the migration carries edge {edge:?} to {image:?}, which does not join \
+         the images of its endpoints, so it states no functor"
+    )]
+    EdgeOffEndpoints {
+        /// The source edge (boxed, as the image is, to keep the error small).
+        edge: Box<Edge>,
+        /// The image the migration names for it.
+        image: Box<Edge>,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +247,40 @@ pub(crate) fn edge_images(migration: &CompiledMigration) -> HashMap<Edge, Edge> 
             (source, target)
         })
         .collect()
+}
+
+/// The first source edge ([`source_edges`], ascending) whose image under
+/// `F` does not join the images of its endpoints, with that image.
+///
+/// Only an edge `edge_remap` remaps can be such an edge: a surviving edge is
+/// relabelled onto the images of its endpoints. A migration with such an
+/// edge states no functor between the two schemas (`panproto_mig::compile`
+/// refuses one as no morphism), so every table operation refuses it rather
+/// than drop the edge's pairs or return a row map that is no homomorphism.
+pub(crate) fn edge_off_endpoints(migration: &CompiledMigration) -> Option<(Edge, Edge)> {
+    source_edges(migration).into_iter().find_map(|edge| {
+        let image = map_edge(migration, &edge);
+        let joins = image.src == map_vertex(migration, &edge.src)
+            && image.tgt == map_vertex(migration, &edge.tgt);
+        (!joins).then_some((edge, image))
+    })
+}
+
+/// [`edge_off_endpoints`] as the refusal of an operation returning
+/// [`RestrictError`]: [`RestrictError::NoEdgeFound`] between the images of
+/// the edge's endpoints, since the migration names no edge between them
+/// for it.
+///
+/// # Errors
+///
+/// As described.
+pub(crate) fn check_edge_endpoints(migration: &CompiledMigration) -> Result<(), RestrictError> {
+    edge_off_endpoints(migration).map_or(Ok(()), |(edge, _)| {
+        Err(RestrictError::NoEdgeFound {
+            src: map_vertex(migration, &edge.src).to_string(),
+            tgt: map_vertex(migration, &edge.tgt).to_string(),
+        })
+    })
 }
 
 /// The edges a migration names only as targets: images of `edge_remap` that
@@ -409,6 +457,16 @@ pub fn w_transpose_right(f: &WInstanceHom) -> WInstanceHom {
 // Functor (set-valued) adjunction (all total maps, including merging)
 // ---------------------------------------------------------------------------
 
+/// Refuse a migration that states no functor ([`edge_off_endpoints`]).
+fn check_functor(migration: &CompiledMigration) -> Result<(), AdjunctionError> {
+    edge_off_endpoints(migration).map_or(Ok(()), |(edge, image)| {
+        Err(AdjunctionError::EdgeOffEndpoints {
+            edge: Box::new(edge),
+            image: Box::new(image),
+        })
+    })
+}
+
 /// Check that every table of `x` sits at a vertex the migration is defined
 /// on, and every foreign key with pairs at an edge it is defined on.
 ///
@@ -420,6 +478,7 @@ pub fn w_transpose_right(f: &WInstanceHom) -> WInstanceHom {
 /// foreign keys of source edges, so a pair carried along any other edge would
 /// have no pair of `Delta_F(Sigma_F X)` for the unit to send it to.
 fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), AdjunctionError> {
+    check_functor(migration)?;
     let domain = source_vertices(migration);
     if let Some(vertex) = x
         .table_names()
@@ -452,6 +511,10 @@ fn check_domain(x: &FInstance, migration: &CompiledMigration) -> Result<(), Adju
 /// carries pairs on an edge outside the domain: one the migration neither
 /// remaps nor lets survive as a source, including an edge it names only as
 /// another edge's image.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance, AdjunctionError> {
     check_domain(x, migration)?;
     let mut sigma = FInstance::new();
@@ -464,9 +527,9 @@ pub fn f_sigma(x: &FInstance, migration: &CompiledMigration) -> Result<FInstance
     for (edge, pairs) in x.foreign_keys() {
         let target_edge = map_edge(migration, edge);
         for &(s, t) in pairs {
-            if sigma.joins(&target_edge, s, t) {
-                sigma.place_pair(target_edge.clone(), s, t);
-            }
+            // `check_domain` refused every edge off its endpoints, so each
+            // pair's rows lie in the image edge's endpoint tables.
+            sigma.place_pair(target_edge.clone(), s, t);
         }
     }
     Ok(sigma)
@@ -509,10 +572,15 @@ pub fn f_delta(y: &FInstance, migration: &CompiledMigration) -> Result<FInstance
 ///
 /// Returns [`AdjunctionError::RowIdsExhausted`] when the fresh row ids run
 /// out.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_delta_with_hom(
     y: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<(FInstance, FInstanceHom), AdjunctionError> {
+    check_functor(migration)?;
     let mut allocator = row_allocator(y.row_ids());
     let mut delta = FInstance::new();
     let mut copy_of: HashMap<(Name, RowId), RowId> = HashMap::new();
@@ -584,6 +652,10 @@ fn copies(delta: &FInstance, to_original: &FInstanceHom) -> HashMap<(Name, RowId
 /// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_unit(
     x: &FInstance,
     migration: &CompiledMigration,
@@ -612,6 +684,10 @@ pub fn f_unit(
 ///
 /// Returns [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`]
 /// does.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_counit(
     y: &FInstance,
     migration: &CompiledMigration,
@@ -632,6 +708,10 @@ pub fn f_counit(
 /// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_transpose_left(
     g: &FInstanceHom,
     x: &FInstance,
@@ -668,6 +748,10 @@ pub fn f_transpose_left(
 /// [`AdjunctionError::EdgeOutsideDomain`] when `x` carries a table or pairs
 /// the migration is not defined on, exactly as [`f_sigma`] does, and
 /// [`AdjunctionError::RowIdsExhausted`] as [`f_delta_with_hom`] does.
+///
+/// Returns [`AdjunctionError::EdgeOffEndpoints`] when the migration carries
+/// an edge to an image that does not join the images of its endpoints (it
+/// states no functor).
 pub fn f_transpose_right(
     f: &FInstanceHom,
     x: &FInstance,
@@ -1812,7 +1896,7 @@ mod tests {
             .expect("the unit is a homomorphism into Delta(Sigma X)");
 
         // A pair on the target-only edge `y`: Sigma and extend refuse it,
-        // restrict and Pi drop it.
+        // restrict and Pi do not carry it.
         let on_y = pair_on("y");
         assert!(matches!(
             f_sigma(&on_y, &migration),
@@ -1837,11 +1921,18 @@ mod tests {
                 edge("a", "b", "z"),
             ],
         );
+        // Pi does not carry the pair: `y`'s pairs are those `x` holds, and
+        // `x` holds none. (`x` and `z` are target edges no edge is carried
+        // to, so their limit is every pair of rows.)
         let pi = crate::functor_pi(&on_y, &schema, &schema, &migration, 100).unwrap();
-        assert_eq!(pi.pair_count(), 0);
+        assert!(pi.pairs(&edge("a", "b", "y")).is_empty());
+        assert_eq!(
+            pi.pairs(&edge("a", "b", "z")),
+            &BTreeSet::from([(RowId(0), RowId(1))])
+        );
 
         // A pair on the unmentioned edge `z`: Sigma refuses it, restrict and
-        // Pi drop it, and extend, which keeps what the migration does not
+        // Pi do not carry it, and extend, which keeps what the migration does not
         // mention, keeps it under its own name.
         let on_z = pair_on("z");
         assert!(matches!(
@@ -1858,13 +1949,74 @@ mod tests {
                 .pair_count(),
             0
         );
-        assert_eq!(
+        assert!(
             crate::functor_pi(&on_z, &schema, &schema, &migration, 100)
                 .unwrap()
-                .pair_count(),
-            0
+                .pairs(&edge("a", "b", "y"))
+                .is_empty()
         );
         assert_eq!(crate::functor_extend(&on_z, &migration).unwrap(), on_z);
+    }
+
+    /// A migration that carries `e: a -> b` to `E: m1 -> m3` while it sends
+    /// `b` to `m2` states no functor: the image of `e` does not join the
+    /// images of its endpoints. Every table operation refuses it, naming
+    /// the images of `e`'s endpoints, rather than drop the pair or return a
+    /// row map that is no homomorphism.
+    #[test]
+    fn every_table_operation_refuses_an_edge_carried_off_its_endpoints() {
+        let mut migration = CompiledMigration::default();
+        for (src, tgt) in [("a", "m1"), ("b", "m2"), ("c", "m3")] {
+            migration.vertex_remap.insert(src.into(), tgt.into());
+            migration.surviving_verts.insert(tgt.into());
+        }
+        let e = edge("a", "b", "e");
+        let image = edge("m1", "m3", "E");
+        migration.edge_remap.insert(e.clone(), image.clone());
+        migration.surviving_edges.insert(image.clone());
+        let x = FInstance::new()
+            .with_rows(
+                "a",
+                [(RowId(0), HashMap::new()), (RowId(1), HashMap::new())],
+            )
+            .and_then(|f| f.with_rows("b", [(RowId(2), HashMap::new())]))
+            .and_then(|f| f.with_rows("c", [(RowId(3), HashMap::new())]))
+            .and_then(|f| f.with_foreign_key(e.clone(), [(RowId(0), RowId(2))]))
+            .unwrap();
+        let off = |err: &RestrictError| matches!(err, RestrictError::NoEdgeFound { src, tgt } if src == "m1" && tgt == "m2");
+        let refused = |err: &AdjunctionError| match err {
+            AdjunctionError::EdgeOffEndpoints { edge, image: i } => **edge == e && **i == image,
+            _ => false,
+        };
+        let sigma = f_sigma(&x, &migration);
+        assert!(
+            matches!(&sigma, Err(err) if refused(err)),
+            "f_sigma: {sigma:?}"
+        );
+        let unit = f_unit(&x, &migration);
+        assert!(
+            matches!(&unit, Err(err) if refused(err)),
+            "f_unit: {unit:?}"
+        );
+        let delta = f_delta(&x, &migration);
+        assert!(
+            matches!(&delta, Err(err) if refused(err)),
+            "f_delta: {delta:?}"
+        );
+        let restrict = crate::functor_restrict(&x, &migration);
+        assert!(
+            matches!(&restrict, Err(err) if off(err)),
+            "restrict: {restrict:?}"
+        );
+        let extend = crate::functor_extend(&x, &migration);
+        assert!(
+            matches!(&extend, Err(err) if off(err)),
+            "extend: {extend:?}"
+        );
+        let src = schema_of(&["a", "b", "c"], &[e]);
+        let tgt = schema_of(&["m1", "m2", "m3"], &[image]);
+        let pi = crate::functor_pi(&x, &src, &tgt, &migration, 100);
+        assert!(matches!(&pi, Err(err) if off(err)), "pi: {pi:?}");
     }
 
     /// A surviving edge whose source vertex is renamed travels to the edge

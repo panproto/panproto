@@ -1,14 +1,15 @@
 //! Right Kan extension (`Pi_F`) for instances.
 //!
-//! For set-valued functor instances the right Kan extension at a target
-//! vertex is the limit of the instance over the comma category under that
-//! vertex: the product of the fibre's tables, equalised along the arrows
-//! inside the fibre and cut down and multiplied out along every path out of
-//! the vertex. For W-type instances, only vertex-injective migrations are
+//! For set-valued functor instances, whose foreign keys are relations, the
+//! right Kan extension is taken on the typed-graph category of each schema:
+//! at a target vertex it is the product of the fibre's tables cut down to
+//! the tuples the foreign keys inside the fibre relate, and at a target
+//! edge the pairs of those rows that every edge carried to it relates. For
+//! W-type instances, only vertex-injective migrations are
 //! supported; a non-injective map is rejected rather than silently
 //! producing `Sigma`-shaped output mislabeled as `Pi`.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, HashMap};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
@@ -47,57 +48,53 @@ pub fn functor_pi(
 /// Right Kan extension (`Pi_F`) for set-valued functor instances, with the
 /// projection of every row of the result onto each fibre component.
 ///
-/// `F` is the functor the migration states between the free categories on
-/// the two schemas: it sends each source vertex (read as every table
-/// operation reads them; see [`crate::functor_restrict`]) to its image, each
-/// source edge the migration carries to its image edge, and each other edge
-/// of `src_schema` with both endpoints in one fibre (an internal arrow) to
-/// the identity of the target vertex. The table of a target vertex `d` is
-/// the limit of the instance over the comma category `d/F`: its objects are
-/// the pairs `(c, p)` of a source vertex `c` and a path `p` of `tgt_schema`
-/// from `d` to `F(c)`, and its arrows are the arrows of `F`'s domain between
-/// them. A row of the result is a cone: a row of `c` at each object `(c, p)`
-/// such that every arrow relates the rows at its endpoints. The fibre of `d`
-/// is the objects at the empty path, so the limit is the product of the
-/// fibre's tables equalised along the internal arrows, then cut down and
-/// multiplied out along every path out of `d`: a carried edge relates the
-/// rows at its two ends (two carried edges meeting in one fibre take the
-/// pullback, two merged parallel edges the equaliser), and a target edge no
-/// source edge reaches makes the fibre at its end a further factor.
+/// Pi reads every foreign key as a relation, a set of pairs that may be
+/// partial and many-valued, so an instance is a functor on the typed-graph
+/// category of its schema: its objects are the schema's vertices and edges,
+/// and each edge `e: a -> b` is an object with two arrows, to `a` and to
+/// `b`. The instance sends a vertex to its rows and an edge to its pairs,
+/// with the two projections. `F` is the functor the migration states
+/// between the typed-graph categories of the two schemas: it sends each
+/// source vertex (read as every table operation reads them; see
+/// [`crate::functor_restrict`]) to its image, each source edge the
+/// migration carries to its image edge and the edge's two arrows to the
+/// image's, and each other edge of `src_schema` with both endpoints in one
+/// fibre (an internal arrow) to that fibre's vertex, both its arrows to the
+/// identity. `Pi_F(I)` at an object `d` is the limit of `I` over the comma
+/// category `d/F`:
 ///
-/// Every foreign key is read as a relation, so the cones of an instance
-/// whose carried and internal foreign keys are total functions are exactly
-/// the limit, and a row with no pair on an edge the limit follows from it
-/// has no cone. A vertex none of whose fibre components holds a row is read
-/// as an attribute (a column vertex), as a vertex outside the image is: it
-/// constrains nothing, and the paths through it continue. The schema does
-/// not say which vertices hold tables, so the result has a table only at the
-/// image vertices whose fibre holds rows; a vertex outside the image of `F`
-/// gets none.
+/// - At a target vertex `d`, whose only arrow out is its identity, the
+///   objects of `d/F` are the vertices and internal arrows of `d`'s fibre.
+///   The table of `d` is the product of the fibre's tables (components in
+///   ascending name) cut down to the tuples every internal arrow relates:
+///   the internal foreign key holds the pair of the tuple's rows at its two
+///   ends.
+/// - At a target edge `E: d -> d'`, the objects of `E/F` are the edges
+///   carried to `E` together with the objects of `d/F` and `d'/F`, reached
+///   along `E`'s two arrows. The pairs of `E` are the pairs `(x, y)` of a
+///   row `x` of `d` and a row `y` of `d'` such that every edge carried to
+///   `E` holds the pair of `x`'s row at its source and `y`'s row at its
+///   target, so two parallel edges carried to one image take the
+///   intersection of their pairs. With no edge carried to `E`, every pair
+///   of rows is in the limit.
 ///
-/// The cones are counted on the finite graph of fibre assignments: a cone is
-/// a choice, along each target edge out of each vertex it passes, of one
-/// assignment at the edge's end that the carried edges relate to the one
-/// before. Where every such choice is forced, the cones along a cycle of
-/// `tgt_schema` are fixed by the row they enter it with, so a cycle adds no
-/// cone, though it may remove some; where a choice along some cycle is free (a target loop with no
-/// preimage over a fibre of two rows, say), every pass around the cycle
-/// chooses again and the limit is an infinite product.
+/// Nothing outside a vertex's own fibre constrains its table, so a row with
+/// no pair on some edge keeps its place, `Pi_F` is monotone in `I`, and
+/// along the identity migration it is the identity. Every comma category
+/// is finite, so every limit is.
 ///
-/// Row ids: when the fibre of `d` is one component and every cone at `d` is
-/// fixed by its row of that component, each row of the result keeps the id
-/// of that row (the projection is injective, so the limit is a subset of the
-/// component's table); every other row of the result is fresh, allocated
-/// from the least id above every row of the input, the target vertices taken
-/// in ascending name, each target's cones in the product's order
-/// (components in ascending name, the last varying fastest) and the cones
-/// that agree on the fibre in the order of the target edges out of `d`
-/// (ascending), the last varying fastest.
+/// A target vertex outside the image of `F` is read as an attribute (a
+/// column vertex; tables are keyed only by table vertices), not as a table:
+/// the limit there, over an empty diagram, would be a table of one row
+/// with no cells. It gets no table and the edges at it get no pairs. The
+/// pairs of an edge outside `F`'s domain are not carried.
 ///
-/// Foreign keys: a target edge `E: d -> d'` between two vertices with tables
-/// relates each cone at `d` to the cone at `d'` it restricts to, the rows at
-/// the objects `(c, E p)`; it is a function on the rows of `d`. The pairs of
-/// an edge outside `F`'s domain are not carried.
+/// Row ids: the rows of a vertex whose fibre is one component keep the ids
+/// of the rows they project to (the projection is injective). Every other
+/// row of the result is fresh, allocated from the least id above every row
+/// of the input, the target vertices taken in ascending name and each
+/// vertex's rows in the product's order (the last component varying
+/// fastest).
 ///
 /// The returned map sends each source vertex `s` of a fibre to the
 /// projection of its target's rows onto the rows of `s`, as an
@@ -105,18 +102,20 @@ pub fn functor_pi(
 ///
 /// # Errors
 ///
-/// Returns [`RestrictError::NoEdgeFound`] when the migration carries an edge
-/// of `src_schema` to an edge `tgt_schema` does not have,
-/// [`RestrictError::ProductSizeExceeded`] when the product of the tables of
-/// a fibre of several components exceeds `max_product_size`, when the cones
-/// at a vertex are more than `max_product_size` and more than the fibre rows
-/// they extend, and, with `actual` saturated to `usize::MAX` as an
-/// overflowing count is, when the limit at a vertex is infinite;
-/// [`RestrictError::AttributeCollision`] when two components of one cone
-/// disagree on a shared column, and [`RestrictError::RowIdsExhausted`] when
-/// the fresh row ids run out. The fibre products are checked first, then
-/// each target vertex's limit and cells, the vertices in ascending name, and
-/// the first failure is returned.
+/// Returns [`RestrictError::NoEdgeFound`] when the migration carries an
+/// edge of `src_schema` to an image that does not join the images of its
+/// endpoints (naming those images: the migration states no functor) or to
+/// an edge `tgt_schema` does not have (naming the image's endpoints), the
+/// edges taken in ascending order; [`RestrictError::ProductSizeExceeded`]
+/// when the product of the tables of a fibre of several components exceeds
+/// `max_product_size`, or when a target edge no edge is carried to would
+/// hold more than `max_product_size` pairs (reported at the edge's source
+/// vertex); [`RestrictError::AttributeCollision`] when two components of
+/// one row disagree on a shared column; and
+/// [`RestrictError::RowIdsExhausted`] when the fresh row ids run out. The
+/// migration is checked first, then each target vertex's product and
+/// cells, the vertices in ascending name, then the target edges in
+/// ascending order, and the first failure is returned.
 pub fn functor_pi_with_hom(
     instance: &FInstance,
     src_schema: &Schema,
@@ -124,83 +123,86 @@ pub fn functor_pi_with_hom(
     migration: &CompiledMigration,
     max_product_size: usize,
 ) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
+    crate::adjunction::check_edge_endpoints(migration)?;
     let edge_images = crate::adjunction::edge_images(migration);
     check_carried_edges(src_schema, tgt_schema, &edge_images)?;
     let fiber_map = build_fiber_map(migration);
-    let comma = Comma::build(
-        instance,
-        src_schema,
-        tgt_schema,
-        &edge_images,
-        &fiber_map,
-        max_product_size,
-    )?;
 
-    // Check every target vertex before creating any row, so the first
-    // failure in ascending name is the one returned.
-    let mut roots: Vec<(usize, Vec<Row>)> = Vec::new();
-    for (index, layer) in comma.layers.iter().enumerate() {
-        if layer.is_table {
-            comma.check_finite(index, max_product_size)?;
-            let rows = comma
-                .alive_states(index)
-                .map(|state| merged_row(instance, layer, &layer.states[state]))
-                .collect::<Result<Vec<Row>, RestrictError>>()?;
-            roots.push((index, rows));
-        }
+    // The limit at every image vertex, before any row is created.
+    let mut limits: BTreeMap<&Name, VertexLimit> = BTreeMap::new();
+    for (vertex, components) in &fiber_map {
+        let internal = internal_arrows(src_schema, &edge_images, components);
+        let states = fibre_states(instance, vertex, components, &internal, max_product_size)?;
+        let rows = states
+            .iter()
+            .map(|state| merged_row(instance, vertex, state))
+            .collect::<Result<Vec<Row>, RestrictError>>()?;
+        limits.insert(
+            vertex,
+            VertexLimit {
+                components,
+                states,
+                rows,
+            },
+        );
     }
-    let mut enumeration = Enumeration::new(&comma);
+
+    // The limit at every target edge between image vertices, as pairs of
+    // state indices.
+    let mut carried_to: HashMap<&Edge, Vec<&Edge>> = HashMap::new();
+    for (edge, image) in &edge_images {
+        carried_to.entry(image).or_default().push(edge);
+    }
+    let mut target_edges: Vec<&Edge> = tgt_schema
+        .edges
+        .keys()
+        .filter(|edge| limits.contains_key(&edge.src) && limits.contains_key(&edge.tgt))
+        .collect();
+    target_edges.sort_unstable();
+    let mut edge_limits: Vec<(&Edge, Vec<(usize, usize)>)> = Vec::with_capacity(target_edges.len());
+    for edge in target_edges {
+        let mut carried = carried_to.get(edge).cloned().unwrap_or_default();
+        carried.sort_unstable();
+        let pairs = edge_limit(
+            instance,
+            edge,
+            &limits[&edge.src],
+            &limits[&edge.tgt],
+            &carried,
+            max_product_size,
+        )?;
+        edge_limits.push((edge, pairs));
+    }
 
     let mut allocator = row_allocator(instance.row_ids());
     let mut out = FInstance::new();
     let mut projections: BTreeMap<Name, FInstanceHom> = BTreeMap::new();
-    let mut row_of: HashMap<ExtId, RowId> = HashMap::new();
-    let mut placed: Vec<(usize, Vec<(RowId, ExtId)>)> = Vec::with_capacity(roots.len());
-    for (index, merged) in roots {
-        let layer = &comma.layers[index];
-        let cones: Vec<(usize, Row, Vec<ExtId>)> = comma
-            .alive_states(index)
-            .zip(merged)
-            .map(|(state, row)| (state, row, enumeration.cones(index, state)))
-            .collect();
-        let keeps_ids =
-            layer.components.len() == 1 && cones.iter().all(|(_, _, exts)| exts.len() == 1);
-        let mut rows = Vec::new();
-        for (state, row, exts) in cones {
-            let components = &layer.states[state];
-            for ext in exts {
-                let id = if keeps_ids {
-                    components[0]
-                } else {
-                    allocate_row(&mut allocator).map_err(|_| RestrictError::RowIdsExhausted)?
-                };
-                for (component, &src_row) in layer.components.iter().zip(components) {
-                    projections
-                        .entry(component.clone())
-                        .or_default()
-                        .row_map
-                        .insert(id, src_row);
-                }
-                out.place_row(layer.vertex.clone(), id, row.clone());
-                row_of.insert(ext, id);
-                rows.push((id, ext));
+    let mut ids: HashMap<&Name, Vec<RowId>> = HashMap::new();
+    for (&vertex, limit) in &limits {
+        let keeps_ids = limit.components.len() == 1;
+        let mut placed = Vec::with_capacity(limit.states.len());
+        for (state, row) in limit.states.iter().zip(&limit.rows) {
+            let id = if keeps_ids {
+                state[0]
+            } else {
+                allocate_row(&mut allocator).map_err(|_| RestrictError::RowIdsExhausted)?
+            };
+            for (component, &src_row) in limit.components.iter().zip(state) {
+                projections
+                    .entry(component.clone())
+                    .or_default()
+                    .row_map
+                    .insert(id, src_row);
             }
+            out.place_row(vertex.clone(), id, row.clone());
+            placed.push(id);
         }
-        placed.push((index, rows));
+        ids.insert(vertex, placed);
     }
-
-    for (index, rows) in &placed {
-        let layer = &comma.layers[*index];
-        for (slot_index, slot) in layer.slots.iter().enumerate() {
-            if !comma.layers[slot.target].is_table {
-                continue;
-            }
-            for &(p, ext) in rows {
-                let child = enumeration.child(ext, slot_index);
-                if let Some(&q) = child.and_then(|child| row_of.get(&child)) {
-                    out.place_pair(slot.edge.clone(), p, q);
-                }
-            }
+    for (edge, pairs) in edge_limits {
+        let (from, to) = (&ids[&edge.src], &ids[&edge.tgt]);
+        for (x, y) in pairs {
+            out.place_pair(edge.clone(), from[x], to[y]);
         }
     }
 
@@ -223,8 +225,91 @@ pub fn functor_pi_with_hom(
     Ok((out, projections))
 }
 
-/// The row of a cone at its root layer: the union of the cells of its fibre
-/// components.
+/// The limit of an instance at one image vertex: the tuples of the fibre's
+/// rows the internal arrows relate, and the row each becomes.
+struct VertexLimit<'a> {
+    /// The fibre components, ascending.
+    components: &'a [Name],
+    /// The tuples, one row of each component, in the product's order.
+    states: Vec<Vec<RowId>>,
+    /// The row of each tuple: the union of its components' cells.
+    rows: Vec<Row>,
+}
+
+impl VertexLimit<'_> {
+    /// The position of a source vertex among the components.
+    fn position(&self, vertex: &Name) -> Option<usize> {
+        self.components.iter().position(|c| c == vertex)
+    }
+
+    /// The tuples holding each row of the component at `position`.
+    fn by_row(&self, position: usize) -> HashMap<RowId, Vec<usize>> {
+        let mut index: HashMap<RowId, Vec<usize>> = HashMap::new();
+        for (state, rows) in self.states.iter().enumerate() {
+            index.entry(rows[position]).or_default().push(state);
+        }
+        index
+    }
+}
+
+/// The pairs of the limit at a target edge `E: d -> d'`, as pairs of tuple
+/// indices of `from` (the limit at `d`) and `to` (at `d'`), ascending: the
+/// pairs every edge of `carried` (the source edges carried to `E`,
+/// ascending) holds between the two tuples' rows at its ends, or every pair
+/// when no edge is carried to `E`.
+///
+/// # Errors
+///
+/// Returns [`RestrictError::ProductSizeExceeded`], at `E`'s source vertex,
+/// when no edge is carried to `E` and the pairs of rows exceed
+/// `max_product_size`.
+fn edge_limit(
+    instance: &FInstance,
+    edge: &Edge,
+    from: &VertexLimit<'_>,
+    to: &VertexLimit<'_>,
+    carried: &[&Edge],
+    max_product_size: usize,
+) -> Result<Vec<(usize, usize)>, RestrictError> {
+    // `check_edge_endpoints` refused every edge off its endpoints, so each
+    // carried edge runs from a component of `from` to one of `to`.
+    let constraints: Vec<(&Edge, usize, usize)> = carried
+        .iter()
+        .filter_map(|&e| Some((e, from.position(&e.src)?, to.position(&e.tgt)?)))
+        .collect();
+    let Some((&(first, src_at, tgt_at), rest)) = constraints.split_first() else {
+        let size = from.states.len().saturating_mul(to.states.len());
+        if size > max_product_size {
+            return Err(RestrictError::ProductSizeExceeded {
+                vertex: edge.src.to_string(),
+                actual: size,
+                limit: max_product_size,
+            });
+        }
+        return Ok((0..from.states.len())
+            .flat_map(|x| (0..to.states.len()).map(move |y| (x, y)))
+            .collect());
+    };
+    let to_by_row = to.by_row(tgt_at);
+    let mut pairs = Vec::new();
+    for (x, state) in from.states.iter().enumerate() {
+        let mut ys: Vec<usize> = instance
+            .targets_of(first, state[src_at])
+            .flat_map(|row| to_by_row.get(&row).into_iter().flatten().copied())
+            .filter(|&y| {
+                let candidate = &to.states[y];
+                rest.iter()
+                    .all(|&(e, s, t)| instance.contains_pair(e, state[s], candidate[t]))
+            })
+            .collect();
+        ys.sort_unstable();
+        pairs.extend(ys.into_iter().map(|y| (x, y)));
+    }
+    Ok(pairs)
+}
+
+/// The row of a tuple of the limit at `vertex`: the union of the cells of
+/// its components' rows.
 ///
 /// # Errors
 ///
@@ -233,7 +318,7 @@ pub fn functor_pi_with_hom(
 /// union would otherwise settle by overwriting one with the other.
 fn merged_row(
     instance: &FInstance,
-    layer: &Layer,
+    vertex: &Name,
     components: &[RowId],
 ) -> Result<Row, RestrictError> {
     let mut merged = Row::new();
@@ -242,7 +327,7 @@ fn merged_row(
             if let Some(prior) = merged.get(col) {
                 if !same_value(prior, val) {
                     return Err(RestrictError::AttributeCollision {
-                        vertex: layer.vertex.to_string(),
+                        vertex: vertex.to_string(),
                         column: col.clone(),
                     });
                 }
@@ -253,256 +338,13 @@ fn merged_row(
     Ok(merged)
 }
 
-/// The choices a cone has at the end of one target edge: the states of the
-/// target layer that the carried edges relate to each state of the source
-/// layer, or every state of the target layer when no carried edge constrains
-/// the edge.
-enum Choices {
-    /// Every state of the target layer.
-    All,
-    /// For each state of the source layer, the states of the target layer
-    /// its carried edges relate it to, ascending.
-    Lists(Vec<Vec<usize>>),
-}
-
-/// One target edge out of a layer, with the layer at its end.
-struct Slot {
-    /// The target edge.
-    edge: Edge,
-    /// The index of the layer at the edge's end.
-    target: usize,
-    /// The states of that layer each state of this one may be sent to.
-    choices: Choices,
-}
-
-/// The objects of the comma category at one path, grouped by the target
-/// vertex the path ends at: the fibre components of that vertex, and the
-/// states, each an assignment of a row to every component.
-struct Layer {
-    /// The target vertex.
-    vertex: Name,
-    /// Whether the result has a table here: the vertex is in the image of
-    /// `F` and some fibre component holds a row.
-    is_table: bool,
-    /// The fibre components the layer draws rows from, ascending; empty for
-    /// a vertex outside the image or one read as an attribute.
-    components: Vec<Name>,
-    /// The assignments of a row to every component that the internal
-    /// arrows relate, in the product's order; one empty assignment when
-    /// there are no components.
-    states: Vec<Vec<RowId>>,
-    /// The target edges out of the vertex, ascending.
-    slots: Vec<Slot>,
-}
-
-/// The comma categories `d/F` of every target vertex `d` at once, folded
-/// into one finite graph: a layer per target vertex reachable from the
-/// image, an edge between states for each pair of states a target edge may
-/// relate, and the fixpoints that say which states extend to a cone along
-/// every path, which extend in exactly one way, and over which the cones
-/// are finite.
-struct Comma {
-    /// The layers, in ascending vertex name.
-    layers: Vec<Layer>,
-    /// Whether each state extends to a cone along every path out of it.
-    alive: Vec<Vec<bool>>,
-    /// Whether each live state extends in more than one way.
-    branching: Vec<Vec<bool>>,
-    /// Whether each live branching state has finitely many extensions.
-    finite: Vec<Vec<bool>>,
-    /// The number of extensions of each live state, saturated at
-    /// `usize::MAX`; one for a state that does not branch.
-    counts: Vec<Vec<usize>>,
-}
-
-/// A reference to a state: its layer and its index in the layer.
-type StateRef = (usize, usize);
-
-impl Comma {
-    /// Build the layers, their states and slots, and solve the fixpoints.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RestrictError::ProductSizeExceeded`] when the product of the
-    /// tables of a fibre of several components exceeds `max_product_size`,
-    /// the layers taken in ascending vertex name.
-    fn build(
-        instance: &FInstance,
-        src_schema: &Schema,
-        tgt_schema: &Schema,
-        edge_images: &HashMap<Edge, Edge>,
-        fiber_map: &BTreeMap<Name, Vec<Name>>,
-        max_product_size: usize,
-    ) -> Result<Self, RestrictError> {
-        // The target edges out of each target vertex, ascending.
-        let mut out_edges: HashMap<&Name, Vec<&Edge>> = HashMap::new();
-        for edge in tgt_schema.edges.keys() {
-            out_edges.entry(&edge.src).or_default().push(edge);
-        }
-        for edges in out_edges.values_mut() {
-            edges.sort_unstable();
-        }
-        // Every target vertex reachable from the image, ascending.
-        let mut vertices: BTreeSet<&Name> = fiber_map.keys().collect();
-        let mut frontier: Vec<&Name> = vertices.iter().copied().collect();
-        while let Some(vertex) = frontier.pop() {
-            for edge in out_edges.get(vertex).into_iter().flatten() {
-                if vertices.insert(&edge.tgt) {
-                    frontier.push(&edge.tgt);
-                }
-            }
-        }
-        let index_of: HashMap<&Name, usize> =
-            vertices.iter().enumerate().map(|(i, &v)| (v, i)).collect();
-
-        let mut layers: Vec<Layer> = Vec::with_capacity(vertices.len());
-        for &vertex in &vertices {
-            let fibre = fiber_map.get(vertex);
-            let holds_rows = fibre.is_some_and(|f| f.iter().any(|c| instance.has_table(c)));
-            let components: Vec<Name> = if holds_rows {
-                fibre.cloned().unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            let internal = internal_arrows(src_schema, edge_images, &components);
-            let states = fibre_states(instance, vertex, &components, &internal, max_product_size)?;
-            layers.push(Layer {
-                vertex: vertex.clone(),
-                is_table: holds_rows,
-                components,
-                states,
-                slots: Vec::new(),
-            });
-        }
-
-        // The source edges carried to each target edge, ascending, whose
-        // endpoints lie in the fibres of its endpoints.
-        let fibre_of: HashMap<&Name, &Name> = fiber_map
-            .iter()
-            .flat_map(|(tgt, fibre)| fibre.iter().map(move |src| (src, tgt)))
-            .collect();
-        let mut carried: HashMap<&Edge, Vec<&Edge>> = HashMap::new();
-        for (edge, image) in edge_images {
-            if fibre_of.get(&edge.src) == Some(&&image.src)
-                && fibre_of.get(&edge.tgt) == Some(&&image.tgt)
-            {
-                carried.entry(image).or_default().push(edge);
-            }
-        }
-        for edges in carried.values_mut() {
-            edges.sort_unstable();
-        }
-
-        // Index each layer's states by the row of each component.
-        let by_row: Vec<Vec<HashMap<RowId, Vec<usize>>>> = layers
-            .iter()
-            .map(|layer| {
-                let mut index: Vec<HashMap<RowId, Vec<usize>>> =
-                    vec![HashMap::new(); layer.components.len()];
-                for (state, rows) in layer.states.iter().enumerate() {
-                    for (position, row) in rows.iter().enumerate() {
-                        index[position].entry(*row).or_default().push(state);
-                    }
-                }
-                index
-            })
-            .collect();
-
-        for (from, &vertex) in vertices.iter().enumerate() {
-            let mut slots = Vec::new();
-            for &edge in out_edges.get(vertex).into_iter().flatten() {
-                let target = index_of[&edge.tgt];
-                let choices = slot_choices(
-                    instance,
-                    &layers[from],
-                    &layers[target],
-                    &by_row[target],
-                    carried.get(edge).map_or(&[][..], Vec::as_slice),
-                );
-                slots.push(Slot {
-                    edge: edge.clone(),
-                    target,
-                    choices,
-                });
-            }
-            layers[from].slots = slots;
-        }
-
-        let mut comma = Self {
-            alive: layers.iter().map(|l| vec![true; l.states.len()]).collect(),
-            branching: layers.iter().map(|l| vec![false; l.states.len()]).collect(),
-            finite: layers.iter().map(|l| vec![true; l.states.len()]).collect(),
-            counts: layers.iter().map(|l| vec![1; l.states.len()]).collect(),
-            layers,
-        };
-        comma.solve();
-        Ok(comma)
-    }
-
-    /// The live states of a layer, ascending.
-    fn alive_states(&self, layer: usize) -> impl Iterator<Item = usize> + '_ {
-        self.alive[layer]
-            .iter()
-            .enumerate()
-            .filter(|(_, alive)| **alive)
-            .map(|(state, _)| state)
-    }
-
-    /// The live states a live state may be sent to along a slot, ascending.
-    fn live_choices(&self, (layer, state): StateRef, slot: usize) -> Vec<usize> {
-        let slot = &self.layers[layer].slots[slot];
-        match &slot.choices {
-            Choices::All => self.alive_states(slot.target).collect(),
-            Choices::Lists(lists) => lists[state]
-                .iter()
-                .copied()
-                .filter(|&c| self.alive[slot.target][c])
-                .collect(),
-        }
-    }
-
-    /// Refuse a target vertex whose limit is infinite or too large.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`RestrictError::ProductSizeExceeded`] with `actual` at
-    /// `usize::MAX` when some live state at the vertex has infinitely many
-    /// extensions, and with the number of cones when they are more than
-    /// `max_product_size` and more than the live states they extend.
-    fn check_finite(&self, layer: usize, max_product_size: usize) -> Result<(), RestrictError> {
-        let vertex = self.layers[layer].vertex.to_string();
-        let mut total: usize = 0;
-        let mut states: usize = 0;
-        for state in self.alive_states(layer) {
-            if !self.finite[layer][state] {
-                return Err(RestrictError::ProductSizeExceeded {
-                    vertex,
-                    actual: usize::MAX,
-                    limit: max_product_size,
-                });
-            }
-            total = total.saturating_add(self.counts[layer][state]);
-            states += 1;
-        }
-        if total > max_product_size && total > states {
-            return Err(RestrictError::ProductSizeExceeded {
-                vertex,
-                actual: total,
-                limit: max_product_size,
-            });
-        }
-        Ok(())
-    }
-}
-
-/// The states of a layer: the assignments of a row to every component that
+/// The tuples of a fibre: the assignments of a row to every component that
 /// the internal arrows relate, in the product's order (components in the
-/// order given, the last varying fastest). With no components there is one
-/// empty assignment.
+/// order given, the last varying fastest).
 ///
 /// # Errors
 ///
-/// Returns [`RestrictError::ProductSizeExceeded`] when the layer has several
+/// Returns [`RestrictError::ProductSizeExceeded`] when the fibre has several
 /// components and the product of their tables exceeds `max_product_size`.
 fn fibre_states(
     instance: &FInstance,
@@ -548,419 +390,6 @@ fn fibre_states(
         })
     });
     Ok(states)
-}
-
-/// The choices along one target edge from layer `from` to layer `to`: for
-/// each state of `from`, the states of `to` that every carried edge relates
-/// it to, read through `to_by_row` (the states of `to` holding each row of
-/// each component). With no carried edge between the two layers' components
-/// every state of `to` is a choice.
-fn slot_choices(
-    instance: &FInstance,
-    from: &Layer,
-    to: &Layer,
-    to_by_row: &[HashMap<RowId, Vec<usize>>],
-    carried: &[&Edge],
-) -> Choices {
-    let position = |layer: &Layer, vertex: &Name| layer.components.iter().position(|c| c == vertex);
-    let constraints: Vec<(&Edge, usize, usize)> = carried
-        .iter()
-        .filter_map(|&edge| Some((edge, position(from, &edge.src)?, position(to, &edge.tgt)?)))
-        .collect();
-    let Some((&(first, src_at, tgt_at), rest)) = constraints.split_first() else {
-        return Choices::All;
-    };
-    let lists = from
-        .states
-        .iter()
-        .map(|state| {
-            let mut choices: Vec<usize> = instance
-                .targets_of(first, state[src_at])
-                .flat_map(|row| to_by_row[tgt_at].get(&row).into_iter().flatten().copied())
-                .filter(|&c| {
-                    let candidate = &to.states[c];
-                    rest.iter()
-                        .all(|&(edge, s, t)| instance.contains_pair(edge, state[s], candidate[t]))
-                })
-                .collect();
-            choices.sort_unstable();
-            choices
-        })
-        .collect();
-    Choices::Lists(lists)
-}
-
-impl Comma {
-    /// Solve the fixpoints over the layers.
-    ///
-    /// A state is live when along every slot it has a live choice: the
-    /// greatest such set, so a state whose every path stays inside live
-    /// states extends to a cone however long the path. Since every layer is
-    /// finite, a live state extends to a cone along every path out of it
-    /// (Konig's lemma along the finitely many choices at each step). A live
-    /// state branches when along some slot it has two live choices or its
-    /// one live choice branches; a state that does not branch has exactly
-    /// one extension. The extensions of a branching state are finite exactly
-    /// when the branching states reachable from it form no cycle, and are
-    /// then counted children first.
-    fn solve(&mut self) {
-        // Reverse indexes: the parents of each state along list slots, and
-        // the (layer, slot) pairs whose `All` slot ends at each layer.
-        let mut parents: Vec<Vec<Vec<(usize, usize, usize)>>> = self
-            .layers
-            .iter()
-            .map(|l| vec![Vec::new(); l.states.len()])
-            .collect();
-        let mut all_parents: Vec<Vec<(usize, usize)>> = vec![Vec::new(); self.layers.len()];
-        // The live choices of each state along each list slot.
-        let mut live: Vec<Vec<Vec<usize>>> = Vec::with_capacity(self.layers.len());
-        for (layer_index, layer) in self.layers.iter().enumerate() {
-            let mut per_slot = Vec::with_capacity(layer.slots.len());
-            for (slot_index, slot) in layer.slots.iter().enumerate() {
-                match &slot.choices {
-                    Choices::All => {
-                        all_parents[slot.target].push((layer_index, slot_index));
-                        per_slot.push(Vec::new());
-                    }
-                    Choices::Lists(lists) => {
-                        for (state, choices) in lists.iter().enumerate() {
-                            for &c in choices {
-                                parents[slot.target][c].push((layer_index, slot_index, state));
-                            }
-                        }
-                        per_slot.push(lists.iter().map(Vec::len).collect());
-                    }
-                }
-            }
-            live.push(per_slot);
-        }
-        let mut alive_count: Vec<usize> = self.layers.iter().map(|l| l.states.len()).collect();
-
-        // Liveness: kill every state with a slot without a live choice, and
-        // propagate to its parents.
-        let mut dead: Vec<StateRef> = Vec::new();
-        for (layer_index, layer) in self.layers.iter().enumerate() {
-            for (slot_index, slot) in layer.slots.iter().enumerate() {
-                match &slot.choices {
-                    Choices::All => {
-                        if self.layers[slot.target].states.is_empty() {
-                            dead.extend((0..layer.states.len()).map(|s| (layer_index, s)));
-                        }
-                    }
-                    Choices::Lists(_) => dead.extend(
-                        live[layer_index][slot_index]
-                            .iter()
-                            .enumerate()
-                            .filter(|(_, count)| **count == 0)
-                            .map(|(s, _)| (layer_index, s)),
-                    ),
-                }
-            }
-        }
-        let mut emptied = vec![false; self.layers.len()];
-        while let Some((layer, state)) = dead.pop() {
-            if !std::mem::replace(&mut self.alive[layer][state], false) {
-                continue;
-            }
-            alive_count[layer] -= 1;
-            for &(parent_layer, slot, parent) in &parents[layer][state] {
-                let count = &mut live[parent_layer][slot][parent];
-                *count -= 1;
-                if *count == 0 {
-                    dead.push((parent_layer, parent));
-                }
-            }
-            if alive_count[layer] == 0 && !std::mem::replace(&mut emptied[layer], true) {
-                for &(parent_layer, _) in &all_parents[layer] {
-                    for parent in 0..self.layers[parent_layer].states.len() {
-                        dead.push((parent_layer, parent));
-                    }
-                }
-            }
-        }
-        self.solve_branching(&parents, &all_parents, &live, &alive_count);
-        self.solve_counts(&parents, &all_parents);
-    }
-}
-
-/// The parents of each state along list slots: `(layer, slot, state)`.
-type Parents = [Vec<Vec<(usize, usize, usize)>>];
-
-impl Comma {
-    /// Mark the live states that branch: those with two live choices along
-    /// some slot, then every live parent of a branching state (its one live
-    /// choice there branches, or it already had two).
-    fn solve_branching(
-        &mut self,
-        parents: &Parents,
-        all_parents: &[Vec<(usize, usize)>],
-        live: &[Vec<Vec<usize>>],
-        alive_count: &[usize],
-    ) {
-        let mut queue: Vec<StateRef> = Vec::new();
-        for (layer_index, layer) in self.layers.iter().enumerate() {
-            for (state, &alive) in self.alive[layer_index].iter().enumerate() {
-                if !alive {
-                    continue;
-                }
-                let branches = layer
-                    .slots
-                    .iter()
-                    .enumerate()
-                    .any(|(slot_index, slot)| match slot.choices {
-                        Choices::All => alive_count[slot.target] >= 2,
-                        Choices::Lists(_) => live[layer_index][slot_index][state] >= 2,
-                    });
-                if branches {
-                    self.branching[layer_index][state] = true;
-                    queue.push((layer_index, state));
-                }
-            }
-        }
-        let mut marked_all = vec![false; self.layers.len()];
-        while let Some((layer, state)) = queue.pop() {
-            for &(parent_layer, _, parent) in &parents[layer][state] {
-                let p = parent;
-                if self.alive[parent_layer][p] && !self.branching[parent_layer][p] {
-                    self.branching[parent_layer][p] = true;
-                    queue.push((parent_layer, parent));
-                }
-            }
-            for &(parent_layer, _) in &all_parents[layer] {
-                if std::mem::replace(&mut marked_all[parent_layer], true) {
-                    continue;
-                }
-                for p in 0..self.layers[parent_layer].states.len() {
-                    if self.alive[parent_layer][p] && !self.branching[parent_layer][p] {
-                        self.branching[parent_layer][p] = true;
-                        queue.push((parent_layer, p));
-                    }
-                }
-            }
-        }
-    }
-
-    /// Count the extensions of every live branching state, children first,
-    /// and mark finite exactly the ones counted: a branching state waits on
-    /// its branching live choices, so one that reaches a cycle of branching
-    /// states is never counted and has infinitely many extensions.
-    fn solve_counts(&mut self, parents: &Parents, all_parents: &[Vec<(usize, usize)>]) {
-        let is_branching = |comma: &Self, (layer, state): StateRef| {
-            comma.alive[layer][state] && comma.branching[layer][state]
-        };
-        // Branching live states per layer, still uncounted.
-        let mut uncounted: Vec<usize> = (0..self.layers.len())
-            .map(|layer| {
-                (0..self.layers[layer].states.len())
-                    .filter(|&s| self.alive[layer][s] && self.branching[layer][s])
-                    .count()
-            })
-            .collect();
-        let mut pending: Vec<Vec<usize>> = self
-            .layers
-            .iter()
-            .map(|l| vec![0; l.states.len()])
-            .collect();
-        let mut ready: Vec<StateRef> = Vec::new();
-        for (layer_index, layer) in self.layers.iter().enumerate() {
-            for (state, pending_here) in pending[layer_index].iter_mut().enumerate() {
-                let here = (layer_index, state);
-                if !is_branching(self, here) {
-                    continue;
-                }
-                let mut waits = 0;
-                for (slot_index, slot) in layer.slots.iter().enumerate() {
-                    match &slot.choices {
-                        Choices::All => waits += usize::from(uncounted[slot.target] > 0),
-                        Choices::Lists(_) => {
-                            waits += self
-                                .live_choices(here, slot_index)
-                                .into_iter()
-                                .filter(|&c| is_branching(self, (slot.target, c)))
-                                .count();
-                        }
-                    }
-                }
-                *pending_here = waits;
-                self.finite[layer_index][state] = false;
-                if waits == 0 {
-                    ready.push(here);
-                }
-            }
-        }
-        let mut layer_sums: Vec<Option<usize>> = vec![None; self.layers.len()];
-        while let Some((layer, state)) = ready.pop() {
-            let mut count: usize = 1;
-            for slot_index in 0..self.layers[layer].slots.len() {
-                let slot = &self.layers[layer].slots[slot_index];
-                let sum = match &slot.choices {
-                    Choices::All => {
-                        let target = slot.target;
-                        *layer_sums[target].get_or_insert_with(|| {
-                            self.alive_states(target)
-                                .fold(0_usize, |acc, c| acc.saturating_add(self.counts[target][c]))
-                        })
-                    }
-                    Choices::Lists(_) => self
-                        .live_choices((layer, state), slot_index)
-                        .into_iter()
-                        .fold(0_usize, |acc, c| {
-                            acc.saturating_add(self.counts[slot.target][c])
-                        }),
-                };
-                count = count.saturating_mul(sum);
-            }
-            self.counts[layer][state] = count;
-            self.finite[layer][state] = true;
-
-            for &(parent_layer, _, parent) in &parents[layer][state] {
-                if is_branching(self, (parent_layer, parent)) {
-                    let waits = &mut pending[parent_layer][parent];
-                    *waits -= 1;
-                    if *waits == 0 {
-                        ready.push((parent_layer, parent));
-                    }
-                }
-            }
-            uncounted[layer] -= 1;
-            if uncounted[layer] == 0 {
-                for &(parent_layer, _) in &all_parents[layer] {
-                    for (parent, waits) in pending[parent_layer].iter_mut().enumerate() {
-                        let here = (parent_layer, parent);
-                        if is_branching(self, here) {
-                            *waits -= 1;
-                            if *waits == 0 {
-                                ready.push(here);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-/// An extension of a state to a cone along every path out of it.
-type ExtId = usize;
-
-/// The cones of the comma categories, built on demand: each extension is
-/// its state and, for a branching state, the extension chosen along each
-/// slot; a state that does not branch has one extension, which stores no
-/// choices since each is its one live choice's.
-struct Enumeration<'a> {
-    /// The solved comma categories.
-    comma: &'a Comma,
-    /// Each extension: its state and its choices, one per slot (empty when
-    /// the state does not branch).
-    arena: Vec<(StateRef, Box<[ExtId]>)>,
-    /// The extensions of each state built so far, in enumeration order.
-    memo: HashMap<StateRef, Vec<ExtId>>,
-}
-
-impl<'a> Enumeration<'a> {
-    /// An empty enumeration over `comma`.
-    fn new(comma: &'a Comma) -> Self {
-        Self {
-            comma,
-            arena: Vec::new(),
-            memo: HashMap::new(),
-        }
-    }
-
-    /// Record a new extension.
-    fn push(&mut self, state: StateRef, choices: Box<[ExtId]>) -> ExtId {
-        let id = self.arena.len();
-        self.arena.push((state, choices));
-        id
-    }
-
-    /// The one extension of a live state that does not branch.
-    fn leaf(&mut self, state: StateRef) -> ExtId {
-        if let Some(&id) = self.memo.get(&state).and_then(|exts| exts.first()) {
-            return id;
-        }
-        let id = self.push(state, Box::new([]));
-        self.memo.insert(state, vec![id]);
-        id
-    }
-
-    /// The live choices of `state` along `slot`, as states.
-    fn choices(&self, state: StateRef, slot: usize) -> Vec<StateRef> {
-        let target = self.comma.layers[state.0].slots[slot].target;
-        self.comma
-            .live_choices(state, slot)
-            .into_iter()
-            .map(|c| (target, c))
-            .collect()
-    }
-
-    /// The extensions of a live state with finitely many: one for a state
-    /// that does not branch, and otherwise one per choice of an extension
-    /// along every slot, the slots in ascending edge order with the last
-    /// varying fastest and each slot's extensions taken choice by choice.
-    fn cones(&mut self, layer: usize, state: usize) -> Vec<ExtId> {
-        let mut stack: Vec<(StateRef, bool)> = vec![((layer, state), false)];
-        while let Some((here, expanded)) = stack.pop() {
-            if self.memo.contains_key(&here) {
-                continue;
-            }
-            if !self.comma.branching[here.0][here.1] {
-                self.leaf(here);
-                continue;
-            }
-            let slots = self.comma.layers[here.0].slots.len();
-            if !expanded {
-                stack.push((here, true));
-                for slot in 0..slots {
-                    for child in self.choices(here, slot) {
-                        if !self.memo.contains_key(&child) {
-                            stack.push((child, false));
-                        }
-                    }
-                }
-                continue;
-            }
-            let options: Vec<Vec<ExtId>> = (0..slots)
-                .map(|slot| {
-                    self.choices(here, slot)
-                        .into_iter()
-                        .flat_map(|child| self.memo.get(&child).cloned().unwrap_or_default())
-                        .collect()
-                })
-                .collect();
-            let mut picks: Vec<Vec<ExtId>> = vec![Vec::new()];
-            for option in &options {
-                let mut next = Vec::with_capacity(picks.len() * option.len());
-                for pick in &picks {
-                    for &ext in option {
-                        let mut extended = pick.clone();
-                        extended.push(ext);
-                        next.push(extended);
-                    }
-                }
-                picks = next;
-            }
-            let exts = picks
-                .into_iter()
-                .map(|pick| self.push(here, pick.into_boxed_slice()))
-                .collect();
-            self.memo.insert(here, exts);
-        }
-        self.memo.get(&(layer, state)).cloned().unwrap_or_default()
-    }
-
-    /// The extension a cone takes along `slot`: the choice it stores, or, for
-    /// a state that does not branch, the one extension of its one live
-    /// choice.
-    fn child(&mut self, ext: ExtId, slot: usize) -> Option<ExtId> {
-        let (state, choices) = self.arena.get(ext)?;
-        if let Some(&chosen) = choices.get(slot) {
-            return Some(chosen);
-        }
-        let state = *state;
-        let only = self.choices(state, slot).into_iter().next()?;
-        Some(self.leaf(only))
-    }
 }
 
 /// Check that every edge of `src` the migration carries lands on an edge of
@@ -1732,9 +1161,9 @@ mod tests {
     }
 
     /// A loop on each vertex of a two-vertex fibre, both carried to one loop
-    /// on the target: the comma category holds `(a, L^n)` and `(b, L^n)` for
-    /// every `n`, each fixed by the one before, so the limit is the product
-    /// of the fibre's tables and the loop relates each row to itself.
+    /// on the target: the table of `t` is the product of the fibre's tables,
+    /// and the loop holds a pair of tuples exactly when both carried loops
+    /// hold the pairs of their components.
     #[test]
     fn carried_loops_in_a_two_vertex_fibre_take_the_limit() {
         fn self_edge(v: &str) -> Edge {
@@ -1765,7 +1194,7 @@ mod tests {
         migration.edge_remap.insert(self_edge("a"), self_edge("t"));
         migration.edge_remap.insert(self_edge("b"), self_edge("t"));
         let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
-        // One cone, (0, 1), at the fresh id 2.
+        // One tuple, (0, 1), at the fresh id 2.
         assert_eq!(
             pi.table("t").map(crate::functor::Table::ids),
             Some(vec![RowId(2)])
@@ -1774,19 +1203,6 @@ mod tests {
             pi.pairs(&self_edge("t")),
             &BTreeSet::from([(RowId(2), RowId(2))])
         );
-    }
-
-    /// Assert that Pi refused the limit at `vertex` as infinite: a
-    /// [`RestrictError::ProductSizeExceeded`] whose count is saturated.
-    fn assert_infinite<T: std::fmt::Debug>(result: Result<T, RestrictError>, vertex: &str) {
-        match result {
-            Err(RestrictError::ProductSizeExceeded {
-                vertex: v,
-                actual: usize::MAX,
-                ..
-            }) => assert_eq!(v, vertex),
-            other => panic!("expected an infinite limit at {vertex}, got {other:?}"),
-        }
     }
 
     /// A loop edge `v -> v` of kind `fk` named `name`.
@@ -1887,41 +1303,66 @@ mod tests {
         ));
     }
 
-    /// The intra-fibre foreign key made a total function and remapped to a
-    /// loop on `m`: the cone's row of `src_a` at each iterate `L^n` is fixed
-    /// by nothing (the loop only fixes `src_b` at `L^(n+1)`), so the limit is
-    /// an infinite product and Pi refuses it rather than returning the
-    /// product of the fibre.
+    /// An interim rejection of such fibres until the equaliser lands is moot:
+    /// over a fibre with an internal edge, Pi returns the equalised limit,
+    /// never the bare product. Made total, the internal foreign key keeps the
+    /// two tuples it relates, `(a0, b1)` and `(a1, b0)`, of the four.
     #[test]
     fn pi_dispatch_rejects_a_fibre_with_an_internal_edge() {
-        let (inst, mut migration, fk) = intra_fibre_fixture();
-        let total = inst
-            .with_foreign_key(fk.clone(), [(RowId(1), RowId(2))])
-            .unwrap();
-        migration.edge_remap.insert(fk, loop_on("m", "ref"));
-        assert_infinite(run_pi(&total, &migration, &[], 100), "m");
+        let (inst, migration, fk) = intra_fibre_fixture();
+        let total = inst.with_foreign_key(fk, [(RowId(1), RowId(2))]).unwrap();
+        let (pi, projections) = run_pi(&total, &migration, &[], 100).unwrap();
+        let mut drawn_rows: Vec<(RowId, RowId)> = pi
+            .rows("m")
+            .into_iter()
+            .map(|(id, _)| {
+                (
+                    projections[&Name::from("src_a")].row_map[&id],
+                    projections[&Name::from("src_b")].row_map[&id],
+                )
+            })
+            .collect();
+        drawn_rows.sort_unstable();
+        assert_eq!(drawn_rows, vec![(RowId(0), RowId(3)), (RowId(1), RowId(2))]);
     }
 
-    /// The intra-fibre foreign key `{(a0, b1)}` remapped to a loop on `m`:
-    /// every cone draws `a0` at each iterate and `b1` at each iterate after
-    /// the first, so the limit is the two rows `(a0, b0)` and `(a0, b1)`,
-    /// each sent by the loop to `(a0, b1)`.
+    /// The intra-fibre foreign key `{(a0, b1)}` carried to a loop on `m`: it
+    /// is no arrow of the fibre, so the table of `m` is the whole product,
+    /// and the loop holds the pairs of tuples `(x, y)` whose `src_a` row and
+    /// `src_b` row the foreign key relates: `x` draws `a0`, `y` draws `b1`.
+    /// The foreign key is a relation, so this fan-out is the limit.
     #[test]
-    fn an_internal_edge_sent_to_a_loop_takes_the_limit_over_its_iterates() {
+    fn an_edge_carried_to_a_loop_relates_the_tuples_its_pairs_join() {
         let (inst, mut migration, fk) = intra_fibre_fixture();
         migration.edge_remap.insert(fk, loop_on("m", "ref"));
         let (pi, projections) = run_pi(&inst, &migration, &[], 100).unwrap();
+        // 4 = (a0, b0), 5 = (a0, b1), 6 = (a1, b0), 7 = (a1, b1).
         assert_eq!(
             drawn(&pi, &projections, "m", "src_a"),
-            vec![(RowId(4), RowId(0)), (RowId(5), RowId(0))]
+            vec![
+                (RowId(4), RowId(0)),
+                (RowId(5), RowId(0)),
+                (RowId(6), RowId(1)),
+                (RowId(7), RowId(1))
+            ]
         );
         assert_eq!(
             drawn(&pi, &projections, "m", "src_b"),
-            vec![(RowId(4), RowId(2)), (RowId(5), RowId(3))]
+            vec![
+                (RowId(4), RowId(2)),
+                (RowId(5), RowId(3)),
+                (RowId(6), RowId(2)),
+                (RowId(7), RowId(3))
+            ]
         );
         assert_eq!(
             pi.pairs(&loop_on("m", "ref")),
-            &BTreeSet::from([(RowId(4), RowId(5)), (RowId(5), RowId(5))])
+            &BTreeSet::from([
+                (RowId(4), RowId(5)),
+                (RowId(4), RowId(7)),
+                (RowId(5), RowId(5)),
+                (RowId(5), RowId(7))
+            ])
         );
     }
 
@@ -1941,10 +1382,9 @@ mod tests {
         );
     }
 
-    /// A one-vertex fibre `{a}` whose loop, a total function, is relabelled
-    /// onto `t`: every object of the comma category is reached from `a` along
-    /// exactly one path, so the limit is `a`'s table, its rows keep their ids
-    /// and the loop travels with its pairs.
+    /// A one-vertex fibre `{a}` whose loop is relabelled onto `t`: the table
+    /// of `t` is `a`'s, its rows keep their ids, and the loop travels with
+    /// its pairs.
     #[test]
     fn a_one_vertex_fibre_carries_its_loop() {
         let cell = |v: i64| HashMap::from([("n".to_owned(), Value::Int(v))]);
@@ -1974,12 +1414,10 @@ mod tests {
         );
     }
 
-    /// The same loop without a pair at row 1: the cone through row 1 has no
-    /// row at the next iterate, and row 0 leads to row 1, so neither row is
-    /// a cone and the limit is empty. A foreign key is read as a relation,
-    /// and a row with no pair on an edge the limit follows has no cone.
+    /// The same loop without a pair at row 1: a foreign key is a relation,
+    /// so row 1 keeps its place, and the loop holds the one pair it held.
     #[test]
-    fn a_row_without_a_pair_on_a_followed_edge_has_no_cone() {
+    fn a_row_without_a_pair_on_a_carried_edge_keeps_its_place() {
         let inst = FInstance::new()
             .with_table("a", blank(2))
             .and_then(|f| f.with_foreign_key(loop_on("a", "next"), [(RowId(0), RowId(1))]))
@@ -1989,15 +1427,21 @@ mod tests {
             &[(loop_on("a", "next"), loop_on("t", "next"))],
         );
         let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
-        assert_eq!(pi.total_row_count(), 0);
+        assert_eq!(
+            pi.table("t").map(crate::functor::Table::ids),
+            Some(vec![RowId(0), RowId(1)])
+        );
+        assert_eq!(
+            pi.pairs(&loop_on("t", "next")),
+            &BTreeSet::from([(RowId(0), RowId(1))])
+        );
     }
 
-    /// Two loops of a one-vertex fibre carried to one loop: both send the
-    /// row at each iterate to the row at the next, so the limit is the rows
-    /// on which the two loops agree, iterated: row 0 (both send it to 0),
-    /// not row 1 (`p` sends it to 1, `q` to 0).
+    /// Two loops of a one-vertex fibre carried to one loop: the table of `t`
+    /// is `a`'s, and the loop holds the pairs both loops hold, `(0, 0)` (`p`
+    /// holds `(1, 1)`, `q` holds `(1, 0)`).
     #[test]
-    fn a_one_vertex_fibre_whose_loops_share_an_image_takes_their_equaliser() {
+    fn loops_carried_to_one_image_take_the_intersection_of_their_pairs() {
         let inst = FInstance::new()
             .with_table("a", blank(2))
             .and_then(|f| {
@@ -2027,7 +1471,7 @@ mod tests {
         let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
         assert_eq!(
             pi.table("t").map(crate::functor::Table::ids),
-            Some(vec![RowId(0)])
+            Some(vec![RowId(0), RowId(1)])
         );
         assert_eq!(
             pi.pairs(&loop_on("t", "p")),
@@ -2036,8 +1480,8 @@ mod tests {
     }
 
     /// A one-vertex fibre with one loop sent to the identity and one carried
-    /// to a loop: the limit is the rows the identity loop fixes, at every
-    /// iterate of the carried loop, each fixed by the one before.
+    /// to a loop: the table of `t` is the rows the identity loop relates to
+    /// themselves, and the carried loop travels with its pairs.
     #[test]
     fn a_carried_loop_beside_a_loop_sent_to_the_identity_takes_the_limit() {
         let inst = FInstance::new()
@@ -2065,10 +1509,10 @@ mod tests {
     }
 
     /// Two edges `e1: a1 -> b1` and `e2: a2 -> b2` merged into one edge
-    /// `E: m1 -> m2`. `Pi(E)` sends `(x1, x2)` to `(e1 x1, e2 x2)`, so two
-    /// product rows are related exactly when both components are: the
-    /// relation is the intersection of the edges' fan-outs, not their union,
-    /// and a carried edge without pairs empties it.
+    /// `E: m1 -> m2`: two product rows are related exactly when both
+    /// components are, so the relation is the intersection of the edges'
+    /// fan-outs, not their union, and a carried edge without pairs empties
+    /// it.
     #[test]
     fn merged_edges_relate_product_rows_componentwise() {
         let edge = |src: &str, tgt: &str| Edge {
@@ -2340,10 +1784,11 @@ mod tests {
     }
 
     /// Two components of one fibre carried along the same target edge into
-    /// one component: `Pi_F(m1)` is the pullback `I(a1) x_{I(b)} I(a2)`, so
-    /// only the rows whose components meet the same row of `b` survive.
+    /// one component: the table of `m1` is the product `I(a1) x I(a2)`, and
+    /// `E` holds a pair `(x, y)` exactly when both `e1` and `e2` hold the
+    /// pairs of `x`'s components at `y`'s row of `b`.
     #[test]
-    fn edges_meeting_in_a_target_fibre_take_the_pullback() {
+    fn edges_carried_to_one_image_relate_where_both_hold() {
         // a1 holds 0, 1; a2 holds 2, 3; b holds 4, 5.
         let inst = FInstance::new()
             .with_table("a1", blank(2))
@@ -2370,26 +1815,27 @@ mod tests {
             ],
         );
         let (pi, projections) = run_pi(&inst, &migration, &[], 100).unwrap();
-        // The two surviving rows are fresh, 6 = (0, 2) and 7 = (1, 3); `b`
-        // keeps its ids.
+        // m1's rows are fresh: 6 = (0, 2), 7 = (0, 3), 8 = (1, 2),
+        // 9 = (1, 3); `b` keeps its ids.
         assert_eq!(
             drawn(&pi, &projections, "m1", "a1"),
-            vec![(RowId(6), RowId(0)), (RowId(7), RowId(1))]
-        );
-        assert_eq!(
-            drawn(&pi, &projections, "m1", "a2"),
-            vec![(RowId(6), RowId(2)), (RowId(7), RowId(3))]
+            vec![
+                (RowId(6), RowId(0)),
+                (RowId(7), RowId(0)),
+                (RowId(8), RowId(1)),
+                (RowId(9), RowId(1))
+            ]
         );
         assert_eq!(
             pi.pairs(&fk("m1", "m2", "E")),
-            &BTreeSet::from([(RowId(6), RowId(4)), (RowId(7), RowId(5))])
+            &BTreeSet::from([(RowId(6), RowId(4)), (RowId(9), RowId(5))])
         );
     }
 
-    /// Two parallel edges merged into one: `Pi_F(m1)` is their equaliser,
-    /// the rows of `a` both edges send to the same row of `b`.
+    /// Two parallel edges carried to one: the table of `m1` is `a`'s, and
+    /// `E` holds the pairs both edges hold.
     #[test]
-    fn parallel_edges_merged_into_one_take_the_equaliser() {
+    fn parallel_edges_carried_to_one_take_the_intersection() {
         // a holds 0, 1; b holds 2, 3.
         let inst = FInstance::new()
             .with_table("a", blank(2))
@@ -2417,7 +1863,7 @@ mod tests {
         let (pi, _) = run_pi(&inst, &migration, &[], 100).unwrap();
         assert_eq!(
             pi.table("m1").map(crate::functor::Table::ids),
-            Some(vec![RowId(0)])
+            Some(vec![RowId(0), RowId(1)])
         );
         assert_eq!(
             pi.pairs(&fk("m1", "m2", "E")),
@@ -2425,11 +1871,11 @@ mod tests {
         );
     }
 
-    /// A target edge with no preimage between two image vertices: the comma
-    /// category `m1/F` holds `(b, E)` as well as `(a, id)`, so `Pi_F(m1)` is
-    /// `I(a) x I(b)` and `E` sends each row to its `b` component.
+    /// A target edge no edge is carried to, between two image vertices:
+    /// nothing constrains it, so it holds every pair of rows, and the tables
+    /// at its ends are their fibres' own.
     #[test]
-    fn a_target_only_edge_adds_its_codomain_as_a_factor() {
+    fn a_target_only_edge_holds_every_pair_of_rows() {
         // a holds 0; b holds 1, 2.
         let inst = FInstance::new()
             .with_table("a", blank(1))
@@ -2437,38 +1883,48 @@ mod tests {
             .unwrap();
         let migration = migration_of(&[("a", "m1"), ("b", "m2")], &[]);
         let edge = fk("m1", "m2", "E");
-        let (pi, projections) =
-            pi_with_target_edges(&inst, &migration, std::slice::from_ref(&edge)).unwrap();
+        let (pi, _) = pi_with_target_edges(&inst, &migration, std::slice::from_ref(&edge)).unwrap();
         assert_eq!(
-            drawn(&pi, &projections, "m1", "a"),
-            vec![(RowId(3), RowId(0)), (RowId(4), RowId(0))]
+            pi.table("m1").map(crate::functor::Table::ids),
+            Some(vec![RowId(0)])
         );
         assert_eq!(
             pi.pairs(&edge),
-            &BTreeSet::from([(RowId(3), RowId(1)), (RowId(4), RowId(2))])
+            &BTreeSet::from([(RowId(0), RowId(1)), (RowId(0), RowId(2))])
         );
     }
 
-    /// A target-only loop on an image vertex whose fibre holds two rows: the
-    /// comma category holds an object for every iterate of the loop, each
-    /// unconstrained, so `Pi_F(m)` is an infinite product and Pi refuses it
-    /// as a product larger than any bound.
+    /// A target-only loop over two rows holds all four pairs; with a bound
+    /// below four, Pi refuses the pairs as a product too large, at the
+    /// loop's vertex.
     #[test]
-    fn a_target_only_loop_over_two_rows_is_an_infinite_limit() {
+    fn a_target_only_loop_holds_every_pair_of_rows_up_to_the_bound() {
         let inst = FInstance::new().with_table("a", blank(2)).unwrap();
         let migration = migration_of(&[("a", "m")], &[]);
-        let err = pi_with_target_edges(&inst, &migration, &[loop_on("m", "L")]).unwrap_err();
+        let (pi, _) = pi_with_target_edges(&inst, &migration, &[loop_on("m", "L")]).unwrap();
+        assert_eq!(
+            pi.pairs(&loop_on("m", "L")),
+            &BTreeSet::from([
+                (RowId(0), RowId(0)),
+                (RowId(0), RowId(1)),
+                (RowId(1), RowId(0)),
+                (RowId(1), RowId(1))
+            ])
+        );
+        let src = make_test_schema(&[], &[]);
+        let tgt = make_test_schema(&[], &[loop_on("m", "L")]);
+        let err = functor_pi(&inst, &src, &tgt, &migration, 3).unwrap_err();
         assert!(
-            matches!(&err, RestrictError::ProductSizeExceeded { vertex, actual: usize::MAX, limit: 100 } if vertex == "m"),
+            matches!(&err, RestrictError::ProductSizeExceeded { vertex, actual: 4, limit: 3 } if vertex == "m"),
             "{err:?}"
         );
     }
 
     /// A carried edge into one component of a two-vertex target fibre: the
-    /// other component `b2` is reached along `E` too, so `Pi_F(m1)` is
-    /// `I(a) x I(b2)` and `E` stays a function.
+    /// table of `m2` is `I(b) x I(b2)`, and `E` relates `a`'s row to every
+    /// tuple whose `b` row the edge holds, whatever its `b2` row.
     #[test]
-    fn a_carried_edge_into_one_component_reaches_the_others() {
+    fn a_carried_edge_into_one_component_relates_every_tuple_holding_its_row() {
         // a holds 0; b holds 1; b2 holds 2, 3.
         let inst = FInstance::new()
             .with_table("a", blank(1))
@@ -2481,30 +1937,160 @@ mod tests {
             &[(fk("a", "b", "e"), fk("m1", "m2", "E"))],
         );
         let (pi, projections) = run_pi(&inst, &migration, &[], 100).unwrap();
-        // m1's rows are 4 and 5, m2's 6 = (1, 2) and 7 = (1, 3).
-        assert_eq!(
-            drawn(&pi, &projections, "m1", "a"),
-            vec![(RowId(4), RowId(0)), (RowId(5), RowId(0))]
-        );
+        // m1 keeps a's row 0; m2's rows are 4 = (1, 2) and 5 = (1, 3).
         assert_eq!(
             drawn(&pi, &projections, "m2", "b2"),
-            vec![(RowId(6), RowId(2)), (RowId(7), RowId(3))]
+            vec![(RowId(4), RowId(2)), (RowId(5), RowId(3))]
         );
         assert_eq!(
             pi.pairs(&fk("m1", "m2", "E")),
-            &BTreeSet::from([(RowId(4), RowId(6)), (RowId(5), RowId(7))])
+            &BTreeSet::from([(RowId(0), RowId(4)), (RowId(0), RowId(5))])
         );
     }
 
-    /// A brute-force oracle for `Pi_F` over acyclic targets: it lists the
-    /// comma category `d/F` object by object and enumerates its cones.
+    // --- foreign keys are relations: Pi on the typed-graph category ---
+
+    /// The identity migration on `vertices`, every listed edge surviving,
+    /// against one schema declaring those edges.
+    fn identity_pi(
+        inst: &FInstance,
+        vertices: &[&str],
+        edges: &[Edge],
+    ) -> Result<(FInstance, BTreeMap<Name, FInstanceHom>), RestrictError> {
+        let mut migration =
+            migration_of(&vertices.iter().map(|&v| (v, v)).collect::<Vec<_>>(), &[]);
+        migration.surviving_edges = edges.iter().cloned().collect();
+        let schema = make_test_schema(vertices, edges);
+        functor_pi_with_hom(inst, &schema, &schema, &migration, 100)
+    }
+
+    /// Pi along the identity is the identity on a foreign key that is
+    /// partial (post 3 has no author) and many-valued (post 4 has two).
+    #[test]
+    fn pi_along_the_identity_keeps_a_partial_and_many_valued_foreign_key() {
+        let author = fk("post", "user", "author");
+        let inst = FInstance::new()
+            .with_rows("user", [(RowId(0), Row::new()), (RowId(1), Row::new())])
+            .and_then(|f| {
+                f.with_rows(
+                    "post",
+                    [
+                        (RowId(2), Row::new()),
+                        (RowId(3), Row::new()),
+                        (RowId(4), Row::new()),
+                    ],
+                )
+            })
+            .and_then(|f| {
+                f.with_foreign_key(
+                    author.clone(),
+                    [
+                        (RowId(2), RowId(0)),
+                        (RowId(4), RowId(0)),
+                        (RowId(4), RowId(1)),
+                    ],
+                )
+            })
+            .unwrap();
+        let (pi, _) = identity_pi(&inst, &["post", "user"], &[author]).unwrap();
+        assert_eq!(pi, inst);
+    }
+
+    /// Pi along the identity keeps an org chart whose root has no manager:
+    /// a nullable self-reference empties nothing.
+    #[test]
+    fn pi_along_the_identity_keeps_a_nullable_self_reference() {
+        let manager = fk("emp", "emp", "manager");
+        let inst = FInstance::new()
+            .with_table("emp", blank(4))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    manager.clone(),
+                    [
+                        (RowId(1), RowId(0)),
+                        (RowId(2), RowId(0)),
+                        (RowId(3), RowId(1)),
+                    ],
+                )
+            })
+            .unwrap();
+        let (pi, _) = identity_pi(&inst, &["emp"], &[manager]).unwrap();
+        assert_eq!(pi, inst);
+    }
+
+    /// The fibre tuples of every row of `vertex`: for each row, the row of
+    /// each fibre component it projects to, by component name.
+    fn tuples(
+        pi: &FInstance,
+        projections: &BTreeMap<Name, FInstanceHom>,
+        vertex: &str,
+    ) -> BTreeSet<Vec<(Name, RowId)>> {
+        pi.rows(vertex)
+            .into_iter()
+            .map(|(id, _)| {
+                projections
+                    .iter()
+                    .filter_map(|(component, hom)| {
+                        hom.row_map.get(&id).map(|&row| (component.clone(), row))
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    /// Adding a row to the input never removes a row of the output: a
+    /// target vertex whose fibre gains its first row is no longer read
+    /// differently from one that held rows all along.
+    #[test]
+    fn pi_is_monotone_when_a_fibre_gains_its_first_row() {
+        // A target edge with no preimage between m1 and the two-vertex
+        // fibre {b1, b2} of m2.
+        let migration = migration_of(&[("a", "m1"), ("b1", "m2"), ("b2", "m2")], &[]);
+        let edge = fk("m1", "m2", "E");
+        let i = FInstance::new().with_table("a", blank(1)).unwrap();
+        let j = i.clone().with_table("b1", blank(1)).unwrap();
+        let (pi_i, proj_i) =
+            pi_with_target_edges(&i, &migration, std::slice::from_ref(&edge)).unwrap();
+        let (pi_j, proj_j) =
+            pi_with_target_edges(&j, &migration, std::slice::from_ref(&edge)).unwrap();
+        for vertex in ["m1", "m2"] {
+            assert!(
+                tuples(&pi_i, &proj_i, vertex).is_subset(&tuples(&pi_j, &proj_j, vertex)),
+                "{vertex}: {:?} then {:?}",
+                tuples(&pi_i, &proj_i, vertex),
+                tuples(&pi_j, &proj_j, vertex)
+            );
+        }
+
+        // A carried edge e: a -> b, and a row of a with no e pair.
+        let carried = migration_of(
+            &[("a", "m1"), ("b", "m2")],
+            &[(fk("a", "b", "e"), fk("m1", "m2", "E"))],
+        );
+        let j = i.clone().with_table("b", blank(1)).unwrap();
+        let (pi_i, proj_i) = run_pi(&i, &carried, &[], 100).unwrap();
+        let (pi_j, proj_j) = run_pi(&j, &carried, &[], 100).unwrap();
+        for vertex in ["m1", "m2"] {
+            assert!(
+                tuples(&pi_i, &proj_i, vertex).is_subset(&tuples(&pi_j, &proj_j, vertex)),
+                "{vertex}: {:?} then {:?}",
+                tuples(&pi_i, &proj_i, vertex),
+                tuples(&pi_j, &proj_j, vertex)
+            );
+        }
+    }
+
+    /// A brute-force oracle for `Pi_F`: it lists the comma category `d/F`
+    /// of every target object `d` of the typed-graph category, object by
+    /// object, and enumerates the cones.
     mod limit_oracle {
-        use std::collections::{BTreeMap, HashMap};
+        use std::collections::{BTreeMap, BTreeSet};
 
         use proptest::prelude::*;
 
-        use super::{blank, fk, make_test_schema};
+        use super::{blank, fk, make_test_schema, tuples};
         use crate::functor::FInstance;
+        use crate::instance_hom::FInstanceHom;
         use crate::view_ref::RowId;
         use crate::wtype::CompiledMigration;
         use panproto_gat::Name;
@@ -2525,8 +2111,8 @@ mod tests {
 
         /// A case: the instance, the migration, the vertex map, the source
         /// edges sent to the identity, the carried edges with their images
-        /// and every target edge. Target vertex `ti` only has edges to `tj`
-        /// with `i < j`, so every comma category is finite.
+        /// and every target edge. Target edges may form cycles and loops,
+        /// and a target vertex may lie outside the image.
         struct Case {
             inst: FInstance,
             migration: CompiledMigration,
@@ -2534,6 +2120,38 @@ mod tests {
             internal: Vec<Edge>,
             carried: Vec<(Edge, Edge)>,
             target_edges: Vec<Edge>,
+        }
+
+        /// The source vertices of each image vertex, ascending.
+        fn fibres(case: &Case) -> BTreeMap<String, Vec<String>> {
+            let mut fibres: BTreeMap<String, Vec<String>> = BTreeMap::new();
+            for (src, tgt) in &case.vertex_map {
+                fibres.entry(tgt.clone()).or_default().push(src.clone());
+            }
+            fibres
+        }
+
+        /// Random pairs between the rows of `a` and `b`: a total function
+        /// (each row of `a` to one row of `b`) or, one time in two, a
+        /// relation (each pair kept with probability one half).
+        fn random_pairs(r: &mut Lcg, inst: &FInstance, a: &str, b: &str) -> Vec<(RowId, RowId)> {
+            let ids =
+                |v: &str| -> Vec<RowId> { inst.rows(v).into_iter().map(|(id, _)| id).collect() };
+            let (srcs, tgts) = (ids(a), ids(b));
+            let relation = r.below(2) == 0;
+            let mut pairs = Vec::new();
+            for &s in &srcs {
+                if relation {
+                    for &t in &tgts {
+                        if r.below(2) == 0 {
+                            pairs.push((s, t));
+                        }
+                    }
+                } else if !tgts.is_empty() {
+                    pairs.push((s, tgts[r.below(tgts.len())]));
+                }
+            }
+            pairs
         }
 
         fn case(seed: u64) -> Case {
@@ -2547,45 +2165,24 @@ mod tests {
                 vertex_map.insert(name.clone(), format!("t{}", r.below(targets)));
                 inst = inst.with_table(name, blank(r.below(3))).unwrap();
             }
-            let index = |t: &str| t[1..].parse::<usize>().unwrap();
             let (mut internal, mut carried) = (Vec::new(), Vec::new());
             for k in 0..r.below(5) {
                 let a = format!("s{}", r.below(sources));
                 let b = format!("s{}", r.below(sources));
                 let (ta, tb) = (vertex_map[&a].clone(), vertex_map[&b].clone());
                 let edge = fk(&a, &b, &format!("e{k}"));
-                if ta == tb {
+                if ta == tb && r.below(2) == 0 {
                     internal.push(edge.clone());
-                } else if index(&ta) < index(&tb) {
-                    carried.push((edge.clone(), fk(&ta, &tb, &format!("E{}", r.below(2)))));
                 } else {
-                    continue;
+                    carried.push((edge.clone(), fk(&ta, &tb, &format!("E{}", r.below(2)))));
                 }
-                let ids = |v: &str| -> Vec<RowId> {
-                    inst.rows(v).into_iter().map(|(id, _)| id).collect()
-                };
-                let (srcs, tgts) = (ids(&a), ids(&b));
-                let mut pairs = Vec::new();
-                let relation = r.below(4) == 0;
-                for &s in &srcs {
-                    if relation {
-                        for &t in &tgts {
-                            if r.below(2) == 0 {
-                                pairs.push((s, t));
-                            }
-                        }
-                    } else if !tgts.is_empty() {
-                        pairs.push((s, tgts[r.below(tgts.len())]));
-                    }
-                }
+                let pairs = random_pairs(&mut r, &inst, &a, &b);
                 inst = inst.with_foreign_key(edge, pairs).unwrap();
             }
             let mut target_edges: Vec<Edge> = carried.iter().map(|(_, e)| e.clone()).collect();
             for k in 0..r.below(3) {
                 let (i, j) = (r.below(targets), r.below(targets));
-                if i < j {
-                    target_edges.push(fk(&format!("t{i}"), &format!("t{j}"), &format!("X{k}")));
-                }
+                target_edges.push(fk(&format!("t{i}"), &format!("t{j}"), &format!("X{k}")));
             }
             target_edges.sort_unstable();
             target_edges.dedup();
@@ -2607,6 +2204,21 @@ mod tests {
                 carried,
                 target_edges,
             }
+        }
+
+        /// Pi on a case, against schemas declaring its source and target
+        /// edges.
+        fn pi_of(case: &Case, inst: &FInstance) -> (FInstance, BTreeMap<Name, FInstanceHom>) {
+            let mut src_edges = case.internal.clone();
+            src_edges.extend(case.carried.iter().map(|(e, _)| e.clone()));
+            super::functor_pi_with_hom(
+                inst,
+                &make_test_schema(&[], &src_edges),
+                &make_test_schema(&[], &case.target_edges),
+                &case.migration,
+                1_000_000,
+            )
+            .unwrap()
         }
         /// The assignments of a row of its domain to every object that
         /// relate the rows at the two ends of every arrow, found object by
@@ -2656,82 +2268,44 @@ mod tests {
             cones
         }
 
-        /// Every path of `edges` out of `d` with the vertex it ends at, the
-        /// empty path first; finite since the edges go up in index.
-        fn paths_from(d: &str, edges: &[Edge]) -> Vec<(Vec<Edge>, String)> {
-            let mut paths: Vec<(Vec<Edge>, String)> = vec![(Vec::new(), d.to_owned())];
-            let mut next = 0;
-            while next < paths.len() {
-                let (path, end) = paths[next].clone();
-                for edge in edges.iter().filter(|e| *e.src == *end) {
-                    let mut longer = path.clone();
-                    longer.push(edge.clone());
-                    paths.push((longer, edge.tgt.to_string()));
-                }
-                next += 1;
-            }
-            paths
+        /// The objects of a comma category that hold rows: a source vertex
+        /// with the arrow of the target reaching it (`"id"`, `"src"` or
+        /// `"tgt"`), and the edge objects as constraints between two of
+        /// them, the pair `(i, j)` the foreign key `e` must hold.
+        struct Comma {
+            objects: Vec<(String, &'static str)>,
+            arrows: Vec<(usize, usize, Edge)>,
         }
 
-        /// A root tuple: the row a cone draws from each fibre component.
-        type Tuple = Vec<RowId>;
-
-        /// The oracle's cones at every target vertex whose fibre holds rows:
-        /// for each, the cones as their root tuple and, per target edge out
-        /// of the vertex into such a vertex, the tuple at the end of that
-        /// edge. `None` when a vertex's naive search space is too large.
-        #[allow(clippy::type_complexity)]
-        fn oracle(case: &Case) -> Option<BTreeMap<String, Vec<(Tuple, BTreeMap<Edge, Tuple>)>>> {
-            let mut fibres: BTreeMap<String, Vec<String>> = BTreeMap::new();
-            for (src, tgt) in &case.vertex_map {
-                fibres.entry(tgt.clone()).or_default().push(src.clone());
+        impl Comma {
+            fn at(&self, vertex: &str, arrow: &'static str) -> usize {
+                self.objects
+                    .iter()
+                    .position(|(c, p)| c == vertex && *p == arrow)
+                    .unwrap()
             }
-            let holds = |w: &str| {
-                fibres
-                    .get(w)
-                    .is_some_and(|f| f.iter().any(|c| case.inst.row_count(c) > 0))
-            };
-            let mut result = BTreeMap::new();
-            for d in fibres.keys().filter(|d| holds(d)) {
-                let paths = paths_from(d, &case.target_edges);
-                let path_index: HashMap<Vec<Edge>, usize> = paths
-                    .iter()
-                    .enumerate()
-                    .map(|(i, (p, _))| (p.clone(), i))
-                    .collect();
-                // Objects (c, p) at the paths whose end holds rows.
-                let mut objects: Vec<(String, usize)> = Vec::new();
-                for (i, (_, end)) in paths.iter().enumerate() {
-                    if holds(end) {
-                        for c in &fibres[end] {
-                            objects.push((c.clone(), i));
-                        }
-                    }
+
+            /// Add the vertices and internal arrows of `fibre`, reached
+            /// along `arrow`.
+            fn add_fibre(&mut self, case: &Case, fibre: &[String], arrow: &'static str) {
+                for c in fibre {
+                    self.objects.push((c.clone(), arrow));
                 }
-                let object_index: HashMap<(String, usize), usize> = objects
+                for e in case
+                    .internal
                     .iter()
-                    .enumerate()
-                    .map(|(i, o)| (o.clone(), i))
-                    .collect();
-                let mut arrows: Vec<(usize, usize, Edge)> = Vec::new();
-                for (i, (c, p)) in objects.iter().enumerate() {
-                    for e in case.internal.iter().filter(|e| *e.src == **c) {
-                        arrows.push((i, object_index[&(e.tgt.to_string(), *p)], e.clone()));
-                    }
-                    for (e, image) in case.carried.iter().filter(|(e, _)| *e.src == **c) {
-                        let mut longer = paths[*p].0.clone();
-                        longer.push(image.clone());
-                        if let Some(&j) = path_index
-                            .get(&longer)
-                            .and_then(|q| object_index.get(&(e.tgt.to_string(), *q)))
-                        {
-                            arrows.push((i, j, e.clone()));
-                        }
-                    }
+                    .filter(|e| fibre.contains(&e.src.to_string()))
+                {
+                    let (i, j) = (self.at(&e.src, arrow), self.at(&e.tgt, arrow));
+                    self.arrows.push((i, j, e.clone()));
                 }
-                let domains: Vec<Vec<RowId>> = objects
+            }
+
+            fn cones(&self, inst: &FInstance) -> Option<Vec<Vec<RowId>>> {
+                let domains: Vec<Vec<RowId>> = self
+                    .objects
                     .iter()
-                    .map(|(c, _)| case.inst.rows(c).into_iter().map(|(id, _)| id).collect())
+                    .map(|(c, _)| inst.rows(c).into_iter().map(|(id, _)| id).collect())
                     .collect();
                 let bound = domains
                     .iter()
@@ -2739,105 +2313,175 @@ mod tests {
                 if bound.is_none_or(|b| b > 50_000) {
                     return None;
                 }
-                let cones = enumerate_cones(&case.inst, &domains, &arrows);
-                let fibre = &fibres[d];
-                let at =
-                    |cone: &Vec<RowId>, c: &String, p: usize| cone[object_index[&(c.clone(), p)]];
-                let listed = cones
+                Some(enumerate_cones(inst, &domains, &self.arrows))
+            }
+        }
+
+        /// A tuple of a vertex: the row drawn from each fibre component.
+        type Tuple = Vec<(Name, RowId)>;
+
+        /// The oracle's limit: at each image vertex the tuples of its cones,
+        /// and at each target edge between image vertices the pairs of
+        /// tuples of its cones. `None` when a naive search space is too
+        /// large.
+        struct Limit {
+            vertices: BTreeMap<String, BTreeSet<Tuple>>,
+            edges: BTreeMap<Edge, BTreeSet<(Tuple, Tuple)>>,
+        }
+
+        fn oracle(case: &Case, inst: &FInstance) -> Option<Limit> {
+            let fibres = fibres(case);
+            let tuple = |comma: &Comma, cone: &[RowId], fibre: &[String], arrow| -> Tuple {
+                fibre
+                    .iter()
+                    .map(|c| (Name::from(c.as_str()), cone[comma.at(c, arrow)]))
+                    .collect()
+            };
+            let mut vertices = BTreeMap::new();
+            for (d, fibre) in &fibres {
+                let mut comma = Comma {
+                    objects: Vec::new(),
+                    arrows: Vec::new(),
+                };
+                comma.add_fibre(case, fibre, "id");
+                let cones = comma.cones(inst)?;
+                let listed: BTreeSet<Tuple> = cones
+                    .iter()
+                    .map(|cone| tuple(&comma, cone, fibre, "id"))
+                    .collect();
+                // The fibre tuples tell the cones apart: a foreign key is a
+                // set, so a cone has one witness per edge object.
+                assert_eq!(listed.len(), cones.len());
+                vertices.insert(d.clone(), listed);
+            }
+            let mut edges = BTreeMap::new();
+            for edge in &case.target_edges {
+                let (Some(from), Some(to)) = (
+                    fibres.get(&edge.src.to_string()),
+                    fibres.get(&edge.tgt.to_string()),
+                ) else {
+                    continue;
+                };
+                let mut comma = Comma {
+                    objects: Vec::new(),
+                    arrows: Vec::new(),
+                };
+                comma.add_fibre(case, from, "src");
+                comma.add_fibre(case, to, "tgt");
+                for (e, _) in case.carried.iter().filter(|(_, image)| image == edge) {
+                    let (i, j) = (comma.at(&e.src, "src"), comma.at(&e.tgt, "tgt"));
+                    comma.arrows.push((i, j, e.clone()));
+                }
+                let cones = comma.cones(inst)?;
+                let listed: BTreeSet<(Tuple, Tuple)> = cones
                     .iter()
                     .map(|cone| {
-                        let root: Tuple = fibre.iter().map(|c| at(cone, c, 0)).collect();
-                        let ends = case
-                            .target_edges
-                            .iter()
-                            .filter(|e| *e.src == **d && holds(&e.tgt))
-                            .map(|e| {
-                                let p = path_index[&vec![e.clone()]];
-                                let tuple = fibres[&e.tgt.to_string()]
-                                    .iter()
-                                    .map(|c| at(cone, c, p))
-                                    .collect();
-                                (e.clone(), tuple)
-                            })
-                            .collect();
-                        (root, ends)
+                        (
+                            tuple(&comma, cone, from, "src"),
+                            tuple(&comma, cone, to, "tgt"),
+                        )
                     })
                     .collect();
-                result.insert(d.clone(), listed);
+                assert_eq!(listed.len(), cones.len());
+                edges.insert(edge.clone(), listed);
             }
-            Some(result)
+            Some(Limit { vertices, edges })
+        }
+
+        /// Pi's result read the oracle's way: the tuples of each vertex
+        /// and the pairs of tuples of each target edge between image
+        /// vertices.
+        fn observed(case: &Case, inst: &FInstance) -> Limit {
+            let (pi, projections) = pi_of(case, inst);
+            let fibres = fibres(case);
+            let tuple_of = |id: RowId| -> Tuple {
+                projections
+                    .iter()
+                    .filter_map(|(c, hom)| hom.row_map.get(&id).map(|&row| (c.clone(), row)))
+                    .collect()
+            };
+            let vertices = fibres
+                .keys()
+                .map(|d| (d.clone(), tuples(&pi, &projections, d)))
+                .collect();
+            let edges = case
+                .target_edges
+                .iter()
+                .filter(|e| {
+                    fibres.contains_key(&e.src.to_string())
+                        && fibres.contains_key(&e.tgt.to_string())
+                })
+                .map(|e| {
+                    let pairs = pi
+                        .pairs(e)
+                        .iter()
+                        .map(|&(x, y)| (tuple_of(x), tuple_of(y)))
+                        .collect();
+                    (e.clone(), pairs)
+                })
+                .collect();
+            Limit { vertices, edges }
+        }
+
+        /// `J`: `I` with more rows and more pairs on its foreign keys.
+        fn grown(case: &Case, seed: u64) -> FInstance {
+            let mut r = Lcg(seed);
+            let mut j = case.inst.clone();
+            for c in case.vertex_map.keys() {
+                j = j.with_table(c.as_str(), blank(r.below(2))).unwrap();
+            }
+            let mut edges: Vec<Edge> = case.internal.clone();
+            edges.extend(case.carried.iter().map(|(e, _)| e.clone()));
+            for e in edges {
+                let fresh: Vec<(RowId, RowId)> = random_pairs(&mut r, &j, &e.src, &e.tgt)
+                    .into_iter()
+                    .filter(|&(s, t)| !j.contains_pair(&e, s, t))
+                    .collect();
+                j = j.with_foreign_key(e, fresh).unwrap();
+            }
+            j
         }
 
         proptest! {
             #![proptest_config(ProptestConfig::with_cases(2048))]
 
-            /// On every acyclic case, Pi's rows at each vertex are the
+            /// On every case, Pi's rows at each image vertex are the
             /// oracle's cones (compared by the rows they draw from the
-            /// fibre), each target edge between tables is a function, and
-            /// it sends each cone to the cone the oracle restricts it to.
+            /// fibre), and the pairs of each target edge between image
+            /// vertices are the oracle's cones at that edge; a vertex
+            /// outside the image has no table.
             #[test]
             fn pi_is_the_limit_over_the_comma_category(seed in any::<u64>()) {
                 let case = case(seed);
-                let Some(expected) = oracle(&case) else {
+                let Some(expected) = oracle(&case, &case.inst) else {
                     return Ok(());
                 };
-                let mut src_edges = case.internal.clone();
-                src_edges.extend(case.carried.iter().map(|(e, _)| e.clone()));
-                let (pi, projections) = super::functor_pi_with_hom(
-                    &case.inst,
-                    &make_test_schema(&[], &src_edges),
-                    &make_test_schema(&[], &case.target_edges),
-                    &case.migration,
-                    1_000_000,
-                )
-                .unwrap();
-                let mut fibres: BTreeMap<String, Vec<String>> = BTreeMap::new();
-                for (src, tgt) in &case.vertex_map {
-                    fibres.entry(tgt.clone()).or_default().push(src.clone());
+                let got = observed(&case, &case.inst);
+                prop_assert_eq!(&got.vertices, &expected.vertices);
+                prop_assert_eq!(&got.edges, &expected.edges);
+                let (pi, _) = pi_of(&case, &case.inst);
+                let fibres = fibres(&case);
+                prop_assert!(pi.table_names().iter().all(|t| fibres.contains_key(&t.to_string())));
+            }
+
+            /// Pi is monotone: adding rows and pairs to the input keeps every
+            /// row and every pair of the output, read by the rows it draws.
+            #[test]
+            fn pi_is_monotone(seed in any::<u64>(), more in any::<u64>()) {
+                let case = case(seed);
+                let j = grown(&case, more);
+                let (before, after) = (observed(&case, &case.inst), observed(&case, &j));
+                for (d, rows) in &before.vertices {
+                    prop_assert!(rows.is_subset(&after.vertices[d]), "vertex {}", d);
                 }
-                let tuple = |id: RowId, vertex: &str| -> Vec<RowId> {
-                    fibres[vertex]
-                        .iter()
-                        .map(|c| projections[&Name::from(c.as_str())].row_map[&id])
-                        .collect()
-                };
-                let mut tables: Vec<String> = pi.table_names().into_iter().map(ToString::to_string).collect();
-                tables.sort_unstable();
-                let mut nonempty: Vec<String> = expected
-                    .iter()
-                    .filter(|(_, cones)| !cones.is_empty())
-                    .map(|(d, _)| d.clone())
-                    .collect();
-                nonempty.sort_unstable();
-                prop_assert_eq!(tables, nonempty);
-                for (d, cones) in &expected {
-                    let mut want: Vec<(Tuple, BTreeMap<Edge, Tuple>)> = cones.clone();
-                    want.sort();
-                    let mut got: Vec<(Tuple, BTreeMap<Edge, Tuple>)> = Vec::new();
-                    // The target edges out of `d` into a vertex with a table.
-                    let out: Vec<&Edge> = case
-                        .target_edges
-                        .iter()
-                        .filter(|e| *e.src == **d && expected.contains_key(&e.tgt.to_string()))
-                        .collect();
-                    for (id, _) in pi.rows(d) {
-                        let mut ends = BTreeMap::new();
-                        for &edge in &out {
-                            let targets: Vec<RowId> = pi.targets_of(edge, id).collect();
-                            prop_assert_eq!(targets.len(), 1, "edge {:?} is a function at {:?}", edge, id);
-                            ends.insert(edge.clone(), tuple(targets[0], &edge.tgt));
-                        }
-                        got.push((tuple(id, d), ends));
-                    }
-                    got.sort();
-                    prop_assert_eq!(got, want, "vertex {}", d);
+                for (e, pairs) in &before.edges {
+                    prop_assert!(pairs.is_subset(&after.edges[e]), "edge {:?}", e);
                 }
             }
 
-            /// Along the identity of a schema with cycles and loops, Pi of an
-            /// instance whose foreign keys are total functions is that
-            /// instance, ids and pairs included: every cone is fixed by its
-            /// row at the empty path.
+            /// Along the identity of a schema with cycles and loops, Pi of
+            /// any instance is that instance, ids and pairs included, the
+            /// foreign keys partial, many-valued or total.
             #[test]
             fn pi_along_the_identity_of_a_cyclic_schema_is_the_identity(seed in any::<u64>()) {
                 let mut r = Lcg(seed);
@@ -2846,19 +2490,14 @@ mod tests {
                 let mut migration = CompiledMigration::default();
                 for i in 0..vertices {
                     let name = format!("s{i}");
-                    inst = inst.with_table(name.clone(), blank(1 + r.below(3))).unwrap();
+                    inst = inst.with_table(name.clone(), blank(r.below(4))).unwrap();
                     migration.surviving_verts.insert(name.as_str().into());
                 }
                 let mut edges = Vec::new();
                 for k in 0..r.below(5) {
                     let (a, b) = (format!("s{}", r.below(vertices)), format!("s{}", r.below(vertices)));
                     let edge = fk(&a, &b, &format!("e{k}"));
-                    let tgts: Vec<RowId> = inst.rows(&b).into_iter().map(|(id, _)| id).collect();
-                    let pairs: Vec<(RowId, RowId)> = inst
-                        .rows(&a)
-                        .into_iter()
-                        .map(|(id, _)| (id, tgts[r.below(tgts.len())]))
-                        .collect();
+                    let pairs = random_pairs(&mut r, &inst, &a, &b);
                     inst = inst.with_foreign_key(edge.clone(), pairs).unwrap();
                     migration.surviving_edges.insert(edge.clone());
                     edges.push(edge);

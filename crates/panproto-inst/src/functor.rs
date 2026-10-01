@@ -1059,12 +1059,16 @@ impl FInstance {
 ///
 /// # Errors
 ///
-/// Returns `RestrictError` if a row's op-to-term assignment fails to
-/// evaluate.
+/// Returns [`RestrictError::NoEdgeFound`], naming the images of the edge's
+/// endpoints, when the migration carries an edge to an image that does not
+/// join them (it states no functor, and the edge's pairs would otherwise be
+/// dropped unasked), and `RestrictError` if a row's op-to-term assignment
+/// fails to evaluate.
 pub fn functor_restrict(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
+    crate::adjunction::check_edge_endpoints(migration)?;
     let domain = crate::adjunction::source_vertices(migration);
     let mut out = FInstance::new();
     for (src_vertex, table) in instance.tables() {
@@ -1145,12 +1149,16 @@ pub fn functor_restrict(
 /// [`RestrictError::EdgeOutsideDomain`] when a pair lies on an edge the
 /// migration names only as a target, or on an unmentioned edge whose
 /// relabelling some other edge already reaches (of two unmentioned edges
-/// that collide, the later in edge order is named), and `RestrictError` if
-/// a row's op-to-term assignment fails to evaluate.
+/// that collide, the later in edge order is named),
+/// [`RestrictError::NoEdgeFound`], naming the images of the edge's
+/// endpoints, when the migration carries an edge to an image that does not
+/// join them (it states no functor), and `RestrictError` if a row's
+/// op-to-term assignment fails to evaluate.
 pub fn functor_extend(
     instance: &FInstance,
     migration: &CompiledMigration,
 ) -> Result<FInstance, RestrictError> {
+    crate::adjunction::check_edge_endpoints(migration)?;
     let domain = crate::adjunction::source_vertices(migration);
     let images: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
     let mut out = FInstance::new();
