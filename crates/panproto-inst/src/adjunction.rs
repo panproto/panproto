@@ -2894,6 +2894,13 @@ mod tests {
             [(ra, na), (rb, nb)]
         }
 
+        thread_local! {
+            /// The assignments the isomorphism search has tried on this
+            /// thread, so a test can bound its work.
+            pub(super) static ISO_WORK: std::cell::Cell<usize> =
+                const { std::cell::Cell::new(0) };
+        }
+
         /// The state of the isomorphism search: the rows and nulls of `a`
         /// assigned so far, with their inverses.
         struct Search<'s, 'x> {
@@ -2916,6 +2923,7 @@ mod tests {
             /// returns the nulls it fixed, or `None` (with nothing changed)
             /// when they do not.
             fn assign(&mut self, row: usize, target: usize) -> Option<Vec<u64>> {
+                ISO_WORK.with(|work| work.set(work.get().saturating_add(1)));
                 let (a, b) = (self.a, self.b);
                 if a.table[row] != b.table[target] || a.cells[row].len() != b.cells[target].len() {
                     return None;
@@ -5923,26 +5931,28 @@ mod tests {
                 }
             }
 
-            /// L5 on the generated cases whose Pi results hold the most rows
-            /// with equal cells: about `4e8` table-respecting row maps each,
-            /// which an isomorphism search that does not prune by
-            /// injectivity, by pairs and by twins cannot get through. Each
-            /// case must finish well inside the time the test runner allows
-            /// a test.
+            /// Renaming invariance on the generated cases whose Pi results
+            /// hold the most rows with equal cells: about `4e8`
+            /// table-respecting row maps each, which an isomorphism search
+            /// that does not prune by injectivity, by pairs and by twins
+            /// cannot get through. The assignments the search tries are
+            /// counted, so the bound does not depend on the machine's load.
+            /// The most assignments the isomorphism search may try for the
+            /// renaming laws at one case. At these seeds the Pi results
+            /// admit `9^9` table-respecting row maps, and the search tries
+            /// about a dozen assignments.
+            const ISO_WORK_BOUND: usize = 100;
+
             #[test]
             fn renaming_laws_finish_on_pi_results_with_many_equal_rows() {
                 for seed in [1606_u64, 1703, 1873, 2932, 3193] {
-                    let (done, finished) = std::sync::mpsc::channel();
-                    std::thread::spawn(move || {
-                        let case = case(seed);
-                        renaming_laws(&case.spec, &case.f, &case.i, &case.j, case.max);
-                        let _ = done.send(());
-                    });
+                    let case = case(seed);
+                    let before = oracle::ISO_WORK.with(std::cell::Cell::get);
+                    renaming_laws(&case.spec, &case.f, &case.i, &case.j, case.max);
+                    let work = oracle::ISO_WORK.with(std::cell::Cell::get) - before;
                     assert!(
-                        finished
-                            .recv_timeout(std::time::Duration::from_secs(30))
-                            .is_ok(),
-                        "the renaming laws at seed {seed} did not finish within 30 s"
+                        work <= ISO_WORK_BOUND,
+                        "{work} assignments tried for the renaming laws at seed {seed}"
                     );
                 }
             }
