@@ -14,7 +14,7 @@
 
 use std::path::PathBuf;
 
-use panproto_schema::InstanceShapeKind;
+use panproto_schema::{Edge, InstanceShapeKind};
 use serde::{Deserialize, Serialize};
 
 use super::{TestResult, label};
@@ -133,60 +133,8 @@ fn inputs() -> Vec<(&'static str, &'static str, Partition, GInstance)> {
             (2, 1, 22, member("theme"), None),
         ],
     );
-    let mut valued = Node::new(0, "a");
-    valued.value = Some(FieldPresence::Present(Value::Str("héllo".into())));
-    valued.extra_fields.insert("count".into(), Value::Int(-3));
-    valued
-        .extra_fields
-        .insert("ratio".into(), Value::Float(0.25));
-    valued.annotations.insert(
-        "note".into(),
-        Value::List(vec![Value::Bool(true), Value::Null]),
-    );
-    valued.position = Some(2);
-    let mut absent = Node::new(10, "a");
-    absent.value = Some(FieldPresence::Absent);
-    absent.discriminator = Some("kind".into());
-    let mut null = Node::new(11, "a");
-    null.value = Some(FieldPresence::Null);
-    null.extra_fields
-        .insert("bytes".into(), Value::Bytes(vec![0, 255, 7]));
-    let values = graph(
-        vec![valued, absent, null],
-        vec![(0, 0, 10, x.clone(), Some(1)), (1, 11, 0, x.clone(), None)],
-    );
-    let anchors = graph(
-        vec![
-            anchored(0, "person"),
-            anchored(1, "place"),
-            anchored(10, "event"),
-            anchored(20, "person"),
-        ],
-        vec![
-            (
-                0,
-                0,
-                10,
-                label("person", "event", "prop", Some("attends")),
-                None,
-            ),
-            (1, 10, 1, label("event", "place", "prop", Some("at")), None),
-            (
-                2,
-                10,
-                20,
-                label("event", "person", "prop", Some("host")),
-                None,
-            ),
-            (
-                3,
-                20,
-                0,
-                label("person", "person", "prop", Some("knows")),
-                None,
-            ),
-        ],
-    );
+    let values = values_instance(x);
+    let anchors = anchors_instance();
     vec![
         (
             "parallel_edges_across_a_boundary",
@@ -219,6 +167,70 @@ fn inputs() -> Vec<(&'static str, &'static str, Partition, GInstance)> {
             anchors,
         ),
     ]
+}
+
+/// The instance of `values_and_extra_fields_round_trip`: present, null and
+/// absent values, extra fields, annotations, a discriminator and positions.
+fn values_instance(x: Edge) -> GInstance {
+    let mut present = Node::new(0, "a");
+    present.value = Some(FieldPresence::Present(Value::Str("héllo".into())));
+    present.extra_fields.insert("count".into(), Value::Int(-3));
+    present
+        .extra_fields
+        .insert("ratio".into(), Value::Float(0.25));
+    present.annotations.insert(
+        "note".into(),
+        Value::List(vec![Value::Bool(true), Value::Null]),
+    );
+    present.position = Some(2);
+    let mut absent = Node::new(10, "a");
+    absent.value = Some(FieldPresence::Absent);
+    absent.discriminator = Some("kind".into());
+    let mut null = Node::new(11, "a");
+    null.value = Some(FieldPresence::Null);
+    null.extra_fields
+        .insert("bytes".into(), Value::Bytes(vec![0, 255, 7]));
+    graph(
+        vec![present, absent, null],
+        vec![(0, 0, 10, x.clone(), Some(1)), (1, 11, 0, x, None)],
+    )
+}
+
+/// The instance of `anchors_round_trip`: four anchors and four edge labels.
+fn anchors_instance() -> GInstance {
+    let anchored = |id: u32, anchor: &str| Node::new(id, anchor);
+    graph(
+        vec![
+            anchored(0, "person"),
+            anchored(1, "place"),
+            anchored(10, "event"),
+            anchored(20, "person"),
+        ],
+        vec![
+            (
+                0,
+                0,
+                10,
+                label("person", "event", "prop", Some("attends")),
+                None,
+            ),
+            (1, 10, 1, label("event", "place", "prop", Some("at")), None),
+            (
+                2,
+                10,
+                20,
+                label("event", "person", "prop", Some("host")),
+                None,
+            ),
+            (
+                3,
+                20,
+                0,
+                label("person", "person", "prop", Some("knows")),
+                None,
+            ),
+        ],
+    )
 }
 
 /// The directory of the fixtures.
@@ -346,8 +358,9 @@ fn check_property(name: &str, parts: &[AnySegment]) {
             );
         }
         "cycle_through_three_segments" => {
-            for i in 0..3 {
-                let record = parts[i].cross_out();
+            assert_eq!(parts.len(), 3);
+            for (i, part) in parts.iter().enumerate() {
+                let record = part.cross_out();
                 assert_eq!(
                     record.keys().copied().collect::<Vec<_>>(),
                     vec![SegmentId(u32::try_from((i + 1) % 3).unwrap_or(0))]

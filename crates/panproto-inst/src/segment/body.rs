@@ -224,6 +224,7 @@ impl AnySegment {
     }
 
     /// The reference of an owned node of this shape.
+    #[must_use]
     pub const fn node_ref(&self, id: u32) -> ViewRef {
         match self {
             Self::Table(_) => ViewRef::Row(RowId(id)),
@@ -232,6 +233,7 @@ impl AnySegment {
     }
 
     /// Every owned node (row) with its anchor (table), ascending by id.
+    #[must_use]
     pub fn node_anchors(&self) -> Vec<(u32, &Name)> {
         match self {
             Self::Tree(s) => s.nodes.iter().map(|(id, n)| (*id, &n.anchor)).collect(),
@@ -241,6 +243,7 @@ impl AnySegment {
     }
 
     /// The anchor of owned node `id`, if the segment holds it.
+    #[must_use]
     pub fn anchor_of(&self, id: u32) -> Option<&Name> {
         match self {
             Self::Tree(s) => s.nodes.get(&id).map(|n| &n.anchor),
@@ -250,6 +253,7 @@ impl AnySegment {
     }
 
     /// Every owned edge, in the segment's own order.
+    #[must_use]
     pub fn owned_edges(&self) -> Vec<OwnedEdge<'_>> {
         match self {
             Self::Graph(s) => s

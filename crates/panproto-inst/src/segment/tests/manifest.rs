@@ -140,7 +140,7 @@ fn the_caller_binding_is_covered_by_the_manifest_digest() -> TestResult {
     };
     assert_eq!(*named, source.digest());
     assert_ne!(*named, rebound.digest());
-    let mut view = source.clone();
+    let mut view = source;
     view.role = role.clone();
     let mut other = view.clone();
     other.role = ManifestRole::View {
@@ -428,7 +428,7 @@ fn a_modified_segment_fails_verify_segment() -> TestResult {
     assert!(verify_segment(&manifest, &moved).is_err());
     // A record whose content digest is right but whose other fields are
     // not: the segment no longer matches it.
-    let mut misrecorded = manifest.clone();
+    let mut misrecorded = manifest;
     misrecorded.segments[1].stats.payload_bytes += 1;
     let found = misrecorded.segments[1].leaf();
     misrecorded.segments[1].stats.payload_bytes -= 1;

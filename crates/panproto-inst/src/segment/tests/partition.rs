@@ -157,7 +157,7 @@ fn an_element_with_an_unowned_id_is_rejected() -> TestResult {
     let mut dangling = GInstance::new().with_node(Node::new(1, "a"));
     dangling.insert_node(Node::new(12, "a"))?;
     dangling.insert_edge(EdgeId(3), GEdge::new(1, 12, ab))?;
-    let mut narrowed = partition.clone();
+    let mut narrowed = partition;
     narrowed.specs[1].nodes = vec![IdRange { lo: 11, hi: 11 }];
     // Node 12 now has no owner; it is reported before any edge.
     assert_eq!(

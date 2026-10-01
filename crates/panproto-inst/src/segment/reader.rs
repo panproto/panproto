@@ -181,10 +181,7 @@ impl<'a> Reader<'a> {
         (0..n).map(|_| self.range(segment)).collect()
     }
 
-    pub fn opt_range(
-        &mut self,
-        segment: SegmentId,
-    ) -> Result<Option<IdRange>, SegmentError> {
+    pub fn opt_range(&mut self, segment: SegmentId) -> Result<Option<IdRange>, SegmentError> {
         if self.bool()? {
             self.range(segment).map(Some)
         } else {
@@ -210,10 +207,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub fn value_map(
-        &mut self,
-        depth: usize,
-    ) -> Result<HashMap<String, Value>, SegmentError> {
+    pub fn value_map(&mut self, depth: usize) -> Result<HashMap<String, Value>, SegmentError> {
         let n = self.count(9)?;
         let mut map = HashMap::with_capacity(n);
         let mut last: Option<String> = None;

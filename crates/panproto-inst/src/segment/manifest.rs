@@ -661,10 +661,12 @@ pub fn verify_manifest(manifest: &SegmentManifest) -> Result<(), SegmentError> {
     check_cross_pairs(&manifest.segments)
 }
 
-/// Verify one segment against its record in `manifest`: the segment keeps
-/// its own contract under the manifest's partition, its content digest
-/// under the manifest's schema is the recorded one, and every other field
-/// of its record (stats, largest ids, cross digests) is the one it yields.
+/// Verify one segment against its record in `manifest`.
+///
+/// The segment must keep its own contract under the manifest's partition,
+/// its content digest under the manifest's schema must be the recorded one,
+/// and every other field of its record (stats, largest ids, cross digests)
+/// must be the one it yields.
 ///
 /// # Errors
 ///

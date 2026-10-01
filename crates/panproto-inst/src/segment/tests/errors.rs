@@ -17,7 +17,7 @@ use crate::segment::{
 use crate::view_ref::{RowId, ViewRef};
 use panproto_schema::InstanceShapeKind;
 
-/// Round-trip `value` through JSON, MessagePack and CBOR, each giving back
+/// Round-trip `value` through JSON, `MessagePack` and CBOR, each giving back
 /// an equal value.
 fn round_trip<T: Serialize + DeserializeOwned + PartialEq + std::fmt::Debug>(
     value: &T,
@@ -35,12 +35,20 @@ fn round_trip<T: Serialize + DeserializeOwned + PartialEq + std::fmt::Debug>(
 
 /// One value of every [`SegmentError`] variant.
 fn every_segment_error() -> Vec<SegmentError> {
-    let s = SegmentId;
     let pair = ViewRef::Pair {
         edge: label("a", "b", "fk", None),
         src: RowId(1),
         tgt: RowId(2),
     };
+    let mut all = range_and_digest_errors(&pair);
+    all.extend(payload_errors(pair));
+    all
+}
+
+/// One value of every variant about ranges, ownership, digests and
+/// allocation.
+fn range_and_digest_errors(pair: &ViewRef) -> Vec<SegmentError> {
+    let s = SegmentId;
     vec![
         SegmentError::InvertedRange {
             segment: s(1),
@@ -99,6 +107,14 @@ fn every_segment_error() -> Vec<SegmentError> {
             edge: EdgeId(4),
             segment: s(0),
         },
+    ]
+}
+
+/// One value of every variant that carries a nested error or a payload, and
+/// of the structural variants.
+fn payload_errors(pair: ViewRef) -> Vec<SegmentError> {
+    let s = SegmentId;
+    vec![
         SegmentError::Invalid {
             violations: vec![
                 SegmentError::GhostMismatch { node: 1 },

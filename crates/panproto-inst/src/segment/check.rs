@@ -43,10 +43,7 @@ pub fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
 
 /// Every violation of segment `seg`'s own contract, each with the element it
 /// is about, in the order found.
-pub fn contract_violations(
-    seg: &AnySegment,
-    index: &OwnerIndex,
-) -> Vec<(ViewRef, SegmentError)> {
+pub fn contract_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
     let me = seg.segment();
     let mut out = Vec::new();
     // (a) owned nodes.
@@ -130,8 +127,19 @@ pub fn contract_violations(
             out.push((seg.node_ref(node), SegmentError::GhostMismatch { node }));
         }
     }
-    // (c) in-stubs.
-    for (key, stub) in &boundary.in_stubs {
+    out.extend(in_stub_violations(seg, index));
+    if let AnySegment::Tree(tree) = seg {
+        out.extend(tree_violations(tree, index));
+    }
+    out
+}
+
+/// The violations of (c): every in-stub's target is owned and held here, and
+/// its source owner is the source's owner and another segment.
+fn in_stub_violations(seg: &AnySegment, index: &OwnerIndex) -> Vec<(ViewRef, SegmentError)> {
+    let me = seg.segment();
+    let mut out = Vec::new();
+    for (key, stub) in &seg.boundary().in_stubs {
         if !stub_matches_key(key, stub) {
             out.push((
                 key.clone(),
@@ -156,9 +164,6 @@ pub fn contract_violations(
             ));
         }
     }
-    if let AnySegment::Tree(tree) = seg {
-        out.extend(tree_violations(tree, index));
-    }
     out
 }
 
@@ -178,11 +183,7 @@ fn stub_matches_key(key: &ViewRef, stub: &InStub) -> bool {
 /// The label a tree segment gives a fan edge: from the fan's hyper-edge to
 /// the target's anchor, of the parent kind with no name or of the label kind
 /// named by the child label.
-pub fn fan_edge_label(
-    hyper_edge: &str,
-    target_anchor: &str,
-    child_label: Option<&str>,
-) -> Edge {
+pub fn fan_edge_label(hyper_edge: &str, target_anchor: &str, child_label: Option<&str>) -> Edge {
     Edge {
         src: hyper_edge.into(),
         tgt: target_anchor.into(),
@@ -262,10 +263,7 @@ pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), 
 
 /// [`check_segment`] with the owner index already built and the segment
 /// known to be listed.
-pub fn check_segment_with(
-    segment: &AnySegment,
-    index: &OwnerIndex,
-) -> Result<(), SegmentError> {
+pub fn check_segment_with(segment: &AnySegment, index: &OwnerIndex) -> Result<(), SegmentError> {
     let mut violations = contract_violations(segment, index);
     if violations.is_empty() {
         return Ok(());
@@ -277,10 +275,7 @@ pub fn check_segment_with(
 }
 
 /// Check that the partition lists `segment` with its shape.
-pub fn check_listed(
-    segment: &AnySegment,
-    partition: &Partition,
-) -> Result<(), SegmentError> {
+pub fn check_listed(segment: &AnySegment, partition: &Partition) -> Result<(), SegmentError> {
     if segment.shape() != partition.shape {
         return Err(SegmentError::ShapeMismatch {
             expected: partition.shape,
@@ -306,10 +301,12 @@ pub fn arrange<'a>(
     for segment in segments {
         check_listed(segment, partition)?;
         let at = usize::try_from(segment.segment().0).unwrap_or(usize::MAX);
-        let slot = slots.get_mut(at).ok_or_else(|| SegmentError::MalformedPartition {
-            segment: segment.segment(),
-            defect: PartitionDefect::UnknownSegment,
-        })?;
+        let slot = slots
+            .get_mut(at)
+            .ok_or_else(|| SegmentError::MalformedPartition {
+                segment: segment.segment(),
+                defect: PartitionDefect::UnknownSegment,
+            })?;
         if slot.replace(segment).is_some() {
             return Err(SegmentError::MalformedPartition {
                 segment: segment.segment(),
@@ -480,11 +477,12 @@ fn tree_cross_violations(trees: &[&TreeSegment], index: &OwnerIndex) -> Vec<Loca
     out
 }
 
-/// Check the invariants of a whole set of segments under `partition`:
-/// every segment's own contract, the agreement of the ghost and in-stub
-/// copies of every crossing edge, the uniqueness of edge ids, and for trees
-/// that the parent relation over the boundary is a tree whose root reaches
-/// every node.
+/// Check the invariants of a whole set of segments under `partition`.
+///
+/// They are every segment's own contract, the agreement of the ghost and
+/// in-stub copies of every crossing edge, the uniqueness of edge ids, and
+/// for trees that the parent relation over the boundary is a tree whose
+/// root reaches every node.
 ///
 /// # Errors
 ///

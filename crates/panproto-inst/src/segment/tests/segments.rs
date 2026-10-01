@@ -282,48 +282,9 @@ fn invalid_segments_list_every_violation_sorted() -> TestResult {
     Ok(())
 }
 
-#[test]
-fn partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles() -> TestResult
-{
-    let (graph, partition) = three_segment_graph()?;
-    let segments: Vec<AnySegment> = partition_graph(&graph, &partition)?
-        .into_iter()
-        .map(AnySegment::Graph)
-        .collect();
-    assert_eq!(verify_partition(&segments, &partition), Ok(()));
-    // A ghost anchor that differs from its owner's node.
-    let mut tampered = segments.clone();
-    if let AnySegment::Graph(s) = &mut tampered[0] {
-        s.boundary.ghosts.insert(
-            2,
-            Ghost {
-                node: 2,
-                owner: SegmentId(1),
-                anchor: "b".into(),
-            },
-        );
-    }
-    assert_eq!(
-        verify_partition(&tampered, &partition),
-        Err(SegmentError::GhostMismatch { node: 2 })
-    );
-    // An edge id held by two segments.
-    let mut duplicated = segments.clone();
-    if let AnySegment::Graph(s) = &mut duplicated[2] {
-        s.edges.insert(
-            EdgeId(0),
-            GEdge::new(4, 5, label("a", "a", "prop", Some("x"))),
-        );
-    }
-    assert_eq!(
-        verify_partition(&duplicated, &partition),
-        Err(SegmentError::DuplicateEdgeId {
-            edge: EdgeId(0),
-            segments: vec![SegmentId(0), SegmentId(2)]
-        })
-    );
-    // A tree whose parent relation over the boundary has a cycle 1 -> 2 -> 1
-    // that the root does not reach.
+/// Three tree segments under `[0], [1], [2]` whose parent relation over the
+/// boundary is the cycle 1 -> 2 -> 1, which the root 0 does not reach.
+fn cyclic_tree() -> Result<(Partition, Vec<AnySegment>), SegmentError> {
     let p = Partition::by_node_ranges(InstanceShapeKind::Tree, &[1, 2], 0, 3)?;
     let e = label("doc", "doc", "prop", None);
     let node = |id| (id, Node::new(id, "doc"));
@@ -384,6 +345,52 @@ fn partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cyc
         AnySegment::Tree(s1),
         AnySegment::Tree(s2),
     ];
+    Ok((p, cyclic))
+}
+
+#[test]
+fn partition_verification_rejects_ghost_mismatch_duplicate_edge_ids_and_tree_cycles() -> TestResult
+{
+    let (graph, partition) = three_segment_graph()?;
+    let segments: Vec<AnySegment> = partition_graph(&graph, &partition)?
+        .into_iter()
+        .map(AnySegment::Graph)
+        .collect();
+    assert_eq!(verify_partition(&segments, &partition), Ok(()));
+    // A ghost anchor that differs from its owner's node.
+    let mut tampered = segments.clone();
+    if let AnySegment::Graph(s) = &mut tampered[0] {
+        s.boundary.ghosts.insert(
+            2,
+            Ghost {
+                node: 2,
+                owner: SegmentId(1),
+                anchor: "b".into(),
+            },
+        );
+    }
+    assert_eq!(
+        verify_partition(&tampered, &partition),
+        Err(SegmentError::GhostMismatch { node: 2 })
+    );
+    // An edge id held by two segments.
+    let mut duplicated = segments;
+    if let AnySegment::Graph(s) = &mut duplicated[2] {
+        s.edges.insert(
+            EdgeId(0),
+            GEdge::new(4, 5, label("a", "a", "prop", Some("x"))),
+        );
+    }
+    assert_eq!(
+        verify_partition(&duplicated, &partition),
+        Err(SegmentError::DuplicateEdgeId {
+            edge: EdgeId(0),
+            segments: vec![SegmentId(0), SegmentId(2)]
+        })
+    );
+    // A tree whose parent relation over the boundary has a cycle 1 -> 2 -> 1
+    // that the root does not reach.
+    let (p, cyclic) = cyclic_tree()?;
     assert_eq!(
         verify_partition(&cyclic, &p),
         Err(SegmentError::NotEmbedded {

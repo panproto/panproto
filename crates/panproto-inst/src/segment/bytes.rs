@@ -485,6 +485,7 @@ impl AnySegment {
     }
 
     /// [`AnySegment::digest`] with the spec in hand.
+    #[must_use]
     pub fn digest_with(&self, schema: &Digest, spec: &SegmentSpec) -> Digest {
         let mut hasher = Digest::hasher(SEGMENT_CONTEXT);
         write_segment(&mut hasher, self, schema, spec);

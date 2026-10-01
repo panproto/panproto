@@ -11,7 +11,7 @@ use crate::segment::{
     instance_digest, partition_graph, partition_table, partition_tree, winstance_digest,
 };
 
-fn fail(e: SegmentError) -> TestCaseError {
+fn fail(e: &SegmentError) -> TestCaseError {
     TestCaseError::fail(e.to_string())
 }
 
@@ -41,17 +41,17 @@ proptest! {
             (Just((t, e)), arb_partition(InstanceShapeKind::Tree, free))
         }),
     ) {
-        let parts = partition_graph(&graph, &gp).map_err(fail)?;
+        let parts = partition_graph(&graph, &gp).map_err(|e| fail(&e))?;
         prop_assert_eq!(parts.len(), gp.specs.len());
-        let back = assemble_graph(parts, &gp).map_err(fail)?;
+        let back = assemble_graph(parts, &gp).map_err(|e| fail(&e))?;
         prop_assert!(GInstance::identical(&back, &graph));
 
-        let parts = partition_table(&tables, &tp).map_err(fail)?;
-        let back = assemble_table(parts, &tp).map_err(fail)?;
+        let parts = partition_table(&tables, &tp).map_err(|e| fail(&e))?;
+        let back = assemble_table(parts, &tp).map_err(|e| fail(&e))?;
         prop_assert_eq!(back, tables);
 
-        let parts = partition_tree(&tree, &embedding, &wp).map_err(fail)?;
-        let (back, back_embedding) = assemble_tree(parts, &wp).map_err(fail)?;
+        let parts = partition_tree(&tree, &embedding, &wp).map_err(|e| fail(&e))?;
+        let (back, back_embedding) = assemble_tree(parts, &wp).map_err(|e| fail(&e))?;
         prop_assert!(same_tree(&back, &tree));
         prop_assert_eq!(back_embedding, embedding);
     }
@@ -71,14 +71,14 @@ proptest! {
             (Just((t, e)), arb_partition(InstanceShapeKind::Tree, free))
         }),
     ) {
-        let parts: Vec<AnySegment> = partition_graph(&graph, &gp).map_err(fail)?.into_iter().map(AnySegment::Graph).collect();
-        prop_assert_eq!(instance_digest(InstanceShapeKind::Graph, sources(&parts)).map_err(fail)?, graph.digest());
+        let parts: Vec<AnySegment> = partition_graph(&graph, &gp).map_err(|e| fail(&e))?.into_iter().map(AnySegment::Graph).collect();
+        prop_assert_eq!(instance_digest(InstanceShapeKind::Graph, sources(&parts)).map_err(|e| fail(&e))?, graph.digest());
 
-        let parts: Vec<AnySegment> = partition_table(&tables, &tp).map_err(fail)?.into_iter().map(AnySegment::Table).collect();
-        prop_assert_eq!(instance_digest(InstanceShapeKind::Table, sources(&parts)).map_err(fail)?, tables.digest());
+        let parts: Vec<AnySegment> = partition_table(&tables, &tp).map_err(|e| fail(&e))?.into_iter().map(AnySegment::Table).collect();
+        prop_assert_eq!(instance_digest(InstanceShapeKind::Table, sources(&parts)).map_err(|e| fail(&e))?, tables.digest());
 
-        let parts: Vec<AnySegment> = partition_tree(&tree, &embedding, &wp).map_err(fail)?.into_iter().map(AnySegment::Tree).collect();
-        let streamed = instance_digest(InstanceShapeKind::Tree, sources(&parts)).map_err(fail)?;
+        let parts: Vec<AnySegment> = partition_tree(&tree, &embedding, &wp).map_err(|e| fail(&e))?.into_iter().map(AnySegment::Tree).collect();
+        let streamed = instance_digest(InstanceShapeKind::Tree, sources(&parts)).map_err(|e| fail(&e))?;
         prop_assert_eq!(streamed, winstance_digest(&tree));
         // The header counts are the sums of the segments' stats.
         let arcs: u64 = parts.iter().map(|p| p.stats().edges).sum();

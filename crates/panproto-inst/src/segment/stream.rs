@@ -290,16 +290,16 @@ pub fn instance_digest<'a>(
     }
     let mut heads: Vec<Option<InstanceRecord>> = Vec::with_capacity(sources.len());
     let mut emitted = vec![[0_u64; 3]; sources.len()];
-    let mut heap = BinaryHeap::new();
+    let mut queue = BinaryHeap::new();
     for (i, source) in sources.iter_mut().enumerate() {
         let head = source.next_record()?;
         if let Some(record) = &head {
-            heap.push(Reverse((record.key(), i)));
+            queue.push(Reverse((record.key(), i)));
         }
         heads.push(head);
     }
     let mut last: Option<(MergeKey, usize)> = None;
-    while let Some(Reverse((key, i))) = heap.pop() {
+    while let Some(Reverse((key, i))) = queue.pop() {
         let Some(record) = heads[i].take() else {
             continue;
         };
@@ -330,7 +330,7 @@ pub fn instance_digest<'a>(
                     "{segment} yields records out of order"
                 )));
             }
-            heap.push(Reverse((next_key, i)));
+            queue.push(Reverse((next_key, i)));
         }
         heads[i] = next;
         last = Some((key, i));

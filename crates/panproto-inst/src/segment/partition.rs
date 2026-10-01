@@ -275,11 +275,11 @@ impl Partition {
     /// The ids below `next_free` are split at each bound: segment 0 owns
     /// `[0, bounds[0] - 1]`, segment `i` owns `[bounds[i - 1], bounds[i] - 1]`
     /// and the last segment owns `[bounds[k - 1], next_free - 1]`. When
-    /// `alloc_per_segment` is not zero, segment `i` also owns and allocates
-    /// node ids from `[next_free + i * alloc_per_segment, next_free + (i + 1)
-    /// * alloc_per_segment - 1]`, and, unless the shape is a table, edge ids
-    /// from the same interval; `next_free` must then lie above every node id
-    /// and every edge id of the instance.
+    /// `alloc_per_segment` (written `a` here) is not zero, segment `i` also
+    /// owns and allocates node ids from
+    /// `[next_free + i * a, next_free + (i + 1) * a - 1]`, and, unless the
+    /// shape is a table, edge ids from the same interval; `next_free` must
+    /// then lie above every node id and every edge id of the instance.
     ///
     /// ```
     /// use panproto_inst::InstanceShapeKind;
