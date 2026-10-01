@@ -4,7 +4,8 @@
 //! [`canonical_theory_bytes`] depends on a theory's content only: the
 //! theory's name, its `extends` list, then its sorts, operations,
 //! equations, directed equations and policies, each vector written in
-//! ascending name order, so two theories that declare the same elements in
+//! ascending name order (elements that share a name in ascending order of
+//! their encodings), so two theories that declare the same elements in
 //! different orders encode alike. Every element is written with each of its
 //! fields in declaration order; terms, sort expressions and the other sums
 //! are written as a one-byte discriminant before their payload, by
@@ -56,8 +57,8 @@ pub const COMPOSITION_CONTEXT: &str = "panproto 2026-09 theory composition v1";
 ///
 /// Equal theories encode alike in any process and under any hash seed, and
 /// the order in which a theory lists its sorts, operations, equations,
-/// directed equations or policies does not matter; any other difference
-/// changes the bytes.
+/// directed equations or policies does not matter, even when two of its
+/// elements share a name; any other difference changes the bytes.
 ///
 /// # Examples
 ///
@@ -115,11 +116,29 @@ pub fn composition_digest(composition: &Composition) -> [u8; 32] {
 
 // ─── theories ──────────────────────────────────────────────────────
 
-/// The elements of `items` in ascending order of the name `key` gives.
-fn by_name<T>(items: &[T], key: impl Fn(&T) -> &str) -> Vec<&T> {
-    let mut sorted: Vec<&T> = items.iter().collect();
-    sorted.sort_by(|a, b| key(a).cmp(key(b)));
-    sorted
+/// Write `items` as a length-prefixed run, each element encoded by `write`,
+/// in ascending order of the name `key` gives and, among elements that
+/// share a name, of their encodings. The order is total, so the order in
+/// which `items` lists its elements never reaches the bytes.
+fn write_by_name<T>(
+    out: &mut CanonicalWriter,
+    items: &[T],
+    key: impl Fn(&T) -> &str,
+    write: impl Fn(&mut CanonicalWriter, &T),
+) {
+    let mut encoded: Vec<(&str, Vec<u8>)> = items
+        .iter()
+        .map(|item| {
+            let mut element = CanonicalWriter::new();
+            write(&mut element, item);
+            (key(item), element.into_bytes())
+        })
+        .collect();
+    encoded.sort();
+    out.len(encoded.len());
+    for (_, bytes) in encoded {
+        out.raw(&bytes);
+    }
 }
 
 fn write_theory(out: &mut CanonicalWriter, theory: &Theory) {
@@ -128,31 +147,16 @@ fn write_theory(out: &mut CanonicalWriter, theory: &Theory) {
     for parent in &theory.extends {
         out.str(parent);
     }
-    let sorts = by_name(&theory.sorts, |s| &s.name);
-    out.len(sorts.len());
-    for sort in sorts {
-        write_sort(out, sort);
-    }
-    let ops = by_name(&theory.ops, |o| &o.name);
-    out.len(ops.len());
-    for op in ops {
-        write_op(out, op);
-    }
-    let eqs = by_name(&theory.eqs, |e| &e.name);
-    out.len(eqs.len());
-    for eq in eqs {
-        write_equation(out, eq);
-    }
-    let directed = by_name(&theory.directed_eqs, |d| &d.name);
-    out.len(directed.len());
-    for eq in directed {
-        write_directed_equation(out, eq);
-    }
-    let policies = by_name(&theory.policies, |p| &p.name);
-    out.len(policies.len());
-    for policy in policies {
-        write_policy(out, policy);
-    }
+    write_by_name(out, &theory.sorts, |s| &s.name, write_sort);
+    write_by_name(out, &theory.ops, |o| &o.name, write_op);
+    write_by_name(out, &theory.eqs, |e| &e.name, write_equation);
+    write_by_name(
+        out,
+        &theory.directed_eqs,
+        |d| &d.name,
+        write_directed_equation,
+    );
+    write_by_name(out, &theory.policies, |p| &p.name, write_policy);
 }
 
 fn write_sort(out: &mut CanonicalWriter, sort: &Sort) {
