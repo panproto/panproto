@@ -1,8 +1,7 @@
 //! The table errors of `InstError` sit in one run, in the order the append
 //! rule for `error.rs` fixes: `DuplicateRowId`, `HomTableMismatch`,
-//! `DuplicateForeignKey` and `NotATable`. `RowHasForeignKeys` follows that
-//! run; the append rule does not list it yet, so its position after
-//! `NotATable` is this crate's choice pending a ruling, not a contract.
+//! `DuplicateForeignKey` and `NotATable` (Arbiter ruling A3(2)(g)), then
+//! `RowHasForeignKeys` directly after `NotATable` (Arbiter ruling A5).
 
 type TestResult = Result<(), Box<dyn std::error::Error>>;
 
