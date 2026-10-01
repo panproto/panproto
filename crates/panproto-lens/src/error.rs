@@ -127,28 +127,11 @@ pub enum LensError {
     #[error("complement identity: {0}")]
     Identity(#[from] panproto_inst::IdentityError),
 
-    /// A view object has the id of an object the complement holds, so
-    /// restoring the complement's object would overwrite it.
-    #[error("the view's {kind} {id} has the id of an object the complement holds")]
-    IdCollision {
-        /// Whether the id is a node id or an edge id.
-        kind: IdKind,
-        /// The colliding id.
-        id: u32,
-    },
-
-    /// A node added in the view is anchored at a target vertex with more
-    /// than one source preimage, so the source anchor it should take back
-    /// is not determined.
-    #[error(
-        "view node {node} is anchored at a vertex with several source preimages: {candidates:?}"
-    )]
-    AmbiguousReverseAnchor {
-        /// The view node.
-        node: u32,
-        /// The source vertices mapping to its anchor, in ascending order.
-        candidates: Vec<panproto_gat::Name>,
-    },
+    /// The view is outside the domain of `put`: the first violation, in
+    /// report order, that
+    /// [`check_put_domain`](crate::asymmetric::check_put_domain) finds.
+    #[error("the view is outside the domain of put: {0}")]
+    PutDomain(panproto_inst::PutDomainError),
 
     /// No enrichment synthesis driver is registered for the named
     /// `(kind, enricher)` pair. The driver must be registered via
@@ -173,25 +156,6 @@ pub enum LensError {
         /// Human-readable failure.
         detail: String,
     },
-}
-
-/// Which kind of object an id names.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum IdKind {
-    /// A node id.
-    Node,
-    /// An edge id.
-    Edge,
-}
-
-impl fmt::Display for IdKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Node => "node",
-            Self::Edge => "edge",
-        })
-    }
 }
 
 /// A violation of a round-trip lens law.

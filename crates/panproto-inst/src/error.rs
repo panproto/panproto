@@ -117,6 +117,15 @@ pub enum InstError {
         /// The condition it breaks.
         reason: FanViolation,
     },
+
+    /// A tree holds reserved fan vocabulary: a node of the fan shape, or an
+    /// arc of a reserved fan kind. A tree carries its fans as
+    /// [`Fan`](crate::Fan) records, never as nodes or arcs.
+    #[error("reserved fan vocabulary at {at:?}")]
+    ReservedVocabulary {
+        /// The offending node (`ViewRef::Node`) or arc (`ViewRef::Arc`).
+        at: crate::ViewRef,
+    },
 }
 
 /// Errors from the restrict operation.
