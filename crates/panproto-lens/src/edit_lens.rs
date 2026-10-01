@@ -502,11 +502,7 @@ impl EditLens {
                 node_id,
                 new_parent,
                 edge,
-            } => Ok(TreeEdit::MoveSubtree {
-                node_id,
-                new_parent,
-                edge: self.remap_edge_forward(&edge),
-            }),
+            } => self.get_edit_move(node_id, new_parent, &edge),
             TreeEdit::InsertFan { fan } => Ok(self.get_edit_insert_fan(fan)),
             TreeEdit::DeleteFan { hyper_edge_id } => Ok(self.get_edit_delete_fan(hyper_edge_id)),
             TreeEdit::ContractNode { id } => {
@@ -564,6 +560,26 @@ impl EditLens {
 
         // Steps 3-4: structural remap and field transforms.
         let remapped_node = self.remap_and_transform_node(&node)?;
+
+        // A surviving node inserted under a node the lens drops hangs, in
+        // the view, from the nearest surviving ancestor, through the edge
+        // the contracted pair resolves to.
+        if self.complement.dropped_nodes.contains_key(&parent) {
+            let ancestor = self.nearest_surviving_ancestor(parent)?;
+            let label = self.contracted_label(ancestor, &node.anchor)?;
+            self.complement
+                .contraction_choices
+                .insert((ancestor, child_id), label.clone());
+            self.complement.original_parent.insert(child_id, parent);
+            self.complement.dropped_arcs.push((parent, child_id, edge));
+            return Ok(TreeEdit::InsertNode {
+                parent: ancestor,
+                child_id,
+                node: remapped_node,
+                edge: label,
+            });
+        }
+
         let remapped_edge = self.remap_edge_forward(&edge);
         Ok(TreeEdit::InsertNode {
             parent,
@@ -573,7 +589,220 @@ impl EditLens {
         })
     }
 
+    /// The source parent of `id` in the source as the edits seen so far
+    /// have left it: the tracked source when the lens was initialized, else
+    /// the complement's record of the arc into `id`.
+    fn source_parent(&self, id: u32) -> Option<u32> {
+        if let Some(pipeline) = self.pipeline.as_ref() {
+            return pipeline
+                .node_snapshot(id)
+                .and_then(|(_, arc)| arc.map(|(parent, _)| parent));
+        }
+        self.complement
+            .dropped_arcs
+            .iter()
+            .find(|&&(_, child, _)| child == id)
+            .map(|&(parent, _, _)| parent)
+            .or_else(|| self.complement.original_parent.get(&id).copied())
+    }
+
+    /// The source anchor of `id` in the source as the edits seen so far
+    /// have left it.
+    fn source_anchor(&self, id: u32) -> Option<Name> {
+        if let Some(node) = self.complement.dropped_nodes.get(&id) {
+            return Some(node.anchor.clone());
+        }
+        self.pipeline
+            .as_ref()
+            .and_then(|pipeline| pipeline.node_snapshot(id))
+            .map(|(node, _)| node.anchor)
+    }
+
+    /// The nearest ancestor of `id`, `id` itself included, that the lens
+    /// keeps in the view: the node its surviving descendants hang from once
+    /// the dropped nodes between are contracted.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditLensError::TranslationFailed`] when the walk leaves
+    /// the source before reaching a surviving node (the root is dropped).
+    fn nearest_surviving_ancestor(&self, id: u32) -> Result<u32, EditLensError> {
+        let mut current = id;
+        let mut steps = 0usize;
+        while self.complement.dropped_nodes.contains_key(&current) {
+            current = self.source_parent(current).ok_or_else(|| {
+                EditLensError::TranslationFailed(format!(
+                    "dropped node {current} has no parent, so the nodes below it have no \
+                     surviving ancestor in the view"
+                ))
+            })?;
+            steps += 1;
+            if steps > self.complement.dropped_nodes.len() {
+                return Err(EditLensError::TranslationFailed(format!(
+                    "the ancestors of node {id} form a cycle"
+                )));
+            }
+        }
+        Ok(current)
+    }
+
+    /// The view edge a contracted pair resolves to: from the surviving
+    /// ancestor `ancestor` to a surviving node anchored (in the source) at
+    /// `child_anchor`, read off the resolver or the unique target edge
+    /// between the images, as whole-state `get` resolves it.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EditLensError::TranslationFailed`] when the ancestor's
+    /// anchor is unknown, and [`EditLensError::Restrict`] when the pair has
+    /// no edge or several without a resolver entry.
+    fn contracted_label(&self, ancestor: u32, child_anchor: &Name) -> Result<Edge, EditLensError> {
+        let ancestor_anchor = self.source_anchor(ancestor).ok_or_else(|| {
+            EditLensError::TranslationFailed(format!(
+                "the anchor of node {ancestor} is not known to this edit lens; initialize it \
+                 from a source first"
+            ))
+        })?;
+        let src = self.remap_anchor_forward(&ancestor_anchor);
+        let tgt = self.remap_anchor_forward(child_anchor);
+        Ok(panproto_inst::resolve_edge(
+            &self.tgt_schema,
+            &self.compiled.resolver,
+            &src,
+            &tgt,
+        )?)
+    }
+
+    /// Translate a move of `node_id` under `new_parent` along the source
+    /// edge `edge`, after the tracked source has taken it.
+    ///
+    /// A surviving node moved under a dropped node hangs from that node's
+    /// nearest surviving ancestor through the contracted label. A dropped
+    /// node carries the surviving nodes contracted through it: each of
+    /// those is re-parented in the view to its new nearest surviving
+    /// ancestor, and a move that leaves one where it was emits nothing for
+    /// it.
+    fn get_edit_move(
+        &mut self,
+        node_id: u32,
+        new_parent: u32,
+        edge: &Edge,
+    ) -> Result<TreeEdit, EditLensError> {
+        // The arc into `node_id` is set aside in the complement when either
+        // end is dropped; it is replaced by the arc the move creates, which
+        // is set aside again when either of its ends is dropped.
+        self.complement
+            .dropped_arcs
+            .retain(|&(_, child, _)| child != node_id);
+        let node_dropped = self.complement.dropped_nodes.contains_key(&node_id);
+        let parent_dropped = self.complement.dropped_nodes.contains_key(&new_parent);
+        if node_dropped || parent_dropped {
+            self.complement
+                .dropped_arcs
+                .push((new_parent, node_id, edge.clone()));
+        }
+        if node_dropped {
+            return self.recontract_below(node_id);
+        }
+        self.complement
+            .contraction_choices
+            .retain(|&(_, child), _| child != node_id);
+        self.complement.original_parent.insert(node_id, new_parent);
+        if parent_dropped {
+            let ancestor = self.nearest_surviving_ancestor(new_parent)?;
+            let anchor = self.source_anchor(node_id).ok_or_else(|| {
+                EditLensError::TranslationFailed(format!(
+                    "the anchor of node {node_id} is not known to this edit lens"
+                ))
+            })?;
+            let label = self.contracted_label(ancestor, &anchor)?;
+            self.complement
+                .contraction_choices
+                .insert((ancestor, node_id), label.clone());
+            return Ok(TreeEdit::MoveSubtree {
+                node_id,
+                new_parent: ancestor,
+                edge: label,
+            });
+        }
+        Ok(TreeEdit::MoveSubtree {
+            node_id,
+            new_parent,
+            edge: self.remap_edge_forward(edge),
+        })
+    }
+
+    /// Re-parent, in the view, every surviving node contracted through the
+    /// dropped node `dropped`, whose position in the source has changed.
+    fn recontract_below(&mut self, dropped: u32) -> Result<TreeEdit, EditLensError> {
+        let mut contracted: Vec<((u32, u32), Edge)> = self
+            .complement
+            .contraction_choices
+            .iter()
+            .map(|(&pair, edge)| (pair, edge.clone()))
+            .collect();
+        contracted.sort_by_key(|&((_, child), _)| child);
+        let mut moves = Vec::new();
+        for ((old_ancestor, child), old_label) in contracted {
+            if !self.contracted_through(child, dropped) {
+                continue;
+            }
+            let parent = self.source_parent(child).ok_or_else(|| {
+                EditLensError::TranslationFailed(format!("node {child} has no parent"))
+            })?;
+            let ancestor = self.nearest_surviving_ancestor(parent)?;
+            let anchor = self.source_anchor(child).ok_or_else(|| {
+                EditLensError::TranslationFailed(format!(
+                    "the anchor of node {child} is not known to this edit lens"
+                ))
+            })?;
+            let label = self.contracted_label(ancestor, &anchor)?;
+            if (ancestor, &label) == (old_ancestor, &old_label) {
+                continue;
+            }
+            self.complement
+                .contraction_choices
+                .remove(&(old_ancestor, child));
+            self.complement
+                .contraction_choices
+                .insert((ancestor, child), label.clone());
+            moves.push(TreeEdit::MoveSubtree {
+                node_id: child,
+                new_parent: ancestor,
+                edge: label,
+            });
+        }
+        Ok(match moves.len() {
+            0 => TreeEdit::Identity,
+            1 => moves.remove(0),
+            _ => TreeEdit::Sequence(moves),
+        })
+    }
+
+    /// Whether the path from `child` up to its nearest surviving ancestor
+    /// passes through `dropped`.
+    fn contracted_through(&self, child: u32, dropped: u32) -> bool {
+        let mut current = self.source_parent(child);
+        let mut steps = 0usize;
+        while let Some(node) = current {
+            if node == dropped {
+                return true;
+            }
+            if !self.complement.dropped_nodes.contains_key(&node)
+                || steps > self.complement.dropped_nodes.len()
+            {
+                return false;
+            }
+            current = self.source_parent(node);
+            steps += 1;
+        }
+        false
+    }
+
     fn get_edit_delete(&mut self, id: u32) -> TreeEdit {
+        self.complement
+            .contraction_choices
+            .retain(|&(_, child), _| child != id);
         if self.complement.dropped_nodes.contains_key(&id) {
             self.complement.dropped_nodes.remove(&id);
             self.complement

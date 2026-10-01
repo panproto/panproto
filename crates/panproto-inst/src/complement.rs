@@ -14,15 +14,20 @@
 //! additionally records [`Complement::contracted_into`], the surviving
 //! ancestor each dropped node collapsed into. Unused fields stay empty.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_schema::Edge;
 
+use crate::error::InstError;
 use crate::fan::Fan;
+use crate::ginstance::{EdgeId, TreeEmbedding};
 use crate::identity::{ComplementShape, IdentityCarrier, IdentityEnvelope};
 use crate::metadata::Node;
+use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::{FieldPresence, Value};
+use crate::view_ref::{SynthIndex, SynthKey};
+use crate::wtype::WInstance;
 
 /// The complement: data discarded by a forward projection, needed by the
 /// backward direction to restore the original source instance.
@@ -67,10 +72,15 @@ pub struct Complement {
     /// values.
     #[serde(default, with = "panproto_schema::serde_helpers::sorted_nested_map")]
     pub original_extra_fields: HashMap<u32, HashMap<String, Value>>,
-    /// Exact edge used for every arc in the view, keyed by
-    /// `(parent_id, child_id)`. This makes the backward direction
-    /// deterministic when the source schema has parallel edges between the
-    /// same vertex pair, ensuring the cartesian lift is unique.
+    /// The source edge of every source arc between two nodes the view keeps
+    /// whose edge the view does not determine, keyed by
+    /// `(parent_id, child_id)`: the view holds no arc between the two, or
+    /// the label of the view arc is not the image of exactly this one
+    /// source edge between the endpoints' source anchors (for instance two
+    /// parallel edges the edge map merges). Any other arc is not recorded,
+    /// since the backward direction reads its edge off the view label and
+    /// the source schema; recording only these keeps the cartesian lift
+    /// unique without counting derivable data as residue.
     #[serde(default, with = "panproto_schema::serde_helpers::map_as_vec_default")]
     pub arc_edges: HashMap<(u32, u32), Edge>,
     /// The source instance's arcs in order, as `(parent_id, child_id)`.
@@ -117,6 +127,26 @@ pub struct Complement {
     /// from; this records it.
     #[serde(default, with = "panproto_schema::serde_helpers::sorted_map")]
     pub original_anchors: HashMap<u32, Name>,
+    /// The node id floor of the source at `get` time: one above every node
+    /// id of the source's graph form, its fan nodes included (see
+    /// [`tree_id_floor`]). Fresh view ids are allocated at or above it
+    /// ([`fresh_view_node_id`]), so a node the view adds never takes the id
+    /// of a source node, even one the view deleted.
+    ///
+    /// 0 on a complement written before the floor was recorded, which then
+    /// derives its floor from the ids it and the view hold. `u32::MAX` when
+    /// the source's floor does not fit in a `u32` (it holds the id
+    /// `u32::MAX`); no fresh id is allocated against it.
+    #[serde(default)]
+    pub id_floor: u32,
+    /// The key of every node `get` synthesized, by view node id.
+    ///
+    /// A synthesized node has no source counterpart; its key names it
+    /// independently of the id it was given, which is a presentation. Keys
+    /// naming a source arc name it by its graph edge id in the source's
+    /// embedding, which is the arc's position in the source's arc order.
+    #[serde(default)]
+    pub synthesized_keys: BTreeMap<u32, SynthKey>,
     /// The lens this complement was produced by. See
     /// [`crate::identity`].
     ///
@@ -137,8 +167,12 @@ impl Complement {
     ///
     /// The [`source_fingerprint`](Self::source_fingerprint) and the
     /// [`identity`](Self::identity) envelope are provenance rather than
-    /// discarded data, so a projection that records only those counts as
-    /// empty.
+    /// discarded data, and [`id_floor`](Self::id_floor),
+    /// [`synthesized_keys`](Self::synthesized_keys) and the contraction
+    /// bookkeeping ([`contraction_choices`](Self::contraction_choices),
+    /// [`contracted_into`](Self::contracted_into)) are derived from the
+    /// source and the lens, so a projection that records only those counts
+    /// as empty.
     ///
     /// This is a statement about the *representation*, not about
     /// information loss: a lens that discards nothing still populates
@@ -150,14 +184,12 @@ impl Complement {
         self.dropped_nodes.is_empty()
             && self.dropped_arcs.is_empty()
             && self.dropped_fans.is_empty()
-            && self.contraction_choices.is_empty()
             && self.original_parent.is_empty()
             && self.original_extra_fields.is_empty()
             && self.arc_edges.is_empty()
             && self.arc_order.is_empty()
             && self.original_values.is_empty()
             && self.synthesized_nodes.is_empty()
-            && self.contracted_into.is_empty()
             && self.original_anchors.is_empty()
     }
 
@@ -170,15 +202,27 @@ impl Complement {
     /// only one of them is `C`:
     ///
     /// * **Residue.** Dropped nodes, arcs, and fans; snapshots of values
-    ///   the forward pass overwrote; contraction choices; source anchors a
-    ///   non-injective remap made unrecoverable. This is the
-    ///   information present in `S` and absent from `V`, so it *is* the
-    ///   complement, and no amount of looking at `V` recovers it.
-    /// * **Bookkeeping.** `original_parent`, `arc_order`, `arc_edges`.
+    ///   the forward pass overwrote; source anchors a non-injective remap
+    ///   made unrecoverable; and the source edge of an arc whose view label
+    ///   does not determine it. This is the information present in `S`
+    ///   and absent from `V`, so it *is* the complement, and no amount of
+    ///   looking at `V` recovers it.
+    /// * **Bookkeeping.** `original_parent`, `arc_order`, the contraction
+    ///   choices and `contracted_into`, `id_floor`, `synthesized_keys`.
     ///   These record the shape of the reassembly, which is a function of
-    ///   the view's own structure together with the source schema rather
+    ///   the view's own structure, the dropped nodes and the lens rather
     ///   than of the particular record. They make `put` cheap and
     ///   deterministic; they carry no information the view lacks.
+    ///
+    /// Two residue fields are recorded by `get` only where the view does
+    /// not determine them, so that counting their entries is counting
+    /// information: [`original_anchors`](Self::original_anchors) holds a
+    /// node only when the unique reverse of the vertex remap would not
+    /// return its source anchor, and [`arc_edges`](Self::arc_edges) holds
+    /// an arc only when the source edges between its endpoints' anchors
+    /// whose image is its view label are not exactly one. These are the
+    /// criteria of the graph complement's `original_anchors` and
+    /// `original_edges`, so a tree and its graph form classify alike.
     ///
     /// So `C ≅ 1` exactly when the residue is empty, whatever bookkeeping
     /// is present. That is the condition under which `S ≅ V × 1 ≅ V`, and
@@ -189,11 +233,203 @@ impl Complement {
         self.dropped_nodes.is_empty()
             && self.dropped_arcs.is_empty()
             && self.dropped_fans.is_empty()
-            && self.contraction_choices.is_empty()
             && self.original_extra_fields.is_empty()
             && self.original_values.is_empty()
-            && self.contracted_into.is_empty()
             && self.original_anchors.is_empty()
+            && self.arc_edges.is_empty()
+    }
+
+    /// The synthesized elements of the view this complement was produced
+    /// with, keyed by [`SynthKey`], with arcs named by their graph edge ids
+    /// in `embedding`, the embedding of that view.
+    ///
+    /// `nodes` is [`synthesized_keys`](Self::synthesized_keys). `edges`
+    /// holds the arc into each synthesized node under the node's own key
+    /// (the edge entering intermediate `h` has hop `h`), the arc from the
+    /// last intermediate of each chain into its endpoint under the next hop,
+    /// and each contracted arc
+    /// ([`contraction_choices`](Self::contraction_choices)) under
+    /// [`SynthKey::Contract`]. The endpoint of an `Expand` chain is the
+    /// child of the source arc its key names, read off
+    /// [`arc_order`](Self::arc_order) (the source's arc `i` is the graph
+    /// edge `EdgeId(i)` of its embedding); that of a `ContractExpand` chain
+    /// is its `tgt`. An arc `embedding` does not record is left out.
+    #[must_use]
+    pub fn synth_index(&self, embedding: &TreeEmbedding) -> SynthIndex {
+        let mut edges: BTreeMap<EdgeId, SynthKey> = BTreeMap::new();
+        let mut last_hop: BTreeMap<SynthKey, (u16, u32)> = BTreeMap::new();
+        for (&node, key) in &self.synthesized_keys {
+            if let Some(&edge) = embedding.arcs.get(&node) {
+                edges.insert(edge, key.clone());
+            }
+            let (chain, hop) = chain_of(key);
+            let entry = last_hop.entry(chain).or_insert((hop, node));
+            if hop >= entry.0 {
+                *entry = (hop, node);
+            }
+        }
+        for (chain, (hop, _)) in last_hop {
+            let Some(next) = hop.checked_add(1) else {
+                continue;
+            };
+            let (endpoint, key) = match chain {
+                SynthKey::Expand { source_edge, .. } => {
+                    let endpoint = usize::try_from(source_edge.0)
+                        .ok()
+                        .and_then(|i| self.arc_order.get(i))
+                        .map(|&(_, child)| child);
+                    (
+                        endpoint,
+                        SynthKey::Expand {
+                            source_edge,
+                            hop: next,
+                        },
+                    )
+                }
+                SynthKey::ContractExpand { src, tgt, .. } => (
+                    Some(tgt),
+                    SynthKey::ContractExpand {
+                        src,
+                        tgt,
+                        hop: next,
+                    },
+                ),
+                SynthKey::Contract { .. } => (None, chain),
+            };
+            if let Some(edge) = endpoint.and_then(|child| embedding.arcs.get(&child)) {
+                edges.insert(*edge, key);
+            }
+        }
+        for (&(src, tgt), edge) in &self.contraction_choices {
+            if let Some(&id) = embedding.arcs.get(&tgt) {
+                edges.insert(
+                    id,
+                    SynthKey::Contract {
+                        src,
+                        tgt,
+                        edge: edge.clone(),
+                    },
+                );
+            }
+        }
+        SynthIndex {
+            nodes: self.synthesized_keys.clone(),
+            edges,
+        }
+    }
+}
+
+/// The chain a synthesized node's key belongs to (the key with its hop set
+/// to 0) and its hop.
+fn chain_of(key: &SynthKey) -> (SynthKey, u16) {
+    match key {
+        SynthKey::Expand { source_edge, hop } => (
+            SynthKey::Expand {
+                source_edge: *source_edge,
+                hop: 0,
+            },
+            *hop,
+        ),
+        SynthKey::ContractExpand { src, tgt, hop } => (
+            SynthKey::ContractExpand {
+                src: *src,
+                tgt: *tgt,
+                hop: 0,
+            },
+            *hop,
+        ),
+        SynthKey::Contract { .. } => (key.clone(), 0),
+    }
+}
+
+/// The node id floor of a tree: one above every node id of its graph form,
+/// that is `max(tree node ids ∪ fan node ids) + 1`, and 0 for an empty tree.
+///
+/// A tree's graph form
+/// ([`GInstance::from_wtype_embedded`](crate::GInstance::from_wtype_embedded))
+/// keeps the tree's node ids and gives each fan, duplicates included, the
+/// next node id above them, so this is the embedding's `next_node` and the
+/// graph's own floor.
+///
+/// # Errors
+///
+/// Returns [`InstError::NodeIdsExhausted`] when the floor does not fit in a
+/// `u32`.
+pub fn tree_id_floor(tree: &WInstance) -> Result<u32, InstError> {
+    let mut nodes = IdAllocator::from_source(IdRange::FULL, tree.nodes.keys().copied());
+    for _ in &tree.fans {
+        nodes.allocate().map_err(|e| e.whole_state(IdKind::Node))?;
+    }
+    nodes.floor().ok_or(InstError::NodeIdsExhausted)
+}
+
+/// A node id for a node added to `view`, a view of a source whose
+/// complement is `complement`.
+///
+/// The id is `max(floor, 1 + max(view ids ∪ reserved ids ∪ synthesized
+/// ids))`, where the reserved ids are the nodes the complement holds as
+/// dropped and the synthesized ids those `get` created. The floor is
+/// [`Complement::id_floor`]; a complement that predates it (floor 0) takes
+/// every node id it records (dropped, parented, ordered or anchored) as
+/// taken instead. The result is therefore never the id of a source node,
+/// even one the view deleted, whose residue would otherwise reattach to the
+/// new node on `put`.
+///
+/// Deterministic, and correct for a single writer: two writers allocating
+/// against the same view may draw the same id.
+///
+/// The id `u32::MAX` is never returned: the floor that would follow it does
+/// not fit in a `u32`, so, as
+/// [`TreeEmbedding::allocate_node`](crate::TreeEmbedding::allocate_node)
+/// does for the tree's graph form, allocation reports exhaustion there. A
+/// complement whose source holds that id records the floor `u32::MAX`, and
+/// every allocation against it fails.
+///
+/// # Errors
+///
+/// Returns [`InstError::NodeIdsExhausted`] when no id at or above the floor
+/// and below `u32::MAX` is free.
+pub fn fresh_view_node_id(view: &WInstance, complement: &Complement) -> Result<u32, InstError> {
+    let allocator = IdAllocator::from_floor(IdRange::FULL, complement.id_floor);
+    let reserved = complement.dropped_nodes.keys().copied();
+    let synthesized = complement
+        .synthesized_nodes
+        .iter()
+        .chain(complement.synthesized_keys.keys())
+        .copied();
+    let taken = view
+        .nodes
+        .keys()
+        .copied()
+        .chain(reserved)
+        .chain(synthesized);
+    let result = if complement.id_floor == 0 {
+        let recorded = complement
+            .original_parent
+            .iter()
+            .flat_map(|(&child, &parent)| [child, parent])
+            .chain(
+                complement
+                    .arc_order
+                    .iter()
+                    .flat_map(|&pair| <[u32; 2]>::from(pair)),
+            )
+            .chain(complement.original_anchors.keys().copied())
+            .chain(
+                complement
+                    .dropped_arcs
+                    .iter()
+                    .flat_map(|(p, c, _)| [*p, *c]),
+            );
+        allocator.fresh(taken.chain(recorded))
+    } else {
+        allocator.fresh(taken)
+    };
+    match result.map_err(|e| e.whole_state(IdKind::Node))? {
+        // The floor after `u32::MAX` cannot be stored, so, as for the
+        // counters of the tree's graph form, that id is never handed out.
+        u32::MAX => Err(InstError::NodeIdsExhausted),
+        id => Ok(id),
     }
 }
 

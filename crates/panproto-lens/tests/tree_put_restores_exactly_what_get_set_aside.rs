@@ -22,9 +22,9 @@ use std::collections::HashMap;
 
 use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
-use panproto_inst::{Node, WInstance};
+use panproto_inst::{Node, ViewRef, WInstance};
 use panproto_lens::{
-    IdKind, LawViolation, Lens, LensError, check_get_put, check_put_put, get, put,
+    LawViolation, Lens, LensError, PutDomainError, check_get_put, check_put_put, get, put,
 };
 use panproto_mig::Migration;
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
@@ -141,10 +141,9 @@ fn a_view_node_under_a_dropped_nodes_id_is_a_collision_not_an_overwrite() {
     view.arcs.push((0, 2, prop("post", "post.text", "text")));
 
     match put(&lens, &view, &complement) {
-        Err(LensError::IdCollision {
-            kind: IdKind::Node,
-            id: 2,
-        }) => {}
+        Err(LensError::PutDomain(PutDomainError::IdCollision {
+            elem: ViewRef::Node(2),
+        })) => {}
         other => panic!("expected an id collision on node 2, got {other:?}"),
     }
 }
@@ -208,10 +207,10 @@ fn a_node_added_under_a_merged_anchor_has_no_single_source_anchor() {
     );
 
     match put(&lens, &view, &complement) {
-        Err(LensError::AmbiguousReverseAnchor {
-            node: 7,
+        Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
+            elem: ViewRef::Node(7),
             candidates,
-        }) => {
+        })) => {
             assert_eq!(candidates, vec![Name::from("a"), Name::from("b")]);
         }
         other => panic!("expected an ambiguous reverse anchor for node 7, got {other:?}"),

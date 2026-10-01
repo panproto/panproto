@@ -128,6 +128,8 @@ fn complement_msgpack_roundtrip() -> Result<(), Box<dyn std::error::Error>> {
         original_values: HashMap::new(),
         synthesized_nodes: std::collections::HashSet::new(),
         original_anchors: HashMap::new(),
+        id_floor: 0,
+        synthesized_keys: std::collections::BTreeMap::new(),
         identity: None,
     };
 

@@ -16,7 +16,7 @@
 //! against them and what remains under test once they are excluded.
 
 use crate::Lens;
-use crate::asymmetric::{Complement, get_with_identity, put_with_identity};
+use crate::asymmetric::{Complement, check_put_domain, get_with_identity, put_with_identity};
 use crate::derived::{DerivedMap, collect_derived_fields, extra_fields_equiv_modulo};
 use crate::error::LawViolation;
 
@@ -85,7 +85,7 @@ pub fn check_laws(lens: &Lens, instance: &WInstance) -> Result<(), LawViolation>
     put_get_with_view(&bound, &view, &complement)?;
 
     // Test with a modified view.
-    let modified_view = modify_leaf_values(&view);
+    let modified_view = modify_leaf_values_in_domain(bound.lens, &view, &complement);
     if !instances_equivalent(&view, &modified_view) {
         put_get_with_view(&bound, &modified_view, &complement)?;
     }
@@ -358,7 +358,10 @@ pub fn check_get_put(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
 ///
 /// This is a deterministic **smoke check**, not a sampler: it exercises
 /// the law on exactly two views, the original (unmodified) view and one
-/// canned mutation that perturbs every scalar leaf. Passing this function
+/// canned mutation that perturbs every scalar leaf it can while staying in
+/// the domain of `put` (see [`crate::asymmetric::check_put_domain`]); a leaf
+/// a computed field reads, or one a transform `put` cannot invert writes,
+/// is left as `get` gave it. Passing this function
 /// does *not* establish `PutGet` for arbitrary `v`; it only catches gross
 /// regressions on a fixed pair. Broad, generated-view coverage lives in
 /// the `property` proptests below, which drive `check_put_get_with_view`
@@ -380,8 +383,9 @@ pub fn check_put_get(lens: &Lens, instance: &WInstance) -> Result<(), LawViolati
     put_get_with_view(&bound, &view, &complement)?;
 
     // Test with a modified view: perturb the scalar leaves to exercise
-    // the law with a genuinely different view.
-    let modified_view = modify_leaf_values(&view);
+    // the law with a genuinely different view, keeping only the
+    // perturbations `put` accepts (the law quantifies over its domain).
+    let modified_view = modify_leaf_values_in_domain(bound.lens, &view, &complement);
     if !instances_equivalent(&view, &modified_view) {
         put_get_with_view(&bound, &modified_view, &complement)?;
     }
@@ -581,34 +585,76 @@ pub fn check_put_put(
     Ok(())
 }
 
-/// Create a copy of the instance with every scalar leaf value perturbed.
+/// Create a copy of `view` with its scalar leaves perturbed, keeping only
+/// the perturbations that leave the view inside the domain of [`put`].
+///
+/// `PutGet` quantifies over the views `put` accepts, and the strict tree
+/// `put` refuses a view whose leaf a computed field reads (the computed
+/// field would no longer match), whose leaf a transform without a usable
+/// inverse writes, or whose leaf a survival predicate reads so that the
+/// node would be hidden again. Perturbing such a leaf on its own tests
+/// nothing about the law; it only reports that the view left the domain.
+///
+/// The mutation first perturbs every leaf at once and keeps the result if
+/// [`check_put_domain`] accepts it. Otherwise it visits the leaves in
+/// ascending node id and keeps each perturbation only if the view built so
+/// far stays in the domain, so the result is deterministic and always a
+/// view `put` accepts (the original view is, since `get` produced it).
 ///
 /// Each scalar kind is moved off its current value so that the canned
-/// `PutGet` mutation is non-vacuous whatever the leaf type is. Mutating only
-/// strings would leave an integer-, float-, or boolean-leaved instance
-/// equal to its own mutation, and `check_put_get` skips the mutated view
-/// when it matches the original, so those leaf types would never exercise
-/// the mutated branch at all, and the law would appear to hold for them
-/// without having been tested.
-fn modify_leaf_values(instance: &WInstance) -> WInstance {
-    use panproto_inst::value::{FieldPresence, Value};
+/// mutation is non-vacuous whatever the leaf type is. Mutating only strings
+/// would leave an integer-, float-, or boolean-leaved instance equal to its
+/// own mutation, and the callers skip the mutated view when it matches the
+/// original, so those leaf types would never exercise the mutated branch.
+///
+/// [`put`]: crate::asymmetric::put
+fn modify_leaf_values_in_domain(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> WInstance {
+    let in_domain = |candidate: &WInstance| check_put_domain(lens, candidate, complement).is_ok();
 
-    let mut modified = instance.clone();
-    for node in modified.nodes.values_mut() {
-        if let Some(FieldPresence::Present(ref mut value)) = node.value {
-            match value {
-                Value::Str(s) => s.push_str("_modified"),
-                Value::Int(i) => *i = i.wrapping_add(1),
-                // NaN is its own perturbation: any finite value differs from
-                // it, and `value_equiv` treats NaN as self-equal, so the
-                // mutated view compares unequal to the original either way.
-                Value::Float(f) => *f = if f.is_nan() { 0.0 } else { *f + 1.0 },
-                Value::Bool(b) => *b = !*b,
-                _ => {}
-            }
+    let mut all = view.clone();
+    for node in all.nodes.values_mut() {
+        perturb_leaf(node);
+    }
+    if in_domain(&all) {
+        return all;
+    }
+
+    let mut ids: Vec<u32> = view.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    let mut modified = view.clone();
+    for id in ids {
+        let mut candidate = modified.clone();
+        let changed = candidate.nodes.get_mut(&id).is_some_and(perturb_leaf);
+        if changed && in_domain(&candidate) {
+            modified = candidate;
         }
     }
     modified
+}
+
+/// Move a node's present scalar value off its current value, returning
+/// whether anything changed.
+fn perturb_leaf(node: &mut panproto_inst::Node) -> bool {
+    use panproto_inst::value::{FieldPresence, Value};
+
+    let Some(FieldPresence::Present(ref mut value)) = node.value else {
+        return false;
+    };
+    match value {
+        Value::Str(s) => s.push_str("_modified"),
+        Value::Int(i) => *i = i.wrapping_add(1),
+        // NaN is its own perturbation: any finite value differs from it, and
+        // `value_equiv` treats NaN as self-equal, so the mutated view
+        // compares unequal to the original either way.
+        Value::Float(f) => *f = if f.is_nan() { 0.0 } else { *f + 1.0 },
+        Value::Bool(b) => *b = !*b,
+        _ => return false,
+    }
+    true
 }
 
 #[cfg(test)]
@@ -710,6 +756,117 @@ mod tests {
             !instances_equivalent(&a, &b),
             "instances with different arcs should not be equivalent"
         );
+    }
+
+    /// The canned `PutGet` mutation has to stay inside the domain of the
+    /// strict tree `put`: a leaf a computed field reads, or a leaf written
+    /// by a transform `put` cannot invert, is not an independent coordinate
+    /// of the view, so perturbing it on its own gives a view `put` refuses.
+    mod put_domain_mutation {
+        use std::sync::Arc;
+
+        use super::*;
+        use panproto_expr::{BuiltinOp, Expr};
+        use panproto_gat::CoercionClass;
+        use panproto_inst::FieldTransform;
+
+        fn var(name: &str) -> Expr {
+            Expr::Var(Arc::from(name))
+        }
+
+        fn lens_with(transforms: Vec<FieldTransform>) -> Lens {
+            let mut lens = identity_lens(&three_node_schema());
+            lens.compiled
+                .field_transforms
+                .insert("post:body".into(), transforms);
+            lens
+        }
+
+        /// `shout = upper(text)`, inverse `lower(shout)`, over the child
+        /// scalar `text`.
+        fn compute_over_a_child_scalar() -> Lens {
+            lens_with(vec![FieldTransform::ComputeField {
+                target_key: "shout".into(),
+                expr: Expr::Builtin(BuiltinOp::Upper, vec![var("text")]),
+                inverse: Some(Expr::Builtin(BuiltinOp::Lower, vec![var("shout")])),
+                coercion_class: CoercionClass::Iso,
+            }])
+        }
+
+        /// `text := upper(text)` over the child scalar `text`, which shadows
+        /// the child with a parent entry `put` cannot write back.
+        fn apply_over_a_child_scalar() -> Lens {
+            lens_with(vec![FieldTransform::ApplyExpr {
+                key: "text".into(),
+                expr: Expr::Builtin(BuiltinOp::Upper, vec![var("text")]),
+                inverse: Some(Expr::Builtin(BuiltinOp::Lower, vec![var("text")])),
+                coercion_class: CoercionClass::Iso,
+            }])
+        }
+
+        #[test]
+        fn put_get_holds_for_a_computed_field_over_a_child_scalar() {
+            let lens = compute_over_a_child_scalar();
+            let result = check_put_get(&lens, &three_node_instance());
+            assert!(result.is_ok(), "PutGet must hold: {result:?}");
+            assert!(check_laws(&lens, &three_node_instance()).is_ok());
+        }
+
+        /// The mutation skips the leaf the computed field reads but still
+        /// perturbs the independent one, so the check is not vacuous.
+        #[test]
+        fn the_mutation_keeps_every_perturbation_put_accepts() {
+            use panproto_inst::value::{FieldPresence, Value};
+
+            let lens = compute_over_a_child_scalar();
+            let Ok((view, complement)) = get(&lens, &three_node_instance()) else {
+                panic!("get failed on the fixture");
+            };
+            let modified = modify_leaf_values_in_domain(&lens, &view, &complement);
+            assert_eq!(check_put_domain(&lens, &modified, &complement), Ok(()));
+            assert_eq!(
+                modified.nodes[&1].value,
+                Some(FieldPresence::Present(Value::Str("hello".into()))),
+                "`text` feeds `shout`, so perturbing it alone leaves the domain"
+            );
+            assert_eq!(
+                modified.nodes[&2].value,
+                Some(FieldPresence::Present(Value::Str(
+                    "2024-01-01_modified".into()
+                ))),
+                "`createdAt` is independent, so it is perturbed"
+            );
+        }
+
+        /// With no transform every leaf is perturbed at once.
+        #[test]
+        fn the_mutation_perturbs_every_leaf_of_an_unconstrained_view() {
+            use panproto_inst::value::{FieldPresence, Value};
+
+            let lens = identity_lens(&three_node_schema());
+            let Ok((view, complement)) = get(&lens, &three_node_instance()) else {
+                panic!("get failed on the fixture");
+            };
+            let modified = modify_leaf_values_in_domain(&lens, &view, &complement);
+            assert_eq!(
+                modified.nodes[&1].value,
+                Some(FieldPresence::Present(Value::Str("hello_modified".into())))
+            );
+            assert_eq!(
+                modified.nodes[&2].value,
+                Some(FieldPresence::Present(Value::Str(
+                    "2024-01-01_modified".into()
+                )))
+            );
+        }
+
+        #[test]
+        fn put_get_holds_for_a_transform_over_a_child_scalar() {
+            let lens = apply_over_a_child_scalar();
+            let result = check_put_get(&lens, &three_node_instance());
+            assert!(result.is_ok(), "PutGet must hold: {result:?}");
+            assert!(check_laws(&lens, &three_node_instance()).is_ok());
+        }
     }
 
     // --- proptest strategies and property tests ---

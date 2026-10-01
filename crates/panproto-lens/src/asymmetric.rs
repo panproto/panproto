@@ -12,11 +12,11 @@ use panproto_inst::identity::{
     ComplementShape, IdentityCarrier, IdentityEnvelope, IdentityPolicy, IdentityStatus,
     compose_identities,
 };
-use panproto_inst::{Fan, Node, WInstance, wtype_restrict};
+use panproto_inst::{Fan, Node, PutDomainError, ViewRef, WInstance, wtype_restrict};
 use panproto_schema::Edge;
 
 use crate::Lens;
-use crate::error::{IdKind, LensError};
+use crate::error::LensError;
 
 /// The complement: data discarded by `get`, needed by `put` to restore the
 /// original source instance.
@@ -28,6 +28,11 @@ use crate::error::{IdKind, LensError};
 /// which lives in this crate because its conflict semantics are expressed in
 /// terms of [`LensError`].
 pub use panproto_inst::Complement;
+
+/// A node id for a node added to a tree view, drawn at or above the
+/// complement's floor so that it never reuses the id of a source node. See
+/// [`panproto_inst::complement::fresh_view_node_id`].
+pub use panproto_inst::complement::fresh_view_node_id;
 
 /// Partial-commutative-monoid composition of [`Complement`]s.
 ///
@@ -152,6 +157,8 @@ impl ComplementCompose for Complement {
             }
         }
 
+        let synthesized_keys = merge_synthesized_keys(self, other)?;
+
         Ok(Self {
             dropped_nodes,
             dropped_arcs,
@@ -166,6 +173,8 @@ impl ComplementCompose for Complement {
             synthesized_nodes,
             contracted_into,
             original_anchors,
+            id_floor: self.id_floor.max(other.id_floor),
+            synthesized_keys,
             identity,
         })
     }
@@ -410,6 +419,70 @@ pub fn get(lens: &Lens, instance: &WInstance) -> Result<(WInstance, Complement),
     get_with_identity(lens, instance, &lens.identity(ComplementShape::WType))
 }
 
+/// The union of two complements' synthesized keys, which must agree by id
+/// and by key: one id names one key, and one key one id.
+fn merge_synthesized_keys(
+    a: &Complement,
+    b: &Complement,
+) -> Result<std::collections::BTreeMap<u32, panproto_inst::SynthKey>, LensError> {
+    let mut synthesized_keys = a.synthesized_keys.clone();
+    let mut by_key: HashMap<&panproto_inst::SynthKey, u32> = a
+        .synthesized_keys
+        .iter()
+        .map(|(&id, key)| (key, id))
+        .collect();
+    for (&id, key) in &b.synthesized_keys {
+        let id_conflict = synthesized_keys.get(&id).is_some_and(|mine| mine != key);
+        let key_conflict = by_key.get(key).is_some_and(|&mine| mine != id);
+        if id_conflict || key_conflict {
+            return Err(LensError::ComplementConflict {
+                kind: "synthesized_keys",
+                key: format!("{id:?} {key:?}"),
+            });
+        }
+        synthesized_keys.insert(id, key.clone());
+        by_key.insert(key, id);
+    }
+    Ok(synthesized_keys)
+}
+
+/// The source edge of every surviving arc whose view label does not
+/// determine it: the source edges between its endpoints' anchors whose
+/// image is the label the view gives the arc are not exactly this one.
+/// Every other arc's edge is read back off the source schema by `put`.
+fn undetermined_arc_edges(
+    lens: &Lens,
+    instance: &WInstance,
+    view: &WInstance,
+) -> HashMap<(u32, u32), Edge> {
+    let view_edge_into: HashMap<(u32, u32), &Edge> = view
+        .arcs
+        .iter()
+        .map(|(parent, child, edge)| ((*parent, *child), edge))
+        .collect();
+    let mut arc_edges = HashMap::new();
+    for (parent, child, edge) in &instance.arcs {
+        if !(view.nodes.contains_key(parent) && view.nodes.contains_key(child)) {
+            continue;
+        }
+        let determined = view_edge_into
+            .get(&(*parent, *child))
+            .zip(instance.nodes.get(parent).zip(instance.nodes.get(child)))
+            .is_some_and(|(view_edge, (p, c))| {
+                let mut preimages = lens
+                    .src_schema
+                    .edges_between(&p.anchor, &c.anchor)
+                    .iter()
+                    .filter(|candidate| edge_image(lens, candidate) == **view_edge);
+                preimages.next() == Some(edge) && preimages.next().is_none()
+            });
+        if !determined {
+            arc_edges.insert((*parent, *child), edge.clone());
+        }
+    }
+    arc_edges
+}
+
 /// [`get`] with the lens's envelope already computed, for callers that run
 /// many `get`s through one lens.
 pub(crate) fn get_with_identity(
@@ -474,15 +547,7 @@ pub(crate) fn get_with_identity(
     let (original_extra_fields, original_values) =
         capture_pre_transform_state(lens, instance, &view);
 
-    // Record the exact edge for every arc in the source instance whose
-    // parent and child both survive. This makes `put` deterministic when
-    // the source schema has parallel edges between the same vertex pair.
-    let mut arc_edges = HashMap::new();
-    for (parent, child, edge) in &instance.arcs {
-        if view.nodes.contains_key(parent) && view.nodes.contains_key(child) {
-            arc_edges.insert((*parent, *child), edge.clone());
-        }
-    }
+    let arc_edges = undetermined_arc_edges(lens, instance, &view);
 
     // The source anchor of every surviving node the remap's inverse would
     // not recover: a node whose view anchor has several preimages, or a
@@ -534,6 +599,11 @@ pub(crate) fn get_with_identity(
         // field is populated only by the restrict pipeline.
         contracted_into: HashMap::new(),
         original_anchors,
+        // A source holding the id `u32::MAX` has a floor above every `u32`;
+        // it records `u32::MAX`, against which `fresh_view_node_id` reports
+        // exhaustion.
+        id_floor: panproto_inst::complement::tree_id_floor(instance).unwrap_or(u32::MAX),
+        synthesized_keys: std::collections::BTreeMap::new(),
         identity: None,
     };
     complement.stamp(envelope.clone(), &lens.src_schema);
@@ -558,10 +628,11 @@ pub(crate) fn get_with_identity(
 ///
 /// Returns [`LensError::Identity`] if the complement's identity is refused,
 /// [`LensError::ComplementMismatch`] if the complement is inconsistent with
-/// the view, [`LensError::IdCollision`] if a view node has the id of a node
-/// the complement holds, and [`LensError::AmbiguousReverseAnchor`] if a
-/// node added in the view, or moved in the view away from the anchor `get`
-/// gave it, has no single source anchor.
+/// the view, and [`LensError::PutDomain`] with the first violation
+/// [`check_put_domain`] reports when the view is outside the domain of
+/// `put` (for instance a view node with the id of a node the complement
+/// holds, or a node added in the view, or moved away from the anchor `get`
+/// gave it, with no single source anchor).
 pub fn put(lens: &Lens, view: &WInstance, complement: &Complement) -> Result<WInstance, LensError> {
     put_with_identity(
         lens,
@@ -604,7 +675,455 @@ pub(crate) fn put_with_identity(
     policy: IdentityPolicy,
 ) -> Result<(WInstance, IdentityStatus), LensError> {
     let status = crate::identity::verify_with_identity(complement, lens, envelope, policy)?;
-    reassemble(lens, view, complement).map(|source| (source, status))
+    if let Some(first) = structural_violations(lens, view, complement)
+        .into_iter()
+        .next()
+    {
+        return Err(LensError::PutDomain(first));
+    }
+    let source = reassemble(lens, view, complement)?;
+    if let Some(first) = value_violations(lens, view, complement, &source)
+        .into_iter()
+        .next()
+    {
+        return Err(LensError::PutDomain(first));
+    }
+    Ok((source, status))
+}
+
+/// The domain predicate of tree [`put`]: every reason `view` cannot be
+/// written back through `lens` against `complement`, or `Ok` when `put`
+/// accepts it.
+///
+/// Checked:
+///
+/// * [`PutDomainError::IdCollision`]: a view node has the id of a node the
+///   complement holds as dropped, so restoring that node would overwrite it.
+/// * [`PutDomainError::ContractedEdgeInserted`]: a view arc that `get` did
+///   not produce joins two nodes whose source anchors the lens contracts (a
+///   path through at least one dropped vertex) to exactly the arc's label,
+///   and no source edge carries that label between those anchors. No
+///   source path can be written for it: `get` of any source puts a
+///   contracted arc there only for a dropped interior node, which the view
+///   does not name.
+/// * [`PutDomainError::UnrepresentableViewEdge`]: any other view arc that
+///   `get` did not produce whose label is the image of no source edge, or
+///   of more than one, between its endpoints' source anchors. `put` would
+///   have no source edge to write it back under.
+/// * [`PutDomainError::AmbiguousReverseAnchor`]: a view node added or moved
+///   in the view is anchored at a vertex with several source preimages.
+/// * [`PutDomainError::SurvivalPredicateFails`]: a restored node's
+///   survival predicate is false on its restored fields, so the next `get`
+///   would hide it again.
+/// * [`PutDomainError::DerivedCellEdited`] and
+///   [`PutDomainError::TransformNotInvertible`]: recomputing the forward
+///   transforms of a restored node does not give the value the view holds
+///   on a field the lens computes: a field the migration adds (a default
+///   or a computed field), or one written by a transform with no inverse.
+///
+/// All violations are reported, ordered by variant (the declaration order
+/// of [`PutDomainError`]) and then by the element's [`ViewRef`]. The value
+/// checks run on every view node whose restoration a structural violation
+/// leaves determined, so a structural violation elsewhere in the view hides
+/// none of them: a view node colliding with a dropped node is checked as
+/// the view holds it, and only a node with no single source anchor, or
+/// under an arc with no single source edge, is left out together with the
+/// view subtree below it, since `put` has nothing to restore it as. Put is
+/// total on views for which this returns `Ok`.
+///
+/// # Errors
+///
+/// Returns every violation found, in that order.
+///
+/// [`ViewRef`]: panproto_inst::ViewRef
+pub fn check_put_domain(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> Result<(), Vec<PutDomainError>> {
+    let mut found = structural_violations(lens, view, complement);
+    let restorable = if found.is_empty() {
+        None
+    } else {
+        Some(restorable_part(view, complement, &found))
+    };
+    let (view, complement) = restorable
+        .as_ref()
+        .map_or((view, complement), |(view, complement)| (view, complement));
+    if let Ok(source) = reassemble(lens, view, complement) {
+        found.extend(value_violations(lens, view, complement, &source));
+    }
+    let found = in_report_order(found);
+    if found.is_empty() { Ok(()) } else { Err(found) }
+}
+
+/// The part of `view` and `complement` that `put` can still restore given
+/// the structural violations `found`: the view without every node that
+/// has no single source anchor or sits under an arc with no single source
+/// edge (and without the view subtree below each), and the complement
+/// without the dropped nodes a view node collides with, so that the view
+/// node is restored in their place.
+fn restorable_part(
+    view: &WInstance,
+    complement: &Complement,
+    found: &[PutDomainError],
+) -> (WInstance, Complement) {
+    let mut complement = complement.clone();
+    let mut unrestorable: Vec<u32> = Vec::new();
+    for violation in found {
+        match violation {
+            PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            } => {
+                complement.dropped_nodes.remove(id);
+            }
+            PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
+                ..
+            } => unrestorable.push(*id),
+            PutDomainError::ContractedEdgeInserted {
+                elem: ViewRef::Arc { child, .. },
+            }
+            | PutDomainError::UnrepresentableViewEdge {
+                elem: ViewRef::Arc { child, .. },
+            } => unrestorable.push(*child),
+            _ => {}
+        }
+    }
+    let mut children: HashMap<u32, Vec<u32>> = HashMap::new();
+    for (parent, child, _) in &view.arcs {
+        children.entry(*parent).or_default().push(*child);
+    }
+    let mut removed: HashSet<u32> = HashSet::new();
+    while let Some(id) = unrestorable.pop() {
+        if id != view.root && removed.insert(id) {
+            unrestorable.extend(children.get(&id).into_iter().flatten().copied());
+        }
+    }
+    let nodes = view
+        .nodes
+        .iter()
+        .filter(|(id, _)| !removed.contains(*id))
+        .map(|(id, node)| (*id, node.clone()))
+        .collect();
+    let arcs = view
+        .arcs
+        .iter()
+        .filter(|(parent, child, _)| !removed.contains(parent) && !removed.contains(child))
+        .cloned()
+        .collect();
+    let fans = view
+        .fans
+        .iter()
+        .filter(|fan| {
+            !removed.contains(&fan.parent) && fan.children.values().all(|c| !removed.contains(c))
+        })
+        .cloned()
+        .collect();
+    (
+        WInstance::new(nodes, arcs, fans, view.root, view.schema_root.clone()),
+        complement,
+    )
+}
+
+/// Sort violations into report order and drop repeats.
+fn in_report_order(mut found: Vec<PutDomainError>) -> Vec<PutDomainError> {
+    found.sort_by(|a, b| {
+        a.variant_index()
+            .cmp(&b.variant_index())
+            .then_with(|| violation_ref(a).cmp(&violation_ref(b)))
+    });
+    found.dedup();
+    found
+}
+
+/// The element a violation names, as a [`ViewRef`].
+fn violation_ref(violation: &PutDomainError) -> Option<ViewRef> {
+    match violation {
+        PutDomainError::IdCollision { elem }
+        | PutDomainError::SynthesizedEdited { elem }
+        | PutDomainError::ContractedEdgeInserted { elem }
+        | PutDomainError::UnrepresentableViewEdge { elem }
+        | PutDomainError::AmbiguousReverseAnchor { elem, .. }
+        | PutDomainError::SurvivalPredicateFails { elem }
+        | PutDomainError::DerivedCellEdited { elem, .. }
+        | PutDomainError::TransformNotInvertible { elem, .. }
+        | PutDomainError::MissingRequiredCell { elem, .. } => Some(elem.clone()),
+        PutDomainError::MalformedFan { node, .. } => Some(ViewRef::Node(*node)),
+        PutDomainError::DuplicateKey { elems, .. } => elems.first().cloned(),
+    }
+}
+
+/// The violations read off the view and complement alone: id collisions,
+/// arcs inserted across a contracted pair, arcs with no single source edge,
+/// and ambiguous reverse anchors.
+fn structural_violations(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
+    let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
+    let edge_preimages = EdgePreimages::new(lens);
+    let mut view_arc_into: HashMap<u32, (u32, &Edge)> = HashMap::new();
+    for (parent, child, edge) in &view.arcs {
+        view_arc_into.entry(*child).or_insert((*parent, edge));
+    }
+
+    let mut anchors: HashMap<u32, Name> = HashMap::new();
+    for (&id, node) in &view.nodes {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
+        if complement.dropped_nodes.contains_key(&id) {
+            found.push(PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            });
+        }
+        match restored_anchor(
+            lens,
+            &reverse_anchors,
+            &edge_preimages,
+            complement,
+            id,
+            &node.anchor,
+            view_arc_into.get(&id).copied(),
+        ) {
+            Ok(anchor) => {
+                anchors.insert(id, anchor.clone());
+            }
+            Err(violation) => found.push(violation),
+        }
+    }
+
+    for (parent, child, edge) in &view.arcs {
+        if complement.synthesized_nodes.contains(parent)
+            || complement.synthesized_nodes.contains(child)
+            || produced_by_get(lens, complement, *parent, *child, edge)
+        {
+            continue;
+        }
+        let (Some(src_anchor), Some(tgt_anchor)) = (anchors.get(parent), anchors.get(child)) else {
+            continue;
+        };
+        let preimages = lens
+            .src_schema
+            .edges_between(src_anchor, tgt_anchor)
+            .iter()
+            .filter(|candidate| edge_image(lens, candidate) == *edge)
+            .count();
+        let elem = ViewRef::Arc {
+            parent: *parent,
+            child: *child,
+        };
+        match preimages {
+            1 => {}
+            0 if contracted_pair_label(lens, src_anchor, tgt_anchor).as_ref() == Some(edge) => {
+                found.push(PutDomainError::ContractedEdgeInserted { elem });
+            }
+            _ => found.push(PutDomainError::UnrepresentableViewEdge { elem }),
+        }
+    }
+
+    in_report_order(found)
+}
+
+/// Whether the view arc `(parent, child, edge)` is one `get` put there: an
+/// arc into a surviving source node from the node `get` connected it to,
+/// carrying the edge `get` gave it (a contraction choice, or the image of
+/// the source arc it recorded).
+fn produced_by_get(
+    lens: &Lens,
+    complement: &Complement,
+    parent: u32,
+    child: u32,
+    edge: &Edge,
+) -> bool {
+    complement.contraction_choices.get(&(parent, child)) == Some(edge)
+        || complement
+            .arc_edges
+            .get(&(parent, child))
+            .is_some_and(|recorded| edge_image(lens, recorded) == *edge)
+}
+
+/// The violations found by writing the view back and running the forward
+/// direction again on the result: every restored node whose survival
+/// predicate is false, and every computed field whose recomputed value is
+/// not the value the view holds.
+///
+/// The forward transforms are recomputed with the survival predicates
+/// lifted, so a node whose predicate fails is still checked on its fields
+/// and its failure hides no derived-cell edit, on it or on any other node.
+/// A lens with no field transforms and no survival predicates has none, and
+/// is not run again.
+fn value_violations(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    source: &WInstance,
+) -> Vec<PutDomainError> {
+    use panproto_inst::value::FieldPresence;
+
+    let compiled = &lens.compiled;
+    if compiled.field_transforms.is_empty() && compiled.conditional_survival.is_empty() {
+        return Vec::new();
+    }
+    let mut found = Vec::new();
+    let config = panproto_expr::EvalConfig::default();
+    for &id in view.nodes.keys() {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
+        let Some(restored) = source.nodes.get(&id) else {
+            continue;
+        };
+        if let Some(predicate) = compiled.conditional_survival.get(&restored.anchor) {
+            let env = panproto_inst::build_env_from_extra_fields(&restored.extra_fields);
+            if matches!(
+                panproto_expr::eval(predicate, &env, &config),
+                Ok(panproto_expr::Literal::Bool(false))
+            ) {
+                found.push(PutDomainError::SurvivalPredicateFails {
+                    elem: ViewRef::Node(id),
+                });
+            }
+        }
+    }
+    if compiled.field_transforms.is_empty() {
+        return in_report_order(found);
+    }
+
+    let unconditional;
+    let forward = if compiled.conditional_survival.is_empty() {
+        compiled
+    } else {
+        unconditional = panproto_inst::CompiledMigration {
+            conditional_survival: HashMap::new(),
+            ..compiled.clone()
+        };
+        &unconditional
+    };
+    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, forward) else {
+        return in_report_order(found);
+    };
+    for (&id, view_node) in &view.nodes {
+        if complement.synthesized_nodes.contains(&id) {
+            continue;
+        }
+        let (Some(restored), Some(again)) = (source.nodes.get(&id), recomputed.nodes.get(&id))
+        else {
+            continue;
+        };
+        let Some(transforms) = compiled.field_transforms.get(&restored.anchor) else {
+            continue;
+        };
+        let mut written: Vec<(&str, &panproto_inst::FieldTransform)> = transforms
+            .iter()
+            .filter_map(|t| written_key(t).map(|key| (key, t)))
+            .collect();
+        // The last transform writing a key decides what the key is.
+        written.reverse();
+        let mut seen: HashSet<&str> = HashSet::new();
+        for (key, transform) in written {
+            if !seen.insert(key) {
+                continue;
+            }
+            // A leaf-value coercion is read off the leaf value, which a
+            // view may leave absent; only a present value is an edit.
+            let differs = if key == "__value__" {
+                matches!(view_node.value, Some(FieldPresence::Present(_)))
+                    && !presence_equiv(view_node.value.as_ref(), again.value.as_ref())
+            } else {
+                match (view_node.extra_fields.get(key), again.extra_fields.get(key)) {
+                    (Some(shown), Some(recomputed)) => !value_equiv(shown, recomputed),
+                    (Some(_), None) => true,
+                    (None, _) => false,
+                }
+            };
+            if !differs {
+                continue;
+            }
+            let field = key.to_owned();
+            let elem = ViewRef::Node(id);
+            found.push(match transform {
+                panproto_inst::FieldTransform::AddField { .. }
+                | panproto_inst::FieldTransform::ComputeField { .. } => {
+                    PutDomainError::DerivedCellEdited { elem, field }
+                }
+                _ => PutDomainError::TransformNotInvertible { elem, field },
+            });
+        }
+    }
+    in_report_order(found)
+}
+
+/// The key a field transform writes, `__value__` for a leaf-value coercion,
+/// looking through a top-level path transform.
+fn written_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
+    match transform {
+        panproto_inst::FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+            written_key(inner)
+        }
+        other => transform_target_key(other),
+    }
+}
+
+/// Whether a source vertex survives the lens: its image under the vertex
+/// remap is a surviving target vertex.
+pub(crate) fn vertex_survives(lens: &Lens, vertex: &Name) -> bool {
+    let image = lens.compiled.vertex_remap.get(vertex).unwrap_or(vertex);
+    lens.compiled.surviving_verts.contains(image)
+}
+
+/// The view edge the lens contracts the source anchor pair `(a, b)` to, when
+/// it contracts that pair and resolves it to a single edge.
+///
+/// The pair is contracted when both vertices survive and `b` is reached from
+/// `a` in the source schema through at least one interior vertex, one that
+/// does not survive or carries a survival predicate (so some of its nodes
+/// are dropped). Its label is the resolver's entry for the image pair, or
+/// the unique target edge between the images.
+fn contracted_pair_label(lens: &Lens, a: &Name, b: &Name) -> Option<Edge> {
+    if !vertex_survives(lens, a) || !vertex_survives(lens, b) {
+        return None;
+    }
+    let interior =
+        |v: &Name| !vertex_survives(lens, v) || lens.compiled.conditional_survival.contains_key(v);
+    let mut visited: HashSet<&Name> = HashSet::new();
+    let mut frontier: Vec<&Name> = lens
+        .src_schema
+        .outgoing
+        .get(a)
+        .into_iter()
+        .flatten()
+        .map(|edge| &edge.tgt)
+        .filter(|v| interior(v))
+        .collect();
+    let mut reached = false;
+    while let Some(v) = frontier.pop() {
+        if !visited.insert(v) {
+            continue;
+        }
+        for edge in lens.src_schema.outgoing.get(v).into_iter().flatten() {
+            if &edge.tgt == b {
+                reached = true;
+            }
+            if interior(&edge.tgt) {
+                frontier.push(&edge.tgt);
+            }
+        }
+    }
+    if !reached {
+        return None;
+    }
+    let image = |v: &Name| lens.compiled.vertex_remap.get(v).unwrap_or(v).clone();
+    panproto_inst::resolve_edge(
+        &lens.tgt_schema,
+        &lens.compiled.resolver,
+        &image(a),
+        &image(b),
+    )
+    .ok()
 }
 
 /// The source anchor of view node `id`, whose view anchor is `view_anchor`
@@ -621,7 +1140,7 @@ pub(crate) fn put_with_identity(
 /// anchor that the vertex remap alone cannot. A node the view added, or a
 /// view edge that is the image of no source edge, falls back to the vertex
 /// remap's inverse, keeping the recorded anchor while it still fits. Several candidates are reported as
-/// [`LensError::AmbiguousReverseAnchor`] rather than picked from, unless
+/// [`PutDomainError::AmbiguousReverseAnchor`] rather than picked from, unless
 /// the recorded anchor is one of them.
 fn restored_anchor<'a>(
     lens: &Lens,
@@ -631,7 +1150,7 @@ fn restored_anchor<'a>(
     id: u32,
     view_anchor: &'a Name,
     view_arc: Option<(u32, &Edge)>,
-) -> Result<&'a Name, LensError> {
+) -> Result<&'a Name, PutDomainError> {
     let recorded = complement.original_anchors.get(&id).filter(|recorded| {
         lens.compiled
             .vertex_remap
@@ -640,10 +1159,22 @@ fn restored_anchor<'a>(
             == view_anchor
     });
     let recorded_edge = view_arc.and_then(|(parent, _)| complement.arc_edges.get(&(parent, id)));
+    // A node `get` carried over from the source, as opposed to one the view
+    // added.
+    let from_source = complement.original_parent.contains_key(&id) || recorded_edge.is_some();
     let edge_kept = match (view_arc, recorded_edge) {
         (Some((_, view_edge)), Some(recorded_edge)) => {
             edge_image(lens, recorded_edge) == *view_edge
         }
+        // `get` records an arc's edge only when the view label does not
+        // determine it; otherwise the label still fits the recorded anchor
+        // exactly when some source edge into that anchor has it as image.
+        (Some((_, view_edge)), None) if from_source => recorded.is_none_or(|anchor| {
+            edge_preimages
+                .of(view_edge)
+                .iter()
+                .any(|source| source.tgt == **anchor)
+        }),
         _ => true,
     };
     if edge_kept && let Some(recorded) = recorded {
@@ -652,11 +1183,11 @@ fn restored_anchor<'a>(
 
     // Only anchors the node's own view anchor is the image of: an arc whose
     // edge points elsewhere says nothing about where this node belongs.
-    // Only for a node whose arc `get` recorded: a node the view added has
-    // no source to be faithful to, and takes its anchor from the vertex
-    // remap alone.
+    // Only for a node `get` carried over from the source: a node the view
+    // added has no source to be faithful to, and takes its anchor from the
+    // vertex remap alone.
     let mut by_edge = view_arc
-        .filter(|_| recorded_edge.is_some())
+        .filter(|_| from_source)
         .map(|(_, view_edge)| edge_preimages.target_anchors(view_edge))
         .unwrap_or_default();
     by_edge
@@ -671,8 +1202,8 @@ fn restored_anchor<'a>(
                 .original_anchors
                 .get(&id)
                 .filter(|recorded| many.contains(recorded));
-            return from_record.ok_or_else(|| LensError::AmbiguousReverseAnchor {
-                node: id,
+            return from_record.ok_or_else(|| PutDomainError::AmbiguousReverseAnchor {
+                elem: ViewRef::Node(id),
                 candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
             });
         }
@@ -682,8 +1213,8 @@ fn restored_anchor<'a>(
         || {
             reverse_anchors
                 .source_anchor(view_anchor)
-                .map_err(|candidates| LensError::AmbiguousReverseAnchor {
-                    node: id,
+                .map_err(|candidates| PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(id),
                     candidates: candidates.to_vec(),
                 })
         },
@@ -748,8 +1279,7 @@ fn reassemble(
         if complement.synthesized_nodes.contains(&id) {
             continue;
         }
-        let mut restored_node = node.clone();
-        restored_node.anchor.clone_from(restored_anchor(
+        let anchor = restored_anchor(
             lens,
             &reverse_anchors,
             &edge_preimages,
@@ -757,7 +1287,10 @@ fn reassemble(
             id,
             &node.anchor,
             view_arc_into.get(&id).copied(),
-        )?);
+        )
+        .map_err(LensError::PutDomain)?;
+        let mut restored_node = node.clone();
+        restored_node.anchor.clone_from(anchor);
         // Restore original extra_fields.
         //
         // When a complement snapshot is present, start from the snapshot
@@ -797,10 +1330,9 @@ fn reassemble(
     dropped_ids.sort_unstable();
     for id in dropped_ids {
         if nodes.contains_key(&id) {
-            return Err(LensError::IdCollision {
-                kind: IdKind::Node,
-                id,
-            });
+            return Err(LensError::PutDomain(PutDomainError::IdCollision {
+                elem: ViewRef::Node(id),
+            }));
         }
         nodes.insert(id, complement.dropped_nodes[&id].clone());
     }
@@ -1317,9 +1849,12 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
 /// A lens with complement decomposes its source as `S ≅ V × C`. When the
 /// complement is terminal the decomposition collapses to `S ≅ V × 1 ≅ V`,
 /// the projection `get` becomes an isomorphism, and its inverse is a
-/// function of the view alone. That is exactly the condition
-/// [`Lens::is_isomorphism`] tests, so this succeeds precisely for lenses
-/// satisfying it and refuses everything else.
+/// function of the view alone. This succeeds precisely for lenses whose
+/// every `get` leaves trivial residue ([`Complement::residue_is_trivial`]):
+/// every source vertex survives (an injective rename survives), no two
+/// source vertices or parallel source edges share an image, no vertex is
+/// filtered by a predicate, and every value transform is an isomorphism.
+/// It refuses everything else.
 ///
 /// The refusal is not a limitation of this implementation. For a lens with
 /// non-trivial complement, `get` is not injective: distinct sources share a
@@ -1337,7 +1872,7 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
 /// Returns [`LensError::NotAnIsomorphism`] naming the obstruction when the
 /// lens is not invertible, or whatever [`put`] reports.
 pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance, LensError> {
-    if let Some(obstruction) = lens.obstruction_to_isomorphism() {
+    if let Some(obstruction) = obstruction_to_tree_isomorphism(lens) {
         return Err(LensError::NotAnIsomorphism {
             detail: obstruction,
         });
@@ -1435,6 +1970,75 @@ pub fn put_without_complement(lens: &Lens, view: &WInstance) -> Result<WInstance
     .map(|(source, _)| source)
 }
 
+/// The first reason `get` through `lens` can leave residue in a tree
+/// complement, or `None` when every complement it produces has trivial
+/// residue ([`Complement::residue_is_trivial`]).
+///
+/// Survival is read as `get` reads it: a source vertex survives when its
+/// image under the vertex remap is a surviving target vertex, so an
+/// injective rename is not a drop. The obstructions, in the order they are
+/// reported: a vertex that does not survive, or survives only under a
+/// predicate; two source vertices with one image (their nodes' anchors are
+/// then residue); a source edge with no image in the target; two source
+/// edges between the same vertices with one image (their arcs' edges are
+/// then residue); and a value transform that is not an isomorphism.
+pub(crate) fn obstruction_to_tree_isomorphism(lens: &Lens) -> Option<String> {
+    let compiled = &lens.compiled;
+    let mut vertices: Vec<&Name> = lens.src_schema.vertices.keys().collect();
+    vertices.sort();
+    for v in &vertices {
+        if !vertex_survives(lens, v) {
+            return Some(format!(
+                "vertex `{v}` does not survive, so its data is set aside in the complement"
+            ));
+        }
+        if compiled.conditional_survival.contains_key(*v) {
+            return Some(format!(
+                "vertex `{v}` survives only under a predicate, so the nodes it drops are set \
+                 aside in the complement"
+            ));
+        }
+    }
+    let mut images: HashMap<&Name, &Name> = HashMap::new();
+    for v in &vertices {
+        let image = compiled.vertex_remap.get(*v).unwrap_or(v);
+        if let Some(other) = images.insert(image, v) {
+            return Some(format!(
+                "vertices `{other}` and `{v}` both map to `{image}`, so a view anchor does not \
+                 determine the source anchor"
+            ));
+        }
+    }
+    let mut edges: Vec<&Edge> = lens.src_schema.edges.keys().collect();
+    edges.sort();
+    let mut edge_images: HashMap<Edge, &Edge> = HashMap::new();
+    for e in edges {
+        let image = edge_image(lens, e);
+        if !compiled.edge_remap.contains_key(e) && !lens.tgt_schema.edges.contains_key(&image) {
+            return Some(format!(
+                "edge `{}` -> `{}` does not survive, so the arcs over it are set aside in the \
+                 complement",
+                e.src, e.tgt
+            ));
+        }
+        if let Some(other) = edge_images.insert(image, e) {
+            return Some(format!(
+                "edges `{:?}` and `{:?}` have one image, so a view arc does not determine its \
+                 source edge",
+                other.name, e.name
+            ));
+        }
+    }
+    let class = lens.coercion_class();
+    if !matches!(class, panproto_gat::CoercionClass::Iso) {
+        return Some(format!(
+            "a value transform is classified `{class:?}`, which is not injective, so a view \
+             value does not determine the source value it came from"
+        ));
+    }
+    None
+}
+
 /// The `extra_fields` key a transform writes, when it writes one.
 fn transform_target_key(transform: &panproto_inst::FieldTransform) -> Option<&str> {
     use panproto_inst::FieldTransform;
@@ -1525,9 +2129,13 @@ fn find_original_arc(
     chosen.map(|edge| (parent_id, child_id, edge.clone()))
 }
 
-/// The view edge `get` carries source edge `source` onto: its entry in the
-/// explicit edge remap, or, for an edge the remap does not name, the same
-/// kind and label across remapped endpoints.
+/// The view edge `get` carries source edge `source` onto, by the rule
+/// `wtype_restrict` applies to a direct source arc: its entry in the
+/// explicit edge remap; else the target edge with the same kind and label
+/// across the remapped endpoints; else, when `source` is the only source
+/// edge between its endpoints, the resolver's edge for the remapped
+/// endpoint pair. With none of these the same kind and label across the
+/// remapped endpoints is returned, which is no target edge.
 fn edge_image(lens: &Lens, source: &Edge) -> Edge {
     if let Some(mapped) = lens.compiled.edge_remap.get(source) {
         return mapped.clone();
@@ -1539,12 +2147,28 @@ fn edge_image(lens: &Lens, source: &Edge) -> Edge {
             .cloned()
             .unwrap_or_else(|| vertex.clone())
     };
-    Edge {
+    let carried = Edge {
         src: remap(&source.src),
         tgt: remap(&source.tgt),
         kind: source.kind.clone(),
         name: source.name.clone(),
+    };
+    if lens.tgt_schema.edges.contains_key(&carried) {
+        return carried;
     }
+    if lens
+        .src_schema
+        .edges_between(&source.src, &source.tgt)
+        .len()
+        == 1
+        && let Some(resolved) = lens
+            .compiled
+            .resolver
+            .get(&(carried.src.clone(), carried.tgt.clone()))
+    {
+        return resolved.clone();
+    }
+    carried
 }
 
 #[cfg(test)]
@@ -1790,10 +2414,10 @@ mod tests {
             reanchor(&mut view, 1, "t2", "unmapped");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::AmbiguousReverseAnchor {
-                    node: 1,
+                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
                     candidates,
-                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }
@@ -1949,10 +2573,10 @@ mod tests {
             reanchor(&mut view, 1, "t2", "m");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::AmbiguousReverseAnchor {
-                    node: 1,
+                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(1),
                     candidates,
-                }) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }
