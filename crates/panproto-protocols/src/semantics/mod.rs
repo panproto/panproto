@@ -87,9 +87,7 @@ fn attach_from<'a>(
             .insert(row.vertex_kind.to_owned(), row.kind.clone());
     }
     for row in non_scalar.into_iter().filter(|row| row.protocol == name) {
-        protocol
-            .non_value_kinds
-            .insert(row.vertex_kind.to_owned());
+        protocol.non_value_kinds.insert(row.vertex_kind.to_owned());
     }
 }
 

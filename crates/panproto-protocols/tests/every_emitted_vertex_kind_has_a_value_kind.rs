@@ -14,10 +14,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
-use panproto_protocols::registry::descriptor;
+use panproto_protocols::registry::{descriptor, descriptors};
 use panproto_protocols::semantics::value_kinds;
 use panproto_protocols::{parse_schema_document, parse_schema_source};
-use panproto_schema::Schema;
+use panproto_schema::{InstanceShapeKind, Schema};
 
 /// The fixture files of each protocol, relative to `fixtures/`, and
 /// whether the protocol reads a JSON document (else source text).
@@ -154,4 +154,75 @@ fn every_classified_kind_is_a_kind_of_its_protocol() {
             "{pair:?} is both scalar and non-scalar"
         );
     }
+}
+
+/// The protocols whose schemas are read as tables: every protocol with a
+/// `Table` shape on either side, and `sql` and `asn1`, whose records are
+/// tables of their relation-ified schemas.
+const TABLE_PROTOCOLS: &[&str] = &[
+    "arrow",
+    "asn1",
+    "cassandra",
+    "conllu",
+    "dataframe",
+    "dynamodb",
+    "edi-x12",
+    "parquet",
+    "redis",
+    "sql",
+    "swift-mt",
+];
+
+/// The list above is every registered protocol with a `Table` shape on
+/// either side, with `sql` and `asn1`: a protocol that gains a `Table`
+/// shape joins it.
+#[test]
+fn the_table_protocol_list_is_every_protocol_with_a_table_shape() {
+    let mut expected: BTreeSet<&str> = descriptors()
+        .iter()
+        .filter(|d| {
+            let built = (d.protocol)();
+            built.syntactic_shape == InstanceShapeKind::Table
+                || built.semantic_shape == InstanceShapeKind::Table
+        })
+        .map(|d| d.name)
+        .collect();
+    expected.extend(["sql", "asn1"]);
+    let listed: BTreeSet<&str> = TABLE_PROTOCOLS.iter().copied().collect();
+    assert_eq!(listed, expected);
+}
+
+/// Every vertex kind a table protocol declares, in its object kinds or in
+/// the source and target kinds of its edge rules, is in exactly one of its
+/// value kinds and its non-value kinds, so its schemas classify into tables
+/// and attributes without a guess.
+#[test]
+fn every_table_protocol_kind_is_classified() {
+    let mut wrong: BTreeMap<&str, Vec<(String, &str)>> = BTreeMap::new();
+    for name in TABLE_PROTOCOLS {
+        let d = descriptor(name).expect("a registered protocol");
+        let built = (d.protocol)();
+        let kinds: BTreeSet<String> = built
+            .obj_kinds
+            .iter()
+            .chain(
+                built
+                    .edge_rules
+                    .iter()
+                    .flat_map(|rule| rule.src_kinds.iter().chain(&rule.tgt_kinds)),
+            )
+            .cloned()
+            .collect();
+        for kind in kinds {
+            let value = built.value_kinds.contains_key(&kind);
+            let non_value = built.non_value_kinds.contains(&kind);
+            let verdict = match (value, non_value) {
+                (true, false) | (false, true) => continue,
+                (false, false) => "unclassified",
+                (true, true) => "both",
+            };
+            wrong.entry(name).or_default().push((kind, verdict));
+        }
+    }
+    assert!(wrong.is_empty(), "{wrong:#?}");
 }
