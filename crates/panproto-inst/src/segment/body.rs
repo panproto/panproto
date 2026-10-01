@@ -162,17 +162,17 @@ pub struct SegmentStats {
 
 /// An owned edge of a segment, in shape-independent form.
 #[derive(Clone, Debug)]
-pub(crate) struct OwnedEdge<'a> {
+pub struct OwnedEdge<'a> {
     /// The edge's reference.
-    pub(crate) elem: ViewRef,
+    pub elem: ViewRef,
     /// Its edge id, when it has one (not for table pairs).
-    pub(crate) id: Option<EdgeId>,
+    pub id: Option<EdgeId>,
     /// Its source.
-    pub(crate) src: u32,
+    pub src: u32,
     /// Its target.
-    pub(crate) tgt: u32,
+    pub tgt: u32,
     /// Its label.
-    pub(crate) label: &'a Edge,
+    pub label: &'a Edge,
 }
 
 impl TreeSegment {
@@ -224,7 +224,7 @@ impl AnySegment {
     }
 
     /// The reference of an owned node of this shape.
-    pub(crate) const fn node_ref(&self, id: u32) -> ViewRef {
+    pub const fn node_ref(&self, id: u32) -> ViewRef {
         match self {
             Self::Table(_) => ViewRef::Row(RowId(id)),
             Self::Tree(_) | Self::Graph(_) => ViewRef::Node(id),
@@ -232,7 +232,7 @@ impl AnySegment {
     }
 
     /// Every owned node (row) with its anchor (table), ascending by id.
-    pub(crate) fn node_anchors(&self) -> Vec<(u32, &Name)> {
+    pub fn node_anchors(&self) -> Vec<(u32, &Name)> {
         match self {
             Self::Tree(s) => s.nodes.iter().map(|(id, n)| (*id, &n.anchor)).collect(),
             Self::Graph(s) => s.nodes.iter().map(|(id, n)| (*id, &n.anchor)).collect(),
@@ -241,7 +241,7 @@ impl AnySegment {
     }
 
     /// The anchor of owned node `id`, if the segment holds it.
-    pub(crate) fn anchor_of(&self, id: u32) -> Option<&Name> {
+    pub fn anchor_of(&self, id: u32) -> Option<&Name> {
         match self {
             Self::Tree(s) => s.nodes.get(&id).map(|n| &n.anchor),
             Self::Graph(s) => s.nodes.get(&id).map(|n| &n.anchor),
@@ -250,7 +250,7 @@ impl AnySegment {
     }
 
     /// Every owned edge, in the segment's own order.
-    pub(crate) fn owned_edges(&self) -> Vec<OwnedEdge<'_>> {
+    pub fn owned_edges(&self) -> Vec<OwnedEdge<'_>> {
         match self {
             Self::Graph(s) => s
                 .edges
@@ -364,6 +364,6 @@ impl AnySegment {
 }
 
 /// Whether a node is a reified fan node.
-pub(crate) const fn is_fan_node(node: &Node) -> bool {
+pub const fn is_fan_node(node: &Node) -> bool {
     matches!(node.shape, NodeShape::HyperEdge)
 }

@@ -426,6 +426,22 @@ fn a_modified_segment_fails_verify_segment() -> TestResult {
         s.segment = SegmentId(2);
     }
     assert!(verify_segment(&manifest, &moved).is_err());
+    // A record whose content digest is right but whose other fields are
+    // not: the segment no longer matches it.
+    let mut misrecorded = manifest.clone();
+    misrecorded.segments[1].stats.payload_bytes += 1;
+    let found = misrecorded.segments[1].leaf();
+    misrecorded.segments[1].stats.payload_bytes -= 1;
+    let expected = misrecorded.segments[1].leaf();
+    misrecorded.segments[1].stats.payload_bytes += 1;
+    assert_eq!(
+        verify_segment(&misrecorded, &parts[1]),
+        Err(SegmentError::DigestMismatch {
+            segment: Some(SegmentId(1)),
+            expected: found,
+            found: expected,
+        })
+    );
     Ok(())
 }
 

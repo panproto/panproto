@@ -38,7 +38,7 @@ pub const fn shape_from_tag(tag: u8) -> Option<InstanceShapeKind> {
 }
 
 /// Write an optional range as a presence byte and then its bounds.
-pub(crate) fn write_opt_range<S: CanonicalSink + ?Sized>(sink: &mut S, range: Option<IdRange>) {
+pub fn write_opt_range<S: CanonicalSink + ?Sized>(sink: &mut S, range: Option<IdRange>) {
     match range {
         None => sink.bool(false),
         Some(range) => {
@@ -50,7 +50,7 @@ pub(crate) fn write_opt_range<S: CanonicalSink + ?Sized>(sink: &mut S, range: Op
 }
 
 /// Write a list of ranges as their count and then each range's bounds.
-pub(crate) fn write_ranges<S: CanonicalSink + ?Sized>(sink: &mut S, ranges: &[IdRange]) {
+pub fn write_ranges<S: CanonicalSink + ?Sized>(sink: &mut S, ranges: &[IdRange]) {
     sink.len(ranges.len());
     for range in ranges {
         sink.u32(range.lo);
@@ -366,10 +366,7 @@ impl Partition {
     /// ```
     #[must_use]
     pub fn single(shape: InstanceShapeKind, max_id: Option<u32>) -> Self {
-        let lo = match max_id {
-            None => Some(0),
-            Some(max) => max.checked_add(1),
-        };
+        let lo = max_id.map_or(Some(0), |max| max.checked_add(1));
         let alloc = lo.map(|lo| IdRange { lo, hi: u32::MAX });
         Self {
             shape,

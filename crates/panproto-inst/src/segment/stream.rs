@@ -212,7 +212,7 @@ impl AnySegment {
 }
 
 /// The decode error of a record stream.
-fn stream_error(message: String) -> SegmentError {
+const fn stream_error(message: String) -> SegmentError {
     SegmentError::Decode {
         artifact: ArtifactKind::Segment,
         message,

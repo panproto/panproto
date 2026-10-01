@@ -30,10 +30,10 @@ use crate::ginstance::{EdgeId, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
 use crate::view_ref::ViewRef;
 
 /// A violation located by the segment and the element it is about.
-pub(crate) type Located = (SegmentId, ViewRef, SegmentError);
+pub type Located = (SegmentId, ViewRef, SegmentError);
 
 /// The first of `errors` in `(segment, ViewRef)` order.
-pub(crate) fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
+pub fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
     errors
         .into_iter()
         .enumerate()
@@ -43,7 +43,7 @@ pub(crate) fn first_located(errors: Vec<Located>) -> Result<(), SegmentError> {
 
 /// Every violation of segment `seg`'s own contract, each with the element it
 /// is about, in the order found.
-pub(crate) fn contract_violations(
+pub fn contract_violations(
     seg: &AnySegment,
     index: &OwnerIndex,
 ) -> Vec<(ViewRef, SegmentError)> {
@@ -178,7 +178,7 @@ fn stub_matches_key(key: &ViewRef, stub: &InStub) -> bool {
 /// The label a tree segment gives a fan edge: from the fan's hyper-edge to
 /// the target's anchor, of the parent kind with no name or of the label kind
 /// named by the child label.
-pub(crate) fn fan_edge_label(
+pub fn fan_edge_label(
     hyper_edge: &str,
     target_anchor: &str,
     child_label: Option<&str>,
@@ -262,7 +262,7 @@ pub fn check_segment(segment: &AnySegment, partition: &Partition) -> Result<(), 
 
 /// [`check_segment`] with the owner index already built and the segment
 /// known to be listed.
-pub(crate) fn check_segment_with(
+pub fn check_segment_with(
     segment: &AnySegment,
     index: &OwnerIndex,
 ) -> Result<(), SegmentError> {
@@ -277,7 +277,7 @@ pub(crate) fn check_segment_with(
 }
 
 /// Check that the partition lists `segment` with its shape.
-pub(crate) fn check_listed(
+pub fn check_listed(
     segment: &AnySegment,
     partition: &Partition,
 ) -> Result<(), SegmentError> {
@@ -298,7 +298,7 @@ pub(crate) fn check_listed(
 
 /// The segments laid out by id under `partition`: each listed, with the
 /// partition's shape, exactly once.
-pub(crate) fn arrange<'a>(
+pub fn arrange<'a>(
     segments: impl IntoIterator<Item = &'a AnySegment>,
     partition: &Partition,
 ) -> Result<Vec<&'a AnySegment>, SegmentError> {
@@ -306,7 +306,7 @@ pub(crate) fn arrange<'a>(
     for segment in segments {
         check_listed(segment, partition)?;
         let at = usize::try_from(segment.segment().0).unwrap_or(usize::MAX);
-        let slot = slots.get_mut(at).ok_or(SegmentError::MalformedPartition {
+        let slot = slots.get_mut(at).ok_or_else(|| SegmentError::MalformedPartition {
             segment: segment.segment(),
             defect: PartitionDefect::UnknownSegment,
         })?;
@@ -321,7 +321,7 @@ pub(crate) fn arrange<'a>(
         .into_iter()
         .enumerate()
         .map(|(i, slot)| {
-            slot.ok_or(SegmentError::MalformedPartition {
+            slot.ok_or_else(|| SegmentError::MalformedPartition {
                 segment: SegmentId(u32::try_from(i).unwrap_or(u32::MAX)),
                 defect: PartitionDefect::SegmentMissing,
             })
@@ -333,7 +333,7 @@ pub(crate) fn arrange<'a>(
 /// by id): ghost and in-stub agreement, edge id uniqueness, and for trees
 /// one root, at most one parent per node and every node reached from the
 /// root.
-pub(crate) fn cross_violations(segs: &[&AnySegment], index: &OwnerIndex) -> Vec<Located> {
+pub fn cross_violations(segs: &[&AnySegment], index: &OwnerIndex) -> Vec<Located> {
     let mut out = Vec::new();
     let mut edge_holders: BTreeMap<EdgeId, Vec<SegmentId>> = BTreeMap::new();
     for seg in segs {
@@ -501,7 +501,7 @@ pub fn verify_partition(
 }
 
 /// Every own-contract and cross-segment violation of the arranged segments.
-pub(crate) fn all_violations(segs: &[&AnySegment], index: &OwnerIndex) -> Vec<Located> {
+pub fn all_violations(segs: &[&AnySegment], index: &OwnerIndex) -> Vec<Located> {
     let mut errors: Vec<Located> = segs
         .iter()
         .flat_map(|seg| {

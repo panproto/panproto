@@ -364,7 +364,7 @@ pub enum SegmentError {
     #[error("the segment breaks its contract in {} place(s)", violations.len())]
     Invalid {
         /// The violations, sorted.
-        violations: Vec<SegmentError>,
+        violations: Vec<Self>,
     },
 
     /// A restrict failed. `at` is its position in the precedence order and

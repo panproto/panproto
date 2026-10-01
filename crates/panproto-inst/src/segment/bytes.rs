@@ -95,7 +95,7 @@ impl CanonicalSink for Counter {
 
 /// The canonical bytes of every value a segment holds: each node's value,
 /// extra fields and annotations, and each row's cells.
-pub(crate) fn payload_bytes(segment: &AnySegment) -> u64 {
+pub fn payload_bytes(segment: &AnySegment) -> u64 {
     let mut counter = Counter::default();
     let mut node = |n: &Node| {
         if let Some(FieldPresence::Present(value)) = &n.value {
@@ -222,7 +222,7 @@ fn spec_of<'p>(
     check_listed(segment, partition)?;
     partition
         .spec(segment.segment())
-        .ok_or(SegmentError::MalformedPartition {
+        .ok_or_else(|| SegmentError::MalformedPartition {
             segment: segment.segment(),
             defect: PartitionDefect::UnknownSegment,
         })
@@ -485,7 +485,7 @@ impl AnySegment {
     }
 
     /// [`AnySegment::digest`] with the spec in hand.
-    pub(crate) fn digest_with(&self, schema: &Digest, spec: &SegmentSpec) -> Digest {
+    pub fn digest_with(&self, schema: &Digest, spec: &SegmentSpec) -> Digest {
         let mut hasher = Digest::hasher(SEGMENT_CONTEXT);
         write_segment(&mut hasher, self, schema, spec);
         hasher.finalize()

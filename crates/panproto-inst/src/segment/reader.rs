@@ -25,7 +25,7 @@ use crate::view_ref::{RowId, ViewRef};
 const MAX_VALUE_DEPTH: usize = 128;
 
 /// A cursor over canonical bytes of one kind of artifact.
-pub(crate) struct Reader<'a> {
+pub struct Reader<'a> {
     bytes: &'a [u8],
     at: usize,
     artifact: ArtifactKind,
@@ -34,7 +34,7 @@ pub(crate) struct Reader<'a> {
 impl<'a> Reader<'a> {
     /// A reader at the start of `bytes`, which hold an artifact of
     /// `artifact`'s kind.
-    pub(crate) const fn new(bytes: &'a [u8], artifact: ArtifactKind) -> Self {
+    pub const fn new(bytes: &'a [u8], artifact: ArtifactKind) -> Self {
         Self {
             bytes,
             at: 0,
@@ -43,7 +43,7 @@ impl<'a> Reader<'a> {
     }
 
     /// The decode error for this artifact.
-    pub(crate) fn error(&self, message: impl Into<String>) -> SegmentError {
+    pub fn error(&self, message: impl Into<String>) -> SegmentError {
         SegmentError::Decode {
             artifact: self.artifact,
             message: format!("{} at byte {}", message.into(), self.at),
@@ -51,12 +51,12 @@ impl<'a> Reader<'a> {
     }
 
     /// Whether every byte has been read.
-    pub(crate) const fn finished(&self) -> bool {
+    pub const fn finished(&self) -> bool {
         self.at == self.bytes.len()
     }
 
     /// Fail unless every byte has been read.
-    pub(crate) fn finish(&self) -> Result<(), SegmentError> {
+    pub fn finish(&self) -> Result<(), SegmentError> {
         if self.finished() {
             Ok(())
         } else {
@@ -65,7 +65,7 @@ impl<'a> Reader<'a> {
     }
 
     /// The next `n` bytes.
-    pub(crate) fn take(&mut self, n: usize) -> Result<&'a [u8], SegmentError> {
+    pub fn take(&mut self, n: usize) -> Result<&'a [u8], SegmentError> {
         let end = self
             .at
             .checked_add(n)
@@ -83,11 +83,11 @@ impl<'a> Reader<'a> {
         Ok(out)
     }
 
-    pub(crate) fn u8(&mut self) -> Result<u8, SegmentError> {
+    pub fn u8(&mut self) -> Result<u8, SegmentError> {
         Ok(self.array::<1>()?[0])
     }
 
-    pub(crate) fn bool(&mut self) -> Result<bool, SegmentError> {
+    pub fn bool(&mut self) -> Result<bool, SegmentError> {
         match self.u8()? {
             0 => Ok(false),
             1 => Ok(true),
@@ -95,25 +95,25 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn u16(&mut self) -> Result<u16, SegmentError> {
+    pub fn u16(&mut self) -> Result<u16, SegmentError> {
         Ok(u16::from_le_bytes(self.array()?))
     }
 
-    pub(crate) fn u32(&mut self) -> Result<u32, SegmentError> {
+    pub fn u32(&mut self) -> Result<u32, SegmentError> {
         Ok(u32::from_le_bytes(self.array()?))
     }
 
-    pub(crate) fn u64(&mut self) -> Result<u64, SegmentError> {
+    pub fn u64(&mut self) -> Result<u64, SegmentError> {
         Ok(u64::from_le_bytes(self.array()?))
     }
 
-    pub(crate) fn i64(&mut self) -> Result<i64, SegmentError> {
+    pub fn i64(&mut self) -> Result<i64, SegmentError> {
         Ok(i64::from_le_bytes(self.array()?))
     }
 
     /// A count of items each at least `min_item` bytes long: refused when
     /// the bytes left cannot hold that many.
-    pub(crate) fn count(&mut self, min_item: usize) -> Result<usize, SegmentError> {
+    pub fn count(&mut self, min_item: usize) -> Result<usize, SegmentError> {
         let raw = self.u64()?;
         let left = self.bytes.len() - self.at;
         usize::try_from(raw)
@@ -122,23 +122,23 @@ impl<'a> Reader<'a> {
             .ok_or_else(|| self.error(format!("count {raw} exceeds the input")))
     }
 
-    pub(crate) fn byte_string(&mut self) -> Result<&'a [u8], SegmentError> {
+    pub fn byte_string(&mut self) -> Result<&'a [u8], SegmentError> {
         let n = self.count(1)?;
         self.take(n)
     }
 
-    pub(crate) fn string(&mut self) -> Result<String, SegmentError> {
+    pub fn string(&mut self) -> Result<String, SegmentError> {
         let raw = self.byte_string()?;
         std::str::from_utf8(raw)
             .map(str::to_owned)
             .map_err(|_| self.error("a string is not UTF-8"))
     }
 
-    pub(crate) fn name(&mut self) -> Result<Name, SegmentError> {
+    pub fn name(&mut self) -> Result<Name, SegmentError> {
         self.string().map(Name::from)
     }
 
-    pub(crate) fn opt_name(&mut self) -> Result<Option<Name>, SegmentError> {
+    pub fn opt_name(&mut self) -> Result<Option<Name>, SegmentError> {
         if self.bool()? {
             self.name().map(Some)
         } else {
@@ -146,7 +146,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn opt_u32(&mut self) -> Result<Option<u32>, SegmentError> {
+    pub fn opt_u32(&mut self) -> Result<Option<u32>, SegmentError> {
         if self.bool()? {
             self.u32().map(Some)
         } else {
@@ -154,11 +154,11 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn digest(&mut self) -> Result<Digest, SegmentError> {
+    pub fn digest(&mut self) -> Result<Digest, SegmentError> {
         self.array().map(Digest)
     }
 
-    pub(crate) fn edge(&mut self) -> Result<Edge, SegmentError> {
+    pub fn edge(&mut self) -> Result<Edge, SegmentError> {
         Ok(Edge {
             src: self.name()?,
             tgt: self.name()?,
@@ -168,7 +168,7 @@ impl<'a> Reader<'a> {
     }
 
     /// A range, refused when it is inverted (`segment` names its owner).
-    pub(crate) fn range(&mut self, segment: SegmentId) -> Result<IdRange, SegmentError> {
+    pub fn range(&mut self, segment: SegmentId) -> Result<IdRange, SegmentError> {
         IdRange {
             lo: self.u32()?,
             hi: self.u32()?,
@@ -176,12 +176,12 @@ impl<'a> Reader<'a> {
         .check(segment)
     }
 
-    pub(crate) fn ranges(&mut self, segment: SegmentId) -> Result<Vec<IdRange>, SegmentError> {
+    pub fn ranges(&mut self, segment: SegmentId) -> Result<Vec<IdRange>, SegmentError> {
         let n = self.count(8)?;
         (0..n).map(|_| self.range(segment)).collect()
     }
 
-    pub(crate) fn opt_range(
+    pub fn opt_range(
         &mut self,
         segment: SegmentId,
     ) -> Result<Option<IdRange>, SegmentError> {
@@ -192,7 +192,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn view_ref(&mut self) -> Result<ViewRef, SegmentError> {
+    pub fn view_ref(&mut self) -> Result<ViewRef, SegmentError> {
         match self.u8()? {
             0 => Ok(ViewRef::Node(self.u32()?)),
             1 => Ok(ViewRef::Edge(crate::EdgeId(self.u32()?))),
@@ -210,7 +210,7 @@ impl<'a> Reader<'a> {
         }
     }
 
-    pub(crate) fn value_map(
+    pub fn value_map(
         &mut self,
         depth: usize,
     ) -> Result<HashMap<String, Value>, SegmentError> {
@@ -231,7 +231,7 @@ impl<'a> Reader<'a> {
 
     /// An instance value, as [`CanonicalSink::value`](crate::CanonicalSink::value)
     /// writes it.
-    pub(crate) fn value(&mut self, depth: usize) -> Result<Value, SegmentError> {
+    pub fn value(&mut self, depth: usize) -> Result<Value, SegmentError> {
         if depth > MAX_VALUE_DEPTH {
             return Err(self.error("a value is nested too deeply"));
         }
@@ -333,7 +333,7 @@ impl<'a> Reader<'a> {
 
     /// A node record, as [`write_node_record`](crate::write_node_record)
     /// writes it.
-    pub(crate) fn node(&mut self) -> Result<Node, SegmentError> {
+    pub fn node(&mut self) -> Result<Node, SegmentError> {
         let id = self.u32()?;
         let anchor = self.name()?;
         let value = match self.u8()? {

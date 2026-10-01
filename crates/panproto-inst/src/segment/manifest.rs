@@ -352,7 +352,7 @@ pub fn verify_audit_path(
 }
 
 /// The decode error of a manifest.
-fn manifest_error(message: String) -> SegmentError {
+const fn manifest_error(message: String) -> SegmentError {
     SegmentError::Decode {
         artifact: super::store::ArtifactKind::Manifest,
         message,
@@ -561,7 +561,7 @@ impl SegmentManifest {
 
     /// Record that the instance was edited: the streaming instance digest
     /// no longer describes it, so it is cleared.
-    pub fn clear_instance_digest(&mut self) {
+    pub const fn clear_instance_digest(&mut self) {
         self.instance_digest = None;
     }
 }
