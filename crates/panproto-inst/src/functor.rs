@@ -543,9 +543,9 @@ impl FInstance {
     ///
     /// Returns [`InstError::NodeNotFound`] with the id when no row has it
     /// (rows are the nodes of a table's graph form), and
-    /// [`InstError::DanglingForeignKey`] naming the first incident
-    /// pair when the row takes part in a foreign key, since the pair would no
-    /// longer join its edge's endpoint tables.
+    /// [`InstError::RowHasForeignKeys`] naming the first incident pair when
+    /// the row takes part in a foreign key, since the pair would no longer
+    /// join its edge's endpoint tables; the instance is then unchanged.
     pub fn move_row(&mut self, id: RowId, vertex: impl Into<Name>) -> Result<Name, InstError> {
         let vertex = vertex.into();
         let old = self
@@ -556,8 +556,15 @@ impl FInstance {
         if old == vertex {
             return Ok(old);
         }
-        if let Some((edge, _, _)) = self.incident_pairs(id).into_iter().next() {
-            return Err(InstError::DanglingForeignKey { edge, row: id });
+        if let Some((edge, src, tgt)) = self.incident_pairs(id).into_iter().next() {
+            return Err(InstError::RowHasForeignKeys {
+                row: id,
+                from: old,
+                to: vertex,
+                edge,
+                src,
+                tgt,
+            });
         }
         let (_, row) = self.take_row(id).ok_or(InstError::NodeNotFound(id.0))?;
         self.place_row(vertex, id, row);

@@ -849,6 +849,58 @@ mod tests {
         assert_eq!(state.table_count(), 1);
     }
 
+    /// Moving a row that takes part in a foreign-key pair is refused with a
+    /// message that names the pair it would break, not one claiming the row
+    /// is missing from its table, and leaves the instance unchanged.
+    #[test]
+    fn moving_a_row_with_a_foreign_key_pair_is_refused_for_the_pair() {
+        let fk = Edge {
+            src: "post".into(),
+            tgt: "user".into(),
+            kind: "fk".into(),
+            name: None,
+        };
+        let mut start = FInstance::new()
+            .with_rows("user", [(RowId(3), Row::new())])
+            .unwrap()
+            .with_rows("post", [(RowId(1), Row::new())])
+            .unwrap();
+        start
+            .insert_foreign_key(fk.clone(), RowId(1), RowId(3))
+            .unwrap();
+        let mut state = start.clone();
+        let err = TableEdit::MoveRow {
+            id: RowId(3),
+            old_table: "user".into(),
+            new_table: "member".into(),
+        }
+        .apply(&mut state)
+        .unwrap_err();
+        let EditError::ApplyFailed(message) = err else {
+            panic!("expected ApplyFailed, got {err:?}");
+        };
+        assert_eq!(
+            message,
+            format!(
+                "row 3 cannot move from table \"user\" to table \"member\" \
+                 while it takes part in the pair (1, 3) of foreign key {fk:?}"
+            )
+        );
+        assert_eq!(state, start);
+        assert_eq!(state.table_of(RowId(3)), Some(&Name::from("user")));
+
+        let refusal = state.move_row(RowId(3), "member").unwrap_err();
+        assert!(
+            matches!(
+                &refusal,
+                InstError::RowHasForeignKeys { row: RowId(3), from, to, edge, src: RowId(1), tgt: RowId(3) }
+                    if from == "user" && to == "member" && *edge == fk
+            ),
+            "expected RowHasForeignKeys, got {refusal:?}"
+        );
+        assert_eq!(state, start);
+    }
+
     /// The tables a generated script draws from; `tag` starts absent.
     const TABLES: [&str; 3] = ["user", "post", "tag"];
 
