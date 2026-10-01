@@ -701,6 +701,34 @@ proptest! {
     }
 
     #[test]
+    fn graph_differ_laws_around_fans(a in arb_fan_graph(), ops in arb_fan_ops(), x in arb_fan_graph()) {
+        prop_assert!(FanDomain::contains(&a) && FanDomain::contains(&x));
+        let b = mutate(&a, &ops);
+        // Forwards: the law holds exactly when the target is in the fan
+        // domain; otherwise apply rejects the diff and leaves its input.
+        let mut s = a.clone();
+        match GraphDelta::diff(&a, &b).apply(&mut s) {
+            Ok(()) => {
+                prop_assert!(FanDomain::contains(&b));
+                prop_assert!(GInstance::identical(&s, &b));
+            }
+            Err(EditError::MalformedFan { .. }) => {
+                prop_assert!(!FanDomain::contains(&b));
+                prop_assert!(GInstance::identical(&s, &a));
+            }
+            Err(e) => return Err(fail(e)),
+        }
+        // Backwards and between unrelated graphs the target is in the fan
+        // domain, so the law holds whatever the source.
+        for (from, to) in [(&b, &a), (&a, &x), (&b, &x)] {
+            let mut s = from.clone();
+            GraphDelta::diff(from, to).apply(&mut s).map_err(fail)?;
+            prop_assert!(GInstance::identical(&s, to));
+        }
+        prop_assert!(GraphDelta::diff(&b, &b).is_identity());
+    }
+
+    #[test]
     fn graph_edit_apply_is_delta_apply(s in arb_graph(), o1 in arb_ops(), o2 in arb_ops(), x in arb_graph()) {
         let d1 = GraphDelta::diff(&s, &mutate(&s, &o1));
         let d2 = GraphDelta::diff(&x, &mutate(&x, &o2));
@@ -802,6 +830,39 @@ fn the_apply_cases_cover_every_outcome() -> Result<(), TestCaseError> {
     prop_assert!(applied >= 50, "{}", counts);
     prop_assert!(local >= 50, "{}", counts);
     prop_assert!(fan >= 50, "{}", counts);
+    Ok(())
+}
+
+/// The fan-domain differ law is exercised: the generator yields targets with
+/// reserved-kind edges both inside the fan domain (the diff applies) and
+/// outside it (apply rejects the diff with [`EditError::MalformedFan`]).
+#[test]
+fn the_fan_differ_generator_covers_both_outcomes() -> Result<(), TestCaseError> {
+    use proptest::strategy::ValueTree;
+    use proptest::test_runner::TestRunner;
+
+    let mut runner = TestRunner::deterministic();
+    let strategy = (arb_fan_graph(), arb_fan_ops());
+    let (mut inside, mut outside) = (0, 0);
+    for _ in 0..512 {
+        let (a, ops) = strategy.new_tree(&mut runner).map_err(fail)?.current();
+        let b = mutate(&a, &ops);
+        let reserved = b
+            .edges_sorted()
+            .any(|(_, e)| e.edge.kind == HYPER_LABEL_KIND || e.edge.kind == HYPER_PARENT_KIND);
+        let d = GraphDelta::diff(&a, &b);
+        if d.is_identity() || !reserved {
+            continue;
+        }
+        match d.apply(&mut a.clone()) {
+            Ok(()) => inside += 1,
+            Err(EditError::MalformedFan { .. }) => outside += 1,
+            Err(e) => return Err(fail(e)),
+        }
+    }
+    let counts = format!("{inside} targets in the fan domain, {outside} outside it");
+    prop_assert!(inside >= 50, "{}", counts);
+    prop_assert!(outside >= 50, "{}", counts);
     Ok(())
 }
 

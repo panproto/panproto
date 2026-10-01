@@ -42,8 +42,13 @@ impl GraphDelta {
     /// position becomes an attribution change. No replacement has equal
     /// payloads.
     ///
-    /// `diff(a, b).apply(a)` gives `b` and `diff(a, a)` is the identity
-    /// (the differ of Hofmann et al. 2012, Section 7, stated).
+    /// `diff(a, a)` is the identity, and `diff(a, b).apply(a)` gives `b`
+    /// whenever `b` is in the [`FanDomain`](crate::FanDomain) (the differ of
+    /// Hofmann et al. 2012, Section 7, stated). The source `a` need not be in
+    /// the fan domain. For `b` outside it the diff is still computed, but
+    /// [`GraphDelta::apply`] rejects it with
+    /// [`EditError::MalformedFan`](crate::EditError::MalformedFan) and leaves
+    /// `a` unchanged, since every applied result is in the fan domain.
     ///
     /// ```
     /// use panproto_inst::graph_edit::GraphDelta;
@@ -55,6 +60,27 @@ impl GraphDelta {
     /// GraphDelta::diff(&a, &b).apply(&mut c).unwrap();
     /// assert!(GInstance::identical(&c, &b));
     /// assert!(GraphDelta::diff(&a, &a).is_identity());
+    ///
+    /// // A `hyper_parent` edge out of a node that is not a fan puts `d`
+    /// // outside the fan domain: its diff is rejected, the reverse applies.
+    /// use panproto_inst::{EditError, EdgeId, FanDomain, HYPER_PARENT_KIND};
+    /// use panproto_schema::Edge;
+    /// let parent = Edge {
+    ///     src: "person".into(),
+    ///     tgt: "person".into(),
+    ///     kind: HYPER_PARENT_KIND.into(),
+    ///     name: None,
+    /// };
+    /// let pair = a.clone().with_node(Node::new(1, "person"));
+    /// let d = pair.clone().with_edge_id(EdgeId(9), 0, 1, parent);
+    /// assert!(!FanDomain::contains(&d));
+    /// let mut c = pair.clone();
+    /// let err = GraphDelta::diff(&pair, &d).apply(&mut c).unwrap_err();
+    /// assert!(matches!(err, EditError::MalformedFan { node: 0, .. }));
+    /// assert!(GInstance::identical(&c, &pair));
+    /// let mut c = d.clone();
+    /// GraphDelta::diff(&d, &pair).apply(&mut c).unwrap();
+    /// assert!(GInstance::identical(&c, &pair));
     /// ```
     #[must_use]
     pub fn diff(a: &GInstance, b: &GInstance) -> Self {
