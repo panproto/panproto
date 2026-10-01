@@ -12,7 +12,9 @@
 //!   two sides share;
 //! - a step with `identify` entries is a [`CompositionStep::Diagram`] over
 //!   the two sides and a shared theory built for the step, whose legs send
-//!   each shared or identified left symbol to its right counterpart.
+//!   each shared or identified left symbol to its right counterpart; a side
+//!   whose name cannot label a node, or a theory composed with itself, is
+//!   carried inline in the recipe under a label of the step's own.
 //!
 //! [`compile_composition_with_report`] also returns the
 //! [`CompositionReport`] of every step.
@@ -227,6 +229,10 @@ fn compose_step(
 
 /// Compose a step that has identifications: one diagram over the two sides
 /// and the step's shared theory.
+///
+/// Each side is a node of the diagram, labelled as [`side_node`] says, so a
+/// side whose name cannot label a node, or a theory composed with itself,
+/// composes as it does in a step without identifications.
 fn compose_identified(
     step: &ColimitStepSpec,
     left: &Theory,
@@ -234,25 +240,44 @@ fn compose_identified(
     shared: Theory,
     step_name: &str,
 ) -> Result<ComposedStep, String> {
+    let shared_label = shared.name.to_string();
+    let left_node = side_node(&step.left, left, &[&shared_label], step_name, "left");
+    let right_node = side_node(
+        &step.right,
+        right,
+        &[&shared_label, &left_node.label],
+        step_name,
+        "right",
+    );
     let (mut to_left, mut to_right) = legs(step, &shared);
-    // Each leg's codomain is the side's theory name, which for an earlier
-    // step's result is not its label; recompose names them the same way.
-    to_left.codomain = Arc::clone(&left.name);
-    to_right.codomain = Arc::clone(&right.name);
+    // Each leg ends at its node's theory, whose name is the side's theory
+    // name (for an earlier step's result, not its label) or, for a side
+    // carried inline, its label; recompose names the legs the same way.
+    for (leg, node) in [(&mut to_left, &left_node), (&mut to_right, &right_node)] {
+        leg.name = Arc::from(format!("{shared_label}_to_{}", node.label));
+        leg.codomain = Arc::clone(&node.theory.name);
+    }
+    let mut inline = vec![shared.clone()];
+    inline.extend(
+        [&left_node, &right_node]
+            .into_iter()
+            .filter(|node| node.inline)
+            .map(|node| node.theory.clone()),
+    );
     let recipe = CompositionStep::Diagram {
         nodes: vec![
-            step.left.clone(),
-            step.right.clone(),
-            shared.name.to_string(),
+            left_node.label.clone(),
+            right_node.label.clone(),
+            shared_label.clone(),
         ],
         edges: vec![
-            recipe_edge(&shared.name, &step.left, &to_left),
-            recipe_edge(&shared.name, &step.right, &to_right),
+            recipe_edge(&shared_label, &left_node.label, &to_left),
+            recipe_edge(&shared_label, &right_node.label, &to_right),
         ],
         mode: step.mode,
         clash: ClashPolicy::Reject,
         rewrite_budget: DEFAULT_VERIFY_BUDGET,
-        inline: vec![shared.clone()],
+        inline,
     };
     let edge = |tgt: &str, morphism: TheoryMorphism| DiagramEdge {
         src: Arc::clone(&shared.name),
@@ -260,15 +285,18 @@ fn compose_identified(
         morphism,
     };
     let diagram = TheoryDiagram {
-        edges: vec![edge(&step.left, to_left), edge(&step.right, to_right)],
+        edges: vec![
+            edge(&left_node.label, to_left),
+            edge(&right_node.label, to_right),
+        ],
         nodes: vec![
             DiagramNode {
-                label: Arc::from(step.left.as_str()),
-                theory: left.clone(),
+                label: Arc::from(left_node.label.as_str()),
+                theory: left_node.theory,
             },
             DiagramNode {
-                label: Arc::from(step.right.as_str()),
-                theory: right.clone(),
+                label: Arc::from(right_node.label.as_str()),
+                theory: right_node.theory,
             },
             DiagramNode {
                 label: Arc::clone(&shared.name),
@@ -283,6 +311,50 @@ fn compose_identified(
         step: recipe,
         report: composition.report,
     })
+}
+
+/// A side of an identify step as a node of the step's diagram.
+struct SideNode {
+    /// The node's label, which the recipe also names the node by.
+    label: String,
+    /// The node's theory.
+    theory: Theory,
+    /// Whether the recipe carries `theory` inline rather than naming a
+    /// registry entry.
+    inline: bool,
+}
+
+/// The node of the side named `name`, whose theory is `theory`, in the
+/// diagram of the step `step_name`; `taken` are the labels of the step's
+/// other nodes.
+///
+/// The node is labelled by the side's name, which the recipe resolves in
+/// the registry, when that name is a valid label (non-empty, with neither
+/// `.` nor `#`) not in `taken`. Otherwise (a name such as `my.Graph`, or a
+/// theory composed with itself) the side is carried inline under the first
+/// of `{step_name}_{role}`, `{step_name}_{role}_`, ... not in `taken`, and
+/// its theory is renamed to that label, since `recompose` finds an inline
+/// theory by its name.
+fn side_node(name: &str, theory: &Theory, taken: &[&str], step_name: &str, role: &str) -> SideNode {
+    let valid = !name.is_empty() && !name.contains(['.', '#']);
+    if valid && !taken.contains(&name) {
+        return SideNode {
+            label: name.to_owned(),
+            theory: theory.clone(),
+            inline: false,
+        };
+    }
+    let mut label = format!("{step_name}_{role}");
+    while taken.contains(&label.as_str()) {
+        label.push('_');
+    }
+    let mut theory = theory.clone();
+    theory.name = Arc::from(label.as_str());
+    SideNode {
+        label,
+        theory,
+        inline: true,
+    }
 }
 
 /// A leg as a recipe edge from `src` to `tgt`, its maps in key order.
