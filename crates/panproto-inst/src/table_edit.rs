@@ -241,8 +241,12 @@ impl TableEdit {
     /// Apply this edit to a functor instance.
     ///
     /// Every expectation the edit carries is checked against the instance
-    /// before it changes; on error the instance is unchanged (a batch is
-    /// applied to a copy and committed only when every step succeeds).
+    /// before it changes, and a cell or row is compared by its exact value
+    /// (its canonical bytes, so a `NaN` cell matches itself and `0.0` does
+    /// not match `-0.0`). On error the instance is unchanged: a batch
+    /// applies its steps in place and, when one fails, undoes the steps
+    /// before it by their inverses, in reverse order, so it never copies the
+    /// instance.
     ///
     /// # Errors
     ///
@@ -273,7 +277,7 @@ impl TableEdit {
                 incident_fks,
             } => {
                 expect_row(instance, table, *id)?;
-                if instance.row(*id) != Some(row) {
+                if !instance.row(*id).is_some_and(|cells| same_row(cells, row)) {
                     return Err(EditError::ApplyFailed(format!(
                         "row {} does not hold the cells the deletion expects",
                         id.0
@@ -299,7 +303,12 @@ impl TableEdit {
                 let cells = instance
                     .row_mut(*id)
                     .ok_or_else(|| row_not_found(table, *id))?;
-                if cells.get(column) != old.as_ref() {
+                let holds = match (cells.get(column), old) {
+                    (Some(cell), Some(expected)) => same_value(cell, expected),
+                    (None, None) => true,
+                    _ => false,
+                };
+                if !holds {
                     return Err(EditError::ApplyFailed(format!(
                         "cell `{column}` of row {} does not hold the value the update expects",
                         id.0
@@ -340,15 +349,48 @@ impl TableEdit {
                 }
             }
             Self::Batch(steps) => {
-                let mut staged = instance.clone();
-                for step in steps {
-                    step.apply(&mut staged)?;
+                for (done, step) in steps.iter().enumerate() {
+                    if let Err(error) = step.apply(instance) {
+                        roll_back(instance, &steps[..done])?;
+                        return Err(error);
+                    }
                 }
-                *instance = staged;
                 Ok(())
             }
         }
     }
+}
+
+/// Undo the applied prefix of a failed batch, last step first.
+///
+/// Each step's inverse meets exactly the state the step left (the later
+/// steps are undone already) and compare and set is exact, so it applies;
+/// an error here means that guarantee is broken and is reported as such.
+fn roll_back(instance: &mut FInstance, applied: &[TableEdit]) -> Result<(), EditError> {
+    for step in applied.iter().rev() {
+        step.invert().apply(instance).map_err(|error| {
+            EditError::ApplyFailed(format!(
+                "a failed batch could not undo a step it applied: {error}"
+            ))
+        })?;
+    }
+    Ok(())
+}
+
+/// Whether two cells hold the same value: equal canonical bytes. Unlike
+/// `Value`'s `==`, this is reflexive on `NaN` and tells `0.0` from `-0.0`,
+/// so an edit naming a cell's value always matches that cell.
+fn same_value(a: &Value, b: &Value) -> bool {
+    a.canonical_cmp(b).is_eq()
+}
+
+/// Whether two rows hold the same columns with the same values
+/// ([`same_value`]).
+fn same_row(a: &Row, b: &Row) -> bool {
+    a.len() == b.len()
+        && a
+            .iter()
+            .all(|(column, value)| b.get(column).is_some_and(|theirs| same_value(value, theirs)))
 }
 
 fn row_not_found(table: &Name, id: RowId) -> EditError {
@@ -550,6 +592,146 @@ mod tests {
         assert_eq!(inst, sample_instance());
     }
 
+    /// The exact bytes of an instance: equality that holds a `NaN` cell
+    /// equal to itself and tells `0.0` from `-0.0`.
+    fn bytes(instance: &FInstance) -> Vec<u8> {
+        crate::functor::canonical_finstance_bytes(instance)
+    }
+
+    #[test]
+    fn an_edit_naming_a_nan_cell_applies_and_inverts() {
+        let mut inst = FInstance::new();
+        let insert = TableEdit::InsertRow {
+            table: "t".into(),
+            id: RowId(0),
+            row: HashMap::from([("x".to_owned(), Value::Float(f64::NAN))]),
+        };
+        insert.apply(&mut inst).unwrap();
+        let update = TableEdit::UpdateCell {
+            table: "t".into(),
+            id: RowId(0),
+            column: "x".into(),
+            old: Some(Value::Float(f64::NAN)),
+            new: Some(Value::Int(1)),
+        };
+        let with_nan = bytes(&inst);
+        update.apply(&mut inst).unwrap();
+        update.invert().apply(&mut inst).unwrap();
+        assert_eq!(bytes(&inst), with_nan);
+        insert.invert().apply(&mut inst).unwrap();
+        assert_eq!(inst.total_row_count(), 0);
+    }
+
+    /// Compare and set reads a cell's exact value: an update expecting `0.0`
+    /// does not apply to `-0.0`, since its inverse would then write back a
+    /// different value than the one it replaced.
+    #[test]
+    fn compare_and_set_tells_signed_zeros_apart() {
+        let mut inst = FInstance::new()
+            .with_table(
+                "t",
+                vec![HashMap::from([("x".to_owned(), Value::Float(-0.0))])],
+            )
+            .unwrap();
+        let before = bytes(&inst);
+        let update = TableEdit::UpdateCell {
+            table: "t".into(),
+            id: RowId(0),
+            column: "x".into(),
+            old: Some(Value::Float(0.0)),
+            new: Some(Value::Int(1)),
+        };
+        assert!(matches!(
+            update.apply(&mut inst),
+            Err(EditError::ApplyFailed(_))
+        ));
+        let delete = TableEdit::DeleteRow {
+            table: "t".into(),
+            id: RowId(0),
+            row: HashMap::from([("x".to_owned(), Value::Float(0.0))]),
+            incident_fks: Vec::new(),
+        };
+        assert!(matches!(
+            delete.apply(&mut inst),
+            Err(EditError::ApplyFailed(_))
+        ));
+        assert_eq!(bytes(&inst), before);
+    }
+
+    /// Undoing a bulk delete is linear: a batch applies in place and does
+    /// not copy the instance, so the inverse of `k` deletions (a batch of
+    /// `k` batches) costs as much as the deletions.
+    #[test]
+    fn undoing_a_bulk_delete_is_linear() {
+        const ROWS: u32 = 8000;
+        let rows = (0..ROWS).map(|i| HashMap::from([("n".to_owned(), Value::Int(i64::from(i)))]));
+        let start = FInstance::new().with_table("t", rows).unwrap();
+        let deletes = TableEdit::Batch(
+            (0..ROWS)
+                .map(|i| TableEdit::DeleteRow {
+                    table: "t".into(),
+                    id: RowId(i),
+                    row: start.row(RowId(i)).unwrap().clone(),
+                    incident_fks: Vec::new(),
+                })
+                .collect(),
+        );
+        let mut state = start.clone();
+        deletes.apply(&mut state).unwrap();
+        assert_eq!(state.total_row_count(), 0);
+        let began = std::time::Instant::now();
+        deletes.invert().apply(&mut state).unwrap();
+        let took = began.elapsed();
+        assert_eq!(state, start);
+        assert!(
+            took < std::time::Duration::from_secs(2),
+            "undoing {ROWS} deletions took {took:?}"
+        );
+    }
+
+    /// A failing step deep in a nested batch leaves the instance as it was,
+    /// although the batch applies in place.
+    #[test]
+    fn a_failing_nested_batch_rolls_back_every_step() {
+        let mut inst = sample_instance();
+        let before = bytes(&inst);
+        let batch = TableEdit::Batch(vec![
+            TableEdit::Batch(vec![
+                TableEdit::InsertRow {
+                    table: "post".into(),
+                    id: RowId(9),
+                    row: named("draft"),
+                },
+                TableEdit::AddForeignKey {
+                    edge: fk(),
+                    src: RowId(9),
+                    tgt: RowId(1),
+                },
+            ]),
+            TableEdit::UpdateCell {
+                table: "user".into(),
+                id: RowId(0),
+                column: "name".into(),
+                old: Some(Value::Str("alice".into())),
+                new: None,
+            },
+            TableEdit::DeleteRow {
+                table: "post".into(),
+                id: RowId(2),
+                row: named("hello"),
+                incident_fks: vec![(fk(), RowId(2), RowId(0))],
+            },
+            TableEdit::Batch(vec![TableEdit::RemoveForeignKey {
+                edge: fk(),
+                src: RowId(2),
+                tgt: RowId(1),
+            }]),
+        ]);
+        assert!(batch.apply(&mut inst).is_err());
+        assert_eq!(bytes(&inst), before);
+        assert_eq!(inst, sample_instance());
+    }
+
     #[test]
     fn table_edit_variants_serialize_with_contract_names() {
         let edits = vec![
@@ -692,7 +874,7 @@ mod tests {
     enum Intent {
         Insert(u8),
         Delete(u8),
-        Update(u8, Option<i64>),
+        Update(u8, Option<Value>),
         Move(u8, u8),
         Link(u8, u8),
         Unlink(u8),
@@ -702,10 +884,23 @@ mod tests {
         prop_oneof![
             any::<u8>().prop_map(Intent::Insert),
             any::<u8>().prop_map(Intent::Delete),
-            (any::<u8>(), proptest::option::of(-3_i64..3)).prop_map(|(r, v)| Intent::Update(r, v)),
+            (any::<u8>(), proptest::option::of(cell_value())).prop_map(|(r, v)| Intent::Update(r, v)),
             (any::<u8>(), any::<u8>()).prop_map(|(r, to)| Intent::Move(r, to)),
             (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Intent::Link(a, b)),
             any::<u8>().prop_map(Intent::Unlink),
+        ]
+    }
+
+    /// Cell values, including the floats whose `==` is not an identity:
+    /// `NaN` and the two zeros.
+    fn cell_value() -> impl Strategy<Value = Value> {
+        prop_oneof![
+            (-3_i64..3).prop_map(Value::Int),
+            Just(Value::Float(f64::NAN)),
+            Just(Value::Float(0.0)),
+            Just(Value::Float(-0.0)),
+            Just(Value::Float(f64::INFINITY)),
+            Just(Value::List(vec![Value::Float(f64::NAN)])),
         ]
     }
 
@@ -738,7 +933,7 @@ mod tests {
                     id,
                     column: "n".into(),
                     old: state.row(id)?.get("n").cloned(),
-                    new: value.map(Value::Int),
+                    new: value.clone(),
                 })
             }
             Intent::Move(r, to) => {
@@ -789,14 +984,14 @@ mod tests {
             let mut applied = Vec::new();
             for intent in &intents {
                 let Some(edit) = resolve(&state, intent) else { continue };
-                let before = state.clone();
+                let before = bytes(&state);
                 edit.apply(&mut state).map_err(|e| TestCaseError::fail(format!("the edit fails: {e}")))?;
                 // Each step is undone by its own inverse.
                 let mut undone = state.clone();
                 edit.invert()
                     .apply(&mut undone)
                     .map_err(|e| TestCaseError::fail(format!("the inverse fails: {e}")))?;
-                prop_assert_eq!(&undone, &before);
+                prop_assert_eq!(bytes(&undone), before);
                 applied.push(edit);
             }
             // The whole script, as one batch, is undone by its inverse.
@@ -805,12 +1000,21 @@ mod tests {
             script
                 .apply(&mut replay)
                 .map_err(|e| TestCaseError::fail(format!("the script fails: {e}")))?;
-            prop_assert_eq!(&replay, &state);
+            prop_assert_eq!(bytes(&replay), bytes(&state));
             script
                 .invert()
                 .apply(&mut replay)
                 .map_err(|e| TestCaseError::fail(format!("the inverse script fails: {e}")))?;
-            prop_assert_eq!(&replay, &start);
+            prop_assert_eq!(bytes(&replay), bytes(&start));
+            // The script followed by a step that fails leaves the start as
+            // it was, every applied step rolled back.
+            let failing = TableEdit::Batch(vec![
+                script,
+                TableEdit::RemoveForeignKey { edge: fk(), src: RowId(u32::MAX), tgt: RowId(u32::MAX) },
+            ]);
+            let mut refused = start.clone();
+            prop_assert!(failing.apply(&mut refused).is_err());
+            prop_assert_eq!(bytes(&refused), bytes(&start));
         }
     }
 }
