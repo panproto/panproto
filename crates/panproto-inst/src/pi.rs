@@ -946,6 +946,58 @@ mod tests {
     /// Pi returns its input: a post with no author and a post with two keep
     /// their rows, and an org chart whose root has no manager keeps every
     /// employee.
+    /// Along the identity, Pi keeps the rows and pairs of record kinds that
+    /// share vocabulary with list values: ASN.1's `sequence` and `set`, and
+    /// a JSON array of objects.
+    #[test]
+    fn pi_along_the_identity_keeps_rows_at_record_container_kinds() {
+        let other = Edge {
+            src: "Person".into(),
+            tgt: "Other".into(),
+            kind: "field-of".into(),
+            name: Some("other".into()),
+        };
+        let items = Edge {
+            src: "root".into(),
+            tgt: "item".into(),
+            kind: "items".into(),
+            name: None,
+        };
+        let mut schema = make_test_schema(
+            &["Person", "Other", "root", "item"],
+            &[other.clone(), items.clone()],
+        );
+        for (vertex, kind) in [
+            ("Person", "sequence"),
+            ("Other", "set"),
+            ("root", "array"),
+            ("item", "object"),
+        ] {
+            if let Some(v) = schema.vertices.get_mut(vertex) {
+                v.kind = kind.into();
+            }
+        }
+        let inst = FInstance::new()
+            .with_rows("Person", blank_rows(&[0]))
+            .and_then(|f| f.with_rows("Other", blank_rows(&[1])))
+            .and_then(|f| f.with_rows("root", blank_rows(&[2])))
+            .and_then(|f| f.with_rows("item", blank_rows(&[3, 4])))
+            .and_then(|f| f.with_foreign_key(other.clone(), [(RowId(0), RowId(1))]))
+            .and_then(|f| {
+                f.with_foreign_key(items.clone(), [(RowId(2), RowId(3)), (RowId(2), RowId(4))])
+            })
+            .unwrap();
+        let mut migration = migration_of(&[
+            ("Person", "Person"),
+            ("Other", "Other"),
+            ("root", "root"),
+            ("item", "item"),
+        ]);
+        migration.surviving_edges.extend([other, items]);
+        let pi = functor_pi(&inst, &schema, &schema, &migration, 100).unwrap();
+        assert_eq!(pi, inst);
+    }
+
     #[test]
     fn pi_along_a_compiled_identity_keeps_partial_and_many_valued_keys() {
         let author = fk("post", "user", "author");

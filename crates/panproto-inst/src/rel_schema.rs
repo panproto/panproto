@@ -30,13 +30,32 @@ pub const TABLE_KIND: &str = "table";
 /// The edge kind that makes its target a column of its source.
 pub const COLUMN_EDGE_KIND: &str = "prop";
 
-/// Whether `kind` is a value kind: one whose values are scalars or lists,
-/// read from the one vocabulary of value kinds,
-/// [`kind_accepts`](crate::attributes::kind_accepts). A value kind refuses a
-/// record value; a record kind (`object`, `struct`, ...) and a kind the
-/// vocabulary does not know accept one, so they are not value kinds.
-fn is_value_kind(kind: &Name) -> bool {
-    !crate::attributes::kind_accepts(kind, &Value::Unknown(HashMap::new()))
+/// Whether `kind` is a scalar kind of the one vocabulary of value kinds,
+/// [`kind_accepts`](crate::attributes::kind_accepts): one that refuses both a
+/// record and a list. A container kind (`array`, `sequence`, `set`, ...)
+/// accepts a list, and ASN.1 and JSON use those kinds for records and for
+/// arrays of records, so a container kind is no scalar kind.
+fn is_scalar_kind(kind: &str) -> bool {
+    let kind = Name::from(kind);
+    !crate::attributes::kind_accepts(&kind, &Value::Unknown(HashMap::new()))
+        && !crate::attributes::kind_accepts(&kind, &Value::List(Vec::new()))
+}
+
+/// Whether `kind` is a value kind: a scalar kind, or a list kind named for a
+/// scalar element (`string-list`, `integer-list`).
+fn is_value_kind(kind: &str) -> bool {
+    is_scalar_kind(kind) || kind.strip_suffix("-list").is_some_and(is_scalar_kind)
+}
+
+/// Whether `kind` is a structured kind of the vocabulary: a record kind
+/// (`object`, `struct`, ...) or a container kind (`array`, `sequence`, `set`,
+/// ...), one that refuses a scalar and accepts a record or a list. A kind the
+/// vocabulary does not know accepts everything, so it is no structured kind.
+fn is_structured_kind(kind: &str) -> bool {
+    let kind = Name::from(kind);
+    !crate::attributes::kind_accepts(&kind, &Value::Int(0))
+        && (crate::attributes::kind_accepts(&kind, &Value::Unknown(HashMap::new()))
+            || crate::attributes::kind_accepts(&kind, &Value::List(Vec::new())))
 }
 
 /// The relation-ified schema of a [`Schema`]: its tables and its foreign keys
@@ -45,11 +64,17 @@ fn is_value_kind(kind: &Name) -> bool {
 /// A vertex is a table when the schema says so: its kind is
 /// [`TABLE_KIND`], it declares a key, or a declared reference holds at it or
 /// resolves to it. Otherwise a vertex is an attribute exactly when its kind
-/// is a value kind (a scalar or list kind such as `string` or `integer`,
-/// whatever edge reaches it, or none), an edge of kind [`COLUMN_EDGE_KIND`]
-/// reaches it (it is a column of that edge's source) or any edge leaves an
-/// attribute for it (it is part of a column's value, as the element vertex
-/// of an array column is), and a table when none of these holds. A foreign key is an edge of the
+/// is a value kind (a scalar kind such as `string` or `integer`, or a list
+/// kind named for a scalar element such as `string-list`, whatever edge
+/// reaches it, or none), an edge of kind [`COLUMN_EDGE_KIND`] reaches it (it
+/// is a column of that edge's source), it is a sink of no structured kind
+/// (record or container) that an edge reaches (no edge leaves it, so it holds no columns and no foreign
+/// keys of its own and is the value its source carries, as CoNLL-U's
+/// `upos-tag` vertices are), or any edge leaves an attribute for it (it is
+/// part of a column's value, as the element vertex of an array column is),
+/// and a table when none of these holds. A container kind (`array`,
+/// `sequence`, `set`, ...) is no value kind: ASN.1 declares records of the
+/// kinds `sequence` and `set`, and a JSON array of objects holds rows. A foreign key is an edge of the
 /// schema between two tables; an edge into an attribute is a column, not an
 /// object. Each foreign key `e` stands for an object with the two arrows
 /// `src_e` and `tgt_e` to its endpoint tables, which the edge itself names.
@@ -115,6 +140,8 @@ impl RelSchema {
         // The attributes: the targets of column edges, closed under every
         // edge out of an attribute (the element vertex of an array column,
         // the fields of a struct column), never a declared table.
+        let reached: BTreeSet<&str> = schema.edges.keys().map(|e| e.tgt.as_ref()).collect();
+        let left: BTreeSet<&str> = schema.edges.keys().map(|e| e.src.as_ref()).collect();
         let mut attributes: BTreeSet<&str> = BTreeSet::new();
         let mut frontier: Vec<&str> = schema
             .edges
@@ -126,6 +153,17 @@ impl RelSchema {
                     .vertices
                     .values()
                     .filter(|vertex| is_value_kind(&vertex.kind))
+                    .map(|vertex| vertex.id.as_ref()),
+            )
+            .chain(
+                schema
+                    .vertices
+                    .values()
+                    .filter(|vertex| {
+                        !is_structured_kind(&vertex.kind)
+                            && reached.contains(vertex.id.as_ref())
+                            && !left.contains(vertex.id.as_ref())
+                    })
                     .map(|vertex| vertex.id.as_ref()),
             )
             .collect();
@@ -346,8 +384,8 @@ mod tests {
     /// A vertex whose kind is a value kind (`string`, `integer`, ...) is an
     /// attribute whatever reaches it: one no edge reaches is not a table,
     /// and an edge of any kind into it is a column, not a foreign key. A
-    /// vertex of a record or unrecognised kind stays a table, and a declared
-    /// table stays one whatever its kind.
+    /// vertex of an unrecognised kind that an edge leaves stays a table, and
+    /// a declared table stays one whatever its kind.
     #[test]
     fn a_vertex_of_a_value_kind_is_an_attribute() {
         let mut schema = sql_like();
@@ -360,6 +398,7 @@ mod tests {
         for e in [
             edge("w", "t", "upos", "upos"),
             edge("w", "n", "xpos", "xpos"),
+            edge("n", "w", "head", "head"),
         ] {
             let kind = e.kind.clone();
             schema.edges.insert(e, kind);
@@ -369,6 +408,99 @@ mod tests {
         assert_eq!(tables, ["audit", "n", "post", "tag", "user", "w"]);
         assert!(rel.relations().iter().all(|e| e.tgt != "t"), "{rel:?}");
         assert!(rel.is_relation(&edge("w", "n", "xpos", "xpos")));
+    }
+
+    /// A record kind is a table whatever vocabulary it shares with list
+    /// values: ASN.1 declares `sequence` and `set` as record kinds, and a
+    /// JSON root of kind `array` whose items are objects holds rows too.
+    /// Only the scalar kinds, and lists named for a scalar element
+    /// (`string-list`), are value kinds.
+    #[test]
+    fn a_record_container_kind_is_a_table() {
+        let schema = Schema {
+            vertices: HashMap::from([
+                vertex("Person", "sequence"),
+                vertex("Person.name", "field"),
+                vertex("Other", "set"),
+                vertex("root", "array"),
+                vertex("item", "object"),
+                vertex("item.id", "integer"),
+                vertex("tags", "string-list"),
+            ]),
+            edges: [
+                edge("Person", "Person.name", "field-of", "name"),
+                edge("Person", "Other", "field-of", "other"),
+                edge("root", "item", "items", "items"),
+                edge("item", "item.id", "prop", "id"),
+                edge("item", "tags", "field-of", "tags"),
+            ]
+            .into_iter()
+            .map(|e| {
+                let kind = e.kind.clone();
+                (e, kind)
+            })
+            .collect(),
+            ..Schema::default()
+        };
+        let rel = RelSchema::new(&schema);
+        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
+        assert_eq!(tables, ["Other", "Person", "item", "root"]);
+        let relations: Vec<&Edge> = rel.relations().iter().collect();
+        assert_eq!(
+            relations,
+            [
+                &edge("Person", "Other", "field-of", "other"),
+                &edge("root", "item", "items", "items"),
+            ]
+        );
+    }
+
+    /// A vertex no edge leaves, reached by an edge, that declares no key or
+    /// reference and is of neither the table kind nor a structured (record or
+    /// container) kind holds no
+    /// columns and no foreign keys of its own: it is the value its source
+    /// carries, so it is an attribute, as CoNLL-U's `upos-tag` and
+    /// `xpos-tag` vertices are. A sink of a structured kind, of the table
+    /// kind or with a declared key stays a table.
+    #[test]
+    fn a_sink_of_no_structured_kind_is_an_attribute() {
+        let mut schema = sql_like();
+        schema.vertices.extend([
+            vertex("w", "word"),
+            vertex("u", "upos-tag"),
+            vertex("x", "xpos-tag"),
+            vertex("o", "object"),
+            vertex("k", "keyed"),
+            vertex("alone", "upos-tag"),
+        ]);
+        for e in [
+            edge("w", "u", "upos", "upos"),
+            edge("w", "x", "xpos", "xpos"),
+            edge("w", "o", "misc", "misc"),
+            edge("w", "k", "head", "head"),
+        ] {
+            let kind = e.kind.clone();
+            schema.edges.insert(e, kind);
+        }
+        schema.declarations.keys.insert(
+            "k".into(),
+            vec![Key {
+                id: "pk".into(),
+                parts: vec![KeyPart::Path(Vec::new())],
+                role: KeyRole::Primary,
+                scope: KeyScope::Global,
+            }],
+        );
+        let rel = RelSchema::new(&schema);
+        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
+        assert_eq!(
+            tables,
+            ["alone", "audit", "k", "o", "post", "tag", "user", "w"]
+        );
+        assert!(!rel.is_relation(&edge("w", "u", "upos", "upos")));
+        assert!(!rel.is_relation(&edge("w", "x", "xpos", "xpos")));
+        assert!(rel.is_relation(&edge("w", "o", "misc", "misc")));
+        assert!(rel.is_relation(&edge("w", "k", "head", "head")));
     }
 
     #[test]
