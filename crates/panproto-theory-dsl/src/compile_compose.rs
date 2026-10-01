@@ -1474,6 +1474,136 @@ mod tests {
             );
         }
     }
+
+    /// The theory `name` with the simple sort `vertex` and the sort `E`,
+    /// simple or `E(a: vertex, b: vertex)` as `dependent` says.
+    fn vertex_edge(name: &str, vertex: &str, dependent: bool) -> Theory {
+        use panproto_gat::SortParam;
+        let edge = if dependent {
+            Sort::dependent(
+                "E",
+                vec![SortParam::new("a", vertex), SortParam::new("b", vertex)],
+            )
+        } else {
+            Sort::simple("E")
+        };
+        Theory::new(name, vec![Sort::simple(vertex), edge], vec![], vec![])
+    }
+
+    /// The local theories `L` and `R` of [`vertex_edge`] over `V`.
+    fn vertex_edge_sides(left_dependent: bool, right_dependent: bool) -> HashMap<String, Theory> {
+        [
+            ("L".to_owned(), vertex_edge("L", "V", left_dependent)),
+            ("R".to_owned(), vertex_edge("R", "V", right_dependent)),
+        ]
+        .into()
+    }
+
+    /// The parameters of the sort `name` of `theory`, as `(name, sort)`.
+    fn params_of(theory: &Theory, name: &str) -> Vec<(String, String)> {
+        theory
+            .find_sort(name)
+            .unwrap_or_else(|| panic!("{name} is a sort of {}", theory.name))
+            .params
+            .iter()
+            .map(|p| (p.name.to_string(), p.sort.head().to_string()))
+            .collect()
+    }
+
+    #[test]
+    fn dsl_step_refuses_a_shared_sort_of_different_arity() {
+        let cases = [
+            (
+                vertex_edge_sides(false, true),
+                "shared sort 'E' has arity 0 in left theory 'L', but 'E' has arity 2 in right \
+                 theory 'R'",
+            ),
+            (
+                vertex_edge_sides(true, false),
+                "shared sort 'E' has arity 2 in left theory 'L', but 'E' has arity 0 in right \
+                 theory 'R'",
+            ),
+        ];
+        for (local, expected) in &cases {
+            for mode in ["amalgamate", "explicit_identity"] {
+                for identify in [&[][..], &[("sort", "V", "V")][..]] {
+                    let Err(error) = compile_composition_with_report(
+                        &step_with(("L", "R"), &["V", "E"], &[], mode, identify),
+                        &builtin_resolver(),
+                        local,
+                    ) else {
+                        panic!("{mode}, {identify:?}: E differs in arity");
+                    };
+                    let message = user_message(error);
+                    assert_eq!(message, *expected, "{mode}, {identify:?}");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn dsl_step_shares_a_dependent_sort_of_equal_arity() {
+        let local = vertex_edge_sides(true, true);
+        let expected = vec![
+            ("a".to_owned(), "V".to_owned()),
+            ("b".to_owned(), "V".to_owned()),
+        ];
+        for mode in ["amalgamate", "explicit_identity"] {
+            for identify in [&[][..], &[("sort", "V", "V")][..]] {
+                let theory = compile_and_replay(
+                    &step_with(("L", "R"), &["V", "E"], &[], mode, identify),
+                    &local,
+                    &local,
+                )
+                .unwrap_or_else(|e| panic!("{mode}, {identify:?}: {e}"));
+                assert_eq!(sort_names(&theory), ["E", "V"], "{mode}, {identify:?}");
+                assert_eq!(params_of(&theory, "E"), expected, "{mode}, {identify:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_shares_a_dependent_sort_over_identified_parameter_sorts() {
+        // The right theory names its vertex sort `N`: sharing `E` needs the
+        // left `V` to be one symbol with the right `N`.
+        let local: HashMap<String, Theory> = [
+            ("L".to_owned(), vertex_edge("L", "V", true)),
+            ("R".to_owned(), vertex_edge("R", "N", true)),
+        ]
+        .into();
+        for mode in ["amalgamate", "explicit_identity"] {
+            let theory = compile_and_replay(
+                &step_with(("L", "R"), &["E"], &[], mode, &[("sort", "V", "N")]),
+                &local,
+                &local,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: {e}"));
+            assert_eq!(sort_names(&theory), ["E", "V"], "{mode}");
+            assert_eq!(
+                params_of(&theory, "E"),
+                [
+                    ("a".to_owned(), "V".to_owned()),
+                    ("b".to_owned(), "V".to_owned())
+                ],
+                "{mode}"
+            );
+            // Without the identification the parameter sorts cannot be
+            // mapped: refused in the step's terms.
+            let Err(error) = compile_composition_with_report(
+                &step_with(("L", "R"), &["E"], &[], mode, &[("sort", "E", "E")]),
+                &builtin_resolver(),
+                &local,
+            ) else {
+                panic!("{mode}: V and N are not one symbol");
+            };
+            assert_eq!(
+                user_message(error),
+                "sort 'E', shared or identified with 'E', mentions the sort 'V' in its \
+                 declaration, but 'V' is neither shared nor identified",
+                "{mode}"
+            );
+        }
+    }
 }
 
 #[cfg(test)]
