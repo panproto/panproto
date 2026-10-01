@@ -14,7 +14,6 @@ mod annotation_other;
 mod annotation_xml;
 mod api;
 mod code;
-mod common;
 mod config;
 mod data_schema;
 mod data_science;

@@ -6,37 +6,68 @@
 //! `description` describes. A `cassandra` `NOT NULL` column constrains each
 //! row's cell, like SQL's. Keys (`cassandra`'s `PRIMARY KEY` and clustering
 //! order, `dynamodb`'s `key-type`, `neo4j`'s `unique` and `node-key`) are schema
-//! declarations, and presence flags (`mongodb`'s `required`, `neo4j`'s
-//! `exists`) are about the parent element (see the [`common`](super::common)
-//! module); they describe here, as do `dynamodb`'s provisioning settings,
-//! `cassandra`'s `STATIC` and `neo4j`'s property `type`.
+//! declarations, checked from those declarations, and presence flags
+//! (`mongodb`'s `required`, `neo4j`'s `exists`) are about the parent
+//! element, which must have the property (the schema's required edge), not
+//! about the property's own value; they describe here, as do `dynamodb`'s
+//! provisioning settings, `cassandra`'s `STATIC` and `neo4j`'s property
+//! `type`.
+
+use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
-use super::common::{
-    annotation, enumeration, max_chars, maximum, min_chars, minimum, pattern, required_value, row,
-};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("mongodb", "required", annotation),
-    row("mongodb", "bsonType", annotation),
-    row("mongodb", "enum", enumeration),
-    row("mongodb", "minimum", minimum),
-    row("mongodb", "maximum", maximum),
-    row("mongodb", "minLength", min_chars),
-    row("mongodb", "maxLength", max_chars),
-    row("mongodb", "pattern", pattern),
-    row("mongodb", "description", annotation),
-    row("dynamodb", "key-type", annotation),
-    row("dynamodb", "projection-type", annotation),
-    row("dynamodb", "read-capacity", annotation),
-    row("dynamodb", "write-capacity", annotation),
-    row("cassandra", "PRIMARY KEY", annotation),
-    row("cassandra", "CLUSTERING ORDER", annotation),
-    row("cassandra", "STATIC", annotation),
-    row("cassandra", "NOT NULL", required_value),
-    row("neo4j", "unique", annotation),
-    row("neo4j", "exists", annotation),
-    row("neo4j", "node-key", annotation),
-    row("neo4j", "type", annotation),
+    row("mongodb", "required", || ConstraintSemantics::Annotation),
+    row("mongodb", "bsonType", || ConstraintSemantics::Annotation),
+    row("mongodb", "enum", || ConstraintSemantics::Enum),
+    row("mongodb", "minimum", || ConstraintSemantics::Minimum),
+    row("mongodb", "maximum", || ConstraintSemantics::Maximum),
+    row("mongodb", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("mongodb", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("mongodb", "pattern", || ConstraintSemantics::Pattern),
+    row("mongodb", "description", || ConstraintSemantics::Annotation),
+    row("dynamodb", "key-type", || ConstraintSemantics::Annotation),
+    row("dynamodb", "projection-type", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("dynamodb", "read-capacity", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("dynamodb", "write-capacity", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cassandra", "PRIMARY KEY", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cassandra", "CLUSTERING ORDER", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("cassandra", "STATIC", || ConstraintSemantics::Annotation),
+    row("cassandra", "NOT NULL", || {
+        ConstraintSemantics::RequiredValue
+    }),
+    row("neo4j", "unique", || ConstraintSemantics::Annotation),
+    row("neo4j", "exists", || ConstraintSemantics::Annotation),
+    row("neo4j", "node-key", || ConstraintSemantics::Annotation),
+    row("neo4j", "type", || ConstraintSemantics::Annotation),
 ];

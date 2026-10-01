@@ -10,33 +10,54 @@
 //! sorts name styles and numbering formats, which describe.
 
 use panproto_gat::Name;
-use panproto_schema::ConstraintSemantics;
+
+use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
-use super::common::{
-    annotation, constant, enumeration, max_graphemes, max_utf8_bytes, maximum, min_utf8_bytes,
-    minimum, row,
-};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("atproto", "minLength", min_utf8_bytes),
-    row("atproto", "maxLength", max_utf8_bytes),
-    row("atproto", "minimum", minimum),
-    row("atproto", "maximum", maximum),
-    row("atproto", "maxGraphemes", max_graphemes),
-    row("atproto", "enum", enumeration),
-    row("atproto", "const", constant),
-    row("atproto", "default", annotation),
-    row("atproto", "closed", annotation),
+    row("atproto", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Utf8Bytes)
+    }),
+    row("atproto", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Utf8Bytes)
+    }),
+    row("atproto", "minimum", || ConstraintSemantics::Minimum),
+    row("atproto", "maximum", || ConstraintSemantics::Maximum),
+    row("atproto", "maxGraphemes", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Graphemes)
+    }),
+    row("atproto", "enum", || ConstraintSemantics::Enum),
+    row("atproto", "const", || ConstraintSemantics::Const),
+    row("atproto", "default", || ConstraintSemantics::Annotation),
+    row("atproto", "closed", || ConstraintSemantics::Annotation),
     row("atproto", "format", || {
         ConstraintSemantics::Format(Name::from("atproto"))
     }),
-    row("atproto", "knownValues", annotation),
-    row("atproto", "ref", annotation),
-    row("docx", "required", annotation),
-    row("docx", "style-type", annotation),
-    row("docx", "numbering-format", annotation),
-    row("odf", "style-family", annotation),
-    row("odf", "master-page-name", annotation),
+    row("atproto", "knownValues", || ConstraintSemantics::Annotation),
+    row("atproto", "ref", || ConstraintSemantics::Annotation),
+    row("docx", "required", || ConstraintSemantics::Annotation),
+    row("docx", "style-type", || ConstraintSemantics::Annotation),
+    row("docx", "numbering-format", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("odf", "style-family", || ConstraintSemantics::Annotation),
+    row("odf", "master-page-name", || {
+        ConstraintSemantics::Annotation
+    }),
 ];

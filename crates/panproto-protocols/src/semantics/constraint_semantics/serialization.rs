@@ -4,36 +4,61 @@
 //! These sorts record wire layout (field numbers and ids, tags, packing,
 //! sort order), documentation, defaults, deprecation and requiredness, and
 //! each describes: a field's requiredness or optionality is about the record
-//! that holds it (see the presence reading of the [`common`](super::common)
-//! module). ASN.1's `SIZE` and value-range constraints are written as
-//! ranges, which no single bound reads, and the `asn1` parser emits
-//! neither, so they describe.
+//! that holds it, which must have the field (the schema's required edge),
+//! not about the field's own value. ASN.1's `SIZE` and value-range
+//! constraints are written as ranges, which no single bound reads, and the
+//! `asn1` parser emits neither, so they describe.
+
+use panproto_schema::ConstraintSemantics;
 
 use super::ConstraintRow;
-use super::common::{annotation, row};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("avro", "order", annotation),
-    row("avro", "default", annotation),
-    row("avro", "doc", annotation),
-    row("avro", "aliases", annotation),
-    row("avro", "namespace", annotation),
-    row("protobuf", "field_number", annotation),
-    row("protobuf", "label", annotation),
-    row("protobuf", "packed", annotation),
-    row("flatbuffers", "field_id", annotation),
-    row("flatbuffers", "default", annotation),
-    row("flatbuffers", "deprecated", annotation),
-    row("asn1", "size", annotation),
-    row("asn1", "range", annotation),
-    row("asn1", "default", annotation),
-    row("asn1", "optional", annotation),
-    row("asn1", "tag", annotation),
-    row("bond", "field_id", annotation),
-    row("bond", "required", annotation),
-    row("bond", "optional", annotation),
-    row("bond", "default", annotation),
-    row("msgpack-schema", "required", annotation),
-    row("msgpack-schema", "default", annotation),
+    row("avro", "order", || ConstraintSemantics::Annotation),
+    row("avro", "default", || ConstraintSemantics::Annotation),
+    row("avro", "doc", || ConstraintSemantics::Annotation),
+    row("avro", "aliases", || ConstraintSemantics::Annotation),
+    row("avro", "namespace", || ConstraintSemantics::Annotation),
+    row("protobuf", "field_number", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("protobuf", "label", || ConstraintSemantics::Annotation),
+    row("protobuf", "packed", || ConstraintSemantics::Annotation),
+    row("flatbuffers", "field_id", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("flatbuffers", "default", || ConstraintSemantics::Annotation),
+    row("flatbuffers", "deprecated", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("asn1", "size", || ConstraintSemantics::Annotation),
+    row("asn1", "range", || ConstraintSemantics::Annotation),
+    row("asn1", "default", || ConstraintSemantics::Annotation),
+    row("asn1", "optional", || ConstraintSemantics::Annotation),
+    row("asn1", "tag", || ConstraintSemantics::Annotation),
+    row("bond", "field_id", || ConstraintSemantics::Annotation),
+    row("bond", "required", || ConstraintSemantics::Annotation),
+    row("bond", "optional", || ConstraintSemantics::Annotation),
+    row("bond", "default", || ConstraintSemantics::Annotation),
+    row("msgpack-schema", "required", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("msgpack-schema", "default", || {
+        ConstraintSemantics::Annotation
+    }),
 ];

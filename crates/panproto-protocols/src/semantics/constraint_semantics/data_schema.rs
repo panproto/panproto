@@ -7,9 +7,11 @@
 //! `additionalItems` set to `false` close a record or a tuple to the members
 //! it declares, which validation already requires of every element, since
 //! an edge the schema does not declare is a failure; they describe here.
-//! `required` is a presence flag of a property (see the presence reading of
-//! the [`common`](super::common) module). MongoDB's `$jsonSchema` keywords,
-//! which the `bson` protocol reads, are JSON Schema's.
+//! `required` is a presence flag of a property, about the object that holds
+//! it (the schema's required edge of the object), not about the property's
+//! own value, which a record or list property does not have; it describes.
+//! MongoDB's `$jsonSchema` keywords, which the `bson` protocol reads, are
+//! JSON Schema's.
 //!
 //! CDDL's `.size` control bounds the byte length of a text or byte string,
 //! or the byte width of an unsigned integer, and is written as a number or a
@@ -18,36 +20,61 @@
 //! emits none of them, so they describe.
 
 use panproto_gat::Name;
-use panproto_schema::ConstraintSemantics;
+use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
-use super::common::{
-    annotation, constant, enumeration, max_chars, maximum, min_chars, minimum, pattern, row,
-};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("json-schema", "type", annotation),
-    row("json-schema", "minLength", min_chars),
-    row("json-schema", "maxLength", max_chars),
-    row("json-schema", "pattern", pattern),
-    row("json-schema", "minimum", minimum),
-    row("json-schema", "maximum", maximum),
-    row("json-schema", "required", annotation),
+    row("json-schema", "type", || ConstraintSemantics::Annotation),
+    row("json-schema", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("json-schema", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("json-schema", "pattern", || ConstraintSemantics::Pattern),
+    row("json-schema", "minimum", || ConstraintSemantics::Minimum),
+    row("json-schema", "maximum", || ConstraintSemantics::Maximum),
+    row("json-schema", "required", || {
+        ConstraintSemantics::Annotation
+    }),
     row("json-schema", "format", || {
         ConstraintSemantics::Format(Name::from("json-schema"))
     }),
-    row("json-schema", "enum", enumeration),
-    row("json-schema", "const", constant),
-    row("json-schema", "additionalProperties", annotation),
-    row("json-schema", "items", annotation),
-    row("json-schema", "additionalItems", annotation),
-    row("bson", "required", annotation),
-    row("bson", "minLength", min_chars),
-    row("bson", "maxLength", max_chars),
-    row("bson", "minimum", minimum),
-    row("bson", "maximum", maximum),
-    row("cddl", "size", annotation),
-    row("cddl", "range", annotation),
-    row("cddl", "default", annotation),
+    row("json-schema", "enum", || ConstraintSemantics::Enum),
+    row("json-schema", "const", || ConstraintSemantics::Const),
+    row("json-schema", "additionalProperties", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("json-schema", "items", || ConstraintSemantics::Annotation),
+    row("json-schema", "additionalItems", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("bson", "required", || ConstraintSemantics::Annotation),
+    row("bson", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("bson", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("bson", "minimum", || ConstraintSemantics::Minimum),
+    row("bson", "maximum", || ConstraintSemantics::Maximum),
+    row("cddl", "size", || ConstraintSemantics::Annotation),
+    row("cddl", "range", || ConstraintSemantics::Annotation),
+    row("cddl", "default", || ConstraintSemantics::Annotation),
 ];

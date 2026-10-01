@@ -6,131 +6,191 @@
 //! offsets, labels and provenance a schema document declares for an
 //! annotation type, as the document writes them; none bounds the values an
 //! instance may hold, so every sort describes. A `required` flag of a bead
-//! template slot is about the template that holds the slot (see the presence
-//! reading of the [`common`](super::common) module).
+//! template slot is about the template that holds the slot, which must have
+//! the slot (the schema's required edge of the template), not about the
+//! slot's own value.
+
+use panproto_schema::ConstraintSemantics;
 
 use super::ConstraintRow;
-use super::common::{annotation, row};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("conllu", "form", annotation),
-    row("conllu", "id-range", annotation),
-    row("conllu", "head", annotation),
-    row("conllu", "misc", annotation),
-    row("conllu", "sent-id", annotation),
-    row("conllu", "text", annotation),
-    row("conllu", "newpar", annotation),
-    row("conllu", "newdoc", annotation),
-    row("amr", "value", annotation),
-    row("amr", "alignment", annotation),
-    row("amr", "wiki", annotation),
-    row("amr", "polarity", annotation),
-    row("amr", "mode", annotation),
-    row("ucca", "id", annotation),
-    row("ucca", "tag", annotation),
-    row("ucca", "type", annotation),
-    row("ucca", "paragraph", annotation),
-    row("ucca", "is-remote", annotation),
-    row("ucca", "is-implicit", annotation),
-    row("ucca", "position", annotation),
-    row("ucca", "text", annotation),
-    row("nif", "begin-index", annotation),
-    row("nif", "end-index", annotation),
-    row("nif", "anchor-of", annotation),
-    row("nif", "is-string", annotation),
-    row("nif", "pred-lang", annotation),
-    row("nif", "pos-tag", annotation),
-    row("nif", "lemma", annotation),
-    row("nif", "stem", annotation),
-    row("nif", "sentiment-value", annotation),
-    row("nif", "confidence", annotation),
-    row("nif", "ta-ident-ref", annotation),
-    row("nif", "ta-class-ref", annotation),
-    row("web-annotation", "type", annotation),
-    row("web-annotation", "format", annotation),
-    row("web-annotation", "language", annotation),
-    row("web-annotation", "processing-language", annotation),
-    row("web-annotation", "text-direction", annotation),
-    row("web-annotation", "value", annotation),
-    row("web-annotation", "body-value", annotation),
-    row("web-annotation", "exact", annotation),
-    row("web-annotation", "prefix", annotation),
-    row("web-annotation", "suffix", annotation),
-    row("web-annotation", "start", annotation),
-    row("web-annotation", "end", annotation),
-    row("web-annotation", "conforms-to", annotation),
-    row("web-annotation", "motivation", annotation),
-    row("web-annotation", "purpose", annotation),
-    row("web-annotation", "created", annotation),
-    row("web-annotation", "modified", annotation),
-    row("web-annotation", "generated", annotation),
-    row("web-annotation", "rights", annotation),
-    row("web-annotation", "canonical", annotation),
-    row("web-annotation", "via", annotation),
-    row("web-annotation", "accessibility", annotation),
-    row("brat", "offset-start", annotation),
-    row("brat", "offset-end", annotation),
-    row("brat", "value", annotation),
-    row("brat", "type", annotation),
-    row("brat", "source-db", annotation),
-    row("brat", "source-id", annotation),
-    row("brat", "text", annotation),
-    row("concrete", "uuid", annotation),
-    row("concrete", "kind", annotation),
-    row("concrete", "text", annotation),
-    row("concrete", "tag", annotation),
-    row("concrete", "confidence", annotation),
-    row("concrete", "tool", annotation),
-    row("concrete", "kbest-index", annotation),
-    row("concrete", "timestamp", annotation),
-    row("concrete", "role", annotation),
-    row("concrete", "subkind", annotation),
-    row("decomp", "domain", annotation),
-    row("decomp", "type", annotation),
-    row("decomp", "position", annotation),
-    row("decomp", "form", annotation),
-    row("decomp", "lemma", annotation),
-    row("decomp", "upos", annotation),
-    row("decomp", "xpos", annotation),
-    row("decomp", "deprel", annotation),
-    row("decomp", "frompredpatt", annotation),
-    row("decomp", "value", annotation),
-    row("decomp", "confidence", annotation),
-    row("decomp", "subspace", annotation),
-    row("decomp", "property", annotation),
-    row("fovea", "name", annotation),
-    row("fovea", "role", annotation),
-    row("fovea", "information-need", annotation),
-    row("fovea", "confidence", annotation),
-    row("fovea", "justification", annotation),
-    row("fovea", "symmetric", annotation),
-    row("fovea", "transitive", annotation),
-    row("fovea", "collection-type", annotation),
-    row("fovea", "location-type", annotation),
-    row("fovea", "time-type", annotation),
-    row("fovea", "frame-number", annotation),
-    row("fovea", "x", annotation),
-    row("fovea", "y", annotation),
-    row("fovea", "width", annotation),
-    row("fovea", "height", annotation),
-    row("fovea", "label", annotation),
-    row("fovea", "source", annotation),
-    row("bead", "name", annotation),
-    row("bead", "description", annotation),
-    row("bead", "language-code", annotation),
-    row("bead", "source", annotation),
-    row("bead", "expression", annotation),
-    row("bead", "required", annotation),
-    row("bead", "rendered-text", annotation),
-    row("bead", "strategy", annotation),
-    row("bead", "judgment-type", annotation),
-    row("bead", "task-type", annotation),
-    row("bead", "label", annotation),
-    row("bead", "confidence", annotation),
-    row("bead", "span-type", annotation),
-    row("bead", "directed", annotation),
-    row("bead", "list-number", annotation),
-    row("bead", "response-value", annotation),
-    row("bead", "response-time", annotation),
+    row("conllu", "form", || ConstraintSemantics::Annotation),
+    row("conllu", "id-range", || ConstraintSemantics::Annotation),
+    row("conllu", "head", || ConstraintSemantics::Annotation),
+    row("conllu", "misc", || ConstraintSemantics::Annotation),
+    row("conllu", "sent-id", || ConstraintSemantics::Annotation),
+    row("conllu", "text", || ConstraintSemantics::Annotation),
+    row("conllu", "newpar", || ConstraintSemantics::Annotation),
+    row("conllu", "newdoc", || ConstraintSemantics::Annotation),
+    row("amr", "value", || ConstraintSemantics::Annotation),
+    row("amr", "alignment", || ConstraintSemantics::Annotation),
+    row("amr", "wiki", || ConstraintSemantics::Annotation),
+    row("amr", "polarity", || ConstraintSemantics::Annotation),
+    row("amr", "mode", || ConstraintSemantics::Annotation),
+    row("ucca", "id", || ConstraintSemantics::Annotation),
+    row("ucca", "tag", || ConstraintSemantics::Annotation),
+    row("ucca", "type", || ConstraintSemantics::Annotation),
+    row("ucca", "paragraph", || ConstraintSemantics::Annotation),
+    row("ucca", "is-remote", || ConstraintSemantics::Annotation),
+    row("ucca", "is-implicit", || ConstraintSemantics::Annotation),
+    row("ucca", "position", || ConstraintSemantics::Annotation),
+    row("ucca", "text", || ConstraintSemantics::Annotation),
+    row("nif", "begin-index", || ConstraintSemantics::Annotation),
+    row("nif", "end-index", || ConstraintSemantics::Annotation),
+    row("nif", "anchor-of", || ConstraintSemantics::Annotation),
+    row("nif", "is-string", || ConstraintSemantics::Annotation),
+    row("nif", "pred-lang", || ConstraintSemantics::Annotation),
+    row("nif", "pos-tag", || ConstraintSemantics::Annotation),
+    row("nif", "lemma", || ConstraintSemantics::Annotation),
+    row("nif", "stem", || ConstraintSemantics::Annotation),
+    row("nif", "sentiment-value", || ConstraintSemantics::Annotation),
+    row("nif", "confidence", || ConstraintSemantics::Annotation),
+    row("nif", "ta-ident-ref", || ConstraintSemantics::Annotation),
+    row("nif", "ta-class-ref", || ConstraintSemantics::Annotation),
+    row("web-annotation", "type", || ConstraintSemantics::Annotation),
+    row("web-annotation", "format", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "language", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "processing-language", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "text-direction", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "value", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "body-value", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "exact", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "prefix", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "suffix", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "start", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "end", || ConstraintSemantics::Annotation),
+    row("web-annotation", "conforms-to", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "motivation", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "purpose", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "created", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "modified", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "generated", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "rights", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "canonical", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("web-annotation", "via", || ConstraintSemantics::Annotation),
+    row("web-annotation", "accessibility", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("brat", "offset-start", || ConstraintSemantics::Annotation),
+    row("brat", "offset-end", || ConstraintSemantics::Annotation),
+    row("brat", "value", || ConstraintSemantics::Annotation),
+    row("brat", "type", || ConstraintSemantics::Annotation),
+    row("brat", "source-db", || ConstraintSemantics::Annotation),
+    row("brat", "source-id", || ConstraintSemantics::Annotation),
+    row("brat", "text", || ConstraintSemantics::Annotation),
+    row("concrete", "uuid", || ConstraintSemantics::Annotation),
+    row("concrete", "kind", || ConstraintSemantics::Annotation),
+    row("concrete", "text", || ConstraintSemantics::Annotation),
+    row("concrete", "tag", || ConstraintSemantics::Annotation),
+    row("concrete", "confidence", || ConstraintSemantics::Annotation),
+    row("concrete", "tool", || ConstraintSemantics::Annotation),
+    row("concrete", "kbest-index", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("concrete", "timestamp", || ConstraintSemantics::Annotation),
+    row("concrete", "role", || ConstraintSemantics::Annotation),
+    row("concrete", "subkind", || ConstraintSemantics::Annotation),
+    row("decomp", "domain", || ConstraintSemantics::Annotation),
+    row("decomp", "type", || ConstraintSemantics::Annotation),
+    row("decomp", "position", || ConstraintSemantics::Annotation),
+    row("decomp", "form", || ConstraintSemantics::Annotation),
+    row("decomp", "lemma", || ConstraintSemantics::Annotation),
+    row("decomp", "upos", || ConstraintSemantics::Annotation),
+    row("decomp", "xpos", || ConstraintSemantics::Annotation),
+    row("decomp", "deprel", || ConstraintSemantics::Annotation),
+    row("decomp", "frompredpatt", || ConstraintSemantics::Annotation),
+    row("decomp", "value", || ConstraintSemantics::Annotation),
+    row("decomp", "confidence", || ConstraintSemantics::Annotation),
+    row("decomp", "subspace", || ConstraintSemantics::Annotation),
+    row("decomp", "property", || ConstraintSemantics::Annotation),
+    row("fovea", "name", || ConstraintSemantics::Annotation),
+    row("fovea", "role", || ConstraintSemantics::Annotation),
+    row("fovea", "information-need", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("fovea", "confidence", || ConstraintSemantics::Annotation),
+    row("fovea", "justification", || ConstraintSemantics::Annotation),
+    row("fovea", "symmetric", || ConstraintSemantics::Annotation),
+    row("fovea", "transitive", || ConstraintSemantics::Annotation),
+    row("fovea", "collection-type", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("fovea", "location-type", || ConstraintSemantics::Annotation),
+    row("fovea", "time-type", || ConstraintSemantics::Annotation),
+    row("fovea", "frame-number", || ConstraintSemantics::Annotation),
+    row("fovea", "x", || ConstraintSemantics::Annotation),
+    row("fovea", "y", || ConstraintSemantics::Annotation),
+    row("fovea", "width", || ConstraintSemantics::Annotation),
+    row("fovea", "height", || ConstraintSemantics::Annotation),
+    row("fovea", "label", || ConstraintSemantics::Annotation),
+    row("fovea", "source", || ConstraintSemantics::Annotation),
+    row("bead", "name", || ConstraintSemantics::Annotation),
+    row("bead", "description", || ConstraintSemantics::Annotation),
+    row("bead", "language-code", || ConstraintSemantics::Annotation),
+    row("bead", "source", || ConstraintSemantics::Annotation),
+    row("bead", "expression", || ConstraintSemantics::Annotation),
+    row("bead", "required", || ConstraintSemantics::Annotation),
+    row("bead", "rendered-text", || ConstraintSemantics::Annotation),
+    row("bead", "strategy", || ConstraintSemantics::Annotation),
+    row("bead", "judgment-type", || ConstraintSemantics::Annotation),
+    row("bead", "task-type", || ConstraintSemantics::Annotation),
+    row("bead", "label", || ConstraintSemantics::Annotation),
+    row("bead", "confidence", || ConstraintSemantics::Annotation),
+    row("bead", "span-type", || ConstraintSemantics::Annotation),
+    row("bead", "directed", || ConstraintSemantics::Annotation),
+    row("bead", "list-number", || ConstraintSemantics::Annotation),
+    row("bead", "response-value", || ConstraintSemantics::Annotation),
+    row("bead", "response-time", || ConstraintSemantics::Annotation),
 ];

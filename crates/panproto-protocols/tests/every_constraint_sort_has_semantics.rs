@@ -417,3 +417,27 @@ fn schema_fixtures_are_every_file_under_a_schema_directory() {
     );
     assert_eq!(unclassified, Err(vec!["avro/added.avsc".to_owned()]));
 }
+
+/// The file names of the Rust sources directly under `dir`, relative to the
+/// crate root.
+fn rust_files(dir: &str) -> BTreeSet<String> {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join(dir);
+    std::fs::read_dir(&dir)
+        .unwrap_or_else(|e| panic!("{}: {e}", dir.display()))
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.extension().is_some_and(|e| e == "rs"))
+        .map(|path| path.file_name().unwrap().to_string_lossy().into_owned())
+        .collect()
+}
+
+/// The constraint-semantics rows are kept in exactly the family files the
+/// shape rows are, one per protocol family, with no file shared between
+/// families: each family file holds its rows and everything they are built
+/// from.
+#[test]
+fn constraint_semantics_rows_are_kept_one_file_per_family() {
+    assert_eq!(
+        rust_files("src/semantics/constraint_semantics"),
+        rust_files("src/semantics/shapes"),
+    );
+}

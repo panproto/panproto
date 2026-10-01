@@ -11,33 +11,53 @@
 //!
 //! A pandera column's `ge` and `le` checks are inclusive bounds and `isin`
 //! lists the permitted values; `gt` and `lt` are exclusive bounds, which no
-//! meaning expresses, so they are decided outside panproto (see the
-//! [`common`](super::common) module). `coerce` and `regex` (whether the
-//! column name is a pattern) describe.
+//! meaning expresses, so they are decided outside panproto: an
+//! application's verdict decides each, and an instance with no verdict is
+//! undecided. `coerce` and `regex` (whether the column name is a pattern)
+//! describe.
+
+use panproto_schema::ConstraintSemantics;
 
 use super::ConstraintRow;
-use super::common::{annotation, enumeration, external, maximum, minimum, row, value_parameter};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("arrow", "nullable", annotation),
-    row("arrow", "metadata", annotation),
-    row("arrow", "timezone", annotation),
-    row("arrow", "unit", annotation),
-    row("arrow", "precision", value_parameter),
-    row("arrow", "scale", value_parameter),
-    row("arrow", "bit-width", annotation),
-    row("parquet", "repetition", annotation),
-    row("parquet", "logical-type", annotation),
-    row("parquet", "converted-type", annotation),
-    row("parquet", "field-id", annotation),
-    row("dataframe", "nullable", annotation),
-    row("dataframe", "unique", annotation),
-    row("dataframe", "coerce", annotation),
-    row("dataframe", "regex", annotation),
-    row("dataframe", "ge", minimum),
-    row("dataframe", "le", maximum),
-    row("dataframe", "gt", external),
-    row("dataframe", "lt", external),
-    row("dataframe", "isin", enumeration),
+    row("arrow", "nullable", || ConstraintSemantics::Annotation),
+    row("arrow", "metadata", || ConstraintSemantics::Annotation),
+    row("arrow", "timezone", || ConstraintSemantics::Annotation),
+    row("arrow", "unit", || ConstraintSemantics::Annotation),
+    row("arrow", "precision", || ConstraintSemantics::ValueParameter),
+    row("arrow", "scale", || ConstraintSemantics::ValueParameter),
+    row("arrow", "bit-width", || ConstraintSemantics::Annotation),
+    row("parquet", "repetition", || ConstraintSemantics::Annotation),
+    row("parquet", "logical-type", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("parquet", "converted-type", || {
+        ConstraintSemantics::Annotation
+    }),
+    row("parquet", "field-id", || ConstraintSemantics::Annotation),
+    row("dataframe", "nullable", || ConstraintSemantics::Annotation),
+    row("dataframe", "unique", || ConstraintSemantics::Annotation),
+    row("dataframe", "coerce", || ConstraintSemantics::Annotation),
+    row("dataframe", "regex", || ConstraintSemantics::Annotation),
+    row("dataframe", "ge", || ConstraintSemantics::Minimum),
+    row("dataframe", "le", || ConstraintSemantics::Maximum),
+    row("dataframe", "gt", || ConstraintSemantics::External),
+    row("dataframe", "lt", || ConstraintSemantics::External),
+    row("dataframe", "isin", || ConstraintSemantics::Enum),
 ];

@@ -8,50 +8,71 @@
 //! do not constrain. The JSON:API `required` sort is written both as a
 //! presence flag of an attribute and as the target type of a relationship,
 //! and GraphQL's `non_null` and `list` record its type wrappers; each is
-//! descriptive here (see the presence reading of the
-//! [`common`](super::common) module).
+//! descriptive here. A presence flag is about the element that holds the
+//! property, which must have it (the schema's required edge of that
+//! element), not about the property's own value: a present property of
+//! record or list type has no value of its own, so reading the flag as a
+//! required value would refute every valid instance that holds one.
 
 use panproto_gat::Name;
-use panproto_schema::ConstraintSemantics;
+use panproto_schema::{ConstraintSemantics, LengthUnit};
 
 use super::ConstraintRow;
-use super::common::{
-    annotation, enumeration, max_chars, max_out_degree, maximum, min_chars, min_out_degree,
-    minimum, pattern, row,
-};
+
+/// The row giving sort `sort` of protocol `protocol` the meaning `semantics`
+/// builds.
+const fn row(
+    protocol: &'static str,
+    sort: &'static str,
+    semantics: fn() -> ConstraintSemantics,
+) -> ConstraintRow {
+    ConstraintRow {
+        protocol,
+        sort,
+        semantics,
+    }
+}
 
 /// The rows of this family, one per declaration.
 pub(super) const ROWS: &[ConstraintRow] = &[
-    row("openapi", "required", annotation),
+    row("openapi", "required", || ConstraintSemantics::Annotation),
     row("openapi", "format", || {
         ConstraintSemantics::Format(Name::from("openapi"))
     }),
-    row("openapi", "enum", enumeration),
-    row("openapi", "default", annotation),
-    row("openapi", "minimum", minimum),
-    row("openapi", "maximum", maximum),
-    row("openapi", "pattern", pattern),
-    row("openapi", "minLength", min_chars),
-    row("openapi", "maxLength", max_chars),
-    row("openapi", "minItems", min_out_degree),
-    row("openapi", "maxItems", max_out_degree),
-    row("openapi", "deprecated", annotation),
-    row("asyncapi", "required", annotation),
+    row("openapi", "enum", || ConstraintSemantics::Enum),
+    row("openapi", "default", || ConstraintSemantics::Annotation),
+    row("openapi", "minimum", || ConstraintSemantics::Minimum),
+    row("openapi", "maximum", || ConstraintSemantics::Maximum),
+    row("openapi", "pattern", || ConstraintSemantics::Pattern),
+    row("openapi", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("openapi", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("openapi", "minItems", || ConstraintSemantics::MinOutDegree),
+    row("openapi", "maxItems", || ConstraintSemantics::MaxOutDegree),
+    row("openapi", "deprecated", || ConstraintSemantics::Annotation),
+    row("asyncapi", "required", || ConstraintSemantics::Annotation),
     row("asyncapi", "format", || {
         ConstraintSemantics::Format(Name::from("asyncapi"))
     }),
-    row("asyncapi", "enum", enumeration),
-    row("asyncapi", "default", annotation),
-    row("jsonapi", "required", annotation),
-    row("raml", "required", annotation),
-    row("raml", "pattern", pattern),
-    row("raml", "minLength", min_chars),
-    row("raml", "maxLength", max_chars),
-    row("raml", "minimum", minimum),
-    row("raml", "maximum", maximum),
-    row("raml", "enum", enumeration),
-    row("raml", "default", annotation),
-    row("graphql", "non_null", annotation),
-    row("graphql", "list", annotation),
-    row("graphql", "deprecated", annotation),
+    row("asyncapi", "enum", || ConstraintSemantics::Enum),
+    row("asyncapi", "default", || ConstraintSemantics::Annotation),
+    row("jsonapi", "required", || ConstraintSemantics::Annotation),
+    row("raml", "required", || ConstraintSemantics::Annotation),
+    row("raml", "pattern", || ConstraintSemantics::Pattern),
+    row("raml", "minLength", || {
+        ConstraintSemantics::MinLength(LengthUnit::Chars)
+    }),
+    row("raml", "maxLength", || {
+        ConstraintSemantics::MaxLength(LengthUnit::Chars)
+    }),
+    row("raml", "minimum", || ConstraintSemantics::Minimum),
+    row("raml", "maximum", || ConstraintSemantics::Maximum),
+    row("raml", "enum", || ConstraintSemantics::Enum),
+    row("raml", "default", || ConstraintSemantics::Annotation),
+    row("graphql", "non_null", || ConstraintSemantics::Annotation),
+    row("graphql", "list", || ConstraintSemantics::Annotation),
+    row("graphql", "deprecated", || ConstraintSemantics::Annotation),
 ];
