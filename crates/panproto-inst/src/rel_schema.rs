@@ -33,9 +33,11 @@ pub const COLUMN_EDGE_KIND: &str = "prop";
 ///
 /// A vertex is a table when the schema says so: its kind is
 /// [`TABLE_KIND`], it declares a key, or a declared reference holds at it or
-/// resolves to it. Otherwise a vertex is an attribute exactly when some edge
+/// resolves to it. Otherwise a vertex is an attribute exactly when an edge
 /// of kind [`COLUMN_EDGE_KIND`] reaches it (it is a column of that edge's
-/// source), and a table when none does. A foreign key is an edge of the
+/// source) or any edge leaves an attribute for it (it is part of a column's
+/// value, as the element vertex of an array column is), and a table when
+/// neither holds. A foreign key is an edge of the
 /// schema between two tables; an edge into an attribute is a column, not an
 /// object. Each foreign key `e` stands for an object with the two arrows
 /// `src_e` and `tgt_e` to its endpoint tables, which the edge itself names.
@@ -91,20 +93,39 @@ impl RelSchema {
                     .flat_map(|r| [r.holder.as_ref(), r.target_vertex.as_ref()]),
             )
             .collect();
-        let columns: BTreeSet<&str> = schema
+        let declared_table = |id: &str| {
+            schema
+                .vertices
+                .get(id)
+                .is_some_and(|vertex| vertex.kind == TABLE_KIND)
+                || declared.contains(id)
+        };
+        // The attributes: the targets of column edges, closed under every
+        // edge out of an attribute (the element vertex of an array column,
+        // the fields of a struct column), never a declared table.
+        let mut attributes: BTreeSet<&str> = BTreeSet::new();
+        let mut frontier: Vec<&str> = schema
             .edges
             .keys()
             .filter(|edge| edge.kind == COLUMN_EDGE_KIND)
             .map(|edge| edge.tgt.as_ref())
             .collect();
+        while let Some(vertex) = frontier.pop() {
+            if declared_table(vertex) || !attributes.insert(vertex) {
+                continue;
+            }
+            frontier.extend(
+                schema
+                    .edges
+                    .keys()
+                    .filter(|edge| edge.src.as_ref() == vertex)
+                    .map(|edge| edge.tgt.as_ref()),
+            );
+        }
         let tables: BTreeSet<Name> = schema
             .vertices
             .values()
-            .filter(|vertex| {
-                vertex.kind == TABLE_KIND
-                    || declared.contains(vertex.id.as_ref())
-                    || !columns.contains(vertex.id.as_ref())
-            })
+            .filter(|vertex| !attributes.contains(vertex.id.as_ref()))
             .map(|vertex| vertex.id.clone())
             .collect();
         let relations = schema
@@ -262,6 +283,47 @@ mod tests {
         assert!(empty.is_table("post"));
         assert!(!empty.is_table("post.title"));
         assert_eq!(RelSchema::new(&schema), empty);
+    }
+
+    /// The shape the SQL protocol gives an array column `post.tags TEXT[]`:
+    /// the column vertex of kind `array` reached by a column edge, and its
+    /// element vertex reached from it by an `items` edge. Both are parts of
+    /// a cell, not tables, and so is a field below a struct column.
+    #[test]
+    fn a_vertex_below_a_column_is_an_attribute() {
+        let mut schema = sql_like();
+        schema.vertices.extend([
+            vertex("post.tags", "array"),
+            vertex("post.tags:items", "string"),
+        ]);
+        for e in [
+            edge("post", "post.tags", "prop", "tags"),
+            Edge {
+                src: "post.tags".into(),
+                tgt: "post.tags:items".into(),
+                kind: "items".into(),
+                name: None,
+            },
+            // An edge from a cell into a declared table leaves it a table.
+            edge("post.tags:items", "user", "fk", "owner"),
+        ] {
+            let kind = e.kind.clone();
+            schema.edges.insert(e, kind);
+        }
+        let rel = RelSchema::new(&schema);
+        assert!(!rel.is_table("post.tags"));
+        assert!(
+            !rel.is_table("post.tags:items"),
+            "an array column's element vertex is part of the cell: {:?}",
+            rel.tables()
+        );
+        assert!(rel.is_table("user"));
+        let tables: Vec<&str> = rel.tables().iter().map(AsRef::as_ref).collect();
+        assert_eq!(tables, ["audit", "post", "tag", "user"]);
+        assert!(
+            rel.relations().iter().all(|e| e.src != "post.tags:items"),
+            "an edge out of a cell is no foreign key"
+        );
     }
 
     #[test]

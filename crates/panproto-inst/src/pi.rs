@@ -755,11 +755,37 @@ mod tests {
         assert_eq!(pi.rows("z")[0].0, RowId(2), "a fresh id above the input");
     }
 
+    /// A target array column's element vertex is part of a cell, not a table
+    /// outside the image, so the limit gives it no row.
+    #[test]
+    fn pi_gives_no_row_to_a_part_of_a_cell() {
+        let column = Edge {
+            src: "post".into(),
+            tgt: "post.tags".into(),
+            kind: "prop".into(),
+            name: Some("tags".into()),
+        };
+        let items = Edge {
+            src: "post.tags".into(),
+            tgt: "post.tags:items".into(),
+            kind: "items".into(),
+            name: None,
+        };
+        let src = make_test_schema(&["post"], &[]);
+        let tgt = make_test_schema(&["post", "post.tags", "post.tags:items"], &[column, items]);
+        let migration = migration_of(&[("post", "post")]);
+        let inst = FInstance::new()
+            .with_rows("post", blank_rows(&[0]))
+            .unwrap();
+        let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
+        assert_eq!(pi, inst, "{pi:?}");
+    }
+
     #[test]
     fn pi_at_a_target_only_relation_holds_every_pair() {
         let e = fk("a", "z", "e");
         let src = make_test_schema(&["a"], &[]);
-        let tgt = make_test_schema(&["a", "z"], &[e.clone()]);
+        let tgt = make_test_schema(&["a", "z"], std::slice::from_ref(&e));
         let migration = migration_of(&[("a", "a")]);
         let inst = FInstance::new()
             .with_rows("a", blank_rows(&[0, 1]))
@@ -784,7 +810,7 @@ mod tests {
     #[test]
     fn unmentioned_edges_are_outside_the_domain() {
         let e = fk("a", "b", "e");
-        let src = make_test_schema(&["a", "b"], &[e.clone()]);
+        let src = make_test_schema(&["a", "b"], std::slice::from_ref(&e));
         let tgt = make_test_schema(&["m"], &[]);
         let migration = migration_of(&[("a", "m"), ("b", "m")]);
         let inst = FInstance::new()
@@ -857,8 +883,8 @@ mod tests {
             .and_then(|f| f.with_rows("b", blank_rows(&[2, 3])))
             .and_then(|f| f.with_foreign_key(l.clone(), [(RowId(0), RowId(3))]))
             .unwrap();
-        let src = make_test_schema(&["a", "b"], &[l.clone()]);
-        let tgt = make_test_schema(&["m"], &[loop_edge.clone()]);
+        let src = make_test_schema(&["a", "b"], std::slice::from_ref(&l));
+        let tgt = make_test_schema(&["m"], std::slice::from_ref(&loop_edge));
         let mut migration = migration_of(&[("a", "m"), ("b", "m")]);
         migration.edge_remap.insert(l, loop_edge.clone());
         (inst, src, tgt, migration, loop_edge)
@@ -915,6 +941,58 @@ mod tests {
         );
     }
 
+    /// Along the identity migration as `panproto_mig::compile` states it
+    /// (every table sent to itself, every foreign key listed as surviving),
+    /// Pi returns its input: a post with no author and a post with two keep
+    /// their rows, and an org chart whose root has no manager keeps every
+    /// employee.
+    #[test]
+    fn pi_along_a_compiled_identity_keeps_partial_and_many_valued_keys() {
+        let author = fk("post", "user", "author");
+        let posts = FInstance::new()
+            .with_rows("post", blank_rows(&[2, 3, 4]))
+            .and_then(|f| f.with_rows("user", blank_rows(&[0, 1])))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    author.clone(),
+                    [
+                        (RowId(2), RowId(0)),
+                        (RowId(4), RowId(0)),
+                        (RowId(4), RowId(1)),
+                    ],
+                )
+            })
+            .unwrap();
+        let manager = fk("emp", "emp", "manager");
+        let chart = FInstance::new()
+            .with_rows("emp", blank_rows(&[0, 1, 2, 3]))
+            .and_then(|f| {
+                f.with_foreign_key(
+                    manager.clone(),
+                    [
+                        (RowId(1), RowId(0)),
+                        (RowId(2), RowId(0)),
+                        (RowId(3), RowId(1)),
+                    ],
+                )
+            })
+            .unwrap();
+        for (inst, tables, key) in [
+            (posts, &["post", "user"][..], author),
+            (chart, &["emp"][..], manager),
+        ] {
+            let schema = make_test_schema(tables, std::slice::from_ref(&key));
+            let mut migration = migration_of(&tables.iter().map(|&t| (t, t)).collect::<Vec<_>>());
+            migration.surviving_edges.insert(key);
+            let (pi, projections) =
+                functor_pi_with_hom(&inst, &schema, &schema, &migration, 100).unwrap();
+            assert_eq!(pi, inst);
+            for hom in projections.values() {
+                assert!(hom.row_map.iter().all(|(row, image)| row == image));
+            }
+        }
+    }
+
     #[test]
     fn carrying_foreign_keys_through_pi_is_linear() {
         const ROWS: u32 = 20_000;
@@ -927,7 +1005,7 @@ mod tests {
                 f.with_foreign_key(edge.clone(), (0..ROWS).map(|i| (RowId(i), RowId(ROWS + i))))
             })
             .unwrap();
-        let schema = make_test_schema(&["a", "b"], &[edge.clone()]);
+        let schema = make_test_schema(&["a", "b"], std::slice::from_ref(&edge));
         let migration = CompiledMigration {
             surviving_verts: HashSet::from([Name::from("a"), Name::from("b")]),
             surviving_edges: HashSet::from([edge]),

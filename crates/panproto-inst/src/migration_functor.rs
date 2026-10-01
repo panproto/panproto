@@ -19,7 +19,9 @@ use crate::wtype::CompiledMigration;
 /// `S'` is the part of the source schema the migration keeps: the source
 /// tables the migration names an image for (keys of `vertex_remap`) or lets
 /// survive under their own name (members of `surviving_verts` that are
-/// tables of the source schema), and the source foreign keys between two
+/// tables of the source schema and that `vertex_remap` names as no table's
+/// image, since `panproto_mig::compile` lists those images as surviving
+/// target vertices), and the source foreign keys between two
 /// kept tables that the migration carries (keys of `edge_remap`) or lets
 /// survive (members of `surviving_edges` that are edges of the source
 /// schema). A source table in `vertex_remap` goes to its entry, a surviving
@@ -76,11 +78,16 @@ impl MigrationFunctor {
         target: RelSchema,
         migration: &CompiledMigration,
     ) -> Result<Self, RestrictError> {
+        // A listed surviving vertex that the vertex map names as some table's
+        // image is a target vertex, not a source one.
+        let images: BTreeSet<&Name> = migration.vertex_remap.values().collect();
         let mut tables = BTreeMap::new();
         for table in source.tables() {
             let image = match migration.vertex_remap.get(table) {
                 Some(image) => image,
-                None if migration.surviving_verts.contains(table) => table,
+                None if migration.surviving_verts.contains(table) && !images.contains(table) => {
+                    table
+                }
                 None => continue,
             };
             if !target.is_table(image) {
@@ -290,7 +297,7 @@ mod tests {
     fn a_target_only_edge_is_not_a_source_edge() {
         let e = fk("a", "b", "e");
         let src = table_schema(&["a", "b"], &[]);
-        let tgt = table_schema(&["a", "b"], &[e.clone()]);
+        let tgt = table_schema(&["a", "b"], std::slice::from_ref(&e));
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
         m.surviving_edges.insert(e.clone());
@@ -310,7 +317,7 @@ mod tests {
     #[test]
     fn an_incoherent_edge_image_is_refused() {
         let e = fk("a", "b", "e");
-        let src = table_schema(&["a", "b", "c"], &[e.clone()]);
+        let src = table_schema(&["a", "b", "c"], std::slice::from_ref(&e));
         let tgt = table_schema(&["a", "b", "c"], &[fk("a", "c", "E"), fk("a", "b", "E")]);
         let mut m = CompiledMigration::default();
         m.surviving_verts
@@ -364,10 +371,40 @@ mod tests {
         assert!(f.table_image("gone").is_none());
     }
 
+    /// `panproto_mig::compile` lists the images of the vertex map as
+    /// surviving vertices. A source table that the vertex map leaves out but
+    /// whose name is the image of another table is dropped, not kept: the
+    /// listed name is a target vertex, as a listed image edge is a target
+    /// edge.
+    #[test]
+    fn a_surviving_image_is_not_a_source_table() {
+        let src = table_schema(&["a", "b"], &[]);
+        let tgt = table_schema(&["b"], &[]);
+        let mut m = CompiledMigration::default();
+        m.vertex_remap.insert("a".into(), "b".into());
+        m.surviving_verts.insert("b".into());
+        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        assert_eq!(
+            f.table_map().keys().collect::<Vec<_>>(),
+            [&Name::from("a")],
+            "source b is outside the domain"
+        );
+        assert!(f.table_image("b").is_none());
+        // Listed under its own image too, it is kept.
+        m.vertex_remap.insert("b".into(), "b".into());
+        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        assert_eq!(f.table_fibre("b"), [&Name::from("a"), &Name::from("b")]);
+        // A surviving vertex no table is sent to survives under its name.
+        let mut m = CompiledMigration::default();
+        m.surviving_verts.extend(["a".into(), "b".into()]);
+        let f = MigrationFunctor::new(&src, &table_schema(&["a", "b"], &[]), &m).unwrap();
+        assert_eq!(f.table_map().len(), 2);
+    }
+
     #[test]
     fn the_identity_functor_keeps_every_table_and_relation() {
         let e = fk("a", "a", "self");
-        let schema = table_schema(&["a", "b"], &[e.clone()]);
+        let schema = table_schema(&["a", "b"], std::slice::from_ref(&e));
         let f = MigrationFunctor::identity(&schema);
         assert_eq!(f.table_image("b"), Some(&Name::from("b")));
         assert_eq!(f.relation_image(&e), Some(&e));
