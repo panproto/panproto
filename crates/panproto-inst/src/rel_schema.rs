@@ -184,7 +184,6 @@ impl RelSchema {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use std::collections::HashMap;
 
@@ -270,19 +269,19 @@ mod tests {
     }
 
     #[test]
-    fn an_empty_table_is_still_a_table() {
+    fn an_empty_table_is_still_a_table() -> Result<(), crate::error::InstError> {
         let schema = sql_like();
         let empty = RelSchema::new(&schema);
         // No instance is consulted: a table with no rows and one with rows
         // are both tables, and a column is never one.
         let rows = FInstance::new()
-            .with_table("post", [HashMap::new()])
-            .unwrap();
+            .with_table("post", [HashMap::new()])?;
         assert_eq!(rows.row_count("user"), 0);
         assert!(empty.is_table("user"));
         assert!(empty.is_table("post"));
         assert!(!empty.is_table("post.title"));
         assert_eq!(RelSchema::new(&schema), empty);
+        Ok(())
     }
 
     /// The shape the SQL protocol gives an array column `post.tags TEXT[]`:

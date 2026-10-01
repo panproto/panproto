@@ -251,7 +251,6 @@ impl MigrationFunctor {
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used)]
 mod tests {
     use panproto_schema::Vertex;
 
@@ -294,24 +293,25 @@ mod tests {
     /// source edge, so the functor's domain holds no relation and Delta
     /// copies none of its pairs back.
     #[test]
-    fn a_target_only_edge_is_not_a_source_edge() {
+    fn a_target_only_edge_is_not_a_source_edge() -> Result<(), Box<dyn std::error::Error>> {
         let e = fk("a", "b", "e");
         let src = table_schema(&["a", "b"], &[]);
         let tgt = table_schema(&["a", "b"], std::slice::from_ref(&e));
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
         m.surviving_edges.insert(e.clone());
-        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
         assert!(f.relation_map().is_empty());
         assert_eq!(f.relation_fibre(&e), Vec::<&Edge>::new());
         let y = crate::FInstance::new()
             .with_rows("a", [(crate::RowId(0), crate::Row::new())])
             .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
             .and_then(|i| i.with_foreign_key(e.clone(), [(crate::RowId(0), crate::RowId(1))]))
-            .unwrap();
-        let delta = crate::f_delta(&y, &f).unwrap();
+            ?;
+        let delta = crate::f_delta(&y, &f)?;
         assert_eq!(delta.pair_count(), 0, "{delta:?}");
         assert_eq!(delta.total_row_count(), 2);
+        Ok(())
     }
 
     #[test]
@@ -347,7 +347,7 @@ mod tests {
     }
 
     #[test]
-    fn unmentioned_edges_are_outside_the_domain() {
+    fn unmentioned_edges_are_outside_the_domain() -> Result<(), Box<dyn std::error::Error>> {
         let kept = fk("a", "b", "kept");
         let unmentioned = fk("b", "a", "back");
         let to_dropped = fk("a", "gone", "dangling");
@@ -363,12 +363,13 @@ mod tests {
         m.edge_remap.insert(kept.clone(), fk("m", "m", "K"));
         // Carried, but its target table is outside the domain.
         m.edge_remap.insert(to_dropped.clone(), fk("m", "m", "K"));
-        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
         assert_eq!(f.relation_map().keys().collect::<Vec<_>>(), [&kept]);
         assert!(f.relation_image(&unmentioned).is_none());
         assert!(f.relation_image(&to_dropped).is_none());
         assert_eq!(f.table_fibre("m"), [&Name::from("a"), &Name::from("b")]);
         assert!(f.table_image("gone").is_none());
+        Ok(())
     }
 
     /// `panproto_mig::compile` lists the images of the vertex map as
@@ -377,13 +378,13 @@ mod tests {
     /// listed name is a target vertex, as a listed image edge is a target
     /// edge.
     #[test]
-    fn a_surviving_image_is_not_a_source_table() {
+    fn a_surviving_image_is_not_a_source_table() -> Result<(), Box<dyn std::error::Error>> {
         let src = table_schema(&["a", "b"], &[]);
         let tgt = table_schema(&["b"], &[]);
         let mut m = CompiledMigration::default();
         m.vertex_remap.insert("a".into(), "b".into());
         m.surviving_verts.insert("b".into());
-        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
         assert_eq!(
             f.table_map().keys().collect::<Vec<_>>(),
             [&Name::from("a")],
@@ -392,13 +393,14 @@ mod tests {
         assert!(f.table_image("b").is_none());
         // Listed under its own image too, it is kept.
         m.vertex_remap.insert("b".into(), "b".into());
-        let f = MigrationFunctor::new(&src, &tgt, &m).unwrap();
+        let f = MigrationFunctor::new(&src, &tgt, &m)?;
         assert_eq!(f.table_fibre("b"), [&Name::from("a"), &Name::from("b")]);
         // A surviving vertex no table is sent to survives under its name.
         let mut m = CompiledMigration::default();
         m.surviving_verts.extend(["a".into(), "b".into()]);
-        let f = MigrationFunctor::new(&src, &table_schema(&["a", "b"], &[]), &m).unwrap();
+        let f = MigrationFunctor::new(&src, &table_schema(&["a", "b"], &[]), &m)?;
         assert_eq!(f.table_map().len(), 2);
+        Ok(())
     }
 
     #[test]

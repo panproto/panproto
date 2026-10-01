@@ -923,13 +923,13 @@ mod tests {
         );
     }
 
-    /// The interim rejection of fibres with an internal edge is discharged:
-    /// over such a fibre Pi returns the limit. With the edge carried to a
+    /// Over a fibre with an internal edge Pi returns the limit, so nothing
+    /// needs to refuse such a fibre. With the edge carried to a
     /// loop it is the equaliser at the loop above; left unmentioned the
     /// edge is outside the functor's domain and constrains nothing, so the
     /// table is the bare product and no pair is invented.
     #[test]
-    fn pi_dispatch_rejects_a_fibre_with_an_internal_edge() {
+    fn pi_over_a_fibre_with_an_internal_edge_is_its_limit() {
         let (inst, src, tgt, mut migration, loop_edge) = carried_loop();
         migration.edge_remap.clear();
         let pi = functor_pi(&inst, &src, &tgt, &migration, 100).unwrap();
