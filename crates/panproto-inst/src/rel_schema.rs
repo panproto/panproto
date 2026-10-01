@@ -274,8 +274,7 @@ mod tests {
         let empty = RelSchema::new(&schema);
         // No instance is consulted: a table with no rows and one with rows
         // are both tables, and a column is never one.
-        let rows = FInstance::new()
-            .with_table("post", [HashMap::new()])?;
+        let rows = FInstance::new().with_table("post", [HashMap::new()])?;
         assert_eq!(rows.row_count("user"), 0);
         assert!(empty.is_table("user"));
         assert!(empty.is_table("post"));

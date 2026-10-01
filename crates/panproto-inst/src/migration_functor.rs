@@ -306,8 +306,7 @@ mod tests {
         let y = crate::FInstance::new()
             .with_rows("a", [(crate::RowId(0), crate::Row::new())])
             .and_then(|i| i.with_rows("b", [(crate::RowId(1), crate::Row::new())]))
-            .and_then(|i| i.with_foreign_key(e.clone(), [(crate::RowId(0), crate::RowId(1))]))
-            ?;
+            .and_then(|i| i.with_foreign_key(e.clone(), [(crate::RowId(0), crate::RowId(1))]))?;
         let delta = crate::f_delta(&y, &f)?;
         assert_eq!(delta.pair_count(), 0, "{delta:?}");
         assert_eq!(delta.total_row_count(), 2);
