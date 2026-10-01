@@ -28,6 +28,7 @@ pub mod complement;
 /// Incremental contraction tracker for ancestor contraction.
 pub mod contraction;
 pub mod contraction_keys;
+mod delta_convert;
 /// Edit errors for tree and table edits.
 pub mod edit_error;
 /// Operations on the category of elements `∫F` (Grothendieck construction).

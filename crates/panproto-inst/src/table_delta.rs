@@ -1396,7 +1396,7 @@ impl TableDelta {
 
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
-mod tests {
+pub(crate) mod tests {
     use proptest::prelude::*;
 
     use super::*;
@@ -1416,7 +1416,7 @@ mod tests {
 
     /// The foreign keys generated instances draw from: post -> user,
     /// user -> user and tag -> post.
-    fn edges() -> [Edge; 3] {
+    pub fn edges() -> [Edge; 3] {
         [
             edge("post", "user", "fk"),
             edge("user", "user", "boss"),
@@ -1424,23 +1424,23 @@ mod tests {
         ]
     }
 
-    fn fk() -> Edge {
+    pub fn fk() -> Edge {
         edges()[0].clone()
     }
 
-    fn cells(pairs: &[(&str, Value)]) -> Row {
+    pub fn cells(pairs: &[(&str, Value)]) -> Row {
         pairs
             .iter()
             .map(|(k, v)| ((*k).to_owned(), v.clone()))
             .collect()
     }
 
-    fn bytes(instance: &FInstance) -> Vec<u8> {
+    pub fn bytes(instance: &FInstance) -> Vec<u8> {
         crate::functor::canonical_finstance_bytes(instance)
     }
 
     /// Users 0 (alice) and 1 (bob), post 2 by alice.
-    fn sample() -> FInstance {
+    pub fn sample() -> FInstance {
         FInstance::new()
             .with_rows(
                 "user",
@@ -1460,7 +1460,7 @@ mod tests {
     }
 
     /// Cell values, including the floats whose `==` is not an identity.
-    fn arb_cell() -> impl Strategy<Value = Value> {
+    pub fn arb_cell() -> impl Strategy<Value = Value> {
         prop_oneof![
             (-2_i64..2).prop_map(Value::Int),
             Just(Value::Float(f64::NAN)),
@@ -1470,14 +1470,14 @@ mod tests {
         ]
     }
 
-    fn arb_row() -> impl Strategy<Value = Row> {
+    pub fn arb_row() -> impl Strategy<Value = Row> {
         prop::collection::hash_map("[ab]", arb_cell(), 0..3)
     }
 
     /// A table instance over row ids `0..ROWS`, each row in one of three
     /// tables or absent, with any pairs of the three foreign keys that join
     /// their endpoint tables.
-    fn arb_instance() -> impl Strategy<Value = FInstance> {
+    pub fn arb_instance() -> impl Strategy<Value = FInstance> {
         let slots = (ROWS * ROWS) as usize;
         (
             prop::collection::vec(
@@ -1513,12 +1513,12 @@ mod tests {
             })
     }
 
-    fn arb_pair() -> impl Strategy<Value = Pair> {
+    pub fn arb_pair() -> impl Strategy<Value = Pair> {
         (0..3usize, 0..ROWS, 0..ROWS).prop_map(|(k, s, t)| (edges()[k].clone(), RowId(s), RowId(t)))
     }
 
     /// Parts in any form, normal or not.
-    fn arb_parts() -> impl Strategy<Value = TableDeltaParts> {
+    pub fn arb_parts() -> impl Strategy<Value = TableDeltaParts> {
         let row = || {
             (0..ROWS, 0..TABLES.len(), arb_row())
                 .prop_map(|(id, t, row)| (RowId(id), (Name::from(TABLES[t]), row)))
@@ -1557,6 +1557,22 @@ mod tests {
                     tables: tables.into_iter().collect(),
                 },
             )
+    }
+
+    /// A sub-delta of `delta`: each element kept by the next coin of
+    /// `keep`, cycling.
+    pub fn sub_delta(delta: TableDelta, keep: &[bool]) -> TableDelta {
+        let parts = delta.into_parts();
+        let mut coin = keep.iter().cycle();
+        let mut flip = || *coin.next().unwrap_or(&true);
+        TableDelta::normalize(TableDeltaParts {
+            del_rows: parts.del_rows.into_iter().filter(|_| flip()).collect(),
+            add_rows: parts.add_rows.into_iter().filter(|_| flip()).collect(),
+            del_pairs: parts.del_pairs.into_iter().filter(|_| flip()).collect(),
+            add_pairs: parts.add_pairs.into_iter().filter(|_| flip()).collect(),
+            cells: parts.cells.into_iter().filter(|_| flip()).collect(),
+            tables: parts.tables.into_iter().filter(|_| flip()).collect(),
+        })
     }
 
     /// Whether a delta is in normal form.
@@ -1971,21 +1987,8 @@ mod tests {
             // Two deltas of one state: sub-deltas of the diffs to t and u,
             // keeping each element with a coin, then kept only when each
             // applies alone.
-            let pick = |d: TableDelta, keep: &[bool]| {
-                let parts = d.into_parts();
-                let mut coin = keep.iter().cycle();
-                let mut flip = || *coin.next().unwrap_or(&true);
-                TableDelta::normalize(TableDeltaParts {
-                    del_rows: parts.del_rows.into_iter().filter(|_| flip()).collect(),
-                    add_rows: parts.add_rows.into_iter().filter(|_| flip()).collect(),
-                    del_pairs: parts.del_pairs.into_iter().filter(|_| flip()).collect(),
-                    add_pairs: parts.add_pairs.into_iter().filter(|_| flip()).collect(),
-                    cells: parts.cells.into_iter().filter(|_| flip()).collect(),
-                    tables: parts.tables.into_iter().filter(|_| flip()).collect(),
-                })
-            };
-            let a = pick(TableDelta::diff(&s, &t), &keep_a);
-            let b = pick(TableDelta::diff(&s, &u), &keep_b);
+            let a = sub_delta(TableDelta::diff(&s, &t), &keep_a);
+            let b = sub_delta(TableDelta::diff(&s, &u), &keep_b);
             prop_assume!(a.check(&s).is_ok() && b.check(&s).is_ok());
             let conflicts = a.independence(&b);
             prop_assert_eq!(&conflicts, &{
