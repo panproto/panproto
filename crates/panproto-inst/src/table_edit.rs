@@ -388,9 +388,10 @@ fn same_value(a: &Value, b: &Value) -> bool {
 /// ([`same_value`]).
 fn same_row(a: &Row, b: &Row) -> bool {
     a.len() == b.len()
-        && a
-            .iter()
-            .all(|(column, value)| b.get(column).is_some_and(|theirs| same_value(value, theirs)))
+        && a.iter().all(|(column, value)| {
+            b.get(column)
+                .is_some_and(|theirs| same_value(value, theirs))
+        })
 }
 
 fn row_not_found(table: &Name, id: RowId) -> EditError {
@@ -884,7 +885,8 @@ mod tests {
         prop_oneof![
             any::<u8>().prop_map(Intent::Insert),
             any::<u8>().prop_map(Intent::Delete),
-            (any::<u8>(), proptest::option::of(cell_value())).prop_map(|(r, v)| Intent::Update(r, v)),
+            (any::<u8>(), proptest::option::of(cell_value()))
+                .prop_map(|(r, v)| Intent::Update(r, v)),
             (any::<u8>(), any::<u8>()).prop_map(|(r, to)| Intent::Move(r, to)),
             (any::<u8>(), any::<u8>()).prop_map(|(a, b)| Intent::Link(a, b)),
             any::<u8>().prop_map(Intent::Unlink),

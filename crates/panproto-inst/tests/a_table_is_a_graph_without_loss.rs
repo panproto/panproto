@@ -193,6 +193,76 @@ fn a_table_embedding_allocates_through_an_id_allocator() {
     );
 }
 
+/// The embedding JSON of one recorded pair `(fk t->t, 0, 1)` with the
+/// given edge id and floor.
+fn one_pair_embedding_json(id: u32, floor: u32) -> String {
+    format!(
+        r#"{{"pairs":[[[{{"src":"t","tgt":"t","kind":"fk","name":null}},0,1],{id}]],"next_edge":{floor}}}"#
+    )
+}
+
+#[test]
+fn an_embedding_whose_floor_is_not_above_its_edges_is_refused_on_decode() {
+    let ok = serde_json::from_str::<TableEmbedding>(&one_pair_embedding_json(0, 1)).unwrap();
+    assert_eq!(ok.next_edge, 1);
+    let error = serde_json::from_str::<TableEmbedding>(&one_pair_embedding_json(0, 0))
+        .expect_err("a floor at the recorded edge would hand it out again");
+    assert!(error.to_string().contains("edge 0"), "{error}");
+    let error = serde_json::from_str::<TableEmbedding>(&one_pair_embedding_json(5, 3))
+        .expect_err("a floor below the recorded edge");
+    assert!(error.to_string().contains("edge 5"), "{error}");
+    // The saturated floor holds the largest id.
+    let max = u32::MAX;
+    serde_json::from_str::<TableEmbedding>(&one_pair_embedding_json(max, max)).unwrap();
+}
+
+#[test]
+fn an_embedding_sending_two_pairs_to_one_edge_is_refused() {
+    let t = Edge {
+        src: "t".into(),
+        tgt: "t".into(),
+        kind: "fk".into(),
+        name: None,
+    };
+    let shared = TableEmbedding {
+        pairs: BTreeMap::from([
+            ((t.clone(), RowId(0), RowId(1)), EdgeId(0)),
+            ((t.clone(), RowId(0), RowId(2)), EdgeId(0)),
+        ]),
+        next_edge: 1,
+    };
+    assert!(matches!(
+        shared.check(),
+        Err(InstError::DuplicateEdge(EdgeId(0)))
+    ));
+    let json = serde_json::to_string(&shared).unwrap();
+    assert!(serde_json::from_str::<TableEmbedding>(&json).is_err());
+
+    // A hand-built embedding with a stale floor is refused before it can
+    // hand a recorded edge id to a second pair.
+    let mut stale = TableEmbedding {
+        pairs: BTreeMap::from([((t.clone(), RowId(0), RowId(1)), EdgeId(0))]),
+        next_edge: 0,
+    };
+    assert!(matches!(
+        stale.check(),
+        Err(InstError::DuplicateEdge(EdgeId(0)))
+    ));
+    let tables = FInstance::new()
+        .with_rows("t", [(RowId(0), cell(0)), (RowId(2), cell(2))])
+        .and_then(|f| f.with_foreign_key(t, [(RowId(0), RowId(2))]))
+        .unwrap();
+    assert!(matches!(
+        GInstance::from_finstance_along(&tables, &mut stale),
+        Err(InstError::DuplicateEdge(EdgeId(0)))
+    ));
+    assert_eq!(
+        stale.pairs.len(),
+        1,
+        "a refused embedding is left as it was"
+    );
+}
+
 #[test]
 fn the_graph_form_of_a_table_is_a_table() {
     let (graph, embedding) = GInstance::from_finstance(&tables()).unwrap();
@@ -549,6 +619,7 @@ proptest! {
     #[test]
     fn the_table_graph_round_trip_is_a_bijection(f in arb_tables()) {
         let (graph, embedding) = GInstance::from_finstance(&f).unwrap();
+        prop_assert!(embedding.check().is_ok());
         // Rows correspond one to one with nodes, pairs with edge ids.
         let nodes: Vec<u32> = {
             let mut ids: Vec<u32> = graph.nodes().keys().copied().collect();

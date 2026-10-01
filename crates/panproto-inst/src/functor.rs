@@ -1363,7 +1363,10 @@ mod tests {
         let back: FInstance = serde_json::from_slice(&bytes).unwrap();
         assert_eq!(back, restricted);
         let extended = functor_extend(&inst, &migration).unwrap();
-        assert_eq!(restricted, extended, "restrict agrees with extend on a rename");
+        assert_eq!(
+            restricted, extended,
+            "restrict agrees with extend on a rename"
+        );
     }
 
     /// An unremapped surviving vertex keeps its own rows even when another

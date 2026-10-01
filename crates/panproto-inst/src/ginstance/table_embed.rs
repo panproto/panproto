@@ -39,7 +39,8 @@ use crate::view_ref::{RowId, ViewRef};
 /// allocation goes through an [`IdAllocator`] resumed from it. The embedding
 /// is durable: it is threaded through table edits so that a pair keeps its
 /// edge id while the table changes. Serialized as a struct with named fields,
-/// the pair map as a list of entries in ascending key order.
+/// the pair map as a list of entries in ascending key order; decoding refuses
+/// an embedding that breaks [`Self::check`].
 ///
 /// ```
 /// use std::collections::HashMap;
@@ -63,8 +64,9 @@ use crate::view_ref::{RowId, ViewRef};
 /// # Ok::<(), panproto_inst::InstError>(())
 /// ```
 #[derive(Clone, Debug, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(try_from = "TableEmbeddingWire")]
 pub struct TableEmbedding {
-    /// The graph edge of each foreign-key pair.
+    /// The graph edge of each foreign-key pair; no two pairs share one.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub pairs: BTreeMap<(Edge, RowId, RowId), EdgeId>,
     /// The least edge id above every recorded pair's, saturated at
@@ -74,7 +76,60 @@ pub struct TableEmbedding {
     pub next_edge: u32,
 }
 
+/// The decoded form of a [`TableEmbedding`], before [`TableEmbedding::check`].
+#[derive(Deserialize)]
+struct TableEmbeddingWire {
+    #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
+    pairs: BTreeMap<(Edge, RowId, RowId), EdgeId>,
+    next_edge: u32,
+}
+
+impl TryFrom<TableEmbeddingWire> for TableEmbedding {
+    type Error = InstError;
+
+    fn try_from(wire: TableEmbeddingWire) -> Result<Self, InstError> {
+        let embedding = Self {
+            pairs: wire.pairs,
+            next_edge: wire.next_edge,
+        };
+        embedding.check()?;
+        Ok(embedding)
+    }
+}
+
 impl TableEmbedding {
+    /// Check the embedding's invariants: no two pairs share an edge id, and
+    /// `next_edge` is above every recorded id (or, saturated, equal to
+    /// `u32::MAX` when that id is recorded), so allocation never hands out a
+    /// recorded id.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`InstError::DuplicateEdge`] naming the least id that two
+    /// pairs share, else the largest recorded id the floor does not lie
+    /// above (the id the next allocation could hand out a second time).
+    pub fn check(&self) -> Result<(), InstError> {
+        let mut seen = BTreeSet::new();
+        let mut shared: Option<EdgeId> = None;
+        for id in self.pairs.values() {
+            if !seen.insert(*id) {
+                shared = Some(shared.map_or(*id, |least| least.min(*id)));
+            }
+        }
+        if let Some(id) = shared {
+            return Err(InstError::DuplicateEdge(id));
+        }
+        match seen.last() {
+            Some(&EdgeId(top)) if top >= self.next_edge && top != u32::MAX => {
+                Err(InstError::DuplicateEdge(EdgeId(top)))
+            }
+            Some(&EdgeId(u32::MAX)) if self.next_edge != u32::MAX => {
+                Err(InstError::DuplicateEdge(EdgeId(u32::MAX)))
+            }
+            _ => Ok(()),
+        }
+    }
+
     /// Translate a table's element reference into its graph form's.
     ///
     /// `Row(r)` is `Node(r.0)`, since rows keep their ids; a `Pair` is the
@@ -322,12 +377,13 @@ impl GInstance {
     /// # Errors
     ///
     /// Returns [`InstError::EdgeIdsExhausted`] when no edge id is left for
-    /// a new pair, and [`InstError::DuplicateEdge`] when the embedding
-    /// records one edge id for two pairs of the table.
+    /// a new pair, and [`InstError::DuplicateEdge`] when the embedding breaks
+    /// [`TableEmbedding::check`] (it is then left unchanged).
     pub fn from_finstance_along(
         tables: &FInstance,
         embedding: &mut TableEmbedding,
     ) -> Result<Self, InstError> {
+        embedding.check()?;
         let mut graph = Self::new();
         for (table, rows) in tables.tables() {
             for (id, row) in rows.rows() {
