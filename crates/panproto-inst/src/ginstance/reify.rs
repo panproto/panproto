@@ -162,20 +162,39 @@ fn first_violation(graph: &GInstance, schema: Option<&Schema>) -> Option<(u32, F
         .find_map(|id| fan_violation(graph, id, schema).map(|reason| (id, reason)))
 }
 
-/// Why node `id` is not a well-formed fan node, or `None` when it is one.
+/// Why node `id` is not a well-formed fan node, or `None` when it is one:
+/// the first of [`fan_violations`].
 pub fn fan_violation(graph: &GInstance, id: u32, schema: Option<&Schema>) -> Option<FanViolation> {
-    let node = graph.node(id)?;
+    fan_violations(graph, id, schema).into_iter().next()
+}
+
+/// Every reason node `id` is not a well-formed fan node, empty when it is
+/// one (or when no node has that id).
+///
+/// A node not of the fan shape lists each reserved-kind out-edge, ascending.
+/// A fan node lists, in this order: each in-edge and each out-edge of
+/// neither reserved kind (both [`FanViolation::ForeignIncidentEdge`],
+/// ascending), a missing or repeated parent edge, each label carried by more
+/// than one edge, and, given a schema, each label the fan's hyper-edge
+/// signature does not declare (labels ascending).
+pub fn fan_violations(graph: &GInstance, id: u32, schema: Option<&Schema>) -> Vec<FanViolation> {
+    let Some(node) = graph.node(id) else {
+        return Vec::new();
+    };
     let out = graph.out_edges(id);
     if node.shape != NodeShape::HyperEdge {
         return out
             .iter()
             .copied()
-            .find(|e| is_reserved_kind(&graph.edges[e].edge))
-            .map(|edge| FanViolation::ReservedKindOutsideFan { edge });
+            .filter(|e| is_reserved_kind(&graph.edges[e].edge))
+            .map(|edge| FanViolation::ReservedKindOutsideFan { edge })
+            .collect();
     }
-    if let Some(&edge) = graph.in_edges(id).first() {
-        return Some(FanViolation::ForeignIncidentEdge { edge });
-    }
+    let mut violations: Vec<FanViolation> = graph
+        .in_edges(id)
+        .iter()
+        .map(|&edge| FanViolation::ForeignIncidentEdge { edge })
+        .collect();
     let mut parents = Vec::new();
     let mut labels: BTreeMap<&Name, Vec<EdgeId>> = BTreeMap::new();
     for &edge_id in out {
@@ -187,28 +206,33 @@ pub fn fan_violation(graph: &GInstance, id: u32, schema: Option<&Schema>) -> Opt
         {
             labels.entry(label).or_default().push(edge_id);
         } else {
-            return Some(FanViolation::ForeignIncidentEdge { edge: edge_id });
+            violations.push(FanViolation::ForeignIncidentEdge { edge: edge_id });
         }
     }
     match parents.len() {
-        0 => return Some(FanViolation::MissingParent),
+        0 => violations.push(FanViolation::MissingParent),
         1 => {}
-        _ => return Some(FanViolation::MultipleParents { edges: parents }),
+        _ => violations.push(FanViolation::MultipleParents { edges: parents }),
     }
-    if let Some((label, edges)) = labels.iter().find(|(_, edges)| edges.len() > 1) {
-        return Some(FanViolation::DuplicateLabel {
-            label: (*label).clone(),
-            edges: edges.clone(),
-        });
+    for (label, edges) in &labels {
+        if edges.len() > 1 {
+            violations.push(FanViolation::DuplicateLabel {
+                label: (*label).clone(),
+                edges: edges.clone(),
+            });
+        }
     }
-    let schema = schema?;
-    let signature = schema.hyper_edges.get(&node.anchor).map(|h| &h.signature);
-    labels
-        .keys()
-        .find(|label| signature.is_none_or(|s| !s.contains_key(**label)))
-        .map(|label| FanViolation::UnknownLabel {
-            label: (*label).clone(),
-        })
+    if let Some(schema) = schema {
+        let signature = schema.hyper_edges.get(&node.anchor).map(|h| &h.signature);
+        for label in labels.keys() {
+            if signature.is_none_or(|s| !s.contains_key(*label)) {
+                violations.push(FanViolation::UnknownLabel {
+                    label: (*label).clone(),
+                });
+            }
+        }
+    }
+    violations
 }
 
 /// The first reserved vocabulary in a graph that is about to receive fans:

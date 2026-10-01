@@ -1030,22 +1030,22 @@ fn fan_violation_edges(reason: &FanViolation) -> Vec<ViewRef> {
     }
 }
 
-/// A graph fan node is checked exactly as
-/// [`unreify_fans_with_schema`](crate::unreify_fans_with_schema) checks it;
-/// a tree's fans at one parent are checked label by label against their
+/// A graph fan node is checked with the code
+/// [`unreify_fans_with_schema`](crate::unreify_fans_with_schema) checks it
+/// with, every violation reported rather than the first only; a tree's fans at one parent are checked label by label against their
 /// hyper-edge's signature, a label naming no node of the tree included.
 fn fan_well_formed(ctx: &Context<'_>, f: &ViewRef) -> Outcome {
     let schema = &ctx.plan.schema;
     match (ctx.view, f) {
         (InstanceView::Graph(g), ViewRef::Node(id)) => {
-            crate::ginstance::fan_violation(g, *id, Some(schema)).map_or_else(
-                Outcome::default,
-                |reason| {
-                    let mut elements = fan_violation_edges(&reason);
-                    elements.push(f.clone());
-                    Outcome::fail(elements, Violation::MalformedFan { reason })
-                },
-            )
+            let mut out = Outcome::default();
+            for reason in crate::ginstance::fan_violations(g, *id, Some(schema)) {
+                let mut elements = fan_violation_edges(&reason);
+                elements.push(f.clone());
+                out.findings
+                    .push(Finding::new(elements, Violation::MalformedFan { reason }));
+            }
+            out
         }
         (InstanceView::Tree(t, _), ViewRef::Node(parent)) => {
             let mut out = Outcome::default();

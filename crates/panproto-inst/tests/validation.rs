@@ -441,7 +441,7 @@ fn d(kind: CheckKind, requirement: Requirement, violation: Violation) -> Diagnos
     }
 }
 
-fn i(kind: CheckKind, requirement: Requirement, reason: IncompleteReason) -> IncompleteCheck {
+const fn i(kind: CheckKind, requirement: Requirement, reason: IncompleteReason) -> IncompleteCheck {
     IncompleteCheck {
         check: CheckKey::new(kind, SchemaRef::Schema),
         class: kind.class(),
@@ -754,9 +754,7 @@ fn error_detail_validation_round_trips() -> TestResult {
         &S::default().vertex("a", "object").build(),
         &Protocol::default(),
     );
-    let detail = panproto_inst::ErrorDetail::Validation {
-        report: report.clone(),
-    };
+    let detail = panproto_inst::ErrorDetail::Validation { report };
     round_trip(&detail)?;
     let json = serde_json::to_value(&detail)?;
     assert!(json.get("validation").is_some(), "{json}");
@@ -1016,16 +1014,19 @@ fn check_kinds_compile_only_for_their_shapes() {
     for (key, spec) in plan.checks() {
         let shapes: BTreeSet<InstanceShapeKind> = spec.locality.keys().copied().collect();
         let expected: BTreeSet<InstanceShapeKind> = match (key.kind, &key.decl) {
+            // Tree-only kinds, and references on this protocol's syntactic
+            // shape.
             (
                 CheckKind::TreeRoot
                 | CheckKind::TreeParentMap
                 | CheckKind::TreeReachable
-                | CheckKind::ReservedVocabulary,
+                | CheckKind::ReservedVocabulary
+                | CheckKind::ReferenceResolves,
                 _,
             ) => BTreeSet::from([Tree]),
-            (CheckKind::PositionDistinct | CheckKind::Acyclic, _) => BTreeSet::from([Graph]),
-            (CheckKind::ReferenceResolves, _) => BTreeSet::from([Tree]),
-            (_, SchemaRef::Reference(_)) => BTreeSet::from([Graph]),
+            // Graph-only kinds, and references on its semantic shape.
+            (CheckKind::PositionDistinct | CheckKind::Acyclic, _)
+            | (_, SchemaRef::Reference(_)) => BTreeSet::from([Graph]),
             _ => BTreeSet::from([Tree, Table, Graph]),
         };
         assert_eq!(shapes, expected, "{key:?}");
@@ -1037,7 +1038,7 @@ fn check_kinds_compile_only_for_their_shapes() {
     );
     // When the syntax already has the semantic shape, references compile to
     // the semantic checks only.
-    let mut same = p.clone();
+    let mut same = p;
     same.syntactic_shape = Graph;
     let plan = ValidationPlan::compile(&schema, &same, &ValidationOptions::default());
     assert!(
@@ -1368,12 +1369,11 @@ fn schema_well_formed_reports_p4_key_defects() {
         )
         .build();
     let plan = plan(&schema, &Protocol::default());
-    let schema_findings: Vec<&IncompleteCheck> = plan
-        .static_findings()
-        .iter()
-        .filter(|f| f.check.kind == CheckKind::SchemaWellFormed)
-        .collect();
-    assert!(!schema_findings.is_empty());
+    assert!(
+        plan.static_findings()
+            .iter()
+            .any(|f| f.check.kind == CheckKind::SchemaWellFormed)
+    );
     let dependent = CheckKey::new(
         CheckKind::KeyUnique,
         SchemaRef::Key {
@@ -1540,7 +1540,7 @@ fn value_constraints_apply_to_node_values_and_table_cells() {
         .with_node(Node::new(0, "user"))
         .with_node(str_node(1, "user.name", "ada"))
         .with_node(str_node(2, "user.name", "grace"))
-        .with_edge(0, 1, name.clone());
+        .with_edge(0, 1, name);
     let report = validate_graph(&graph, &schema, &p);
     assert_eq!(
         of_kind(&report, CheckKind::ValueConstraint),
@@ -1625,7 +1625,7 @@ fn degree_bounds_count_non_fan_out_edges_and_fk_pairs() {
         .with_node(Node::new(1, "list"))
         .with_node(Node::new(2, "list"))
         .with_edge(0, 1, item.clone())
-        .with_edge(0, 2, item.clone());
+        .with_edge(0, 2, item);
     let graph = panproto_inst::reify_fans(&graph, &[Fan::new("rel", 1).with_child("arg", 0)], None)
         .unwrap()
         // An edge of a reserved kind out of node 0 is not a fan edge of node 0's
@@ -1660,9 +1660,7 @@ fn degree_bounds_count_non_fan_out_edges_and_fk_pairs() {
     table
         .insert_foreign_key(fk.clone(), RowId(2), RowId(0))
         .unwrap();
-    table
-        .insert_foreign_key(fk.clone(), RowId(2), RowId(1))
-        .unwrap();
+    table.insert_foreign_key(fk, RowId(2), RowId(1)).unwrap();
     let report = validate_table(&table, &schema, &p);
     assert!(matches!(
         of_kind(&report, CheckKind::OutDegree).as_slice(),
@@ -1689,7 +1687,7 @@ fn acyclic_rejects_two_cycles_long_cycles_and_self_loops() {
     let chain = nodes(GInstance::new(), 4)
         .with_edge(0, 1, parent.clone())
         .with_edge(1, 2, parent.clone())
-        .with_edge(2, 0, other.clone());
+        .with_edge(2, 0, other);
     assert!(validate_graph(&chain, &schema, &p).passed());
     // A 2-cycle, a 3-cycle and a self-loop.
     let cyclic = nodes(GInstance::new(), 6)
@@ -1912,7 +1910,7 @@ fn keys_compile_to_key_unique_and_primary_parts_to_required_value() {
         ]
     );
     // A unique key does not require its parts.
-    let mut unique = schema.clone();
+    let mut unique = schema;
     if let Some(keys) = unique.declarations.keys.get_mut("film") {
         keys[0].role = KeyRole::Unique;
     }
@@ -2402,14 +2400,12 @@ fn graph_fans_are_checked_by_fan_well_formed_only() {
             },
         ),
         (
-            base()
-                .with_edge(2, 0, parent.clone())
-                .with_edge(0, 1, arg.clone()),
+            base().with_edge(2, 0, parent.clone()).with_edge(0, 1, arg),
             FanViolation::ReservedKindOutsideFan { edge: EdgeId(1) },
         ),
         (
             base()
-                .with_edge(2, 0, parent.clone())
+                .with_edge(2, 0, parent)
                 .with_edge(1, 2, prop("word", "rel", "x")),
             FanViolation::ForeignIncidentEdge { edge: EdgeId(1) },
         ),
@@ -2438,6 +2434,63 @@ fn graph_fans_are_checked_by_fan_well_formed_only() {
     }
 }
 
+/// A graph fan node breaking the fan form several ways reports each of them,
+/// and every malformed fan node is reported, not only the first.
+#[test]
+fn validate_graph_reports_every_fan_violation() {
+    let arg = edge("rel", "word", "hyper_label", Some("arg"));
+    let graph = GInstance::new()
+        .with_node(Node::new(0, "sent"))
+        .with_node(Node::new(1, "word"))
+        .with_node(Node::new(2, "rel").with_shape(NodeShape::HyperEdge))
+        .with_node(Node::new(3, "rel").with_shape(NodeShape::HyperEdge))
+        // Node 2: no parent, `arg` twice, an undeclared label.
+        .with_edge(2, 1, arg.clone())
+        .with_edge(2, 1, arg)
+        .with_edge(2, 1, edge("rel", "word", "hyper_label", Some("nope")))
+        // Node 3: a parent, and an edge into it.
+        .with_edge(3, 0, edge("rel", "sent", "hyper_parent", None))
+        .with_edge(1, 3, prop("word", "rel", "x"));
+    let report = validate_graph(&graph, &fan_schema(), &Protocol::default());
+    assert_eq!(report.status, CheckStatus::Failed);
+    let fan = |node: u32, reason: FanViolation| {
+        (
+            Some(ViewRef::Node(node)),
+            Violation::MalformedFan { reason },
+        )
+    };
+    assert_eq!(
+        of_kind(&report, CheckKind::FanWellFormed),
+        vec![
+            // Sorted by elements: the two naming the node alone (in tag
+            // order), then the one naming its edges too.
+            fan(2, FanViolation::MissingParent),
+            fan(
+                2,
+                FanViolation::UnknownLabel {
+                    label: "nope".into()
+                }
+            ),
+            fan(
+                2,
+                FanViolation::DuplicateLabel {
+                    label: "arg".into(),
+                    edges: vec![EdgeId(0), EdgeId(1)],
+                }
+            ),
+            fan(3, FanViolation::ForeignIncidentEdge { edge: EdgeId(4) }),
+        ]
+    );
+    // The first violation of each node is the one unreifying reports.
+    assert!(matches!(
+        panproto_inst::unreify_fans_with_schema(&graph, &fan_schema()),
+        Err(panproto_inst::InstError::MalformedFan {
+            node: 2,
+            reason: FanViolation::MissingParent
+        })
+    ));
+}
+
 #[test]
 fn parallel_edges_and_self_loops_count_toward_degree_and_keys() {
     let next = edge("n", "n", "ref", Some("next"));
@@ -2457,7 +2510,7 @@ fn parallel_edges_and_self_loops_count_toward_degree_and_keys() {
         report.passed(),
         "parallel edges and self-loops are legal: {report:?}"
     );
-    let three = two.with_edge(0, 0, next.clone());
+    let three = two.with_edge(0, 0, next);
     let report = validate_graph(&three, &schema, &p);
     assert!(matches!(
         of_kind(&report, CheckKind::OutDegree).as_slice(),
