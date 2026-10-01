@@ -751,6 +751,100 @@ mod tests {
         }
     }
 
+    /// The sorted sort names of `theory`.
+    fn sort_names(theory: &Theory) -> Vec<String> {
+        let mut sorts: Vec<String> = theory.sorts.iter().map(|s| s.name.to_string()).collect();
+        sorts.sort();
+        sorts
+    }
+
+    #[test]
+    fn dsl_identify_step_collapses_two_right_sorts_onto_one_left_sort() {
+        let registry = registry(&["ThGraph", "ThHypergraph"]);
+        for mode in ["amalgamate", "explicit_identity"] {
+            let theory = compile_and_replay(
+                &one_step(
+                    "ThGraph",
+                    "ThHypergraph",
+                    &[],
+                    mode,
+                    &[("Edge", "HyperEdge"), ("Edge", "Label")],
+                ),
+                &HashMap::new(),
+                &registry,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: Edge identifies HyperEdge and Label: {e}"));
+            assert_eq!(
+                sort_names(&theory),
+                vec!["Edge".to_owned(), "Vertex".to_owned()],
+                "{mode}"
+            );
+            let parent_label = theory
+                .find_op("parent_label")
+                .unwrap_or_else(|| panic!("{mode}: parent_label is kept"));
+            assert_eq!(&*parent_label.inputs[0].1.head().to_string(), "Edge");
+            assert_eq!(&*parent_label.output.head().to_string(), "Edge");
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_identifies_a_shared_sort_with_another_right_sort() {
+        let registry = registry(&["ThGraph", "ThHypergraph"]);
+        for mode in ["amalgamate", "explicit_identity"] {
+            // `Vertex` is shared, so it is one sort with the right `Vertex`,
+            // and identified with `HyperEdge` too.
+            let theory = compile_and_replay(
+                &one_step(
+                    "ThGraph",
+                    "ThHypergraph",
+                    &[],
+                    mode,
+                    &[("Vertex", "HyperEdge")],
+                ),
+                &HashMap::new(),
+                &registry,
+            )
+            .unwrap_or_else(|e| panic!("{mode}: Vertex is shared and identified: {e}"));
+            assert_eq!(
+                sort_names(&theory),
+                vec!["Edge".to_owned(), "Label".to_owned(), "Vertex".to_owned()],
+                "{mode}"
+            );
+            let incident = theory
+                .find_op("incident")
+                .unwrap_or_else(|| panic!("{mode}: incident is kept"));
+            assert_eq!(&*incident.inputs[0].1.head().to_string(), "Vertex");
+        }
+    }
+
+    #[test]
+    fn dsl_identify_step_collapses_two_right_operations_onto_one_left_operation() {
+        let body = body(
+            r#"{
+                "id": "test.collapse-ops",
+                "description": "src identifies both right endpoints",
+                "compose": {
+                    "result": "R",
+                    "steps": [{
+                        "left": "ThGraph",
+                        "right": "ThGraph",
+                        "shared_sorts": ["Vertex", "Edge"],
+                        "shared_ops": ["src"],
+                        "mode": "explicit_identity",
+                        "identify": [{"kind": "op", "left": "src", "right": "tgt"}]
+                    }]
+                }
+            }"#,
+        );
+        let theory = compile_and_replay(&body, &HashMap::new(), &registry(&["ThGraph"]))
+            .unwrap_or_else(|e| panic!("src identifies src and tgt: {e}"));
+        let mut ops: Vec<String> = theory.ops.iter().map(|o| o.name.to_string()).collect();
+        ops.sort();
+        // The class of `src` holds the left `src` and both right
+        // endpoints; the left `tgt` stays alone.
+        assert_eq!(ops, vec!["src".to_owned(), "tgt".to_owned()]);
+    }
+
     #[test]
     fn dsl_compose_in_explicit_mode_refuses_an_unshared_name() {
         let body = body(
