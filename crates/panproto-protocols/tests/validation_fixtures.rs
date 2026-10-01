@@ -18,7 +18,7 @@ use panproto_inst::validation::{
     Violation,
 };
 use panproto_inst::{
-    EdgeId, FInstance, GInstance, GraphEdit, TableEdit, TreeEdit, ViewRef, WInstance,
+    EdgeId, EditError, FInstance, GInstance, GraphEdit, TableEdit, TreeEdit, ViewRef, WInstance,
     from_node_link_json,
 };
 use panproto_protocols::registry::descriptor;
@@ -621,6 +621,15 @@ const EXPECTED: &[Expectation] = &[
         "cycles/self_loop",
         CheckStatus::Failed,
         &[(CheckKind::Acyclic, "cycle")],
+    ),
+    (
+        "cycles/tree_arcs_close_a_cycle_off_the_root",
+        CheckStatus::Failed,
+        &[
+            (CheckKind::TreeReachable, "unreachable"),
+            (CheckKind::TreeReachable, "unreachable"),
+            (CheckKind::TreeReachable, "unreachable"),
+        ],
     ),
     (
         "cycles/tree_edit_moves_subtree_under_its_own_descendant",
@@ -1330,9 +1339,19 @@ fn the_coherent_endpoint_cases_check_their_one_edge() {
 }
 
 /// What one edit of a trace shows: the status of the report after it and
-/// the kind and violation of each of its diagnostics, or `None` where
-/// applying the edit fails.
-type StepExpectation = Option<(CheckStatus, &'static [(CheckKind, &'static str)])>;
+/// the kind and violation of each of its diagnostics, or, where applying the
+/// edit fails, the error it fails with, built here rather than read from the
+/// corpus.
+type StepExpectation =
+    Result<(CheckStatus, &'static [(CheckKind, &'static str)]), fn() -> EditError>;
+
+/// The refusal to move node 1 under its own descendant, node 2.
+const fn moves_node_1_under_its_descendant_2() -> EditError {
+    EditError::CycleDetected {
+        node_id: 1,
+        new_parent: 2,
+    }
+}
 
 /// The diagnostics of an incoherent endpoint on one side.
 const ONE_SIDE: &[(CheckKind, &str)] = &[(CheckKind::EndpointCoherence, "incoherent_endpoint")];
@@ -1348,43 +1367,40 @@ const BOTH_SIDES: &[(CheckKind, &str)] = &[
 const EDITED: &[(&str, &[StepExpectation])] = &[
     (
         "cycles/edit_breaks_cycle",
-        &[Some((CheckStatus::Passed, &[]))],
+        &[Ok((CheckStatus::Passed, &[]))],
     ),
     (
         "cycles/edit_closes_cycle",
-        &[Some((
-            CheckStatus::Failed,
-            &[(CheckKind::Acyclic, "cycle")],
-        ))],
+        &[Ok((CheckStatus::Failed, &[(CheckKind::Acyclic, "cycle")]))],
     ),
     (
         "cycles/tree_edit_moves_subtree_under_its_own_descendant",
-        &[None],
+        &[Err(moves_node_1_under_its_descendant_2)],
     ),
     (
         "endpoints/edit_anchor_change_breaks_kept_edge",
-        &[Some((CheckStatus::Failed, ONE_SIDE))],
+        &[Ok((CheckStatus::Failed, ONE_SIDE))],
     ),
     (
         "endpoints/edit_relabel_breaks_kept_edge",
-        &[Some((CheckStatus::Failed, BOTH_SIDES))],
+        &[Ok((CheckStatus::Failed, BOTH_SIDES))],
     ),
     (
         "endpoints/tree_edit_anchor_change_breaks_kept_arc",
-        &[Some((CheckStatus::Failed, ONE_SIDE))],
+        &[Ok((CheckStatus::Failed, ONE_SIDE))],
     ),
     (
         "endpoints/tree_edit_relabel_breaks_kept_arc",
-        &[Some((CheckStatus::Failed, BOTH_SIDES))],
+        &[Ok((CheckStatus::Failed, BOTH_SIDES))],
     ),
     (
         "ordering/edit_reorder_creates_and_repairs_duplicate",
         &[
-            Some((
+            Ok((
                 CheckStatus::Failed,
                 &[(CheckKind::PositionDistinct, "duplicate_position")],
             )),
-            Some((CheckStatus::Passed, &[])),
+            Ok((CheckStatus::Passed, &[])),
         ],
     ),
 ];
@@ -1416,7 +1432,7 @@ fn every_fixture_stores_an_edit_trace_of_its_shape() {
         assert_eq!(fixture.edits(), steps.len(), "{name}: the number of edits");
         for (k, (outcome, step)) in fixture.edit_outcomes.iter().zip(steps).enumerate() {
             match (outcome, step) {
-                (EditOutcome::Applied(report), Some((status, diagnostics))) => {
+                (EditOutcome::Applied(report), Ok((status, diagnostics))) => {
                     assert_eq!(report.status, *status, "{name}, edit {k}");
                     let wanted: Vec<(CheckKind, String, Requirement)> = diagnostics
                         .iter()
@@ -1424,11 +1440,93 @@ fn every_fixture_stores_an_edit_trace_of_its_shape() {
                         .collect();
                     assert_eq!(summary(report).0, wanted, "{name}, edit {k}");
                 }
-                (EditOutcome::Rejected(_), None) => {}
+                (EditOutcome::Rejected(reason), Err(refusal)) => {
+                    assert_eq!(reason, &refusal().to_string(), "{name}, edit {k}");
+                }
                 (outcome, step) => panic!("{name}, edit {k}: {outcome:?}, expected {step:?}"),
             }
         }
     }
+}
+
+/// A tree whose arcs close a cycle away from the root has one `Unreachable`
+/// diagnostic at each node of the cycle and none at the root's child.
+#[test]
+fn tree_arcs_closing_a_cycle_off_the_root_leave_each_cycle_node_unreachable() {
+    let fixtures = fixtures();
+    let fixture = &fixtures["cycles/tree_arcs_close_a_cycle_off_the_root"];
+    let Instance::Tree(tree) = &fixture.instance else {
+        panic!("a tree case");
+    };
+    assert_eq!(tree.root, 0);
+    assert_eq!(fixture.report.status, CheckStatus::Failed);
+    let unreachable: Vec<(CheckKind, Option<ViewRef>, Violation)> = fixture
+        .report
+        .diagnostics
+        .iter()
+        .map(|d| (d.check.kind, d.subject.clone(), d.violation.clone()))
+        .collect();
+    assert_eq!(
+        unreachable,
+        [1, 2, 3]
+            .map(|n| (
+                CheckKind::TreeReachable,
+                Some(ViewRef::Node(n)),
+                Violation::Unreachable
+            ))
+            .to_vec()
+    );
+}
+
+/// The tree arc of `endpoints/tree_edit_relabel_breaks_kept_arc` is kept by
+/// its identity in the tree, the pair (parent, child), while the graph
+/// lowering of its move deletes the arc's edge and adds the relabelled one
+/// under a fresh edge id, with no label change of a kept edge.
+#[test]
+fn a_kept_arc_moved_under_its_parent_lowers_to_a_fresh_edge() {
+    let fixtures = fixtures();
+    let fixture = &fixtures["endpoints/tree_edit_relabel_breaks_kept_arc"];
+    let (Instance::Tree(tree), EditTrace::Tree(edits)) = (&fixture.instance, &fixture.edit_trace)
+    else {
+        panic!("a tree case with a tree trace");
+    };
+    assert_eq!(edits.len(), 1);
+    let mut after = tree.clone();
+    edits[0].apply(&mut after).unwrap();
+    let arcs =
+        |t: &WInstance| -> Vec<(u32, u32)> { t.arcs.iter().map(|(p, c, _)| (*p, *c)).collect() };
+    assert_eq!(arcs(tree), vec![(0, 1)]);
+    assert_eq!(arcs(&after), vec![(0, 1)], "the arc (0, 1) is kept");
+    let (graph, mut embedding) = GInstance::from_wtype_embedded(tree, None).unwrap();
+    let parts = panproto_inst::GraphDelta::from_tree_edit(&graph, &mut embedding, &edits[0])
+        .unwrap()
+        .into_parts();
+    let deleted: Vec<(EdgeId, u32, u32, String)> = parts
+        .del_edges
+        .iter()
+        .map(|(id, e)| (*id, e.src, e.tgt, e.edge.name.as_ref().unwrap().to_string()))
+        .collect();
+    let added: Vec<(EdgeId, u32, u32, String)> = parts
+        .add_edges
+        .iter()
+        .map(|(id, e)| (*id, e.src, e.tgt, e.edge.name.as_ref().unwrap().to_string()))
+        .collect();
+    assert_eq!(deleted.len(), 1, "{deleted:?}");
+    assert_eq!(added.len(), 1, "{added:?}");
+    assert_ne!(deleted[0].0, added[0].0, "a fresh edge id");
+    assert_eq!(
+        (deleted[0].1, deleted[0].2, deleted[0].3.as_str()),
+        (0, 1, "ab")
+    );
+    assert_eq!((added[0].1, added[0].2, added[0].3.as_str()), (0, 1, "ba"));
+    assert!(
+        parts
+            .attrs
+            .keys()
+            .all(|k| !matches!(k, panproto_inst::graph_edit::AttrKey::EdgeLabel { .. })),
+        "{:?}",
+        parts.attrs
+    );
 }
 
 /// Replaying each fixture's trace now gives its stored outcomes byte for
@@ -1576,6 +1674,11 @@ const SHAPES: &[[Option<&str>; 3]] = &[
     [
         None,
         Some("cycles/tree_subtree_under_its_own_descendant"),
+        None,
+    ],
+    [
+        None,
+        Some("cycles/tree_arcs_close_a_cycle_off_the_root"),
         None,
     ],
     [

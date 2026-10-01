@@ -551,7 +551,9 @@ fn endpoint_edits() -> R<Vec<Case>> {
             new_anchor: "a".into(),
         }])),
         // A tree arc changes its label by moving its child under the same
-        // parent along another edge.
+        // parent along another edge. The arc is kept by its identity in the
+        // tree, the pair (parent, child); the graph lowering of the move
+        // deletes the edge and adds one under a fresh edge id.
         Case::new(
             "endpoints/tree_edit_relabel_breaks_kept_arc",
             both_ways,
@@ -884,7 +886,10 @@ fn cycle_edits() -> R<Vec<Case>> {
 }
 
 /// Cycles of a self-edge: legal without a declaration; with `Acyclic`, a
-/// two-cycle, a longer cycle and a self-loop fail and a chain passes.
+/// two-cycle, a longer cycle and a self-loop fail and a chain passes. Tree
+/// arcs that close a cycle away from the root leave every node of the
+/// cycle unreachable; such a tree is built directly, since a tree edit
+/// that would close the cycle is refused.
 fn cycles() -> Vec<Case> {
     let next = prop("item", "item", "next");
     let base = S::default().vertex("item", "object").edge(&next);
@@ -930,8 +935,9 @@ fn cycles() -> Vec<Case> {
             acyclic,
             Instance::Graph(ring(3, false)),
         ),
-        // A subtree moved under its own descendant: nodes 1 and 2 hang under
-        // each other, cut off from the root.
+        // The tree a move of a subtree under its own descendant would leave,
+        // built directly: nodes 1 and 2 hang under each other, cut off from
+        // the root.
         Case::new(
             "cycles/tree_subtree_under_its_own_descendant",
             free_tree_schema(),
@@ -942,6 +948,17 @@ fn cycles() -> Vec<Case> {
                     Node::new(2, "item"),
                 ],
                 &[(2, 1, &next), (1, 2, &next)],
+                vec![],
+            )),
+        ),
+        // Arcs closing a three-node cycle beside a reachable child of the
+        // root: nodes 1, 2 and 3 are unreachable, node 4 is not.
+        Case::new(
+            "cycles/tree_arcs_close_a_cycle_off_the_root",
+            free_tree_schema(),
+            Instance::Tree(tree(
+                (0..5).map(|i| Node::new(i, "item")).collect(),
+                &[(0, 4, &next), (1, 2, &next), (2, 3, &next), (3, 1, &next)],
                 vec![],
             )),
         ),
