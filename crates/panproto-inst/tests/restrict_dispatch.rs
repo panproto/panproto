@@ -384,7 +384,11 @@ fn table_migration(relations: &[Edge], keep: &[bool], predicate: bool) -> Compil
 /// A table-shaped graph over `table_schema(relations)`: node `3 i` in table
 /// `rows[i].0` with `c = rows[i].1`, and an edge per pair whose relation
 /// joins the two rows' tables.
-fn table_graph(relations: &[Edge], rows: &[(usize, i64)], pairs: &[(usize, usize, usize)]) -> GInstance {
+fn table_graph(
+    relations: &[Edge],
+    rows: &[(usize, i64)],
+    pairs: &[(usize, usize, usize)],
+) -> GInstance {
     let names = ["t0", "t1", "t2"];
     let mut g = GInstance::new();
     for (i, (t, c)) in rows.iter().enumerate() {
@@ -393,7 +397,8 @@ fn table_graph(relations: &[Edge], rows: &[(usize, i64)], pairs: &[(usize, usize
     }
     let mut seen = std::collections::BTreeSet::new();
     for &(s, t, r) in pairs {
-        let (Some(relation), Some((ts, _)), Some((tt, _))) = (relations.get(r), rows.get(s), rows.get(t))
+        let (Some(relation), Some((ts, _)), Some((tt, _))) =
+            (relations.get(r), rows.get(s), rows.get(t))
         else {
             continue;
         };
@@ -449,7 +454,8 @@ fn the_table_dispatch_square_commutes() {
             else {
                 return Ok(());
             };
-            let plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols).unwrap();
+            let plan =
+                RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols).unwrap();
             let engine = graph_restrict_with_plan(&g, &plan).map(|(view, _)| view);
             let on_table_plan = graph_restrict_with_plan(&g, &table_plan).map(|(view, _)| view);
             match (&engine, &on_table_plan) {
@@ -474,7 +480,11 @@ fn the_table_path_maps_kept_and_contracted_pairs_back() {
     // t1 is dropped: the row of t0 reaches the row of t2 through it, so the
     // pair is contracted onto the direct relation r02, which also carries a
     // kept pair between other rows.
-    let relations = vec![fk("t0", "t1", "r01"), fk("t1", "t2", "r12"), fk("t0", "t2", "r02")];
+    let relations = vec![
+        fk("t0", "t1", "r01"),
+        fk("t1", "t2", "r12"),
+        fk("t0", "t2", "r02"),
+    ];
     let schema = table_schema(&relations);
     let m = table_migration(&relations, &[true, false, true], false);
     let protocol = table_protocol();

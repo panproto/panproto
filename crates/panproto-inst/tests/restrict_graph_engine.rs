@@ -839,7 +839,10 @@ fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
     // the fan node of the embedded graph, the tree error carries no key, and
     // the two agree once the location is removed.
     assert_eq!(tree_err.key(), None);
-    assert!(!matches!(tree_err, RestrictError::At { .. }), "{tree_err:?}");
+    assert!(
+        !matches!(tree_err, RestrictError::At { .. }),
+        "{tree_err:?}"
+    );
     assert_eq!(graph_err.key().map(|k| (k.stage, k.id)), Some((3, 3)));
     assert_eq!(
         format!("{tree_err:?}"),

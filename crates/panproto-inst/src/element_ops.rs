@@ -226,7 +226,11 @@ impl ElementScope<'_> {
     pub fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
         let (own, mut combined) = match &self.of {
             ScopeOf::Tree(children) => (
-                children.tree().nodes.get(&element_id).map(|n| &n.extra_fields),
+                children
+                    .tree()
+                    .nodes
+                    .get(&element_id)
+                    .map(|n| &n.extra_fields),
                 present_children(children, element_id),
             ),
             ScopeOf::Graph(graph) => (

@@ -9,8 +9,8 @@ use std::time::{Duration, Instant};
 use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, FieldPresence, FieldTransform, InstanceQuery, Node, Value, WInstance, execute_query,
-    wtype_extend_engine,
+    CompiledMigration, FieldPresence, FieldTransform, InstanceQuery, Node, Value, WInstance,
+    execute_query, wtype_extend_engine,
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 
@@ -46,7 +46,10 @@ fn tree(n: u32) -> WInstance {
     for i in 0..n {
         let (mid, leaf) = (1 + 2 * i, 2 + 2 * i);
         nodes.insert(mid, Node::new(mid, "mid"));
-        nodes.insert(leaf, Node::new(leaf, "leaf").with_value(FieldPresence::Present(Value::Int(1))));
+        nodes.insert(
+            leaf,
+            Node::new(leaf, "leaf").with_value(FieldPresence::Present(Value::Int(1))),
+        );
         arcs.push((0, mid, edge("r", "mid", "m")));
         arcs.push((mid, leaf, edge("mid", "leaf", "k")));
     }

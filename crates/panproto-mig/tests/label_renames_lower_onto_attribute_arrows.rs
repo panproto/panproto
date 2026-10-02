@@ -200,8 +200,18 @@ fn only_the_renamed_labels_of_a_hyper_edge_are_lowered() {
     // Of the labels a and k of H, only a is renamed (to b): its arrow gains
     // an edge remap, while k, whose arrow keeps its direct image, gains none,
     // and the digest differs from the unmapped migration's.
-    let src = table("H", &[("a", "c"), ("k", "d")], &[("a", "c"), ("k", "d")], &[]);
-    let tgt = table("H2", &[("b", "c"), ("k", "d")], &[("b", "c"), ("k", "d")], &[]);
+    let src = table(
+        "H",
+        &[("a", "c"), ("k", "d")],
+        &[("a", "c"), ("k", "d")],
+        &[],
+    );
+    let tgt = table(
+        "H2",
+        &[("b", "c"), ("k", "d")],
+        &[("b", "c"), ("k", "d")],
+        &[],
+    );
     let m = migration(&[("T", "T"), ("c", "c"), ("d", "d")], &[("a", "b")]);
     let compiled = compile(&src, &tgt, &m).unwrap();
     assert_eq!(

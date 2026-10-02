@@ -840,7 +840,10 @@ fn a_renamed_column_is_no_dropped_cell() {
     let src = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
     let tgt = tables(&[("t", &[("a2", "int"), ("b", "int")])], &[]);
     let m = CompiledMigration {
-        surviving_verts: ["t", "t.a2", "t.b"].iter().map(|v| Name::from(*v)).collect(),
+        surviving_verts: ["t", "t.a2", "t.b"]
+            .iter()
+            .map(|v| Name::from(*v))
+            .collect(),
         surviving_edges: [column("t", "a2"), column("t", "b")].into(),
         vertex_remap: HashMap::from([("t.a".into(), "t.a2".into())]),
         edge_remap: HashMap::from([(column("t", "a"), column("t", "a2"))]),
@@ -881,10 +884,8 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
     // recorded under the source column, and nothing is dropped.
     let mut m = identity(&schema);
     m.add_field_rename("person", "age", "years");
-    m.field_transforms
-        .entry("person".into())
-        .or_default()
-        .push(panproto_inst::FieldTransform::ApplyExpr {
+    m.field_transforms.entry("person".into()).or_default().push(
+        panproto_inst::FieldTransform::ApplyExpr {
             key: "years".into(),
             expr: Expr::Builtin(
                 BuiltinOp::Add,
@@ -892,7 +893,8 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
             ),
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
-        });
+        },
+    );
     let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
     assert_eq!(
         view.row(RowId(0)).unwrap().get("years"),
@@ -930,15 +932,14 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
     // A computed value written over a column the row holds is that
     // column's changed value.
     let mut m = identity(&schema);
-    m.field_transforms
-        .entry("person".into())
-        .or_default()
-        .push(panproto_inst::FieldTransform::ComputeField {
+    m.field_transforms.entry("person".into()).or_default().push(
+        panproto_inst::FieldTransform::ComputeField {
             target_key: "age".into(),
             expr: Expr::Lit(Literal::Int(0)),
             inverse: None,
             coercion_class: panproto_gat::CoercionClass::Opaque,
-        });
+        },
+    );
     let (_, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
     assert_eq!(complement.dropped_cells, BTreeMap::new());
     assert_eq!(

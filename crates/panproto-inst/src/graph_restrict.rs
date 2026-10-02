@@ -188,7 +188,8 @@ pub fn graph_restrict_dispatched(
 pub fn graph_restrict_on_table(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
     plan.boundary.as_ref()?.table.as_ref()?;
     let (table, embedding) = instance.try_to_finstance(plan.source()).ok()?;
-    let (view, complement) = crate::table_restrict::functor_restrict_with_plan(&table, plan).ok()?;
+    let (view, complement) =
+        crate::table_restrict::functor_restrict_with_plan(&table, plan).ok()?;
     let mut graph = GInstance::new();
     for row in view.row_ids() {
         let mut node = instance.node(row.0)?.clone();
@@ -236,7 +237,10 @@ pub fn graph_restrict_on_table(instance: &GInstance, plan: &RestrictPlan) -> Opt
     let ids = allocate_synthesized(contracted.iter().map(key), floor, IdKind::Edge).ok()?;
     for pair in &contracted {
         let (src, tgt, edge) = pair;
-        graph.place_edge(EdgeId(ids[&key(pair)]), GEdge::new(*src, *tgt, edge.clone()));
+        graph.place_edge(
+            EdgeId(ids[&key(pair)]),
+            GEdge::new(*src, *tgt, edge.clone()),
+        );
     }
     Some(graph)
 }
