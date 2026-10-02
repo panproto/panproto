@@ -835,7 +835,7 @@ proptest! {
 #[test]
 fn a_renamed_column_is_a_dropped_cell() {
     // The column `a` is renamed to `a2` by the edge map: the view row holds
-    // no cell named `a`, so the source cell is a dropped cell (T.3), and a
+    // no cell named `a`, so the source cell is a dropped cell, and a
     // column rename leaves non-trivial residue, as it does in the graph.
     let src = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
     let tgt = tables(&[("t", &[("a2", "int"), ("b", "int")])], &[]);
@@ -995,7 +995,7 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
 
 /// The source row a put rebuilds from the view row and the complement,
 /// column by column of the row's source table: `dropped_cells`, else
-/// `original_cells`, else the view's cell of that name (T.3).
+/// `original_cells`, else the view's cell of that name.
 fn restored_row(
     view_row: &HashMap<String, Value>,
     complement: &TableComplement,
@@ -1045,7 +1045,7 @@ fn a_value_dependent_swap_leaves_distinct_table_complements() {
     // The sources {a: 1, c: 2} and {a: 2, c: 1} have one view, {a: 1,
     // c: 2}: the first does not swap and the second does. Which one a put
     // must restore depends on a source value, so no trace of keys through
-    // the renames can tell them apart; the per-column comparison of T.3
+    // the renames can tell them apart; the per-column comparison
     // does, and the complements differ.
     let (schema, m) = value_dependent_swap();
     let p = protocol();
@@ -1142,7 +1142,7 @@ proptest! {
     /// row's cells exactly when the graph engine records its fields on the
     /// table's graph form, except on a row whose view holds a cell outside
     /// the source table's columns while every source column keeps its name
-    /// and value, which the graph records and the table does not (T.7).
+    /// and value, which the graph records and the table does not.
     #[test]
     fn table_and_graph_cell_residues_agree_but_for_a_computed_column(
         choices in prop::collection::vec(0u8..7, 0..4),

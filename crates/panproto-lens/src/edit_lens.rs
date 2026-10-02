@@ -1572,8 +1572,8 @@ mod tests {
     #[test]
     fn an_unexpressible_field_edit_is_refused_as_not_expressible() {
         // Under an `ApplyExpr` transform on `text`, a field edit setting a
-        // token, which has no expression literal, is refused as P.3 VF6
-        // names the refusal, at the edited node, through both callers.
+        // token, which has no expression literal, is refused as not
+        // expressible, at the edited node, through both callers.
         let schema = three_node_schema();
         let mut lens = identity_lens(&schema);
         lens.compiled.field_transforms.insert(

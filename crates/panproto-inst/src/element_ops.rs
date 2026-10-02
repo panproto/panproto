@@ -118,6 +118,10 @@ pub trait ElementOps {
     /// The per-run view a query reads its elements through
     /// ([`ElementScope`]), prepared once so that reading one element costs
     /// that element's own fields and edges.
+    ///
+    /// The generic query run (`execute_elements`) calls it once per run.
+    /// It is a required method of this public trait, since a bound that
+    /// only the crate could name cannot constrain a public generic.
     fn scope(&self) -> ElementScope<'_>;
 }
 
@@ -127,7 +131,8 @@ pub trait ElementOps {
 /// For a tree it holds the index of the arcs by parent, so binding an
 /// element's children reads that element's arcs and not every arc of the
 /// tree; graphs and tables index their edges and pairs already. Built by
-/// [`ElementOps::scope`].
+/// [`ElementOps::scope`], whose return type makes it public; its contents
+/// are private, and the query run is its only reader.
 pub struct ElementScope<'a> {
     of: ScopeOf<'a>,
 }

@@ -916,7 +916,7 @@ fn fan_edge(edges: &BTreeMap<EdgeId, GEdge>, kind: &str, name: Option<&str>) -> 
 fn a_kept_fan_edge_is_recorded_only_when_its_label_does_not_map_back() {
     // A view fan edge maps back to the label of the source anchors of its
     // endpoints (A(f), A(t)) under its own label, or, for the parent edge,
-    // the source parent label of A(f) (Arbiter ruling A12 (3)); it is
+    // the source parent label of A(f); it is
     // recorded exactly when that is not its source label. A fan node is
     // recorded when the reverse vertex map does not return its source
     // anchor, as every node is.

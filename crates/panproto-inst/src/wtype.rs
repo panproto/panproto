@@ -1839,8 +1839,7 @@ pub fn apply_field_transforms(
 }
 
 /// The keys of a node's `extra_fields` that a run of transforms wrote: the
-/// keys the run's coercion to the target columns' specs must visit (S1
-/// (12)). A key a value moves onto takes the written state of the key the
+/// keys the run's coercion to the target columns' specs must visit. A key a value moves onto takes the written state of the key the
 /// value left, so a value renamed after it was written is still coerced
 /// under its new name, and a rename itself writes its new key. The empty
 /// track (`KeyTrack::default()`) is that of a run that touched no key.
@@ -3323,7 +3322,9 @@ pub fn wtype_extend(
 /// [`wtype_extend`].
 ///
 /// It serves operations that are no boundary (the W-type `Sigma_F` of the
-/// adjunctions) and callers that hold no target protocol.
+/// adjunctions, whose units call it) and callers that hold no target
+/// protocol, among them the lifts of panproto-mig; that is why it is
+/// public.
 ///
 /// # Errors
 ///

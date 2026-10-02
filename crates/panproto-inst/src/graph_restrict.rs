@@ -159,6 +159,10 @@ pub fn graph_restrict_with_plan(
 /// alone decides which error a caller sees. The precondition is
 /// [`graph_restrict_with_plan`]'s.
 ///
+/// This is the restrict dispatch at the graph engine's entry. It and its two fast paths are public because the lens dispatcher
+/// in panproto-lens calls them, and because the dispatch squares and
+/// benches must observe which path ran.
+///
 /// # Errors
 ///
 /// As [`graph_restrict_with_plan`].
@@ -190,6 +194,9 @@ pub fn graph_restrict_dispatched(
 /// allocation gives its key. The path declines, too, on a view pair that
 /// several source edges carry (the graph keeps each, the table one pair)
 /// or that no source edge and no contraction gives.
+///
+/// Public so that the lens dispatcher can call it and the dispatch square
+/// can observe that this path ran.
 #[must_use]
 pub fn graph_restrict_on_table(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
     plan.boundary.as_ref()?.table.as_ref()?;
@@ -280,6 +287,9 @@ fn table_view_in_graph(
 /// arc position orders it as keying it by edge id does. A kept arc takes
 /// the id of the source edge into its child; the synthesized arcs, which
 /// follow the kept ones in key order, take ids from the edge floor.
+///
+/// Public so that the lens dispatcher can call it and the dispatch square
+/// can observe that this path ran.
 #[must_use]
 pub fn graph_restrict_on_tree(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
     if !plan.preserves_tree_shape()
@@ -741,7 +751,7 @@ impl<'a> GraphRun<'a> {
 
     /// The label a view fan edge `label` from the fan node `fan` (view
     /// anchor `fan_anchor`) to the node `target` (view anchor
-    /// `target_anchor`) maps back to (L.4 (3), Arbiter ruling A12 (3)):
+    /// `target_anchor`) maps back to:
     /// the fan edge label from the source anchor A(fan) of the fan node to
     /// the source anchor A(target) of the target, under the view label's
     /// name for a child edge and, for the parent edge, under the parent

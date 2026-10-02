@@ -128,8 +128,8 @@ fn wide(width: usize, rows: u32, fate: Fate) -> (RestrictPlan, FInstance, HashMa
 }
 
 /// The time of the restrict, after checking that the plan maps the first
-/// row to `expected` and that the complement records exactly the cells T.3
-/// names: none under [`Fate::Identity`] and [`Fate::Keep`], and every
+/// row to `expected` and that the complement records exactly the cells
+/// that disagree with the view's cell of their name: none under [`Fate::Identity`] and [`Fate::Keep`], and every
 /// source cell, as a dropped cell, under [`Fate::Rename`].
 fn restrict_time(
     plan: &RestrictPlan,
@@ -219,7 +219,7 @@ fn renaming_the_columns_of_a_wide_row_is_not_charged_per_cell_and_key() {
 fn every_renamed_cell_of_a_wide_row_is_traced_to_its_source_column() {
     // Renaming every column moves each cell's value to a new key; the view
     // row holds no cell named after any source column, so each source cell
-    // is recorded under its source column as a dropped cell (T.3), with
+    // is recorded under its source column as a dropped cell, with
     // its source value, and none as changed.
     let p = protocol();
     let width = 64;

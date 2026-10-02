@@ -236,6 +236,15 @@ pub struct BoundaryPlan {
 /// Compiled once, read by every engine call; a pure function of the two
 /// schemas and the migration (and, for [`Self::boundary`], the two
 /// protocols), so it changes no lens identity.
+///
+/// Besides its public fields, it holds privately the two schemas and the
+/// migration it was compiled from, which the engines read for value
+/// transforms and survival predicates ([`Self::source`], [`Self::target`],
+/// [`Self::migration`]). [`Self::compile`], [`Self::compile_with_protocols`]
+/// and [`Self::compile_for_tables`] are its only constructors, so the
+/// private fields are exactly the inputs of the compilation that built
+/// the plan (the public fields stay writable). It is `Clone` so that a
+/// lens may hold it, and `Debug` for diagnostics.
 #[derive(Clone, Debug)]
 pub struct RestrictPlan {
     /// The digest of the source schema.
@@ -457,6 +466,12 @@ impl RestrictPlan {
     /// Contraction does not decide it: on a tree the walk through dropped
     /// nodes into a surviving node is unique, so tree ancestor contraction
     /// and graph contraction join the same pairs.
+    ///
+    /// It is the plan computation that defines a lens's
+    /// `preserves_tree_shape`, public so that panproto-lens can define that
+    /// method by it; the tree fast path of
+    /// [`graph_restrict_dispatched`](crate::graph_restrict_dispatched)
+    /// declines when it is false.
     #[must_use]
     pub fn preserves_tree_shape(&self) -> bool {
         !self.edge_image.fates.iter().any(|(edge, fate)| {
@@ -818,6 +833,11 @@ impl RestrictError {
 
     /// The index of the error's variant in declaration order (the inner
     /// error's, for a located one): the `kind` of its [`ErrorKey`].
+    ///
+    /// It equals the variant's position in the declaration of
+    /// [`RestrictError`], and it is stable across versions because that
+    /// enum only grows by appending variants. Tests that state two engines
+    /// raise the same error compare it.
     #[must_use]
     pub fn kind_index(&self) -> u8 {
         match self {

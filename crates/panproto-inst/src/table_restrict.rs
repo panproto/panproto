@@ -164,7 +164,7 @@ impl<'a> TableRun<'a> {
             self.complement.original_tables.insert(id, table.clone());
         }
         // Each source cell is compared with the view's cell of the same
-        // name (T.3): a column the view holds under no cell of its name,
+        // name: a column the view holds under no cell of its name,
         // renamed or dropped, is a dropped cell, and one it holds with
         // another value is an original cell. Put rebuilds the row from
         // these and the view's cells of the source table's columns, so get
@@ -503,8 +503,8 @@ pub fn functor_extend_validated(
 /// The extend of a table instance with no classification and no
 /// validation: the engine of [`functor_extend`].
 ///
-/// It serves a caller that holds no target schema or protocol. Rows and
-/// pairs move as [`functor_extend`] states.
+/// It serves a caller that holds no target schema or protocol (the table
+/// lift of panproto-mig), which is why it is public. Rows and pairs move as [`functor_extend`] states.
 ///
 /// # Errors
 ///
