@@ -363,6 +363,59 @@ fn a_source_holding_u32_max_records_the_floor_u32_max() {
     let (_, complement) = graph_restrict(&graph, &src, &src, &keep(&["r", "leaf"])).unwrap();
     assert_eq!(complement.id_floor.node, u32::MAX);
     assert_eq!(complement.id_floor.edge, u32::MAX);
+    // Table: the row floor saturates.
+    let protocol = Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "int".to_owned(),
+            panproto_schema::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    };
+    let table = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .unwrap()
+        .vertex("t.a", "int", None)
+        .unwrap()
+        .edge("t", "t.a", "prop", Some("a"))
+        .unwrap()
+        .build()
+        .unwrap();
+    let rows = panproto_inst::FInstance::new()
+        .with_rows(
+            "t",
+            [
+                (
+                    panproto_inst::RowId(0),
+                    HashMap::from([("a".to_owned(), panproto_inst::Value::Int(1))]),
+                ),
+                (
+                    panproto_inst::RowId(u32::MAX),
+                    HashMap::from([("a".to_owned(), panproto_inst::Value::Int(2))]),
+                ),
+            ],
+        )
+        .unwrap();
+    let identity = CompiledMigration {
+        surviving_edges: table.edges.keys().cloned().collect(),
+        ..keep(&["t", "t.a"])
+    };
+    let plan = RestrictPlan::compile_for_tables(
+        &table,
+        &table,
+        &identity,
+        panproto_inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
+    let (view, complement) = panproto_inst::functor_restrict_with_plan(&rows, &plan).unwrap();
+    assert_eq!(view.row_count("t"), 2);
+    assert_eq!(complement.id_floor, u32::MAX);
 }
 
 #[test]
