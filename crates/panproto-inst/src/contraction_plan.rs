@@ -29,13 +29,20 @@
 //!
 //! # Cost
 //!
-//! [`ContractionPlan::compile`] runs one forward search from each surviving
-//! vertex and one backward search into each surviving vertex, each inside the
-//! dropped part of the schema graph: `O(V (V + E))` for `V` vertices and `E`
-//! edges. It then reads each planned pair's region off the two searches in
-//! `O(E)` per pair, so the whole compilation is `O(V (V + E) + P E)` for `P`
-//! planned pairs, which is the size of the regions it returns. No path is
-//! ever enumerated.
+//! [`ContractionPlan::compile`] runs, from each surviving vertex `a`, one
+//! forward search inside the dropped part of the schema graph, and, from each
+//! interior-capable vertex `v` that such a search meets, once over the whole
+//! compilation, one search for the surviving vertices `v` reaches through
+//! dropped vertices: `O(V (V + E))` for `V` vertices and `E` edges. Each
+//! out-edge of the vertices a forward search from `a` reaches is then filed
+//! into the region of every pair `(a, b)` it lies on, at `O(log E)` per
+//! filing, so the whole compilation is `O(V (V + E) + R log E)` for regions
+//! of total size `R` (the sum over the planned pairs of their region sizes).
+//! The regions are part of the plan, so no bound below `R` holds for a plan
+//! that lists them: `n` surviving vertices on each side of a dropped clique
+//! of `k` vertices give `n * n` pairs whose regions each hold the clique's
+//! `k * k` edges. No path is ever enumerated, and no pair is charged for the
+//! edges outside its region.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -260,12 +267,10 @@ pub(crate) fn incoherent_label<'r>(
 }
 
 /// The source schema as a graph: its vertices, ascending, and each vertex's
-/// out-edges and in-edges, ascending.
+/// out-edges, ascending.
 struct SchemaGraph<'s> {
     vertices: BTreeSet<&'s Name>,
-    edges: Vec<&'s Edge>,
     out: BTreeMap<&'s Name, Vec<&'s Edge>>,
-    into: BTreeMap<&'s Name, Vec<&'s Edge>>,
 }
 
 impl<'s> SchemaGraph<'s> {
@@ -274,50 +279,52 @@ impl<'s> SchemaGraph<'s> {
         edges.sort_unstable();
         let mut vertices: BTreeSet<&Name> = src.vertices.keys().collect();
         let mut out: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
-        let mut into: BTreeMap<&Name, Vec<&Edge>> = BTreeMap::new();
-        for &edge in &edges {
+        for edge in edges {
             vertices.insert(&edge.src);
             vertices.insert(&edge.tgt);
             out.entry(&edge.src).or_default().push(edge);
-            into.entry(&edge.tgt).or_default().push(edge);
         }
-        Self {
-            vertices,
-            edges,
-            out,
-            into,
-        }
+        Self { vertices, out }
+    }
+
+    /// The out-edges of `vertex`, ascending.
+    fn out_edges(&self, vertex: &Name) -> &[&'s Edge] {
+        self.out.get(vertex).map_or(&[][..], Vec::as_slice)
     }
 
     /// The interior-capable vertices reachable from `start` by a non-empty
     /// walk whose vertices after `start` are all interior-capable.
     fn forward(&self, start: &'s Name, interior: &BTreeSet<&'s Name>) -> BTreeSet<&'s Name> {
-        Self::search(start, interior, &self.out, |e| &e.tgt)
-    }
-
-    /// The interior-capable vertices that reach `end` by a non-empty walk
-    /// whose vertices before `end` are all interior-capable.
-    fn backward(&self, end: &'s Name, interior: &BTreeSet<&'s Name>) -> BTreeSet<&'s Name> {
-        Self::search(end, interior, &self.into, |e| &e.src)
-    }
-
-    fn search(
-        start: &'s Name,
-        interior: &BTreeSet<&'s Name>,
-        adjacency: &BTreeMap<&'s Name, Vec<&'s Edge>>,
-        step: impl Fn(&'s Edge) -> &'s Name,
-    ) -> BTreeSet<&'s Name> {
         let mut seen: BTreeSet<&Name> = BTreeSet::new();
         let mut frontier: Vec<&Name> = vec![start];
         while let Some(at) = frontier.pop() {
-            for &edge in adjacency.get(at).map_or(&[][..], Vec::as_slice) {
-                let next = step(edge);
-                if interior.contains(next) && seen.insert(next) {
-                    frontier.push(next);
+            for &edge in self.out_edges(at) {
+                if interior.contains(&edge.tgt) && seen.insert(&edge.tgt) {
+                    frontier.push(&edge.tgt);
                 }
             }
         }
         seen
+    }
+
+    /// The endpoint-capable vertices that the interior-capable `start`
+    /// reaches by a non-empty walk whose vertices before the last are all
+    /// interior-capable: the targets, among the endpoint-capable vertices,
+    /// of the out-edges of `start` and of every vertex [`Self::forward`]
+    /// reaches from it.
+    fn ends_from(
+        &self,
+        start: &'s Name,
+        interior: &BTreeSet<&'s Name>,
+        endpoint: impl Fn(&Name) -> bool,
+    ) -> BTreeSet<&'s Name> {
+        let inner = self.forward(start, interior);
+        std::iter::once(start)
+            .chain(inner.iter().copied())
+            .flat_map(|at| self.out_edges(at))
+            .map(|edge| &edge.tgt)
+            .filter(|v| endpoint(v))
+            .collect()
     }
 }
 
@@ -362,35 +369,45 @@ impl ContractionPlan {
             .filter(|v| interior_capable(migration, v))
             .collect();
         let endpoint = |v: &Name| survives(migration, v);
-        let mut backward: BTreeMap<&Name, BTreeSet<&Name>> = BTreeMap::new();
+        // For each interior-capable v reached so far, the endpoints b with v
+        // in B(b): an edge u -> v with u in F(a), or with u = a, lies in the
+        // region of (a, b) exactly for these b.
+        let mut ends: BTreeMap<&Name, BTreeSet<&Name>> = BTreeMap::new();
+        let mut resolutions: BTreeMap<(Name, Name), PairResolution> = BTreeMap::new();
         let mut pairs = BTreeMap::new();
         for &a in graph.vertices.iter().filter(|v| endpoint(v)) {
             let forward = graph.forward(a, &interior);
-            let mut ends: BTreeSet<&Name> = BTreeSet::new();
-            for &x in &forward {
-                for &edge in graph.out.get(x).map_or(&[][..], Vec::as_slice) {
-                    if endpoint(&edge.tgt) {
-                        ends.insert(&edge.tgt);
+            let mut regions: BTreeMap<&Name, BTreeSet<&Edge>> = BTreeMap::new();
+            let starts = std::iter::once(a).chain(forward.iter().copied().filter(|u| *u != a));
+            for u in starts {
+                let inner = forward.contains(u);
+                for &edge in graph.out_edges(u) {
+                    let v = &edge.tgt;
+                    if inner && endpoint(v) {
+                        regions.entry(v).or_default().insert(edge);
+                    }
+                    if interior.contains(v) {
+                        let from_v = ends
+                            .entry(v)
+                            .or_insert_with(|| graph.ends_from(v, &interior, endpoint));
+                        for &b in &*from_v {
+                            regions.entry(b).or_default().insert(edge);
+                        }
                     }
                 }
             }
-            for b in ends {
-                let into_b = backward
-                    .entry(b)
-                    .or_insert_with(|| graph.backward(b, &interior));
-                let region: BTreeSet<Edge> = graph
-                    .edges
-                    .iter()
-                    .filter(|e| {
-                        let to_b = e.tgt == *b || into_b.contains(&e.tgt);
-                        (forward.contains(&e.src) && to_b)
-                            || (e.src == *a && into_b.contains(&e.tgt))
-                    })
-                    .map(|e| (*e).clone())
-                    .collect();
+            for (b, edges) in regions {
+                let region: BTreeSet<Edge> = edges.into_iter().cloned().collect();
                 let bounded = !has_cycle(&region, &interior);
                 let target = (remap(migration, a).clone(), remap(migration, b).clone());
-                let resolution = resolve_pair(tgt, migration, &target.0, &target.1);
+                let resolution = match resolutions.get(&target) {
+                    Some(resolution) => resolution.clone(),
+                    None => {
+                        let resolution = resolve_pair(tgt, migration, &target.0, &target.1);
+                        resolutions.insert(target.clone(), resolution.clone());
+                        resolution
+                    }
+                };
                 if let Some(image) = incoherent_label(tgt, &target.0, &target.1, &resolution) {
                     return Err(RestrictError::IncoherentPairImage {
                         pair: Box::new(target),
