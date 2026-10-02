@@ -218,7 +218,7 @@ fn only_the_renamed_labels_of_a_hyper_edge_are_lowered() {
         compiled.edge_remap,
         HashMap::from([(prop("T", "c", "a"), prop("T", "c", "b"))])
     );
-    let mut unmapped = m.clone();
+    let mut unmapped = m;
     unmapped.hyper_edge_map.clear();
     unmapped.label_map.clear();
     let plain = compile(&src, &tgt, &unmapped).unwrap();

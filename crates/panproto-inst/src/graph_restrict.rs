@@ -142,11 +142,12 @@ pub fn graph_restrict_with_plan(
     run.finish()
 }
 
-/// The view of a graph restrict along a compiled plan, taking the table
-/// engine when the input is a table and the plan was compiled for tables,
-/// and the tree engine when the input is a tree the plan keeps a tree.
+/// The view of a graph restrict along a compiled plan, through a fast path
+/// where one applies.
 ///
-/// The result is the view [`graph_restrict_with_plan`] gives, under the same
+/// The table engine runs when the input is a table and the plan was
+/// compiled for tables, the tree engine when the input is a tree the plan
+/// keeps a tree. The result is the view [`graph_restrict_with_plan`] gives, under the same
 /// ids, or its error: [`graph_restrict_on_table`] is tried first, then
 /// [`graph_restrict_on_tree`], and when both decline (a fast path declines
 /// whenever its engine fails) the graph engine runs, so the graph engine

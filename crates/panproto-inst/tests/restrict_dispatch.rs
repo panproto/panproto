@@ -528,7 +528,7 @@ fn the_table_path_declines_without_a_table_plan_or_a_table() {
     // A graph that is no table: a positioned edge.
     let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols).unwrap();
     assert!(graph_restrict_on_table(&g, &table_plan).is_some());
-    let mut positioned = g.clone();
+    let mut positioned = g;
     let id = positioned.edges_sorted().next().unwrap().0;
     positioned.set_edge_position(id, Some(0)).unwrap();
     assert!(graph_restrict_on_table(&positioned, &table_plan).is_none());
