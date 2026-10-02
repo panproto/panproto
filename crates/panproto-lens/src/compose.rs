@@ -1,37 +1,38 @@
 //! Lens composition.
 //!
-//! Two lenses can be composed when the target schema of the first matches
-//! the source schema of the second. The resulting lens goes directly from
-//! the first source to the second target.
+//! Lenses compose in the category of lens paths ([`LensPath`]): a path is
+//! the sequence of the lenses it was built from, and [`compose`] puts two
+//! lenses in sequence. Whether two adjacent stages may run as one fused
+//! lens is decided by each shape's fold over a path; this module states the
+//! tree fold's fusion rule.
 
 use std::collections::{HashMap, HashSet};
 
 use panproto_expr::Expr;
 use panproto_gat::Name;
 use panproto_inst::contraction_keys::{compose_contraction_keys, translate_edge, translate_vertex};
-use panproto_inst::{CompiledMigration, Complement, WInstance};
+use panproto_inst::{CompiledMigration, ContractionMode, EdgeFate, RestrictPlan};
 use panproto_mig::{OnMissing, compose_relabeling};
-use panproto_schema::Edge;
+use panproto_schema::{Edge, Schema};
 
 use crate::Lens;
 use crate::error::LensError;
+use crate::lens_path::LensPath;
 
-/// Compose two lenses: the result goes from `l1.src_schema` to `l2.tgt_schema`.
+/// Compose two lenses: the path that runs `l1` and then `l2`, from
+/// `l1.src_schema` to `l2.tgt_schema`.
 ///
-/// The target schema of `l1` must be compatible with the source schema of `l2`.
-///
-/// This fuses the two compiled migrations whatever the pair, so the fused
-/// lens can differ from running `l1` and then `l2` in sequence: it is
-/// observationally the pair only under the conditions stated on
-/// [`TreeComposite`]. [`compose_tree`] applies those conditions and keeps
-/// the pair as a [`SequentialTreeLens`] when they fail.
+/// The path keeps both lenses as its stages and never fuses them; its tree
+/// fold ([`LensPath::tree_normal_form`]) runs them as one fused lens exactly
+/// when the tree fusion rule admits the pair, and
+/// [`LensPath::into_single`] gives that lens to a consumer that needs one.
 ///
 /// # Errors
 ///
-/// Returns `LensError::CompositionMismatch` if the schemas don't align.
-pub fn compose(l1: &Lens, l2: &Lens) -> Result<Lens, LensError> {
-    check_boundary(l1, l2)?;
-    fuse(l1, l2)
+/// Returns `LensError::CompositionMismatch` if the target schema of `l1`
+/// is not the source schema of `l2`.
+pub fn compose(l1: &Lens, l2: &Lens) -> Result<LensPath, LensError> {
+    LensPath::single(duplicate(l1)).then(&LensPath::single(duplicate(l2)))
 }
 
 /// The fused lens of `l1` then `l2`, whose schemas are known to meet.
@@ -98,72 +99,59 @@ fn sequential_edge_image(l1: &Lens, l2: &Lens, edge: &Edge) -> Option<Edge> {
     direct_edge_image(l1, edge).and_then(|middle| direct_edge_image(l2, &middle))
 }
 
-/// Check that `l1`'s target schema is `l2`'s source schema: the same
-/// protocol and the same vertex, edge and hyper-edge sets.
-fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
-    // Verify compatibility: l1's target should match l2's source
-    if l1.tgt_schema.vertex_count() != l2.src_schema.vertex_count()
-        || l1.tgt_schema.protocol != l2.src_schema.protocol
-    {
+/// Check that `left` (the target schema of the earlier stage) is `right`
+/// (the source schema of the later one): the same protocol and the same
+/// vertex, edge and hyper-edge sets.
+///
+/// # Errors
+///
+/// [`LensError::CompositionMismatch`] when they differ.
+pub(crate) fn check_boundary(left: &Schema, right: &Schema) -> Result<(), LensError> {
+    if left.vertex_count() != right.vertex_count() || left.protocol != right.protocol {
         return Err(LensError::CompositionMismatch);
     }
     // The middle boundary must agree not only on vertices but on the
     // relational structure carried over them: the edge set and the
     // hyper-edge set. Two schemas with identical vertices but a differing
-    // edge, edge kind, or fan would compose into a lens whose declared
+    // edge, edge kind, or fan would compose into a path whose declared
     // intermediate schema does not exist, silently dropping or misrouting
     // arcs. Compare the vertex, edge, and hyper-edge key sets exactly.
-    if l1
-        .tgt_schema
-        .vertices
-        .keys()
-        .collect::<std::collections::BTreeSet<_>>()
-        != l2
-            .src_schema
-            .vertices
-            .keys()
-            .collect::<std::collections::BTreeSet<_>>()
-    {
-        return Err(LensError::CompositionMismatch);
-    }
-    if l1
-        .tgt_schema
-        .edges
-        .keys()
-        .collect::<std::collections::BTreeSet<_>>()
-        != l2
-            .src_schema
-            .edges
-            .keys()
-            .collect::<std::collections::BTreeSet<_>>()
-    {
-        return Err(LensError::CompositionMismatch);
-    }
-    if l1
-        .tgt_schema
-        .hyper_edges
-        .keys()
-        .collect::<std::collections::BTreeSet<_>>()
-        != l2
-            .src_schema
-            .hyper_edges
-            .keys()
-            .collect::<std::collections::BTreeSet<_>>()
-    {
+    let keys = |schema: &Schema| {
+        (
+            schema
+                .vertices
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+            schema
+                .edges
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+            schema
+                .hyper_edges
+                .keys()
+                .cloned()
+                .collect::<std::collections::BTreeSet<_>>(),
+        )
+    };
+    if keys(left) != keys(right) {
         return Err(LensError::CompositionMismatch);
     }
     Ok(())
 }
 
-/// A composite of two tree lenses, by the composition rule shared by every
-/// instance shape.
+/// The tree fusion rule: the fused lens of `l1` then `l2` when running it
+/// is observationally the same as running the pair in sequence, and `None`
+/// when the pair must stay in sequence. The schemas of the pair are known
+/// to meet.
 ///
-/// The pair is fused into one [`Lens`] only when all of the following hold,
-/// and kept in sequence otherwise:
+/// The pair is fused only when all of the following hold:
 ///
 /// 1. neither lens nor the composite contracts a path: no surviving source
 ///    vertex reaches a surviving vertex through a vertex that is dropped or
-///    survives only under a predicate;
+///    survives only under a predicate, and each of the three compiled
+///    plans has no contraction pair;
 /// 2. the two compiled migrations compose;
 /// 3. the composite's edge image compiles and agrees with the pair edge by
 ///    edge: every explicit edge image joins the images of its endpoints and
@@ -180,159 +168,147 @@ fn check_boundary(l1: &Lens, l2: &Lens) -> Result<(), LensError> {
 ///    into a path through a synthesized node and `l2` drops the arc's
 ///    child, the composite carries no expansion, yet the pair still
 ///    synthesizes the intermediate node and `l2` may keep it;
-/// 5. the two value layers do not meet: either `l2` carries no value layer
-///    (no survival predicate, field transform or op-term assignment), or
-///    `l1` carries none and `l2` carries only survival predicates. The fused
-///    lens evaluates every predicate and transform on the source node in one
-///    batch, while the pair evaluates `l2`'s on the node `l1` produced. A
-///    predicate reads only its node's own fields, which a value-free `l1`
-///    leaves as they are; a transform of `l2` also reads the node's children
-///    and the instance around it, which `l1` restructures, and a predicate of
-///    each lens on one anchor is fused as a conjunction that an evaluation
-///    error in one conjunct turns from a drop into a survival;
+/// 5. at most one lens carries a value layer (a survival predicate, a field
+///    transform or an op-term assignment). A layer is read at a node over
+///    the node's fields and its children bound by column name, and the
+///    fused lens evaluates `l1`'s layer only at the nodes whose anchor
+///    survives the composite, while the pair evaluates it at every node
+///    whose anchor survives `l1`. So when `l1` carries the layer, `l2`
+///    removes nothing: every vertex of its source survives it and it keeps
+///    every edge, so the two lenses evaluate the layer at the same nodes
+///    over the same bindings. When `l2` carries it, `l1` is the identity on
+///    instances: every vertex survives as itself and every edge is kept as
+///    itself, so `l2` reads the source unchanged in both;
 /// 6. neither lens retargets a fan: both hyper-edge resolvers are empty. A
 ///    resolver selects the entry for a fan by the labels of its children
 ///    that survive, which the pair decides in two stages and the fused lens
 ///    in one: when `l1` retargets a fan by the shape it sees and `l2` then
 ///    drops one of its children, the fused lens sees the smaller shape and
-///    may select another entry.
+///    may select another entry;
+/// 7. the restrict plan compiles for `l1`, for `l2` and for the composite,
+///    and every edge fate of each is to keep or to drop the edge. A tree
+///    `get` compiles its whole plan before it reads the instance, so a stage
+///    whose plan fails refuses every source, and the composite's plan does
+///    not see that refusal.
 ///
 /// Under these conditions the fused lens and the pair in sequence are
-/// observationally equivalent: their views agree, and so do the sources they
-/// write back. Queries of this kind compose because their pushforward is
-/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem 1,
-/// proof sketch; stated), and the endpoint check on edge images is that
+/// observationally equivalent: their views agree, so do the sources they
+/// write back, and one refuses exactly when the other does, with the same
+/// error. Queries of this kind compose because their pushforward is
+/// restricted to discrete opfibrations (Spivak and Wisnesky 2015, Theorem
+/// 1, proof sketch; stated), and the endpoint check on edge images is that
 /// restriction here (inferred).
-///
-/// Both variants are boxed: a [`Lens`] is large, so an unboxed variant
-/// beside a boxed one would make every composite as large as the larger.
-#[derive(Debug)]
-pub enum TreeComposite {
-    /// The pair fused into one lens.
-    Compiled(Box<Lens>),
-    /// The pair run in sequence.
-    Sequential(Box<SequentialTreeLens>),
-}
-
-/// Two tree lenses run in sequence: `get` runs `first` then `second`, and
-/// `put` writes back through `second` then `first`.
-///
-/// Its complement is the pair of the two stages' complements.
-#[derive(Debug)]
-pub struct SequentialTreeLens {
-    /// The lens applied to the source.
-    pub first: Lens,
-    /// The lens applied to the view of `first`.
-    pub second: Lens,
-}
-
-impl SequentialTreeLens {
-    /// The view of `source` through both stages, with the complement of
-    /// each stage.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`crate::get`] reports for either stage.
-    pub fn get(
-        &self,
-        source: &WInstance,
-    ) -> Result<(WInstance, (Complement, Complement)), LensError> {
-        let (middle, c1) = crate::asymmetric::get(&self.first, source)?;
-        let (view, c2) = crate::asymmetric::get(&self.second, &middle)?;
-        Ok((view, (c1, c2)))
-    }
-
-    /// Write `view` back through both stages against the complements
-    /// [`get`](Self::get) returned.
-    ///
-    /// # Errors
-    ///
-    /// Whatever [`crate::put`] reports for either stage.
-    pub fn put(
-        &self,
-        view: &WInstance,
-        complement: &(Complement, Complement),
-    ) -> Result<WInstance, LensError> {
-        let middle = crate::asymmetric::put(&self.second, view, &complement.1)?;
-        crate::asymmetric::put(&self.first, &middle, &complement.0)
-    }
-}
-
-/// Compose two tree lenses by the composition rule: a fused
-/// [`TreeComposite::Compiled`] lens when the pair meets the conditions
-/// stated on [`TreeComposite`], and [`TreeComposite::Sequential`] otherwise.
-///
-/// # Errors
-///
-/// Returns [`LensError::CompositionMismatch`] when the target schema of
-/// `l1` is not the source schema of `l2`.
-pub fn compose_tree(l1: &Lens, l2: &Lens) -> Result<TreeComposite, LensError> {
-    check_boundary(l1, l2)?;
-    let sequential = || {
-        TreeComposite::Sequential(Box::new(SequentialTreeLens {
-            first: duplicate(l1),
-            second: duplicate(l2),
-        }))
-    };
+pub(crate) fn tree_fusion(l1: &Lens, l2: &Lens) -> Option<Lens> {
     // Condition 1 for the two lenses, before their migrations are composed.
     if !contraction_free(l1) || !contraction_free(l2) {
-        return Ok(sequential());
+        return None;
+    }
+    // Condition 6.
+    if !l1.compiled.hyper_resolver.is_empty() || !l2.compiled.hyper_resolver.is_empty() {
+        return None;
     }
     // Condition 2.
-    let Ok(composite) = fuse(l1, l2) else {
-        return Ok(sequential());
-    };
-    // Condition 1 for the composite is part of its empty plan (condition 4).
+    let composite = fuse(l1, l2).ok()?;
+    // Condition 7, and the compiled half of conditions 1 and 4.
+    let plans = [plan_of(l1)?, plan_of(l2)?, plan_of(&composite)?];
+    // Condition 3, and the structural half of conditions 1 and 4.
     if !edge_image_compiles(l1, l2, &composite)
         || !plan_is_empty(l1)
         || !plan_is_empty(l2)
         || !plan_is_empty(&composite)
-        || !value_layers_compose(l1, l2)
-        || !fan_layers_compose(l1, l2)
     {
-        return Ok(sequential());
+        return None;
     }
-    Ok(TreeComposite::Compiled(Box::new(composite)))
+    // Condition 5.
+    if !value_layers_compose(l1, &plans[0], l2, &plans[1]) {
+        return None;
+    }
+    Some(composite)
 }
 
-/// Condition 3 of [`TreeComposite`]: the composite's explicit edge images
+/// The restrict plan of `lens` when it compiles with no contraction pair
+/// and only fates that keep or drop an edge, as conditions 1, 4 and 7 of
+/// [`tree_fusion`] require.
+fn plan_of(lens: &Lens) -> Option<RestrictPlan> {
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled).ok()?;
+    let fates_keep_or_drop = plan
+        .edge_image
+        .fates
+        .values()
+        .all(|fate| matches!(fate, EdgeFate::Keep(_) | EdgeFate::Drop));
+    (plan.contraction.mode() == ContractionMode::None && fates_keep_or_drop).then_some(plan)
+}
+
+/// Condition 3 of [`tree_fusion`]: the composite's explicit edge images
 /// pass the endpoint check, and the composite gives every direct arc the
 /// fate the pair gives it in sequence.
 fn edge_image_compiles(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
     edge_images_coherent(composite) && direct_images_agree(l1, l2, composite)
 }
 
-/// Whether the plan of `get` through `lens` is empty, as condition 4 of
-/// [`TreeComposite`] requires of each lens and of the composite: it neither
-/// contracts a path nor expands an arc into synthesized nodes.
+/// Whether the plan of `get` through `lens` is structurally empty, as
+/// condition 4 of [`tree_fusion`] requires of each lens and of the
+/// composite: it neither contracts a path nor expands an arc into
+/// synthesized nodes.
 fn plan_is_empty(lens: &Lens) -> bool {
     contraction_free(lens) && lens.compiled.expansion_path.is_empty()
 }
 
-/// Condition 5 of [`TreeComposite`]: `l2` carries no value layer, or `l1`
-/// carries none and `l2` carries only survival predicates.
-fn value_layers_compose(l1: &Lens, l2: &Lens) -> bool {
-    let transforms = |lens: &Lens| {
-        lens.compiled
+/// Whether `lens` carries a value layer: a survival predicate, or a
+/// non-empty list of field transforms or op-term assignments.
+fn has_value_layer(lens: &Lens) -> bool {
+    !lens.compiled.conditional_survival.is_empty()
+        || lens
+            .compiled
             .field_transforms
             .values()
             .any(|t| !t.is_empty())
-            || lens
-                .compiled
-                .op_term_assignments
-                .values()
-                .any(|t| !t.is_empty())
-    };
-    let predicates = |lens: &Lens| !lens.compiled.conditional_survival.is_empty();
-    if !transforms(l2) && !predicates(l2) {
-        return true;
-    }
-    !transforms(l1) && !predicates(l1) && !transforms(l2)
+        || lens
+            .compiled
+            .op_term_assignments
+            .values()
+            .any(|t| !t.is_empty())
 }
 
-/// Condition 6 of [`TreeComposite`]: neither lens retargets a fan.
-fn fan_layers_compose(l1: &Lens, l2: &Lens) -> bool {
-    l1.compiled.hyper_resolver.is_empty() && l2.compiled.hyper_resolver.is_empty()
+/// Condition 5 of [`tree_fusion`], with the compiled plans of the two
+/// lenses: at most one lens carries a value layer; a layer on `l1` needs an
+/// `l2` that removes nothing, and a layer on `l2` an `l1` that is the
+/// identity on instances.
+fn value_layers_compose(l1: &Lens, plan1: &RestrictPlan, l2: &Lens, plan2: &RestrictPlan) -> bool {
+    match (has_value_layer(l1), has_value_layer(l2)) {
+        (false, false) => true,
+        (true, true) => false,
+        (true, false) => removes_nothing(l2, plan2),
+        (false, true) => identity_on_instances(l1, plan1),
+    }
+}
+
+/// Whether `get` through `lens` removes nothing: every vertex of its source
+/// survives it, and every edge fate keeps the edge.
+fn removes_nothing(lens: &Lens, plan: &RestrictPlan) -> bool {
+    lens.src_schema
+        .vertices
+        .keys()
+        .all(|v| crate::asymmetric::vertex_survives(lens, v))
+        && plan
+            .edge_image
+            .fates
+            .values()
+            .all(|fate| matches!(fate, EdgeFate::Keep(_)))
+}
+
+/// Whether `get` through `lens` is the identity on instances: every vertex
+/// of its source survives with itself as its image, and every edge fate
+/// keeps the edge as itself.
+fn identity_on_instances(lens: &Lens, plan: &RestrictPlan) -> bool {
+    lens.src_schema.vertices.keys().all(|v| {
+        lens.compiled.vertex_remap.get(v).unwrap_or(v) == v
+            && crate::asymmetric::vertex_survives(lens, v)
+    }) && plan
+        .edge_image
+        .fates
+        .iter()
+        .all(|(source, fate)| matches!(fate, EdgeFate::Keep(image) if image == source))
 }
 
 /// Whether the fused lens gives every direct arc the edge the pair gives it
@@ -348,7 +324,7 @@ fn direct_images_agree(l1: &Lens, l2: &Lens, composite: &Lens) -> bool {
 }
 
 /// A copy of `lens`.
-fn duplicate(lens: &Lens) -> Lens {
+pub(crate) fn duplicate(lens: &Lens) -> Lens {
     Lens {
         compiled: lens.compiled.clone(),
         src_schema: lens.src_schema.clone(),
@@ -420,8 +396,8 @@ fn edge_images_coherent(lens: &Lens) -> bool {
 /// # Errors
 ///
 /// Returns [`LensError::ComposeUnboundField`] when a value-level transform
-/// of `m2` reads a field that `m1` drops, which would otherwise surface as
-/// an `UnboundVariable` at evaluation time.
+/// of `m2` reads a field that `m1` drops. The tree fusion predicate treats
+/// this as a reason to retain two sequential groups.
 pub(crate) fn compose_compiled_migrations(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
@@ -503,7 +479,7 @@ pub(crate) fn compose_compiled_migrations(
 /// The table selects an entry by the labels of a fan's surviving children,
 /// which the composite decides in one pass and the two migrations in two,
 /// so the composite gives the pair's fans only when both stages see the
-/// same surviving children; [`compose_tree`] keeps a pair in sequence when
+/// same surviving children; [`tree_fusion`] keeps a pair in sequence when
 /// either lens retargets a fan.
 fn compose_hyper_resolvers(
     m1: &CompiledMigration,
@@ -592,7 +568,7 @@ fn m1_preimages(
 /// # Errors
 ///
 /// Returns [`LensError::ComposeUnboundField`] when an `m2` expression
-/// reads a field `m1` drops outright.
+/// reads a field `m1` drops outright, making the two lists unsafe to fuse.
 fn compose_field_transforms(
     m1: &CompiledMigration,
     m2: &CompiledMigration,
@@ -1154,12 +1130,12 @@ mod tests {
 
         let lens = composed.unwrap_or_else(|e| panic!("compose failed: {e}"));
         assert_eq!(
-            lens.src_schema.vertex_count(),
+            lens.src_schema().vertex_count(),
             schema.vertex_count(),
             "composed src schema should match original"
         );
         assert_eq!(
-            lens.tgt_schema.vertex_count(),
+            lens.tgt_schema().vertex_count(),
             schema.vertex_count(),
             "composed tgt schema should match original"
         );

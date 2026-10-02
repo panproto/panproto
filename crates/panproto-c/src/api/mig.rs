@@ -177,7 +177,15 @@ pub fn pp_mig_lift_record(
 
         let result = handle::with_resource(migration, |r| {
             let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
-            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance)
+            let (src_protocol, tgt_protocol) = (
+                crate::api::helpers::protocol_for_schema(&src_schema),
+                crate::api::helpers::protocol_for_schema(&tgt_schema),
+            );
+            let protocols = inst::BoundaryProtocols {
+                src: &src_protocol,
+                tgt: &tgt_protocol,
+            };
+            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
                 .map_err(|e| FfiError::Operation(format!("lift_wtype: {e}")))
         })?;
 
@@ -192,19 +200,40 @@ pub fn pp_mig_lift_record(
 /// `m1` and `m2` are migration handles (either
 /// [`Resource::Migration`](crate::handle::Resource) or
 /// `MigrationWithSchemas`). On success, `out_handle` receives a fresh
-/// [`Resource::Migration`](crate::handle::Resource) handle. Calls
+/// migration handle. When both operands carry their schemas, the result
+/// retains the first source and second target schemas so later lifts can
+/// validate both exact boundaries; otherwise the result is a bare
+/// [`Resource::Migration`](crate::handle::Resource). Calls
 /// [`crate::api::helpers::compose_compiled`].
 #[must_use = "FFI status codes should not be discarded"]
 #[ffi_export]
 pub fn pp_mig_compose(m1: u32, m2: u32, out_handle: &mut u32) -> i32 {
     guard(|| {
-        let composed = handle::with_two_resources(m1, m2, |r1, r2| {
+        let (composed, schemas) = handle::with_two_resources(m1, m2, |r1, r2| {
             let c1 = r1.as_migration()?;
             let c2 = r2.as_migration()?;
-            Ok(compose_compiled(c1, c2))
+            let schemas = match (r1, r2) {
+                (
+                    Resource::MigrationWithSchemas { src_schema, .. },
+                    Resource::MigrationWithSchemas { tgt_schema, .. },
+                ) => Some((
+                    std::sync::Arc::clone(src_schema),
+                    std::sync::Arc::clone(tgt_schema),
+                )),
+                _ => None,
+            };
+            Ok((compose_compiled(c1, c2), schemas))
         })?;
 
-        *out_handle = handle::alloc(Resource::Migration(Box::new(composed)));
+        let resource = match schemas {
+            Some((src_schema, tgt_schema)) => Resource::MigrationWithSchemas {
+                compiled: Box::new(composed),
+                src_schema,
+                tgt_schema,
+            },
+            None => Resource::Migration(Box::new(composed)),
+        };
+        *out_handle = handle::alloc(resource);
         Ok(PpStatus::Ok)
     })
 }
@@ -271,8 +300,16 @@ pub fn pp_mig_coverage(
         let mut failed = 0u64;
         let mut errors: Vec<String> = Vec::new();
 
+        let (src_protocol, tgt_protocol) = (
+            crate::api::helpers::protocol_for_schema(&src_schema),
+            crate::api::helpers::protocol_for_schema(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
         for (i, instance) in instances.iter().enumerate() {
-            match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance) {
+            match mig::lift_wtype(&compiled, &src_schema, &tgt_schema, instance, protocols) {
                 Ok(_) => succeeded += 1,
                 Err(e) => {
                     failed += 1;
@@ -340,7 +377,15 @@ pub fn pp_mig_lift_json(
             let instance = inst::parse_json(&src_schema, &root, &json_value)
                 .map_err(|e| FfiError::Operation(format!("parse_json: {e}")))?;
 
-            let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance)
+            let (src_protocol, tgt_protocol) = (
+                crate::api::helpers::protocol_for_schema(&src_schema),
+                crate::api::helpers::protocol_for_schema(&tgt_schema),
+            );
+            let protocols = inst::BoundaryProtocols {
+                src: &src_protocol,
+                tgt: &tgt_protocol,
+            };
+            let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
                 .map_err(|e| FfiError::Operation(format!("lift_wtype: {e}")))?;
 
             Ok(inst::to_json(&tgt_schema, &lifted))
@@ -642,8 +687,8 @@ mod tests {
 
     #[test]
     fn compose_yields_a_liftable_migration_handle() {
-        // Compose the rename migration with itself; the composed handle
-        // is a bare Migration that lift_record still accepts.
+        // Compose two schema-bundled migrations. The composed handle keeps
+        // its exact outer schemas so lift_record can validate both sides.
         let (mig_h, src_h, tgt_h) = compile_rename();
         let (mig_h2, src_h2, tgt_h2) = compile_rename();
 
@@ -652,13 +697,20 @@ mod tests {
         assert_eq!(status, PpStatus::Ok as i32);
         assert_ne!(composed, u32::MAX);
 
-        // The composed resource accepts a record (as a bare Migration,
-        // which exercises helpers::build_minimal_schema).
+        // The composed resource accepts a source record.
         let cbor = json_to_cbor(src_h, br#"{"text": "x"}"#, "post");
         let rec_slice = slice(&cbor);
         let mut lifted: repr_c::Vec<u8> = Vec::new().into();
         let status = pp_mig_lift_record(composed, rec_slice.as_ref(), &mut lifted);
-        assert_eq!(status, PpStatus::Ok as i32);
+        assert_eq!(
+            status,
+            PpStatus::Ok as i32,
+            "{}",
+            crate::error::take_last_error().map_or_else(
+                || "missing error envelope".to_owned(),
+                |error| error.message
+            )
+        );
         pp_buf_free(lifted);
 
         assert_eq!(pp_handle_free(composed), PpStatus::Ok as i32);

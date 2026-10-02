@@ -11,9 +11,9 @@
 use std::collections::HashMap;
 
 use panproto_gat::{CoercionClass, Name};
-use panproto_inst::{FieldPresence, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, FieldPresence, Node, Value, WInstance};
 use panproto_mig::{Migration, compile, compose, lift_wtype};
-use panproto_schema::{CoercionSpec, Edge, Schema, Vertex};
+use panproto_schema::{CoercionSpec, Edge, Protocol, Schema, Vertex};
 
 fn schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
     let mut vert_map = HashMap::new();
@@ -156,15 +156,26 @@ fn lifting_a_composite_agrees_with_lifting_its_steps() {
     let m2 = Migration::identity(&vertices, std::slice::from_ref(&edge)).with_coercions(&g2, &g3);
 
     let start = one_node(Value::Int(7));
+    // A protocol with no value kinds, so each step's value validates
+    // whatever its kind.
+    let protocol = Protocol {
+        name: "test".into(),
+        ..Protocol::default()
+    };
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
 
     let first_step = compile(&g1, &g2, &m1).expect("the first step compiles");
-    let step1 = lift_wtype(&first_step, &g1, &g2, &start).expect("the first step lifts");
+    let step1 = lift_wtype(&first_step, &g1, &g2, &start, protocols).expect("the first step lifts");
     let second_step = compile(&g2, &g3, &m2).expect("the second step compiles");
-    let stepwise = lift_wtype(&second_step, &g2, &g3, &step1).expect("the second step lifts");
+    let stepwise =
+        lift_wtype(&second_step, &g2, &g3, &step1, protocols).expect("the second step lifts");
 
     let m12 = compose(&m1, &m2).expect("the two steps compose");
     let whole = compile(&g1, &g3, &m12).expect("the composite compiles");
-    let composite = lift_wtype(&whole, &g1, &g3, &start).expect("the composite lifts");
+    let composite = lift_wtype(&whole, &g1, &g3, &start, protocols).expect("the composite lifts");
 
     assert_eq!(
         value_of(&stepwise),

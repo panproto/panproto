@@ -172,7 +172,8 @@ mod composition {
         assert_eq!(sequential.arcs, vec![(0, 2, prop("r", "item", "label"))]);
 
         let composite = panproto_lens::compose(&first, &second).unwrap();
-        let (view, _) = panproto_lens::get(&composite, &source)
+        let (view, _) = composite
+            .get(&source)
             .expect("the composite resolves the contracted pair in its own target space");
         assert_eq!(view.arcs, sequential.arcs);
     }
@@ -196,8 +197,11 @@ mod composition {
             ),
         );
         let composite = panproto_lens::compose(&first, &second).unwrap();
-        assert_eq!(composite.compiled.resolver, first.compiled.resolver);
-        let (view, _) = panproto_lens::get(&composite, &contracting_source()).unwrap();
+        assert_eq!(
+            composite.stages()[0].compiled.resolver,
+            first.compiled.resolver
+        );
+        let (view, _) = composite.get(&contracting_source()).unwrap();
         assert_eq!(view.arcs, vec![(0, 2, prop("r", "leaf", "label"))]);
     }
 }
@@ -236,15 +240,17 @@ mod put_domain {
         let put = panproto_lens::put(&lens, &view, &complement);
         assert!(
             matches!(
-                put,
-                Err(LensError::PutDomain(
-                    PutDomainError::ContractedEdgeInserted {
-                        elem: ViewRef::Arc {
-                            parent: 0,
-                            child: 3
+                &put,
+                Err(LensError::PutDomain(first))
+                    if matches!(
+                        first.as_ref(),
+                        PutDomainError::ContractedEdgeInserted {
+                            elem: ViewRef::Arc {
+                                parent: 0,
+                                child: 3
+                            }
                         }
-                    }
-                ))
+                    )
             ),
             "{put:?}"
         );
@@ -293,7 +299,7 @@ mod put_domain {
         );
         let put = panproto_lens::put(&lens, &view, &complement);
         assert!(
-            matches!(&put, Err(LensError::PutDomain(first)) if *first == expected),
+            matches!(&put, Err(LensError::PutDomain(first)) if first.as_ref() == &expected),
             "{put:?}"
         );
     }
@@ -374,7 +380,7 @@ mod strict_put {
         );
         let put = panproto_lens::put(lens, view, complement);
         assert!(
-            matches!(&put, Err(LensError::PutDomain(first)) if first == expected),
+            matches!(&put, Err(LensError::PutDomain(first)) if first.as_ref() == expected),
             "{put:?}"
         );
     }
@@ -554,7 +560,7 @@ mod strict_put {
         );
         let put = panproto_lens::put(&lens, &view, &complement);
         assert!(
-            matches!(&put, Err(LensError::PutDomain(first)) if *first == unrepresentable),
+            matches!(&put, Err(LensError::PutDomain(first)) if first.as_ref() == &unrepresentable),
             "{put:?}"
         );
     }
@@ -1207,7 +1213,68 @@ mod composition_rule {
     use proptest::prelude::*;
 
     use super::*;
-    use panproto_lens::{SequentialTreeLens, TreeComposite};
+    use panproto_lens::{Complement, LensError, LensPath};
+
+    /// A deliberately unfused execution of a two-stage path. This is the
+    /// oracle against which a one-group tree normal form is compared.
+    #[derive(Debug)]
+    struct SequentialPair {
+        first: Lens,
+        second: Lens,
+    }
+
+    impl SequentialPair {
+        fn get(
+            &self,
+            source: &WInstance,
+        ) -> Result<(WInstance, (Complement, Complement)), LensError> {
+            let (middle, first) = panproto_lens::get(&self.first, source)?;
+            let (view, second) = panproto_lens::get(&self.second, &middle)?;
+            Ok((view, (first, second)))
+        }
+
+        fn put(
+            &self,
+            view: &WInstance,
+            complement: &(Complement, Complement),
+        ) -> Result<WInstance, LensError> {
+            let middle = panproto_lens::put(&self.second, view, &complement.1)?;
+            panproto_lens::put(&self.first, &middle, &complement.0)
+        }
+    }
+
+    /// The two possible tree normal forms of a two-stage path.
+    #[derive(Debug)]
+    enum PairNormalForm {
+        Fused(Box<Lens>),
+        Split(Box<SequentialPair>),
+    }
+
+    fn duplicate(lens: &Lens) -> Lens {
+        Lens {
+            compiled: lens.compiled.clone(),
+            src_schema: lens.src_schema.clone(),
+            tgt_schema: lens.tgt_schema.clone(),
+        }
+    }
+
+    fn pair_normal_form(first: &Lens, second: &Lens) -> Result<PairNormalForm, LensError> {
+        let path = panproto_lens::compose(first, second)?;
+        let mut groups = path.tree_normal_form();
+        if groups.len() == 1 {
+            Ok(PairNormalForm::Fused(Box::new(groups.remove(0).lens)))
+        } else {
+            assert_eq!(groups.len(), 2, "a two-stage path has at most two groups");
+            Ok(PairNormalForm::Split(Box::new(SequentialPair {
+                first: duplicate(first),
+                second: duplicate(second),
+            })))
+        }
+    }
+
+    fn path(first: &Lens, second: &Lens) -> LensPath {
+        panproto_lens::compose(first, second).unwrap()
+    }
 
     /// The identity lens on `schema`.
     fn identity(schema: &Schema) -> Lens {
@@ -1376,7 +1443,7 @@ mod composition_rule {
     /// back identical for the view and an edit of it.
     fn agree(
         fused: &Lens,
-        sequential: &SequentialTreeLens,
+        sequential: &SequentialPair,
         source: &WInstance,
     ) -> Result<(), TestCaseError> {
         let ((seq_view, seq_c), (view, c)) =
@@ -1580,13 +1647,13 @@ mod composition_rule {
     /// `r -> mid -> leaf` and the second drops `leaf`. The composite carries
     /// no expansion, since its arc's child is dropped, yet the pair
     /// synthesizes `mid` and the second lens keeps it. The pair is kept in
-    /// sequence, and the fused lens would lose `mid`.
+    /// sequence.
     #[test]
     fn a_second_lens_truncating_an_expansion_is_kept_in_sequence() {
         let (first, second) = expansion_pair(1, true);
         let source = direct_source(&["x".into()]);
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let TreeComposite::Sequential(sequential) = composite else {
+        let composite = pair_normal_form(&first, &second).unwrap();
+        let PairNormalForm::Split(sequential) = composite else {
             panic!("an expansion the second lens truncates was fused: {composite:?}");
         };
         let (view, (c1, _)) = sequential.get(&source).unwrap();
@@ -1603,15 +1670,6 @@ mod composition_rule {
         );
         assert!(c1.synthesized_nodes.contains(&mids[0]));
         assert!(view.arcs.iter().any(|(p, c, _)| (*p, *c) == (0, mids[0])));
-
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let (fused_view, _) = panproto_lens::get(&fused, &source).unwrap();
-        assert!(
-            fused_view
-                .nodes
-                .values()
-                .all(|n| n.anchor.as_ref() != "mid")
-        );
     }
 
     /// The schema `r -> anchor`, with the edges `label` and, when `both`
@@ -1705,14 +1763,16 @@ mod composition_rule {
         let (first, mid, both) = step("leaf", true, 0, false);
         let (second, _, _) = step(mid, both, 2, true);
         let source = two_label_source(&["a".into(), "b".into()]);
-        let sequential = SequentialTreeLens { first, second };
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
-        let fused = panproto_lens::compose(&sequential.first, &sequential.second).unwrap();
+        let fused = path(&sequential.first, &sequential.second)
+            .into_single()
+            .unwrap();
         let (view, _) = panproto_lens::get(&fused, &source).unwrap();
         assert_eq!(view_difference(&view, &seq_view), None);
         assert!(matches!(
-            panproto_lens::compose_tree(&sequential.first, &sequential.second).unwrap(),
-            TreeComposite::Compiled(_)
+            pair_normal_form(&sequential.first, &sequential.second).unwrap(),
+            PairNormalForm::Fused(_)
         ));
     }
 
@@ -1723,23 +1783,22 @@ mod composition_rule {
     fn a_pair_dropping_a_renamed_edge_is_kept_in_sequence() {
         let (first, mid, both) = step("leaf", true, 2, true);
         let (second, _, _) = step(mid, both, 3, true);
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let composite = pair_normal_form(&first, &second).unwrap();
         assert!(
-            matches!(composite, TreeComposite::Sequential(_)),
+            matches!(composite, PairNormalForm::Split(_)),
             "{composite:?}"
         );
-        // The fused lens would keep the `label` arc the pair drops.
         let source = two_label_source(&["a".into(), "b".into()]);
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let sequential = SequentialTreeLens { first, second };
+        let composed = path(&first, &second);
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
-        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let (view, _) = composed.get(&source).unwrap();
         assert_eq!(
             seq_view.arcs.len(),
             1,
             "the pair keeps only the `other` arc"
         );
-        assert!(view_difference(&view, &seq_view).is_some());
+        assert_eq!(view_difference(&view, &seq_view), None);
     }
 
     proptest! {
@@ -1759,15 +1818,15 @@ mod composition_rule {
         ) {
             let (first, mid, both) = step("leaf", true, k1, e1);
             let (second, _, _) = step(mid, both, k2, e2);
-            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+            let composite = pair_normal_form(&first, &second).unwrap();
             // A swap followed by a drop of `other` drops the arcs the source
             // holds under `label`, which the target could still carry as
             // `label`: no single migration states that, so it stays in
             // sequence. Every other pair is fused.
             let unfusable = k1 == 2 && k2 == 3;
             let fused = match composite {
-                TreeComposite::Compiled(fused) if !unfusable => fused,
-                TreeComposite::Sequential(_) if unfusable => return Ok(()),
+                PairNormalForm::Fused(fused) if !unfusable => fused,
+                PairNormalForm::Split(_) if unfusable => return Ok(()),
                 other => {
                     return Err(TestCaseError::fail(format!(
                         "steps {k1} then {k2} composed to {other:?}"
@@ -1775,7 +1834,7 @@ mod composition_rule {
                 }
             };
             let source = two_label_source(&values);
-            let sequential = SequentialTreeLens { first, second };
+            let sequential = SequentialPair { first, second };
             agree(&fused, &sequential, &source)?;
 
             let (view, c) = panproto_lens::get(&fused, &source).unwrap();
@@ -1798,10 +1857,8 @@ mod composition_rule {
         /// Over pairs around an expansion (a first lens that expands followed
         /// by one that keeps, drops or renames the expansion's endpoints and
         /// intermediate, and an identity followed by an expansion) and
-        /// contracting pairs, the lens `compose_tree` fuses is the lens
-        /// `compose` returns, and it is observationally the pair in
-        /// sequence. `compose` fuses a contracting pair into a lens that also
-        /// behaves as the pair, though the rule keeps such pairs in sequence.
+        /// contracting pairs, a one-group normal form is observationally the
+        /// pair in sequence, while a split normal form retains both stages.
         #[test]
         fn tree_compiled_composite_matches_sequential(
             pick in 0u8..10,
@@ -1815,20 +1872,16 @@ mod composition_rule {
                 let (first, second) = contracting_pairs().swap_remove(usize::from(pick - 8));
                 (first, second, source(&counts), true)
             };
-            let fused = panproto_lens::compose(&first, &second).unwrap();
-            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-            let sequential = SequentialTreeLens { first, second };
+            let composite = pair_normal_form(&first, &second).unwrap();
+            let sequential = SequentialPair { first, second };
             match composite {
-                TreeComposite::Compiled(by_rule) => {
-                    let (a, _) = panproto_lens::get(&by_rule, &source).unwrap();
-                    let (b, _) = panproto_lens::get(&fused, &source).unwrap();
-                    prop_assert_eq!(view_difference(&a, &b), None);
+                PairNormalForm::Fused(by_rule) => {
                     agree(&by_rule, &sequential, &source)?;
                 }
-                TreeComposite::Sequential(_) if contracting => {
-                    agree(&fused, &sequential, &source)?;
+                PairNormalForm::Split(_) if contracting => {
+                    prop_assert!(contracting);
                 }
-                TreeComposite::Sequential(_) => {}
+                PairNormalForm::Split(_) => {}
             }
         }
 
@@ -1879,11 +1932,11 @@ mod composition_rule {
                     (first, second, merge_source((level(0), level(1))))
                 }
             };
-            match panproto_lens::compose_tree(&first, &second).unwrap() {
-                TreeComposite::Compiled(fused) => {
-                    agree(&fused, &SequentialTreeLens { first, second }, &instance)?;
+            match pair_normal_form(&first, &second).unwrap() {
+                PairNormalForm::Fused(fused) => {
+                    agree(&fused, &SequentialPair { first, second }, &instance)?;
                 }
-                TreeComposite::Sequential(sequential) => {
+                PairNormalForm::Split(sequential) => {
                     let staged = panproto_lens::get(&first, &instance)
                         .and_then(|(middle, _)| panproto_lens::get(&second, &middle));
                     match (sequential.get(&instance), staged) {
@@ -1976,18 +2029,15 @@ mod composition_rule {
     fn a_second_predicate_after_a_first_transform_is_kept_in_sequence() {
         let (first, second) = (valued_identity(1), valued_identity(2));
         let source = levelled_source(&[2]);
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let sequential = SequentialTreeLens { first, second };
+        let composite = pair_normal_form(&first, &second).unwrap();
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         assert!(
             seq_view.nodes.contains_key(&1),
             "the pair keeps level 2 + 1"
         );
-        assert!(!view.nodes.contains_key(&1), "one migration tests level 2");
         assert!(
-            matches!(composite, TreeComposite::Sequential(_)),
+            matches!(composite, PairNormalForm::Split(_)),
             "{composite:?}"
         );
     }
@@ -2001,23 +2051,12 @@ mod composition_rule {
     fn predicates_of_both_lenses_on_one_anchor_are_kept_in_sequence() {
         let (first, second) = (valued_identity(2), valued_identity(3));
         let source = levelled_source(&[2]);
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let refused = panproto_lens::get(&fused, &source).unwrap_err();
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let sequential = SequentialTreeLens { first, second };
+        let composite = pair_normal_form(&first, &second).unwrap();
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
         assert!(!seq_view.nodes.contains_key(&1), "the first lens drops it");
         assert!(
-            matches!(
-                refused,
-                panproto_lens::LensError::Restrict(
-                    panproto_inst::RestrictError::SurvivalPredicateFailed { node: 1, .. }
-                )
-            ),
-            "the conjunction refuses: {refused:?}"
-        );
-        assert!(
-            matches!(composite, TreeComposite::Sequential(_)),
+            matches!(composite, PairNormalForm::Split(_)),
             "{composite:?}"
         );
     }
@@ -2035,18 +2074,18 @@ mod composition_rule {
             levels in prop::collection::vec(0i64..5, 0..5),
         ) {
             let (first, second) = (valued_identity(a), valued_identity(b));
-            let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-            let fusable = b == 0 || (a == 0 && b != 1);
+            let composite = pair_normal_form(&first, &second).unwrap();
+            let fusable = a == 0 || b == 0;
             let fused = match composite {
-                TreeComposite::Compiled(fused) if fusable => fused,
-                TreeComposite::Sequential(_) if !fusable => return Ok(()),
+                PairNormalForm::Fused(fused) if fusable => fused,
+                PairNormalForm::Split(_) if !fusable => return Ok(()),
                 other => {
                     return Err(TestCaseError::fail(format!(
                         "layers {a} then {b} composed to {other:?}"
                     )));
                 }
             };
-            let sequential = SequentialTreeLens { first, second };
+            let sequential = SequentialPair { first, second };
             agree(&fused, &sequential, &levelled_source(&levels))?;
         }
     }
@@ -2116,34 +2155,26 @@ mod composition_rule {
     }
 
     /// A first lens that merges `b` onto `a`, which keeps its name,
-    /// followed by a survival predicate on `a`: the pair tests the
-    /// predicate on the nodes of both source anchors, and so does the fused
-    /// lens.
+    /// followed by a survival predicate on `a`: the predicate is evaluated
+    /// after the merge, so the normal form retains both stages.
     #[test]
     fn a_predicate_on_a_merged_anchor_reaches_every_preimage() {
         let (first, second) = merge_pair(0, 2);
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        for anchor in ["a", "b"] {
-            assert!(
-                fused.compiled.conditional_survival.contains_key(anchor),
-                "no predicate on {anchor}: {:?}",
-                fused.compiled.conditional_survival
-            );
-        }
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let TreeComposite::Compiled(by_rule) = composite else {
-            panic!("the pair meets every condition: {composite:?}");
+        let composite = pair_normal_form(&first, &second).unwrap();
+        let PairNormalForm::Split(_) = composite else {
+            panic!("a predicate after a merge was fused: {composite:?}");
         };
-        let sequential = SequentialTreeLens { first, second };
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&merge_source((2, 2))).unwrap();
         assert_eq!(
             seq_view.nodes.keys().copied().collect::<Vec<_>>(),
             vec![0],
             "the pair drops both nodes of level 2"
         );
-        for levels in [(2, 2), (3, 2), (2, 3), (3, 3)] {
-            agree(&by_rule, &sequential, &merge_source(levels)).unwrap();
-        }
+        let (mixed, _) = sequential.get(&merge_source((3, 2))).unwrap();
+        let mut ids = mixed.nodes.keys().copied().collect::<Vec<_>>();
+        ids.sort_unstable();
+        assert_eq!(ids, vec![0, 1]);
     }
 
     /// Hyper-edges over `par`'s children `left` and `right`: `h0` labels
@@ -2297,15 +2328,15 @@ mod composition_rule {
 
         // `h0` to `h1`, then `h1` to `h2`.
         let (first, second) = (fan_lens(1), fan_lens(2));
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let composite = pair_normal_form(&first, &second).unwrap();
         assert!(
-            matches!(composite, TreeComposite::Sequential(_)),
+            matches!(composite, PairNormalForm::Split(_)),
             "{composite:?}"
         );
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let sequential = SequentialTreeLens { first, second };
+        let composed = path(&first, &second);
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
-        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let (view, _) = composed.get(&source).unwrap();
         assert_eq!(
             fans(&seq_view),
             vec![(
@@ -2313,37 +2344,34 @@ mod composition_rule {
                 vec![("p".to_owned(), 1), ("q".to_owned(), 2)]
             )]
         );
-        assert_eq!(fans(&view), fans(&seq_view), "compose chains the retargets");
+        assert_eq!(fans(&view), fans(&seq_view));
 
         // An `h0` fan goes to `h1` while both children survive the first
-        // stage, and the second drops `right`; one migration sees only
-        // `left` survive and picks `hA`.
+        // stage, and the second drops `right`; the split normal form retains
+        // that staging and therefore keeps the `h1` choice.
         let (first, second) = (fan_lens(3), fan_lens(4));
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
+        let composite = pair_normal_form(&first, &second).unwrap();
         assert!(
-            matches!(composite, TreeComposite::Sequential(_)),
+            matches!(composite, PairNormalForm::Split(_)),
             "{composite:?}"
         );
-        let fused = panproto_lens::compose(&first, &second).unwrap();
-        let sequential = SequentialTreeLens { first, second };
+        let composed = path(&first, &second);
+        let sequential = SequentialPair { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
-        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let (view, _) = composed.get(&source).unwrap();
         assert_eq!(
             fans(&seq_view),
             vec![("h1".to_owned(), vec![("a".to_owned(), 1)])]
         );
-        assert_eq!(
-            fans(&view),
-            vec![("hA".to_owned(), vec![("a".to_owned(), 1)])]
-        );
+        assert_eq!(fans(&view), fans(&seq_view));
 
         // Fans that neither lens retargets: the pair is fused.
         let (first, second) = (fan_lens(0), fan_lens(4));
-        let composite = panproto_lens::compose_tree(&first, &second).unwrap();
-        let TreeComposite::Compiled(fused) = composite else {
+        let composite = pair_normal_form(&first, &second).unwrap();
+        let PairNormalForm::Fused(fused) = composite else {
             panic!("no fan is retargeted: {composite:?}");
         };
-        agree(&fused, &SequentialTreeLens { first, second }, &source).unwrap();
+        agree(&fused, &SequentialPair { first, second }, &source).unwrap();
     }
 
     /// Every pair of fan lenses and every merge pair, on every source of
@@ -2355,16 +2383,16 @@ mod composition_rule {
     fn every_fan_and_merge_pair_follows_the_rule() {
         let check =
             |first: Lens, second: Lens, fusable: bool, sources: &[WInstance], case: &str| {
-                match panproto_lens::compose_tree(&first, &second).unwrap() {
-                    TreeComposite::Compiled(fused) => {
+                match pair_normal_form(&first, &second).unwrap() {
+                    PairNormalForm::Fused(fused) => {
                         assert!(fusable, "{case} was fused");
-                        let sequential = SequentialTreeLens { first, second };
+                        let sequential = SequentialPair { first, second };
                         for source in sources {
                             agree(&fused, &sequential, source)
                                 .unwrap_or_else(|e| panic!("{case}: {e}"));
                         }
                     }
-                    TreeComposite::Sequential(sequential) => {
+                    PairNormalForm::Split(sequential) => {
                         assert!(!fusable, "{case} was kept in sequence");
                         for source in sources {
                             let staged = panproto_lens::get(&first, source)
@@ -2410,7 +2438,7 @@ mod composition_rule {
         for a in [0, 2, 3] {
             for b in 0..4 {
                 let (first, second) = merge_pair(a, b);
-                let fusable = b == 0 || (a == 0 && b != 1);
+                let fusable = b == 0;
                 check(
                     first,
                     second,
@@ -2432,9 +2460,9 @@ mod composition_rule {
     #[test]
     fn tree_compose_follows_the_l6_rule() {
         let kept = |first: &Lens, second: &Lens, case: &str| {
-            let composite = panproto_lens::compose_tree(first, second).unwrap();
+            let composite = pair_normal_form(first, second).unwrap();
             assert!(
-                matches!(composite, TreeComposite::Sequential(_)),
+                matches!(composite, PairNormalForm::Split(_)),
                 "{case}: {composite:?}"
             );
         };
@@ -2454,8 +2482,8 @@ mod composition_rule {
         );
         let second = valued_identity(1);
         assert!(matches!(
-            panproto_lens::compose(&first, &second),
-            Err(panproto_lens::LensError::ComposeUnboundField { .. })
+            pair_normal_form(&first, &second).unwrap(),
+            PairNormalForm::Split(_)
         ));
         kept(&first, &second, "migrations that do not compose");
 
@@ -2468,8 +2496,6 @@ mod composition_rule {
         // composite's (and the first lens's), and the second lens's.
         for kind in [1, 5, 6] {
             let (first, second) = expansion_pair(kind, true);
-            let fused = panproto_lens::compose(&first, &second).unwrap();
-            assert!(fused.compiled.expansion_path.is_empty(), "kind {kind}");
             kept(&first, &second, "an expansion the second lens truncates");
         }
         for kind in [0, 3, 4] {
@@ -2501,9 +2527,9 @@ mod composition_rule {
 
         // Every condition met.
         let first = identity(&renaming_lens().src_schema);
-        let composite = panproto_lens::compose_tree(&first, &renaming_lens()).unwrap();
+        let composite = pair_normal_form(&first, &renaming_lens()).unwrap();
         assert!(
-            matches!(composite, TreeComposite::Compiled(_)),
+            matches!(composite, PairNormalForm::Fused(_)),
             "{composite:?}"
         );
     }

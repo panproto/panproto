@@ -61,6 +61,15 @@ fn make_schema(vertices: &[(&str, &str)]) -> Schema {
 fn repo_with_schema() -> (tempfile::TempDir, Repository) {
     let dir = tempfile::tempdir().unwrap();
     let mut repo = Repository::init(dir.path()).unwrap();
+    // No registry declares the schemas' protocol "test", so it is
+    // registered by name.
+    repo.set_protocol(panproto_schema::Protocol {
+        name: "test".into(),
+        schema_theory: "ThGraph".into(),
+        instance_theory: "ThWType".into(),
+        obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+        ..Default::default()
+    });
     repo.add(&make_schema(&[("a", "object")])).unwrap();
     repo.commit("schema", "alice").unwrap();
     (dir, repo)

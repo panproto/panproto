@@ -617,6 +617,42 @@ pub(crate) fn allocate_synthesized(
     Ok(ids)
 }
 
+/// What a survival predicate gives at one element.
+pub(crate) enum PredicateOutcome {
+    /// A verdict: `true` keeps the element, `false` drops it.
+    Verdict(bool),
+    /// The predicate reads what cannot be bound, so it is not evaluated.
+    Unreadable(crate::wtype::Unreadable),
+    /// The evaluation fails.
+    Failed(panproto_expr::ExprError),
+    /// The predicate evaluates to a literal of this type, not a boolean.
+    NotBoolean(String),
+}
+
+impl PredicateOutcome {
+    /// The verdict, or the refusal it is as a [`PredicateRefusal`].
+    pub(crate) fn into_refusal(self) -> Result<bool, crate::error_detail::PredicateRefusal> {
+        use crate::error_detail::PredicateRefusal;
+        use crate::wtype::Unreadable;
+        match self {
+            Self::Verdict(verdict) => Ok(verdict),
+            Self::Unreadable(Unreadable::AmbiguousChildField { field, .. }) => {
+                Err(PredicateRefusal::AmbiguousChildField { field })
+            }
+            Self::Unreadable(Unreadable::StructuralChildNotATree { field, .. }) => {
+                Err(PredicateRefusal::StructuralChildNotATree { field })
+            }
+            Self::Unreadable(Unreadable::ValueNotExpressible {
+                field, value_type, ..
+            }) => Err(PredicateRefusal::ValueNotExpressible { field, value_type }),
+            Self::Failed(source) => Err(PredicateRefusal::EvaluationFailed {
+                message: source.to_string(),
+            }),
+            Self::NotBoolean(got) => Err(PredicateRefusal::NotBoolean { got }),
+        }
+    }
+}
+
 /// The key of a synthesized-id exhaustion in the graph engine's precedence
 /// order: stage 5, `id` 0 for nodes and 1 for edges.
 pub(crate) const fn exhaustion_key(kind: IdKind, error_kind: u8) -> ErrorKey {
@@ -678,22 +714,45 @@ impl RestrictPlan {
         ctx: &TransformContext<'_>,
         fields: &HashMap<String, Value>,
     ) -> Result<bool, RestrictError> {
-        let Some(predicate) = self.migration.conditional_survival.get(anchor) else {
-            return Ok(true);
-        };
         let node = ctx.element();
-        let env = ctx.environment(predicate, fields)?;
-        let config = panproto_expr::EvalConfig::default();
-        match ctx.eval(predicate, &env, &config) {
-            Ok(panproto_expr::Literal::Bool(verdict)) => Ok(verdict),
-            Ok(other) => Err(RestrictError::SurvivalPredicateFailed {
+        match self.predicate_outcome(anchor, ctx, fields) {
+            PredicateOutcome::Verdict(verdict) => Ok(verdict),
+            PredicateOutcome::Unreadable(refusal) => Err(refusal.into()),
+            PredicateOutcome::Failed(source) => {
+                Err(RestrictError::SurvivalPredicateFailed { node, source })
+            }
+            PredicateOutcome::NotBoolean(got) => Err(RestrictError::SurvivalPredicateFailed {
                 node,
                 source: panproto_expr::ExprError::TypeError {
                     expected: "bool".to_owned(),
-                    got: other.type_name().to_owned(),
+                    got,
                 },
             }),
-            Err(source) => Err(RestrictError::SurvivalPredicateFailed { node, source }),
+        }
+    }
+
+    /// What the survival predicate of `anchor` gives at the element `ctx`
+    /// is at, over its original `fields`: a verdict (`true` without a
+    /// predicate), or why it gives none, in the order
+    /// [`passes_predicate`](Self::passes_predicate) reports.
+    pub(crate) fn predicate_outcome(
+        &self,
+        anchor: &Name,
+        ctx: &TransformContext<'_>,
+        fields: &HashMap<String, Value>,
+    ) -> PredicateOutcome {
+        let Some(predicate) = self.migration.conditional_survival.get(anchor) else {
+            return PredicateOutcome::Verdict(true);
+        };
+        let env = match ctx.environment(predicate, fields) {
+            Ok(env) => env,
+            Err(refusal) => return PredicateOutcome::Unreadable(refusal),
+        };
+        let config = panproto_expr::EvalConfig::default();
+        match ctx.eval(predicate, &env, &config) {
+            Ok(panproto_expr::Literal::Bool(verdict)) => PredicateOutcome::Verdict(verdict),
+            Ok(other) => PredicateOutcome::NotBoolean(other.type_name().to_owned()),
+            Err(source) => PredicateOutcome::Failed(source),
         }
     }
 

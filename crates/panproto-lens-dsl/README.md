@@ -21,7 +21,7 @@ use panproto_lens_dsl::load_and_compile;
 use std::path::Path;
 
 let compiled = load_and_compile(Path::new("migrations/v1_to_v2.ncl"), "record:body")?;
-let lens = compiled.instantiate(&source_schema, &protocol)?;
+let path = compiled.instantiate(&source_schema, &protocol)?;
 ```
 
 ## Compilation

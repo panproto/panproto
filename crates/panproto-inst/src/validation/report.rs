@@ -875,6 +875,40 @@ pub struct IncompleteCheck {
     pub reason: IncompleteReason,
 }
 
+/// Renders `{kind} at {subject}: not decided: {reason}`, in the layout of
+/// [`Diagnostic`]'s message, the subject part absent when the entry covers
+/// every instance of its check.
+///
+/// ```
+/// use panproto_inst::ViewRef;
+/// use panproto_inst::validation::{
+///     CheckClass, CheckKey, CheckKind, IncompleteCheck, IncompleteReason, Requirement, SchemaRef,
+/// };
+///
+/// let entry = IncompleteCheck {
+///     check: CheckKey::new(CheckKind::External, SchemaRef::External("audit".into())),
+///     class: CheckClass::BoundedExternal,
+///     requirement: Requirement::Required,
+///     subject: Some(ViewRef::Node(3)),
+///     reason: IncompleteReason::MissingExternalWitness { name: "audit".into() },
+/// };
+/// assert_eq!(
+///     entry.to_string(),
+///     "external at node 3: not decided: no verdict for external check audit",
+/// );
+/// let whole = IncompleteCheck { subject: None, ..entry };
+/// assert_eq!(whole.to_string(), "external: not decided: no verdict for external check audit");
+/// ```
+impl fmt::Display for IncompleteCheck {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.check.kind.name())?;
+        if let Some(subject) = &self.subject {
+            write!(f, " at {}", ShowRef(subject))?;
+        }
+        write!(f, ": not decided: {}", self.reason)
+    }
+}
+
 /// How the instances of one check fared.
 ///
 /// `passed + failed + incomplete == instances`.

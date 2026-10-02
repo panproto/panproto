@@ -821,12 +821,14 @@ impl ProtolensChain {
         &self,
         schema: &Schema,
         protocol: &Protocol,
-    ) -> Result<Lens, LensError> {
+    ) -> Result<crate::LensPath, LensError> {
         if self.steps.is_empty() {
-            return Ok(identity_lens(schema));
+            return Ok(crate::LensPath::identity(schema));
         }
         if self.steps.len() == 1 {
-            return self.steps[0].instantiate(schema, protocol);
+            return self.steps[0]
+                .instantiate(schema, protocol)
+                .map(crate::LensPath::single);
         }
 
         for window in self.steps.windows(2) {
@@ -848,8 +850,9 @@ impl ProtolensChain {
                 first.name,
             )));
         }
-        let mut composed: Lens = first.instantiate(&running_schema, protocol)?;
-        running_schema = composed.tgt_schema.clone();
+        let first_lens = first.instantiate(&running_schema, protocol)?;
+        running_schema = first_lens.tgt_schema.clone();
+        let mut composed = crate::LensPath::single(first_lens);
         for step in steps_iter {
             if !step.applicable_to(&running_schema) {
                 return Err(LensError::ProtolensError(format!(
@@ -859,7 +862,7 @@ impl ProtolensChain {
             }
             let step_lens = step.instantiate(&running_schema, protocol)?;
             running_schema = step_lens.tgt_schema.clone();
-            composed = crate::compose::compose(&composed, &step_lens)?;
+            composed = composed.then(&crate::LensPath::single(step_lens))?;
         }
         Ok(composed)
     }

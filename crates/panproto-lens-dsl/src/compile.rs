@@ -20,7 +20,7 @@ use std::collections::HashMap;
 use panproto_gat::Name;
 use panproto_inst::FieldTransform;
 use panproto_lens::{
-    AutoLensConfig, DiffSpec, KindChange, Lens, ProtolensChain, Stringency, auto_generate,
+    AutoLensConfig, DiffSpec, KindChange, LensPath, ProtolensChain, Stringency, auto_generate,
     auto_generate_with_hints, combinators, diff_to_protolens,
 };
 use panproto_schema::{Edge, Protocol, Schema, primary_entry};
@@ -100,10 +100,12 @@ impl CompiledLens {
         &self,
         schema: &Schema,
         protocol: &Protocol,
-    ) -> Result<Lens, panproto_lens::LensError> {
-        let mut composed: Option<Lens> = None;
+    ) -> Result<LensPath, panproto_lens::LensError> {
+        let mut composed: Option<LensPath> = None;
         for stage in &self.stages {
-            let running_schema = composed.as_ref().map_or(schema, |lens| &lens.tgt_schema);
+            let running_schema = composed
+                .as_ref()
+                .map_or(schema, panproto_lens::LensPath::tgt_schema);
             let mut stage_lens = stage.chain.instantiate(running_schema, protocol)?;
             for (anchor, transforms) in &stage.field_transforms {
                 stage_lens
@@ -113,15 +115,13 @@ impl CompiledLens {
                     .or_default()
                     .extend(transforms.iter().cloned());
             }
+            let stage_path = LensPath::single(stage_lens);
             composed = Some(match composed {
-                Some(accumulated) => panproto_lens::compose(&accumulated, &stage_lens)?,
-                None => stage_lens,
+                Some(accumulated) => accumulated.then(&stage_path)?,
+                None => stage_path,
             });
         }
-        composed.map_or_else(
-            || ProtolensChain::new(Vec::new()).instantiate(schema, protocol),
-            Ok,
-        )
+        Ok(composed.unwrap_or_else(|| LensPath::identity(schema)))
     }
 }
 
@@ -514,7 +514,7 @@ fn verify_target(
 
     // The produced schema's identity is the NSID of its primary entry.
     // When absent, we cannot verify and do not fail.
-    if let Some(actual) = schema_target_nsid(&lens.tgt_schema) {
+    if let Some(actual) = schema_target_nsid(lens.tgt_schema()) {
         if actual != declared {
             return Err(LensDslError::TargetMismatch {
                 id: compiled.id.clone(),

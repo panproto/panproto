@@ -1,6 +1,10 @@
 //! Cherry-pick: apply a single commit's migration to the current branch.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use panproto_schema::Protocol;
 
 use crate::error::VcsError;
 use crate::hash::ObjectId;
@@ -32,14 +36,20 @@ pub struct CherryPickOptions {
 ///    theirs = commit's schema.
 /// 4. If clean, create a new commit on the current branch.
 ///
+/// The picked commit's data is lifted under the protocol its schema names,
+/// resolved through the commit's protocol object, then `registered`, then
+/// the protocol registry
+/// ([`resolve_protocol`](crate::data_mig::resolve_protocol)).
+///
 /// # Errors
 ///
 /// Returns an error if the merge has conflicts, or if the commit is a
 /// root commit (no parent to diff against).
-pub fn cherry_pick(
+pub fn cherry_pick<S: BuildHasher>(
     store: &mut dyn Store,
     commit_id: ObjectId,
     author: &str,
+    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
     let commit = match store.get(&commit_id)? {
@@ -104,8 +114,13 @@ pub fn cherry_pick(
     // Lift the picked commit's versioned data through the schema change
     // (its own schema -> the merged schema) so cherry-pick carries data
     // forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) =
-        crate::data_mig::lift_commit_data(store, &commit, &theirs_schema, &result.merged_schema)?;
+    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
+        store,
+        &commit,
+        &theirs_schema,
+        &result.merged_schema,
+        registered,
+    )?;
 
     // Square coherence: each lifted data set must round-trip through its
     // complement, so the cherry-pick square commutes on data.
@@ -116,6 +131,7 @@ pub fn cherry_pick(
         &lifted_complement_ids,
         &theirs_schema,
         &result.merged_schema,
+        registered,
     )?;
 
     // Store the merged schema.
@@ -167,11 +183,12 @@ pub fn cherry_pick(
 /// # Errors
 ///
 /// Returns an error if the merge has conflicts.
-pub fn cherry_pick_with_options(
+pub fn cherry_pick_with_options<S: BuildHasher>(
     store: &mut dyn Store,
     commit_id: ObjectId,
     author: &str,
     options: &CherryPickOptions,
+    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     // Load the commit being cherry-picked.
     let commit = match store.get(&commit_id)? {
@@ -239,8 +256,13 @@ pub fn cherry_pick_with_options(
     // Lift the picked commit's versioned data through the schema change
     // (its own schema -> the merged schema) so the rebuilt commit carries
     // data forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) =
-        crate::data_mig::lift_commit_data(store, &commit, &theirs_schema, &result.merged_schema)?;
+    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
+        store,
+        &commit,
+        &theirs_schema,
+        &result.merged_schema,
+        registered,
+    )?;
 
     // Square coherence: each lifted data set must round-trip through its
     // complement, so the cherry-pick square commutes on data.
@@ -251,6 +273,7 @@ pub fn cherry_pick_with_options(
         &lifted_complement_ids,
         &theirs_schema,
         &result.merged_schema,
+        registered,
     )?;
 
     let migration_id = store.put(&Object::Migration {
@@ -350,6 +373,21 @@ mod tests {
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
+    /// The protocol the tests' schemas name, registered by name: no
+    /// registry declares "test".
+    fn registered() -> HashMap<String, panproto_schema::Protocol> {
+        HashMap::from([(
+            "test".to_owned(),
+            panproto_schema::Protocol {
+                name: "test".into(),
+                schema_theory: "ThGraph".into(),
+                instance_theory: "ThWType".into(),
+                obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+                ..Default::default()
+            },
+        )])
+    }
+
     fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         let mut vert_map = HashMap::new();
         for (id, kind) in vertices {
@@ -413,7 +451,7 @@ mod tests {
         store.set_ref("refs/heads/main", c0_id)?;
 
         // Cherry-pick c1 onto HEAD.
-        let new_id = cherry_pick(&mut store, c1_id, "alice")?;
+        let new_id = cherry_pick(&mut store, c1_id, "alice", &registered())?;
 
         // Verify the new commit has vertex b.
         let new_commit = match store.get(&new_id)? {
@@ -528,7 +566,7 @@ mod tests {
         // Picking onto a HEAD with a different schema means the picked
         // commit's data ({a, pickedf}) is lifted to the merged schema
         // ({a, headf, pickedf}), not dropped.
-        let new_id = cherry_pick(&mut store, c1_id, "alice")?;
+        let new_id = cherry_pick(&mut store, c1_id, "alice", &registered())?;
         let new_commit = load_commit_obj(&store, new_id)?;
         assert_lifted_dataset(&store, &new_commit, ds_id);
         Ok(())
@@ -543,7 +581,7 @@ mod tests {
             no_commit: false,
             record_origin: true,
         };
-        let new_id = cherry_pick_with_options(&mut store, c1_id, "alice", &opts)?;
+        let new_id = cherry_pick_with_options(&mut store, c1_id, "alice", &opts, &registered())?;
         let new_commit = load_commit_obj(&store, new_id)?;
         assert!(
             new_commit.message.contains("cherry picked from commit"),

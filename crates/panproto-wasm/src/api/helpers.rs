@@ -762,6 +762,12 @@ pub(super) fn compose_compiled(
     }
 }
 
+/// The protocol `schema` names: a built-in one when the name is recognized,
+/// else a default spec carrying the name.
+pub(super) fn protocol_of(schema: &Schema) -> panproto_core::schema::Protocol {
+    lookup_builtin_protocol(&schema.protocol).unwrap_or_else(|| default_protocol(&schema.protocol))
+}
+
 /// Build a default protocol spec with the given name.
 ///
 /// Used as a fallback when the schema's protocol name does not match any
@@ -1110,7 +1116,10 @@ fn execute_query_against_schema(
             reason: format!("instance: {e}"),
         })?;
 
-    let matches = inst::execute_query(&query, &instance, schema);
+    let matches =
+        inst::execute_query(&query, &instance, schema).map_err(|e| WasmError::ExprEvalFailed {
+            reason: format!("query: {e}"),
+        })?;
 
     // Convert QueryMatch results to a serializable form.
     let results: Vec<serde_json::Value> = matches

@@ -6,7 +6,9 @@
 use std::fmt::Debug;
 
 use panproto_inst::identity::{IdentityField, LegacyRejectReason};
-use panproto_inst::{EdgeId, ErrorDetail, FanViolation, PutDomainError, RowId, Value, ViewRef};
+use panproto_inst::{
+    EdgeId, ErrorDetail, FanViolation, PredicateRefusal, PutDomainError, RowId, Value, ViewRef,
+};
 use panproto_schema::Edge;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
@@ -98,6 +100,44 @@ fn every_put_domain_error() -> Vec<(PutDomainError, &'static str)> {
             },
             "malformed_fan",
         ),
+        (
+            PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(1),
+                refusal: PredicateRefusal::NotBoolean { got: "int".into() },
+            },
+            "survival_predicate_refused",
+        ),
+    ]
+}
+
+/// One refusal of each variant, in declaration order, with its serde tag.
+fn every_predicate_refusal() -> Vec<(PredicateRefusal, &'static str)> {
+    vec![
+        (
+            PredicateRefusal::AmbiguousChildField { field: "a".into() },
+            "ambiguous_child_field",
+        ),
+        (
+            PredicateRefusal::StructuralChildNotATree { field: "b".into() },
+            "structural_child_not_a_tree",
+        ),
+        (
+            PredicateRefusal::ValueNotExpressible {
+                field: "c".into(),
+                value_type: "bytes".into(),
+            },
+            "value_not_expressible",
+        ),
+        (
+            PredicateRefusal::EvaluationFailed {
+                message: "unbound variable: x".into(),
+            },
+            "evaluation_failed",
+        ),
+        (
+            PredicateRefusal::NotBoolean { got: "int".into() },
+            "not_boolean",
+        ),
     ]
 }
 
@@ -137,7 +177,7 @@ fn tag_of<T: Serialize>(value: &T) -> String {
 #[test]
 fn put_domain_error_serde_tags_and_order_are_fixed() {
     let errors = every_put_domain_error();
-    assert_eq!(errors.len(), 11);
+    assert_eq!(errors.len(), 12);
     for (index, (error, tag)) in errors.iter().enumerate() {
         assert_eq!(usize::from(error.variant_index()), index, "{tag}");
         assert_eq!(tag_of(error), *tag);
@@ -160,6 +200,22 @@ fn put_domain_error_serde_tags_and_order_are_fixed() {
         serde_json::json!([{"row": 1}, {"row": 5}]),
         "elems is the last positional field"
     );
+
+    // A refused survival predicate is the last variant and carries its
+    // refusal whole, itself externally tagged.
+    let (refused, _) = &errors[11];
+    assert_eq!(
+        serde_json::to_string(refused).unwrap(),
+        r#"{"survival_predicate_refused":{"elem":{"node":1},"refusal":{"not_boolean":{"got":"int"}}}}"#
+    );
+    for (refusal, tag) in every_predicate_refusal() {
+        assert_eq!(tag_of(&refusal), tag);
+        round_trips(&refusal);
+        round_trips(&PutDomainError::SurvivalPredicateRefused {
+            elem: ViewRef::Node(0),
+            refusal,
+        });
+    }
 
     // The fan's reason is the shared `FanViolation`, carried whole.
     let (fan, _) = &errors[10];
