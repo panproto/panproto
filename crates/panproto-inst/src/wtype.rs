@@ -2607,6 +2607,11 @@ impl<'a> TransformContext<'a> {
 
     /// A context over the tree `instance` at `node_id`, binding every child
     /// the expressions in `transforms` might read.
+    ///
+    /// Each call indexes every arc of `instance` by parent, which costs
+    /// O(E) for E arcs, before it binds the node's children; a caller that
+    /// binds many nodes of one tree builds that index once and binds each
+    /// node through it instead, or it pays O(V E) over V nodes.
     #[must_use]
     pub fn new(
         schema: Option<&Schema>,
@@ -2832,7 +2837,7 @@ impl From<Unreadable> for RestrictError {
 }
 
 /// The demand of the expressions in `transforms`.
-fn transform_demand(transforms: &[FieldTransform]) -> Demand {
+pub(crate) fn transform_demand(transforms: &[FieldTransform]) -> Demand {
     Demand::from_names(referenced_names(transforms).into_iter().collect())
 }
 

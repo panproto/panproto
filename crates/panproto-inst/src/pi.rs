@@ -983,7 +983,10 @@ pub fn wtype_pi(
         return Err(RestrictError::RootPruned);
     }
 
-    // Remap nodes
+    // Remap nodes. The child index the transforms read through is built
+    // once, so binding a node's children costs its own arcs, not a scan of
+    // every arc.
+    let children = crate::wtype::TreeChildren::new(instance);
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
     for (&id, node) in &instance.nodes {
         let mut new_node = node.clone();
@@ -1000,7 +1003,12 @@ pub fn wtype_pi(
         // the Pi node.
         let transforms = migration.value_transforms(&node.anchor);
         if !transforms.is_empty() {
-            let ctx = crate::wtype::TransformContext::new(None, instance, id, &transforms);
+            let ctx = crate::wtype::TransformContext::bound(
+                None,
+                &children,
+                crate::wtype::InstanceRef::Tree(instance, id),
+                &crate::wtype::transform_demand(&transforms),
+            );
             crate::wtype::apply_field_transforms(&mut new_node, &transforms, &ctx)?;
         }
         new_nodes.insert(id, new_node);

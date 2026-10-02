@@ -243,7 +243,10 @@ pub fn restrict_with_complement(
     surviving_set.insert(instance.root);
     queue.push_back((instance.root, None));
 
-    // BFS: visit each node, tracking nearest surviving ancestor
+    // BFS: visit each node, tracking nearest surviving ancestor. The child
+    // index the transforms read through is built once, so binding a node's
+    // children costs its own arcs, not a scan of every arc.
+    let children = crate::wtype::TreeChildren::new(instance);
     while let Some((current_id, ancestor_id)) = queue.pop_front() {
         let child_ancestor = if surviving_set.contains(&current_id) {
             Some(current_id)
@@ -252,6 +255,7 @@ pub fn restrict_with_complement(
         };
         restrict_bfs_step(
             instance,
+            &children,
             tgt_schema,
             migration,
             current_id,
@@ -306,6 +310,7 @@ pub fn restrict_with_complement(
 #[allow(clippy::too_many_arguments)]
 fn restrict_bfs_step(
     instance: &WInstance,
+    children: &crate::wtype::TreeChildren<'_>,
     tgt_schema: &panproto_schema::Schema,
     migration: &CompiledMigration,
     current_id: u32,
@@ -354,7 +359,12 @@ fn restrict_bfs_step(
                 complement
                     .original_extra_fields
                     .insert(child_id, child_node.extra_fields.clone());
-                let ctx = TransformContext::new(None, instance, child_id, &child_transforms);
+                let ctx = TransformContext::bound(
+                    None,
+                    children,
+                    crate::wtype::InstanceRef::Tree(instance, child_id),
+                    &crate::wtype::transform_demand(&child_transforms),
+                );
                 apply_field_transforms(&mut new_node, &child_transforms, &ctx)?;
             }
             new_nodes.insert(child_id, new_node.clone());
