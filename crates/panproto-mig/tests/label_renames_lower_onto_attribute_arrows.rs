@@ -261,5 +261,9 @@ fn a_kept_label_whose_target_arrow_is_not_its_direct_image_is_lowered() {
         HashMap::from([(prop("T", "c1", "a"), prop("T", "c2", "a"))])
     );
     let without_map = compile(&src, &tgt, &unmapped).unwrap();
-    assert!(without_map.edge_remap.is_empty(), "{:?}", without_map.edge_remap);
+    assert!(
+        without_map.edge_remap.is_empty(),
+        "{:?}",
+        without_map.edge_remap
+    );
 }

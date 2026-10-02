@@ -50,8 +50,10 @@ impl<W: FnMut() -> Duration, U: FnMut()> Calibrated<W, U> {
             .min()
             .unwrap_or(Duration::ZERO)
             .max(Duration::from_micros(1));
-        let repeats = (work.as_secs_f64() / unit.as_secs_f64()).round();
-        let repeats = if repeats < 1.0 { 1 } else { repeats.min(1e6) as u32 };
+        let (work, unit) = (work.as_nanos(), unit.as_nanos());
+        let repeats = u32::try_from((work + unit / 2) / unit)
+            .unwrap_or(u32::MAX)
+            .clamp(1, 1_000_000);
         Self {
             probe,
             repeats,
