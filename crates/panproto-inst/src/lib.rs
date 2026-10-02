@@ -115,7 +115,7 @@ pub use contraction_plan::{
     ContractionMode, ContractionPlan, PairResolution, PlannedPair, UnresolvedReason, resolve_pair,
 };
 pub use edit_error::EditError;
-pub use element_ops::{ElementOps, ElementScope};
+pub use element_ops::ElementOps;
 pub use error::{InstError, ParseError, RestrictError};
 pub use error_detail::{ErrorDetail, PutDomainError};
 pub use fan::Fan;
