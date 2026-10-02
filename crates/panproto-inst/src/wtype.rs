@@ -1783,45 +1783,121 @@ pub fn apply_field_transforms(
     transforms: &[FieldTransform],
     ctx: &TransformContext<'_>,
 ) -> Result<(), RestrictError> {
-    apply_transforms_tracked(node, transforms, ctx, &mut BTreeSet::new())
+    let mut track = KeyTrack::over(node.extra_fields.keys());
+    apply_transforms_tracked(node, transforms, ctx, &mut track)
 }
 
-/// [`apply_field_transforms`], recording in `written` every `extra_fields`
-/// key a transform wrote.
+/// What a run of transforms did to a node's `extra_fields` keys: the keys
+/// it wrote, and, for each key holding a value carried from a key the node
+/// had when the run began (moved there by renames, possibly changed in
+/// place), that original key.
+///
+/// A key a transform computes afresh, or adds, has no origin; a key whose
+/// value is changed in place keeps its origin. So after the run a source
+/// key `c` is held by the view under the key whose origin is `c`, if any.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct KeyTrack {
+    /// The keys a transform wrote.
+    pub(crate) written: BTreeSet<String>,
+    /// For each key carrying an original key's value, that key.
+    pub(crate) origin: BTreeMap<String, String>,
+}
+
+impl KeyTrack {
+    /// The track at the start of a run over `keys`: nothing written, each
+    /// key its own origin.
+    pub(crate) fn over<'k>(keys: impl Iterator<Item = &'k String>) -> Self {
+        Self {
+            written: BTreeSet::new(),
+            origin: keys.map(|k| (k.clone(), k.clone())).collect(),
+        }
+    }
+
+    /// The key `from` was moved to `to`, replacing what `to` held.
+    fn moved(&mut self, from: &str, to: &str) {
+        let was_written = self.written.remove(from);
+        let origin = self.origin.remove(from);
+        if was_written {
+            self.written.insert(to.to_owned());
+        } else {
+            self.written.remove(to);
+        }
+        match origin {
+            Some(origin) => self.origin.insert(to.to_owned(), origin),
+            None => self.origin.remove(to),
+        };
+    }
+
+    /// The key was removed.
+    pub(crate) fn removed(&mut self, key: &str) {
+        self.written.remove(key);
+        self.origin.remove(key);
+    }
+
+    /// The key was written with a fresh value, carried from no key.
+    fn computed(&mut self, key: &str) {
+        self.written.insert(key.to_owned());
+        self.origin.remove(key);
+    }
+
+    /// The key's value was changed in place.
+    fn changed(&mut self, key: &str) {
+        self.written.insert(key.to_owned());
+    }
+
+    /// The key that holds the value of the original key `key`, if any: the
+    /// key whose origin it is, else the key itself when the node holds it
+    /// with a fresh value (computed over it); `None` when its value was
+    /// dropped or overwritten by a value moved onto it.
+    pub(crate) fn image_of<'t>(
+        &'t self,
+        key: &'t str,
+        fields: &HashMap<String, Value>,
+    ) -> Option<&'t str> {
+        if let Some((held, _)) = self.origin.iter().find(|(_, o)| o.as_str() == key) {
+            return Some(held.as_str());
+        }
+        (fields.contains_key(key) && !self.origin.contains_key(key)).then_some(key)
+    }
+}
+
+/// [`apply_field_transforms`], recording in `track` what each transform
+/// did to the node's keys.
 pub(crate) fn apply_transforms_tracked(
     node: &mut Node,
     transforms: &[FieldTransform],
     ctx: &TransformContext<'_>,
-    written: &mut BTreeSet<String>,
+    track: &mut KeyTrack,
 ) -> Result<(), RestrictError> {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
                 if let Some(val) = node.extra_fields.remove(old_key) {
                     node.extra_fields.insert(new_key.clone(), val);
-                    written.remove(old_key);
-                    written.insert(new_key.clone());
+                    track.moved(old_key, new_key);
+                    track.written.insert(new_key.clone());
                 }
             }
             FieldTransform::DropField { key } => {
                 node.extra_fields.remove(key);
-                written.remove(key);
+                track.removed(key);
             }
             FieldTransform::AddField { key, value } => {
                 if let std::collections::hash_map::Entry::Vacant(slot) =
                     node.extra_fields.entry(key.clone())
                 {
                     slot.insert(value.clone());
-                    written.insert(key.clone());
+                    track.computed(key);
                 }
             }
             FieldTransform::KeepFields { keys } => {
                 node.extra_fields.retain(|k, _| keys.contains(k));
-                written.retain(|k| keys.contains(k));
+                track.written.retain(|k| keys.contains(k));
+                track.origin.retain(|k, _| keys.contains(k));
             }
             FieldTransform::ApplyExpr { key, expr, .. } => {
                 if apply_expr_transform(node, key, expr, ctx)? {
-                    written.insert(key.clone());
+                    track.changed(key);
                 }
             }
             FieldTransform::ComputeField {
@@ -1837,7 +1913,7 @@ pub(crate) fn apply_transforms_tracked(
                 })?;
                 node.extra_fields
                     .insert(target_key.clone(), expr_literal_to_value(&result));
-                written.insert(target_key.clone());
+                track.computed(target_key);
             }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
@@ -1847,15 +1923,15 @@ pub(crate) fn apply_transforms_tracked(
                         node,
                         std::slice::from_ref(inner),
                         &ctx.with_child_values(HashMap::new()),
-                        written,
+                        track,
                     )?;
                 } else if apply_path_transform(node, path, inner, ctx)? {
-                    written.insert(path[0].clone());
+                    track.changed(&path[0]);
                 }
             }
             FieldTransform::MapReferences { field, rename_map } => {
                 if apply_map_references(node, field, rename_map) {
-                    written.insert(field.clone());
+                    track.changed(field);
                 }
             }
             FieldTransform::Case { branches } => {
@@ -1871,7 +1947,7 @@ pub(crate) fn apply_transforms_tracked(
                     let env = ctx.environment(&branch.predicate, &node.extra_fields)?;
                     let result = ctx.eval(&branch.predicate, &env, &config).map_err(failed)?;
                     if matches!(result, panproto_expr::Literal::Bool(true)) {
-                        apply_transforms_tracked(node, &branch.transforms, ctx, written)?;
+                        apply_transforms_tracked(node, &branch.transforms, ctx, track)?;
                         break;
                     }
                 }

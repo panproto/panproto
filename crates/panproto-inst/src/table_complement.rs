@@ -44,8 +44,10 @@ pub struct TableComplement {
     /// The rows the view does not hold: rows of dropped tables and rows a
     /// survival predicate drops.
     pub dropped_rows: BTreeMap<RowId, DroppedRow>,
-    /// The cells of kept rows that the view does not hold, by row and
-    /// column.
+    /// The cells of kept rows whose value the view does not hold, by row
+    /// and source column. A column the migration renames is held, under
+    /// its new name, and so is no dropped cell; a column whose value is
+    /// replaced by a value moved onto its name is one.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub dropped_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs the view does not hold, by source foreign key.
@@ -64,7 +66,8 @@ pub struct TableComplement {
     /// nothing.
     pub original_tables: BTreeMap<RowId, Name>,
     /// The source values of cells of kept rows that the view holds with
-    /// another value, by row and column.
+    /// another value, under their column or the one the migration renamed
+    /// it to, by row and source column.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub original_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs contraction synthesized, each keyed in the graph form by

@@ -35,7 +35,7 @@ use crate::value::coerce::coerce_value;
 use crate::value::{Value, ValueSite};
 use crate::view_ref::SynthKey;
 use crate::wtype::{
-    CompiledMigration, TransformContext, apply_transforms_tracked, direct_source_edge_image,
+    CompiledMigration, KeyTrack, TransformContext, apply_transforms_tracked, direct_source_edge_image,
 };
 
 /// An element of the source schema on which the survival rule of the
@@ -676,6 +676,9 @@ impl RestrictPlan {
     /// its source table, then the coercion of every key a transform wrote
     /// that is a column of its target table to that column's spec.
     ///
+    /// Returns what the run did to the element's keys, from which each
+    /// source key's key in the result is read ([`KeyTrack::image_of`]).
+    ///
     /// # Errors
     ///
     /// The errors of the transforms ([`apply_field_transforms`]), and
@@ -689,19 +692,19 @@ impl RestrictPlan {
         source_anchor: &Name,
         ctx: &TransformContext<'_>,
         cells: bool,
-    ) -> Result<(), RestrictError> {
+    ) -> Result<KeyTrack, RestrictError> {
         let transforms = self.migration.value_transforms(source_anchor);
-        let mut written = BTreeSet::new();
+        let mut track = KeyTrack::over(node.extra_fields.keys());
         if !transforms.is_empty() {
-            apply_transforms_tracked(node, &transforms, ctx, &mut written)?;
+            apply_transforms_tracked(node, &transforms, ctx, &mut track)?;
         }
         let Some(layer) = self.cells() else {
-            return Ok(());
+            return Ok(track);
         };
         if cells && let Some(fates) = layer.fates.get(source_anchor) {
-            apply_cell_fates(&mut node.extra_fields, fates, &mut written);
+            apply_cell_fates(&mut node.extra_fields, fates, &mut track);
         }
-        for key in written {
+        for key in track.written.clone() {
             let Some(spec) = layer.specs.get(&(node.anchor.clone(), key.clone())) else {
                 continue;
             };
@@ -716,7 +719,7 @@ impl RestrictPlan {
                 })?;
             node.extra_fields.insert(key, coerced);
         }
-        Ok(())
+        Ok(track)
     }
 
     /// The value vertex of `column` of the target table `table`.
@@ -749,33 +752,35 @@ impl RestrictPlan {
 /// Apply cell fates to a row's cells all at once: every dropped or renamed
 /// column is read from the cells as they were, so a rename onto a column
 /// that is itself renamed or dropped moves the right value. A renamed value
-/// carries whether a transform wrote it.
-fn apply_cell_fates(
-    fields: &mut HashMap<String, Value>,
-    fates: &[CellFate],
-    written: &mut BTreeSet<String>,
-) {
+/// carries whether a transform wrote it and the key it came from.
+fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], track: &mut KeyTrack) {
     let mut moved = Vec::new();
     for fate in fates {
         match fate {
             CellFate::Drop(column) => {
                 fields.remove(column);
-                written.remove(column);
+                track.removed(column);
             }
             CellFate::Rename(from, to) => {
                 if let Some(value) = fields.remove(from) {
-                    moved.push((to, value, written.remove(from)));
+                    let was_written = track.written.remove(from);
+                    let origin = track.origin.remove(from);
+                    moved.push((to, value, was_written, origin));
                 }
             }
         }
     }
-    for (to, value, was_written) in moved {
+    for (to, value, was_written, origin) in moved {
         fields.insert(to.clone(), value);
         if was_written {
-            written.insert(to.clone());
+            track.written.insert(to.clone());
         } else {
-            written.remove(to);
+            track.written.remove(to);
         }
+        match origin {
+            Some(origin) => track.origin.insert(to.clone(), origin),
+            None => track.origin.remove(to),
+        };
     }
 }
 

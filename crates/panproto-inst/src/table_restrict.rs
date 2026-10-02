@@ -159,12 +159,17 @@ impl<'a> TableRun<'a> {
         let image = self.plan.target_anchor(table).clone();
         let mut node = Node::new(id.0, image.clone());
         node.extra_fields.clone_from(row);
-        self.plan.transform(&mut node, table, &ctx, true)?;
+        let track = self.plan.transform(&mut node, table, &ctx, true)?;
         if !self.reverse.recovers(&image, table) {
             self.complement.original_tables.insert(id, table.clone());
         }
+        // Each source cell is compared with the cell the view holds its
+        // value in, under the column it was renamed to if it was renamed.
         for (column, value) in row {
-            match node.extra_fields.get(column) {
+            let held = track
+                .image_of(column, &node.extra_fields)
+                .and_then(|key| node.extra_fields.get(key));
+            match held {
                 None => {
                     self.complement
                         .dropped_cells

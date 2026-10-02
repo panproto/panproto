@@ -831,3 +831,121 @@ proptest! {
         }
     }
 }
+
+#[test]
+fn a_renamed_column_is_no_dropped_cell() {
+    // The column `a` is renamed to `a2` by the edge map: the view holds its
+    // value under the new name, so the complement records nothing for it
+    // and a bijective rename leaves trivial residue.
+    let src = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let tgt = tables(&[("t", &[("a2", "int"), ("b", "int")])], &[]);
+    let m = CompiledMigration {
+        surviving_verts: ["t", "t.a2", "t.b"].iter().map(|v| Name::from(*v)).collect(),
+        surviving_edges: [column("t", "a2"), column("t", "b")].into(),
+        vertex_remap: HashMap::from([("t.a".into(), "t.a2".into())]),
+        edge_remap: HashMap::from([(column("t", "a"), column("t", "a2"))]),
+        ..CompiledMigration::default()
+    };
+    let f = FInstance::new()
+        .with_rows(
+            "t",
+            [(
+                RowId(0),
+                cells(&[("a", Value::Int(1)), ("b", Value::Int(2))]),
+            )],
+        )
+        .unwrap();
+    let (view, complement) = functor_restrict_with_plan(&f, &plan(&src, &tgt, &m)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).unwrap(),
+        &cells(&[("a2", Value::Int(1)), ("b", Value::Int(2))])
+    );
+    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(complement.original_cells, BTreeMap::new());
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+}
+
+#[test]
+fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
+    let (schema, f) = people();
+    // A rename alone: nothing recorded.
+    let mut m = identity(&schema);
+    m.add_field_rename("person", "name", "label");
+    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).unwrap().get("label"),
+        Some(&Value::Str("Ann".into()))
+    );
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+    // A rename, then a change of the renamed value: the source value is
+    // recorded under the source column, and nothing is dropped.
+    let mut m = identity(&schema);
+    m.add_field_rename("person", "age", "years");
+    m.field_transforms
+        .entry("person".into())
+        .or_default()
+        .push(panproto_inst::FieldTransform::ApplyExpr {
+            key: "years".into(),
+            expr: Expr::Builtin(
+                BuiltinOp::Add,
+                vec![Expr::Var("years".into()), Expr::Lit(Literal::Int(1))],
+            ),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
+        });
+    let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).unwrap().get("years"),
+        Some(&Value::Int(11))
+    );
+    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        complement.original_cells,
+        BTreeMap::from([
+            ((RowId(0), "age".to_owned()), Value::Int(10)),
+            ((RowId(1), "age".to_owned()), Value::Int(40)),
+        ])
+    );
+    // A rename onto a column the row holds: that column's own value is
+    // gone from the view, so it is a dropped cell, and the moved one is not.
+    let two = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let row = FInstance::new()
+        .with_rows(
+            "t",
+            [(
+                RowId(0),
+                cells(&[("a", Value::Int(1)), ("b", Value::Int(2))]),
+            )],
+        )
+        .unwrap();
+    let mut m = identity(&two);
+    m.add_field_rename("t", "a", "b");
+    let (view, complement) = functor_restrict_with_plan(&row, &plan(&two, &two, &m)).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap(), &cells(&[("b", Value::Int(1))]));
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([((RowId(0), "b".to_owned()), Value::Int(2))])
+    );
+    assert_eq!(complement.original_cells, BTreeMap::new());
+    // A computed value written over a column the row holds is that
+    // column's changed value.
+    let mut m = identity(&schema);
+    m.field_transforms
+        .entry("person".into())
+        .or_default()
+        .push(panproto_inst::FieldTransform::ComputeField {
+            target_key: "age".into(),
+            expr: Expr::Lit(Literal::Int(0)),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
+        });
+    let (_, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        complement.original_cells,
+        BTreeMap::from([
+            ((RowId(0), "age".to_owned()), Value::Int(10)),
+            ((RowId(1), "age".to_owned()), Value::Int(40)),
+        ])
+    );
+}
