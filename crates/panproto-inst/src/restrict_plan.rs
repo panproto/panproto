@@ -874,6 +874,7 @@ impl RestrictError {
             Self::SurvivalPredicateFailed { .. } => 30,
             Self::PlanSchemaMismatch { .. } => 31,
             Self::ExpansionTooLong { .. } => 32,
+            Self::NonConforming { .. } => 33,
         }
     }
 

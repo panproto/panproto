@@ -1092,6 +1092,207 @@ fn a_value_dependent_swap_leaves_distinct_table_complements() {
     assert_ne!(unswapped, swapped);
 }
 
+/// The table `t(a, c)` holding one row, id 0, of the given cells.
+fn one_row(row: &[(&str, Value)]) -> FInstance {
+    FInstance::new()
+        .with_rows("t", [(RowId(0), cells(row))])
+        .unwrap()
+}
+
+/// Whether `result` is the refusal of row `row` at `column` for `reason`.
+fn refused_as_nonconforming<T: std::fmt::Debug>(
+    result: &Result<T, RestrictError>,
+    row: u32,
+    column: Option<&str>,
+    reason: &panproto_inst::NonConformance,
+) -> bool {
+    matches!(
+        result,
+        Err(RestrictError::NonConforming { row: r, column: c, reason: why })
+            if *r == RowId(row) && c.as_deref() == column && why == reason
+    )
+}
+
+#[test]
+fn a_partial_row_is_refused_since_no_complement_could_restore_its_absent_cell() {
+    // `AddField c := 0` sends {a: 1} and {a: 1, c: 0} to the one view row
+    // {a: 1, c: 0}. The second is unchanged, so its complement is empty,
+    // and a put from the view must give it back; the first then has no
+    // complement that restores it. The table restrict reads total rows
+    // only (absent and null cells differ), so it refuses the partial row
+    // and keeps the total one.
+    let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let mut m = identity(&schema);
+    m.field_transforms.insert(
+        "t".into(),
+        vec![panproto_inst::FieldTransform::AddField {
+            key: "c".into(),
+            value: Value::Int(0),
+        }],
+    );
+    let p = protocol();
+    let missing = panproto_inst::NonConformance::MissingCell;
+    let partial = one_row(&[("a", Value::Int(1))]);
+    let total = one_row(&[("a", Value::Int(1)), ("c", Value::Int(0))]);
+    let engine = functor_restrict_with_plan(&partial, &plan(&schema, &schema, &m));
+    assert!(
+        refused_as_nonconforming(&engine, 0, Some("c"), &missing),
+        "{engine:?}"
+    );
+    let validated = functor_restrict_with_complement(&partial, &schema, &schema, &m, protocols(&p));
+    assert!(
+        refused_as_nonconforming(&validated, 0, Some("c"), &missing),
+        "{validated:?}"
+    );
+    let (view, complement) =
+        functor_restrict_with_complement(&total, &schema, &schema, &m, protocols(&p)).unwrap();
+    assert_eq!(
+        view.row(RowId(0)),
+        Some(&cells(&[("a", Value::Int(1)), ("c", Value::Int(0))]))
+    );
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+    // A null cell is a cell: the row holding it is total, and `AddField`
+    // leaves a cell the row holds as it is.
+    let null = one_row(&[("a", Value::Int(1)), ("c", Value::Null)]);
+    let (view, complement) =
+        functor_restrict_with_plan(&null, &plan(&schema, &schema, &m)).unwrap();
+    assert_eq!(view.row(RowId(0)), null.row(RowId(0)));
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+}
+
+#[test]
+fn the_table_engine_refuses_a_stray_cell_and_a_row_outside_the_tables() {
+    // A cell at no column of its table, which `AddField x := 5` would
+    // leave unchanged, and so unrecorded, while it adds the cell to a row
+    // without it: the engine, which validates nothing, refuses it as the
+    // validated restrict's source boundary does.
+    let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let mut m = identity(&schema);
+    m.field_transforms.insert(
+        "t".into(),
+        vec![panproto_inst::FieldTransform::AddField {
+            key: "x".into(),
+            value: Value::Int(5),
+        }],
+    );
+    let p = protocol();
+    let table_plan = plan(&schema, &schema, &m);
+    let stray = one_row(&[
+        ("a", Value::Int(1)),
+        ("c", Value::Int(2)),
+        ("x", Value::Int(5)),
+    ]);
+    let engine = functor_restrict_with_plan(&stray, &table_plan);
+    assert!(
+        refused_as_nonconforming(
+            &engine,
+            0,
+            Some("x"),
+            &panproto_inst::NonConformance::StrayCell
+        ),
+        "{engine:?}"
+    );
+    assert!(matches!(
+        functor_restrict_with_complement(&stray, &schema, &schema, &m, protocols(&p)),
+        Err(RestrictError::Validation {
+            side: BoundarySide::Input,
+            ..
+        })
+    ));
+    // The least offending column decides between a missing and a stray
+    // cell: `a` is missing before `b` is stray, and `b` is stray before
+    // `c` is missing.
+    let engine = functor_restrict_with_plan(
+        &one_row(&[("b", Value::Int(1)), ("c", Value::Int(2))]),
+        &table_plan,
+    );
+    assert!(
+        refused_as_nonconforming(
+            &engine,
+            0,
+            Some("a"),
+            &panproto_inst::NonConformance::MissingCell
+        ),
+        "{engine:?}"
+    );
+    let engine = functor_restrict_with_plan(
+        &one_row(&[("a", Value::Int(1)), ("b", Value::Int(2))]),
+        &table_plan,
+    );
+    assert!(
+        refused_as_nonconforming(
+            &engine,
+            0,
+            Some("b"),
+            &panproto_inst::NonConformance::StrayCell
+        ),
+        "{engine:?}"
+    );
+    // A row at a vertex that is no table: the column vertex `t.a`.
+    let outside = FInstance::new()
+        .with_rows("t.a", [(RowId(0), cells(&[]))])
+        .unwrap();
+    let engine = functor_restrict_with_plan(&outside, &table_plan);
+    assert!(
+        refused_as_nonconforming(
+            &engine,
+            0,
+            None,
+            &panproto_inst::NonConformance::TableOutside {
+                table: "t.a".into()
+            }
+        ),
+        "{engine:?}"
+    );
+}
+
+#[test]
+fn a_nonconforming_row_is_refused_in_ascending_row_order() {
+    // Row order decides between a row's conformance and another row's
+    // survival predicate, as between two rows' predicates: the least row
+    // with a refusal gives it, and a row's conformance comes before its
+    // own predicate.
+    let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let mut m = identity(&schema);
+    m.add_conditional_survival(
+        "t",
+        Expr::Builtin(
+            BuiltinOp::Gt,
+            vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(0))],
+        ),
+    );
+    let table_plan = plan(&schema, &schema, &m);
+    let instance = |first: HashMap<String, Value>, second: HashMap<String, Value>| {
+        FInstance::new()
+            .with_rows("t", [(RowId(0), first), (RowId(1), second)])
+            .unwrap()
+    };
+    let total = cells(&[("a", Value::Int(1)), ("c", Value::Int(2))]);
+    // `a` is a string: the predicate fails to evaluate.
+    let failing = cells(&[("a", Value::Str("s".into())), ("c", Value::Int(2))]);
+    let partial = cells(&[("c", Value::Int(2))]);
+    let missing = panproto_inst::NonConformance::MissingCell;
+    let first =
+        functor_restrict_with_plan(&instance(partial.clone(), failing.clone()), &table_plan);
+    assert!(
+        refused_as_nonconforming(&first, 0, Some("a"), &missing),
+        "{first:?}"
+    );
+    let second = functor_restrict_with_plan(&instance(failing, partial.clone()), &table_plan);
+    assert!(
+        matches!(
+            second,
+            Err(RestrictError::SurvivalPredicateFailed { node: 0, .. })
+        ),
+        "{second:?}"
+    );
+    let later = functor_restrict_with_plan(&instance(total, partial), &table_plan);
+    assert!(
+        refused_as_nonconforming(&later, 1, Some("a"), &missing),
+        "{later:?}"
+    );
+}
+
 /// One value transform of `t(a, c)` from a pool that renames, swaps on a
 /// value, drops, overwrites, changes in place and computes a column the
 /// table lacks.
@@ -1132,6 +1333,98 @@ fn pooled_transform(choice: u8) -> panproto_inst::FieldTransform {
     }
 }
 
+/// The row of `t(a, c)` that `shape` draws from the cells `a` and `c`:
+/// total for 0 to 2, without `a` for 3, without `c` for 4, and with the
+/// stray cell `x` for 5; with the refusal the table engine owes it, if any.
+fn drawn_row(
+    a: i64,
+    c: i64,
+    shape: u8,
+) -> (
+    HashMap<String, Value>,
+    Option<(&'static str, panproto_inst::NonConformance)>,
+) {
+    use panproto_inst::NonConformance::{MissingCell, StrayCell};
+    match shape {
+        3 => (cells(&[("c", Value::Int(c))]), Some(("a", MissingCell))),
+        4 => (cells(&[("a", Value::Int(a))]), Some(("c", MissingCell))),
+        5 => (
+            cells(&[
+                ("a", Value::Int(a)),
+                ("c", Value::Int(c)),
+                ("x", Value::Int(0)),
+            ]),
+            Some(("x", StrayCell)),
+        ),
+        _ => (cells(&[("a", Value::Int(a)), ("c", Value::Int(c))]), None),
+    }
+}
+
+/// The table and graph restricts of `f` along `m` on `t(a, c)`, with the
+/// cell residue agreement of
+/// `table_and_graph_cell_residues_agree_but_for_a_computed_column`.
+fn cell_residues_agree(
+    schema: &Schema,
+    m: &CompiledMigration,
+    f: &FInstance,
+) -> Result<(), TestCaseError> {
+    let p = protocol();
+    let table_plan = RestrictPlan::compile_for_tables(schema, schema, m, protocols(&p)).unwrap();
+    let graph_plan =
+        RestrictPlan::compile_with_protocols(schema, schema, m, protocols(&p)).unwrap();
+    let (graph, _) = GInstance::from_finstance(f).unwrap();
+    let table = functor_restrict_with_plan(f, &table_plan);
+    let graph = graph_restrict_with_plan(&graph, &graph_plan);
+    match (table, graph) {
+        (Ok((view, complement)), Ok((_, graph_complement))) => {
+            for id in view.row_ids() {
+                let (view_row, source_row) = (view.row(id).unwrap(), f.row(id).unwrap());
+                prop_assert_eq!(
+                    &restored_row(view_row, &complement, id, &["a", "c"]),
+                    source_row
+                );
+                let table_records = complement
+                    .dropped_cells
+                    .keys()
+                    .chain(complement.original_cells.keys())
+                    .any(|(r, _)| *r == id);
+                let graph_records = graph_complement.original_extra_fields.contains_key(&id.0);
+                let extra = view_row.keys().any(|k| k != "a" && k != "c");
+                prop_assert!(
+                    graph_records == table_records || (graph_records && !table_records && extra),
+                    "row {:?}: table {:?}\ngraph {:?}",
+                    id,
+                    complement,
+                    graph_complement
+                );
+                if graph_records {
+                    let snapshot: HashMap<String, Value> = graph_complement.original_extra_fields
+                        [&id.0]
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect();
+                    prop_assert_eq!(&snapshot, source_row);
+                }
+            }
+        }
+        (Err(table_error), Err(graph_error)) => {
+            prop_assert_eq!(
+                table_error.kind_index(),
+                graph_error.unlocated().kind_index()
+            );
+        }
+        (table, graph) => {
+            prop_assert!(
+                false,
+                "table {:?} graph {:?}",
+                table.map(|r| r.0),
+                graph.map(|r| r.0)
+            );
+        }
+    }
+    Ok(())
+}
+
 proptest! {
     #![proptest_config(ProptestConfig::with_cases(512))]
 
@@ -1142,62 +1435,54 @@ proptest! {
     /// row's cells exactly when the graph engine records its fields on the
     /// table's graph form, except on a row whose view holds a cell outside
     /// the source table's columns while every source column keeps its name
-    /// and value, which the graph records and the table does not.
+    /// and value, which the graph records and the table does not. A source
+    /// with a row that is not total (a cell missing or stray) is refused at
+    /// the least such row, before any comparison.
     #[test]
     fn table_and_graph_cell_residues_agree_but_for_a_computed_column(
         choices in prop::collection::vec(0u8..7, 0..4),
-        rows in prop::collection::vec((-2i64..3, -2i64..3), 0..4),
+        rows in prop::collection::vec((-2i64..3, -2i64..3, 0u8..6), 0..4),
     ) {
         let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
         let mut m = identity(&schema);
         m.field_transforms
             .insert("t".into(), choices.iter().map(|c| pooled_transform(*c)).collect());
         let mut f = FInstance::new();
-        for (i, (a, c)) in rows.iter().enumerate() {
-            f = f
-                .with_rows(
-                    "t",
-                    [(
-                        RowId(u32::try_from(i).unwrap()),
-                        cells(&[("a", Value::Int(*a)), ("c", Value::Int(*c))]),
-                    )],
-                )
-                .unwrap();
+        // The rows before the first that is not total, and that row's
+        // refusal.
+        let mut prefix = FInstance::new();
+        let mut owed = None;
+        for (i, (a, c, shape)) in rows.iter().enumerate() {
+            let id = u32::try_from(i).unwrap();
+            let (row, refusal) = drawn_row(*a, *c, *shape);
+            if owed.is_none() {
+                owed = refusal.map(|(column, reason)| (id, column, reason));
+            }
+            if owed.is_none() {
+                prefix = prefix.with_rows("t", [(RowId(id), row.clone())]).unwrap();
+            }
+            f = f.with_rows("t", [(RowId(id), row)]).unwrap();
         }
-        let p = protocol();
-        let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)).unwrap();
-        let graph_plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
-        let (graph, _) = GInstance::from_finstance(&f).unwrap();
-        match (functor_restrict_with_plan(&f, &table_plan), graph_restrict_with_plan(&graph, &graph_plan)) {
-            (Ok((view, complement)), Ok((_, graph_complement))) => {
-                for id in view.row_ids() {
-                    let (view_row, source_row) = (view.row(id).unwrap(), f.row(id).unwrap());
-                    prop_assert_eq!(
-                        &restored_row(view_row, &complement, id, &["a", "c"]),
-                        source_row
-                    );
-                    let table_records = complement.dropped_cells.keys().chain(complement.original_cells.keys()).any(|(r, _)| *r == id);
-                    let graph_records = graph_complement.original_extra_fields.contains_key(&id.0);
-                    let extra = view_row.keys().any(|k| k != "a" && k != "c");
-                    prop_assert!(
-                        graph_records == table_records || (graph_records && !table_records && extra),
-                        "row {:?}: table {:?}\ngraph {:?}", id, complement, graph_complement
-                    );
-                    if graph_records {
-                        let snapshot: HashMap<String, Value> = graph_complement.original_extra_fields[&id.0]
-                            .iter()
-                            .map(|(k, v)| (k.clone(), v.clone()))
-                            .collect();
-                        prop_assert_eq!(&snapshot, source_row);
-                    }
-                }
+        if let Some((id, column, reason)) = owed {
+            // Rows are refused in ascending id: a refusal of a total row
+            // before it comes first, and otherwise the row's own.
+            let p = protocol();
+            let table_plan =
+                RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)).unwrap();
+            let refused = functor_restrict_with_plan(&f, &table_plan);
+            match functor_restrict_with_plan(&prefix, &table_plan) {
+                Err(earlier) => prop_assert_eq!(
+                    format!("{:?}", refused.map(|r| r.0)),
+                    format!("{:?}", Err::<FInstance, _>(earlier))
+                ),
+                Ok(_) => prop_assert!(
+                    refused_as_nonconforming(&refused, id, Some(column), &reason),
+                    "{:?}",
+                    refused.map(|r| r.0)
+                ),
             }
-            (Err(table_error), Err(graph_error)) => {
-                prop_assert_eq!(table_error.kind_index(), graph_error.unlocated().kind_index());
-            }
-            (table, graph) => {
-                prop_assert!(false, "table {:?} graph {:?}", table.map(|r| r.0), graph.map(|r| r.0));
-            }
+        } else {
+            cell_residues_agree(&schema, &m, &f)?;
         }
     }
 }

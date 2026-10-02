@@ -533,3 +533,30 @@ fn the_table_path_declines_without_a_table_plan_or_a_table() {
     positioned.set_edge_position(id, Some(0)).unwrap();
     assert!(graph_restrict_on_table(&positioned, &table_plan).is_none());
 }
+
+#[test]
+fn the_table_path_declines_a_graph_whose_node_lacks_a_column() {
+    // A node without the column `c` is a table-shaped graph but no total
+    // table, which the table engine refuses; the dispatcher then gives the
+    // graph engine's view.
+    let relations = vec![fk("t0", "t1", "r01")];
+    let schema = table_schema(&relations);
+    let m = table_migration(&relations, &[true, true, true], false);
+    let protocol = table_protocol();
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols).unwrap();
+    let mut g = table_graph(&relations, &[(0, 1)], &[]);
+    g = g.with_node(Node::new(3, "t1"));
+    g.add_edge(0, 3, fk("t0", "t1", "r01")).unwrap();
+    assert!(graph_restrict_on_table(&g, &table_plan).is_none());
+    let (engine, _) = graph_restrict_with_plan(&g, &table_plan).unwrap();
+    let dispatched = graph_restrict_dispatched(&g, &table_plan).unwrap();
+    assert!(
+        GInstance::identical(&dispatched, &engine),
+        "{dispatched:?}\n{engine:?}"
+    );
+    assert_eq!(engine.node_count(), 2);
+}

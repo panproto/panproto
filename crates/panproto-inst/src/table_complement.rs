@@ -32,7 +32,8 @@ pub struct DroppedRow {
 /// edges, cells for fields.
 ///
 /// It is a complement in the sense of bancilhonspyratos1981update (Def 4.4,
-/// stated): get paired with it is injective on sources. Selection keeps the
+/// stated): get paired with it is injective on the sources the table
+/// restrict accepts, whose rows are total. Selection keeps the
 /// rows it hides here, but a view deletion cascades into the pairs held here,
 /// so it is not a constant complement (inferred).
 ///
@@ -73,8 +74,10 @@ pub struct TableComplement {
     /// column on which the view row and the source row disagree, so a put
     /// rebuilds the source row, column by column of its source table, from
     /// `dropped_cells`, else `original_cells`, else the view's cell of that
-    /// name; get paired with the complement is thus injective on sources,
-    /// value-dependent renames included.
+    /// name. Since the table restrict refuses a row whose cells are not
+    /// exactly its table's columns, get paired with the complement is
+    /// injective on the sources it accepts, value-dependent renames
+    /// included.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub original_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs contraction synthesized, each keyed in the graph form by

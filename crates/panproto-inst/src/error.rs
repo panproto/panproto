@@ -555,6 +555,27 @@ pub enum RestrictError {
         /// The number of edges on the path.
         hops: usize,
     },
+
+    /// A row of a table instance does not conform to the source schema of
+    /// a table restrict: it lies at no table, or its cells are not exactly
+    /// its table's columns. The table restrict reads total rows only, so
+    /// that the complement can name every column on which a view row and
+    /// its source row disagree.
+    #[error("row {row:?} does not conform to the source schema (column {column:?}): {reason}")]
+    NonConforming {
+        /// The least offending row.
+        row: RowId,
+        /// The offending column, when the violation is at a cell.
+        column: Option<String>,
+        /// What is wrong: [`NonConformance::TableOutside`],
+        /// [`NonConformance::MissingCell`] or
+        /// [`NonConformance::StrayCell`].
+        ///
+        /// [`NonConformance::TableOutside`]: crate::NonConformance::TableOutside
+        /// [`NonConformance::MissingCell`]: crate::NonConformance::MissingCell
+        /// [`NonConformance::StrayCell`]: crate::NonConformance::StrayCell
+        reason: crate::NonConformance,
+    },
 }
 
 /// Errors from JSON parsing.

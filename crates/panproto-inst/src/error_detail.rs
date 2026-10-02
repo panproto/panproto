@@ -292,6 +292,7 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::SurvivalPredicateFailed { .. } => "survival_predicate_failed",
         RestrictError::PlanSchemaMismatch { .. } => "plan_schema_mismatch",
         RestrictError::ExpansionTooLong { .. } => "expansion_too_long",
+        RestrictError::NonConforming { .. } => "non_conforming",
     }
 }
 

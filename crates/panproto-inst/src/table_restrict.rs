@@ -19,6 +19,7 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 use panproto_gat::Name;
 use panproto_schema::{Edge, Protocol, Schema};
 
+use crate::adjunction::NonConformance;
 use crate::contraction_plan::PairResolution;
 use crate::error::RestrictError;
 use crate::functor::{FInstance, PairSet, Row, same_value};
@@ -37,10 +38,13 @@ use crate::wtype::{CompiledMigration, InstanceRef, TransformContext};
 /// The restrict of a table instance along a plan compiled for tables: the
 /// single table engine.
 ///
-/// The precondition is the caller's: this function validates nothing, so
-/// the instance should be valid against the plan's source schema
-/// ([`functor_restrict_with_complement`] validates both boundaries). The
-/// complement is unstamped; the lens stamps it.
+/// The precondition is the caller's: this function validates nothing
+/// beyond the shape of each row, so the instance should be valid against
+/// the plan's source schema ([`functor_restrict_with_complement`] validates
+/// both boundaries). Every row must be total, a cell at each column of its
+/// table and at no other key, which it refuses otherwise: on total rows get
+/// paired with the complement is injective. The complement is unstamped;
+/// the lens stamps it.
 ///
 /// Rows are read in ascending id. A row survives when its table survives
 /// the vertex map and its table's survival predicate, evaluated over its
@@ -59,8 +63,11 @@ use crate::wtype::{CompiledMigration, InstanceRef, TransformContext};
 /// # Errors
 ///
 /// [`RestrictError::TablePlanRequired`] for a plan compiled without the
-/// table functor. Then, in ascending row id, the refusals of survival
-/// predicates and transforms; in ascending foreign key and pair,
+/// table functor. Then, in ascending row id and for each row in this order,
+/// [`RestrictError::NonConforming`] for a row at no table of the source
+/// schema or whose cells are not exactly its table's columns (the engine
+/// reads total rows: an absent cell and a [`Value::Null`] one differ), and
+/// the refusals of its survival predicate and transforms; in ascending foreign key and pair,
 /// [`RestrictError::IncoherentEdgeImage`] for a pair whose key is no source
 /// schema edge, and [`RestrictError::NotTableRepresentable`],
 /// [`RestrictError::NoEdgeFound`] or [`RestrictError::AmbiguousEdge`] for a
@@ -70,10 +77,10 @@ pub fn functor_restrict_with_plan(
     instance: &FInstance,
     plan: &RestrictPlan,
 ) -> Result<(FInstance, TableComplement), RestrictError> {
-    if plan.table_functor().is_none() {
+    let Some(functor) = plan.table_functor() else {
         return Err(RestrictError::TablePlanRequired);
-    }
-    let mut run = TableRun::new(instance, plan);
+    };
+    let mut run = TableRun::new(instance, plan, functor.source());
     run.rows()?;
     run.pairs()?;
     run.contraction()?;
@@ -86,6 +93,8 @@ struct TableRun<'a> {
     plan: &'a RestrictPlan,
     migration: &'a CompiledMigration,
     reverse: ReverseAnchors<'a>,
+    /// The source schema's tables and their columns.
+    source: &'a RelSchema,
     complement: TableComplement,
     view: FInstance,
     /// For each view pair, the source keys that carried it.
@@ -93,7 +102,7 @@ struct TableRun<'a> {
 }
 
 impl<'a> TableRun<'a> {
-    fn new(instance: &'a FInstance, plan: &'a RestrictPlan) -> Self {
+    fn new(instance: &'a FInstance, plan: &'a RestrictPlan, source: &'a RelSchema) -> Self {
         let mut complement = TableComplement::empty();
         complement.id_floor = floor_above(instance.max_row_id().map(|r| r.0));
         Self {
@@ -101,6 +110,7 @@ impl<'a> TableRun<'a> {
             plan,
             migration: plan.migration(),
             reverse: ReverseAnchors::new(plan.migration()),
+            source,
             complement,
             view: FInstance::new(),
             carriers: BTreeMap::new(),
@@ -114,6 +124,7 @@ impl<'a> TableRun<'a> {
             else {
                 continue;
             };
+            self.conform(id, table, row)?;
             match self.row(id, table, row)? {
                 Some((image, cells)) => self.view.place_row(image, id, cells),
                 None => {
@@ -128,6 +139,43 @@ impl<'a> TableRun<'a> {
             }
         }
         Ok(())
+    }
+
+    /// Refuse a row that lies at no table of the source schema, or whose
+    /// cells are not exactly its table's columns, at the least column that
+    /// is missing or stray.
+    ///
+    /// The complement names the source columns on which a view row and its
+    /// source row disagree, which determines the source row only when its
+    /// keys are fixed: `AddField c := 0` sends `{a: 1}` and `{a: 1, c: 0}`
+    /// to one view row, and leaves the second nothing to record.
+    fn conform(&self, id: RowId, table: &Name, row: &Row) -> Result<(), RestrictError> {
+        let refuse = |column: Option<String>, reason: NonConformance| {
+            Err(RestrictError::NonConforming {
+                row: id,
+                column,
+                reason,
+            })
+        };
+        if !self.source.is_table(table) {
+            return refuse(
+                None,
+                NonConformance::TableOutside {
+                    table: table.clone(),
+                },
+            );
+        }
+        let columns = self.source.columns(table);
+        let missing = columns.keys().find(|column| !row.contains_key(*column));
+        let stray = row.keys().filter(|key| !columns.contains_key(*key)).min();
+        match (missing, stray) {
+            (Some(missing), Some(stray)) if stray < missing => {
+                refuse(Some(stray.clone()), NonConformance::StrayCell)
+            }
+            (Some(missing), _) => refuse(Some(missing.clone()), NonConformance::MissingCell),
+            (None, Some(stray)) => refuse(Some(stray.clone()), NonConformance::StrayCell),
+            (None, None) => Ok(()),
+        }
     }
 
     /// The view of one row, its table and cells, or `None` when it does not

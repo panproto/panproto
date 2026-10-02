@@ -278,6 +278,14 @@ fn a_restrict_error_detail_carries_its_error_key() {
             },
             "expansion_too_long",
         ),
+        (
+            RestrictError::NonConforming {
+                row: panproto_inst::RowId(0),
+                column: Some("c".into()),
+                reason: panproto_inst::NonConformance::MissingCell,
+            },
+            "non_conforming",
+        ),
     ];
     for (error, kind) in kinds {
         match error.detail() {
@@ -432,4 +440,67 @@ fn a_literal_predicate_needs_no_children() {
     m.add_conditional_survival("a", Expr::Lit(Literal::Bool(false)));
     let view = run(&GInstance::new().with_node(Node::new(0, "a")), &s, &s, &m).unwrap();
     assert_eq!(view.node_count(), 0);
+}
+
+/// The variant names of the enum `name` declared in `source`, in order.
+fn declared_variants(source: &str, name: &str) -> Vec<String> {
+    let start = source
+        .find(&format!("pub enum {name} {{"))
+        .expect("the enum is declared");
+    let body = &source[start..];
+    let end = body.find("\n}\n").expect("the enum is closed");
+    body[..end]
+        .lines()
+        .skip(1)
+        .filter_map(|line| {
+            let rest = line.strip_prefix("    ")?;
+            rest.chars().next()?.is_ascii_uppercase().then(|| {
+                rest.chars()
+                    .take_while(char::is_ascii_alphanumeric)
+                    .collect()
+            })
+        })
+        .collect()
+}
+
+#[test]
+fn every_kind_index_is_its_variants_declaration_index() {
+    // The arms of `kind_index` give each variant its position in the
+    // declaration of `RestrictError`, every variant has an arm, and `At`,
+    // whose index is its inner error's, holds a position no arm returns.
+    let variants = declared_variants(include_str!("../src/error.rs"), "RestrictError");
+    let plan = include_str!("../src/restrict_plan.rs");
+    let start = plan.find("pub fn kind_index(&self) -> u8 {").unwrap();
+    let body = &plan[start..];
+    let body = &body[..body.find("\n    }\n").unwrap()];
+    let mut arms: Vec<(String, Option<usize>)> = Vec::new();
+    for line in body.lines() {
+        let Some(rest) = line.trim().strip_prefix("Self::") else {
+            continue;
+        };
+        let name: String = rest
+            .chars()
+            .take_while(char::is_ascii_alphanumeric)
+            .collect();
+        let index = rest
+            .rsplit("=> ")
+            .next()
+            .and_then(|n| n.trim_end_matches(',').parse().ok());
+        arms.push((name, index));
+    }
+    let names: Vec<&str> = arms.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        names,
+        variants.iter().map(String::as_str).collect::<Vec<_>>(),
+        "the arms are not the variants in declaration order"
+    );
+    for (position, (name, index)) in arms.iter().enumerate() {
+        if name == "At" {
+            assert_eq!(*index, None);
+            assert!(arms.iter().all(|(_, i)| *i != Some(position)));
+        } else {
+            assert_eq!(*index, Some(position), "{name}");
+        }
+    }
+    assert_eq!(variants.last().map(String::as_str), Some("NonConforming"));
 }
