@@ -700,14 +700,23 @@ impl RestrictPlan {
         cells: bool,
     ) -> Result<KeyTrack, RestrictError> {
         let transforms = self.migration.value_transforms(source_anchor);
+        let layer = self.cells();
+        let fates = layer
+            .filter(|_| cells)
+            .and_then(|layer| layer.fates.get(source_anchor));
+        if transforms.is_empty() && fates.is_none() {
+            // Nothing moves, writes or drops a key, so each key holds its
+            // own value, which the empty track states.
+            return Ok(KeyTrack::default());
+        }
         let mut track = KeyTrack::over(node.extra_fields.keys());
         if !transforms.is_empty() {
             apply_transforms_tracked(node, &transforms, ctx, &mut track)?;
         }
-        let Some(layer) = self.cells() else {
+        let Some(layer) = layer else {
             return Ok(track);
         };
-        if cells && let Some(fates) = layer.fates.get(source_anchor) {
+        if let Some(fates) = fates {
             apply_cell_fates(&mut node.extra_fields, fates, &mut track);
         }
         for key in track.written.clone() {

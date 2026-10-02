@@ -1849,7 +1849,9 @@ pub fn apply_field_transforms(
 /// key `c` is held by the view under the key whose origin is `c`, if any.
 /// No transform copies a value, so each original key is the origin of at
 /// most one key, and the track keeps that inverse too: finding the key that
-/// holds an original key's value is one lookup, not a scan of the keys.
+/// holds an original key's value is one lookup, not a scan of the keys. The
+/// empty track (`KeyTrack::default()`) is that of a run that touched no key:
+/// it holds each key's value under the key itself.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KeyTrack {
     /// The keys a transform wrote.

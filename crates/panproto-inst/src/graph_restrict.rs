@@ -15,7 +15,10 @@ use panproto_schema::{Edge, Protocol, Schema};
 
 use crate::contraction_plan::PairResolution;
 use crate::error::RestrictError;
-use crate::ginstance::{EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND};
+use crate::functor::FInstance;
+use crate::ginstance::{
+    EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, TableEmbedding,
+};
 use crate::graph_complement::GraphComplement;
 use crate::metadata::{Node, NodeShape};
 use crate::restrict_boundary::{
@@ -189,12 +192,23 @@ pub fn graph_restrict_dispatched(
 pub fn graph_restrict_on_table(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
     plan.boundary.as_ref()?.table.as_ref()?;
     let (table, embedding) = instance.try_to_finstance(plan.source()).ok()?;
-    let (view, complement) =
-        crate::table_restrict::functor_restrict_with_plan(&table, plan).ok()?;
+    table_view_in_graph(instance, &table, &embedding, plan)
+}
+
+/// [`graph_restrict_on_table`] on the table `table` that `instance` is, read
+/// with `embedding` ([`GInstance::try_to_finstance`]).
+fn table_view_in_graph(
+    instance: &GInstance,
+    table: &FInstance,
+    embedding: &TableEmbedding,
+    plan: &RestrictPlan,
+) -> Option<GInstance> {
+    let (view, complement) = crate::table_restrict::functor_restrict_with_plan(table, plan).ok()?;
     let mut graph = GInstance::new();
     for row in view.row_ids() {
-        let mut node = instance.node(row.0)?.clone();
-        node.anchor.clone_from(view.table_of(row)?);
+        // A node of a table is a plain row (`GInstance::table_shape`): its
+        // anchor and fields are all it holds.
+        let mut node = Node::new(row.0, view.table_of(row)?.clone());
         node.extra_fields.clone_from(view.row(row)?);
         graph = graph.with_node(node);
     }
@@ -800,12 +814,15 @@ pub fn graph_restrict_with_complement(
 /// The restrict of a graph instance, validating both boundaries: the first
 /// projection of [`graph_restrict_with_complement`].
 ///
-/// With both protocols in hand the restrict is dispatched
-/// ([`graph_restrict_dispatched`]): when the input is a table and the
+/// With both protocols in hand the restrict is dispatched: when the input
+/// reads as a table ([`GInstance::try_to_finstance`], called once) and the
 /// migration has a plan for tables ([`RestrictPlan::compile_for_tables`]),
-/// over that plan, whose graph view is the protocol plan's (the table layer
-/// is read by no graph stage), and otherwise over the protocol plan. The
-/// result is the graph engine's in every case.
+/// the table path of [`graph_restrict_on_table`] runs over that plan, whose
+/// graph view is the protocol plan's (the table layer is read by no graph
+/// stage); when it declines, the tree path of [`graph_restrict_on_tree`]
+/// and then the graph engine run over the protocol plan, as
+/// [`graph_restrict_dispatched`] runs them. The result is the graph
+/// engine's in every case.
 ///
 /// # Errors
 ///
@@ -824,13 +841,23 @@ pub fn graph_restrict(
         BoundarySide::Input,
     )?;
     let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, migration, protocols)?;
-    let table_plan = matches!(
-        instance.table_shape(src_schema),
-        crate::ginstance::TableShapeReport::Table
-    )
-    .then(|| RestrictPlan::compile_for_tables(src_schema, tgt_schema, migration, protocols).ok())
-    .flatten();
-    let restricted = graph_restrict_dispatched(instance, table_plan.as_ref().unwrap_or(&plan))?;
+    // The input is read as a table once; only a table compiles the table plan.
+    let on_table = instance
+        .try_to_finstance(src_schema)
+        .ok()
+        .and_then(|(table, embedding)| {
+            let table_plan =
+                RestrictPlan::compile_for_tables(src_schema, tgt_schema, migration, protocols)
+                    .ok()?;
+            table_view_in_graph(instance, &table, &embedding, &table_plan)
+        });
+    let restricted = match on_table {
+        Some(view) => view,
+        None => graph_restrict_on_tree(instance, &plan).map_or_else(
+            || graph_restrict_with_plan(instance, &plan).map(|(view, _)| view),
+            Ok,
+        )?,
+    };
     let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
     require_passed(
         tgt_plan.validate_graph(&restricted, &budget, &external),
