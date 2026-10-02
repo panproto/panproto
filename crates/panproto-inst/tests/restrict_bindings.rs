@@ -63,7 +63,7 @@ fn identity(schema: &Schema) -> CompiledMigration {
     }
 }
 
-fn present(value: Value) -> FieldPresence {
+const fn present(value: Value) -> FieldPresence {
     FieldPresence::Present(value)
 }
 
@@ -387,7 +387,7 @@ fn a_transform_evaluates_alike_in_every_shape() {
         vec![Expr::Var("a".into()), Expr::Var("v".into())],
     );
     let mut m = identity(&schema);
-    m.add_computed_field("r", "s", sum.clone());
+    m.add_computed_field("r", "s", sum);
     let plan = RestrictPlan::compile(&schema, &schema, &m).unwrap();
     let (view, _) = wtype_restrict_with_plan(&tree, &plan).unwrap();
     let (graph_view, _) =

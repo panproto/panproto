@@ -152,16 +152,18 @@ pub fn graph_restrict_dispatched(
     instance: &GInstance,
     plan: &RestrictPlan,
 ) -> Result<GInstance, RestrictError> {
-    match graph_restrict_on_tree(instance, plan) {
-        Some(view) => Ok(view),
-        None => graph_restrict_with_plan(instance, plan).map(|(view, _)| view),
-    }
+    graph_restrict_on_tree(instance, plan).map_or_else(
+        || graph_restrict_with_plan(instance, plan).map(|(view, _)| view),
+        Ok,
+    )
 }
 
-/// The tree fast path of [`graph_restrict_dispatched`]: the view
-/// [`graph_restrict_with_plan`] gives, computed by the tree engine
-/// ([`wtype_restrict_with_plan`](crate::wtype_restrict_with_plan)) on the
-/// tree the input is, or `None` when the path declines.
+/// The tree fast path of [`graph_restrict_dispatched`], or `None` when it
+/// declines.
+///
+/// The view is the one [`graph_restrict_with_plan`] gives, computed by the
+/// tree engine ([`wtype_restrict_with_plan`](crate::wtype_restrict_with_plan))
+/// on the tree the input is.
 ///
 /// The path declines when the plan does not preserve tree shape
 /// ([`RestrictPlan::preserves_tree_shape`]), has a cell layer (which the

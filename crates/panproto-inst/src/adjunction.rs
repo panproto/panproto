@@ -103,7 +103,7 @@ pub enum AdjunctionError {
     )]
     AnchorOutsideImage(Name),
 
-    /// The underlying left Kan extension ([`wtype_extend`]) failed.
+    /// The underlying left Kan extension ([`wtype_extend`](crate::wtype_extend)) failed.
     #[error("Sigma (left Kan extension) failed: {0}")]
     Sigma(#[from] RestrictError),
 
@@ -347,7 +347,7 @@ fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>,
 /// each node's anchor `v` to `F(v)` and each arc's edge accordingly,
 /// preserving node identity.
 ///
-/// This is the engine of [`wtype_extend`], with no boundary validation;
+/// This is the engine of [`wtype_extend`](crate::wtype_extend), with no boundary validation;
 /// `tgt_schema` is consulted only when
 /// an arc's edge is neither remapped nor surviving (never the case for the
 /// full relabelling migrations this adjunction targets).

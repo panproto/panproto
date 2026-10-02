@@ -335,8 +335,8 @@ pub struct TermBranch {
 /// whose free variables are source field names; evaluating it substitutes
 /// the row's field values for those variables. This is the substitution
 /// semantics through which a migration acts on values: the surviving-fragment
-/// forms ([`wtype_restrict`], [`crate::functor::functor_restrict`]) and the
-/// total ones ([`wtype_extend`], [`crate::functor::functor_extend`]) alike
+/// forms ([`wtype_restrict`], [`crate::functor_restrict`]) and the
+/// total ones ([`wtype_extend`], [`crate::functor_extend`]) alike
 /// compute migrated columns by substituting each carried row. The remaining
 /// variants
 /// describe structural field operations (rename, drop, keep, default,

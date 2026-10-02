@@ -74,7 +74,7 @@ pub struct QueryMatch {
 
 /// Why a query's predicate was refused at an element instead of being
 /// evaluated there.
-#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+#[derive(Clone, Debug, PartialEq, Eq, thiserror::Error)]
 pub enum QueryError {
     /// The predicate reads a child name two or more of the element's
     /// children carry.

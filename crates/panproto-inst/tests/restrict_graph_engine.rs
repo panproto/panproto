@@ -238,7 +238,7 @@ fn synthesized_ids_follow_synth_key_order_from_the_floor() {
             (EdgeId(18), expand(1)),
         ])
     );
-    for (id, _) in &complement.synthesized_edges {
+    for id in complement.synthesized_edges.keys() {
         assert_eq!(view.edge(*id).unwrap().position, None);
     }
 }

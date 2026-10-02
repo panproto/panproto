@@ -287,7 +287,7 @@ fn a_tree_engine_error_is_decided_by_the_graph_path() {
     g.add_edge(0, 4, pool(0, 1)).unwrap();
     assert!(graph_restrict_on_tree(&g, &plan).is_none());
     let dispatched = graph_restrict_dispatched(&g, &plan).unwrap_err();
-    let (Err(engine), _) = (graph_restrict_with_plan(&g, &plan), ()) else {
+    let Err(engine) = graph_restrict_with_plan(&g, &plan) else {
         panic!("the graph engine refuses");
     };
     assert_eq!(format!("{dispatched:?}"), format!("{engine:?}"));

@@ -159,10 +159,11 @@ pub fn graph_fiber_at_node(
     seen.into_iter().collect()
 }
 
-/// The source nodes of a graph grouped by the view anchor they land on: the
-/// image of their anchor under the vertex map, for nodes whose image
-/// survives. Every surviving source node lies in exactly one group; groups
-/// are ascending.
+/// The source nodes of a graph grouped by the view anchor they land on.
+///
+/// A node's view anchor is the image of its anchor under the vertex map;
+/// nodes whose image does not survive are in no group. Every other node
+/// lies in exactly one group, and each group is ascending.
 #[must_use]
 pub fn graph_group_by(
     migration: &crate::wtype::CompiledMigration,

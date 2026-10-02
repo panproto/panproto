@@ -52,7 +52,7 @@ fn keep(vertices: &[&str]) -> CompiledMigration {
     }
 }
 
-fn both(protocol: &Protocol) -> BoundaryProtocols<'_> {
+const fn both(protocol: &Protocol) -> BoundaryProtocols<'_> {
     BoundaryProtocols {
         src: protocol,
         tgt: protocol,
@@ -189,7 +189,7 @@ fn graph_extend_validates_its_output() {
     let c = e("r", "c", "c");
     let tgt = schema(&["r", "c"], &[&c], &[("r", &c)]);
     let mut m = keep(&["r", "c"]);
-    m.surviving_edges.insert(c.clone());
+    m.surviving_edges.insert(c);
     let p = Protocol::default();
     assert!(graph_extend(&rc_graph(1), &tgt, &m, &p).is_ok());
     // Without its child, r fails the required edge.

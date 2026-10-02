@@ -34,7 +34,7 @@ fn protocol() -> Protocol {
     }
 }
 
-fn protocols(p: &Protocol) -> BoundaryProtocols<'_> {
+const fn protocols(p: &Protocol) -> BoundaryProtocols<'_> {
     BoundaryProtocols { src: p, tgt: p }
 }
 

@@ -202,7 +202,7 @@ fn plan_compilation_errors_carry_no_key() {
     m.edge_remap.insert(e("r", "c", "c"), e("r", "z", "z"));
     let error = RestrictPlan::compile(&src, &tgt, &m).unwrap_err();
     assert_eq!(error.key(), None);
-    assert!(std::ptr::eq(error.unlocated(), &error));
+    assert!(std::ptr::eq(error.unlocated(), &raw const error));
 }
 
 #[test]
