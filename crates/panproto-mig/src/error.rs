@@ -279,6 +279,14 @@ pub enum LiftError {
         /// The labeled-null ceiling the chase was given.
         max_nulls: usize,
     },
+
+    /// A Kan extension of table instances failed: the functor the
+    /// migration states could not be built, the instance does not conform
+    /// to its schema, or the extension is undefined there (for `Pi_F`, a
+    /// target column outside the image of the column map) or exceeds its
+    /// bound.
+    #[error("Kan extension failed: {0}")]
+    Adjunction(#[from] panproto_inst::AdjunctionError),
 }
 
 impl LiftError {

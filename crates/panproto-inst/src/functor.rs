@@ -1535,17 +1535,54 @@ mod tests {
         assert_eq!(restricted.row_count("t"), 3);
         assert_eq!(restricted.table_count(), 1);
 
-        let pushed = crate::adjunction::f_sigma(&x, &m).expect("sigma");
+        // The functor carries each table's column `v` to `t`'s.
+        let column = |table: &str| Edge {
+            src: table.into(),
+            tgt: format!("{table}.v").into(),
+            kind: "prop".into(),
+            name: Some("v".into()),
+        };
+        let columns = |tables: &[&str]| {
+            tables
+                .iter()
+                .map(|t| {
+                    (
+                        Name::from(*t),
+                        std::collections::BTreeMap::from([("v".to_owned(), column(t))]),
+                    )
+                })
+                .collect()
+        };
+        let mut carried = m;
+        for table in ["a", "b"] {
+            carried.edge_remap.insert(column(table), column("t"));
+        }
+        let along = crate::MigrationFunctor::between(
+            crate::RelSchema::from_parts(
+                [Name::from("a"), Name::from("b")],
+                [],
+                columns(&["a", "b"]),
+            )
+            .unwrap(),
+            crate::RelSchema::from_parts([Name::from("t")], [], columns(&["t"])).unwrap(),
+            &carried,
+        )
+        .unwrap();
+        let pushed = crate::adjunction::f_sigma(&x, &along).expect("sigma");
         assert_eq!(
             restricted, pushed,
             "restrict agrees with Sigma_F on the surviving fragment"
         );
 
-        // Precomposition reads `x` as a `t`-instance: `a` and `b` pull back
-        // the rows of `t`, which `x` does not have, so both are empty.
-        let precomposed = crate::adjunction::f_delta(&x, &m).expect("delta");
-        assert_eq!(precomposed.total_row_count(), 0);
-        assert!(!precomposed.has_table("t"));
+        // Precomposition reads its input as a `t`-instance: `x` holds rows
+        // at `a` and `b`, which are no tables of the target, so it refuses.
+        assert!(matches!(
+            crate::adjunction::f_delta(&x, &along),
+            Err(crate::AdjunctionError::NonConforming {
+                reason: crate::NonConformance::TableOutside { .. },
+                ..
+            })
+        ));
     }
 
     /// One row `0` in table `a` holding `x = value`.

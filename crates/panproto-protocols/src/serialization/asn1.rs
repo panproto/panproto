@@ -211,7 +211,15 @@ fn parse_type_assignment(
                     } else {
                         "field-of"
                     };
-                    b = b.vertex(&field_id, "field", None)?;
+                    let resolved_kind = asn1_type_kind(field_type_str);
+                    // A SEQUENCE or SET component of a builtin type is a
+                    // vertex of that type's kind, holding the component's
+                    // value; any other component, and every CHOICE
+                    // alternative (one of which holds the choice's value),
+                    // is a `field` resolved to its type below.
+                    let builtin = kind != "choice" && is_builtin_kind(resolved_kind);
+                    let vertex_kind = if builtin { resolved_kind } else { "field" };
+                    b = b.vertex(&field_id, vertex_kind, None)?;
                     vertex_ids.insert(field_id.clone());
                     b = b.edge(type_name, &field_id, edge_kind, Some(field_name))?;
 
@@ -228,15 +236,16 @@ fn parse_type_assignment(
                         }
                     }
 
-                    let resolved_kind = asn1_type_kind(field_type_str);
-                    field_infos.push(FieldInfo {
-                        field_id,
-                        type_name: if resolved_kind == "type-assignment" {
-                            field_type_str.to_string()
-                        } else {
-                            resolved_kind.to_string()
-                        },
-                    });
+                    if !builtin {
+                        field_infos.push(FieldInfo {
+                            field_id,
+                            type_name: if resolved_kind == "type-assignment" {
+                                field_type_str.to_string()
+                            } else {
+                                resolved_kind.to_string()
+                            },
+                        });
+                    }
                 }
             }
 
@@ -254,6 +263,26 @@ fn parse_type_assignment(
 
     *builder = b;
     Ok((start + 1, field_infos))
+}
+
+/// The builtin ASN.1 types whose values are scalars: the kinds a SEQUENCE or
+/// SET component of that type takes as its own vertex kind.
+const BUILTIN_KINDS: [&str; 10] = [
+    "integer",
+    "boolean",
+    "real",
+    "null",
+    "enumerated",
+    "octet-string",
+    "utf8-string",
+    "ia5-string",
+    "bit-string",
+    "object-id",
+];
+
+/// Whether `kind` is the vertex kind of a builtin scalar type.
+fn is_builtin_kind(kind: &str) -> bool {
+    BUILTIN_KINDS.contains(&kind)
 }
 
 /// Map ASN.1 type keywords to vertex kinds.
@@ -346,10 +375,15 @@ fn emit_type_def(
 
             for (idx, (edge, field_vertex)) in fields.iter().enumerate() {
                 let name = edge.name.as_deref().unwrap_or(&field_vertex.id);
-                let type_children = children_by_edge(schema, &field_vertex.id, "type-of");
-                let field_type = type_children
-                    .first()
-                    .map_or("OCTET STRING", |(_, tv)| kind_to_asn1(&tv.kind));
+                // A component of a builtin type carries its type as its own
+                // kind; any other names its type by a `type-of` edge.
+                let field_type = if is_builtin_kind(&field_vertex.kind) {
+                    kind_to_asn1(&field_vertex.kind)
+                } else {
+                    children_by_edge(schema, &field_vertex.id, "type-of")
+                        .first()
+                        .map_or("OCTET STRING", |(_, tv)| kind_to_asn1(&tv.kind))
+                };
 
                 let optional = if constraint_value(schema, &field_vertex.id, "optional").is_some() {
                     " OPTIONAL"
@@ -425,7 +459,11 @@ fn edge_rules() -> Vec<EdgeRule> {
         EdgeRule {
             edge_kind: "field-of".into(),
             src_kinds: vec!["sequence".into(), "set".into(), "module".into()],
-            tgt_kinds: vec!["field".into(), "type-assignment".into()],
+            tgt_kinds: ["field", "type-assignment"]
+                .into_iter()
+                .chain(BUILTIN_KINDS)
+                .map(Into::into)
+                .collect(),
         },
         EdgeRule {
             edge_kind: "type-of".into(),
@@ -488,6 +526,88 @@ Person ::= SEQUENCE {
         assert!(emitted.contains("Person ::= SEQUENCE"));
         assert!(emitted.contains("name"));
         assert!(emitted.contains("age"));
+    }
+
+    /// A SEQUENCE or SET component of a builtin type is a vertex of that
+    /// type's kind, joined by its `field-of` edge named by the component,
+    /// and emission prints its type from that kind.
+    #[test]
+    fn a_builtin_component_is_a_vertex_of_its_kind() {
+        let input = r"
+Person ::= SEQUENCE {
+  name UTF8String,
+  age INTEGER OPTIONAL,
+  photo OCTET STRING
+}
+Tags ::= SET {
+  flag BOOLEAN
+}
+";
+        let schema = parse_asn1(input).expect("should parse");
+        for (id, kind) in [
+            ("Person.name", "utf8-string"),
+            ("Person.age", "integer"),
+            ("Person.photo", "octet-string"),
+            ("Tags.flag", "boolean"),
+        ] {
+            assert_eq!(schema.vertices[id].kind, kind, "{id}");
+            assert!(
+                schema.outgoing_edges(id).is_empty(),
+                "{id} has no type-of edge"
+            );
+        }
+        let age = children_by_edge(&schema, "Person", "field-of")
+            .into_iter()
+            .find(|(_, v)| v.id == "Person.age")
+            .map(|(e, _)| e.name.clone());
+        assert_eq!(age, Some(Some("age".into())));
+        assert_eq!(
+            constraint_value(&schema, "Person.age", "optional"),
+            Some("true")
+        );
+        let emitted = emit_asn1(&schema).expect("should emit");
+        assert!(emitted.contains("age INTEGER OPTIONAL,"), "{emitted}");
+        assert!(emitted.contains("photo OCTET STRING"), "{emitted}");
+        assert!(emitted.contains("name UTF8String,"), "{emitted}");
+        assert!(emitted.contains("flag BOOLEAN"), "{emitted}");
+    }
+
+    /// A component of a named or constructed type keeps kind `field`, with
+    /// its `type-of` edge to the named type.
+    #[test]
+    fn a_named_component_keeps_kind_field() {
+        let input = r"
+Address ::= SEQUENCE {
+  city UTF8String
+}
+Person ::= SEQUENCE {
+  home Address,
+  tags SEQUENCE OF UTF8String
+}
+";
+        let schema = parse_asn1(input).expect("should parse");
+        assert_eq!(schema.vertices["Person.home"].kind, "field");
+        assert_eq!(schema.vertices["Person.tags"].kind, "field");
+        let types: Vec<&str> = children_by_edge(&schema, "Person.home", "type-of")
+            .into_iter()
+            .map(|(_, v)| v.id.as_ref())
+            .collect();
+        assert_eq!(types, ["Address"]);
+    }
+
+    /// Every CHOICE alternative keeps kind `field`, whatever its type.
+    #[test]
+    fn a_choice_alternative_keeps_kind_field() {
+        let input = r"
+Shape ::= CHOICE {
+  radius INTEGER,
+  label UTF8String
+}
+";
+        let schema = parse_asn1(input).expect("should parse");
+        assert_eq!(schema.vertices["Shape.radius"].kind, "field");
+        assert_eq!(schema.vertices["Shape.label"].kind, "field");
+        assert_eq!(children_by_edge(&schema, "Shape", "variant-of").len(), 2);
     }
 
     #[test]
