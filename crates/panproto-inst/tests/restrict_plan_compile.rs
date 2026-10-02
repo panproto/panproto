@@ -552,7 +552,11 @@ fn restrict_plan_compiles_edge_image_contraction_and_cells() {
         plan.tgt_schema,
         panproto_inst::identity::schema_digest(&tgt)
     );
-    let cells = plan.cells().unwrap();
+    let cells = plan
+        .boundary
+        .as_ref()
+        .and_then(|b| b.cells.as_ref())
+        .unwrap();
     assert_eq!(
         cells.fates.get("t"),
         Some(&vec![
@@ -567,7 +571,12 @@ fn restrict_plan_compiles_edge_image_contraction_and_cells() {
             .map(|s| &s.kind),
         Some(&ScalarKind::Str)
     );
-    assert!(plan.table_functor().is_none());
+    assert!(
+        plan.boundary
+            .as_ref()
+            .and_then(|b| b.table.as_ref())
+            .is_none()
+    );
 }
 
 #[test]
@@ -676,7 +685,10 @@ fn an_expanding_migration_is_not_table_representable() {
         .insert(("t".into(), "u".into()), vec!["w".into()]);
     let error = RestrictPlan::compile_for_tables(&src, &tgt, &m, protocols).unwrap_err();
     assert!(
-        matches!(&error, RestrictError::NotTableRepresentable { reason } if reason.contains("expands")),
+        matches!(
+            &error,
+            RestrictError::NotTableRepresentable { reason } if reason.contains("expands")
+        ),
         "{error:?}"
     );
     // A hyper-edge resolution is not representable either.
@@ -688,7 +700,10 @@ fn an_expanding_migration_is_not_table_representable() {
     );
     let error = RestrictPlan::compile_for_tables(&src, &src, &hyper, protocols).unwrap_err();
     assert!(
-        matches!(&error, RestrictError::NotTableRepresentable { reason } if reason.contains("hyper")),
+        matches!(
+            &error,
+            RestrictError::NotTableRepresentable { reason } if reason.contains("hyper")
+        ),
         "{error:?}"
     );
 }

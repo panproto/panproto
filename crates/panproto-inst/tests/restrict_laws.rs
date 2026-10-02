@@ -101,7 +101,11 @@ fn post_pass(
     let Some(key) = written else {
         return Ok(());
     };
-    let cells = plan.cells().unwrap();
+    let cells = plan
+        .boundary
+        .as_ref()
+        .and_then(|b| b.cells.as_ref())
+        .unwrap();
     if let Some(spec) = cells.specs.get(&(node.anchor.clone(), key.clone())) {
         let value = node.extra_fields[&key].clone();
         let coerced = coerce_value(&value, spec, ValueSite::new(format!("t.{key}"), None))
@@ -119,7 +123,14 @@ proptest! {
     /// second with each surviving node's cell fates and coercions applied.
     #[test]
     fn the_protocol_layer_is_a_per_node_post_pass(
-        cells in prop::collection::vec((prop::option::of(-3i64..3), prop::option::of(-3i64..3), prop::option::of(-3i64..3)), 0..5),
+        cells in prop::collection::vec(
+            (
+                prop::option::of(-3i64..3),
+                prop::option::of(-3i64..3),
+                prop::option::of(-3i64..3),
+            ),
+            0..5,
+        ),
         drop_b in any::<bool>(),
         rename_c in any::<bool>(),
         output in prop::sample::select(vec![
@@ -157,13 +168,21 @@ proptest! {
         let protocols = BoundaryProtocols { src: &p, tgt: &p };
         let bare = RestrictPlan::compile(&src, &tgt, &m).unwrap();
         let layered = RestrictPlan::compile_with_protocols(&src, &tgt, &m, protocols).unwrap();
-        prop_assert!(layered.cells().is_some());
+        prop_assert!(layered.boundary.as_ref().and_then(|b| b.cells.as_ref()).is_some());
         let with_layer = graph_restrict_with_plan(&g, &layered);
         let without = graph_restrict_with_plan(&g, &bare);
         match with_layer {
             Ok((layered_view, _)) => {
                 let (bare_view, _) = without.unwrap();
-                let fates = layered.cells().unwrap().fates.get("t").cloned().unwrap_or_default();
+                let fates = layered
+                    .boundary
+                    .as_ref()
+                    .and_then(|b| b.cells.as_ref())
+                    .unwrap()
+                    .fates
+                    .get("t")
+                    .cloned()
+                    .unwrap_or_default();
                 for (id, node) in bare_view.nodes() {
                     let mut expected = node.clone();
                     post_pass(&mut expected, &fates, written, &layered).unwrap();
@@ -262,7 +281,12 @@ proptest! {
             .collect();
         prop_assert_eq!(&tree_pairs, &graph_pairs);
         for id in tree_view.nodes.keys() {
-            let tree_children: Vec<u32> = tree_view.arcs.iter().filter(|(p, _, _)| p == id).map(|(_, c, _)| *c).collect();
+            let tree_children: Vec<u32> = tree_view
+                .arcs
+                .iter()
+                .filter(|(p, _, _)| p == id)
+                .map(|(_, c, _)| *c)
+                .collect();
             let graph_children: Vec<u32> = graph_view
                 .ordered_out_edges(*id)
                 .into_iter()

@@ -238,9 +238,10 @@ pub struct BoundaryPlan {
 /// protocols), so it changes no lens identity.
 ///
 /// Besides its public fields, it holds privately the two schemas and the
-/// migration it was compiled from, which the engines read for value
-/// transforms and survival predicates ([`Self::source`], [`Self::target`],
-/// [`Self::migration`]). [`Self::compile`], [`Self::compile_with_protocols`]
+/// migration it was compiled from, which the engines read, through
+/// accessors private to the crate, for value transforms and survival
+/// predicates; outside the crate the cell layer and the table functor are
+/// read from [`Self::boundary`]. [`Self::compile`], [`Self::compile_with_protocols`]
 /// and [`Self::compile_for_tables`] are its only constructors, so the
 /// private fields are exactly the inputs of the compilation that built
 /// the plan (the public fields stay writable). It is `Clone` so that a
@@ -442,19 +443,19 @@ impl RestrictPlan {
 
     /// The source schema the plan was compiled from.
     #[must_use]
-    pub const fn source(&self) -> &Schema {
+    pub(crate) const fn source(&self) -> &Schema {
         &self.src
     }
 
     /// The target schema the plan was compiled for.
     #[must_use]
-    pub const fn target(&self) -> &Schema {
+    pub(crate) const fn target(&self) -> &Schema {
         &self.tgt
     }
 
     /// The migration the plan was compiled from.
     #[must_use]
-    pub const fn migration(&self) -> &CompiledMigration {
+    pub(crate) const fn migration(&self) -> &CompiledMigration {
         &self.migration
     }
 
@@ -483,13 +484,13 @@ impl RestrictPlan {
 
     /// The cell layer, when the plan has one.
     #[must_use]
-    pub fn cells(&self) -> Option<&CellPlan> {
+    pub(crate) fn cells(&self) -> Option<&CellPlan> {
         self.boundary.as_ref().and_then(|b| b.cells.as_ref())
     }
 
     /// The table functor, when the plan was compiled for tables.
     #[must_use]
-    pub fn table_functor(&self) -> Option<&EntityFunctor> {
+    pub(crate) fn table_functor(&self) -> Option<&EntityFunctor> {
         self.boundary.as_ref().and_then(|b| b.table.as_ref())
     }
 }
