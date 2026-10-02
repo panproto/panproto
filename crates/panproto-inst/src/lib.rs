@@ -161,7 +161,7 @@ pub use poly::{
 };
 pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
 pub use query::{
-    InstanceQuery, QueryMatch, build_node_env, execute as execute_query, execute_any,
+    InstanceQuery, QueryError, QueryMatch, build_node_env, execute as execute_query, execute_any,
     execute_elements, execute_functor, execute_graph,
 };
 pub use reachability::ReachabilityIndex;

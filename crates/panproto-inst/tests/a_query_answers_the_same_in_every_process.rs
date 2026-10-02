@@ -96,12 +96,12 @@ fn answer(fixture: &str) -> String {
     let mut out = String::new();
     match fixture {
         "tree_query" => {
-            for m in execute_query(&limited("item"), &tree(), &schema()) {
+            for m in execute_query(&limited("item"), &tree(), &schema()).expect("the query runs") {
                 let _ = write!(out, "{},", m.node_id);
             }
         }
         "graph_query" => {
-            for m in execute_graph(&limited("item"), &graph(), &schema()) {
+            for m in execute_graph(&limited("item"), &graph(), &schema()).expect("the query runs") {
                 let _ = write!(out, "{},", m.node_id);
             }
         }
@@ -132,9 +132,33 @@ fn answer(fixture: &str) -> String {
                 .expect("edge evaluates");
             let _ = write!(out, "{lit:?}");
         }
+        "grouping" => {
+            let query = InstanceQuery {
+                anchor: Name::from("item"),
+                group_by: Some("g".into()),
+                ..Default::default()
+            };
+            for m in execute_graph(&query, &grouped(), &schema()).expect("the query runs") {
+                let _ = write!(out, "{},", m.node_id);
+            }
+        }
         other => panic!("no fixture named {other}"),
     }
     out
+}
+
+/// Items whose field `g` is a record of eight fields, each record different:
+/// grouping by `g` orders records, which a `HashMap` holds in an order the
+/// hash seed decides.
+fn grouped() -> GInstance {
+    let mut g = GInstance::new();
+    for id in 1..=WIDTH {
+        let record: HashMap<String, Value> = (0..8)
+            .map(|k| (format!("k{k}"), Value::Int(i64::from((id * 7 + k) % 5))))
+            .collect();
+        g = g.with_node(Node::new(id, "item").with_extra_field("g", Value::Unknown(record)));
+    }
+    g
 }
 
 /// The child half: one process's answer, printed.
@@ -188,6 +212,11 @@ fn a_limited_tree_query_keeps_the_least_node_ids() {
 #[test]
 fn a_limited_graph_query_keeps_the_least_node_ids() {
     assert_one_answer("graph_query", "1,2,3,");
+}
+
+#[test]
+fn grouping_by_an_unknown_value_is_the_same_in_every_process() {
+    assert_one_answer("grouping", &answer("grouping"));
 }
 
 #[test]

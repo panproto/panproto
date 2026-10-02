@@ -13,10 +13,10 @@
 //! full observable stalk bound as variables: both `extra_fields` and
 //! scalar values from child nodes reachable via labeled edges.
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 
 use panproto_gat::Name;
-use rustc_hash::{FxHashMap, FxHashSet};
+use rustc_hash::FxHashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::element_ops::ElementOps;
@@ -72,147 +72,145 @@ pub struct QueryMatch {
     pub fields: FxHashMap<String, Value>,
 }
 
-/// Execute a query against a W-type instance.
+/// Why a query's predicate was refused at an element instead of being
+/// evaluated there.
+#[derive(Clone, Debug, PartialEq, thiserror::Error)]
+pub enum QueryError {
+    /// The predicate reads a child name two or more of the element's
+    /// children carry.
+    #[error("element {node} has several children named `{field}`, and the predicate reads the name")]
+    AmbiguousChildField {
+        /// The element.
+        node: u32,
+        /// The repeated child name.
+        field: String,
+    },
+    /// The predicate reads a child whose subgraph is not a tree, so the
+    /// child has no structured value.
+    #[error("child `{field}` of element {node} is read as a structure, but its subgraph is not a tree")]
+    StructuralChildNotATree {
+        /// The element.
+        node: u32,
+        /// The child name read.
+        field: String,
+    },
+    /// The predicate reads a value with no expression literal.
+    #[error("field `{field}` of element {node} holds a {value_type}, which no expression can read")]
+    ValueNotExpressible {
+        /// The element.
+        node: u32,
+        /// The field read.
+        field: String,
+        /// The type name of the value.
+        value_type: String,
+    },
+}
+
+impl QueryError {
+    /// The query form of a refusal of the binding layer.
+    pub(crate) fn from_refusal(error: crate::error::RestrictError) -> Self {
+        use crate::error::RestrictError;
+        match error {
+            RestrictError::AmbiguousChildField { node, field } => {
+                Self::AmbiguousChildField { node, field }
+            }
+            RestrictError::StructuralChildNotATree { node, field } => {
+                Self::StructuralChildNotATree { node, field }
+            }
+            RestrictError::ValueNotExpressible {
+                node,
+                field,
+                value_type,
+            } => Self::ValueNotExpressible {
+                node,
+                field,
+                value_type,
+            },
+            other => Self::ValueNotExpressible {
+                node: 0,
+                field: String::new(),
+                value_type: other.to_string(),
+            },
+        }
+    }
+}
+
+/// Execute a query against a W-type instance: [`execute_elements`] over
+/// the tree.
 ///
-/// Pipeline: anchor filter → path navigation → predicate evaluation
-/// → limit → `group_by` → field projection. Candidates are taken in
-/// ascending node id, so a limited query keeps the least matching ids.
+/// # Errors
 ///
-/// The `schema` parameter provides schema context for future
-/// schema-aware operations and instance-aware evaluation.
-#[must_use]
+/// As [`execute_elements`].
 pub fn execute(
     query: &InstanceQuery,
     instance: &WInstance,
-    _schema: &panproto_schema::Schema,
-) -> Vec<QueryMatch> {
-    let eval_config = panproto_expr::EvalConfig::default();
-
-    // 1. Find all nodes matching the anchor, in ascending id, so the
-    //    candidates `limit` keeps are the same in every process.
-    let candidates = instance.fiber(&query.anchor);
-
-    // 2. Follow path if specified.
-    let navigated = if query.path.is_empty() {
-        candidates
-    } else {
-        navigate_path(instance, &candidates, &query.path)
-    };
-
-    // 3. Apply predicate (instance-aware evaluation for graph builtins).
-    let filtered = if let Some(ref pred) = query.predicate {
-        navigated
-            .into_iter()
-            .filter(|&id| {
-                let Some(node) = instance.nodes.get(&id) else {
-                    return false;
-                };
-                let env = build_node_env(node, instance);
-                matches!(
-                    crate::instance_env::eval_with_instance(
-                        pred,
-                        &env,
-                        &eval_config,
-                        instance,
-                        Some(id),
-                    ),
-                    Ok(panproto_expr::Literal::Bool(true))
-                )
-            })
-            .collect()
-    } else {
-        navigated
-    };
-
-    // 4. Apply limit.
-    let limited: Vec<u32> = if let Some(limit) = query.limit {
-        filtered.into_iter().take(limit).collect()
-    } else {
-        filtered
-    };
-
-    // 5. Build results with optional projection.
-    //    The result fields include the full observable stalk: extra_fields
-    //    merged with scalar child values (extra_fields take precedence).
-    let mut results: Vec<QueryMatch> = limited
-        .into_iter()
-        .filter_map(|id| {
-            let node = instance.nodes.get(&id)?;
-            let scalars = collect_scalar_child_values(instance, id);
-            let mut combined = scalars;
-            for (key, val) in &node.extra_fields {
-                combined.insert(key.clone(), val.clone());
-            }
-            Some(QueryMatch {
-                node_id: id,
-                anchor: node.anchor.clone(),
-                value: node.value.clone(),
-                fields: project_fields(&combined, query.project.as_ref()),
-            })
-        })
-        .collect();
-
-    // 6. Apply group_by: sort results by the specified field value.
-    if let Some(ref group_key) = query.group_by {
-        results.sort_by(|a, b| {
-            let va = a.fields.get(group_key).map(value_sort_key);
-            let vb = b.fields.get(group_key).map(value_sort_key);
-            va.cmp(&vb)
-        });
-    }
-
-    results
+    schema: &panproto_schema::Schema,
+) -> Result<Vec<QueryMatch>, QueryError> {
+    execute_elements(query, instance, schema)
 }
 
 /// Execute a query against any instance shape via the category of elements.
 ///
-/// This is the polymorphic query executor. The pipeline is:
-/// 1. Fiber selection: `F(anchor)` — all elements over the anchor vertex,
-///    in ascending id
-/// 2. Relational pushforward: compose `F(e)` for each edge in the path
-/// 3. Subobject selection: filter by predicate in the stalk environment
-/// 4. Limit
-/// 5. Projection: extract observable fields from each matched element
-/// 6. Group-by: sort results by a field value
+/// The pipeline is:
+/// 1. Fiber selection: `F(anchor)`, the elements over the anchor vertex.
+/// 2. Path navigation, with set semantics: each step maps the set of
+///    elements reached so far to the set of targets of their out-edges of
+///    the step's edge kind (tree arcs, graph edges with fan edges included,
+///    table foreign-key pairs). No walk is enumerated and no count kept, so
+///    a step costs `O(V + E)` and the answer has at most one entry per
+///    element.
+/// 3. Selection: the predicate is evaluated at the reached elements in
+///    ascending element id (node id, or the number inside the row id), and
+///    the run stops once `limit` matches are found, so no later element is
+///    evaluated. An element is selected when the predicate evaluates to
+///    `Bool(true)`; any other outcome of an evaluation selects nothing.
+/// 4. Projection: each match carries the element's observable fields.
+/// 5. Grouping: matches are ordered by their `group_by` value
+///    ([`Value::canonical_cmp`], which is the same in every process),
+///    ascending element id within a group.
 ///
-/// Each path step keeps every element it reaches once, at its first
-/// occurrence in [`ElementOps::pushforward`] order, and the next step starts
-/// from that list. So a query matches an element once however many walks
-/// reach it, and a step over a graph costs time in the number of matching
-/// edges rather than in the number of walks, which can grow exponentially
-/// with the path's length. `limit` is applied after the whole path and the
-/// predicate.
+/// Without `group_by` the answer is in ascending element id in every
+/// shape, so a tree, its graph form, a table and its graph form answer a
+/// query identically.
 ///
-/// The `schema` parameter is reserved for future schema-aware operations.
-#[must_use]
+/// # Errors
+///
+/// Before the predicate is evaluated at an element, it is refused, in
+/// ascending element id, when it reads a child name two or more children
+/// carry ([`QueryError::AmbiguousChildField`]), a structural child whose
+/// subgraph is not a tree ([`QueryError::StructuralChildNotATree`]), or a
+/// value with no expression literal ([`QueryError::ValueNotExpressible`]);
+/// only the names the predicate reads are converted.
 pub fn execute_elements<T: ElementOps>(
     query: &InstanceQuery,
     instance: &T,
-    _schema: &panproto_schema::Schema,
-) -> Vec<QueryMatch> {
+    schema: &panproto_schema::Schema,
+) -> Result<Vec<QueryMatch>, QueryError> {
     let eval_config = panproto_expr::EvalConfig::default();
 
-    // 1. Fiber selection.
-    let candidates = instance.fiber(&query.anchor);
+    // 1. Fiber selection, as a set.
+    let mut reached: BTreeSet<u32> = instance.fiber(&query.anchor).into_iter().collect();
 
-    // 2. Relational pushforward along path.
-    let navigated = if query.path.is_empty() {
-        candidates
-    } else {
-        query.path.iter().fold(candidates, |current, edge_kind| {
-            first_occurrences(instance.pushforward(&current, edge_kind))
-        })
-    };
+    // 2. Each path step maps a set to a set.
+    for edge_kind in &query.path {
+        let current: Vec<u32> = reached.into_iter().collect();
+        reached = instance.pushforward(&current, edge_kind).into_iter().collect();
+    }
 
-    // 3. Subobject selection via predicate.
-    let filtered = if let Some(ref pred) = query.predicate {
-        navigated
-            .into_iter()
-            .filter(|&id| {
-                let env = instance.stalk(id);
+    // 3. Selection in ascending element id, up to `limit`.
+    let limit = query.limit.unwrap_or(usize::MAX);
+    let mut selected: Vec<u32> = Vec::new();
+    for id in reached {
+        if selected.len() >= limit {
+            break;
+        }
+        let keep = match &query.predicate {
+            None => true,
+            Some(predicate) => {
+                let env = instance.predicate_env(schema, id, predicate)?;
                 matches!(
                     crate::instance_env::eval_with_element_ops(
-                        pred,
+                        predicate,
                         &env,
                         &eval_config,
                         instance,
@@ -220,21 +218,15 @@ pub fn execute_elements<T: ElementOps>(
                     ),
                     Ok(panproto_expr::Literal::Bool(true))
                 )
-            })
-            .collect()
-    } else {
-        navigated
-    };
+            }
+        };
+        if keep {
+            selected.push(id);
+        }
+    }
 
-    // 4. Limit.
-    let limited: Vec<u32> = if let Some(limit) = query.limit {
-        filtered.into_iter().take(limit).collect()
-    } else {
-        filtered
-    };
-
-    // 5. Projection.
-    let mut results: Vec<QueryMatch> = limited
+    // 4. Projection.
+    let mut results: Vec<QueryMatch> = selected
         .into_iter()
         .filter_map(|id| {
             let anchor = instance.sort(id)?;
@@ -249,81 +241,61 @@ pub fn execute_elements<T: ElementOps>(
         })
         .collect();
 
-    // 6. Group-by.
+    // 5. Grouping: a stable sort keeps ascending id within a group.
     if let Some(ref group_key) = query.group_by {
-        results.sort_by(|a, b| {
-            let va = a.fields.get(group_key).map(value_sort_key);
-            let vb = b.fields.get(group_key).map(value_sort_key);
-            va.cmp(&vb)
+        results.sort_by(|a, b| match (a.fields.get(group_key), b.fields.get(group_key)) {
+            (Some(x), Some(y)) => x.canonical_cmp(y),
+            (x, y) => x.is_some().cmp(&y.is_some()),
         });
     }
 
-    results
+    Ok(results)
 }
 
-/// Execute a query against a [`GInstance`].
+/// Execute a query against a [`GInstance`]: [`execute_elements`] over the
+/// graph.
 ///
-/// Convenience wrapper over [`execute_elements`].
-#[must_use]
+/// # Errors
+///
+/// As [`execute_elements`].
 pub fn execute_graph(
     query: &InstanceQuery,
     instance: &GInstance,
     schema: &panproto_schema::Schema,
-) -> Vec<QueryMatch> {
+) -> Result<Vec<QueryMatch>, QueryError> {
     execute_elements(query, instance, schema)
 }
 
-/// Execute a query against an [`FInstance`].
+/// Execute a query against an [`FInstance`]: [`execute_elements`] over the
+/// rows.
 ///
-/// Convenience wrapper over [`execute_elements`].
-#[must_use]
+/// # Errors
+///
+/// As [`execute_elements`].
 pub fn execute_functor(
     query: &InstanceQuery,
     instance: &FInstance,
     schema: &panproto_schema::Schema,
-) -> Vec<QueryMatch> {
+) -> Result<Vec<QueryMatch>, QueryError> {
     execute_elements(query, instance, schema)
 }
 
 /// Execute a query against a unified [`Instance`], dispatching to the
 /// appropriate shape-specific implementation.
-#[must_use]
+///
+/// # Errors
+///
+/// As [`execute_elements`].
 pub fn execute_any(
     query: &InstanceQuery,
     instance: &Instance,
     schema: &panproto_schema::Schema,
-) -> Vec<QueryMatch> {
+) -> Result<Vec<QueryMatch>, QueryError> {
     match instance {
         Instance::WType(w) => execute_elements(query, w, schema),
         Instance::Functor(f) => execute_elements(query, f, schema),
         Instance::Graph(g) => execute_elements(query, g, schema),
     }
-}
-
-/// Follow a path of edge kinds from a set of starting nodes.
-///
-/// Each step collects all children reachable via arcs whose edge kind
-/// matches the path element, each child once, as [`execute_elements`] does.
-fn navigate_path(instance: &WInstance, start_nodes: &[u32], path: &[Name]) -> Vec<u32> {
-    let mut current = start_nodes.to_vec();
-    for edge_kind in path {
-        let mut next = Vec::new();
-        for &node_id in &current {
-            for &(src, tgt, ref edge) in &instance.arcs {
-                if src == node_id && edge.kind == *edge_kind {
-                    next.push(tgt);
-                }
-            }
-        }
-        current = first_occurrences(next);
-    }
-    current
-}
-
-/// `ids` with each id kept only at its first occurrence.
-fn first_occurrences(ids: Vec<u32>) -> Vec<u32> {
-    let mut seen = FxHashSet::default();
-    ids.into_iter().filter(|id| seen.insert(*id)).collect()
 }
 
 /// Build an expression evaluation environment from a node's observable stalk.
@@ -368,22 +340,6 @@ pub fn build_node_env(node: &Node, instance: &WInstance) -> panproto_expr::Env {
         );
     }
     env
-}
-
-/// Produce a sortable key from a [`Value`] for `group_by` ordering.
-///
-/// Converts each variant to a string representation so that values
-/// of the same type sort lexicographically.
-fn value_sort_key(v: &Value) -> String {
-    match v {
-        Value::Str(s) => s.clone(),
-        Value::Int(i) => i.to_string(),
-        Value::Float(f) => f.to_string(),
-        Value::Bool(b) => b.to_string(),
-        Value::Token(t) => t.clone(),
-        Value::Null => String::new(),
-        _ => format!("{v:?}"),
-    }
 }
 
 /// Project fields to a subset, or return all if no projection specified.
@@ -480,7 +436,7 @@ mod tests {
             anchor: Name::from("annotation"),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -498,7 +454,7 @@ mod tests {
             )),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0].fields.get("label"),
@@ -515,7 +471,7 @@ mod tests {
             path: vec![Name::from("layers"), Name::from("annotations")],
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         // Path navigation reaches the annotation nodes (2 and 3),
         // but the anchor filter was on "document" which matched node 0,
         // then path navigated to its descendants.
@@ -530,7 +486,7 @@ mod tests {
             limit: Some(1),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert_eq!(results.len(), 1);
     }
 
@@ -542,7 +498,7 @@ mod tests {
             project: Some(vec!["label".into()]),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert_eq!(results.len(), 2);
         // Only "label" field should be present, not "confidence".
         for r in &results {
@@ -558,7 +514,7 @@ mod tests {
             anchor: Name::from("nonexistent"),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert!(results.is_empty());
     }
 
@@ -613,7 +569,7 @@ mod tests {
             group_by: Some("category".into()),
             ..Default::default()
         };
-        let results = execute(&query, &inst, &make_test_schema());
+        let results = execute(&query, &inst, &make_test_schema()).unwrap();
         assert_eq!(results.len(), 5);
 
         // Results should be sorted by category: fruit, fruit, grain, vegetable, vegetable.
@@ -744,7 +700,7 @@ mod tests {
             ..Default::default()
         };
 
-        let results = execute(&query, &inst, &schema);
+        let results = execute(&query, &inst, &schema).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].node_id, 0);
     }
@@ -759,7 +715,7 @@ mod tests {
             ..Default::default()
         };
 
-        let results = execute(&query, &inst, &schema);
+        let results = execute(&query, &inst, &schema).unwrap();
         assert_eq!(results.len(), 2);
 
         // Each result should include the child scalar values
@@ -821,7 +777,7 @@ mod tests {
             ..Default::default()
         };
 
-        let results = execute(&query, &inst, &schema);
+        let results = execute(&query, &inst, &schema).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0].fields.get("name"),
@@ -842,8 +798,8 @@ mod tests {
             ..Default::default()
         };
 
-        let via_direct = execute(&query, &inst, &schema);
-        let via_any = execute_any(&query, &Instance::WType(inst), &schema);
+        let via_direct = execute(&query, &inst, &schema).unwrap();
+        let via_any = execute_any(&query, &Instance::WType(inst), &schema).unwrap();
         assert_eq!(via_direct.len(), via_any.len());
     }
 
@@ -861,7 +817,7 @@ mod tests {
             ..Default::default()
         };
 
-        let results = execute_any(&query, &Instance::Graph(g), &schema);
+        let results = execute_any(&query, &Instance::Graph(g), &schema).unwrap();
         assert_eq!(results.len(), 2);
     }
 
@@ -877,7 +833,7 @@ mod tests {
             ..Default::default()
         };
 
-        let results = execute_any(&query, &Instance::Functor(f), &schema);
+        let results = execute_any(&query, &Instance::Functor(f), &schema).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(
             results[0].fields.get("name"),

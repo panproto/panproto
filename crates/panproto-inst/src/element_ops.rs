@@ -27,6 +27,7 @@ use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GInstance};
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
+use crate::query::QueryError;
 use crate::view_ref::RowId;
 use crate::wtype::{
     WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
@@ -115,6 +116,65 @@ pub trait ElementOps {
 
     /// Leaf value at element `x`, if present.
     fn element_value(&self, element_id: u32) -> Option<FieldPresence>;
+
+    /// The environment a query predicate is evaluated in at element `x`:
+    /// the element's fields and children as every shape binds them, with
+    /// only the names `predicate` reads converted, and the metadata of
+    /// [`stalk`](Self::stalk).
+    ///
+    /// # Errors
+    ///
+    /// [`QueryError::AmbiguousChildField`],
+    /// [`QueryError::StructuralChildNotATree`] or
+    /// [`QueryError::ValueNotExpressible`] for a predicate refused before
+    /// evaluation.
+    fn predicate_env(
+        &self,
+        schema: &panproto_schema::Schema,
+        element_id: u32,
+        predicate: &panproto_expr::Expr,
+    ) -> Result<panproto_expr::Env, QueryError>;
+}
+
+/// The predicate environment at the element `at` of `source`: the
+/// demand-driven bindings of fields and children, then the metadata, the
+/// element's own value bound as `_value` only when the predicate reads it.
+fn predicate_env_at<S: crate::wtype::ChildSource + ?Sized>(
+    schema: &panproto_schema::Schema,
+    source: &S,
+    at: crate::wtype::InstanceRef<'_>,
+    predicate: &panproto_expr::Expr,
+    metadata: Vec<(&str, Literal)>,
+) -> Result<panproto_expr::Env, QueryError> {
+    let element = at.element();
+    let names: std::collections::BTreeSet<String> = panproto_expr::free_vars(predicate)
+        .into_iter()
+        .map(|v| v.to_string())
+        .collect();
+    let reads_value = names.contains("_value");
+    let ctx = crate::wtype::TransformContext::bound(
+        Some(schema),
+        source,
+        at,
+        &crate::wtype::Demand::from_names(names),
+    );
+    let no_fields = HashMap::new();
+    let fields = source.fields(element).unwrap_or(&no_fields);
+    let mut env = ctx
+        .environment(predicate, fields)
+        .map_err(QueryError::from_refusal)?;
+    for (name, literal) in metadata {
+        env = env.extend(Arc::from(name), literal);
+    }
+    if reads_value && let Some(FieldPresence::Present(val)) = source.presence(element) {
+        let literal = value_to_expr_literal(val).map_err(|e| QueryError::ValueNotExpressible {
+            node: element,
+            field: "_value".to_owned(),
+            value_type: e.value_type.to_owned(),
+        })?;
+        env = env.extend(Arc::from("_value"), literal);
+    }
+    Ok(env)
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +239,29 @@ impl ElementOps for WInstance {
 
     fn element_value(&self, element_id: u32) -> Option<FieldPresence> {
         self.nodes.get(&element_id).and_then(|n| n.value.clone())
+    }
+
+    fn predicate_env(
+        &self,
+        schema: &panproto_schema::Schema,
+        element_id: u32,
+        predicate: &panproto_expr::Expr,
+    ) -> Result<panproto_expr::Env, QueryError> {
+        let Some(node) = self.nodes.get(&element_id) else {
+            return Ok(panproto_expr::Env::new());
+        };
+        let children_count = self.arcs.iter().filter(|(p, _, _)| *p == element_id).count();
+        predicate_env_at(
+            schema,
+            &crate::wtype::TreeChildren::new(self),
+            crate::wtype::InstanceRef::Tree(self, element_id),
+            predicate,
+            vec![
+                ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                ("_id", Literal::Int(i64::from(element_id))),
+                ("_children_count", Literal::Int(count_literal(children_count))),
+            ],
+        )
     }
 }
 
@@ -273,6 +356,28 @@ impl ElementOps for GInstance {
 
     fn element_value(&self, element_id: u32) -> Option<FieldPresence> {
         self.node(element_id).and_then(|n| n.value.clone())
+    }
+
+    fn predicate_env(
+        &self,
+        schema: &panproto_schema::Schema,
+        element_id: u32,
+        predicate: &panproto_expr::Expr,
+    ) -> Result<panproto_expr::Env, QueryError> {
+        let Some(node) = self.node(element_id) else {
+            return Ok(panproto_expr::Env::new());
+        };
+        predicate_env_at(
+            schema,
+            self,
+            crate::wtype::InstanceRef::Graph(self, element_id),
+            predicate,
+            vec![
+                ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                ("_id", Literal::Int(i64::from(element_id))),
+                ("_edge_count", Literal::Int(count_literal(self.out_edges(element_id).len()))),
+            ],
+        )
     }
 }
 
@@ -426,6 +531,28 @@ impl ElementOps for FInstance {
     fn element_value(&self, _element_id: u32) -> Option<FieldPresence> {
         // FInstance rows have no distinguished leaf value.
         None
+    }
+
+    fn predicate_env(
+        &self,
+        schema: &panproto_schema::Schema,
+        element_id: u32,
+        predicate: &panproto_expr::Expr,
+    ) -> Result<panproto_expr::Env, QueryError> {
+        let Some((table, row)) = self.resolve_element(element_id) else {
+            return Ok(panproto_expr::Env::new());
+        };
+        predicate_env_at(
+            schema,
+            self,
+            crate::wtype::InstanceRef::Table(self, row),
+            predicate,
+            vec![
+                ("_anchor", Literal::Str(table.as_ref().into())),
+                ("_id", Literal::Int(i64::from(element_id))),
+                ("_edge_count", Literal::Int(count_literal(self.out_pair_count(row)))),
+            ],
+        )
     }
 }
 
@@ -1250,7 +1377,7 @@ mod tests {
             path: Vec::new(),
         };
         let schema = panproto_schema::Schema::default();
-        let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema)
+        let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema).unwrap()
             .into_iter()
             .map(|m| m.node_id)
             .collect();
@@ -1287,8 +1414,8 @@ mod tests {
             },
         ];
         for query in &queries {
-            let on_table = crate::query::execute_functor(query, &f, &schema);
-            let on_graph = crate::query::execute_graph(query, &g, &schema);
+            let on_table = crate::query::execute_functor(query, &f, &schema).unwrap();
+            let on_graph = crate::query::execute_graph(query, &g, &schema).unwrap();
             let key = |m: &crate::query::QueryMatch| {
                 let mut fields: Vec<(String, Value)> = m
                     .fields
