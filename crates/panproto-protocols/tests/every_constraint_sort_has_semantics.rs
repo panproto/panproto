@@ -46,11 +46,20 @@ type SchemaFixture = (&'static str, bool, String);
 /// Every schema fixture under `root`, by walking it: each file under a
 /// directory of [`SCHEMA_DIRS`], in path order. A file that is neither
 /// under a schema directory nor one of [`NOT_SCHEMAS`] is an error, so a
-/// fixture added anywhere is either checked or classified here.
+/// fixture added anywhere is either checked or classified here. Hidden
+/// entries (a name starting with `.`, such as the `.DS_Store` and `._*`
+/// files macOS writes) are not fixtures and are skipped, files and
+/// directories alike.
 fn schema_fixtures(root: &Path) -> Result<Vec<SchemaFixture>, Vec<String>> {
     fn walk(root: &Path, dir: &Path, out: &mut Vec<String>) {
         for entry in std::fs::read_dir(dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display())) {
             let path = entry.unwrap().path();
+            if path
+                .file_name()
+                .is_some_and(|name| name.to_string_lossy().starts_with('.'))
+            {
+                continue;
+            }
             if path.is_dir() {
                 walk(root, &path, out);
             } else {
@@ -628,5 +637,29 @@ fn constraint_semantics_rows_are_kept_one_file_per_family() {
     assert_eq!(
         rust_files("src/semantics/constraint_semantics"),
         rust_files("src/semantics/shapes"),
+    );
+}
+
+#[test]
+fn hidden_files_beside_the_fixtures_are_not_fixtures() {
+    let root = std::env::temp_dir().join(format!("panproto-fixture-walk-{}", std::process::id()));
+    let sql = root.join("sql");
+    std::fs::create_dir_all(&sql).unwrap();
+    std::fs::create_dir_all(root.join(".hidden_dir")).unwrap();
+    std::fs::write(
+        sql.join("users.sql"),
+        "CREATE TABLE users (id INTEGER PRIMARY KEY);",
+    )
+    .unwrap();
+    std::fs::write(root.join(".DS_Store"), b"\0").unwrap();
+    std::fs::write(sql.join("._users.sql"), b"\0").unwrap();
+    std::fs::write(root.join(".hidden_dir").join("stray.txt"), "stray").unwrap();
+    std::fs::write(root.join("FIXTURES.md"), "docs").unwrap();
+    let found = schema_fixtures(&root);
+    std::fs::remove_dir_all(&root).unwrap();
+    assert_eq!(
+        found,
+        Ok(vec![("sql", false, "sql/users.sql".to_owned())]),
+        "hidden entries must not be classified as fixtures"
     );
 }
