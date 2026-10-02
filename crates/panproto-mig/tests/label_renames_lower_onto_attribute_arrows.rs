@@ -227,3 +227,39 @@ fn only_the_renamed_labels_of_a_hyper_edge_are_lowered() {
         panproto_inst::identity::lens_digest(&src, &tgt, &plain)
     );
 }
+
+#[test]
+fn a_removed_label_that_keeps_its_image_is_refused_only_when_its_hyper_edge_is_mapped() {
+    // H's label a is no label of H2 and no rename names it, so it is
+    // removed; the target still holds the column T -a-> c1, so the arrow
+    // keeps a same-named image and the mapped migration is refused. With
+    // the hyper-edge unmapped nothing is lowered and the migration compiles.
+    let src = table("H", &[("a", "c1")], &[("a", "c1")], &[]);
+    let tgt = table("H2", &[("a", "c1")], &[], &[]);
+    let mapped = migration(&[("T", "T"), ("c1", "c1")], &[]);
+    let mut unmapped = mapped.clone();
+    unmapped.hyper_edge_map.clear();
+    mismatch(compile(&src, &tgt, &mapped).unwrap_err(), "a");
+    let compiled = compile(&src, &tgt, &unmapped).unwrap();
+    assert!(compiled.edge_remap.is_empty(), "{:?}", compiled.edge_remap);
+}
+
+#[test]
+fn a_kept_label_whose_target_arrow_is_not_its_direct_image_is_lowered() {
+    // H's label a is kept under its own name, but H2's a sits over c2 while
+    // the vertex map keeps c1: the arrow's direct image T -a-> c1 is not the
+    // target arrow T -a-> c2, so the mapped migration gains the entry, which
+    // the unmapped one, renaming no label either, does not.
+    let src = table("H", &[("a", "c1")], &[("a", "c1")], &[]);
+    let tgt = table("H2", &[("a", "c2"), ("z", "c1")], &[("a", "c2")], &[]);
+    let mapped = migration(&[("T", "T"), ("c1", "c1")], &[]);
+    let mut unmapped = mapped.clone();
+    unmapped.hyper_edge_map.clear();
+    let with_map = compile(&src, &tgt, &mapped).unwrap();
+    assert_eq!(
+        with_map.edge_remap,
+        HashMap::from([(prop("T", "c1", "a"), prop("T", "c2", "a"))])
+    );
+    let without_map = compile(&src, &tgt, &unmapped).unwrap();
+    assert!(without_map.edge_remap.is_empty(), "{:?}", without_map.edge_remap);
+}

@@ -192,13 +192,20 @@ fn label_arrow(
 /// unless `edge_map` maps the source arrow already, in which case its image
 /// must be the target arrow, or the target arrow is the source arrow's
 /// direct image (the target edge of its kind and name between the images
-/// of its endpoints), which a restrict gives the arrow with no entry. So a
-/// migration whose mapped hyper-edges rename no label compiles exactly as
-/// the same migration with no hyper-edge mapped. When `l` is no label of `H'` and `label_map`
-/// does not rename it, the label is removed: the target must hold no edge
-/// of the arrow's kind named `l` between the images of its endpoints, so
-/// the arrow has no image. A label without an arrow in the source is not
-/// lowered.
+/// of its endpoints), which a restrict gives the arrow with no entry. When
+/// `l` is no label of `H'` and `label_map` does not rename it, the label is
+/// removed: the target must hold no edge of the arrow's kind named `l`
+/// between the images of its endpoints, so the arrow has no image. A label
+/// without an arrow in the source is not lowered.
+///
+/// So when the lowering refuses nothing and every lowered label's target
+/// arrow is the source arrow's direct image or its `edge_map` image, it
+/// adds no entry, and the migration compiles exactly as the same migration
+/// with no hyper-edge mapped. Renaming no label is not enough for that: a
+/// label kept under its own name whose target arrow is not the source
+/// arrow's direct image gains an entry, and a removed label whose arrow
+/// keeps a same-named image is refused, while the same migrations with the
+/// hyper-edge unmapped compile.
 ///
 /// # Errors
 ///
