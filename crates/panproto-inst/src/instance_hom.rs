@@ -3,7 +3,10 @@
 //! An instance homomorphism is a structure-preserving map between two
 //! instances of the *same* schema. [`WInstanceHom`] maps the nodes of one
 //! [`WInstance`] to the nodes of another; [`FInstanceHom`] maps the rows of
-//! one [`FInstance`] to the rows of another by [`RowId`]. Both carry a
+//! one [`FInstance`] to the rows of another by [`RowId`]; [`GInstanceHom`]
+//! maps the nodes and, explicitly, the edges of one graph to those of
+//! another, since a graph may hold parallel edges a node map cannot tell
+//! apart. Each carries a
 //! `check` that verifies the map respects instance structure (anchors, arcs,
 //! fans, and root for W-types; foreign keys for F-instances), plus
 //! [`identity`](WInstanceHom::identity), [`compose`](WInstanceHom::compose),
@@ -146,6 +149,26 @@ pub enum HomError {
         /// What is wrong.
         detail: String,
     },
+
+    /// The edge map is not total: a domain edge of a graph has no image.
+    #[error("edge map is not total: domain edge {0} has no image")]
+    EdgeNotMapped(crate::ginstance::EdgeId),
+
+    /// A domain edge of a graph is sent to an edge the codomain lacks, or to
+    /// one that does not join the images of its endpoints under the same
+    /// schema edge.
+    #[error("edge {src} is not preserved: its image {tgt} is missing or does not match it")]
+    EdgeNotPreserved {
+        /// The domain edge.
+        src: crate::ginstance::EdgeId,
+        /// Its claimed image.
+        tgt: crate::ginstance::EdgeId,
+    },
+
+    /// Two graph homomorphisms cannot be composed because the image of an
+    /// edge of the first is outside the edge map of the second.
+    #[error("cannot compose: intermediate edge {0} is outside the second map's domain")]
+    ComposeEdgeMismatch(crate::ginstance::EdgeId),
 }
 
 /// A homomorphism between two W-type instances of the same schema.
@@ -715,6 +738,119 @@ fn invert<K: Ord, V: Ord>(graph: impl IntoIterator<Item = (K, V)>) -> Option<BTr
         }
     }
     Some(inverse)
+}
+
+/// A homomorphism between two graph instances of one schema: a node map and
+/// an explicit edge map.
+///
+/// A node map alone does not determine where an edge goes when the codomain
+/// holds parallel edges, so the edge map is part of the data. A
+/// well-formed map preserves anchors, and sends each edge to an edge of the
+/// same schema edge joining the images of its endpoints;
+/// [`check`](Self::check) verifies this.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GInstanceHom {
+    /// The image of each domain node.
+    pub node_map: BTreeMap<u32, u32>,
+    /// The image of each domain edge.
+    pub edge_map: BTreeMap<crate::ginstance::EdgeId, crate::ginstance::EdgeId>,
+}
+
+impl GInstanceHom {
+    /// The identity homomorphism on `instance`.
+    #[must_use]
+    pub fn identity(instance: &crate::ginstance::GInstance) -> Self {
+        Self {
+            node_map: instance.nodes().keys().map(|&id| (id, id)).collect(),
+            edge_map: instance.edges().keys().map(|&id| (id, id)).collect(),
+        }
+    }
+
+    /// Verify that this homomorphism from `dom` to `cod` preserves the graph
+    /// structure.
+    ///
+    /// Checks, nodes in ascending id and then edges in ascending id:
+    /// totality of the node map, existence of each image, anchor
+    /// preservation; totality of the edge map, and that each edge's image
+    /// exists, has the same schema edge, and joins the images of its
+    /// endpoints.
+    ///
+    /// # Errors
+    ///
+    /// Returns the first [`HomError`] encountered.
+    pub fn check(
+        &self,
+        dom: &crate::ginstance::GInstance,
+        cod: &crate::ginstance::GInstance,
+    ) -> Result<(), HomError> {
+        let mut ids: Vec<u32> = dom.nodes().keys().copied().collect();
+        ids.sort_unstable();
+        for src in ids {
+            let tgt = *self
+                .node_map
+                .get(&src)
+                .ok_or(HomError::NodeNotMapped(src))?;
+            let image = cod
+                .node(tgt)
+                .ok_or(HomError::ImageNodeMissing { src, tgt })?;
+            let source = dom.node(src).ok_or(HomError::NodeNotMapped(src))?;
+            if source.anchor != image.anchor {
+                return Err(HomError::AnchorMismatch {
+                    src,
+                    tgt,
+                    src_anchor: source.anchor.clone(),
+                    tgt_anchor: image.anchor.clone(),
+                });
+            }
+        }
+        for (id, edge) in dom.edges_sorted() {
+            let image_id = *self.edge_map.get(&id).ok_or(HomError::EdgeNotMapped(id))?;
+            let preserved = cod.edge(image_id).is_some_and(|image| {
+                image.edge == edge.edge
+                    && self.node_map.get(&edge.src) == Some(&image.src)
+                    && self.node_map.get(&edge.tgt) == Some(&image.tgt)
+            });
+            if !preserved {
+                return Err(HomError::EdgeNotPreserved {
+                    src: id,
+                    tgt: image_id,
+                });
+            }
+        }
+        Ok(())
+    }
+
+    /// The composite `other ∘ self`: first this map, then `other`.
+    ///
+    /// # Errors
+    ///
+    /// [`HomError::ComposeNodeMismatch`] or [`HomError::ComposeEdgeMismatch`]
+    /// when an image of this map is outside the domain of `other`.
+    pub fn compose(&self, other: &Self) -> Result<Self, HomError> {
+        let node_map = self
+            .node_map
+            .iter()
+            .map(|(&a, &b)| {
+                other
+                    .node_map
+                    .get(&b)
+                    .map(|&c| (a, c))
+                    .ok_or(HomError::ComposeNodeMismatch(b))
+            })
+            .collect::<Result<_, _>>()?;
+        let edge_map = self
+            .edge_map
+            .iter()
+            .map(|(&a, &b)| {
+                other
+                    .edge_map
+                    .get(&b)
+                    .map(|&c| (a, c))
+                    .ok_or(HomError::ComposeEdgeMismatch(b))
+            })
+            .collect::<Result<_, _>>()?;
+        Ok(Self { node_map, edge_map })
+    }
 }
 
 #[cfg(test)]

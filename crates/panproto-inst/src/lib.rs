@@ -148,7 +148,7 @@ pub use identity::{
 };
 pub use instance::Instance;
 pub use instance_env::{eval_with_element_ops, eval_with_instance};
-pub use instance_hom::{FInstanceHom, HomError, WInstanceHom};
+pub use instance_hom::{FInstanceHom, GInstanceHom, HomError, WInstanceHom};
 pub use metadata::{Node, NodeShape};
 pub use migration_functor::{EntityFunctor, MigrationFunctor};
 pub use panproto_schema::InstanceShapeKind;
@@ -159,12 +159,17 @@ pub use poly::{
     SectionEnrichment, fiber_at_anchor, fiber_at_node, fiber_decomposition, fiber_with_predicate,
     group_by, join, restrict_with_complement, section,
 };
-pub use provenance::{Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance};
+pub use provenance::{
+    Provenance, ProvenanceMap, SourceField, TransformStep, compute_provenance, graph_fiber_at_node,
+    graph_group_by, graph_provenance,
+};
 pub use query::{
     InstanceQuery, QueryError, QueryMatch, build_node_env, execute as execute_query, execute_any,
     execute_elements, execute_functor, execute_graph,
 };
-pub use reachability::ReachabilityIndex;
+pub use reachability::{
+    ReachabilityIndex, graph_components, reachable_from, strongly_connected_components,
+};
 pub use rel_schema::{RelSchema, RelSchemaError};
 pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
 pub use restrict_plan::{

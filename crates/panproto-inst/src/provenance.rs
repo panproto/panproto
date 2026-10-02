@@ -2,7 +2,10 @@
 //!
 //! Provenance records which source fields contributed to each target field
 //! and through which transform steps, enabling debugging, incremental
-//! recomputation, and audit/compliance.
+//! recomputation, and audit/compliance. [`compute_provenance`] serves any
+//! shape by anchors; [`graph_provenance`], [`graph_fiber_at_node`] and
+//! [`graph_group_by`] read a graph restrict's complement, where a dropped
+//! node may feed several survivors, so fibers may overlap.
 
 use std::collections::HashMap;
 
@@ -77,6 +80,109 @@ pub fn compute_provenance(
         );
     }
     map
+}
+
+/// Provenance of a graph restrict, read off its source, view and
+/// complement.
+///
+/// A kept node's source is itself. A node synthesized by expanding a source
+/// edge comes from that edge's endpoints, and one synthesized by expanding a
+/// contracted pair from the pair's endpoints. The map has an entry for every
+/// view node, and each entry lists its source fields in ascending node id.
+#[must_use]
+pub fn graph_provenance(
+    source: &crate::ginstance::GInstance,
+    view: &crate::ginstance::GInstance,
+    complement: &crate::graph_complement::GraphComplement,
+) -> ProvenanceMap {
+    use crate::view_ref::SynthKey;
+    let field = |id: u32| {
+        source.node(id).map(|node| SourceField {
+            schema_path: vec![node.anchor.to_string()],
+            node_id: id,
+        })
+    };
+    let mut map = ProvenanceMap::new();
+    for &id in view.nodes().keys() {
+        let mut sources: Vec<u32> = match complement.synthesized_nodes.get(&id) {
+            None => vec![id],
+            Some(SynthKey::Expand { source_edge, .. }) => complement
+                .dropped_edges
+                .get(source_edge)
+                .map_or_else(Vec::new, |e| vec![e.src, e.tgt]),
+            Some(
+                SynthKey::ContractExpand { src, tgt, .. } | SynthKey::Contract { src, tgt, .. },
+            ) => {
+                vec![*src, *tgt]
+            }
+        };
+        sources.sort_unstable();
+        sources.dedup();
+        map.insert(
+            id,
+            Provenance {
+                node_id: id,
+                source_fields: sources.into_iter().filter_map(field).collect(),
+                transform_chain: Vec::new(),
+            },
+        );
+    }
+    map
+}
+
+/// The dropped source nodes a graph restrict contracted into view node
+/// `node`: those reached from it through dropped nodes, ascending.
+///
+/// Unlike a tree, whose dropped nodes each have one nearest surviving
+/// ancestor, a graph's fibers may overlap: a dropped node that two
+/// surviving nodes reach through dropped nodes lies in the fiber of each.
+/// A node that is not in the view, or that nothing was contracted into, has
+/// an empty fiber.
+#[must_use]
+pub fn graph_fiber_at_node(
+    source: &crate::ginstance::GInstance,
+    complement: &crate::graph_complement::GraphComplement,
+    node: u32,
+) -> Vec<u32> {
+    if complement.dropped_nodes.contains_key(&node) || source.node(node).is_none() {
+        return Vec::new();
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    let mut frontier = vec![node];
+    while let Some(at) = frontier.pop() {
+        for next in source.successors(at) {
+            if complement.dropped_nodes.contains_key(&next) && seen.insert(next) {
+                frontier.push(next);
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
+/// The source nodes of a graph grouped by the view anchor they land on: the
+/// image of their anchor under the vertex map, for nodes whose image
+/// survives. Every surviving source node lies in exactly one group; groups
+/// are ascending.
+#[must_use]
+pub fn graph_group_by(
+    migration: &crate::wtype::CompiledMigration,
+    source: &crate::ginstance::GInstance,
+) -> std::collections::BTreeMap<panproto_gat::Name, Vec<u32>> {
+    let mut groups: std::collections::BTreeMap<panproto_gat::Name, Vec<u32>> =
+        std::collections::BTreeMap::new();
+    for (&id, node) in source.nodes() {
+        let image = migration
+            .vertex_remap
+            .get(&node.anchor)
+            .unwrap_or(&node.anchor);
+        if migration.surviving_verts.contains(image) {
+            groups.entry(image.clone()).or_default().push(id);
+        }
+    }
+    for ids in groups.values_mut() {
+        ids.sort_unstable();
+    }
+    groups
 }
 
 #[cfg(test)]
