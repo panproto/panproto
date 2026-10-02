@@ -53,13 +53,10 @@ fn tree(n: u32) -> WInstance {
     WInstance::new(nodes, arcs, vec![], 0, "r".into())
 }
 
-/// The least of three times of a predicate query at every `mid`, a
-/// one-step path query from every `mid` to its leaf, and a tree extend that
-/// transforms every `mid` from its child, on the tree with `n` mids, after
-/// checking their answers.
-fn run_time(n: u32) -> Duration {
-    let instance = tree(n);
-    let s = schema();
+/// The queries and the migration the timing runs: a predicate query at
+/// every `mid`, a one-step path query from every `mid` to its leaf, and a
+/// tree extend that transforms every `mid` from its child.
+fn workload() -> (InstanceQuery, InstanceQuery, CompiledMigration) {
     let k_is_one = Expr::Builtin(
         BuiltinOp::Eq,
         vec![Expr::Var("k".into()), Expr::Lit(Literal::Int(1))],
@@ -90,32 +87,43 @@ fn run_time(n: u32) -> Duration {
             coercion_class: panproto_gat::CoercionClass::Projection,
         }],
     );
-    let mut best = Duration::MAX;
-    for _ in 0..3 {
-        let start = Instant::now();
-        let by_predicate = execute_query(&selected, &instance, &s).unwrap();
-        let by_path = execute_query(&stepped, &instance, &s).unwrap();
-        let extended = wtype_extend_engine(&instance, &s, &migration).unwrap();
-        best = best.min(start.elapsed());
-        assert_eq!(by_predicate.len(), n as usize);
-        assert_eq!(by_predicate[0].fields.get("k"), Some(&Value::Int(1)));
-        assert_eq!(by_path.len(), n as usize);
-        assert_eq!(by_path[0].node_id, 2);
-        assert_eq!(
-            extended.nodes[&1].extra_fields.get("copy"),
-            Some(&Value::Int(1))
-        );
-    }
-    best
+    (selected, stepped, migration)
+}
+
+/// The time of the workload on `instance`, with `n` mids, after checking
+/// its answers.
+fn run_time(instance: &WInstance, n: usize) -> Duration {
+    let s = schema();
+    let (selected, stepped, migration) = workload();
+    let start = Instant::now();
+    let by_predicate = execute_query(&selected, instance, &s).unwrap();
+    let by_path = execute_query(&stepped, instance, &s).unwrap();
+    let extended = wtype_extend_engine(instance, &s, &migration).unwrap();
+    let elapsed = start.elapsed();
+    assert_eq!(by_predicate.len(), n);
+    assert_eq!(by_predicate[0].fields.get("k"), Some(&Value::Int(1)));
+    assert_eq!(by_path.len(), n);
+    assert_eq!(by_path[0].node_id, 2);
+    assert_eq!(
+        extended.nodes[&1].extra_fields.get("copy"),
+        Some(&Value::Int(1))
+    );
+    elapsed
 }
 
 #[test]
 fn a_tree_query_and_extend_are_not_charged_per_element_and_arc() {
     // Doubling the mids doubles the elements and the arcs. Work that scans
     // every arc at every element grows fourfold; work linear in the tree up
-    // to a logarithmic factor grows about twofold.
-    let small = run_time(4000);
-    let large = run_time(8000);
+    // to a logarithmic factor grows about twofold. The two sizes alternate
+    // over five rounds and each keeps its least time, so a burst of load
+    // from other work slows no single measurement into the ratio.
+    let (small_tree, large_tree) = (tree(4000), tree(8000));
+    let (mut small, mut large) = (Duration::MAX, Duration::MAX);
+    for _ in 0..5 {
+        small = small.min(run_time(&small_tree, 4000));
+        large = large.min(run_time(&large_tree, 8000));
+    }
     let ratio = large.as_secs_f64() / small.as_secs_f64();
     eprintln!("4000 mids: {small:?}; 8000 mids: {large:?}; ratio {ratio:.2}");
     assert!(

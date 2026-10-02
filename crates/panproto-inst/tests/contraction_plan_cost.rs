@@ -45,27 +45,23 @@ fn hub(n: usize) -> (Schema, Schema, CompiledMigration) {
     (src.build().unwrap(), tgt.build().unwrap(), migration)
 }
 
-/// The least of three compile times of the hub with `n` spokes, after
-/// checking the plan it compiles.
-fn compile_time(n: usize) -> Duration {
-    let (src, tgt, migration) = hub(n);
-    let mut best = Duration::MAX;
-    for _ in 0..3 {
-        let start = Instant::now();
-        let plan = ContractionPlan::compile(&src, &tgt, &migration).unwrap();
-        best = best.min(start.elapsed());
-        assert_eq!(plan.pairs.len(), n * n);
-        let region = &plan.pairs[&(Name::from("s0"), Name::from("s1"))].region;
-        assert_eq!(
-            region.iter().cloned().collect::<Vec<_>>(),
-            vec![e("h", "s1", "out"), e("s0", "h", "in")]
-        );
-        assert_eq!(
-            plan.pairs.values().map(|p| p.region.len()).sum::<usize>(),
-            2 * n * n
-        );
-    }
-    best
+/// The compile time of the hub, after checking the plan it compiles.
+fn compile_time(hub: &(Schema, Schema, CompiledMigration), n: usize) -> Duration {
+    let (src, tgt, migration) = hub;
+    let start = Instant::now();
+    let plan = ContractionPlan::compile(src, tgt, migration).unwrap();
+    let elapsed = start.elapsed();
+    assert_eq!(plan.pairs.len(), n * n);
+    let region = &plan.pairs[&(Name::from("s0"), Name::from("s1"))].region;
+    assert_eq!(
+        region.iter().cloned().collect::<Vec<_>>(),
+        vec![e("h", "s1", "out"), e("s0", "h", "in")]
+    );
+    assert_eq!(
+        plan.pairs.values().map(|p| p.region.len()).sum::<usize>(),
+        2 * n * n
+    );
+    elapsed
 }
 
 #[test]
@@ -74,9 +70,15 @@ fn compiling_a_plan_is_not_charged_per_pair_and_edge() {
     // the plan returns, by four, and the edges by two. A compilation that
     // scans every edge for every pair grows eightfold; one bounded by the
     // schema searches and the regions it returns grows about fourfold (up to
-    // a logarithmic factor from the ordered sets).
-    let small = compile_time(150);
-    let large = compile_time(300);
+    // a logarithmic factor from the ordered sets). The two sizes alternate
+    // over five rounds and each keeps its least time, so a burst of load
+    // from other work slows no single measurement into the ratio.
+    let (small_hub, large_hub) = (hub(150), hub(300));
+    let (mut small, mut large) = (Duration::MAX, Duration::MAX);
+    for _ in 0..5 {
+        small = small.min(compile_time(&small_hub, 150));
+        large = large.min(compile_time(&large_hub, 300));
+    }
     let ratio = large.as_secs_f64() / small.as_secs_f64();
     eprintln!("150 spokes: {small:?}; 300 spokes: {large:?}; ratio {ratio:.2}");
     assert!(
