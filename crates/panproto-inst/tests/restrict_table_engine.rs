@@ -1495,3 +1495,92 @@ proptest! {
         }
     }
 }
+
+/// The protocol of [`protocol`] with the value kind `struct`, whose cells
+/// hold a record value.
+fn protocol_with_struct() -> Protocol {
+    let mut p = protocol();
+    p.value_kinds.insert("struct".to_owned(), ScalarKind::Any);
+    p
+}
+
+/// `t` with the leaf column `a` (int) and the structured column `addr`
+/// (`struct`), whose value has the inner field `x` (int).
+fn leaf_and_struct_table(p: &Protocol) -> Schema {
+    SchemaBuilder::new(p)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.a", "int", None))
+        .and_then(|b| b.vertex("t.addr", "struct", None))
+        .and_then(|b| b.vertex("t.addr.x", "int", None))
+        .and_then(|b| b.edge("t", "t.a", "prop", Some("a")))
+        .and_then(|b| b.edge("t", "t.addr", "prop", Some("addr")))
+        .and_then(|b| b.edge("t.addr", "t.addr.x", "prop", Some("x")))
+        .and_then(SchemaBuilder::build)
+        .unwrap()
+}
+
+#[test]
+fn a_table_with_a_leaf_and_a_struct_column_reads_both_as_cells() {
+    // The structured column is a column of `t` (its target is a value
+    // vertex; the edge out of it is inside the one value a cell holds), so
+    // a total row holds a cell at both columns, and a row without the
+    // structured cell is partial.
+    let p = protocol_with_struct();
+    let schema = leaf_and_struct_table(&p);
+    let rel = panproto_inst::RelSchema::new(&schema, &p).unwrap();
+    assert!(rel.columns("t").keys().eq(["a", "addr"]));
+    let addr = Value::Unknown(HashMap::from([("x".to_owned(), Value::Int(2))]));
+    let row = FInstance::new()
+        .with_rows(
+            "t",
+            [(
+                RowId(0),
+                cells(&[("a", Value::Int(1)), ("addr", addr.clone())]),
+            )],
+        )
+        .unwrap();
+    let m = identity(&schema);
+    let (view, complement) =
+        functor_restrict_with_plan(&row, &plan_under(&schema, &schema, &m, &p)).unwrap();
+    assert_eq!(view, row);
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+
+    let partial = FInstance::new()
+        .with_rows("t", [(RowId(0), cells(&[("a", Value::Int(1))]))])
+        .unwrap();
+    let engine = functor_restrict_with_plan(&partial, &plan_under(&schema, &schema, &m, &p));
+    assert!(
+        refused_as_nonconforming(
+            &engine,
+            0,
+            Some("addr"),
+            &panproto_inst::NonConformance::MissingCell
+        ),
+        "{engine:?}"
+    );
+
+    // Dropping the structured column records its whole value.
+    let mut dropping = identity(&schema);
+    dropping.surviving_verts.remove("t.addr");
+    dropping.surviving_verts.remove("t.addr.x");
+    dropping
+        .surviving_edges
+        .retain(|edge| edge.src != "t.addr" && edge.name.as_deref() != Some("addr"));
+    let mut tgt = schema.clone();
+    tgt.vertices.remove("t.addr");
+    tgt.vertices.remove("t.addr.x");
+    tgt.edges
+        .retain(|edge, _| edge.src != "t.addr" && edge.name.as_deref() != Some("addr"));
+    let (view, complement) =
+        functor_restrict_with_plan(&row, &plan_under(&schema, &tgt, &dropping, &p)).unwrap();
+    assert_eq!(view.row(RowId(0)), Some(&cells(&[("a", Value::Int(1))])));
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([((RowId(0), "addr".to_owned()), addr)])
+    );
+}
+
+/// The table plan of `m` from `src` to `tgt` under the protocol `p`.
+fn plan_under(src: &Schema, tgt: &Schema, m: &CompiledMigration, p: &Protocol) -> RestrictPlan {
+    RestrictPlan::compile_for_tables(src, tgt, m, protocols(p)).unwrap()
+}
