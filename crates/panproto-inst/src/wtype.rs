@@ -1851,6 +1851,7 @@ pub(crate) struct KeyTrack {
 
 /// A key's state taken off a [`KeyTrack`] when its value moves: whether a
 /// transform wrote it.
+#[derive(Clone, Copy)]
 pub(crate) struct KeyState {
     written: bool,
 }
