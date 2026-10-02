@@ -3,6 +3,8 @@
 //! linear in the tree's size up to a logarithmic factor: no element pays
 //! for a scan of every arc.
 
+mod common;
+
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
@@ -116,21 +118,28 @@ fn run_time(instance: &WInstance, n: usize) -> Duration {
 
 #[test]
 fn a_tree_query_and_extend_are_not_charged_per_element_and_arc() {
-    // Doubling the mids doubles the elements and the arcs. Work that scans
-    // every arc at every element grows fourfold; work linear in the tree up
-    // to a logarithmic factor grows about twofold. The two sizes alternate
-    // over five rounds and each keeps its least time, so a burst of load
-    // from other work slows no single measurement into the ratio.
-    let (small_tree, large_tree) = (tree(4000), tree(8000));
-    let (mut small, mut large) = (Duration::MAX, Duration::MAX);
-    for _ in 0..5 {
-        small = small.min(run_time(&small_tree, 4000));
-        large = large.min(run_time(&large_tree, 8000));
-    }
-    let ratio = large.as_secs_f64() / small.as_secs_f64();
-    eprintln!("4000 mids: {small:?}; 8000 mids: {large:?}; ratio {ratio:.2}");
+    // Quadrupling the mids quadruples the elements and the arcs. Work that
+    // scans every arc at every element grows sixteenfold, fourfold in units
+    // of a linear baseline over the same tree (one clone of it); work linear
+    // in the tree up to a logarithmic factor keeps its size in those units.
+    // The bound 2 is the geometric mean of the two growths.
+    let (small_tree, large_tree) = (tree(2000), tree(8000));
+    let (small, large) = common::sizes_in_units(
+        7,
+        common::Probe {
+            work: || run_time(&small_tree, 2000),
+            unit: || drop(std::hint::black_box(small_tree.clone())),
+        },
+        common::Probe {
+            work: || run_time(&large_tree, 8000),
+            unit: || drop(std::hint::black_box(large_tree.clone())),
+        },
+    );
+    let growth = large / small;
+    eprintln!("2000 mids: {small:.1} units; 8000 mids: {large:.1} units; growth {growth:.2}");
     assert!(
-        ratio < 3.0,
-        "doubling the tree multiplied the time by {ratio:.2} ({small:?} to {large:?})"
+        growth < 2.0,
+        "quadrupling the tree multiplied the time in baseline units by {growth:.2} \
+         ({small:.1} to {large:.1})"
     );
 }
