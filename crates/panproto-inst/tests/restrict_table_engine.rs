@@ -1693,3 +1693,46 @@ fn a_plan_digest_reads_the_kinds_that_classify_columns() {
     only_non_value.non_value_kinds.insert("other".to_owned());
     assert_ne!(digest(&classifying), digest(&only_non_value));
 }
+
+#[test]
+fn the_default_protocol_declares_the_leaf_edges_alone() {
+    // A vertex with a primary key is a table under any protocol, the
+    // default one included, but the default protocol has no value kinds,
+    // so the table it classifies has no column and nothing is declared.
+    let keyed = SchemaBuilder::new(&Protocol::default())
+        .vertex("t", "record", None)
+        .map(|b| {
+            b.key(
+                "t",
+                panproto_schema::Key {
+                    id: "pk".into(),
+                    parts: vec![],
+                    role: panproto_schema::KeyRole::Primary,
+                    scope: panproto_schema::KeyScope::Document,
+                },
+            )
+        })
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let rel = panproto_inst::RelSchema::new(&keyed, &Protocol::default()).unwrap();
+    assert!(rel.is_table("t"));
+    assert!(rel.columns("t").is_empty());
+    let attrs = panproto_inst::AttributeSchema::from_schema(&keyed, &Protocol::default());
+    assert!(attrs.for_vertex("t").is_empty());
+    // On a table with a leaf and a structured column, the default protocol
+    // declares the leaf column alone, and the classifying one both.
+    let classifying = protocol_with_struct();
+    let schema = leaf_and_struct_table(&classifying);
+    let declared = |p: &Protocol| -> Vec<String> {
+        panproto_inst::AttributeSchema::from_schema(&schema, p)
+            .for_vertex("t")
+            .iter()
+            .map(|d| d.name.clone())
+            .collect()
+    };
+    assert_eq!(declared(&Protocol::default()), vec!["a".to_owned()]);
+    assert_eq!(
+        declared(&classifying),
+        vec!["a".to_owned(), "addr".to_owned()]
+    );
+}

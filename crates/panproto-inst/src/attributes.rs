@@ -94,9 +94,10 @@ impl AttributeSchema {
     /// value a cell holds). The attribute name is the edge label, or the
     /// target vertex id when the edge is unlabeled; the value kind is the
     /// target vertex's kind. Attributes are ordered by name; duplicate names
-    /// keep the first declaration. A protocol that classifies no schema (such
-    /// as [`Protocol::default`] over a schema with any vertex) adds no column,
-    /// so only the leaf edges are declared.
+    /// keep the first declaration. A protocol with no value kinds (such as
+    /// [`Protocol::default`]) classifies no vertex as a value vertex, so
+    /// every table it classifies has no column, and only the leaf edges are
+    /// declared.
     #[must_use]
     pub fn from_schema(schema: &Schema, protocol: &Protocol) -> Self {
         let mut attrs: HashMap<Name, Vec<AttributeDecl>> = HashMap::new();
@@ -297,11 +298,12 @@ impl AttributeSchema {
 ///
 /// Not a validation boundary: it returns the attribute violations alone,
 /// with no status. It derives the schema's [`AttributeSchema`] under
-/// [`Protocol::default`], which classifies no table, so the declared
-/// attributes are the leaf edges alone, and calls
-/// [`AttributeSchema::validate_wtype`]: the projection the `Attribute` check
-/// of [`validate_wtype`](crate::validate_wtype) reports as diagnostics under
-/// a protocol that classifies no table with a structured column.
+/// [`Protocol::default`], which has no value kinds, so no table it
+/// classifies has a column and the declared attributes are the leaf edges
+/// alone, and calls [`AttributeSchema::validate_wtype`]: the projection the
+/// `Attribute` check of [`validate_wtype`](crate::validate_wtype) reports as
+/// diagnostics under a protocol that classifies no table with a structured
+/// column.
 #[must_use]
 pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<AttributeViolation> {
     AttributeSchema::from_schema(schema, &Protocol::default()).validate_wtype(instance)
