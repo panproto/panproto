@@ -796,10 +796,9 @@ fn query_diamond_chain(bencher: Bencher, n: u32) {
     });
 }
 
-/// The two paths of one restrict over a tree-shaped input of `n` nodes,
-/// half of them dropped: the tree engine on the tree, and the graph engine
-/// on its graph form. Dispatch takes the tree path when the input has the
-/// tree shape.
+/// One restrict over a tree-shaped input of `n` nodes, half of them
+/// dropped, for the tree engine on the tree and the graph engine on its
+/// graph form.
 fn halved_tree(n: u32) -> (WInstance, RestrictPlan) {
     let keep_edge = make_edge("item", "item", "next");
     let drop_edge = make_edge("item", "gone", "gone");
@@ -843,28 +842,16 @@ fn halved_tree(n: u32) -> (WInstance, RestrictPlan) {
 }
 
 #[divan::bench(args = [1_000, 10_000])]
-fn restrict_dispatch_tree_path(bencher: Bencher, n: u32) {
+fn restrict_tree_engine_on_halved_tree(bencher: Bencher, n: u32) {
     let (tree, plan) = halved_tree(n);
     bencher.bench_local(|| wtype_restrict_with_plan(divan::black_box(&tree), &plan).expect("ok"));
 }
 
 #[divan::bench(args = [1_000, 10_000])]
-fn restrict_dispatch_graph_path(bencher: Bencher, n: u32) {
+fn restrict_graph_engine_on_halved_tree(bencher: Bencher, n: u32) {
     let (tree, plan) = halved_tree(n);
     let graph = panproto_inst::GInstance::from_wtype(&tree).expect("a tree embeds");
     bencher.bench_local(|| {
         panproto_inst::graph_restrict_with_plan(divan::black_box(&graph), &plan).expect("ok")
-    });
-}
-
-/// The dispatched graph restrict on the same tree-shaped graph: the tree
-/// engine plus the conversions to the tree and back.
-#[divan::bench(args = [1_000, 10_000])]
-fn restrict_dispatch_dispatched(bencher: Bencher, n: u32) {
-    let (tree, plan) = halved_tree(n);
-    let graph = panproto_inst::GInstance::from_wtype(&tree).expect("a tree embeds");
-    assert!(panproto_inst::graph_restrict_on_tree(&graph, &plan).is_some());
-    bencher.bench_local(|| {
-        panproto_inst::graph_restrict_dispatched(divan::black_box(&graph), &plan).expect("ok")
     });
 }

@@ -1,21 +1,319 @@
-#![allow(clippy::unwrap_used, clippy::expect_used)]
-//! Restrict dispatch: on a tree the plan keeps a tree, the tree engine's
-//! view, mapped back, is the graph engine's view under the same ids, with
-//! the same child order; otherwise, and whenever the tree engine fails, the
-//! graph engine decides.
+//! Cross-engine agreement of restrict on graphs.
+//!
+//! A graph input always runs the graph engine. The squares below check the
+//! other two engines against it: on a tree-shaped graph, converting the
+//! input to a tree, running the tree engine and converting the view back
+//! gives the graph engine's view under the same ids and child order; on a
+//! table-shaped graph, the same holds through the table engine. The legs
+//! that convert live here, so no restrict entry point converts its input to
+//! choose an engine.
 
+use std::cell::Cell;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use panproto_expr::{BuiltinOp, Expr, Literal};
-use panproto_gat::Name;
-use panproto_inst::{
-    CompiledMigration, GInstance, Node, RestrictError, RestrictPlan, Value,
-    graph_restrict_dispatched, graph_restrict_on_table, graph_restrict_on_tree,
-    graph_restrict_with_plan,
-};
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 use proptest::prelude::*;
 use proptest::test_runner::{Config, TestRunner};
+
+use panproto_gat::Name;
+
+use super::{
+    EdgeId, GEdge, GInstance, IdKind, Node, RestrictPlan, SynthKey, allocate_synthesized,
+    floor_above, graph_restrict_with_plan, is_fan_node,
+};
+use crate::functor::FInstance;
+use crate::ginstance::TableEmbedding;
+use crate::wtype::WInstance;
+use crate::{
+    BoundaryProtocols, CompiledMigration, RestrictError, Value, graph_restrict,
+    graph_restrict_with_complement,
+};
+
+thread_local! {
+    /// The legs run on this thread, so a test can tell that a restrict
+    /// entry point ran none.
+    static CROSS_ENGINE_RUNS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// The table leg of the table square, or `None` when it declines: the
+/// input converted to a table, the table engine, and its view converted
+/// back.
+///
+/// The view is the one [`graph_restrict_with_plan`] gives, computed by the
+/// table engine ([`functor_restrict_with_plan`](crate::functor_restrict_with_plan))
+/// on the table the input is ([`GInstance::try_to_finstance`]).
+///
+/// The leg declines when the plan has no table layer (it was not compiled
+/// by [`RestrictPlan::compile_for_tables`]), the input is not a table, or the
+/// table engine refuses it. Otherwise the table view maps back exactly: a
+/// row is the node of its id, re-anchored and holding the row's cells; a
+/// kept pair is the source edge that carries it, under that edge's id; a
+/// contracted pair is a synthesized edge, whose id the graph engine's
+/// allocation gives its key. The leg declines, too, on a view pair that
+/// several source edges carry (the graph keeps each, the table one pair)
+/// or that no source edge and no contraction gives.
+///
+fn table_leg(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
+    plan.boundary.as_ref()?.table.as_ref()?;
+    let (table, embedding) = instance.try_to_finstance(plan.source()).ok()?;
+    table_view_in_graph(instance, &table, &embedding, plan)
+}
+
+/// [`table_leg`] on the table `table` that `instance` is, read
+/// with `embedding` ([`GInstance::try_to_finstance`]).
+fn table_view_in_graph(
+    instance: &GInstance,
+    table: &FInstance,
+    embedding: &TableEmbedding,
+    plan: &RestrictPlan,
+) -> Option<GInstance> {
+    CROSS_ENGINE_RUNS.with(|runs| runs.set(runs.get() + 1));
+    let (view, complement) = crate::table_restrict::functor_restrict_with_plan(table, plan).ok()?;
+    let mut graph = GInstance::new();
+    for row in view.row_ids() {
+        // A node of a table is a plain row (`GInstance::table_shape`): its
+        // anchor and fields are all it holds.
+        let mut node = Node::new(row.0, view.table_of(row)?.clone());
+        node.extra_fields.clone_from(view.row(row)?);
+        graph = graph.with_node(node);
+    }
+    let mut contracted = Vec::new();
+    for (edge, pairs) in view.foreign_keys() {
+        for &(src, tgt) in pairs {
+            let key = (edge.clone(), src, tgt);
+            let carriers: Vec<&Edge> = complement.original_fk_edges.get(&key).map_or_else(
+                || plan.edge_image.preimages(edge),
+                |recorded| recorded.iter().collect(),
+            );
+            let sources: Vec<EdgeId> = carriers
+                .into_iter()
+                .filter_map(|carrier| embedding.pairs.get(&(carrier.clone(), src, tgt)).copied())
+                .collect();
+            let synthesized = complement.synthesized_fk_pairs.contains(&key);
+            match sources.as_slice() {
+                [] if synthesized => {}
+                [id] => graph.place_edge(
+                    *id,
+                    GEdge {
+                        src: src.0,
+                        tgt: tgt.0,
+                        edge: edge.clone(),
+                        position: instance.edge(*id)?.position,
+                    },
+                ),
+                _ => return None,
+            }
+            if synthesized {
+                contracted.push((src.0, tgt.0, edge.clone()));
+            }
+        }
+    }
+    let key = |(src, tgt, edge): &(u32, u32, Edge)| SynthKey::Contract {
+        src: *src,
+        tgt: *tgt,
+        edge: edge.clone(),
+    };
+    let floor = floor_above(instance.max_edge_id().map(|e| e.0));
+    let ids = allocate_synthesized(contracted.iter().map(key), floor, IdKind::Edge).ok()?;
+    for pair in &contracted {
+        let (src, tgt, edge) = pair;
+        graph.place_edge(
+            EdgeId(ids[&key(pair)]),
+            GEdge::new(*src, *tgt, edge.clone()),
+        );
+    }
+    Some(graph)
+}
+
+/// The tree leg of the tree square, or `None` when it declines: the input
+/// converted to a tree, the tree engine, and its view converted back.
+///
+/// The view is the one [`graph_restrict_with_plan`] gives, computed by the
+/// tree engine ([`wtype_restrict_with_plan`](crate::wtype_restrict_with_plan))
+/// on the tree the input is.
+///
+/// The leg declines when the plan does not preserve tree shape
+/// ([`RestrictPlan::preserves_tree_shape`]), has a cell layer (which the
+/// tree engine does not apply), or the input holds a fan node, is not a
+/// tree ([`GInstance::tree_shape`]), or is one the tree engine refuses,
+/// [`RestrictError::RootPruned`] included. Otherwise the tree view maps
+/// back exactly: a source node keeps its id, and the tree and the graph
+/// allocate synthesized nodes from the same floor in the same key order,
+/// since a tree's arcs come in ascending edge id, so keying an expansion by
+/// arc position orders it as keying it by edge id does. A kept arc takes
+/// the id of the source edge into its child; the synthesized arcs, which
+/// follow the kept ones in key order, take ids from the edge floor.
+///
+fn tree_leg(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
+    CROSS_ENGINE_RUNS.with(|runs| runs.set(runs.get() + 1));
+    if !plan.preserves_tree_shape()
+        || plan.cells().is_some()
+        || instance.nodes().values().any(is_fan_node)
+    {
+        return None;
+    }
+    let (tree, embedding) = instance.to_wtype_embedded(plan.source()).ok()?;
+    let node_floor = floor_above(instance.max_node_id());
+    if crate::complement::tree_id_floor(&tree).ok() != Some(node_floor) {
+        return None;
+    }
+    let (view, _) = crate::wtype::wtype_restrict_with_plan(&tree, plan).ok()?;
+    let mut edge_ids = crate::segment::IdAllocator::from_floor(
+        crate::segment::IdRange {
+            lo: 0,
+            hi: u32::MAX - 1,
+        },
+        floor_above(instance.max_edge_id().map(|e| e.0)),
+    );
+    let mut graph = GInstance::new();
+    let WInstance { nodes, arcs, .. } = view;
+    for node in nodes.into_values() {
+        graph = graph.with_node(node);
+    }
+    for (parent, child, label) in &arcs {
+        let kept = *child < node_floor && tree.parent_map.get(child) == Some(parent);
+        let (id, position) = if kept {
+            let id = *embedding.arcs.get(child)?;
+            (id, instance.edge(id)?.position)
+        } else {
+            (EdgeId(edge_ids.allocate().ok()?), None)
+        };
+        graph.place_edge(
+            id,
+            GEdge {
+                src: *parent,
+                tgt: *child,
+                edge: label.clone(),
+                position,
+            },
+        );
+    }
+    Some(graph)
+}
+
+fn prop_edge(src: &str, tgt: &str, name: &str) -> Edge {
+    Edge {
+        src: src.into(),
+        tgt: tgt.into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    }
+}
+
+#[test]
+fn graph_restrict_runs_the_graph_engine_on_every_input() {
+    // A tree-shaped graph under a plan that keeps a tree, and a
+    // table-shaped graph under a migration with a plan for tables: neither
+    // is converted to another shape, and the view is the graph engine's.
+    let protocol = Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "int".to_owned(),
+            panproto_schema::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    };
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.c", "int", None))
+        .and_then(|b| b.vertex("u", "record", None))
+        .and_then(|b| b.vertex("u.c", "int", None))
+        .and_then(|b| b.edge("t", "t.c", "prop", Some("c")))
+        .and_then(|b| b.edge("u", "u.c", "prop", Some("c")))
+        .and_then(|b| b.edge("t", "u", "fk", Some("r")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let mut m = CompiledMigration::default();
+    for v in ["t", "t.c", "u", "u.c"] {
+        m.surviving_verts.insert(v.into());
+    }
+    m.surviving_edges.insert(prop_edge("t", "t.c", "c"));
+    m.surviving_edges.insert(prop_edge("u", "u.c", "c"));
+    m.surviving_edges.insert(Edge {
+        src: "t".into(),
+        tgt: "u".into(),
+        kind: "fk".into(),
+        name: Some("r".into()),
+    });
+    // Two rows joined by `r`: a table and, rooted at the `t` row, a tree.
+    let mut g = GInstance::new()
+        .with_node(Node::new(0, "t").with_extra_field("c", Value::Int(1)))
+        .with_node(Node::new(1, "u").with_extra_field("c", Value::Int(2)));
+    g.add_edge(
+        0,
+        1,
+        Edge {
+            src: "t".into(),
+            tgt: "u".into(),
+            kind: "fk".into(),
+            name: Some("r".into()),
+        },
+    )
+    .unwrap();
+    assert!(g.try_to_finstance(&schema).is_ok(), "the graph is a table");
+    assert_runs_the_graph_engine(&g, &schema, &m, protocols);
+
+    // The same graph and migration under a protocol that classifies no
+    // table: the plan has no cell layer and keeps a tree, and the graph is
+    // a tree.
+    let unclassifying = Protocol::default();
+    let plain_protocols = BoundaryProtocols {
+        src: &unclassifying,
+        tgt: &unclassifying,
+    };
+    let plain_schema = SchemaBuilder::new(&unclassifying)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.c", "int", None))
+        .and_then(|b| b.vertex("u", "record", None))
+        .and_then(|b| b.vertex("u.c", "int", None))
+        .and_then(|b| b.edge("t", "t.c", "prop", Some("c")))
+        .and_then(|b| b.edge("u", "u.c", "prop", Some("c")))
+        .and_then(|b| b.edge("t", "u", "fk", Some("r")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let plan = crate::RestrictPlan::compile_with_protocols(
+        &plain_schema,
+        &plain_schema,
+        &m,
+        plain_protocols,
+    )
+    .unwrap();
+    assert!(plan.preserves_tree_shape());
+    assert!(matches!(
+        g.tree_shape(&plain_schema),
+        crate::TreeShapeReport::Tree { root: 0 }
+    ));
+    assert_runs_the_graph_engine(&g, &plain_schema, &m, plain_protocols);
+}
+
+/// `graph_restrict` and the graph's `AcsetOps::restrict` convert `g` to no
+/// other shape and give the graph engine's view.
+fn assert_runs_the_graph_engine(
+    g: &GInstance,
+    schema: &panproto_schema::Schema,
+    m: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
+) {
+    CROSS_ENGINE_RUNS.with(|runs| runs.set(0));
+    let view = graph_restrict(g, schema, schema, m, protocols).unwrap();
+    let via_trait = crate::AcsetOps::restrict(g, schema, schema, m, protocols).unwrap();
+    assert_eq!(CROSS_ENGINE_RUNS.with(std::cell::Cell::get), 0);
+    let (engine, _) = graph_restrict_with_complement(g, schema, schema, m, protocols).unwrap();
+    assert!(GInstance::identical(&view, &engine));
+    assert!(GInstance::identical(&via_trait, &engine));
+}
+
+// ---------------------------------------------------------------------------
+// Tree square
+// ---------------------------------------------------------------------------
 
 const NAMES: [&str; 4] = ["v0", "v1", "v2", "v3"];
 
@@ -162,26 +460,30 @@ fn arb_case() -> impl Strategy<Value = (GInstance, RestrictPlan)> {
         )
 }
 
-/// The dispatch square on one case: the same view under the same ids and
-/// child order, or the same error.
-fn square(g: &GInstance, plan: &RestrictPlan) -> Result<(), TestCaseError> {
-    let dispatched = graph_restrict_dispatched(g, plan);
+/// The tree square on one case: when the tree leg runs to the end, its
+/// view is the graph engine's under the same ids and child order. Returns
+/// whether the leg ran to the end.
+fn tree_square(g: &GInstance, plan: &RestrictPlan) -> Result<bool, TestCaseError> {
+    let Some(leg) = tree_leg(g, plan) else {
+        return Ok(false);
+    };
     let engine = graph_restrict_with_plan(g, plan).map(|(view, _)| view);
-    match (&dispatched, &engine) {
-        (Ok(d), Ok(r)) => {
-            prop_assert!(GInstance::identical(d, r), "{d:?}\n{r:?}");
-            for id in r.nodes().keys() {
-                prop_assert_eq!(d.ordered_out_edges(*id), r.ordered_out_edges(*id));
-            }
-        }
-        (Err(d), Err(r)) => prop_assert_eq!(format!("{d:?}"), format!("{r:?}")),
-        _ => prop_assert!(false, "{dispatched:?}\n{engine:?}"),
+    let Ok(engine) = engine else {
+        prop_assert!(
+            false,
+            "the tree leg gave {leg:?}, the graph engine {engine:?}"
+        );
+        return Ok(true);
+    };
+    prop_assert!(GInstance::identical(&leg, &engine), "{leg:?}\n{engine:?}");
+    for id in engine.nodes().keys() {
+        prop_assert_eq!(leg.ordered_out_edges(*id), engine.ordered_out_edges(*id));
     }
-    Ok(())
+    Ok(true)
 }
 
 #[test]
-fn the_restrict_dispatch_square_commutes() {
+fn the_tree_engine_agrees_with_the_graph_engine_on_tree_shaped_graphs() {
     let taken = AtomicUsize::new(0);
     let declined = AtomicUsize::new(0);
     let mut runner = TestRunner::new(Config {
@@ -190,24 +492,25 @@ fn the_restrict_dispatch_square_commutes() {
     });
     runner
         .run(&arb_case(), |(g, plan)| {
-            if graph_restrict_on_tree(&g, &plan).is_some() {
+            if tree_square(&g, &plan)? {
                 taken.fetch_add(1, Ordering::Relaxed);
             } else {
                 declined.fetch_add(1, Ordering::Relaxed);
             }
-            square(&g, &plan)
+            Ok(())
         })
         .unwrap();
     let (taken, declined) = (taken.into_inner(), declined.into_inner());
-    // The square is not vacuous: both paths are exercised.
-    assert!(taken >= 200, "fast path taken {taken} times");
-    assert!(declined >= 200, "fast path declined {declined} times");
+    // The square is not vacuous: the leg runs to the end and declines,
+    // each often.
+    assert!(taken >= 200, "tree leg ran {taken} times");
+    assert!(declined >= 200, "tree leg declined {declined} times");
 }
 
 /// One fixed case through every chain kind: a kept arc, a contraction
 /// through a dropped node, and an expansion, on sparse edge ids.
 #[test]
-fn the_fast_path_maps_kept_contracted_and_expanded_arcs_back() {
+fn the_tree_leg_maps_kept_contracted_and_expanded_arcs_back() {
     use PairFate::{Expand, Keep};
     let mut fates = vec![Keep; 16];
     fates[1] = Expand; // e01 expands through w01.
@@ -226,7 +529,7 @@ fn the_fast_path_maps_kept_contracted_and_expanded_arcs_back() {
     g.add_edge(0, 5, pool(0, 1)).unwrap();
     g.add_edge(0, 11, pool(0, 3)).unwrap();
     g.remove_edge(gap).unwrap();
-    let fast = graph_restrict_on_tree(&g, &plan).expect("the fast path is taken");
+    let fast = tree_leg(&g, &plan).expect("the tree leg runs to the end");
     let (engine, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
     assert!(GInstance::identical(&fast, &engine));
     assert_eq!(complement.synthesized_nodes.len(), 1);
@@ -237,26 +540,26 @@ fn the_fast_path_maps_kept_contracted_and_expanded_arcs_back() {
 }
 
 #[test]
-fn a_pruned_root_falls_back_to_the_graph_path() {
+fn a_pruned_root_is_outside_the_tree_square() {
     // The root's anchor is dropped: the tree engine refuses with
-    // `RootPruned`, and the graph engine, which needs no root, keeps the
-    // rest.
+    // `RootPruned`, so the tree leg declines, and the graph engine, which
+    // needs no root, keeps the rest.
     let (src, tgt, m) = schemas(&[PairFate::Keep; 16], &[false, true, true, true]);
     let plan = RestrictPlan::compile(&src, &tgt, &m).unwrap();
     let mut tree = GInstance::new()
         .with_node(Node::new(0, "v0"))
         .with_node(Node::new(1, "v2"));
     tree.add_edge(0, 1, pool(0, 2)).unwrap();
-    assert!(graph_restrict_on_tree(&tree, &plan).is_none());
-    let view = graph_restrict_dispatched(&tree, &plan).unwrap();
+    assert!(tree_leg(&tree, &plan).is_none());
+    let (view, _) = graph_restrict_with_plan(&tree, &plan).unwrap();
     assert_eq!(view.nodes().keys().copied().collect::<Vec<_>>(), vec![1]);
 }
 
 #[test]
-fn a_plan_that_drops_an_edge_between_survivors_takes_the_graph_path() {
+fn a_plan_that_drops_an_edge_between_survivors_is_outside_the_tree_square() {
     // A missing pair between survivors drops the edge alone in a graph but
     // the subtree in a tree, so the plan does not preserve tree shape and
-    // the dispatcher takes the graph path.
+    // the tree leg declines.
     let mut fates = vec![PairFate::Keep; 16];
     fates[2] = PairFate::Missing;
     let (src, tgt, m) = schemas(&fates, &[true; 4]);
@@ -268,33 +571,32 @@ fn a_plan_that_drops_an_edge_between_survivors_takes_the_graph_path() {
         .with_node(Node::new(2, "v3"));
     g.add_edge(0, 1, pool(0, 2)).unwrap();
     g.add_edge(1, 2, pool(2, 3)).unwrap();
-    assert!(graph_restrict_on_tree(&g, &plan).is_none());
-    let view = graph_restrict_dispatched(&g, &plan).unwrap();
+    assert!(tree_leg(&g, &plan).is_none());
+    let (view, _) = graph_restrict_with_plan(&g, &plan).unwrap();
     // The graph keeps both nodes under v0's dropped edge.
     assert_eq!(view.node_count(), 3);
     assert_eq!(view.edge_count(), 1);
 }
 
 #[test]
-fn a_tree_engine_error_is_decided_by_the_graph_path() {
+fn a_tree_engine_refusal_is_outside_the_tree_square() {
     // `v1` survives only where `k` is 1; a `v1` node without `k` makes the
-    // predicate fail to evaluate. The tree engine refuses, unlocated; the
-    // dispatcher returns the graph engine's refusal, located at the node.
+    // predicate fail to evaluate. The tree engine refuses, unlocated, so
+    // the tree leg declines; the graph restrict refuses, located at the
+    // node.
     let (src, tgt, m) = schemas(&[PairFate::Keep; 16], &[true; 4]);
     let plan = RestrictPlan::compile(&src, &tgt, &m).unwrap();
     let mut g = GInstance::new()
         .with_node(Node::new(0, "v0"))
         .with_node(Node::new(4, "v1"));
     g.add_edge(0, 4, pool(0, 1)).unwrap();
-    assert!(graph_restrict_on_tree(&g, &plan).is_none());
-    let dispatched = graph_restrict_dispatched(&g, &plan).unwrap_err();
+    assert!(tree_leg(&g, &plan).is_none());
     let Err(engine) = graph_restrict_with_plan(&g, &plan) else {
         panic!("the graph engine refuses");
     };
-    assert_eq!(format!("{dispatched:?}"), format!("{engine:?}"));
-    assert_eq!(dispatched.key().map(|k| (k.stage, k.id)), Some((0, 4)));
+    assert_eq!(engine.key().map(|k| (k.stage, k.id)), Some((0, 4)));
     assert!(matches!(
-        dispatched.unlocated(),
+        engine.unlocated(),
         RestrictError::SurvivalPredicateFailed { .. }
     ));
 }
@@ -433,13 +735,13 @@ fn arb_table_case() -> impl Strategy<Value = (GInstance, Schema, CompiledMigrati
 }
 
 #[test]
-fn the_table_dispatch_square_commutes() {
+fn the_table_engine_agrees_with_the_graph_engine_on_table_shaped_graphs() {
     // On every table-shaped graph and every migration with a plan for
-    // tables, the table path, when it is taken, gives the graph engine's
-    // view under the same ids, over the table plan and over the protocol
-    // plan alike; the dispatcher gives it in every case.
+    // tables, the graph engine's view over the table plan is its view over
+    // the protocol plan, and the table leg, when it runs to the end, gives
+    // that view under the same ids.
     let protocol = table_protocol();
-    let protocols = panproto_inst::BoundaryProtocols {
+    let protocols = crate::BoundaryProtocols {
         src: &protocol,
         tgt: &protocol,
     };
@@ -463,20 +765,26 @@ fn the_table_dispatch_square_commutes() {
                 (Err(a), Err(b)) => prop_assert_eq!(format!("{a:?}"), format!("{b:?}")),
                 _ => prop_assert!(false, "{engine:?}\n{on_table_plan:?}"),
             }
-            if let Some(fast) = graph_restrict_on_table(&g, &table_plan) {
+            if let Some(fast) = table_leg(&g, &table_plan) {
                 taken.fetch_add(1, Ordering::Relaxed);
-                let engine = engine.as_ref().unwrap();
+                let Ok(engine) = engine.as_ref() else {
+                    prop_assert!(
+                        false,
+                        "the table leg gave {fast:?}, the graph engine {engine:?}"
+                    );
+                    return Ok(());
+                };
                 prop_assert!(GInstance::identical(&fast, engine), "{fast:?}\n{engine:?}");
             }
-            square(&g, &table_plan)
+            tree_square(&g, &table_plan).map(|_| ())
         })
         .unwrap();
     let taken = taken.into_inner();
-    assert!(taken >= 200, "table path taken {taken} times");
+    assert!(taken >= 200, "table leg ran {taken} times");
 }
 
 #[test]
-fn the_table_path_maps_kept_and_contracted_pairs_back() {
+fn the_table_leg_maps_kept_and_contracted_pairs_back() {
     // t1 is dropped: the row of t0 reaches the row of t2 through it, so the
     // pair is contracted onto the direct relation r02, which also carries a
     // kept pair between other rows.
@@ -488,7 +796,7 @@ fn the_table_path_maps_kept_and_contracted_pairs_back() {
     let schema = table_schema(&relations);
     let m = table_migration(&relations, &[true, false, true], false);
     let protocol = table_protocol();
-    let protocols = panproto_inst::BoundaryProtocols {
+    let protocols = crate::BoundaryProtocols {
         src: &protocol,
         tgt: &protocol,
     };
@@ -498,52 +806,50 @@ fn the_table_path_maps_kept_and_contracted_pairs_back() {
         &[(0, 1), (1, 1), (2, 1), (0, 2), (2, 2)],
         &[(0, 1, 0), (1, 2, 1), (3, 4, 2)],
     );
-    let fast = graph_restrict_on_table(&g, &plan).expect("the table path is taken");
+    let fast = table_leg(&g, &plan).expect("the table leg runs to the end");
     let (engine, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
     assert!(GInstance::identical(&fast, &engine), "{fast:?}\n{engine:?}");
     assert_eq!(complement.synthesized_edges.len(), 1);
     assert_eq!(fast.edge_count(), 2);
-    // The schema-taking restrict, which dispatches, gives the same view as
-    // the one that returns the complement, which does not.
-    let dispatched = panproto_inst::graph_restrict(&g, &schema, &schema, &m, protocols).unwrap();
-    let (direct, _) =
-        panproto_inst::graph_restrict_with_complement(&g, &schema, &schema, &m, protocols).unwrap();
-    assert!(GInstance::identical(&dispatched, &direct));
+    // The schema-taking restrict gives the same view, through the graph
+    // engine.
+    let view = crate::graph_restrict(&g, &schema, &schema, &m, protocols).unwrap();
+    assert!(GInstance::identical(&view, &engine));
 }
 
 #[test]
-fn the_table_path_declines_without_a_table_plan_or_a_table() {
+fn the_table_leg_declines_without_a_table_plan_or_a_table() {
     let relations = vec![fk("t0", "t1", "r01")];
     let schema = table_schema(&relations);
     let m = table_migration(&relations, &[true, true, true], false);
     let protocol = table_protocol();
-    let protocols = panproto_inst::BoundaryProtocols {
+    let protocols = crate::BoundaryProtocols {
         src: &protocol,
         tgt: &protocol,
     };
     let g = table_graph(&relations, &[(0, 1), (1, 1)], &[(0, 1, 0)]);
     // A plan with no table layer.
     let plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols).unwrap();
-    assert!(graph_restrict_on_table(&g, &plan).is_none());
+    assert!(table_leg(&g, &plan).is_none());
     // A graph that is no table: a positioned edge.
     let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols).unwrap();
-    assert!(graph_restrict_on_table(&g, &table_plan).is_some());
+    assert!(table_leg(&g, &table_plan).is_some());
     let mut positioned = g;
     let id = positioned.edges_sorted().next().unwrap().0;
     positioned.set_edge_position(id, Some(0)).unwrap();
-    assert!(graph_restrict_on_table(&positioned, &table_plan).is_none());
+    assert!(table_leg(&positioned, &table_plan).is_none());
 }
 
 #[test]
-fn the_table_path_declines_a_graph_whose_node_lacks_a_column() {
+fn the_table_leg_declines_a_graph_whose_node_lacks_a_column() {
     // A node without the column `c` is a table-shaped graph but no total
-    // table, which the table engine refuses; the dispatcher then gives the
-    // graph engine's view.
+    // table, which the table engine refuses, so the table leg declines; the
+    // graph engine keeps both nodes.
     let relations = vec![fk("t0", "t1", "r01")];
     let schema = table_schema(&relations);
     let m = table_migration(&relations, &[true, true, true], false);
     let protocol = table_protocol();
-    let protocols = panproto_inst::BoundaryProtocols {
+    let protocols = crate::BoundaryProtocols {
         src: &protocol,
         tgt: &protocol,
     };
@@ -551,12 +857,7 @@ fn the_table_path_declines_a_graph_whose_node_lacks_a_column() {
     let mut g = table_graph(&relations, &[(0, 1)], &[]);
     g = g.with_node(Node::new(3, "t1"));
     g.add_edge(0, 3, fk("t0", "t1", "r01")).unwrap();
-    assert!(graph_restrict_on_table(&g, &table_plan).is_none());
+    assert!(table_leg(&g, &table_plan).is_none());
     let (engine, _) = graph_restrict_with_plan(&g, &table_plan).unwrap();
-    let dispatched = graph_restrict_dispatched(&g, &table_plan).unwrap();
-    assert!(
-        GInstance::identical(&dispatched, &engine),
-        "{dispatched:?}\n{engine:?}"
-    );
     assert_eq!(engine.node_count(), 2);
 }

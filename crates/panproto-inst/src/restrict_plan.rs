@@ -470,9 +470,8 @@ impl RestrictPlan {
     ///
     /// It is the plan computation that defines a lens's
     /// `preserves_tree_shape`, public so that panproto-lens can define that
-    /// method by it; the tree fast path of
-    /// [`graph_restrict_dispatched`](crate::graph_restrict_dispatched)
-    /// declines when it is false.
+    /// method by it; when it is false, the tree engine's view of a tree
+    /// differs from the graph engine's view of the tree's graph form.
     #[must_use]
     pub fn preserves_tree_shape(&self) -> bool {
         !self.edge_image.fates.iter().any(|(edge, fate)| {
