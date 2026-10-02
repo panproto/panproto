@@ -2609,9 +2609,10 @@ impl<'a> TransformContext<'a> {
     /// the expressions in `transforms` might read.
     ///
     /// Each call indexes every arc of `instance` by parent, which costs
-    /// O(E) for E arcs, before it binds the node's children; a caller that
-    /// binds many nodes of one tree builds that index once and binds each
-    /// node through it instead, or it pays O(V E) over V nodes.
+    /// O(E) for E arcs, before it binds the node's children, so binding
+    /// each of V nodes of one tree this way costs O(V E). The crate's own
+    /// engines build that index once per tree and bind every node through
+    /// it.
     #[must_use]
     pub fn new(
         schema: Option<&Schema>,
