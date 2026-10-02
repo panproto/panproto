@@ -337,6 +337,16 @@ pub fn graph_restrict_on_tree(instance: &GInstance, plan: &RestrictPlan) -> Opti
     Some(graph)
 }
 
+/// The name a fan's named parent edge, named `name`, takes on a hyper-edge
+/// whose parent label is `parent_label`: the parent label, else its own.
+/// Get applies it with the view hyper-edge's label, and maps a view edge
+/// back with the source hyper-edge's, to named edges only, so an unnamed
+/// parent edge (the form [`GInstance::from_wtype`] builds, reading no
+/// schema) stays unnamed both ways.
+fn parent_edge_name(name: &Name, parent_label: Option<&Name>) -> Name {
+    parent_label.unwrap_or(name).clone()
+}
+
 /// The state of one graph restrict.
 struct GraphRun<'a> {
     instance: &'a GInstance,
@@ -698,13 +708,10 @@ impl<'a> GraphRun<'a> {
                 continue;
             };
             let name = if edge.edge.kind == HYPER_PARENT_KIND {
-                // An unnamed parent edge (the form `from_wtype` builds,
-                // reading no schema) stays unnamed; a named one takes the
-                // view hyper-edge's parent label.
                 edge.edge
                     .name
                     .as_ref()
-                    .and_then(|name| parent_label.clone().or_else(|| Some(name.clone())))
+                    .map(|name| parent_edge_name(name, parent_label.as_ref()))
             } else {
                 let renamed = rename(edge.edge.name.as_deref().unwrap_or_default());
                 if !seen.insert(renamed.clone()) {
@@ -721,25 +728,42 @@ impl<'a> GraphRun<'a> {
                 kind: edge.edge.kind.clone(),
                 name,
             };
-            if self
-                .fan_label_back(id, &view.anchor, edge.tgt, &target_view.anchor, &label)
-                .as_ref()
-                != Some(&edge.edge)
-            {
-                self.complement.original_edges.insert(edge_id, edge.clone());
-            }
-            self.edges.insert(
-                edge_id,
-                GEdge {
-                    src: edge.src,
-                    tgt: edge.tgt,
-                    edge: label,
-                    position: edge.position,
-                },
-            );
+            let target_anchor = target_view.anchor.clone();
+            self.keep_fan_edge(id, &view.anchor, edge_id, edge, &target_anchor, label);
         }
         self.fan_nodes.insert(id, view);
         Ok(())
+    }
+
+    /// Keep the edge `edge_id` (`edge`) of the fan node `fan`, whose view
+    /// anchor is `fan_anchor`, under the view label `label`, its target
+    /// having the view anchor `target_anchor`; it is recorded in
+    /// `original_edges` when `label` does not map back to its source label.
+    fn keep_fan_edge(
+        &mut self,
+        fan: u32,
+        fan_anchor: &Name,
+        edge_id: EdgeId,
+        edge: &GEdge,
+        target_anchor: &Name,
+        label: Edge,
+    ) {
+        if self
+            .fan_label_back(fan, fan_anchor, edge.tgt, target_anchor, &label)
+            .as_ref()
+            != Some(&edge.edge)
+        {
+            self.complement.original_edges.insert(edge_id, edge.clone());
+        }
+        self.edges.insert(
+            edge_id,
+            GEdge {
+                src: edge.src,
+                tgt: edge.tgt,
+                edge: label,
+                position: edge.position,
+            },
+        );
     }
 
     /// The source anchor of the kept node `id` whose view anchor is
@@ -782,14 +806,11 @@ impl<'a> GraphRun<'a> {
         let hyper_edge = self.source_anchor(fan, fan_anchor)?;
         let tgt = self.source_anchor(target, target_anchor)?;
         let name = if label.kind == HYPER_PARENT_KIND {
-            label.name.as_ref().and_then(|name| {
-                self.plan
-                    .source()
-                    .hyper_edges
-                    .get(hyper_edge)
-                    .map(|h| h.parent_label.clone())
-                    .or_else(|| Some(name.clone()))
-            })
+            let source_label = self.plan.source().hyper_edges.get(hyper_edge);
+            label
+                .name
+                .as_ref()
+                .map(|name| parent_edge_name(name, source_label.map(|h| &h.parent_label)))
         } else {
             label.name.clone()
         };
