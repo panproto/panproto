@@ -443,6 +443,23 @@ impl RestrictPlan {
         &self.migration
     }
 
+    /// Whether the plan sends every tree to a tree the graph engine also
+    /// gives: false iff some source schema edge between two surviving
+    /// vertices has [`EdgeFate::Drop`], where the tree engine drops the
+    /// arc's subtree but the graph engine drops the edge alone.
+    ///
+    /// Contraction does not decide it: on a tree the walk through dropped
+    /// nodes into a surviving node is unique, so tree ancestor contraction
+    /// and graph contraction join the same pairs.
+    #[must_use]
+    pub fn preserves_tree_shape(&self) -> bool {
+        !self.edge_image.fates.iter().any(|(edge, fate)| {
+            matches!(fate, EdgeFate::Drop)
+                && self.anchor_survives(&edge.src)
+                && self.anchor_survives(&edge.tgt)
+        })
+    }
+
     /// The cell layer, when the plan has one.
     #[must_use]
     pub fn cells(&self) -> Option<&CellPlan> {

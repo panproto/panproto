@@ -29,7 +29,7 @@ use crate::validation::ValidationPlan;
 use crate::value::FieldPresence;
 use crate::view_ref::{IdFloor, SynthKey};
 use crate::wtype::{
-    CompiledMigration, FanResolver, InstanceRef, SynthChain, TransformContext,
+    CompiledMigration, FanResolver, InstanceRef, SynthChain, TransformContext, WInstance,
     canonical_label_shape, is_fan_edge,
 };
 
@@ -134,6 +134,91 @@ pub fn graph_restrict_with_plan(
     run.contraction()?;
     run.fans()?;
     run.finish()
+}
+
+/// The view of a graph restrict along a compiled plan, taking the tree
+/// engine when the input is a tree the plan keeps a tree.
+///
+/// The result is the view [`graph_restrict_with_plan`] gives, under the same
+/// ids, or its error: [`graph_restrict_on_tree`] is tried first, and when it
+/// declines or the tree engine fails, the graph engine runs, so the graph
+/// engine alone decides which error a caller sees. The precondition is
+/// [`graph_restrict_with_plan`]'s.
+///
+/// # Errors
+///
+/// As [`graph_restrict_with_plan`].
+pub fn graph_restrict_dispatched(
+    instance: &GInstance,
+    plan: &RestrictPlan,
+) -> Result<GInstance, RestrictError> {
+    match graph_restrict_on_tree(instance, plan) {
+        Some(view) => Ok(view),
+        None => graph_restrict_with_plan(instance, plan).map(|(view, _)| view),
+    }
+}
+
+/// The tree fast path of [`graph_restrict_dispatched`]: the view
+/// [`graph_restrict_with_plan`] gives, computed by the tree engine
+/// ([`wtype_restrict_with_plan`](crate::wtype_restrict_with_plan)) on the
+/// tree the input is, or `None` when the path declines.
+///
+/// The path declines when the plan does not preserve tree shape
+/// ([`RestrictPlan::preserves_tree_shape`]), has a cell layer (which the
+/// tree engine does not apply), or the input holds a fan node, is not a
+/// tree ([`GInstance::tree_shape`]), or is one the tree engine refuses,
+/// [`RestrictError::RootPruned`] included. Otherwise the tree view maps
+/// back exactly: a source node keeps its id, and the tree and the graph
+/// allocate synthesized nodes from the same floor in the same key order,
+/// since a tree's arcs come in ascending edge id, so keying an expansion by
+/// arc position orders it as keying it by edge id does. A kept arc takes
+/// the id of the source edge into its child; the synthesized arcs, which
+/// follow the kept ones in key order, take ids from the edge floor.
+#[must_use]
+pub fn graph_restrict_on_tree(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
+    if !plan.preserves_tree_shape()
+        || plan.cells().is_some()
+        || instance.nodes().values().any(is_fan_node)
+    {
+        return None;
+    }
+    let (tree, embedding) = instance.to_wtype_embedded(plan.source()).ok()?;
+    let node_floor = floor_above(instance.max_node_id());
+    if crate::complement::tree_id_floor(&tree).ok() != Some(node_floor) {
+        return None;
+    }
+    let (view, _) = crate::wtype::wtype_restrict_with_plan(&tree, plan).ok()?;
+    let mut edge_ids = crate::segment::IdAllocator::from_floor(
+        crate::segment::IdRange {
+            lo: 0,
+            hi: u32::MAX - 1,
+        },
+        floor_above(instance.max_edge_id().map(|e| e.0)),
+    );
+    let mut graph = GInstance::new();
+    let WInstance { nodes, arcs, .. } = view;
+    for node in nodes.into_values() {
+        graph = graph.with_node(node);
+    }
+    for (parent, child, label) in &arcs {
+        let kept = *child < node_floor && tree.parent_map.get(child) == Some(parent);
+        let (id, position) = if kept {
+            let id = *embedding.arcs.get(child)?;
+            (id, instance.edge(id)?.position)
+        } else {
+            (EdgeId(edge_ids.allocate().ok()?), None)
+        };
+        graph.place_edge(
+            id,
+            GEdge {
+                src: *parent,
+                tgt: *child,
+                edge: label.clone(),
+                position,
+            },
+        );
+    }
+    Some(graph)
 }
 
 /// The state of one graph restrict.

@@ -856,3 +856,15 @@ fn restrict_dispatch_graph_path(bencher: Bencher, n: u32) {
         panproto_inst::graph_restrict_with_plan(divan::black_box(&graph), &plan).expect("ok")
     });
 }
+
+/// The dispatched graph restrict on the same tree-shaped graph: the tree
+/// engine plus the conversions to the tree and back.
+#[divan::bench(args = [1_000, 10_000])]
+fn restrict_dispatch_dispatched(bencher: Bencher, n: u32) {
+    let (tree, plan) = halved_tree(n);
+    let graph = panproto_inst::GInstance::from_wtype(&tree).expect("a tree embeds");
+    assert!(panproto_inst::graph_restrict_on_tree(&graph, &plan).is_some());
+    bencher.bench_local(|| {
+        panproto_inst::graph_restrict_dispatched(divan::black_box(&graph), &plan).expect("ok")
+    });
+}

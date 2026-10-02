@@ -138,8 +138,9 @@ pub use ginstance::{NotTableReason, TableEmbedding, TableShapeReport};
 pub use graph_complement::GraphComplement;
 pub use graph_edit::{GraphDelta, GraphEdit};
 pub use graph_restrict::{
-    graph_extend, graph_extend_validated, graph_restrict, graph_restrict_validated,
-    graph_restrict_with_complement, graph_restrict_with_plan,
+    graph_extend, graph_extend_validated, graph_restrict, graph_restrict_dispatched,
+    graph_restrict_on_tree, graph_restrict_validated, graph_restrict_with_complement,
+    graph_restrict_with_plan,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
