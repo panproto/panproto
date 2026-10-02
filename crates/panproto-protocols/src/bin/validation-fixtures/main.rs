@@ -16,8 +16,11 @@
 //! case in every instance shape that can express it.
 //!
 //! Instances that construction or decoding rejects are written as
-//! rejections (`<case>.rejection.*`): the instance as its wire form, and
-//! the error decoding it gives.
+//! rejections (`<case>.rejection.*`): each of the three files holds the
+//! instance's wire form in its own encoding, with the error decoding it in
+//! that encoding gives, which is the same in all three, and a graph's
+//! rejection also holds its node-link form (`<case>.rejection.nodelink.json`),
+//! which `from_node_link_json` refuses with that error.
 //!
 //! Run with the `fixtures` feature, which brings the `MessagePack` and CBOR
 //! writers: `cargo run -p panproto-protocols --features fixtures --bin

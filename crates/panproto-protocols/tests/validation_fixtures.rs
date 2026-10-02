@@ -267,12 +267,12 @@ impl Fixture {
     }
 }
 
-/// One rejected instance as decoded.
+/// What a rejection's three files share: everything but the instance,
+/// which each file holds in its own encoding's wire form.
 #[derive(Debug, Deserialize, Serialize)]
 struct Rejection {
     name: String,
     shape: InstanceShapeKind,
-    instance: serde_json::Value,
     error: String,
 }
 
@@ -362,8 +362,151 @@ fn validation_fixtures_revalidate_to_their_reports_and_witnesses() {
     );
 }
 
-/// Each rejected instance is refused by decoding, in every encoding, with
-/// the error the fixture records.
+/// A rejection's stored file read with its instance typed as `I`, so that
+/// reading the file decodes the instance; the other fields are skipped.
+#[derive(Deserialize)]
+struct TypedRejection<I> {
+    instance: I,
+}
+
+/// The three encodings a rejection is stored in.
+const ENCODINGS: [&str; 3] = ["json", "named.msgpack", "cbor"];
+
+/// The bytes of `<name>.<ext>` in the corpus.
+fn corpus_bytes(name: &str, ext: &str) -> Vec<u8> {
+    std::fs::read(corpus_dir().join(format!("{name}.{ext}"))).unwrap()
+}
+
+/// A JSON decoding error's message without the position `serde_json`
+/// appends to it.
+fn json_message(e: &serde_json::Error) -> String {
+    let text = e.to_string();
+    let position = format!(" at line {} column {}", e.line(), e.column());
+    text.strip_suffix(&position).unwrap_or(&text).to_owned()
+}
+
+/// `bytes` decoded in the encoding `ext` names; a refusal is the error's
+/// message (for JSON, without the position; for CBOR, the message a
+/// semantic error carries).
+fn decode<T: DeserializeOwned>(ext: &str, bytes: &[u8]) -> Result<T, String> {
+    match ext {
+        "json" => serde_json::from_slice(bytes).map_err(|e| json_message(&e)),
+        "named.msgpack" => rmp_serde::from_slice(bytes).map_err(|e| e.to_string()),
+        "cbor" => ciborium::from_reader(bytes).map_err(|e| match e {
+            ciborium::de::Error::Semantic(_, message) => message,
+            other => format!("malformed CBOR: {other}"),
+        }),
+        other => unreachable!("no encoding {other}"),
+    }
+}
+
+/// `value` written in the encoding `ext` names.
+fn encode<T: Serialize>(ext: &str, value: &T) -> Vec<u8> {
+    match ext {
+        "json" => serde_json::to_vec(value).unwrap(),
+        "named.msgpack" => rmp_serde::to_vec_named(value).unwrap(),
+        "cbor" => {
+            let mut bytes = Vec::new();
+            ciborium::into_writer(value, &mut bytes).unwrap();
+            bytes
+        }
+        other => unreachable!("no encoding {other}"),
+    }
+}
+
+/// Point every integer 99 under the key `key` in `value` back at 1,
+/// undoing the redirection a rejection's instance was made with; how many
+/// were changed.
+fn redirect_back(value: &mut ciborium::Value, key: &str) -> usize {
+    match value {
+        ciborium::Value::Map(entries) => entries
+            .iter_mut()
+            .map(|(k, v)| {
+                if k.as_text() == Some(key) && v.as_integer().is_some_and(|i| i128::from(i) == 99) {
+                    *v = ciborium::Value::from(1u64);
+                    1
+                } else {
+                    redirect_back(v, key)
+                }
+            })
+            .sum(),
+        ciborium::Value::Array(items) => items.iter_mut().map(|v| redirect_back(v, key)).sum(),
+        _ => 0,
+    }
+}
+
+/// Point every foreign-key pair target 99 of a table instance's wire form
+/// back at row 1; how many were changed.
+fn redirect_pairs_back(value: &mut ciborium::Value) -> usize {
+    let mut changed = 0;
+    for (k, v) in value.as_map_mut().into_iter().flatten() {
+        if k.as_text() != Some("foreign_keys") {
+            continue;
+        }
+        for entry in v.as_array_mut().into_iter().flatten() {
+            let pairs = entry.as_array_mut().and_then(|e| e.get_mut(1));
+            for pair in pairs
+                .and_then(ciborium::Value::as_array_mut)
+                .into_iter()
+                .flatten()
+            {
+                let tgt = pair.as_array_mut().and_then(|p| p.get_mut(1));
+                if let Some(tgt) =
+                    tgt.filter(|t| t.as_integer().is_some_and(|i| i128::from(i) == 99))
+                {
+                    *tgt = ciborium::Value::from(1u64);
+                    changed += 1;
+                }
+            }
+        }
+    }
+    changed
+}
+
+/// Check the rejection `name` in each of its stored encodings: decoding the
+/// file with its instance typed as `I` is refused with exactly `error`, and
+/// the instance, with its one dangling endpoint pointed back at the node or
+/// row it was taken from, decodes in that encoding to the same `I` in all
+/// three. Returns that repaired instance.
+fn check_stored_refusals<I: DeserializeOwned + Serialize>(
+    name: &str,
+    error: &str,
+    repair: fn(&mut ciborium::Value) -> usize,
+) -> I {
+    let mut repaired: Vec<(&str, I)> = Vec::new();
+    for ext in ENCODINGS {
+        let bytes = corpus_bytes(name, ext);
+        match decode::<TypedRejection<I>>(ext, &bytes) {
+            Ok(_) => panic!("{name}.{ext}: the instance decodes"),
+            Err(refusal) => assert_eq!(refusal, error, "{name}.{ext}: the refusal"),
+        }
+        let mut wire = decode::<TypedRejection<ciborium::Value>>(ext, &bytes)
+            .unwrap_or_else(|e| panic!("{name}.{ext}: {e}"))
+            .instance;
+        assert_eq!(repair(&mut wire), 1, "{name}.{ext}: one dangling endpoint");
+        let instance = decode::<I>(ext, &encode(ext, &wire))
+            .unwrap_or_else(|e| panic!("{name}.{ext}: the repaired instance: {e}"));
+        repaired.push((ext, instance));
+    }
+    let text = |i: &I| serde_json::to_value(i).unwrap();
+    for (ext, instance) in &repaired[1..] {
+        assert_eq!(
+            text(instance),
+            text(&repaired[0].1),
+            "{name}: the {ext} and JSON files hold different instances"
+        );
+    }
+    repaired.swap_remove(0).1
+}
+
+/// Each rejected instance is refused by decoding with exactly the error the
+/// case records, in each of its stored encodings (JSON, named `MessagePack`
+/// and CBOR, each file holding the instance in that encoding's own wire
+/// form), and the three files hold the same instance: pointing its one
+/// dangling endpoint back gives the same well-formed instance in each. A
+/// graph's stored node-link form is refused by `from_node_link_json` with
+/// `InstError::DanglingEdge` and the same error, and repaired the same way
+/// gives the same graph.
 #[test]
 fn rejected_instances_are_refused_by_decoding() {
     let rejections = names().1;
@@ -376,30 +519,71 @@ fn rejected_instances_are_refused_by_decoding() {
     );
     for name in rejections {
         let rejection: Rejection = decode_three(&name);
-        let error = match rejection.shape {
+        assert_eq!(rejection.name, name);
+        let node_link = corpus_dir().join(format!("{name}.nodelink.json"));
+        match rejection.shape {
             InstanceShapeKind::Graph => {
-                serde_json::from_value::<GInstance>(rejection.instance.clone()).err()
+                let graph: GInstance =
+                    check_stored_refusals(&name, &rejection.error, |v| redirect_back(v, "tgt"));
+                let mut document: serde_json::Value =
+                    serde_json::from_slice(&std::fs::read(&node_link).unwrap()).unwrap();
+                let error = from_node_link_json(&document)
+                    .err()
+                    .unwrap_or_else(|| panic!("{name}.nodelink.json: the graph decodes"));
+                assert!(
+                    matches!(
+                        error,
+                        panproto_inst::InstError::DanglingEdge { endpoint: 99, .. }
+                    ),
+                    "{name}.nodelink.json: {error:?}"
+                );
+                assert_eq!(error.to_string(), rejection.error, "{name}.nodelink.json");
+                let mut wire: ciborium::Value = serde_json::from_value(document.clone()).unwrap();
+                assert_eq!(redirect_back(&mut wire, "tgt"), 1, "{name}.nodelink.json");
+                document = serde_json::to_value(&wire).unwrap();
+                let back = from_node_link_json(&document).unwrap();
+                assert!(
+                    GInstance::identical(&back, &graph),
+                    "{name}: the node-link form holds a different graph"
+                );
             }
             InstanceShapeKind::Table => {
-                serde_json::from_value::<FInstance>(rejection.instance.clone()).err()
+                let _: FInstance =
+                    check_stored_refusals(&name, &rejection.error, redirect_pairs_back);
+                assert!(!node_link.exists(), "{name}: a node-link form for a table");
             }
             InstanceShapeKind::Tree => {
-                serde_json::from_value::<WInstance>(rejection.instance.clone()).err()
+                panic!("{name}: no tree rejection is expected")
             }
-        };
-        assert_eq!(
-            error.map(|e| e.to_string()),
-            Some(rejection.error.clone()),
-            "{name}"
-        );
-        let bytes = rmp_serde::to_vec_named(&rejection.instance).unwrap();
-        let refused = match rejection.shape {
-            InstanceShapeKind::Graph => rmp_serde::from_slice::<GInstance>(&bytes).is_err(),
-            InstanceShapeKind::Table => rmp_serde::from_slice::<FInstance>(&bytes).is_err(),
-            InstanceShapeKind::Tree => rmp_serde::from_slice::<WInstance>(&bytes).is_err(),
-        };
-        assert!(refused, "{name}: MessagePack decoding accepts the instance");
+        }
     }
+}
+
+/// A case's node-link forms are exactly those of its graph-shaped cases:
+/// every graph fixture and every graph rejection has one, and no tree or
+/// table case does.
+#[test]
+fn every_graph_case_and_only_a_graph_case_has_a_node_link_form() {
+    let (fixture_names, rejection_names) = names();
+    let mut graph_cases: Vec<String> = fixtures()
+        .into_iter()
+        .filter(|(_, fixture)| matches!(fixture.instance, Instance::Graph(_)))
+        .map(|(name, _)| name)
+        .collect();
+    graph_cases.extend(rejection_names.into_iter().filter(|name| {
+        let rejection: Rejection = decode_three(name);
+        rejection.shape == InstanceShapeKind::Graph
+    }));
+    graph_cases.sort();
+    let node_link: Vec<String> = files(&corpus_dir())
+        .keys()
+        .filter_map(|file| file.strip_suffix(".nodelink.json").map(str::to_owned))
+        .collect();
+    assert!(!fixture_names.is_empty());
+    assert_eq!(
+        node_link, graph_cases,
+        "the node-link forms differ from the graph cases; regenerate with `{REGENERATE}`"
+    );
 }
 
 /// Construction refuses the same instances the rejections record: an edge

@@ -12,7 +12,7 @@ use panproto_inst::validation::{
 use panproto_inst::{
     Digest, EdgeId, FInstance, Fan, FieldPresence, GEdge, GInstance, GraphEdit, HYPER_LABEL_KIND,
     HYPER_PARENT_KIND, Node, NodeShape, RowId, TableEdit, TreeEdit, Value, ViewRef, WInstance,
-    to_node_link_json,
+    from_node_link_json, to_node_link_json,
 };
 use panproto_schema::{
     Cardinality, Constraint, ConstraintSemantics, Edge, HyperEdge, InstanceShapeKind, Key, KeyPart,
@@ -121,18 +121,64 @@ struct Fixture {
     edit_outcomes: Vec<EditOutcome>,
 }
 
-/// One instance that construction or decoding rejects, as it is written to
-/// disk.
+/// One instance that decoding rejects, as one encoding's file holds it.
 #[derive(Serialize)]
-struct Rejection {
+struct Rejection<'a> {
+    /// The case's path in the corpus, without extension.
+    name: &'a str,
+    /// The shape the instance would have.
+    shape: InstanceShapeKind,
+    /// The instance's wire form in the file's encoding.
+    instance: &'a ciborium::Value,
+    /// The error decoding it gives, in every encoding.
+    error: &'a str,
+}
+
+/// One instance that decoding rejects, in every form it is written in.
+struct RejectionCase {
     /// The case's path in the corpus, without extension.
     name: String,
     /// The shape the instance would have.
     shape: InstanceShapeKind,
-    /// The instance's wire form.
-    instance: serde_json::Value,
-    /// The error decoding it gives.
+    /// The instance's wire form in each encoding.
+    forms: WireForms,
+    /// The error decoding it gives, in every encoding.
     error: String,
+    /// The instance's node-link JSON form, for a graph, which
+    /// `from_node_link_json` refuses with the same error.
+    node_link: Option<serde_json::Value>,
+}
+
+impl RejectionCase {
+    /// Write the case to `<out>/<name>.json`, `.named.msgpack` and `.cbor`,
+    /// each holding the instance's wire form in its own encoding, and, for
+    /// a graph, its node-link form to `<out>/<name>.nodelink.json`.
+    fn write(&self, out: &Path) -> R<()> {
+        let path = |ext: &str| out.join(format!("{}.{ext}", self.name));
+        if let Some(dir) = path("json").parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let file = |instance| Rejection {
+            name: &self.name,
+            shape: self.shape,
+            instance,
+            error: &self.error,
+        };
+        let mut json = serde_json::to_string_pretty(&file(&self.forms.json))?;
+        json.push('\n');
+        std::fs::write(path("json"), json)?;
+        std::fs::write(
+            path("named.msgpack"),
+            rmp_serde::to_vec_named(&file(&self.forms.msgpack))?,
+        )?;
+        let mut cbor = Vec::new();
+        ciborium::into_writer(&file(&self.forms.cbor), &mut cbor)?;
+        std::fs::write(path("cbor"), cbor)?;
+        if let Some(node_link) = &self.node_link {
+            write_node_link(out, &self.name, node_link)?;
+        }
+        Ok(())
+    }
 }
 
 /// The name of the corpus's own protocols, by the shape their instances are
@@ -1907,68 +1953,200 @@ fn patch(value: &mut serde_json::Value, key: &str, from: u64, to: u64) {
     }
 }
 
-/// Instances construction and decoding reject: an edge to a node the graph
-/// does not hold, and a foreign-key pair to a row the instance does not
-/// hold.
-fn rejections() -> Result<Vec<Rejection>, Box<dyn Error>> {
+/// Instances decoding refuses, with the error each refusal gives: an edge
+/// to a node the graph does not hold, and a foreign-key pair to a row the
+/// instance does not hold.
+fn rejections() -> R<Vec<RejectionCase>> {
     let ab = prop("a", "b", "ab");
-    let mut dangling_edge = serde_json::to_value(graph(
-        vec![Node::new(0, "a"), Node::new(1, "b")],
-        &[(0, 1, &ab)],
-    ))?;
-    patch(&mut dangling_edge, "tgt", 1, 99);
-    let edge_error = serde_json::from_value::<GInstance>(dangling_edge.clone())
+    let well_formed = graph(vec![Node::new(0, "a"), Node::new(1, "b")], &[(0, 1, &ab)]);
+    let dangling_edge = WireForms::of(&well_formed, redirect_edge_targets)?;
+    let edge_error = dangling_edge.refusal::<GInstance>()?;
+    let mut dangling_node_link = to_node_link_json(&well_formed);
+    let before = dangling_node_link.clone();
+    patch(&mut dangling_node_link, "tgt", 1, 99);
+    if dangling_node_link == before {
+        return Err("the edge's target was not found in the node-link form".into());
+    }
+    let node_link_error = from_node_link_json(&dangling_node_link)
         .err()
-        .ok_or("a graph with a dangling edge decodes")?;
+        .ok_or("a node-link graph with a dangling edge decodes")?;
+    if node_link_error.to_string() != edge_error {
+        return Err(format!(
+            "the node-link decoder refuses the dangling edge with `{node_link_error}`, \
+             the instance decoder with `{edge_error}`"
+        )
+        .into());
+    }
     let stars = edge("film", "actor", "fk", "stars");
     let films = FInstance::new()
         .with_rows("film", [(RowId(0), row(&[]))])
         .and_then(|f| f.with_rows("actor", [(RowId(1), row(&[]))]))
         .and_then(|f| f.with_foreign_key(stars, [(RowId(0), RowId(1))]))?;
-    let mut dangling_pair = serde_json::to_value(&films)?;
-    let before = dangling_pair.clone();
-    replace_row_in_pairs(&mut dangling_pair);
-    if dangling_pair == before {
-        return Err("the foreign-key pair was not found in the wire form".into());
-    }
-    let pair_error = serde_json::from_value::<FInstance>(dangling_pair.clone())
-        .err()
-        .ok_or("a table instance with a dangling pair decodes")?;
+    let dangling_pair = WireForms::of(&films, redirect_pair_targets)?;
+    let pair_error = dangling_pair.refusal::<FInstance>()?;
     Ok(vec![
-        Rejection {
+        RejectionCase {
             name: "anchors/dangling_edge.rejection".into(),
             shape: InstanceShapeKind::Graph,
-            instance: dangling_edge,
-            error: edge_error.to_string(),
+            forms: dangling_edge,
+            error: edge_error,
+            node_link: Some(dangling_node_link),
         },
-        Rejection {
+        RejectionCase {
             name: "anchors/dangling_foreign_key.rejection".into(),
             shape: InstanceShapeKind::Table,
-            instance: dangling_pair,
-            error: pair_error.to_string(),
+            forms: dangling_pair,
+            error: pair_error,
+            node_link: None,
         },
     ])
 }
 
-/// Point the target of every foreign-key pair of a table instance's wire
-/// form (`foreign_keys`: a list of `[edge, [[src, tgt], ...]]`) at row 99.
-fn replace_row_in_pairs(wire: &mut serde_json::Value) {
-    let Some(keys) = wire
-        .get_mut("foreign_keys")
-        .and_then(serde_json::Value::as_array_mut)
-    else {
-        return;
-    };
-    for entry in keys {
-        let Some(pairs) = entry.get_mut(1).and_then(serde_json::Value::as_array_mut) else {
-            continue;
+/// The three stored forms of a rejected instance: its JSON, named
+/// `MessagePack` and CBOR wire forms, each read as a generic CBOR value so
+/// that a map keeps the key type its own encoding gives it (a string in
+/// JSON, an integer in `MessagePack` and CBOR).
+struct WireForms {
+    json: ciborium::Value,
+    msgpack: ciborium::Value,
+    cbor: ciborium::Value,
+}
+
+impl WireForms {
+    /// The wire forms of `instance`, each with `redirect` applied, which
+    /// must change it.
+    fn of<T: Serialize>(instance: &T, redirect: fn(&mut ciborium::Value) -> bool) -> R<Self> {
+        let mut cbor_bytes = Vec::new();
+        ciborium::into_writer(instance, &mut cbor_bytes)?;
+        let mut forms = Self {
+            json: serde_json::from_slice(&serde_json::to_vec(instance)?)?,
+            msgpack: rmp_serde::from_slice(&rmp_serde::to_vec_named(instance)?)?,
+            cbor: ciborium::from_reader(cbor_bytes.as_slice())?,
         };
-        for pair in pairs {
-            if let Some(tgt) = pair.get_mut(1) {
-                *tgt = serde_json::Value::from(99);
+        for (encoding, form) in [
+            ("JSON", &mut forms.json),
+            ("MessagePack", &mut forms.msgpack),
+            ("CBOR", &mut forms.cbor),
+        ] {
+            sort_maps(form);
+            if !redirect(form) {
+                return Err(format!("nothing to redirect in the {encoding} wire form").into());
+            }
+        }
+        Ok(forms)
+    }
+
+    /// The error decoding each form as a `T` in its own encoding gives,
+    /// requiring every form to be refused with the same error text as the
+    /// JSON form, which is returned.
+    fn refusal<T: serde::de::DeserializeOwned>(&self) -> R<String> {
+        let json = serde_json::from_slice::<T>(&serde_json::to_vec(&self.json)?)
+            .err()
+            .ok_or("the JSON wire form decodes")?;
+        let position = format!(" at line {} column {}", json.line(), json.column());
+        let json = json.to_string();
+        let json = json.strip_suffix(&position).unwrap_or(&json).to_owned();
+        let msgpack = rmp_serde::from_slice::<T>(&rmp_serde::to_vec_named(&self.msgpack)?)
+            .err()
+            .ok_or("the MessagePack wire form decodes")?
+            .to_string();
+        let mut cbor_bytes = Vec::new();
+        ciborium::into_writer(&self.cbor, &mut cbor_bytes)?;
+        let cbor = match ciborium::from_reader::<T, _>(cbor_bytes.as_slice()) {
+            Ok(_) => return Err("the CBOR wire form decodes".into()),
+            Err(ciborium::de::Error::Semantic(_, message)) => message,
+            Err(e) => return Err(format!("the CBOR wire form is malformed: {e}").into()),
+        };
+        if msgpack != json || cbor != json {
+            return Err(format!(
+                "the encodings refuse the instance differently: JSON `{json}`, MessagePack \
+                 `{msgpack}`, CBOR `{cbor}`"
+            )
+            .into());
+        }
+        Ok(json)
+    }
+}
+
+/// Sort the entries of every map in `value` by key, strings before
+/// integers and each in ascending order, so that a wire form read from a
+/// hash map is written the same way every time.
+fn sort_maps(value: &mut ciborium::Value) {
+    match value {
+        ciborium::Value::Map(entries) => {
+            entries.sort_by(|(a, _), (b, _)| {
+                let key = |k: &ciborium::Value| {
+                    (
+                        k.as_integer().map(i128::from),
+                        k.as_text().map(str::to_owned),
+                    )
+                };
+                key(a).cmp(&key(b))
+            });
+            for (_, v) in entries {
+                sort_maps(v);
+            }
+        }
+        ciborium::Value::Array(items) => items.iter_mut().for_each(sort_maps),
+        _ => {}
+    }
+}
+
+/// Whether `value` is the integer `n`.
+fn is_integer(value: &ciborium::Value, n: u64) -> bool {
+    value
+        .as_integer()
+        .is_some_and(|i| i128::from(i) == i128::from(n))
+}
+
+/// Point every edge of a graph's wire form whose target is node 1 at node
+/// 99, which the graph does not hold; whether any edge was redirected.
+fn redirect_edge_targets(value: &mut ciborium::Value) -> bool {
+    match value {
+        ciborium::Value::Map(entries) => {
+            let mut changed = false;
+            for (k, v) in entries.iter_mut() {
+                if k.as_text() == Some("tgt") && is_integer(v, 1) {
+                    *v = ciborium::Value::from(99u64);
+                    changed = true;
+                } else {
+                    changed |= redirect_edge_targets(v);
+                }
+            }
+            changed
+        }
+        ciborium::Value::Array(items) => items
+            .iter_mut()
+            .fold(false, |changed, v| redirect_edge_targets(v) | changed),
+        _ => false,
+    }
+}
+
+/// Point the target of every foreign-key pair of a table instance's wire
+/// form (`foreign_keys`: a list of `[edge, [[src, tgt], ...]]`) at row 99,
+/// which no table holds; whether any pair was redirected.
+fn redirect_pair_targets(value: &mut ciborium::Value) -> bool {
+    let Some(entries) = value.as_map_mut() else {
+        return false;
+    };
+    let mut changed = false;
+    for (k, v) in entries.iter_mut() {
+        if k.as_text() != Some("foreign_keys") {
+            continue;
+        }
+        for entry in v.as_array_mut().into_iter().flatten() {
+            let Some(pairs) = entry.as_array_mut().and_then(|e| e.get_mut(1)) else {
+                continue;
+            };
+            for pair in pairs.as_array_mut().into_iter().flatten() {
+                if let Some(tgt) = pair.as_array_mut().and_then(|p| p.get_mut(1)) {
+                    *tgt = ciborium::Value::from(99u64);
+                    changed = true;
+                }
             }
         }
     }
+    changed
 }
 
 /// Write `value` to `<out>/<name>.named.msgpack`, `.cbor` and `.json`.
@@ -1984,6 +2162,14 @@ fn write_three<T: Serialize>(out: &Path, name: &str, value: &T) -> Result<(), Bo
     let mut json = serde_json::to_string_pretty(value)?;
     json.push('\n');
     std::fs::write(path("json"), json)?;
+    Ok(())
+}
+
+/// Write a node-link JSON document to `<out>/<name>.nodelink.json`.
+fn write_node_link(out: &Path, name: &str, document: &serde_json::Value) -> R<()> {
+    let mut json = serde_json::to_string_pretty(document)?;
+    json.push('\n');
+    std::fs::write(out.join(format!("{name}.nodelink.json")), json)?;
     Ok(())
 }
 
@@ -2020,13 +2206,11 @@ pub fn run() -> Result<(), Box<dyn Error>> {
         }
         write_three(&out, &fixture.name, &fixture)?;
         if let Instance::Graph(g) = &fixture.instance {
-            let mut json = serde_json::to_string_pretty(&to_node_link_json(g))?;
-            json.push('\n');
-            std::fs::write(out.join(format!("{}.nodelink.json", fixture.name)), json)?;
+            write_node_link(&out, &fixture.name, &to_node_link_json(g))?;
         }
     }
     for rejection in rejections()? {
-        write_three(&out, &rejection.name, &rejection)?;
+        rejection.write(&out)?;
     }
     Ok(())
 }
