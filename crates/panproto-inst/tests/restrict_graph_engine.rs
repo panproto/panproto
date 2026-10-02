@@ -475,7 +475,10 @@ fn an_incoherent_instance_pair_is_no_edge_found() {
         .with_edge(1, 2, e("m", "leaf", "stray"));
     let error = restrict(&g, &src, &tgt, &m).unwrap_err();
     assert!(
-        matches!(error.unlocated(), RestrictError::NoEdgeFound { src, tgt } if src == "r" && tgt == "leaf"),
+        matches!(
+            error.unlocated(),
+            RestrictError::NoEdgeFound { src, tgt } if src == "r" && tgt == "leaf"
+        ),
         "{error:?}"
     );
 }

@@ -429,19 +429,29 @@ proptest! {
         match (&expected, &actual) {
             (Ok(a), Ok(b)) => prop_assert!(GInstance::identical(a, b)),
             (Err(kind), Err(RestrictError::Validation { side, .. })) => {
-                let expected_side = if kind == "input" { BoundarySide::Input } else { BoundarySide::Output };
+                let expected_side = if kind == "input" {
+                    BoundarySide::Input
+                } else {
+                    BoundarySide::Output
+                };
                 prop_assert!(kind == "input" || kind == "output", "{kind}");
                 prop_assert_eq!(*side, expected_side);
             }
             (Err(kind), Err(error)) => {
-                prop_assert!(kind.starts_with("compile") || kind.starts_with("engine"), "{kind} {error}");
+                prop_assert!(
+                    kind.starts_with("compile") || kind.starts_with("engine"),
+                    "{kind} {error}"
+                );
                 prop_assert!(kind.ends_with(&error.to_string()), "{kind} against {error}");
             }
             (a, b) => prop_assert!(false, "{:?} against {:?}", a, b),
         }
         // A valid input never fails on the input side.
         if panproto_inst::validate_graph(&g, &src, &p).status == CheckStatus::Passed {
-            let input_side = matches!(actual, Err(RestrictError::Validation { side: BoundarySide::Input, .. }));
+            let input_side = matches!(
+                actual,
+                Err(RestrictError::Validation { side: BoundarySide::Input, .. })
+            );
             prop_assert!(!input_side, "a valid input failed on the input side");
         }
     }

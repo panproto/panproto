@@ -389,7 +389,13 @@ proptest! {
         let result = run(&g, &src, &tgt, &m);
         let least = expected.iter().map(|(k, _)| *k).min();
         prop_assert_eq!(result.as_ref().err().and_then(RestrictError::key), least);
-        let segment_least = |side: bool| expected.iter().filter(|(_, s)| *s == side).map(|(k, _)| *k).min();
+        let segment_least = |side: bool| {
+            expected
+                .iter()
+                .filter(|(_, s)| *s == side)
+                .map(|(k, _)| *k)
+                .min()
+        };
         let of_segments = [segment_least(false), segment_least(true)].into_iter().flatten().min();
         prop_assert_eq!(of_segments, least);
     }

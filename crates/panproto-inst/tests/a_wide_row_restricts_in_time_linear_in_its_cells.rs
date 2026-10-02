@@ -127,10 +127,10 @@ fn wide(width: usize, rows: u32, fate: Fate) -> (RestrictPlan, FInstance, HashMa
     (plan, instance, cells(target_prefix))
 }
 
-/// The time of the restrict, after checking that the plan maps the first
-/// row to `expected` and that the complement records exactly the cells
-/// that disagree with the view's cell of their name: none under [`Fate::Identity`] and [`Fate::Keep`], and every
-/// source cell, as a dropped cell, under [`Fate::Rename`].
+/// The time of the restrict, after checking that the plan maps the first row to `expected` and that
+/// the complement records exactly the cells that disagree with the view's cell of their name: none
+/// under [`Fate::Identity`] and [`Fate::Keep`], and every source cell, as a dropped cell, under
+/// [`Fate::Rename`].
 fn restrict_time(
     plan: &RestrictPlan,
     instance: &FInstance,

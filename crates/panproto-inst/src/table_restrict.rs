@@ -551,8 +551,8 @@ pub fn functor_extend_validated(
 /// The extend of a table instance with no classification and no
 /// validation: the engine of [`functor_extend`].
 ///
-/// It serves a caller that holds no target schema or protocol (the table
-/// lift of panproto-mig), which is why it is public. Rows and pairs move as [`functor_extend`] states.
+/// It serves a caller that holds no target schema or protocol (the table lift of panproto-mig),
+/// which is why it is public. Rows and pairs move as [`functor_extend`] states.
 ///
 /// # Errors
 ///

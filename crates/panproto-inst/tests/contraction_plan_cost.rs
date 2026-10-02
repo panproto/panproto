@@ -94,7 +94,7 @@ fn compiling_a_plan_is_not_charged_per_pair_and_edge() {
     eprintln!("50 spokes: {small:.1} units; 400 spokes: {large:.1} units; growth {growth:.2}");
     assert!(
         growth < 2.8,
-        "multiplying the spokes by eight multiplied the compile time in baseline units by {growth:.2} \
-         ({small:.1} to {large:.1})"
+        "multiplying the spokes by eight multiplied the compile time \
+         in baseline units by {growth:.2} ({small:.1} to {large:.1})"
     );
 }

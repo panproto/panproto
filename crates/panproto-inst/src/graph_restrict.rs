@@ -159,8 +159,8 @@ pub fn graph_restrict_with_plan(
 /// alone decides which error a caller sees. The precondition is
 /// [`graph_restrict_with_plan`]'s.
 ///
-/// This is the restrict dispatch at the graph engine's entry. It and its two fast paths are public because the lens dispatcher
-/// in panproto-lens calls them, and because the dispatch squares and
+/// This is the restrict dispatch at the graph engine's entry. It and its two fast paths are public
+/// because the lens dispatcher in panproto-lens calls them, and because the dispatch squares and
 /// benches must observe which path ran.
 ///
 /// # Errors
@@ -983,14 +983,13 @@ pub fn graph_restrict_validated(
 /// migration, validating the output against `tgt_schema` under
 /// `tgt_protocol`.
 ///
-/// Maps source nodes into the target schema by remapping anchors through
-/// `vertex_remap`. A node whose anchor has no remap is kept under its own
-/// anchor when that anchor is in `surviving_verts` and dropped otherwise. A
-/// kept node takes its source vertex's value transforms, over its children
-/// in the source, as the tree extend applies them. An edge is carried, under its own [`EdgeId`] and position, when both
-/// endpoints are kept and its schema edge is renamed by `edge_remap` or
-/// listed in `surviving_edges`. The input's schema is not a parameter, so
-/// its callers validate the input at their own boundary.
+/// Maps source nodes into the target schema by remapping anchors through `vertex_remap`. A node
+/// whose anchor has no remap is kept under its own anchor when that anchor is in `surviving_verts`
+/// and dropped otherwise. A kept node takes its source vertex's value transforms, over its children
+/// in the source, as the tree extend applies them. An edge is carried, under its own [`EdgeId`] and
+/// position, when both endpoints are kept and its schema edge is renamed by `edge_remap` or listed
+/// in `surviving_edges`. The input's schema is not a parameter, so its callers validate the input
+/// at their own boundary.
 ///
 /// # Errors
 ///

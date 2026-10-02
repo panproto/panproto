@@ -165,7 +165,12 @@ fn reads(name: &str) -> Expr {
 
 #[test]
 fn a_transform_naming_a_repeated_child_is_ambiguous() {
-    let ambiguous = |error: &RestrictError, node: u32| matches!(error.unlocated(), RestrictError::AmbiguousChildField { node: n, field } if *n == node && field == "x");
+    let ambiguous = |error: &RestrictError, node: u32| {
+        matches!(
+            error.unlocated(),
+            RestrictError::AmbiguousChildField { node: n, field } if *n == node && field == "x"
+        )
+    };
     // Tree and its graph form.
     let (tree, schema) = repeated_tree();
     let mut m = identity(&schema);
@@ -361,7 +366,10 @@ fn a_shared_structural_child_is_refused() {
     let plan = RestrictPlan::compile(&schema, &schema, &m).unwrap();
     let error = graph_restrict_with_plan(&graph, &plan).unwrap_err();
     assert!(
-        matches!(error.unlocated(), RestrictError::StructuralChildNotATree { node: 0, field } if field == "items"),
+        matches!(
+            error.unlocated(),
+            RestrictError::StructuralChildNotATree { node: 0, field } if field == "items"
+        ),
         "{error:?}"
     );
 }
@@ -443,8 +451,11 @@ fn an_unexpressible_referenced_value_is_a_typed_error() {
     let plan = RestrictPlan::compile(&schema, &schema, &m).unwrap();
     let error = graph_restrict_with_plan(&graph, &plan).unwrap_err();
     assert!(
-        matches!(error.unlocated(), RestrictError::ValueNotExpressible { node: 0, field, value_type }
-            if field == "t" && value_type == "token"),
+        matches!(
+            error.unlocated(),
+            RestrictError::ValueNotExpressible { node: 0, field, value_type }
+                if field == "t" && value_type == "token"
+        ),
         "{error:?}"
     );
     // ...and an expression that does not read it runs.

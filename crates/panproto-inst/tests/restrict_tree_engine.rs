@@ -488,8 +488,10 @@ fn a_survival_predicate_that_fails_to_evaluate_is_refused_in_every_shape() {
     assert!(
         matches!(
             &error,
-            RestrictError::SurvivalPredicateFailed { node: 1, source: panproto_expr::ExprError::UnboundVariable(v) }
-                if v == "nope"
+            RestrictError::SurvivalPredicateFailed {
+                node: 1,
+                source: panproto_expr::ExprError::UnboundVariable(v),
+            } if v == "nope"
         ),
         "{error:?}"
     );

@@ -494,7 +494,8 @@ pub enum RestrictError {
     /// edge that does not join the images of the pair, or that the target
     /// schema does not declare.
     #[error(
-        "the contracted pair {pair:?} is resolved to {image:?}, which does not join it in the target"
+        "the contracted pair {pair:?} is resolved to {image:?}, \
+         which does not join it in the target"
     )]
     IncoherentPairImage {
         /// The images `(a', b')` of the contracted pair.
@@ -545,7 +546,8 @@ pub enum RestrictError {
     /// An expansion has more hops than a synthesized key can number: the
     /// key numbers them with 16 bits, so a path takes at most 65536 edges.
     #[error(
-        "the expansion from `{src}` to `{tgt}` has {hops} hops, more than the 65536 a synthesized key can number"
+        "the expansion from `{src}` to `{tgt}` has {hops} hops, \
+         more than the 65536 a synthesized key can number"
     )]
     ExpansionTooLong {
         /// The anchor the path leaves.

@@ -789,10 +789,13 @@ proptest! {
         (schema, f, m, _) in arb_table_case(),
     ) {
         let p = protocol();
-        let Ok(table_plan) = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)) else {
+        let Ok(table_plan) =
+            RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p))
+        else {
             return Ok(());
         };
-        let graph_plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
+        let graph_plan =
+            RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
         let (graph, _) = GInstance::from_finstance(&f).unwrap();
         let table = functor_restrict_with_plan(&f, &table_plan);
         let graph_result = graph_restrict_with_plan(&graph, &graph_plan);
@@ -819,14 +822,20 @@ proptest! {
                     "{:?}\n{:?}", graph_view, expected
                 );
                 let graph_nodes: BTreeSet<u32> = graph_view.nodes().keys().copied().collect();
-                let table_rows: BTreeSet<u32> = table_view.row_ids().into_iter().map(|r| r.0).collect();
+                let table_rows: BTreeSet<u32> =
+                    table_view.row_ids().into_iter().map(|r| r.0).collect();
                 prop_assert_eq!(graph_nodes, table_rows);
             }
             (Err(table_error), Err(graph_error)) => {
                 prop_assert_eq!(table_error.kind_index(), graph_error.unlocated().kind_index());
             }
             (table, graph) => {
-                prop_assert!(false, "table {:?} graph {:?}", table.map(|r| r.0), graph.map(|r| r.0));
+                prop_assert!(
+                    false,
+                    "table {:?} graph {:?}",
+                    table.map(|r| r.0),
+                    graph.map(|r| r.0)
+                );
             }
         }
     }

@@ -1838,11 +1838,11 @@ pub fn apply_field_transforms(
     apply_transforms_tracked(node, transforms, ctx, &mut KeyTrack::default())
 }
 
-/// The keys of a node's `extra_fields` that a run of transforms wrote: the
-/// keys the run's coercion to the target columns' specs must visit. A key a value moves onto takes the written state of the key the
-/// value left, so a value renamed after it was written is still coerced
-/// under its new name, and a rename itself writes its new key. The empty
-/// track (`KeyTrack::default()`) is that of a run that touched no key.
+/// The keys of a node's `extra_fields` that a run of transforms wrote: the keys the run's coercion
+/// to the target columns' specs must visit. A key a value moves onto takes the written state of the
+/// key the value left, so a value renamed after it was written is still coerced under its new name,
+/// and a rename itself writes its new key. The empty track (`KeyTrack::default()`) is that of a run
+/// that touched no key.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KeyTrack {
     /// The keys a transform wrote.

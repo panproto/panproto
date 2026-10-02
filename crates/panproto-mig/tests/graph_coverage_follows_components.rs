@@ -106,7 +106,10 @@ fn graph_coverage_fails_a_component_only_when_its_restrict_errors() {
     assert_eq!(failed.len(), 1);
     assert_eq!(failed[0].0, 4);
     assert!(
-        matches!(failed[0].1, PartialReason::MissingRequiredField { field } if field == "edge r → k"),
+        matches!(
+            failed[0].1,
+            PartialReason::MissingRequiredField { field } if field == "edge r → k"
+        ),
         "{:?}",
         failed[0].1
     );

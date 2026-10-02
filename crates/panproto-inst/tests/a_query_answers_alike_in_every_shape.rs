@@ -202,7 +202,11 @@ proptest! {
     /// A tree, its graph form, and the table of its nodes and arcs answer
     /// every path query alike, in ascending id.
     #[test]
-    fn query_answers_agree_across_shapes(tree in arb_tree(), steps in 0usize..4, limit in prop::option::of(0usize..5)) {
+    fn query_answers_agree_across_shapes(
+        tree in arb_tree(),
+        steps in 0usize..4,
+        limit in prop::option::of(0usize..5),
+    ) {
         let query = InstanceQuery {
             anchor: Name::from("r"),
             path: vec!["c".into(); steps],

@@ -296,7 +296,10 @@ fn a_restrict_error_projects_onto_its_detail() -> TestResult {
     };
     assert_eq!(
         serde_json::to_string(&keyed)?,
-        r#"{"restrict":{"key":{"stage":4,"id":1,"id2":0,"kind":0},"kind":"root_pruned","message":""}}"#
+        concat!(
+            r#"{"restrict":{"key":{"stage":4,"id":1,"id2":0,"kind":0},"#,
+            r#""kind":"root_pruned","message":""}}"#
+        )
     );
     round_trip(&keyed)?;
     Ok(())
