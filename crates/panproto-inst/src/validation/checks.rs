@@ -606,7 +606,7 @@ use super::report::{
     CheckKey, CheckKind, EndpointSide, FanRecord, IncompleteReason, SchemaRef, Violation,
 };
 use super::state::{KeyIndex, key_bytes, part_name, part_value, path_values};
-use crate::attributes::{AttributeSchema, AttributeViolation};
+use crate::attributes::AttributeViolation;
 use crate::fan_violation::FanViolation;
 
 /// One violation an instance of a check found: the elements it names and
@@ -677,8 +677,7 @@ impl<'a> Context<'a> {
         view: InstanceView<'a>,
         external: &'a ExternalVerdicts,
     ) -> Self {
-        let schema = &plan.schema;
-        let attrs = AttributeSchema::from_schema(schema);
+        let attrs = &plan.attributes;
         let violations = match view {
             InstanceView::Graph(g) => attrs.validate_ginstance(g),
             InstanceView::Tree(t, _) => attrs.validate_wtype(t),
@@ -722,7 +721,7 @@ impl<'a> Context<'a> {
             plan,
             view,
             external,
-            families: AnchorFamilies::new(schema),
+            families: AnchorFamilies::new(&plan.schema),
             attributes,
             reachable,
             reserved,

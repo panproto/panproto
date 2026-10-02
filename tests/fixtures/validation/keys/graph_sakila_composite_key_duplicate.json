@@ -1028,7 +1028,7 @@
   "report": {
     "shape": "graph",
     "scope": "instance",
-    "plan": "8597c33dba89be2245f75f9abf1c89ff0214da1e23333562ccbd24b4dff09e47",
+    "plan": "cf6c6a51cc4355cb36a68fe31b20fe6d6063d3dece76f0a5b231003e60b405c9",
     "status": "failed",
     "diagnostics": [
       {

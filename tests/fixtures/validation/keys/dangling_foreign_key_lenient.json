@@ -821,7 +821,7 @@
   "report": {
     "shape": "table",
     "scope": "instance",
-    "plan": "fdd99de3f8ee7ef93e323195157421e0cbdb9745de5e982e84a8a1a94696e402",
+    "plan": "10de7be46ad0ceaa5a06d92cdec85b6fe4c19edd332466da05ce73fbc62ce00c",
     "status": "passed",
     "diagnostics": [
       {

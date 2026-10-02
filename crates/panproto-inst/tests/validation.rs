@@ -3506,7 +3506,7 @@ fn attribute_validation_agrees_on_a_tree_and_its_graph() {
         .insert("color".into(), Value::Str("red".into()));
     tree.nodes.insert(0, root);
     let graph = GInstance::from_wtype(&tree).unwrap();
-    let attrs = panproto_inst::AttributeSchema::from_schema(&schema);
+    let attrs = panproto_inst::AttributeSchema::from_schema(&schema, &Protocol::default());
     // The tree projection visits fields in map order; the graph projection
     // in ascending key. The two find the same violations.
     let key_of = |v: &panproto_inst::AttributeViolation| format!("{v:?}");

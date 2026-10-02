@@ -242,7 +242,7 @@
   "report": {
     "shape": "tree",
     "scope": "instance",
-    "plan": "49fe4af8f3e5258df55cf8d494949f84169bfa328d798aeac5b5997a0c39e720",
+    "plan": "42ed8c25ce415b26dbaca0c6508538b86a426d87ddfb47c71a5914b00748b6d5",
     "status": "passed",
     "diagnostics": [],
     "incomplete": [],
@@ -394,7 +394,7 @@
       "applied": {
         "shape": "tree",
         "scope": "instance",
-        "plan": "49fe4af8f3e5258df55cf8d494949f84169bfa328d798aeac5b5997a0c39e720",
+        "plan": "42ed8c25ce415b26dbaca0c6508538b86a426d87ddfb47c71a5914b00748b6d5",
         "status": "failed",
         "diagnostics": [
           {

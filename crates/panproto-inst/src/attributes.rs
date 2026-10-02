@@ -4,7 +4,9 @@
 //! schema shape) from *attribute* data (scalar values hanging off objects). An
 //! [`AttributeSchema`] records, per vertex, the attributes an instance node
 //! over that vertex may carry: an ordered list of `(name, value kind)` pairs
-//! derived from the schema's scalar-valued outgoing edges.
+//! derived from the schema's scalar-valued outgoing edges and, where the
+//! protocol classifies the schema into tables, from each table's columns,
+//! structured ones included.
 //!
 //! [`AttributeSchema::validate_wtype`], [`AttributeSchema::validate_finstance`]
 //! and [`AttributeSchema::validate_ginstance`] check the attribute payload of
@@ -24,11 +26,12 @@
 use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 
 use crate::functor::FInstance;
 use crate::ginstance::GInstance;
 use crate::metadata::NodeShape;
+use crate::rel_schema::RelSchema;
 use crate::value::Value;
 use crate::wtype::WInstance;
 
@@ -81,15 +84,21 @@ pub enum AttributeViolation {
 }
 
 impl AttributeSchema {
-    /// Derive the attribute discipline of a schema.
+    /// Derive the attribute discipline of a schema under a protocol.
     ///
     /// For each vertex, its attributes are its outgoing edges whose target is a
-    /// *leaf* vertex (one with no outgoing edges of its own). The attribute
-    /// name is the edge label, or the target vertex id when the edge is
-    /// unlabeled; the value kind is the target vertex's kind. Attributes are
-    /// ordered by name; duplicate names keep the first declaration.
+    /// *leaf* vertex (one with no outgoing edges of its own), and, when
+    /// [`RelSchema::new`] classifies the schema under `protocol`, each column
+    /// of each table: an attribute arrow into a value vertex, whose value may
+    /// be structured (the vertex has inner value edges, all part of the one
+    /// value a cell holds). The attribute name is the edge label, or the
+    /// target vertex id when the edge is unlabeled; the value kind is the
+    /// target vertex's kind. Attributes are ordered by name; duplicate names
+    /// keep the first declaration. A protocol that classifies no schema (such
+    /// as [`Protocol::default`] over a schema with any vertex) adds no column,
+    /// so only the leaf edges are declared.
     #[must_use]
-    pub fn from_schema(schema: &Schema) -> Self {
+    pub fn from_schema(schema: &Schema, protocol: &Protocol) -> Self {
         let mut attrs: HashMap<Name, Vec<AttributeDecl>> = HashMap::new();
         for vertex_id in schema.vertices.keys() {
             let mut decls: Vec<AttributeDecl> = Vec::new();
@@ -115,9 +124,27 @@ impl AttributeSchema {
                 });
             }
             if !decls.is_empty() {
-                decls.sort_by(|a, b| a.name.cmp(&b.name));
                 attrs.insert(vertex_id.clone(), decls);
             }
+        }
+        if let Ok(rel) = RelSchema::new(schema, protocol) {
+            for table in rel.tables() {
+                for (name, edge) in rel.columns(table) {
+                    let Some(tgt_vertex) = schema.vertex(edge.tgt.as_ref()) else {
+                        continue;
+                    };
+                    let decls = attrs.entry(table.clone()).or_default();
+                    if decls.iter().all(|d| d.name != *name) {
+                        decls.push(AttributeDecl {
+                            name: name.clone(),
+                            kind: tgt_vertex.kind.clone(),
+                        });
+                    }
+                }
+            }
+        }
+        for decls in attrs.values_mut() {
+            decls.sort_by(|a, b| a.name.cmp(&b.name));
         }
         Self { attrs }
     }
@@ -269,12 +296,15 @@ impl AttributeSchema {
 /// unconstrained.
 ///
 /// Not a validation boundary: it returns the attribute violations alone,
-/// with no status. It derives the schema's [`AttributeSchema`] and calls
-/// [`AttributeSchema::validate_wtype`], the projection the `Attribute` check
-/// of [`validate_wtype`](crate::validate_wtype) reports as diagnostics.
+/// with no status. It derives the schema's [`AttributeSchema`] under
+/// [`Protocol::default`], which classifies no table, so the declared
+/// attributes are the leaf edges alone, and calls
+/// [`AttributeSchema::validate_wtype`]: the projection the `Attribute` check
+/// of [`validate_wtype`](crate::validate_wtype) reports as diagnostics under
+/// a protocol that classifies no table with a structured column.
 #[must_use]
 pub fn validate_attributes(schema: &Schema, instance: &WInstance) -> Vec<AttributeViolation> {
-    AttributeSchema::from_schema(schema).validate_wtype(instance)
+    AttributeSchema::from_schema(schema, &Protocol::default()).validate_wtype(instance)
 }
 
 /// Returns `true` if a value is admissible for a declared scalar kind.
@@ -435,7 +465,7 @@ mod tests {
 
     #[test]
     fn derives_ordered_attributes() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let post = attrs.for_vertex("post");
         assert_eq!(post.len(), 2);
         // Ordered by name: count before title.
@@ -447,7 +477,7 @@ mod tests {
 
     #[test]
     fn accepts_declared_and_well_typed() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -461,7 +491,7 @@ mod tests {
 
     #[test]
     fn flags_undeclared_key() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -477,7 +507,7 @@ mod tests {
 
     #[test]
     fn flags_mistyped_value() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let mut nodes = HashMap::new();
         nodes.insert(
             0,
@@ -494,7 +524,7 @@ mod tests {
 
     #[test]
     fn validates_finstance_rows() {
-        let attrs = AttributeSchema::from_schema(&attr_schema());
+        let attrs = AttributeSchema::from_schema(&attr_schema(), &Protocol::default());
         let good = HashMap::from([
             ("title".to_owned(), Value::Str("x".into())),
             ("count".to_owned(), Value::Int(1)),

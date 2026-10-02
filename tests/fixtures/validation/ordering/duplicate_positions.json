@@ -213,7 +213,7 @@
   "report": {
     "shape": "graph",
     "scope": "instance",
-    "plan": "0c6acb445912bb4c2c4f3bbb75e9c69c5dffbd7b21dc80d6ab0d3ac4f966fc6c",
+    "plan": "6ab4069ec505d68d14a2cfbee92221759a05d040a05652677f48af53ff89a17e",
     "status": "failed",
     "diagnostics": [
       {

@@ -711,6 +711,9 @@ pub struct ValidationPlan {
     static_findings: Vec<IncompleteCheck>,
     triggers: TriggerTable,
     pub(crate) schema: Schema,
+    /// The attribute discipline of the schema under the protocol, read once
+    /// at compilation by every `Attribute` check and its witness.
+    pub(crate) attributes: crate::attributes::AttributeSchema,
     pub(crate) compiled: BTreeMap<CheckKey, Compiled>,
     pub(crate) options: ValidationOptions,
 }
@@ -726,7 +729,8 @@ impl ValidationPlan {
     /// digest, the protocol's constraint semantics, the other protocol
     /// fields compilation reads (the name, vertex kinds, constraint sorts,
     /// edge rules and the two shapes, every list as stored, in order and
-    /// with repeats) and the options. Two plans with equal digests give
+    /// with repeats; then the value and non-value kinds, in key order) and
+    /// the options. Two plans with equal digests give
     /// equal reports for every instance.
     #[must_use]
     pub const fn digest(&self) -> &Digest {
@@ -789,6 +793,7 @@ struct Builder<'a> {
     checks: BTreeMap<CheckKey, CheckSpec>,
     compiled: BTreeMap<CheckKey, Compiled>,
     findings: Vec<IncompleteCheck>,
+    attributes: crate::attributes::AttributeSchema,
 }
 
 const ALL_SHAPES: [InstanceShapeKind; 3] = [
@@ -798,11 +803,7 @@ const ALL_SHAPES: [InstanceShapeKind; 3] = [
 ];
 
 impl<'a> Builder<'a> {
-    const fn new(
-        schema: &'a Schema,
-        protocol: &'a Protocol,
-        options: &'a ValidationOptions,
-    ) -> Self {
+    fn new(schema: &'a Schema, protocol: &'a Protocol, options: &'a ValidationOptions) -> Self {
         Self {
             schema,
             protocol,
@@ -810,6 +811,7 @@ impl<'a> Builder<'a> {
             checks: BTreeMap::new(),
             compiled: BTreeMap::new(),
             findings: Vec::new(),
+            attributes: crate::attributes::AttributeSchema::default(),
         }
     }
 
@@ -925,15 +927,16 @@ impl<'a> Builder<'a> {
     }
 
     fn attributes(&mut self) {
-        let attrs = crate::attributes::AttributeSchema::from_schema(self.schema);
-        let mut vertices: Vec<&Name> = attrs.attrs.keys().collect();
+        self.attributes =
+            crate::attributes::AttributeSchema::from_schema(self.schema, self.protocol);
+        let mut vertices: Vec<Name> = self.attributes.attrs.keys().cloned().collect();
         vertices.sort();
         for vertex in vertices {
             self.add(
                 CheckKey::new(CheckKind::Attribute, SchemaRef::Vertex(vertex.clone())),
                 Compiled::Structural,
                 None,
-                BTreeSet::from([vertex.clone()]),
+                BTreeSet::from([vertex]),
             );
         }
     }
@@ -1495,6 +1498,7 @@ impl Builder<'_> {
             static_findings: findings,
             triggers: TriggerTable::restricted_to(&kinds),
             schema: self.schema.clone(),
+            attributes: self.attributes,
             compiled: self.compiled,
             options: self.options.clone(),
         }
@@ -1514,7 +1518,10 @@ impl Builder<'_> {
 ///    first rule for an edge kind governs it), as its edge kind, its source
 ///    kinds and its target kinds;
 /// 7. its syntactic shape, then its semantic shape;
-/// 8. the options: the requirement overrides, the external checks and the
+/// 8. its value kinds (the keys of `value_kinds`) and then its non-value
+///    kinds, each behind its count and in key order, which classify the
+///    schema's tables and their columns for the `Attribute` checks;
+/// 9. the options: the requirement overrides, the external checks and the
 ///    source map, each behind its count and in key order.
 ///
 /// Every list is written as stored: its length, then each entry in protocol
@@ -1544,6 +1551,14 @@ fn plan_digest(schema: &Digest, protocol: &Protocol, options: &ValidationOptions
     }
     write_shape(&mut w, protocol.syntactic_shape);
     write_shape(&mut w, protocol.semantic_shape);
+    w.len(protocol.value_kinds.len());
+    for kind in protocol.value_kinds.keys() {
+        w.str(kind);
+    }
+    w.len(protocol.non_value_kinds.len());
+    for kind in &protocol.non_value_kinds {
+        w.str(kind);
+    }
     w.len(options.requirements.len());
     for (decl, requirement) in &options.requirements {
         write_schema_ref(&mut w, decl);

@@ -1584,3 +1584,112 @@ fn a_table_with_a_leaf_and_a_struct_column_reads_both_as_cells() {
 fn plan_under(src: &Schema, tgt: &Schema, m: &CompiledMigration, p: &Protocol) -> RestrictPlan {
     RestrictPlan::compile_for_tables(src, tgt, m, protocols(p)).unwrap()
 }
+
+#[test]
+fn a_validated_restrict_accepts_a_row_with_a_structured_column() {
+    // The validated entry point checks both boundaries: the structured
+    // column `addr` is a column of `t` as the classification reads it, so
+    // a total row passes validation on both sides and comes back as is.
+    let p = protocol_with_struct();
+    let schema = leaf_and_struct_table(&p);
+    let m = identity(&schema);
+    let addr = Value::Unknown(HashMap::from([("x".to_owned(), Value::Int(2))]));
+    let row = one_row(&[("a", Value::Int(1)), ("addr", addr)]);
+    let (view, complement) =
+        functor_restrict_with_complement(&row, &schema, &schema, &m, protocols(&p)).unwrap();
+    assert_eq!(view, row);
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+    assert_eq!(
+        panproto_inst::validate_table(&row, &schema, &p).status,
+        panproto_gat::CheckStatus::Passed
+    );
+
+    // The column is declared with its vertex's kind, so a cell of another
+    // kind there is mistyped, and a cell the table does not declare is
+    // undeclared: both are refused on the input side.
+    for (bad, violation) in [
+        (
+            one_row(&[("a", Value::Int(1)), ("addr", Value::Str("s".into()))]),
+            "MistypedAttribute",
+        ),
+        (
+            one_row(&[
+                ("a", Value::Int(1)),
+                ("addr", Value::Unknown(HashMap::new())),
+                ("stray", Value::Int(3)),
+            ]),
+            "UndeclaredAttribute",
+        ),
+    ] {
+        let error = functor_restrict_with_complement(&bad, &schema, &schema, &m, protocols(&p))
+            .unwrap_err();
+        assert!(
+            matches!(
+                error,
+                RestrictError::Validation {
+                    side: BoundarySide::Input,
+                    ..
+                }
+            ),
+            "{error:?}"
+        );
+        assert!(format!("{error:?}").contains(violation), "{error:?}");
+    }
+}
+
+#[test]
+fn a_table_whose_only_column_is_structured_declares_it() {
+    // With no leaf column, the table still declares its structured column,
+    // so a stray cell beside it is undeclared rather than unchecked.
+    let p = protocol_with_struct();
+    let schema = SchemaBuilder::new(&p)
+        .vertex("t", "record", None)
+        .and_then(|b| b.vertex("t.addr", "struct", None))
+        .and_then(|b| b.vertex("t.addr.x", "int", None))
+        .and_then(|b| b.edge("t", "t.addr", "prop", Some("addr")))
+        .and_then(|b| b.edge("t.addr", "t.addr.x", "prop", Some("x")))
+        .and_then(SchemaBuilder::build)
+        .unwrap();
+    let addr = Value::Unknown(HashMap::from([("x".to_owned(), Value::Int(2))]));
+    let total = one_row(&[("addr", addr.clone())]);
+    assert_eq!(
+        panproto_inst::validate_table(&total, &schema, &p).status,
+        panproto_gat::CheckStatus::Passed
+    );
+    let stray = one_row(&[("addr", addr), ("stray", Value::Int(3))]);
+    let report = panproto_inst::validate_table(&stray, &schema, &p);
+    assert_ne!(report.status, panproto_gat::CheckStatus::Passed);
+    assert!(
+        format!("{report:?}").contains("UndeclaredAttribute"),
+        "{report:?}"
+    );
+}
+
+#[test]
+fn a_plan_digest_reads_the_kinds_that_classify_columns() {
+    // Plans with equal digests give equal reports. Two protocols that
+    // differ only in their value and non-value kinds classify the
+    // structured column differently, so their reports and digests differ.
+    let classifying = protocol_with_struct();
+    let schema = leaf_and_struct_table(&classifying);
+    let mut silent = classifying.clone();
+    silent.value_kinds.clear();
+    silent.non_value_kinds.clear();
+    let options = panproto_inst::ValidationOptions::default();
+    let addr = Value::Unknown(HashMap::from([("x".to_owned(), Value::Int(2))]));
+    let row = one_row(&[("a", Value::Int(1)), ("addr", addr)]);
+    assert_eq!(
+        panproto_inst::validate_table(&row, &schema, &classifying).status,
+        panproto_gat::CheckStatus::Passed
+    );
+    assert_ne!(
+        panproto_inst::validate_table(&row, &schema, &silent).status,
+        panproto_gat::CheckStatus::Passed
+    );
+    let digest =
+        |p: &Protocol| *panproto_inst::ValidationPlan::compile(&schema, p, &options).digest();
+    assert_ne!(digest(&classifying), digest(&silent));
+    let mut only_non_value = classifying.clone();
+    only_non_value.non_value_kinds.insert("other".to_owned());
+    assert_ne!(digest(&classifying), digest(&only_non_value));
+}

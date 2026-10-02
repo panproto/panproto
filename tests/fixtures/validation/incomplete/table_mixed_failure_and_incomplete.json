@@ -166,7 +166,7 @@
   "report": {
     "shape": "table",
     "scope": "instance",
-    "plan": "3c6e522f54aacacda94a79336e13850b8d8069a0c71e6ba229d85feb703c841a",
+    "plan": "3b9469608b954c1eebab2fcf9d8cdf7dadfbda363b18a31f08693edc4144b736",
     "status": "failed",
     "diagnostics": [
       {
