@@ -46,6 +46,8 @@ pub mod functor;
 pub mod ginstance;
 pub mod graph_complement;
 pub mod graph_edit;
+/// Relational Sigma, Delta, and Pi for graph-shaped instances.
+pub mod graph_kan;
 pub mod graph_restrict;
 /// Internal hom schema construction and evaluation.
 pub mod hom;
@@ -98,8 +100,8 @@ pub mod wtype_check;
 pub use acset::AcsetOps;
 pub use adjunction::{
     AdjunctionError, f_counit, f_delta, f_delta_with_provenance, f_sigma, f_transpose_left,
-    f_transpose_right, f_unit, g_delta, w_counit, w_delta, w_sigma, w_transpose_left,
-    w_transpose_right, w_unit,
+    f_transpose_right, f_unit, w_counit, w_delta, w_sigma, w_transpose_left, w_transpose_right,
+    w_unit,
 };
 pub use adjunction::{
     DeltaProvenance, NonConformance, SigmaProvenance, f_restrict_to_domain, f_sigma_restricted,
@@ -137,6 +139,16 @@ pub use ginstance::{
 pub use ginstance::{NotTableReason, TableEmbedding, TableShapeReport};
 pub use graph_complement::GraphComplement;
 pub use graph_edit::{GraphDelta, GraphEdit};
+pub use graph_kan::{
+    CellLayout, EdgeLayout, EncodingSide, GraphDeltaProvenance, GraphKanError, GraphKanHom,
+    GraphLayout, GraphPiProvenance, GraphSigmaProvenance, NotEncodableReason, decode_graph,
+    encode_graph, g_counit, g_delta, g_delta_along, g_delta_along_with_provenance,
+    g_delta_with_provenance, g_pi, g_pi_along, g_pi_along_with_provenance, g_pi_counit,
+    g_pi_restricted, g_pi_restricted_with_provenance, g_pi_transpose_left, g_pi_transpose_right,
+    g_pi_unit, g_pi_with_provenance, g_sigma, g_sigma_along, g_sigma_along_with_provenance,
+    g_sigma_restricted, g_sigma_restricted_with_provenance, g_sigma_with_provenance,
+    g_transpose_left, g_transpose_right, g_unit,
+};
 pub use graph_restrict::{
     graph_extend, graph_extend_validated, graph_restrict, graph_restrict_validated,
     graph_restrict_with_complement, graph_restrict_with_plan,

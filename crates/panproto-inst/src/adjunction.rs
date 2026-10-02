@@ -52,7 +52,7 @@ use panproto_schema::{Edge, Schema};
 
 use crate::error::{InstError, RestrictError};
 use crate::functor::{FInstance, Row, allocate_row, row_allocator, same_value};
-use crate::ginstance::{GEdge, GInstance};
+use crate::ginstance::GInstance;
 use crate::instance_hom::{FInstanceHom, WInstanceHom};
 use crate::migration_functor::MigrationFunctor;
 use crate::pi::{PiLimit, pi_limit};
@@ -1818,87 +1818,36 @@ impl<'a> PiTransposeRight<'a> {
 }
 
 // ---------------------------------------------------------------------------
-// Graph Delta (vertex-injective total maps)
+// Relational graph Delta
 // ---------------------------------------------------------------------------
 
-/// `Delta_F` for graph instances, defined for vertex-injective total maps,
-/// as [`w_delta`] is for trees.
+/// `Delta_F` for graph instances on the relational graph-Kan domain.
 ///
-/// Reindexes a `T`-instance to an `S`-instance by relabelling each node's
-/// anchor `t` back to the unique `s` with `F(s) = t` and each edge's label
-/// to its unique preimage, preserving node ids, edge ids, cells, values and
-/// positions. An edge whose label lies outside the image of the edge map has
-/// no `S` label to take, so the pullback drops it (the edges of a reified fan,
-/// labelled by the fan, keep their label with its endpoints relabelled), as [`f_delta`] drops the
-/// pairs of such a foreign key; Delta thus commutes with the graph form of
-/// a table whose rows all sit at vertices in the image of `F`. A row at a
-/// vertex outside that image is dropped by [`f_delta`] but makes this
-/// pullback fail with [`AdjunctionError::AnchorOutsideImage`], so the two
-/// differ on such a table. A reified fan node (of shape
-/// [`NodeShape::HyperEdge`](crate::metadata::NodeShape::HyperEdge)) is
-/// anchored at its hyper-edge, not at a vertex, and keeps its anchor.
+/// This entry point is kept beside the other adjunction operations; its
+/// implementation is [`crate::graph_kan::g_delta`]. Unlike tree Delta, graph
+/// Delta is total in the migration map: a non-injective table map makes one
+/// copy per table in the fibre, while graph instances outside the relational
+/// encoding domain receive a typed [`crate::GraphKanError::NotEncodable`].
 ///
 /// # Errors
 ///
-/// Returns [`AdjunctionError::NonInjectiveVertexMap`] or
-/// [`AdjunctionError::NonInjectiveEdgeMap`] when the map merges vertices or
-/// edges (the pullback would then copy nodes, which this reindexing does not
-/// do), and [`AdjunctionError::AnchorOutsideImage`] when a node's anchor is
-/// not in the image of `F`.
-pub fn g_delta(y: &GInstance, migration: &CompiledMigration) -> Result<GInstance, AdjunctionError> {
-    let inverse_vertex = invert_vertex_map(migration)?;
-    let inverse_edge = invert_edge_map(migration)?;
-
-    let mut ids: Vec<u32> = y.nodes().keys().copied().collect();
-    ids.sort_unstable();
-    let mut out = GInstance::new();
-    for id in ids {
-        let mut node = y.nodes()[&id].clone();
-        if node.shape != crate::metadata::NodeShape::HyperEdge {
-            node.anchor = inverse_vertex
-                .get(&node.anchor)
-                .ok_or_else(|| AdjunctionError::AnchorOutsideImage(node.anchor.clone()))?
-                .clone();
-        }
-        out.insert_node(node).map_err(AdjunctionError::Graph)?;
-    }
-    for (id, edge) in y.edges_sorted() {
-        let label = if let Some(preimage) = inverse_edge.get(&edge.edge) {
-            preimage.clone()
-        } else if is_fan_kind(&edge.edge.kind) {
-            // The edges of a reified fan are labelled by the fan, not by a
-            // schema edge; they travel with their endpoints relabelled.
-            Edge {
-                src: relabel(&inverse_vertex, &edge.edge.src),
-                tgt: relabel(&inverse_vertex, &edge.edge.tgt),
-                kind: edge.edge.kind.clone(),
-                name: edge.edge.name.clone(),
-            }
-        } else {
-            continue;
-        };
-        out.insert_edge(
-            id,
-            GEdge::new(edge.src, edge.tgt, label).with_position(edge.position),
-        )
-        .map_err(AdjunctionError::Graph)?;
-    }
-    Ok(out)
-}
-
-/// Whether an edge kind is one of the reserved kinds of a reified fan.
-fn is_fan_kind(kind: &Name) -> bool {
-    kind.as_ref() == crate::ginstance::HYPER_PARENT_KIND
-        || kind.as_ref() == crate::ginstance::HYPER_LABEL_KIND
-}
-
-/// A vertex's preimage under the inverted vertex map, or the vertex itself
-/// when it has none (a fan's hyper-edge anchor).
-fn relabel(inverse_vertex: &HashMap<Name, Name>, vertex: &Name) -> Name {
-    inverse_vertex
-        .get(vertex)
-        .cloned()
-        .unwrap_or_else(|| vertex.clone())
+/// As [`crate::graph_kan::g_delta`].
+pub fn g_delta(
+    y: &GInstance,
+    src_schema: &Schema,
+    src_protocol: &panproto_schema::Protocol,
+    tgt_schema: &Schema,
+    tgt_protocol: &panproto_schema::Protocol,
+    migration: &CompiledMigration,
+) -> Result<GInstance, crate::graph_kan::GraphKanError> {
+    crate::graph_kan::g_delta(
+        y,
+        src_schema,
+        src_protocol,
+        tgt_schema,
+        tgt_protocol,
+        migration,
+    )
 }
 
 #[cfg(test)]
@@ -2125,21 +2074,48 @@ mod tests {
     // -- row allocation and row maps --------------------------------------
 
     #[test]
-    fn graph_delta_rejects_a_non_injective_map() {
+    fn graph_delta_copies_a_node_per_fibre_vertex() {
         let m = merge_migration();
-        let y = GInstance::new().with_node(Node::new(0, "t"));
-        let err = g_delta(&y, &m).expect_err("a merging map has no reindexing pullback");
-        assert!(matches!(err, AdjunctionError::NonInjectiveVertexMap { .. }));
+        let ea = edge("a", "c", "ea");
+        let eb = edge("b", "c", "eb");
+        let e = edge("t", "u", "e");
+        let src = table_schema(&["a", "b", "c"], &[ea, eb]);
+        let tgt = table_schema(&["t", "u"], std::slice::from_ref(&e));
+        let protocol = record_protocol();
+        let y = GInstance::new()
+            .with_node(Node::new(0, "t"))
+            .with_node(Node::new(1, "u"))
+            .with_edge_id(EdgeId(4), 0, 1, e);
+        let (delta, provenance) =
+            crate::graph_kan::g_delta_with_provenance(&y, &src, &protocol, &tgt, &protocol, &m)
+                .expect("a merging map copies rows and pairs");
+        assert_eq!(delta.node_count(), 3);
+        assert_eq!(delta.edge_count(), 2);
+        assert_eq!(provenance.table.copies.len(), 3);
+        assert_eq!(
+            provenance
+                .nodes
+                .values()
+                .filter(|sources| sources.contains(&0))
+                .count(),
+            2
+        );
     }
 
     #[test]
     fn graph_delta_relabels_along_an_injective_map() {
         let m = rename_migration();
+        let src = table_schema(&["root", "leaf"], &[edge("root", "leaf", "child")]);
+        let tgt = table_schema(
+            &["box", "item", "elsewhere"],
+            &[edge("box", "item", "child")],
+        );
+        let protocol = record_protocol();
         let y = GInstance::new()
             .with_node(Node::new(3, "box"))
             .with_node(Node::new(8, "item").with_extra_field("n", Value::Int(1)))
             .with_edge_id(EdgeId(5), 3, 8, edge("box", "item", "child"));
-        let delta = g_delta(&y, &m).unwrap();
+        let delta = g_delta(&y, &src, &protocol, &tgt, &protocol, &m).unwrap();
         assert_eq!(
             delta.node(3).map(|n| n.anchor.clone()),
             Some(Name::from("root"))
@@ -2157,10 +2133,9 @@ mod tests {
             Some(edge("root", "leaf", "child"))
         );
         let outside = GInstance::new().with_node(Node::new(0, "elsewhere"));
-        assert!(matches!(
-            g_delta(&outside, &m),
-            Err(AdjunctionError::AnchorOutsideImage(a)) if a == "elsewhere"
-        ));
+        let dropped = g_delta(&outside, &src, &protocol, &tgt, &protocol, &m)
+            .expect("a table outside the image is dropped");
+        assert_eq!(dropped.node_count(), 0);
     }
 
     /// Delta commutes with the graph form of a table: pulling a table back
@@ -2194,7 +2169,16 @@ mod tests {
         let (table_then_graph, _) =
             GInstance::from_finstance(&f_delta(&y, &functor).unwrap()).unwrap();
         let (graph, _) = GInstance::from_finstance(&y).unwrap();
-        let graph_then_delta = g_delta(&graph, &m).unwrap();
+        let src = table_schema(
+            &["root", "leaf"],
+            &[edge("root", "leaf", "child"), edge("root", "leaf", "other")],
+        );
+        let tgt = table_schema(
+            &["box", "item"],
+            &[edge("box", "item", "child"), edge("box", "item", "other")],
+        );
+        let protocol = record_protocol();
+        let graph_then_delta = g_delta(&graph, &src, &protocol, &tgt, &protocol, &m).unwrap();
         assert_eq!(graph_then_delta.edge_count(), 1);
         assert!(
             GInstance::identical(&graph_then_delta, &table_then_graph),
