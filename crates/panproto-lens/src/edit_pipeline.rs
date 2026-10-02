@@ -761,13 +761,13 @@ mod tests {
         }
 
         let compiled = edit_lens.compiled.clone();
-        let batch_view = panproto_inst::wtype_restrict(
-            &instance,
+        let plan = panproto_inst::RestrictPlan::compile(
             &edit_lens.src_schema,
             &edit_lens.tgt_schema,
             &compiled,
         )
         .unwrap();
+        let (batch_view, _) = panproto_inst::wtype_restrict_with_plan(&instance, &plan).unwrap();
 
         assert_eq!(
             batch_view.node_count(),

@@ -59,7 +59,7 @@ use crate::pi::{PiLimit, pi_limit};
 use crate::rel_schema::RelSchema;
 use crate::value::Value;
 use crate::view_ref::RowId;
-use crate::wtype::{CompiledMigration, WInstance, wtype_extend};
+use crate::wtype::{CompiledMigration, WInstance};
 
 /// Error raised when an adjunction transport is undefined for the given
 /// migration or instance.
@@ -347,7 +347,8 @@ fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>,
 /// each node's anchor `v` to `F(v)` and each arc's edge accordingly,
 /// preserving node identity.
 ///
-/// This delegates to [`wtype_extend`]; `tgt_schema` is consulted only when
+/// This is the engine of [`wtype_extend`], with no boundary validation;
+/// `tgt_schema` is consulted only when
 /// an arc's edge is neither remapped nor surviving (never the case for the
 /// full relabelling migrations this adjunction targets).
 ///
@@ -360,7 +361,7 @@ pub fn w_sigma(
     tgt_schema: &Schema,
     migration: &CompiledMigration,
 ) -> Result<WInstance, AdjunctionError> {
-    Ok(wtype_extend(x, tgt_schema, migration)?)
+    Ok(crate::wtype::wtype_extend_engine(x, tgt_schema, migration)?)
 }
 
 /// `Delta_F` for W-type instances, defined for vertex-injective total maps.

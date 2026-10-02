@@ -6,8 +6,8 @@ use divan::Bencher;
 use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{
-    CompiledMigration, FInstance, Node, WInstance, functor_extend, functor_restrict, parse_json,
-    wtype_restrict,
+    BoundaryProtocols, CompiledMigration, FInstance, Node, RestrictPlan, WInstance,
+    functor_extend_engine, functor_restrict_with_plan, parse_json, wtype_restrict_with_plan,
 };
 use panproto_schema::{Edge, Schema, Vertex};
 
@@ -317,7 +317,8 @@ fn wtype_restrict_deep_tree(bencher: Bencher, depth: usize) {
     }
     let compiled = identity_compiled(&verts, &edges);
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +336,8 @@ fn wtype_restrict_wide_tree(bencher: Bencher, width: usize) {
     }
     let compiled = identity_compiled(&verts, &edges);
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +380,9 @@ fn wtype_restrict_contraction(bencher: Bencher, depth: usize) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| wtype_restrict(&instance, &tgt_schema, &tgt_schema, &compiled));
+    let plan =
+        RestrictPlan::compile(&tgt_schema, &tgt_schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +426,8 @@ fn wtype_restrict_identity(bencher: Bencher) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -446,22 +451,45 @@ fn functor_restrict_n_tables(bencher: Bencher, n: usize) {
             .expect("the ids are fresh");
     }
 
-    // Identity migration keeping all tables
-    let surviving_verts: HashSet<Name> = (0..n).map(|i| Name::from(format!("t{i}"))).collect();
-    let compiled = CompiledMigration {
-        surviving_verts,
-        surviving_edges: HashSet::new(),
-        vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
+    // Identity migration keeping all tables and their column, over a schema
+    // whose protocol classifies `t{i}` as tables and `col` as a column.
+    let mut vertices: Vec<(String, &str)> = Vec::new();
+    let mut columns: Vec<Edge> = Vec::new();
+    for i in 0..n {
+        vertices.push((format!("t{i}"), "record"));
+        vertices.push((format!("t{i}.col"), "string"));
+        columns.push(make_edge(&format!("t{i}"), &format!("t{i}.col"), "col"));
+    }
+    let named: Vec<(&str, &str)> = vertices.iter().map(|(v, k)| (v.as_str(), *k)).collect();
+    let schema = test_schema(&named, &columns);
+    let protocol = panproto_schema::Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "string".to_owned(),
+            panproto_schema::ScalarKind::Str,
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..panproto_schema::Protocol::default()
     };
+    let compiled = CompiledMigration {
+        surviving_verts: vertices
+            .iter()
+            .map(|(v, _)| Name::from(v.as_str()))
+            .collect(),
+        surviving_edges: columns.iter().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    let plan = RestrictPlan::compile_for_tables(
+        &schema,
+        &schema,
+        &compiled,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .expect("the plan compiles");
 
-    bencher.bench(|| functor_restrict(&inst, &compiled));
+    bencher.bench(|| functor_restrict_with_plan(&inst, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +527,7 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| functor_extend(&inst, &compiled));
+    bencher.bench(|| functor_extend_engine(&inst, &compiled));
 }
 
 // ---------------------------------------------------------------------------

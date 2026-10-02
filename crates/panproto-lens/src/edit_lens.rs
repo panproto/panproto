@@ -1415,7 +1415,15 @@ impl EditLens {
                         name.clone_from(new_key);
                     }
                     panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } if key == field => {
-                        let input = panproto_inst::value_to_expr_literal(&val);
+                        let input = panproto_inst::value_to_expr_literal(&val).map_err(|e| {
+                            panproto_inst::RestrictError::FieldTransformFailed {
+                                key: key.clone(),
+                                source: panproto_expr::ExprError::TypeError {
+                                    expected: "a value with an expression literal".to_owned(),
+                                    got: e.value_type.to_owned(),
+                                },
+                            }
+                        })?;
                         let env = panproto_expr::Env::new()
                             .extend(std::sync::Arc::from(key.as_str()), input);
                         let config = panproto_expr::EvalConfig::default();

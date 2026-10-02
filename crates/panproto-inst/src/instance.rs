@@ -52,59 +52,67 @@ impl Instance {
         }
     }
 
-    /// Restrict this instance along a compiled migration.
+    /// Restrict this instance along a compiled migration, validating both
+    /// boundaries under `protocols`.
     ///
     /// Dispatches to the shape-specific restrict pipeline.
     ///
     /// # Errors
     ///
-    /// Returns an error if the restrict pipeline fails.
+    /// Returns an error if the restrict pipeline fails or a boundary does
+    /// not validate.
     pub fn restrict(
         &self,
         src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        protocols: crate::BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
         match self {
             Self::WType(w) => {
-                let restricted = crate::wtype_restrict(w, src_schema, tgt_schema, migration)?;
+                let restricted =
+                    crate::wtype_restrict(w, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::WType(restricted))
             }
             Self::Functor(f) => {
-                let restricted = crate::functor_restrict(f, migration)?;
+                let restricted =
+                    crate::functor_restrict(f, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::Functor(restricted))
             }
             Self::Graph(g) => {
                 let restricted =
-                    crate::ginstance::graph_restrict(g, src_schema, tgt_schema, migration)?;
+                    crate::graph_restrict(g, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::Graph(restricted))
             }
         }
     }
 
-    /// Extend this instance along a compiled migration (`Sigma_F`).
+    /// Extend this instance along a compiled migration (`Sigma_F`),
+    /// validating the output under `tgt_protocol`.
     ///
     /// Dispatches to the shape-specific extend pipeline.
     ///
     /// # Errors
     ///
-    /// Returns an error if the extend pipeline fails.
+    /// Returns an error if the extend pipeline fails or the output does not
+    /// validate.
     pub fn extend(
         &self,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
+        tgt_protocol: &panproto_schema::Protocol,
     ) -> Result<Self, RestrictError> {
         match self {
             Self::WType(w) => {
-                let extended = crate::wtype_extend(w, tgt_schema, migration)?;
+                let extended = crate::wtype_extend(w, tgt_schema, migration, tgt_protocol)?;
                 Ok(Self::WType(extended))
             }
             Self::Functor(f) => {
-                let extended = crate::functor_extend(f, migration)?;
+                let extended = crate::functor_extend(f, tgt_schema, migration, tgt_protocol)?;
                 Ok(Self::Functor(extended))
             }
             Self::Graph(g) => {
-                let extended = crate::ginstance::graph_extend(g, tgt_schema, migration)?;
+                let extended = crate::graph_extend(g, tgt_schema, migration, tgt_protocol)?;
                 Ok(Self::Graph(extended))
             }
         }

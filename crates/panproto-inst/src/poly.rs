@@ -103,8 +103,10 @@ pub fn fiber_with_predicate(
                 return false;
             };
             let mut env = build_env_from_extra_fields(&node.extra_fields);
-            if let Some(FieldPresence::Present(ref v)) = node.value {
-                env = env.extend(std::sync::Arc::from("_value"), value_to_expr_literal(v));
+            if let Some(FieldPresence::Present(ref v)) = node.value
+                && let Ok(lit) = value_to_expr_literal(v)
+            {
+                env = env.extend(std::sync::Arc::from("_value"), lit);
             }
             env = env.extend(
                 std::sync::Arc::from("_anchor"),
@@ -567,7 +569,6 @@ fn extract_subinstance(source: &WInstance, node_ids: &[u32]) -> WInstance {
 mod tests {
     use super::*;
     use crate::value::Value;
-    use crate::wtype::wtype_restrict;
     use panproto_schema::Edge;
 
     /// Build a simple test instance: root with two annotation children.
@@ -854,7 +855,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            edges: HashMap::new(),
+            edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -1060,8 +1061,12 @@ mod tests {
         assert_eq!(section_inst.nodes.len(), 3);
 
         // Restricting the section back should match the base
-        let restricted =
-            wtype_restrict(&section_inst, &src_schema, &tgt_schema, &migration).unwrap();
+        let restricted = crate::wtype::wtype_restrict_with_plan(
+            &section_inst,
+            &crate::RestrictPlan::compile(&src_schema, &tgt_schema, &migration).unwrap(),
+        )
+        .unwrap()
+        .0;
         assert_eq!(restricted.nodes.len(), base.nodes.len());
 
         // Verify anchors match: both should have doc and text
