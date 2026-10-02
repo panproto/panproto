@@ -1694,6 +1694,155 @@ fn a_plan_digest_reads_the_kinds_that_classify_columns() {
     assert_ne!(digest(&classifying), digest(&only_non_value));
 }
 
+/// The fate of a source table `t{i}` in [`survival_case`]: dropped, or
+/// kept as the target table `t{j}` (`j == i` keeps its own name, any other
+/// `j` merges it into `t{j}`).
+type TableFate = Option<usize>;
+
+/// A root table `root` and tables `t0..t2`, each with column `c` of kind
+/// `int`, with the relation `h{i}` from `root` to `t{i}`; the target keeps
+/// `root` and the image tables the fates name, each relation `h{i}` of a
+/// kept table renamed onto its image. The instance is a star: one `root`
+/// row (id 0) holding a pair to each other row, row `k + 1` in table
+/// `rows[k].0` with `c = rows[k].1`. When `predicate` is set, a row of a
+/// table `t{i}` survives only where `c > 0`.
+fn survival_case(
+    fates: &[TableFate],
+    rows: &[(usize, i64)],
+    predicate: bool,
+) -> (Schema, Schema, CompiledMigration, FInstance) {
+    let names = ["t0", "t1", "t2"];
+    let relation = |i: usize, tgt: &str| fk("root", tgt, &format!("h{i}"));
+    let spec: Vec<(&str, &[(&str, &str)])> = std::iter::once("root")
+        .chain(names)
+        .map(|n| (n, &[("c", "int")][..]))
+        .collect();
+    let src_relations: Vec<Edge> = (0..3).map(|i| relation(i, names[i])).collect();
+    let src = tables(&spec, &src_relations.iter().collect::<Vec<_>>());
+
+    let images: BTreeSet<usize> = fates.iter().flatten().copied().collect();
+    let tgt_spec: Vec<(&str, &[(&str, &str)])> = std::iter::once("root")
+        .chain(images.iter().map(|j| names[*j]))
+        .map(|n| (n, &[("c", "int")][..]))
+        .collect();
+    let tgt_relations: Vec<Edge> = fates
+        .iter()
+        .enumerate()
+        .filter_map(|(i, fate)| fate.map(|j| relation(i, names[j])))
+        .collect();
+    let tgt = tables(&tgt_spec, &tgt_relations.iter().collect::<Vec<_>>());
+
+    let mut m = CompiledMigration::default();
+    m.surviving_verts.insert("root".into());
+    m.surviving_verts.insert("root.c".into());
+    m.surviving_edges.insert(column("root", "c"));
+    for (i, fate) in fates.iter().enumerate() {
+        let Some(j) = *fate else { continue };
+        let (from, to) = (names[i], names[j]);
+        m.surviving_verts.insert(to.into());
+        m.surviving_verts.insert(format!("{to}.c").into());
+        m.surviving_edges.insert(column(to, "c"));
+        m.surviving_edges.insert(relation(i, to));
+        if i != j {
+            m.vertex_remap.insert(from.into(), to.into());
+            m.vertex_remap
+                .insert(format!("{from}.c").into(), format!("{to}.c").into());
+            m.edge_remap.insert(column(from, "c"), column(to, "c"));
+            m.edge_remap.insert(relation(i, from), relation(i, to));
+        }
+    }
+    if predicate {
+        for name in names {
+            m.add_conditional_survival(
+                name,
+                Expr::Builtin(
+                    BuiltinOp::Gt,
+                    vec![Expr::Var("c".into()), Expr::Lit(Literal::Int(0))],
+                ),
+            );
+        }
+    }
+
+    let mut f = FInstance::new()
+        .with_rows("root", [(RowId(0), cells(&[("c", Value::Int(1))]))])
+        .unwrap();
+    for (k, (table, value)) in rows.iter().enumerate() {
+        let id = RowId(u32::try_from(k + 1).unwrap());
+        f = f
+            .with_rows(names[*table], [(id, cells(&[("c", Value::Int(*value))]))])
+            .unwrap()
+            .with_foreign_key(relation(*table, names[*table]), [(RowId(0), id)])
+            .unwrap();
+    }
+    (src, tgt, m, f)
+}
+
+#[test]
+fn functor_restrict_matches_wtype_restrict_on_vertex_survival() {
+    // On every migration `compile_for_tables` accepts (the domain where
+    // the survival rule of the tree and the entity functor agree), the
+    // table engine keeps exactly the rows the tree oracle `wtype_restrict`
+    // keeps, each at the anchor the tree gives it, on the star whose table
+    // and tree are the same instance.
+    use proptest::test_runner::{Config, TestRunner};
+    let p = protocol();
+    let compared = std::cell::Cell::new(0usize);
+    let refused = std::cell::Cell::new(0usize);
+    let fate = prop_oneof![1 => Just(None), 3 => (0usize..3).prop_map(Some)];
+    let mut runner = TestRunner::new(Config {
+        cases: 1024,
+        ..Config::default()
+    });
+    runner
+        .run(
+            &(
+                prop::collection::vec(fate, 3),
+                prop::collection::vec((0usize..3, -3i64..4), 0..7),
+                any::<bool>(),
+            ),
+            |(fates, rows, predicate)| {
+                let (src, tgt, m, f) = survival_case(&fates, &rows, predicate);
+                let Ok(table_plan) =
+                    RestrictPlan::compile_for_tables(&src, &tgt, &m, protocols(&p))
+                else {
+                    refused.set(refused.get() + 1);
+                    return Ok(());
+                };
+                let (graph, _) = GInstance::from_finstance(&f).unwrap();
+                let (tree, _) = graph.to_wtype_embedded(&src).unwrap();
+                let table = functor_restrict_with_plan(&f, &table_plan);
+                let oracle = panproto_inst::wtype_restrict(&tree, &src, &tgt, &m, protocols(&p));
+                match (table, oracle) {
+                    (Ok((table_view, _)), Ok(tree_view)) => {
+                        let kept_rows: BTreeMap<u32, Name> = table_view
+                            .row_ids()
+                            .into_iter()
+                            .map(|r| (r.0, table_view.table_of(r).unwrap().clone()))
+                            .collect();
+                        let kept_nodes: BTreeMap<u32, Name> = tree_view
+                            .nodes
+                            .iter()
+                            .map(|(id, node)| (*id, node.anchor.clone()))
+                            .collect();
+                        prop_assert_eq!(kept_rows, kept_nodes);
+                    }
+                    (Err(table_error), Err(tree_error)) => {
+                        prop_assert_eq!(table_error.kind_index(), tree_error.kind_index());
+                    }
+                    (table, tree) => {
+                        prop_assert!(false, "table {:?} tree {:?}", table.map(|r| r.0), tree);
+                    }
+                }
+                compared.set(compared.get() + 1);
+                Ok(())
+            },
+        )
+        .unwrap();
+    // Both the domain and its complement are exercised.
+    assert!(compared.get() >= 200, "compared {} cases", compared.get());
+    assert!(refused.get() >= 50, "refused {} cases", refused.get());
+}
+
 #[test]
 fn the_default_protocol_declares_the_leaf_edges_alone() {
     // A vertex with a primary key is a table under any protocol, the
