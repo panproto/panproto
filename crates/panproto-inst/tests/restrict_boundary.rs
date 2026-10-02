@@ -246,7 +246,19 @@ fn restrict_validated_equals_the_schema_taking_restrict() {
         // Trees.
         let schema_taking = wtype_restrict_with_synthesis(&rc_tree(n), &src, &tgt, &m, both(&p));
         let validated = wtype_restrict_validated(&rc_tree(n), &src_plan, &tgt_plan, &plan);
-        assert_eq!(format!("{schema_taking:?}"), format!("{validated:?}"));
+        match (schema_taking, validated) {
+            // Trees hold their nodes in a hash map, so they are compared
+            // through their serialized form, whose maps are sorted.
+            (Ok((a, sa)), Ok((b, sb))) => {
+                assert_eq!(
+                    serde_json::to_value(&a).unwrap(),
+                    serde_json::to_value(&b).unwrap()
+                );
+                assert_eq!(sa, sb);
+            }
+            (Err(a), Err(b)) => assert_eq!(format!("{a:?}"), format!("{b:?}")),
+            (a, b) => panic!("{a:?} against {b:?}"),
+        }
     }
     // Tables.
     let tp = Protocol {
