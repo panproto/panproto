@@ -94,15 +94,19 @@ pub fn lift_wtype_pi(
     Ok(result)
 }
 
-/// Apply a compiled migration as a left Kan extension (`Sigma_F`) to a
-/// functor instance, then close it under a term-level chase.
+/// Apply a compiled migration to a functor instance along the total
+/// extension path, then close it under a term-level chase.
 ///
-/// This is the `Sigma` pipeline entry for set-valued instances: it runs
-/// `Sigma_F` ([`panproto_inst::functor_extend`]) and then saturates the
-/// result under `dependencies` with [`crate::chase::chase`], enforcing
-/// tuple- and equality-generating dependencies (with labeled nulls) that a
-/// pure extension cannot. Pass an empty `dependencies` slice to run
-/// `Sigma_F` alone.
+/// This is the `sigma` pipeline entry for set-valued instances: it runs
+/// [`panproto_inst::functor_extend`], which moves each row to its image
+/// table under its own id and pads the cells it lacks there with
+/// `Value::Null`, and then saturates the result under `dependencies` with
+/// [`crate::chase::chase`], enforcing tuple- and equality-generating
+/// dependencies (with labeled nulls) that the extension cannot. Pass an
+/// empty `dependencies` slice to run the extension alone. The extension is
+/// not the table left Kan extension `Sigma_F`, which gives a column outside
+/// the image a fresh labeled null rather than `Value::Null`; that is
+/// [`panproto_inst::f_sigma`].
 ///
 /// # Errors
 ///
@@ -123,10 +127,10 @@ pub fn lift_functor_sigma(
 
 /// [`lift_functor_sigma`], with the row map of the chase that creates rows.
 ///
-/// `Sigma_F` ([`panproto_inst::functor_extend`]) keeps every row's id and
+/// The extension ([`panproto_inst::functor_extend`]) keeps every row's id and
 /// creates no row; the chase then adds rows and keeps every extended row.
 /// The returned [`FInstanceHom`] is the chase's homomorphism
-/// ([`crate::chase::chase_with_hom`]) from the extension `Sigma_F(instance)`
+/// ([`crate::chase::chase_with_hom`]) from the extension of `instance`
 /// into the result: its row map sends every row, which is a row of
 /// `instance` under the same id, to itself, its null map records what the
 /// equalities forced on each labeled null, and the result's rows outside
@@ -835,10 +839,54 @@ mod tests {
         assert!(err.is_retryable(), "a spent budget invites a retry");
     }
 
+    /// The `sigma` lift runs the extension, not the table left Kan
+    /// extension: merging two tables into one pads each row's missing
+    /// column with `Value::Null`, keeps every row id, and creates no
+    /// labeled null.
+    #[test]
+    fn sigma_lift_pads_a_merged_table_with_null_and_no_labeled_null() {
+        use crate::chase::ChaseBudget;
+        use panproto_inst::{FInstance, RowId};
+
+        let cell =
+            |column: &str, v: &str| HashMap::from([(column.to_owned(), Value::Str(v.into()))]);
+        let instance = FInstance::new()
+            .with_table("t1", vec![cell("a", "x")])
+            .unwrap()
+            .with_table("t2", vec![cell("b", "y")])
+            .unwrap();
+        let mut compiled = CompiledMigration::default();
+        compiled.surviving_verts.insert("u".into());
+        compiled.vertex_remap.insert("t1".into(), "u".into());
+        compiled.vertex_remap.insert("t2".into(), "u".into());
+
+        let result =
+            lift_functor_sigma(&compiled, &instance, &[], ChaseBudget::new(10, 10)).unwrap();
+        assert_eq!(result.row_ids(), vec![RowId(0), RowId(1)]);
+        for id in [RowId(0), RowId(1)] {
+            assert_eq!(result.table_of(id).map(AsRef::as_ref), Some("u"));
+        }
+        let row = |id| result.row(id).cloned().unwrap();
+        assert_eq!(
+            row(RowId(0)),
+            HashMap::from([
+                ("a".to_owned(), Value::Str("x".into())),
+                ("b".to_owned(), Value::Null),
+            ])
+        );
+        assert_eq!(
+            row(RowId(1)),
+            HashMap::from([
+                ("a".to_owned(), Value::Null),
+                ("b".to_owned(), Value::Str("y".into())),
+            ])
+        );
+    }
+
     /// Every lift that creates rows returns the row map of the step that
-    /// creates them. The `Sigma` lift's chase adds rows to the extension
+    /// creates them. The `sigma` lift's chase adds rows to the extension
     /// and keeps every extended row's id, so its map sends each row of
-    /// `Sigma_F(I)` to itself, and the rows outside its image are the ones
+    /// the extension of `I` to itself, and the rows outside its image are the ones
     /// the chase created, in firing order. The `Pi` lift returns the
     /// projection of each product row onto each fibre component.
     #[test]

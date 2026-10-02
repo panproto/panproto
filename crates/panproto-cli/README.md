@@ -85,7 +85,7 @@ that supplies that context.
 implementation, plain `restrict` calls the source-to-target W-type or functor pruning
 path. It is not the contravariant `Delta_F` operation. `sigma` uses the separate
 source-to-target extension path. Functor `pi` computes the right Kan extension as
-the natural join over the fibre of each target table, refuses a migration that leaves a
+the natural join over the fiber of each target table, refuses a migration that leaves a
 target column outside the image of the source columns, and bounds the product it
 searches; W-type `pi` accepts only vertex-injective mappings and relabels the tree.
 

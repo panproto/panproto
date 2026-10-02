@@ -255,7 +255,7 @@ pub fn cmd_lift_functor(
             .wrap_err(FUNCTOR_RESTRICT_ERROR)?,
         "sigma" => inst::functor_extend(&instance, compiled)
             .into_diagnostic()
-            .wrap_err("source-to-target functor `Sigma_F` lift failed")?,
+            .wrap_err("source-to-target functor extension lift failed")?,
         "pi" => {
             let src_protocol = super::helpers::resolve_protocol(&src_schema.protocol)?;
             let tgt_protocol = super::helpers::resolve_protocol(&tgt_schema.protocol)?;
