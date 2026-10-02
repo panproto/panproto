@@ -190,7 +190,11 @@ fn label_arrow(
 /// otherwise. When `l'` is a label of `H'`, the arrow of `l` in the source
 /// is paired with the arrow of `l'` in the target: `edge_remap` gains it,
 /// unless `edge_map` maps the source arrow already, in which case its image
-/// must be the target arrow. When `l` is no label of `H'` and `label_map`
+/// must be the target arrow, or the target arrow is the source arrow's
+/// direct image (the target edge of its kind and name between the images
+/// of its endpoints), which a restrict gives the arrow with no entry. So a
+/// migration whose mapped hyper-edges rename no label compiles exactly as
+/// the same migration with no hyper-edge mapped. When `l` is no label of `H'` and `label_map`
 /// does not rename it, the label is removed: the target must hold no edge
 /// of the arrow's kind named `l` between the images of its endpoints, so
 /// the arrow has no image. A label without an arrow in the source is not
@@ -210,6 +214,7 @@ fn lower_label_renames(
     edge_remap: &mut HashMap<Edge, Edge>,
     surviving_edges: &mut HashSet<Edge>,
 ) -> Result<(), ExistenceError> {
+    let endpoint = |v: &Name| migration.vertex_map.get(v).unwrap_or(v).clone();
     let mut hyper_edges: Vec<(&Name, &Name)> = migration.hyper_edge_map.iter().collect();
     hyper_edges.sort();
     for (source_id, target_id) in hyper_edges {
@@ -246,12 +251,23 @@ fn lower_label_renames(
                     Some(mapped) if *mapped != image => return Err(mismatch()),
                     Some(_) => {}
                     None => {
-                        edge_remap.insert(arrow, image.clone());
-                        surviving_edges.insert(image);
+                        // The direct image of the arrow, the target edge of
+                        // its kind and name between the images of its
+                        // endpoints, is what a restrict gives it with no
+                        // entry, so an entry is added only where it differs.
+                        let direct = Edge {
+                            src: endpoint(&arrow.src),
+                            tgt: endpoint(&arrow.tgt),
+                            kind: arrow.kind.clone(),
+                            name: arrow.name.clone(),
+                        };
+                        if image != direct {
+                            edge_remap.insert(arrow, image.clone());
+                            surviving_edges.insert(image);
+                        }
                     }
                 }
             } else {
-                let endpoint = |v: &Name| migration.vertex_map.get(v).unwrap_or(v).clone();
                 let (from, to) = (endpoint(&arrow.src), endpoint(&arrow.tgt));
                 let keeps_image = tgt
                     .edges_between(&from, &to)

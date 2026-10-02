@@ -173,3 +173,47 @@ fn signature_coherence_reads_label_map_by_source_label() {
         report.errors
     );
 }
+
+#[test]
+fn a_mapped_hyper_edge_without_a_label_rename_compiles_as_if_unmapped() {
+    // H and H2 hold the same label `a` over the same arrow: the direct image
+    // of the arrow is already its target arrow, so nothing is lowered and
+    // the compiled migration, and with it the lens digest, is the one of
+    // the migration that maps no hyper-edge.
+    let src = table("H", &[("a", "c1")], &[("a", "c1")], &[]);
+    let tgt = table("H2", &[("a", "c1")], &[("a", "c1")], &[]);
+    let mapped = migration(&[("T", "T"), ("c1", "c1")], &[]);
+    let mut unmapped = mapped.clone();
+    unmapped.hyper_edge_map.clear();
+    let with_map = compile(&src, &tgt, &mapped).unwrap();
+    let without_map = compile(&src, &tgt, &unmapped).unwrap();
+    assert!(with_map.edge_remap.is_empty(), "{:?}", with_map.edge_remap);
+    assert_eq!(with_map.surviving_edges, without_map.surviving_edges);
+    assert_eq!(
+        panproto_inst::identity::lens_digest(&src, &tgt, &with_map),
+        panproto_inst::identity::lens_digest(&src, &tgt, &without_map)
+    );
+}
+
+#[test]
+fn only_the_renamed_labels_of_a_hyper_edge_are_lowered() {
+    // Of the labels a and k of H, only a is renamed (to b): its arrow gains
+    // an edge remap, while k, whose arrow keeps its direct image, gains none,
+    // and the digest differs from the unmapped migration's.
+    let src = table("H", &[("a", "c"), ("k", "d")], &[("a", "c"), ("k", "d")], &[]);
+    let tgt = table("H2", &[("b", "c"), ("k", "d")], &[("b", "c"), ("k", "d")], &[]);
+    let m = migration(&[("T", "T"), ("c", "c"), ("d", "d")], &[("a", "b")]);
+    let compiled = compile(&src, &tgt, &m).unwrap();
+    assert_eq!(
+        compiled.edge_remap,
+        HashMap::from([(prop("T", "c", "a"), prop("T", "c", "b"))])
+    );
+    let mut unmapped = m.clone();
+    unmapped.hyper_edge_map.clear();
+    unmapped.label_map.clear();
+    let plain = compile(&src, &tgt, &unmapped).unwrap();
+    assert_ne!(
+        panproto_inst::identity::lens_digest(&src, &tgt, &compiled),
+        panproto_inst::identity::lens_digest(&src, &tgt, &plain)
+    );
+}
