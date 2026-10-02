@@ -594,13 +594,13 @@ impl FidelityLog {
 /// of class [`LexClass::Bool`] for a boolean, the decimal digits of class
 /// [`LexClass::Number`] for an integer, the canonical text of class
 /// `Number` for a decimal, the shortest text that reads back as the same
-/// float (Rust's `Display`) of class `Number` for a finite float, the text
-/// of class [`LexClass::String`] for a string or a token (under a 32-bit
-/// float kind, a float that a 32-bit float holds exactly takes the
-/// shortest text that reads back as that 32-bit float, the lexeme its
-/// column writes), the RFC 3339 text
-/// of class [`LexClass::DateTime`] for a date or time, and `null` of class
-/// [`LexClass::Null`] for null. Any other value (bytes, links, blobs,
+/// float (Rust's `Display`) of class `Number` for a finite float (under a
+/// 32-bit float kind, a float that a 32-bit float holds exactly takes
+/// instead the shortest text that reads back as that 32-bit float, the
+/// lexeme its column writes), the text of class [`LexClass::String`] for a
+/// string or a token, the RFC 3339 text of class [`LexClass::DateTime`] for
+/// a date or time, and `null` of class [`LexClass::Null`] for null. Any
+/// other value (bytes, links, blobs,
 /// records, lists, labelled nulls) has no scalar lexeme and is returned
 /// unchanged; validation types it.
 ///

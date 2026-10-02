@@ -83,10 +83,14 @@ fn is_fan_node(node: &Node) -> bool {
 ///    the migration's hyper-edge resolver when that resolves its surviving
 ///    shape, and keeps its hyper-edge and labels otherwise. Label edges to
 ///    dropped children are dropped.
-/// 4. Synthesized nodes and edges take ids in ascending key order from the
+/// 5. Synthesized nodes and edges take ids in ascending key order from the
 ///    complement's node and edge floors (one above the largest id of the
 ///    whole source, saturating at `u32::MAX`), never `u32::MAX`. A
 ///    synthesized edge has no position.
+///
+/// Stage 4 is the root check of segmented tree execution, which a graph
+/// restrict never makes; the numbers are the stages of
+/// [`ErrorKey`](crate::segment::ErrorKey).
 ///
 /// Stage 1 decides each element alone and stage 2 keeps a visited set, so
 /// cycles, loops and parallel edges need no other handling.
