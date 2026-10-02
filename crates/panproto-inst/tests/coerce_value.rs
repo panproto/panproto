@@ -77,7 +77,9 @@ fn values() -> impl Strategy<Value = Value> {
         Just(Value::Float(0.1)),
         texts().prop_map(Value::Str),
         texts().prop_map(Value::Token),
-        Just(Value::Temporal(Temporal::parse("2024-05-06T12:30:05+02:00").unwrap())),
+        Just(Value::Temporal(
+            Temporal::parse("2024-05-06T12:30:05+02:00").unwrap()
+        )),
         Just(Value::Temporal(Temporal::parse("2024-05-06").unwrap())),
         Just(Value::Null),
         Just(Value::Bytes(vec![1, 2, 3])),
@@ -98,7 +100,9 @@ fn lexeme_text(value: &Value, kind: &ScalarKind) -> Option<String> {
         Value::Float(f) => {
             let narrow = f.to_string().parse::<f32>().ok();
             match (kind, narrow) {
-                (ScalarKind::Float { bits: 32 }, Some(n)) if f64::from(n).to_bits() == f.to_bits() => {
+                (ScalarKind::Float { bits: 32 }, Some(n))
+                    if f64::from(n).to_bits() == f.to_bits() =>
+                {
                     n.to_string()
                 }
                 _ => f.to_string(),
@@ -209,7 +213,10 @@ fn a_non_finite_float_is_kept_only_by_a_float_kind() {
     let float = ValueSpec::new(ScalarKind::Float { bits: 64 });
     let decimal = ValueSpec::new(ScalarKind::Decimal);
     let nan = Value::Float(f64::NAN);
-    assert!(same(&coerce_value(&nan, &float, site.clone()).unwrap(), &nan));
+    assert!(same(
+        &coerce_value(&nan, &float, site.clone()).unwrap(),
+        &nan
+    ));
     let error = coerce_value(&nan, &decimal, site).unwrap_err();
     assert_eq!(error.reason, FidelityReason::NonFinite);
     assert_eq!(error.site.vertex.as_ref(), "v");

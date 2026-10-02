@@ -349,8 +349,10 @@ pub fn build_node_env(node: &Node, instance: &WInstance) -> panproto_expr::Env {
         std::sync::Arc::from("_id"),
         panproto_expr::Literal::Int(i64::from(node.id)),
     );
-    if let Some(FieldPresence::Present(ref v)) = node.value {
-        env = env.extend(std::sync::Arc::from("_value"), value_to_expr_literal(v));
+    if let Some(FieldPresence::Present(ref v)) = node.value
+        && let Ok(lit) = value_to_expr_literal(v)
+    {
+        env = env.extend(std::sync::Arc::from("_value"), lit);
     }
     // Bind _children_count: number of outgoing arcs from this node.
     let children_count = instance

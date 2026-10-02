@@ -211,11 +211,11 @@ fn item_record(id: u32) -> Literal {
         ("_id".into(), Literal::Int(i64::from(id))),
         ("_anchor".into(), Literal::Str("item".into())),
     ];
-    fields.extend(
-        item_fields()
-            .into_iter()
-            .map(|(k, v)| (k.as_str().into(), panproto_inst::value_to_expr_literal(&v))),
-    );
+    fields.extend(item_fields().into_iter().filter_map(|(k, v)| {
+        panproto_inst::value_to_expr_literal(&v)
+            .ok()
+            .map(|lit| (k.as_str().into(), lit))
+    }));
     Literal::Record(fields)
 }
 

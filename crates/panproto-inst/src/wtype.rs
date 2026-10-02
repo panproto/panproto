@@ -15,7 +15,7 @@
 //!
 //! The five individual step functions are retained for testing and debugging.
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
 use panproto_schema::{Edge, Schema};
@@ -1160,365 +1160,537 @@ pub fn reconstruct_fans(
 }
 
 // ---------------------------------------------------------------------------
-// Main restrict function: fused single-pass pipeline
+// The tree restrict engine
 // ---------------------------------------------------------------------------
 
-/// The restrict operation for W-type instances.
+/// What the tree restrict synthesized, for tree get to record in its
+/// complement: the node id floor it allocated from and the key of every
+/// node it synthesized.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TreeSynthesis {
+    /// The tree floor: one above every node id of the source's graph form
+    /// (tree nodes and fan nodes), saturating at `u32::MAX`.
+    pub id_floor: u32,
+    /// Each synthesized node, by id, with its key.
+    pub synthesized_keys: BTreeMap<u32, crate::view_ref::SynthKey>,
+}
+
+/// A path of synthesized elements a restrict emits: the one edge of a
+/// contracted pair, or the nodes and edges of an expansion.
+pub(crate) enum SynthChain {
+    /// A contracted pair resolved to one edge.
+    Contract { src: u32, tgt: u32, edge: Edge },
+    /// A source edge (a tree arc, by its edge id in the tree's graph form)
+    /// expanded into a path.
+    Expand {
+        arc: crate::ginstance::EdgeId,
+        parent: u32,
+        child: u32,
+        intermediates: Vec<Name>,
+        labels: Vec<Edge>,
+    },
+    /// A contracted pair resolved to a path.
+    ContractExpand {
+        src: u32,
+        tgt: u32,
+        intermediates: Vec<Name>,
+        labels: Vec<Edge>,
+    },
+}
+
+/// The hop of a path position as a key component.
+fn hop(h: usize) -> Result<u16, RestrictError> {
+    u16::try_from(h).map_err(|_| RestrictError::IdsExhausted {
+        kind: crate::segment::IdKind::Node,
+    })
+}
+
+impl SynthChain {
+    /// The keys of the chain's synthesized nodes, one per intermediate.
+    pub(crate) fn node_keys(
+        &self,
+    ) -> Result<Vec<(crate::view_ref::SynthKey, Name)>, RestrictError> {
+        use crate::view_ref::SynthKey;
+        let (intermediates, key): (&[Name], &dyn Fn(u16) -> SynthKey) = match self {
+            Self::Contract { .. } => return Ok(Vec::new()),
+            Self::Expand {
+                arc, intermediates, ..
+            } => (intermediates, &|h| SynthKey::Expand {
+                source_edge: *arc,
+                hop: h,
+            }),
+            Self::ContractExpand {
+                src,
+                tgt,
+                intermediates,
+                ..
+            } => (intermediates, &|h| SynthKey::ContractExpand {
+                src: *src,
+                tgt: *tgt,
+                hop: h,
+            }),
+        };
+        intermediates
+            .iter()
+            .enumerate()
+            .map(|(h, anchor)| Ok((key(hop(h)?), anchor.clone())))
+            .collect()
+    }
+
+    /// The chain's synthesized arcs, each with its key, given the ids of
+    /// the synthesized nodes.
+    pub(crate) fn arcs(
+        &self,
+        ids: &BTreeMap<crate::view_ref::SynthKey, u32>,
+    ) -> Result<Vec<(crate::view_ref::SynthKey, u32, u32, Edge)>, RestrictError> {
+        use crate::view_ref::SynthKey;
+        let (from, to, labels, key): (u32, u32, &[Edge], &dyn Fn(u16) -> SynthKey) = match self {
+            Self::Contract { src, tgt, edge } => {
+                return Ok(vec![(
+                    SynthKey::Contract {
+                        src: *src,
+                        tgt: *tgt,
+                        edge: edge.clone(),
+                    },
+                    *src,
+                    *tgt,
+                    edge.clone(),
+                )]);
+            }
+            Self::Expand {
+                arc,
+                parent,
+                child,
+                labels,
+                ..
+            } => (*parent, *child, labels, &|h| SynthKey::Expand {
+                source_edge: *arc,
+                hop: h,
+            }),
+            Self::ContractExpand {
+                src, tgt, labels, ..
+            } => (*src, *tgt, labels, &|h| SynthKey::ContractExpand {
+                src: *src,
+                tgt: *tgt,
+                hop: h,
+            }),
+        };
+        let last = labels.len().saturating_sub(1);
+        let mut previous = from;
+        let mut arcs = Vec::with_capacity(labels.len());
+        for (h, label) in labels.iter().enumerate() {
+            let key = key(hop(h)?);
+            let next = if h == last {
+                to
+            } else {
+                ids.get(&key).copied().ok_or(RestrictError::IdsExhausted {
+                    kind: crate::segment::IdKind::Node,
+                })?
+            };
+            arcs.push((key, previous, next, label.clone()));
+            previous = next;
+        }
+        Ok(arcs)
+    }
+}
+
+/// The nodes whose survival predicate is false, among those whose anchor
+/// survives, evaluated before any transform and in ascending node id.
+fn failing_predicates(
+    instance: &WInstance,
+    plan: &crate::restrict_plan::RestrictPlan,
+    children: &TreeChildren<'_>,
+) -> Result<HashSet<u32>, RestrictError> {
+    let mut ids: Vec<u32> = instance.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    let mut failing: HashSet<u32> = HashSet::new();
+    for id in ids {
+        let node = &instance.nodes[&id];
+        if !plan.anchor_survives(&node.anchor)
+            || !plan
+                .migration()
+                .conditional_survival
+                .contains_key(&node.anchor)
+        {
+            continue;
+        }
+        let ctx = TransformContext::bound(
+            Some(plan.source()),
+            children,
+            InstanceRef::Tree(instance, id),
+            &plan.demand(&node.anchor),
+        );
+        if !plan.passes_predicate(&node.anchor, &ctx, &node.extra_fields)? {
+            failing.insert(id);
+        }
+    }
+    Ok(failing)
+}
+
+/// What the tree traversal keeps: the surviving source nodes, the kept arcs
+/// with their source index, and the synthesized paths.
+struct Traversal {
+    surviving: BTreeSet<u32>,
+    kept: Vec<(usize, u32, u32, Edge)>,
+    chains: Vec<SynthChain>,
+}
+
+/// The breadth-first traversal of the tree from its root, deciding which
+/// nodes the view keeps and how each is joined to its parent in the view.
+fn traverse(
+    instance: &WInstance,
+    plan: &crate::restrict_plan::RestrictPlan,
+    children: &TreeChildren<'_>,
+    failing: &HashSet<u32>,
+) -> Result<Traversal, RestrictError> {
+    let survives = |id: u32| {
+        instance
+            .nodes
+            .get(&id)
+            .is_some_and(|n| plan.anchor_survives(&n.anchor) && !failing.contains(&id))
+    };
+    let image = |id: u32| plan.target_anchor(&instance.nodes[&id].anchor);
+    let mut surviving: BTreeSet<u32> = BTreeSet::from([instance.root]);
+    let mut kept: Vec<(usize, u32, u32, Edge)> = Vec::new();
+    let mut chains: Vec<SynthChain> = Vec::new();
+    let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::from([(instance.root, None)]);
+    while let Some((current, ancestor)) = queue.pop_front() {
+        let current_survives = surviving.contains(&current);
+        let child_ancestor = if current_survives {
+            Some(current)
+        } else {
+            ancestor
+        };
+        for &index in children
+            .by_parent
+            .get(&current)
+            .map_or(&[][..], Vec::as_slice)
+        {
+            let (parent, child, ref label) = instance.arcs[index];
+            if !instance.nodes.contains_key(&child) {
+                continue;
+            }
+            if survives(child) {
+                if current_survives {
+                    match plan.edge_image.fate(label) {
+                        None => {
+                            return Err(RestrictError::IncoherentEdgeImage {
+                                source_edge: Box::new(label.clone()),
+                                image: Box::new(label.clone()),
+                            });
+                        }
+                        Some(crate::restrict_plan::EdgeFate::Keep(edge)) => {
+                            kept.push((index, parent, child, edge.clone()));
+                        }
+                        Some(crate::restrict_plan::EdgeFate::Expand {
+                            intermediates,
+                            labels,
+                        }) => chains.push(SynthChain::Expand {
+                            arc: crate::ginstance::EdgeId(u32::try_from(index).map_err(|_| {
+                                RestrictError::IdsExhausted {
+                                    kind: crate::segment::IdKind::Edge,
+                                }
+                            })?),
+                            parent,
+                            child,
+                            intermediates: intermediates.clone(),
+                            labels: labels.clone(),
+                        }),
+                        // The subtree under a dropped arc goes with it.
+                        Some(crate::restrict_plan::EdgeFate::Drop) => continue,
+                        Some(crate::restrict_plan::EdgeFate::Unresolved(reason)) => {
+                            return Err(plan.unresolved(image(parent), image(child), *reason));
+                        }
+                    }
+                } else {
+                    let Some(source) = child_ancestor else {
+                        return Err(RestrictError::RootPruned);
+                    };
+                    chains.push(contracted_chain(instance, plan, source, child)?);
+                }
+                surviving.insert(child);
+            }
+            queue.push_back((child, child_ancestor));
+        }
+    }
+    Ok(Traversal {
+        surviving,
+        kept,
+        chains,
+    })
+}
+
+/// The path joining a surviving node to its nearest surviving ancestor
+/// across dropped nodes: the plan's resolution of their anchors.
+fn contracted_chain(
+    instance: &WInstance,
+    plan: &crate::restrict_plan::RestrictPlan,
+    source: u32,
+    child: u32,
+) -> Result<SynthChain, RestrictError> {
+    let source_anchor = &instance.nodes[&source].anchor;
+    let child_anchor = &instance.nodes[&child].anchor;
+    let Some(pair) = plan.contraction.pair(source_anchor, child_anchor) else {
+        return Err(RestrictError::NoEdgeFound {
+            src: plan.target_anchor(source_anchor).to_string(),
+            tgt: plan.target_anchor(child_anchor).to_string(),
+        });
+    };
+    match &pair.resolution {
+        crate::contraction_plan::PairResolution::Label(edge) => Ok(SynthChain::Contract {
+            src: source,
+            tgt: child,
+            edge: edge.clone(),
+        }),
+        crate::contraction_plan::PairResolution::Expand {
+            intermediates,
+            labels,
+        } => Ok(SynthChain::ContractExpand {
+            src: source,
+            tgt: child,
+            intermediates: intermediates.clone(),
+            labels: labels.clone(),
+        }),
+        crate::contraction_plan::PairResolution::Unresolved(reason) => {
+            Err(plan.unresolved(&pair.target.0, &pair.target.1, *reason))
+        }
+    }
+}
+
+/// The restrict of a W-type instance along a compiled plan: the single tree
+/// engine.
 ///
-/// Executes a fused single-pass pipeline that combines anchor checking,
-/// BFS reachability, ancestor contraction, and edge resolution into one
-/// traversal. Fan reconstruction runs as a separate pass.
+/// The plan's precondition is the caller's: this function validates
+/// nothing, so the instance should be valid against the plan's source
+/// schema ([`wtype_restrict`] validates both boundaries). The result is
+/// the view and what the restrict synthesized ([`TreeSynthesis`]).
 ///
-/// The fused approach visits each node at most once (O(n)) versus
-/// the sequential 5-step approach which makes 3-4 passes.
+/// A node survives when its anchor's image under the vertex map is a
+/// surviving vertex and its vertex's survival predicate, evaluated over its
+/// original fields and children, is `Bool(true)` (a predicate that does not
+/// yield a boolean is refused). The root must survive. A surviving child of
+/// a surviving parent travels along its arc's fate in the plan's
+/// [`EdgeImage`](crate::EdgeImage): kept, relabelled; expanded into a path
+/// of synthesized nodes; or dropped together with its subtree. A surviving
+/// node whose parent does not survive is joined to its nearest surviving
+/// ancestor by the plan's resolution of their pair: one edge, or a path. A
+/// surviving node is re-anchored and transformed as every engine transforms
+/// (value transforms, then the coercion of the columns they write when the
+/// plan has a cell layer; trees apply no cell fates, since a tree's columns
+/// are child nodes). Fans are rebuilt over the survivors.
+///
+/// Synthesized nodes take ids from the tree floor (one above every node of
+/// the tree's graph form, fan nodes included) in ascending key order, never
+/// `u32::MAX`. Each parent's arcs are its kept arcs in source arc order,
+/// then its synthesized first hops in ascending key, which is the order the
+/// graph view lists the same out-edges.
 ///
 /// # Errors
 ///
-/// Returns `RestrictError` if edge resolution fails or the root
-/// is pruned during restriction.
-#[allow(clippy::too_many_lines)] // The fused traversal keeps all node decisions in one pass.
+/// In this order: [`RestrictError::RootPruned`] when the root's anchor does
+/// not survive; the refusals of survival predicates, in ascending node id,
+/// and `RootPruned` when the root's predicate is false;
+/// [`RestrictError::IncoherentEdgeImage`] for an arc whose label is no
+/// source schema edge, [`RestrictError::NoEdgeFound`] or
+/// [`RestrictError::AmbiguousEdge`] for an unresolved arc or contracted
+/// pair, in traversal order; [`RestrictError::IdsExhausted`] when the
+/// synthesized nodes do not fit below `u32::MAX`; and the errors of the
+/// transforms, in ascending node id.
+pub fn wtype_restrict_with_plan(
+    instance: &WInstance,
+    plan: &crate::restrict_plan::RestrictPlan,
+) -> Result<(WInstance, TreeSynthesis), RestrictError> {
+    use crate::view_ref::SynthKey;
+
+    let migration = plan.migration();
+    let src = plan.source();
+    let root = instance
+        .nodes
+        .get(&instance.root)
+        .ok_or(RestrictError::RootPruned)?;
+    if !plan.anchor_survives(&root.anchor) {
+        return Err(RestrictError::RootPruned);
+    }
+    let children = TreeChildren::new(instance);
+    let failing = failing_predicates(instance, plan, &children)?;
+    if failing.contains(&instance.root) {
+        return Err(RestrictError::RootPruned);
+    }
+    let Traversal {
+        surviving,
+        mut kept,
+        chains,
+    } = traverse(instance, plan, &children, &failing)?;
+
+    // Synthesized node ids, in ascending key order from the tree floor.
+    let id_floor = crate::complement::tree_id_floor(instance).unwrap_or(u32::MAX);
+    let mut synthesized_anchors: BTreeMap<SynthKey, Name> = BTreeMap::new();
+    for chain in &chains {
+        synthesized_anchors.extend(chain.node_keys()?);
+    }
+    let synthesized_ids = crate::restrict_plan::allocate_synthesized(
+        synthesized_anchors.keys().cloned(),
+        id_floor,
+        crate::segment::IdKind::Node,
+    )?;
+
+    // The surviving nodes, re-anchored and transformed, in ascending id.
+    let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(surviving.len());
+    for &id in &surviving {
+        let source = &instance.nodes[&id];
+        let mut node = source.clone();
+        node.anchor.clone_from(plan.target_anchor(&source.anchor));
+        if !migration.value_transforms(&source.anchor).is_empty() {
+            let ctx = TransformContext::bound(
+                Some(src),
+                &children,
+                InstanceRef::Tree(instance, id),
+                &plan.demand(&source.anchor),
+            );
+            plan.transform(&mut node, &source.anchor, &ctx, false)?;
+        }
+        new_nodes.insert(id, node);
+    }
+    let mut synthesized_keys = BTreeMap::new();
+    for (key, anchor) in &synthesized_anchors {
+        let id = synthesized_ids[key];
+        new_nodes.insert(id, Node::new(id, anchor.clone()));
+        synthesized_keys.insert(id, key.clone());
+    }
+
+    // Kept arcs in source arc order, then synthesized arcs in key order.
+    kept.sort_unstable_by_key(|(index, ..)| *index);
+    let mut synthesized_arcs = Vec::new();
+    for chain in &chains {
+        synthesized_arcs.extend(chain.arcs(&synthesized_ids)?);
+    }
+    synthesized_arcs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
+    let new_arcs: Vec<(u32, u32, Edge)> = kept
+        .into_iter()
+        .map(|(_, p, c, e)| (p, c, e))
+        .chain(synthesized_arcs.into_iter().map(|(_, p, c, e)| (p, c, e)))
+        .collect();
+
+    let surviving_fx: FxHashSet<u32> = surviving.iter().copied().collect();
+    let new_fans = reconstruct_fans(
+        instance,
+        &surviving_fx,
+        &FxHashMap::default(),
+        migration,
+        plan.target(),
+    )?;
+    let new_schema_root = plan.target_anchor(&instance.schema_root).clone();
+    Ok((
+        WInstance::new(
+            new_nodes,
+            new_arcs,
+            new_fans,
+            instance.root,
+            new_schema_root,
+        ),
+        TreeSynthesis {
+            id_floor,
+            synthesized_keys,
+        },
+    ))
+}
+
+/// The restrict of a W-type instance from `src_schema` to `tgt_schema`
+/// along `migration`, validating both boundaries, with what it
+/// synthesized.
+///
+/// The input is validated against the source schema under
+/// `protocols.src`; a report that does not pass is
+/// [`RestrictError::Validation`] on the input side, and nothing is compiled
+/// or run. Otherwise the plan is compiled with the protocols
+/// ([`RestrictPlan::compile_with_protocols`]), the engine
+/// ([`wtype_restrict_with_plan`]) runs, and the output is validated
+/// against the target schema under `protocols.tgt`; a report that does not
+/// pass is `Validation` on the output side. So a valid input yields the
+/// plan's compilation error, the engine's error, an output-side failure, or
+/// an output that validates.
+///
+/// [`RestrictPlan::compile_with_protocols`]: crate::RestrictPlan::compile_with_protocols
+///
+/// # Errors
+///
+/// As stated above.
+pub fn wtype_restrict_with_synthesis(
+    instance: &WInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    protocols: crate::restrict_boundary::BoundaryProtocols<'_>,
+) -> Result<(WInstance, TreeSynthesis), RestrictError> {
+    use crate::restrict_boundary::{BoundarySide, boundary_plan, require_passed, unlimited};
+    let (budget, external) = unlimited();
+    let src_plan = boundary_plan(src_schema, protocols.src);
+    require_passed(
+        src_plan.validate_tree(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let plan = crate::restrict_plan::RestrictPlan::compile_with_protocols(
+        src_schema, tgt_schema, migration, protocols,
+    )?;
+    let restricted = wtype_restrict_with_plan(instance, &plan)?;
+    let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
+    require_passed(
+        tgt_plan.validate_tree(&restricted.0, &budget, &external),
+        BoundarySide::Output,
+    )?;
+    Ok(restricted)
+}
+
+/// The restrict of a W-type instance, validating both boundaries: the
+/// first projection of [`wtype_restrict_with_synthesis`].
+///
+/// # Errors
+///
+/// As [`wtype_restrict_with_synthesis`].
 pub fn wtype_restrict(
     instance: &WInstance,
     src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
+    protocols: crate::restrict_boundary::BoundaryProtocols<'_>,
 ) -> Result<WInstance, RestrictError> {
-    // Check root survives
-    let root_node = instance
-        .nodes
-        .get(&instance.root)
-        .ok_or(RestrictError::RootPruned)?;
-    let root_target_anchor = migration
-        .vertex_remap
-        .get(&root_node.anchor)
-        .unwrap_or(&root_node.anchor);
-    if !migration.surviving_verts.contains(root_target_anchor) {
-        return Err(RestrictError::RootPruned);
-    }
-
-    let conditional_fail = precompute_conditional_fail(instance, migration);
-
-    // Fused BFS: traverse the tree from root, tracking the nearest
-    // surviving ancestor for each node as we go.
-    //
-    // For each node in the BFS:
-    //   - If its anchor survives (and not in conditional_fail): it
-    //     becomes part of the result. Its nearest surviving ancestor
-    //     is used to build an arc. It becomes the "current surviving
-    //     ancestor" for its subtree.
-    //   - If its anchor does not survive: skip it, but continue BFS
-    //     into its children (they might survive). Pass along the
-    //     current surviving ancestor unchanged.
-
-    let mut new_nodes: HashMap<u32, Node> = HashMap::new();
-    let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::new();
-    let mut surviving_set: FxHashSet<u32> = FxHashSet::default();
-
-    // Counter for synthesized intermediate node ids used by nest-style
-    // `expansion_path` handling. Starts above any id present in the
-    // source so we never collide with instance-owned node ids.
-    let mut next_synth_id: u32 = instance
-        .nodes
-        .keys()
-        .copied()
-        .max()
-        .map_or(0, |m| m.saturating_add(1));
-
-    // Queue entries: (node_id, nearest_surviving_ancestor_id)
-    let mut queue: VecDeque<(u32, Option<u32>)> = VecDeque::new();
-
-    // Process root: remap, check conditional survival, apply field transforms.
-    let root_node_cloned = prepare_root_node(root_node, migration, instance, src_schema)?;
-    new_nodes.insert(instance.root, root_node_cloned);
-    surviving_set.insert(instance.root);
-    queue.push_back((instance.root, None));
-
-    while let Some((current_id, ancestor_id)) = queue.pop_front() {
-        let current_survives = surviving_set.contains(&current_id);
-        // The ancestor for children: if current survives, it's the new ancestor;
-        // otherwise, pass along the existing ancestor.
-        let child_ancestor = if current_survives {
-            Some(current_id)
-        } else {
-            ancestor_id
-        };
-
-        for &child_id in instance.children(current_id) {
-            let Some(child_node) = instance.nodes.get(&child_id) else {
-                continue;
-            };
-
-            // Check if this vertex survives: look up the remapped target name,
-            // falling back to the source name for unmapped vertices.
-            let target_anchor = migration
-                .vertex_remap
-                .get(&child_node.anchor)
-                .unwrap_or(&child_node.anchor);
-            if migration.surviving_verts.contains(target_anchor)
-                && !conditional_fail.contains(&child_id)
-            {
-                // A direct source arc must travel by its own complete edge
-                // identity. Endpoint-only resolution is reserved for genuine
-                // ancestor contraction, where no direct source edge exists.
-                // Otherwise two parallel source fields can collapse onto one
-                // surviving target field merely because their endpoints agree.
-                let direct_edge_image = if current_survives {
-                    match direct_arc_disposition(
-                        instance,
-                        &new_nodes,
-                        src_schema,
-                        tgt_schema,
-                        migration,
-                        current_id,
-                        child_id,
-                        target_anchor,
-                    )? {
-                        DirectArcDisposition::Mapped(edge) => Some(edge),
-                        DirectArcDisposition::Expansion => None,
-                        DirectArcDisposition::Drop => {
-                            // The source edge has no target image. Drop this
-                            // subtree; the lens complement records it.
-                            continue;
-                        }
-                    }
-                } else {
-                    None
-                };
-
-                // This child survives; add it to results
-                surviving_set.insert(child_id);
-                let mut new_node = child_node.clone();
-                if let Some(remapped) = migration.vertex_remap.get(&child_node.anchor) {
-                    new_node.anchor.clone_from(remapped);
-                }
-                // Apply value-level field transforms if any exist for this vertex.
-                // Collect scalar child values from the original instance so that
-                // ComputeField / Case / ApplyExpr can access the full fiber.
-                let transforms = migration.value_transforms(&child_node.anchor);
-                if !transforms.is_empty() {
-                    let ctx =
-                        TransformContext::new(Some(src_schema), instance, child_id, &transforms);
-                    apply_field_transforms(&mut new_node, &transforms, &ctx)?;
-                }
-                new_nodes.insert(child_id, new_node.clone());
-
-                // Build the arc from nearest surviving ancestor to this node.
-                //
-                // Fast path: a direct edge exists in the target between the
-                // ancestor and this node.
-                //
-                // Expansion path: `resolve_edge` fails because a nest-style
-                // migration removed the direct arc and replaced it with a
-                // multi-hop path through newly introduced intermediates.
-                // The compiled migration's `expansion_path` records the
-                // intermediate anchor ids; we synthesize fresh view nodes
-                // for each of them and stitch the chain.
-                if let Some(anc_id) = child_ancestor {
-                    connect_ancestor_to_child(
-                        anc_id,
-                        child_id,
-                        &new_node.anchor,
-                        &mut new_nodes,
-                        &mut new_arcs,
-                        &mut surviving_set,
-                        &mut next_synth_id,
-                        migration,
-                        tgt_schema,
-                        direct_edge_image,
-                    )?;
-                }
-            }
-
-            // Always continue BFS into children (non-surviving intermediate
-            // nodes may have surviving descendants)
-            queue.push_back((child_id, child_ancestor));
-        }
-    }
-
-    finish_wtype_restriction(
-        instance,
-        migration,
-        tgt_schema,
-        new_nodes,
-        new_arcs,
-        &surviving_set,
-    )
+    wtype_restrict_with_synthesis(instance, src_schema, tgt_schema, migration, protocols)
+        .map(|(view, _)| view)
 }
 
-fn finish_wtype_restriction(
-    instance: &WInstance,
-    migration: &CompiledMigration,
-    tgt_schema: &Schema,
-    new_nodes: HashMap<u32, Node>,
-    new_arcs: Vec<(u32, u32, Edge)>,
-    surviving_set: &FxHashSet<u32>,
-) -> Result<WInstance, RestrictError> {
-    // Fan reconstruction is a separate pass over the original fans.
-    let empty_ancestors = FxHashMap::default();
-    let new_fans = reconstruct_fans(
-        instance,
-        surviving_set,
-        &empty_ancestors,
-        migration,
-        tgt_schema,
-    )?;
-
-    let new_schema_root = migration
-        .vertex_remap
-        .get(&instance.schema_root)
-        .cloned()
-        .unwrap_or_else(|| instance.schema_root.clone());
-
-    Ok(WInstance::new(
-        new_nodes,
-        new_arcs,
-        new_fans,
-        instance.root,
-        new_schema_root,
-    ))
-}
-
-enum DirectArcDisposition {
-    Mapped(Edge),
-    Expansion,
-    Drop,
-}
-
-#[allow(clippy::too_many_arguments)]
-fn direct_arc_disposition(
-    instance: &WInstance,
-    new_nodes: &HashMap<u32, Node>,
-    src_schema: &Schema,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
-    current_id: u32,
-    child_id: u32,
-    target_anchor: &Name,
-) -> Result<DirectArcDisposition, RestrictError> {
-    let source_edge = instance
-        .arcs
-        .iter()
-        .find(|(parent, child, _)| *parent == current_id && *child == child_id)
-        .map(|(_, _, edge)| edge);
-    let parent_anchor = &new_nodes
-        .get(&current_id)
-        .ok_or(RestrictError::RootPruned)?
-        .anchor;
-    let image = source_edge.and_then(|edge| {
-        direct_source_edge_image(
-            src_schema,
-            tgt_schema,
-            migration,
-            parent_anchor,
-            target_anchor,
-            edge,
-        )
-    });
-    Ok(match image {
-        Some(edge) => DirectArcDisposition::Mapped(edge),
-        None if migration
-            .expansion_path
-            .contains_key(&(parent_anchor.clone(), target_anchor.clone())) =>
-        {
-            DirectArcDisposition::Expansion
-        }
-        None => DirectArcDisposition::Drop,
-    })
-}
-
-/// Precompute the set of node ids whose conditional-survival predicate
-/// evaluates to `false` against their original extra fields.
+/// [`wtype_restrict_with_synthesis`] over plans compiled already: the input
+/// validated by `src_plan`, the engine run on `plan`, the output validated
+/// by `tgt_plan`.
 ///
-/// This ensures the BFS result is order-independent (functorial): the
-/// predicate is evaluated against original values, not values that may
-/// have been modified by ancestor contraction during restrict.
-fn precompute_conditional_fail(
+/// With the plans the schema-taking function compiles, it returns what that
+/// function returns.
+///
+/// # Errors
+///
+/// [`RestrictError::PlanSchemaMismatch`] before anything runs, on the input
+/// side when `src_plan` was compiled for another schema than `plan`'s
+/// source and then on the output side for `tgt_plan` and `plan`'s target;
+/// otherwise as [`wtype_restrict_with_synthesis`] after compilation.
+pub fn wtype_restrict_validated(
     instance: &WInstance,
-    migration: &CompiledMigration,
-) -> FxHashSet<u32> {
-    if migration.conditional_survival.is_empty() {
-        return FxHashSet::default();
-    }
-    instance
-        .nodes
-        .iter()
-        .filter_map(|(&id, node)| {
-            let pred = migration.conditional_survival.get(&node.anchor)?;
-            let env = build_env_from_extra_fields(&node.extra_fields);
-            let config = panproto_expr::EvalConfig::default();
-            matches!(
-                panproto_expr::eval(pred, &env, &config),
-                Ok(panproto_expr::Literal::Bool(false))
-            )
-            .then_some(id)
-        })
-        .collect()
-}
-
-/// Emit arcs connecting a surviving ancestor to a surviving child during
-/// restrict, handling both the direct-edge fast path and the nest-style
-/// expansion path that introduces synthesized intermediate nodes.
-#[allow(clippy::too_many_arguments)]
-fn connect_ancestor_to_child(
-    anc_id: u32,
-    child_id: u32,
-    child_anchor: &Name,
-    new_nodes: &mut HashMap<u32, Node>,
-    new_arcs: &mut Vec<(u32, u32, Edge)>,
-    surviving_set: &mut FxHashSet<u32>,
-    next_synth_id: &mut u32,
-    migration: &CompiledMigration,
-    tgt_schema: &Schema,
-    direct_edge_image: Option<Edge>,
-) -> Result<(), RestrictError> {
-    let anc_anchor = new_nodes
-        .get(&anc_id)
-        .ok_or(RestrictError::RootPruned)?
-        .anchor
-        .clone();
-    let child_anchor = child_anchor.clone();
-    if let Some(edge) = direct_edge_image {
-        new_arcs.push((anc_id, child_id, edge));
-        return Ok(());
-    }
-    match resolve_edge(tgt_schema, &migration.resolver, &anc_anchor, &child_anchor) {
-        Ok(edge) => {
-            new_arcs.push((anc_id, child_id, edge));
-            Ok(())
-        }
-        Err(restrict_err) => {
-            let Some(intermediates) = migration
-                .expansion_path
-                .get(&(anc_anchor.clone(), child_anchor.clone()))
-            else {
-                return Err(restrict_err);
-            };
-            // Emit the expansion chain:
-            //   anc_id --> synth_1 --> synth_2 --> ... --> child_id
-            let mut prev_id = anc_id;
-            let mut prev_anchor = anc_anchor;
-            for intermediate_anchor in intermediates {
-                let synth_id = *next_synth_id;
-                *next_synth_id = next_synth_id.saturating_add(1);
-                let synth_node = Node::new(synth_id, intermediate_anchor.clone());
-                new_nodes.insert(synth_id, synth_node);
-                surviving_set.insert(synth_id);
-                let edge = resolve_edge(
-                    tgt_schema,
-                    &migration.resolver,
-                    &prev_anchor,
-                    intermediate_anchor,
-                )?;
-                new_arcs.push((prev_id, synth_id, edge));
-                prev_id = synth_id;
-                prev_anchor = intermediate_anchor.clone();
-            }
-            let final_edge =
-                resolve_edge(tgt_schema, &migration.resolver, &prev_anchor, &child_anchor)?;
-            new_arcs.push((prev_id, child_id, final_edge));
-            Ok(())
-        }
-    }
+    src_plan: &crate::validation::ValidationPlan,
+    tgt_plan: &crate::validation::ValidationPlan,
+    plan: &crate::restrict_plan::RestrictPlan,
+) -> Result<(WInstance, TreeSynthesis), RestrictError> {
+    use crate::restrict_boundary::{BoundarySide, require_passed, require_schema, unlimited};
+    require_schema(src_plan, &plan.src_schema, BoundarySide::Input)?;
+    require_schema(tgt_plan, &plan.tgt_schema, BoundarySide::Output)?;
+    let (budget, external) = unlimited();
+    require_passed(
+        src_plan.validate_tree(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let restricted = wtype_restrict_with_plan(instance, plan)?;
+    require_passed(
+        tgt_plan.validate_tree(&restricted.0, &budget, &external),
+        BoundarySide::Output,
+    )?;
+    Ok(restricted)
 }
 
 /// Resolve the image of a direct source arc by complete edge identity.
@@ -1527,7 +1699,7 @@ fn connect_ancestor_to_child(
 /// kind may also carry across remapped endpoint vertices. The legacy
 /// endpoint resolver is consulted only when the source endpoint pair has one
 /// edge; with parallel source edges it cannot identify which edge it maps.
-fn direct_source_edge_image(
+pub(crate) fn direct_source_edge_image(
     src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
@@ -1568,17 +1740,17 @@ fn direct_source_edge_image(
 
 /// Apply a sequence of field transforms to a node's `extra_fields`.
 ///
-/// Called during `wtype_restrict` after a node survives and its anchor
+/// Called by every restrict engine after an element survives and its anchor
 /// is remapped. Operations are applied in order.
 ///
-/// The `child_scalars` parameter provides the dependent-sum projection:
-/// scalar values from the node's immediate child vertices, keyed by edge
-/// name. This extends the expression environment beyond `extra_fields`
-/// to include the full fiber data over the parent vertex in the
-/// Grothendieck fibration. Binding precedence: `extra_fields` override
-/// `child_scalars` on key collision, which is correct because
-/// `extra_fields` may contain values already transformed by prior steps
-/// in the transform sequence.
+/// Expressions read the node's `extra_fields` and the children bound in
+/// `ctx` (the dependent-sum projection of the fiber over the vertex in the
+/// Grothendieck fibration); `extra_fields` override children on a name
+/// collision, since they may hold values an earlier transform of the same
+/// sequence wrote. Before an expression is evaluated it is refused when it
+/// reads a repeated child, a structural child that is no tree, or a value
+/// with no expression literal (see [`TransformContext`]); only the names it
+/// reads are converted.
 ///
 /// Computed fields (via `ComputeField`) are derived data in the sense of
 /// dependent projections: they are functionally determined by the source
@@ -1598,38 +1770,61 @@ fn direct_source_edge_image(
 /// Returns [`RestrictError::FieldTransformFailed`] if a transform's
 /// expression fails to evaluate. A failed transform is reported rather
 /// than skipped: leaving the field untouched makes a broken lens
-/// indistinguishable from one that ran and changed nothing.
+/// indistinguishable from one that ran and changed nothing. Returns
+/// [`RestrictError::AmbiguousChildField`],
+/// [`RestrictError::StructuralChildNotATree`] or
+/// [`RestrictError::ValueNotExpressible`] for an expression refused before
+/// evaluation.
 pub fn apply_field_transforms(
     node: &mut Node,
     transforms: &[FieldTransform],
     ctx: &TransformContext<'_>,
 ) -> Result<(), RestrictError> {
-    let child_scalars = &ctx.child_values;
+    apply_transforms_tracked(node, transforms, ctx, &mut BTreeSet::new())
+}
+
+/// [`apply_field_transforms`], recording in `written` every `extra_fields`
+/// key a transform wrote.
+pub(crate) fn apply_transforms_tracked(
+    node: &mut Node,
+    transforms: &[FieldTransform],
+    ctx: &TransformContext<'_>,
+    written: &mut BTreeSet<String>,
+) -> Result<(), RestrictError> {
     for transform in transforms {
         match transform {
             FieldTransform::RenameField { old_key, new_key } => {
                 if let Some(val) = node.extra_fields.remove(old_key) {
                     node.extra_fields.insert(new_key.clone(), val);
+                    written.remove(old_key);
+                    written.insert(new_key.clone());
                 }
             }
             FieldTransform::DropField { key } => {
                 node.extra_fields.remove(key);
+                written.remove(key);
             }
             FieldTransform::AddField { key, value } => {
-                node.extra_fields
-                    .entry(key.clone())
-                    .or_insert_with(|| value.clone());
+                if let std::collections::hash_map::Entry::Vacant(slot) =
+                    node.extra_fields.entry(key.clone())
+                {
+                    slot.insert(value.clone());
+                    written.insert(key.clone());
+                }
             }
             FieldTransform::KeepFields { keys } => {
                 node.extra_fields.retain(|k, _| keys.contains(k));
+                written.retain(|k| keys.contains(k));
             }
             FieldTransform::ApplyExpr { key, expr, .. } => {
-                apply_expr_transform(node, key, expr, child_scalars, ctx)?;
+                if apply_expr_transform(node, key, expr, ctx)? {
+                    written.insert(key.clone());
+                }
             }
             FieldTransform::ComputeField {
                 target_key, expr, ..
             } => {
-                let env = build_env_with_children(&node.extra_fields, child_scalars);
+                let env = ctx.environment(expr, &node.extra_fields)?;
                 let config = panproto_expr::EvalConfig::default();
                 let result = ctx.eval(expr, &env, &config).map_err(|source| {
                     RestrictError::FieldTransformFailed {
@@ -1639,38 +1834,41 @@ pub fn apply_field_transforms(
                 })?;
                 node.extra_fields
                     .insert(target_key.clone(), expr_literal_to_value(&result));
+                written.insert(target_key.clone());
             }
             FieldTransform::PathTransform { path, inner } => {
                 if path.is_empty() {
                     // Empty path = apply directly. PathTransform operates on nested
-                    // extra_fields, not the instance tree, so child_scalars is empty.
-                    apply_field_transforms(
+                    // extra_fields, not the instance tree, so it binds no children.
+                    apply_transforms_tracked(
                         node,
                         std::slice::from_ref(inner),
                         &ctx.with_child_values(HashMap::new()),
+                        written,
                     )?;
-                } else {
-                    apply_path_transform(node, path, inner, ctx)?;
+                } else if apply_path_transform(node, path, inner, ctx)? {
+                    written.insert(path[0].clone());
                 }
             }
             FieldTransform::MapReferences { field, rename_map } => {
-                apply_map_references(node, field, rename_map);
+                if apply_map_references(node, field, rename_map) {
+                    written.insert(field.clone());
+                }
             }
             FieldTransform::Case { branches } => {
                 // Case predicates evaluate against the full fiber (extra_fields +
-                // child scalars) so that branching can depend on schema-defined
-                // scalar child values.
-                let env = build_env_with_children(&node.extra_fields, child_scalars);
+                // children) so that branching can depend on schema-defined
+                // child values.
                 let config = panproto_expr::EvalConfig::default();
                 for (index, branch) in branches.iter().enumerate() {
-                    let result = ctx
-                        .eval(&branch.predicate, &env, &config)
-                        .map_err(|source| RestrictError::FieldTransformFailed {
-                            key: format!("<case branch {index}>"),
-                            source,
-                        })?;
+                    let failed = |source| RestrictError::FieldTransformFailed {
+                        key: format!("<case branch {index}>"),
+                        source,
+                    };
+                    let env = ctx.environment(&branch.predicate, &node.extra_fields)?;
+                    let result = ctx.eval(&branch.predicate, &env, &config).map_err(failed)?;
                     if matches!(result, panproto_expr::Literal::Bool(true)) {
-                        apply_field_transforms(node, &branch.transforms, ctx)?;
+                        apply_transforms_tracked(node, &branch.transforms, ctx, written)?;
                         break;
                     }
                 }
@@ -1681,7 +1879,8 @@ pub fn apply_field_transforms(
 }
 
 /// Apply an `ApplyExpr` transform: evaluate `expr` over the value bound at
-/// `key` and store the result.
+/// `key` and store the result. Returns whether an `extra_fields` key was
+/// written.
 ///
 /// The key `"__value__"` targets the node's own leaf value rather than an
 /// `extra_fields` entry, which is how a coercion (a kind change) is
@@ -1689,26 +1888,32 @@ pub fn apply_field_transforms(
 ///
 /// Any other key is looked up in `extra_fields` first, so that a value
 /// rewritten by an earlier transform in the same sequence is the one read,
-/// and in the child scalars second. The result is written to
-/// `extra_fields` whichever side it came from: `to_json` serializes
-/// `extra_fields` after children, so the transform's output stays
-/// authoritative over the original child vertex value.
+/// and in the children second; a child the key names is refused as an
+/// expression reading it would be (a repeated child, or a structural child
+/// that is no tree). The result is written to `extra_fields` whichever side
+/// it came from: `to_json` serializes `extra_fields` after children, so the
+/// transform's output stays authoritative over the original child vertex
+/// value.
 fn apply_expr_transform(
     node: &mut Node,
     key: &str,
     expr: &panproto_expr::Expr,
-    child_scalars: &HashMap<String, Value>,
     ctx: &TransformContext<'_>,
-) -> Result<(), RestrictError> {
+) -> Result<bool, RestrictError> {
     let config = panproto_expr::EvalConfig::default();
     let failed = |source| RestrictError::FieldTransformFailed {
         key: key.to_string(),
         source,
     };
+    let unexpressible = |field: &str, e: NotExpressible| RestrictError::ValueNotExpressible {
+        node: ctx.element(),
+        field: field.to_owned(),
+        value_type: e.value_type.to_owned(),
+    };
 
     if key == "__value__" {
         if let Some(crate::value::FieldPresence::Present(val)) = &node.value {
-            let input = value_to_expr_literal(val);
+            let input = value_to_expr_literal(val).map_err(|e| unexpressible(key, e))?;
             let env = panproto_expr::Env::new()
                 .extend(std::sync::Arc::from("v"), input.clone())
                 .extend(std::sync::Arc::from("__value__"), input);
@@ -1717,34 +1922,37 @@ fn apply_expr_transform(
                 &result,
             )));
         }
-        return Ok(());
+        return Ok(false);
     }
 
+    ctx.refuse_unreadable([key], false, &node.extra_fields)?;
     if let Some(val) = node
         .extra_fields
         .get(key)
-        .or_else(|| child_scalars.get(key))
+        .or_else(|| ctx.child_values.get(key))
     {
-        let input = value_to_expr_literal(val);
+        let input = value_to_expr_literal(val).map_err(|e| unexpressible(key, e))?;
         let env = panproto_expr::Env::new().extend(std::sync::Arc::from(key), input);
         let result = ctx.eval(expr, &env, &config).map_err(failed)?;
         node.extra_fields
             .insert(key.to_string(), expr_literal_to_value(&result));
+        return Ok(true);
     }
-    Ok(())
+    Ok(false)
 }
 
 /// Navigate into nested `Value::Unknown` maps along `path` and apply the
-/// inner transform at the resolved location.
+/// inner transform at the resolved location. Returns whether the path
+/// resolved, so that the inner transform ran.
 fn apply_path_transform(
     node: &mut Node,
     path: &[String],
     inner: &FieldTransform,
     ctx: &TransformContext<'_>,
-) -> Result<(), RestrictError> {
+) -> Result<bool, RestrictError> {
     let first = &path[0];
     let Some(Value::Unknown(map)) = node.extra_fields.get_mut(first) else {
-        return Ok(());
+        return Ok(false);
     };
 
     // Move the nested map into a temporary node so the transform can run
@@ -1753,14 +1961,15 @@ fn apply_path_transform(
     temp_node.extra_fields = std::mem::take(map);
 
     let outcome = if path.len() == 1 {
-        // At the target; apply inner transform to this map.
-        // PathTransform operates on nested extra_fields, not the
-        // instance tree, so child_scalars is empty.
+        // At the target; apply inner transform to this map. PathTransform
+        // operates on nested extra_fields, not the instance tree, so it binds
+        // no children.
         apply_field_transforms(
             &mut temp_node,
             std::slice::from_ref(inner),
             &ctx.with_child_values(HashMap::new()),
         )
+        .map(|()| true)
     } else {
         apply_path_transform(&mut temp_node, &path[1..], inner, ctx)
     };
@@ -1776,6 +1985,8 @@ fn apply_path_transform(
 
 /// Apply a `MapReferences` transform to a node's field, handling both
 /// a scalar `Value::Str` reference and a `Value::List` of references.
+/// Returns whether the field is present afterwards (a reference mapped to
+/// `None` removes it).
 ///
 /// This is the action of the rename map on string-typed leaves that
 /// denote vertex names. The transform is functorial: it commutes with
@@ -1785,7 +1996,7 @@ fn apply_map_references(
     node: &mut Node,
     field: &str,
     rename_map: &HashMap<String, Option<String>>,
-) {
+) -> bool {
     if let Some(val) = node.extra_fields.get_mut(field) {
         match val {
             Value::Str(s) => {
@@ -1821,27 +2032,433 @@ fn apply_map_references(
             _ => {}
         }
     }
+    node.extra_fields.contains_key(field)
+}
+
+/// The instance an expression is evaluated in, with the element it is
+/// evaluated at.
+///
+/// The graph-traversal builtins (`children("self")`, `edge("self", k)`,
+/// `edge_count("self")`, `anchor("self")`) walk from the current element, so
+/// they need both; [`TransformContext::eval`] resolves them through the
+/// instance's [`ElementOps`](crate::ElementOps).
+#[derive(Debug, Clone, Copy)]
+pub enum InstanceRef<'a> {
+    /// A tree and one of its nodes.
+    Tree(&'a WInstance, u32),
+    /// A graph and one of its nodes.
+    Graph(&'a crate::ginstance::GInstance, u32),
+    /// A table instance and one of its rows.
+    Table(&'a crate::functor::FInstance, crate::view_ref::RowId),
+}
+
+impl InstanceRef<'_> {
+    /// The id of the element: the node id, or the number inside the row id.
+    #[must_use]
+    pub const fn element(&self) -> u32 {
+        match self {
+            Self::Tree(_, id) | Self::Graph(_, id) => *id,
+            Self::Table(_, row) => row.0,
+        }
+    }
+}
+
+/// Whether an edge label has one of the two reserved fan kinds, so that the
+/// edge belongs to a reified fan rather than binding a child.
+pub(crate) fn is_fan_edge(edge: &Edge) -> bool {
+    edge.kind == crate::ginstance::HYPER_PARENT_KIND
+        || edge.kind == crate::ginstance::HYPER_LABEL_KIND
+}
+
+/// The names the expressions at an element read, which bounds the children
+/// worth materializing.
+#[derive(Debug, Clone, Default)]
+pub(crate) enum Demand {
+    /// Every child: an expression reads `self`, the whole fiber.
+    #[default]
+    All,
+    /// The free variables of the expressions.
+    Names(BTreeSet<String>),
+}
+
+impl Demand {
+    /// The demand of a set of names: everything when it holds `self`.
+    pub(crate) fn from_names(names: BTreeSet<String>) -> Self {
+        if names.contains("self") {
+            Self::All
+        } else {
+            Self::Names(names)
+        }
+    }
+
+    fn wants(&self, name: &str) -> bool {
+        match self {
+            Self::All => true,
+            Self::Names(names) => names.contains(name),
+        }
+    }
+}
+
+/// The children of the elements of an instance, as every shape binds them.
+///
+/// An element's children are its out-edges other than fan edges and loops,
+/// in child order (a tree's arc order, a graph's
+/// [`ordered_out_edges`](crate::GInstance::ordered_out_edges), a table row's
+/// pairs in ascending foreign key and then ascending target row), each
+/// named by its column name: the edge's name, else its target vertex.
+pub(crate) trait ChildSource {
+    /// The element's own fields: a node's `extra_fields`, a row's cells.
+    fn fields(&self, id: u32) -> Option<&HashMap<String, Value>>;
+    /// The element's own value, when it has one.
+    fn presence(&self, id: u32) -> Option<&crate::value::FieldPresence>;
+    /// The element's children, in child order.
+    fn children_of(&self, id: u32) -> Vec<Child<'_>>;
+    /// Whether the element carries the parser's list annotation.
+    fn is_list(&self, id: u32) -> bool;
+    /// Whether the element carries a discriminator.
+    fn has_discriminator(&self, id: u32) -> bool;
+    /// The element's anchor.
+    fn anchor(&self, id: u32) -> Option<&Name>;
+}
+
+/// One child of an element: the edge's label and the target element.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Child<'a> {
+    pub(crate) label: &'a Edge,
+    pub(crate) target: u32,
+}
+
+impl Child<'_> {
+    /// The name the child binds under: the edge's name, else its target
+    /// vertex.
+    pub(crate) fn column(&self) -> &str {
+        self.label.name.as_deref().unwrap_or(&*self.label.tgt)
+    }
+}
+
+/// A tree with its arcs indexed by parent, so that each node's children
+/// are found without a scan of every arc.
+pub(crate) struct TreeChildren<'a> {
+    tree: &'a WInstance,
+    by_parent: HashMap<u32, Vec<usize>>,
+}
+
+impl<'a> TreeChildren<'a> {
+    pub(crate) fn new(tree: &'a WInstance) -> Self {
+        let mut by_parent: HashMap<u32, Vec<usize>> = HashMap::new();
+        for (i, (parent, _, _)) in tree.arcs.iter().enumerate() {
+            by_parent.entry(*parent).or_default().push(i);
+        }
+        Self { tree, by_parent }
+    }
+}
+
+impl ChildSource for TreeChildren<'_> {
+    fn fields(&self, id: u32) -> Option<&HashMap<String, Value>> {
+        self.tree.nodes.get(&id).map(|n| &n.extra_fields)
+    }
+    fn presence(&self, id: u32) -> Option<&crate::value::FieldPresence> {
+        self.tree.nodes.get(&id).and_then(|n| n.value.as_ref())
+    }
+    fn children_of(&self, id: u32) -> Vec<Child<'_>> {
+        self.by_parent
+            .get(&id)
+            .map_or(&[][..], Vec::as_slice)
+            .iter()
+            .map(|&i| &self.tree.arcs[i])
+            .filter(|(parent, child, _)| parent != child)
+            .map(|(_, child, label)| Child {
+                label,
+                target: *child,
+            })
+            .collect()
+    }
+    fn is_list(&self, id: u32) -> bool {
+        self.tree.nodes.get(&id).is_some_and(Node::is_list)
+    }
+    fn has_discriminator(&self, id: u32) -> bool {
+        self.tree
+            .nodes
+            .get(&id)
+            .is_some_and(|n| n.discriminator.is_some())
+    }
+    fn anchor(&self, id: u32) -> Option<&Name> {
+        self.tree.nodes.get(&id).map(|n| &n.anchor)
+    }
+}
+
+impl ChildSource for crate::ginstance::GInstance {
+    fn fields(&self, id: u32) -> Option<&HashMap<String, Value>> {
+        self.node(id).map(|n| &n.extra_fields)
+    }
+    fn presence(&self, id: u32) -> Option<&crate::value::FieldPresence> {
+        self.node(id).and_then(|n| n.value.as_ref())
+    }
+    fn children_of(&self, id: u32) -> Vec<Child<'_>> {
+        self.ordered_out_edges(id)
+            .into_iter()
+            .filter_map(|e| self.edge(e))
+            .filter(|e| e.src != e.tgt && !is_fan_edge(&e.edge))
+            .map(|e| Child {
+                label: &e.edge,
+                target: e.tgt,
+            })
+            .collect()
+    }
+    fn is_list(&self, id: u32) -> bool {
+        self.node(id).is_some_and(Node::is_list)
+    }
+    fn has_discriminator(&self, id: u32) -> bool {
+        self.node(id).is_some_and(|n| n.discriminator.is_some())
+    }
+    fn anchor(&self, id: u32) -> Option<&Name> {
+        self.node(id).map(|n| &n.anchor)
+    }
+}
+
+impl ChildSource for crate::functor::FInstance {
+    fn fields(&self, id: u32) -> Option<&HashMap<String, Value>> {
+        self.row(crate::view_ref::RowId(id))
+    }
+    fn presence(&self, _id: u32) -> Option<&crate::value::FieldPresence> {
+        None
+    }
+    fn children_of(&self, id: u32) -> Vec<Child<'_>> {
+        let row = crate::view_ref::RowId(id);
+        let Some(table) = self.table_of(row) else {
+            return Vec::new();
+        };
+        self.foreign_keys()
+            .into_iter()
+            .filter(|(edge, _)| edge.src == *table)
+            .flat_map(|(edge, _)| {
+                self.targets_of(edge, row)
+                    .filter(move |t| *t != row)
+                    .map(move |t| Child {
+                        label: edge,
+                        target: t.0,
+                    })
+            })
+            .collect()
+    }
+    fn is_list(&self, _id: u32) -> bool {
+        false
+    }
+    fn has_discriminator(&self, _id: u32) -> bool {
+        false
+    }
+    fn anchor(&self, id: u32) -> Option<&Name> {
+        self.table_of(crate::view_ref::RowId(id))
+    }
+}
+
+/// The value of an element's subtree, materialized as `node_to_value`
+/// describes, or `None` when the subgraph reachable from it through
+/// children is not an out-tree rooted at it.
+pub(crate) fn materialize<S: ChildSource + ?Sized>(
+    schema: Option<&Schema>,
+    source: &S,
+    root: u32,
+) -> Option<Value> {
+    if !is_out_tree(source, root) {
+        return None;
+    }
+    Some(materialize_tree(schema, source, root))
+}
+
+/// Whether the subgraph reachable from `root` through children is an
+/// out-tree rooted at `root`: `root` has no in-edge from inside it, and every
+/// other element of it exactly one.
+fn is_out_tree<S: ChildSource + ?Sized>(source: &S, root: u32) -> bool {
+    let mut in_degree: HashMap<u32, usize> = HashMap::new();
+    let mut seen: HashSet<u32> = HashSet::from([root]);
+    let mut frontier = vec![root];
+    while let Some(at) = frontier.pop() {
+        for child in source.children_of(at) {
+            let degree = in_degree.entry(child.target).or_insert(0);
+            *degree += 1;
+            if child.target == root || *degree > 1 {
+                return false;
+            }
+            if seen.insert(child.target) {
+                frontier.push(child.target);
+            }
+        }
+    }
+    true
+}
+
+fn materialize_tree<S: ChildSource + ?Sized>(
+    schema: Option<&Schema>,
+    source: &S,
+    id: u32,
+) -> Value {
+    match source.presence(id) {
+        Some(crate::value::FieldPresence::Present(val)) => return val.clone(),
+        Some(crate::value::FieldPresence::Null | crate::value::FieldPresence::Absent) => {
+            return Value::Null;
+        }
+        None => {}
+    }
+    let children = source.children_of(id);
+    if is_collection(schema, source, id, &children) {
+        return Value::List(
+            children
+                .iter()
+                .map(|c| materialize_tree(schema, source, c.target))
+                .collect(),
+        );
+    }
+    let mut grouped: BTreeMap<&str, Vec<Value>> = BTreeMap::new();
+    for child in &children {
+        grouped
+            .entry(child.column())
+            .or_default()
+            .push(materialize_tree(schema, source, child.target));
+    }
+    let mut fields: HashMap<String, Value> = grouped
+        .into_iter()
+        .map(|(name, mut values)| {
+            let value = if values.len() == 1 {
+                values.remove(0)
+            } else {
+                Value::List(values)
+            };
+            (name.to_owned(), value)
+        })
+        .collect();
+    for (key, val) in source.fields(id).into_iter().flatten() {
+        fields.insert(key.clone(), val.clone());
+    }
+    Value::Unknown(fields)
+}
+
+/// Whether an element denotes an ordered collection rather than a record.
+///
+/// The same three signals `to_json` uses, and for the same reason: the
+/// schema shape (every outgoing edge anonymous) is a heuristic that a
+/// hand-built record can trip, so evidence about the *data* (the parser's
+/// list annotation, or two or more children under one label, which no object
+/// can have) is what decides, and object-only evidence on the element
+/// (fields of its own, or a discriminator) vetoes the schema heuristic.
+fn is_collection<S: ChildSource + ?Sized>(
+    schema: Option<&Schema>,
+    source: &S,
+    id: u32,
+    children: &[Child<'_>],
+) -> bool {
+    if source.is_list(id) {
+        return true;
+    }
+    if let Some(first) = children.first()
+        && children.len() >= 2
+        && children
+            .iter()
+            .all(|c| c.label.kind == first.label.kind && c.label.name == first.label.name)
+    {
+        return true;
+    }
+    let (Some(schema), Some(anchor)) = (schema, source.anchor(id)) else {
+        return false;
+    };
+    let outgoing = schema.outgoing_edges(anchor);
+    let via_schema = !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none());
+    let object_only =
+        source.fields(id).is_some_and(|f| !f.is_empty()) || source.has_discriminator(id);
+    via_schema && !object_only
+}
+
+/// The children an element binds, by column name, under `demand`.
+///
+/// A child whose target holds a present value binds it. A child the
+/// demand names whose target holds none binds its materialization; when
+/// the target's subgraph is not a tree, the name is recorded in
+/// `not_trees` instead. A name two or more children carry is recorded in
+/// `repeated` and binds the list of the bindings of its children, in child
+/// order, a child that binds nothing adding no element. A name the
+/// element's own fields hold is shadowed: it binds nothing here, since the
+/// field wins.
+pub(crate) struct ChildBindings {
+    pub(crate) values: HashMap<String, Value>,
+    pub(crate) repeated: BTreeSet<String>,
+    pub(crate) not_trees: BTreeSet<String>,
+}
+
+pub(crate) fn bind_children<S: ChildSource + ?Sized>(
+    schema: Option<&Schema>,
+    source: &S,
+    id: u32,
+    demand: &Demand,
+) -> ChildBindings {
+    let own = source.fields(id);
+    let mut grouped: BTreeMap<&str, Vec<Child<'_>>> = BTreeMap::new();
+    let children = source.children_of(id);
+    for child in &children {
+        if own.is_some_and(|f| f.contains_key(child.column())) {
+            continue;
+        }
+        grouped.entry(child.column()).or_default().push(*child);
+    }
+    let mut bindings = ChildBindings {
+        values: HashMap::new(),
+        repeated: BTreeSet::new(),
+        not_trees: BTreeSet::new(),
+    };
+    for (name, group) in grouped {
+        let wanted = demand.wants(name);
+        let mut values = Vec::with_capacity(group.len());
+        for child in &group {
+            match source.presence(child.target) {
+                Some(crate::value::FieldPresence::Present(val)) => values.push(val.clone()),
+                _ if wanted => match materialize(schema, source, child.target) {
+                    Some(val) => values.push(val),
+                    None => {
+                        bindings.not_trees.insert(name.to_owned());
+                    }
+                },
+                _ => {}
+            }
+        }
+        if group.len() >= 2 {
+            bindings.repeated.insert(name.to_owned());
+            bindings.values.insert(name.to_owned(), Value::List(values));
+        } else if let Some(value) = values.pop() {
+            bindings.values.insert(name.to_owned(), value);
+        }
+    }
+    bindings
 }
 
 /// What a field transform's expressions may read besides the node itself.
 ///
-/// Two things live here. `child_values` binds the node's children by edge
-/// name: scalars always, and structural children when the caller asked
-/// for them via [`collect_child_values`]. `instance` carries the instance
-/// and the node's id, which is what makes the graph-traversal builtins
+/// Two things live here. `child_values` binds the element's children by
+/// column name ([`collect_child_values`] states the rule: present values,
+/// materialized structural children an expression reads, and a list for a
+/// name two or more children carry). `instance` carries the instance and
+/// the element, which is what makes the graph-traversal builtins
 /// resolvable: `children("self")`, `edge("self", k)`, `edge_count("self")`
-/// and `anchor("self")` all need a current node to walk from, and without
-/// one they evaluate to null.
+/// and `anchor("self")` all need a current element to walk from.
+///
+/// Before an expression is evaluated, the context refuses it when its free
+/// variables name a repeated child
+/// ([`RestrictError::AmbiguousChildField`]), a structural child whose
+/// subgraph is not a tree ([`RestrictError::StructuralChildNotATree`]), or a
+/// value with no expression literal ([`RestrictError::ValueNotExpressible`]):
+/// only the fields an expression names are converted.
 ///
 /// A caller that holds a node but no instance (an edit lens rewriting a
 /// node in isolation, say) builds this with [`TransformContext::detached`]
 /// and gets the `extra_fields`-only behaviour.
 #[derive(Debug, Clone)]
 pub struct TransformContext<'a> {
-    /// The node's immediate children, keyed by edge name.
+    /// The element's children, keyed by column name.
     pub child_values: HashMap<String, Value>,
-    /// The instance and the id of the node being transformed.
-    pub instance: Option<(&'a WInstance, u32)>,
+    /// The instance and the element being transformed.
+    pub instance: Option<InstanceRef<'a>>,
+    /// The child names two or more children carry.
+    repeated: BTreeSet<String>,
+    /// The child names whose structural target is no tree.
+    not_trees: BTreeSet<String>,
 }
 
 impl Default for TransformContext<'_> {
@@ -1858,11 +2475,13 @@ impl<'a> TransformContext<'a> {
         Self {
             child_values: HashMap::new(),
             instance: None,
+            repeated: BTreeSet::new(),
+            not_trees: BTreeSet::new(),
         }
     }
 
-    /// A context over `instance` at `node_id`, binding every child the
-    /// expressions in `transforms` might read.
+    /// A context over the tree `instance` at `node_id`, binding every child
+    /// the expressions in `transforms` might read.
     #[must_use]
     pub fn new(
         schema: Option<&Schema>,
@@ -1870,26 +2489,71 @@ impl<'a> TransformContext<'a> {
         node_id: u32,
         transforms: &[FieldTransform],
     ) -> Self {
-        let wanted = referenced_names(transforms);
-        // A reference to the whole fiber cannot say which children it
-        // will reach, so it takes all of them.
-        let demand = if wanted.contains("self") {
-            None
-        } else {
-            Some(&wanted)
-        };
+        Self::bound(
+            schema,
+            &TreeChildren::new(instance),
+            InstanceRef::Tree(instance, node_id),
+            &transform_demand(transforms),
+        )
+    }
+
+    /// A context over the graph `instance` at `node`, binding every child
+    /// the expressions in `transforms` might read.
+    #[must_use]
+    pub fn for_graph(
+        schema: Option<&Schema>,
+        instance: &'a crate::ginstance::GInstance,
+        node: u32,
+        transforms: &[FieldTransform],
+    ) -> Self {
+        Self::bound(
+            schema,
+            instance,
+            InstanceRef::Graph(instance, node),
+            &transform_demand(transforms),
+        )
+    }
+
+    /// A context over the table instance `instance` at `row`, binding every
+    /// child (a row its pairs reach) the expressions in `transforms` might
+    /// read.
+    #[must_use]
+    pub fn for_table(
+        schema: Option<&Schema>,
+        instance: &'a crate::functor::FInstance,
+        row: crate::view_ref::RowId,
+        transforms: &[FieldTransform],
+    ) -> Self {
+        Self::bound(
+            schema,
+            instance,
+            InstanceRef::Table(instance, row),
+            &transform_demand(transforms),
+        )
+    }
+
+    /// A context at `at` with the children of `source` bound under `demand`.
+    pub(crate) fn bound<S: ChildSource + ?Sized>(
+        schema: Option<&Schema>,
+        source: &S,
+        at: InstanceRef<'a>,
+        demand: &Demand,
+    ) -> Self {
+        let bindings = bind_children(schema, source, at.element(), demand);
         Self {
-            child_values: collect_child_values(schema, instance, node_id, demand),
-            instance: Some((instance, node_id)),
+            child_values: bindings.values,
+            instance: Some(at),
+            repeated: bindings.repeated,
+            not_trees: bindings.not_trees,
         }
     }
 
     /// A context carrying pre-collected child values and no instance.
     #[must_use]
-    pub const fn from_child_values(child_values: HashMap<String, Value>) -> Self {
+    pub fn from_child_values(child_values: HashMap<String, Value>) -> Self {
         Self {
             child_values,
-            instance: None,
+            ..Self::detached()
         }
     }
 
@@ -1899,7 +2563,15 @@ impl<'a> TransformContext<'a> {
         Self {
             child_values,
             instance: self.instance,
+            repeated: BTreeSet::new(),
+            not_trees: BTreeSet::new(),
         }
+    }
+
+    /// The element the context is at, or 0 when it is detached.
+    #[must_use]
+    pub fn element(&self) -> u32 {
+        self.instance.as_ref().map_or(0, InstanceRef::element)
     }
 
     /// Evaluate `expr`, resolving graph-traversal builtins against the
@@ -1914,16 +2586,150 @@ impl<'a> TransformContext<'a> {
         env: &panproto_expr::Env,
         config: &panproto_expr::EvalConfig,
     ) -> Result<panproto_expr::Literal, panproto_expr::ExprError> {
+        use crate::instance_env::eval_with_element_ops;
         match self.instance {
-            Some((instance, node_id)) => {
-                crate::instance_env::eval_with_instance(expr, env, config, instance, Some(node_id))
+            Some(InstanceRef::Tree(instance, node)) => {
+                eval_with_element_ops(expr, env, config, instance, Some(node))
+            }
+            Some(InstanceRef::Graph(instance, node)) => {
+                eval_with_element_ops(expr, env, config, instance, Some(node))
+            }
+            Some(InstanceRef::Table(instance, row)) => {
+                eval_with_element_ops(expr, env, config, instance, Some(row.0))
             }
             None => panproto_expr::eval(expr, env, config),
         }
     }
+
+    /// The environment `expr` is evaluated in over `fields` (the element's
+    /// fields as the transforms have left them) and the bound children,
+    /// with only the names `expr` reads converted.
+    ///
+    /// # Errors
+    ///
+    /// In this order: [`RestrictError::AmbiguousChildField`] for the least
+    /// name the expression reads that two or more children carry and no
+    /// field shadows; [`RestrictError::StructuralChildNotATree`] for the
+    /// least name it reads (every name, when it reads `self`) whose
+    /// structural child is no tree; [`RestrictError::ValueNotExpressible`]
+    /// for the least name it reads whose value has no expression literal.
+    pub(crate) fn environment(
+        &self,
+        expr: &panproto_expr::Expr,
+        fields: &HashMap<String, Value>,
+    ) -> Result<panproto_expr::Env, RestrictError> {
+        let free: BTreeSet<String> = panproto_expr::free_vars(expr)
+            .into_iter()
+            .map(|v| v.to_string())
+            .collect();
+        self.refuse_unreadable(
+            free.iter().map(String::as_str),
+            free.contains("self"),
+            fields,
+        )?;
+        demand_env(self.element(), &free, fields, &self.child_values)
+    }
+
+    /// Refuse a read of `names` (and of every child, when `whole` says the
+    /// expression reads `self`) that names a repeated child or a structural
+    /// child that is no tree.
+    pub(crate) fn refuse_unreadable<'n>(
+        &self,
+        names: impl IntoIterator<Item = &'n str> + Clone,
+        whole: bool,
+        fields: &HashMap<String, Value>,
+    ) -> Result<(), RestrictError> {
+        let node = self.element();
+        let mut read: BTreeSet<&str> = names.into_iter().collect();
+        if let Some(name) = read
+            .iter()
+            .find(|n| self.repeated.contains(**n) && !fields.contains_key(**n))
+        {
+            return Err(RestrictError::AmbiguousChildField {
+                node,
+                field: (*name).to_owned(),
+            });
+        }
+        if whole {
+            read.extend(self.not_trees.iter().map(String::as_str));
+        }
+        if let Some(name) = read
+            .iter()
+            .find(|n| self.not_trees.contains(**n) && !fields.contains_key(**n))
+        {
+            return Err(RestrictError::StructuralChildNotATree {
+                node,
+                field: (*name).to_owned(),
+            });
+        }
+        Ok(())
+    }
 }
 
-/// Every top-level name the expressions in `transforms` read.
+/// The demand of the expressions in `transforms`.
+fn transform_demand(transforms: &[FieldTransform]) -> Demand {
+    Demand::from_names(referenced_names(transforms).into_iter().collect())
+}
+
+/// The environment of an expression reading `free` over `fields` and
+/// `children`: the bindings of [`build_env_with_children`], of which only
+/// those `free` names are converted (all of `self`, when it is named).
+fn demand_env(
+    node: u32,
+    free: &BTreeSet<String>,
+    fields: &HashMap<String, Value>,
+    children: &HashMap<String, Value>,
+) -> Result<panproto_expr::Env, RestrictError> {
+    let mut combined = children.clone();
+    for (key, val) in fields {
+        combined.insert(key.clone(), val.clone());
+    }
+    let convert = |field: &str, val: &Value| {
+        value_to_expr_literal(val).map_err(|e| RestrictError::ValueNotExpressible {
+            node,
+            field: field.to_owned(),
+            value_type: e.value_type.to_owned(),
+        })
+    };
+    let mut bindings: BTreeMap<String, (String, &Value)> = BTreeMap::new();
+    for (key, val) in &combined {
+        bindings.insert(key.clone(), (key.clone(), val));
+        if key != "attrs" && key != "name" && key != "$type" && key != "parents" {
+            bindings.insert(format!("attrs.{key}"), (key.clone(), val));
+        }
+    }
+    if let Some(Value::Unknown(attrs)) = combined.get("attrs") {
+        for (key, val) in attrs {
+            let qualified = format!("attrs.{key}");
+            bindings.insert(qualified.clone(), (qualified.clone(), val));
+            if !combined.contains_key(key) {
+                bindings.insert(key.clone(), (qualified, val));
+            }
+        }
+    }
+    let mut env = panproto_expr::Env::new();
+    if free.contains("self") {
+        let mut entries: Vec<(&String, &Value)> = combined.iter().collect();
+        entries.sort_by(|a, b| a.0.cmp(b.0));
+        let mut record = Vec::with_capacity(entries.len());
+        for (key, val) in entries {
+            record.push((std::sync::Arc::from(key.as_str()), convert(key, val)?));
+        }
+        env = env.extend(
+            std::sync::Arc::from("self"),
+            panproto_expr::Literal::Record(record),
+        );
+    }
+    for name in free {
+        if let Some((field, val)) = bindings.get(name) {
+            env = env.extend(std::sync::Arc::from(name.as_str()), convert(field, val)?);
+        }
+    }
+    Ok(env)
+}
+
+/// Every top-level name the expressions in `transforms` read, the key an
+/// `ApplyExpr` rewrites included.
 ///
 /// Used to bound how much of the instance a transform context
 /// materializes: a structural child is only worth walking when something
@@ -1946,8 +2752,18 @@ fn collect_referenced_names(
     };
     for transform in transforms {
         match transform {
-            FieldTransform::ComputeField { expr, inverse, .. }
-            | FieldTransform::ApplyExpr { expr, inverse, .. } => {
+            FieldTransform::ApplyExpr {
+                key, expr, inverse, ..
+            } => {
+                if key != "__value__" {
+                    names.insert(key.clone());
+                }
+                add(expr, names);
+                if let Some(inv) = inverse {
+                    add(inv, names);
+                }
+            }
+            FieldTransform::ComputeField { expr, inverse, .. } => {
                 add(expr, names);
                 if let Some(inv) = inverse {
                     add(inv, names);
@@ -1967,7 +2783,8 @@ fn collect_referenced_names(
     }
 }
 
-/// Collect scalar values from a node's immediate children, keyed by edge name.
+/// Collect the present values of a node's immediate children, keyed by
+/// column name (the edge's name, else its target vertex).
 ///
 /// This is the dependent-sum projection from the total fiber over vertex
 /// `v` in the Grothendieck fibration. In the W-type model, a node at `v`
@@ -1979,50 +2796,47 @@ fn collect_referenced_names(
 ///
 /// This function projects the leaf (scalar) components of the product
 /// into a flat map, making them available to fiber endomorphisms (field
-/// transforms). Only children with a present leaf value are included;
-/// structural children (objects, arrays) are omitted.
+/// transforms). Only children with a present leaf value are bound;
+/// structural children (objects, arrays) are omitted. A name two or more
+/// arcs carry binds the [`Value::List`] of their present values in arc
+/// order, never the last of them, and a name the node's `extra_fields`
+/// hold binds nothing here, since the field wins.
 ///
 /// For the structural components too, an array-of-objects child bound as
 /// a [`Value::List`] of [`Value::Unknown`] being what a parent-level
 /// aggregate needs, use [`collect_child_values`].
 #[must_use]
 pub fn collect_scalar_child_values(instance: &WInstance, node_id: u32) -> HashMap<String, Value> {
-    let mut result = HashMap::new();
-    for &(parent, child, ref edge) in &instance.arcs {
-        if parent != node_id {
-            continue;
-        }
-        let Some(child_node) = instance.nodes.get(&child) else {
-            continue;
-        };
-        if let Some(crate::value::FieldPresence::Present(val)) = &child_node.value {
-            let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
-            result.insert(field_name.to_string(), val.clone());
-        }
-    }
-    result
+    bind_children(
+        None,
+        &TreeChildren::new(instance),
+        node_id,
+        &Demand::Names(BTreeSet::new()),
+    )
+    .values
 }
 
-/// Collect a node's immediate children, keyed by edge name, including the
-/// structural ones.
+/// Collect a node's immediate children, keyed by column name, including
+/// the structural ones.
 ///
 /// [`collect_scalar_child_values`] projects only the leaf components of
 /// the fiber, so a child that is an object or an array of objects binds to
 /// nothing and a parent-level aggregate over it (the minimum and maximum
 /// of a field across an array of child records, say) cannot be written at
-/// all. This function materializes those children as well: an ordered
-/// collection becomes a [`Value::List`] and a record becomes a
-/// [`Value::Unknown`], recursively. [`value_to_expr_literal`] carries both
-/// through structurally, so `map` and `fold` and field projection reach
-/// them directly.
+/// all. This function materializes those children as well, as
+/// [`node_to_value`] does: an ordered collection becomes a [`Value::List`]
+/// and a record becomes a [`Value::Unknown`], recursively.
+/// [`value_to_expr_literal`] carries both through structurally, so `map`
+/// and `fold` and field projection reach them directly.
 ///
 /// Materializing a subtree is not free, so `wanted` bounds the work: a
 /// structural child is materialized only when its name appears in that
 /// set, which callers derive from the free variables of the expressions
 /// about to run. `None` materializes every child, which is what a
-/// reference to the whole fiber (`self`) needs. Scalar children are always
-/// included, as before, so an empty `wanted` gives exactly
-/// [`collect_scalar_child_values`].
+/// reference to the whole fiber (`self`) needs. Present children are always
+/// included, so an empty `wanted` gives exactly
+/// [`collect_scalar_child_values`]. A name two or more arcs carry binds
+/// the list of the bindings of its arcs, in arc order.
 #[must_use]
 pub fn collect_child_values(
     schema: Option<&Schema>,
@@ -2030,117 +2844,26 @@ pub fn collect_child_values(
     node_id: u32,
     wanted: Option<&std::collections::HashSet<String>>,
 ) -> HashMap<String, Value> {
-    let mut result = HashMap::new();
-    for &(parent, child, ref edge) in &instance.arcs {
-        if parent != node_id {
-            continue;
-        }
-        let Some(child_node) = instance.nodes.get(&child) else {
-            continue;
-        };
-        let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
-        if let Some(crate::value::FieldPresence::Present(val)) = &child_node.value {
-            result.insert(field_name.to_string(), val.clone());
-        } else if wanted.is_none_or(|w| w.contains(field_name)) {
-            result.insert(
-                field_name.to_string(),
-                node_to_value(schema, instance, child),
-            );
-        }
-    }
-    result
+    let demand = wanted.map_or(Demand::All, |w| Demand::Names(w.iter().cloned().collect()));
+    bind_children(schema, &TreeChildren::new(instance), node_id, &demand).values
 }
 
 /// Materialize a node's subtree as a [`Value`].
 ///
 /// Mirrors the shape decisions `to_json` makes, so what an expression sees
 /// under a structural child is what serialization would emit for it: a
-/// present leaf is its value, an ordered collection is a [`Value::List`]
-/// of its children in arc order, and anything else is a
-/// [`Value::Unknown`] of its children and `extra_fields`, with
-/// `extra_fields` taking precedence on a key collision exactly as in
-/// `to_json`.
+/// present leaf is its value, a null or absent one is [`Value::Null`], an
+/// ordered collection is a [`Value::List`] of its children in arc order,
+/// and anything else is a [`Value::Unknown`] of its children (a name two or
+/// more arcs carry binding the list of them, in arc order) and
+/// `extra_fields`, with `extra_fields` taking precedence on a key collision
+/// exactly as in `to_json`.
 #[must_use]
 pub fn node_to_value(schema: Option<&Schema>, instance: &WInstance, node_id: u32) -> Value {
-    let Some(node) = instance.nodes.get(&node_id) else {
+    if !instance.nodes.contains_key(&node_id) {
         return Value::Null;
-    };
-
-    if let Some(presence) = &node.value {
-        return match presence {
-            crate::value::FieldPresence::Present(val) => val.clone(),
-            crate::value::FieldPresence::Null | crate::value::FieldPresence::Absent => Value::Null,
-        };
     }
-
-    if is_collection_node(schema, instance, node) {
-        let items = instance
-            .children(node_id)
-            .iter()
-            .map(|&child| node_to_value(schema, instance, child))
-            .collect();
-        return Value::List(items);
-    }
-
-    let mut fields = HashMap::new();
-    for &(parent, child, ref edge) in &instance.arcs {
-        if parent != node_id {
-            continue;
-        }
-        let field_name = edge.name.as_deref().unwrap_or(&*edge.tgt);
-        fields.insert(
-            field_name.to_string(),
-            node_to_value(schema, instance, child),
-        );
-    }
-    for (key, val) in &node.extra_fields {
-        fields.insert(key.clone(), val.clone());
-    }
-    Value::Unknown(fields)
-}
-
-/// Whether a node denotes an ordered collection rather than a record.
-///
-/// The same three signals `to_json` uses, and for the same reason: the
-/// schema shape (every outgoing edge anonymous) is a heuristic that a
-/// hand-built record can trip, so evidence about the *data* (the parser's
-/// list annotation, or repeated same-named arcs, which no object can
-/// have) is what decides, and object-only evidence on the node vetoes the
-/// schema heuristic.
-fn is_collection_node(schema: Option<&Schema>, instance: &WInstance, node: &Node) -> bool {
-    if node.is_list() {
-        return true;
-    }
-
-    let mut signature: Option<(panproto_gat::Name, Option<panproto_gat::Name>)> = None;
-    let mut count = 0_usize;
-    let mut uniform = true;
-    for &(parent, _, ref edge) in &instance.arcs {
-        if parent != node.id {
-            continue;
-        }
-        let key = (edge.kind.clone(), edge.name.clone());
-        match &signature {
-            Some(existing) if existing != &key => {
-                uniform = false;
-                break;
-            }
-            Some(_) => {}
-            None => signature = Some(key),
-        }
-        count += 1;
-    }
-    if uniform && count >= 2 {
-        return true;
-    }
-
-    let Some(schema) = schema else {
-        return false;
-    };
-    let outgoing = schema.outgoing_edges(&node.anchor);
-    let via_schema = !outgoing.is_empty() && outgoing.iter().all(|e| e.name.is_none());
-    let object_only = !node.extra_fields.is_empty() || node.discriminator.is_some();
-    via_schema && !object_only
+    materialize_tree(schema, &TreeChildren::new(instance), node_id)
 }
 
 /// Build an expression evaluation environment from the full fiber over a
@@ -2165,6 +2888,12 @@ fn is_collection_node(schema: Option<&Schema>, instance: &WInstance, node: &Node
 /// the same binding, and so that a name colliding with a builtin or a
 /// reserved word stays reachable. A field genuinely called `self` wins
 /// over the handle, since the flat bindings are applied last.
+///
+/// Every value is converted, and a value with no expression literal
+/// ([`value_to_expr_literal`]) is left unbound rather than given an
+/// invented one, so an expression reading it fails as reading an unbound
+/// name. The restrict engines convert on demand instead, and refuse such a
+/// read before evaluating ([`RestrictError::ValueNotExpressible`]).
 #[must_use]
 pub fn build_env_with_children(
     fields: &HashMap<String, Value>,
@@ -2177,8 +2906,10 @@ pub fn build_env_with_children(
         combined.insert(key.clone(), val.clone());
     }
     let this = Value::Unknown(combined.clone());
-    let env = panproto_expr::Env::new()
-        .extend(std::sync::Arc::from("self"), value_to_expr_literal(&this));
+    let mut env = panproto_expr::Env::new();
+    if let Ok(lit) = value_to_expr_literal(&this) {
+        env = env.extend(std::sync::Arc::from("self"), lit);
+    }
     extend_env_from_extra_fields(env, &combined)
 }
 
@@ -2214,7 +2945,9 @@ pub fn extend_env_from_extra_fields(
 ) -> panproto_expr::Env {
     let mut env = base;
     for (key, val) in fields {
-        let lit = value_to_expr_literal(val);
+        let Ok(lit) = value_to_expr_literal(val) else {
+            continue;
+        };
         // Bind flat key
         env = env.extend(std::sync::Arc::from(key.as_str()), lit.clone());
         // Also bind as attrs.key (so predicates work regardless of nesting style)
@@ -2226,7 +2959,9 @@ pub fn extend_env_from_extra_fields(
     // Also bind nested "attrs" entries as both qualified and flat
     if let Some(Value::Unknown(attrs)) = fields.get("attrs") {
         for (key, val) in attrs {
-            let lit = value_to_expr_literal(val);
+            let Ok(lit) = value_to_expr_literal(val) else {
+                continue;
+            };
             let qualified = format!("attrs.{key}");
             env = env.extend(std::sync::Arc::from(qualified.as_str()), lit.clone());
             // Also bind as flat key if not already present
@@ -2238,14 +2973,27 @@ pub fn extend_env_from_extra_fields(
     env
 }
 
-/// Convert an instance `Value` to a `panproto_expr::Literal` for expression evaluation.
+/// A value with no expression literal: a content link, a blob, a token, an
+/// opaque value or a labelled null, at any depth.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, thiserror::Error)]
+#[error("a {value_type} has no expression literal")]
+pub struct NotExpressible {
+    /// The type name of the value ([`Value::type_name`]).
+    pub value_type: &'static str,
+}
+
+/// Convert an instance `Value` to a `panproto_expr::Literal` for expression
+/// evaluation.
 ///
 /// The conversion is structure-preserving on the two container
 /// variants: `Value::List` maps to `Literal::List` and `Value::Unknown`
 /// maps to `Literal::Record`, in both cases converting the contents
 /// recursively. This makes list- and record-valued fields reachable by
 /// `map` / `fold` / `head` and by field projection, rather than
-/// collapsing them to a scalar before the expression ever runs.
+/// collapsing them to a scalar before the expression ever runs. The exact
+/// variants map to their literals: `Value::Decimal`, `Value::BigInt` and
+/// `Value::Temporal` to `Literal::Decimal`, `Literal::BigInt` and
+/// `Literal::Temporal`.
 ///
 /// Record fields are emitted in sorted key order. `Value::Unknown` is
 /// backed by a `HashMap`, whose iteration order varies between runs, so
@@ -2253,36 +3001,58 @@ pub fn extend_env_from_extra_fields(
 /// yields the same `Literal::Record`, and equality and hashing over the
 /// result are stable.
 ///
-/// Membership predicates over a list are served by `Contains`, which
-/// accepts a list argument directly and tests element membership. The
-/// list is therefore never flattened to a joined string on the way into
-/// the environment.
+/// ```
+/// use panproto_inst::{Value, value_to_expr_literal};
+/// use panproto_expr::Literal;
 ///
-/// The remaining variants — `CidLink`, `Blob`, `Token`, `Opaque`, and
-/// `LabeledNull` — have no faithful `Literal` counterpart and convert to
-/// `Literal::Null`. An expression reading one of those fields sees a
-/// null rather than a lossy re-encoding.
-#[must_use]
-pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
-    match val {
-        Value::Bool(b) => panproto_expr::Literal::Bool(*b),
-        Value::Int(i) => panproto_expr::Literal::Int(*i),
-        Value::Float(f) => panproto_expr::Literal::Float(*f),
-        Value::Str(s) => panproto_expr::Literal::Str(s.clone()),
-        Value::Bytes(b) => panproto_expr::Literal::Bytes(b.clone()),
-        Value::List(items) => {
-            panproto_expr::Literal::List(items.iter().map(value_to_expr_literal).collect())
-        }
-        Value::Unknown(map) => {
-            let mut fields: Vec<(std::sync::Arc<str>, panproto_expr::Literal)> = map
+/// assert_eq!(value_to_expr_literal(&Value::Int(3)), Ok(Literal::Int(3)));
+/// let token = value_to_expr_literal(&Value::Token("red".into())).unwrap_err();
+/// assert_eq!(token.value_type, "token");
+/// ```
+///
+/// # Errors
+///
+/// [`NotExpressible`] for a `Value::CidLink`, `Value::Blob`,
+/// `Value::Token`, `Value::Opaque` or `Value::LabeledNull`, which have no
+/// faithful `Literal` counterpart, naming the first one found (a container
+/// is searched in order). No value is invented in its place.
+pub fn value_to_expr_literal(val: &Value) -> Result<panproto_expr::Literal, NotExpressible> {
+    use panproto_expr::Literal;
+    Ok(match val {
+        Value::Bool(b) => Literal::Bool(*b),
+        Value::Int(i) => Literal::Int(*i),
+        Value::Float(f) => Literal::Float(*f),
+        Value::Str(s) => Literal::Str(s.clone()),
+        Value::Bytes(b) => Literal::Bytes(b.clone()),
+        Value::Null => Literal::Null,
+        Value::Decimal(d) => Literal::Decimal(d.clone()),
+        Value::BigInt(b) => Literal::BigInt(b.clone()),
+        Value::Temporal(t) => Literal::Temporal(t.clone()),
+        Value::List(items) => Literal::List(
+            items
                 .iter()
-                .map(|(k, v)| (std::sync::Arc::from(k.as_str()), value_to_expr_literal(v)))
-                .collect();
-            fields.sort_by(|(a, _), (b, _)| a.cmp(b));
-            panproto_expr::Literal::Record(fields)
+                .map(value_to_expr_literal)
+                .collect::<Result<_, _>>()?,
+        ),
+        Value::Unknown(map) => {
+            let mut entries: Vec<(&String, &Value)> = map.iter().collect();
+            entries.sort_by(|a, b| a.0.cmp(b.0));
+            let mut fields = Vec::with_capacity(entries.len());
+            for (k, v) in entries {
+                fields.push((std::sync::Arc::from(k.as_str()), value_to_expr_literal(v)?));
+            }
+            Literal::Record(fields)
         }
-        _ => panproto_expr::Literal::Null,
-    }
+        Value::CidLink(_)
+        | Value::Blob { .. }
+        | Value::Token(_)
+        | Value::Opaque { .. }
+        | Value::LabeledNull(_) => {
+            return Err(NotExpressible {
+                value_type: val.type_name(),
+            });
+        }
+    })
 }
 
 /// Convert a `panproto_expr::Literal` back to an instance `Value`.
@@ -2294,30 +3064,26 @@ pub fn value_to_expr_literal(val: &Value) -> panproto_expr::Literal {
 /// by `map (\x -> { .. }) xs` — is therefore written back as structured
 /// data rather than collapsing to a null.
 ///
-/// Integer-valued floats are normalized to `Value::Int` for round-trip
-/// fidelity with JSON (which doesn't distinguish int/float).
+/// A float stays a float, integral or not: the column a value is written
+/// to decides its kind ([`coerce_value`](crate::value::coerce::coerce_value)),
+/// not the evaluator.
 ///
 /// `Literal::Closure` has no instance counterpart and converts to
 /// `Value::Null`: a closure is an intermediate of evaluation, never a
 /// value that should be persisted into a record.
+///
+/// ```
+/// use panproto_inst::{Value, expr_literal_to_value};
+/// use panproto_expr::Literal;
+///
+/// assert_eq!(expr_literal_to_value(&Literal::Float(2.0)), Value::Float(2.0));
+/// ```
 #[must_use]
 pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
     match lit {
         panproto_expr::Literal::Bool(b) => Value::Bool(*b),
         panproto_expr::Literal::Int(i) => Value::Int(*i),
-        panproto_expr::Literal::Float(f) => {
-            // Normalize integer-valued floats to Int for JSON round-trip fidelity.
-            // Use safe bounds that avoid precision loss in f64→i64 conversion.
-            #[allow(clippy::cast_precision_loss)]
-            let fits = f.fract() == 0.0 && *f >= i64::MIN as f64 && *f <= i64::MAX as f64;
-            if fits {
-                #[allow(clippy::cast_possible_truncation)]
-                let i = *f as i64;
-                Value::Int(i)
-            } else {
-                Value::Float(*f)
-            }
-        }
+        panproto_expr::Literal::Float(f) => Value::Float(*f),
         panproto_expr::Literal::Str(s) => Value::Str(s.clone()),
         panproto_expr::Literal::Bytes(b) => Value::Bytes(b.clone()),
         panproto_expr::Literal::List(items) => {
@@ -2340,36 +3106,6 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 // Left Kan extension (Σ_F) for W-type instances
 // ---------------------------------------------------------------------------
 
-/// Prepare the root node for restriction: remap anchor, check conditional
-/// survival, and apply field transforms.
-fn prepare_root_node(
-    root_node: &Node,
-    migration: &CompiledMigration,
-    instance: &WInstance,
-    src_schema: &Schema,
-) -> Result<Node, RestrictError> {
-    let mut node = root_node.clone();
-    if let Some(remapped) = migration.vertex_remap.get(&root_node.anchor) {
-        node.anchor.clone_from(remapped);
-    }
-    if let Some(pred) = migration.conditional_survival.get(&root_node.anchor) {
-        let env = build_env_from_extra_fields(&root_node.extra_fields);
-        let config = panproto_expr::EvalConfig::default();
-        if matches!(
-            panproto_expr::eval(pred, &env, &config),
-            Ok(panproto_expr::Literal::Bool(false))
-        ) {
-            return Err(RestrictError::RootPruned);
-        }
-    }
-    let transforms = migration.value_transforms(&root_node.anchor);
-    if !transforms.is_empty() {
-        let ctx = TransformContext::new(Some(src_schema), instance, root_node.id, &transforms);
-        apply_field_transforms(&mut node, &transforms, &ctx)?;
-    }
-    Ok(node)
-}
-
 /// Left Kan extension (`Sigma_F`) for W-type instances.
 ///
 /// Pushes a W-type instance forward along a migration morphism, mapping
@@ -2385,6 +3121,10 @@ fn prepare_root_node(
 /// partial extension — keeping the mappable nodes and learning which nodes
 /// were dropped — should use [`wtype_extend_partial`] instead.
 ///
+/// The output is validated against `tgt_schema` under `tgt_protocol`; the
+/// input's schema is not a parameter, so its callers validate the input at
+/// their own boundary.
+///
 /// # Errors
 ///
 /// An arc whose edge the migration named no image for keeps its own kind and
@@ -2396,14 +3136,61 @@ fn prepare_root_node(
 /// neither remapped nor surviving, [`RestrictError::NonInjectiveVertexMap`] if
 /// two source anchors share a target anchor, since a W-instance cannot
 /// represent the merge that asks for, [`RestrictError::RootPruned`] if the root
-/// itself cannot be mapped, or another [`RestrictError`] variant if edge
-/// resolution fails.
+/// itself cannot be mapped, another [`RestrictError`] variant if edge
+/// resolution fails, or [`RestrictError::Validation`] on the output side
+/// when the output does not validate.
 pub fn wtype_extend(
     instance: &WInstance,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
+    tgt_protocol: &panproto_schema::Protocol,
 ) -> Result<WInstance, RestrictError> {
-    let (extended, _dropped) = wtype_extend_inner(instance, tgt_schema, migration, false)?;
+    let tgt_plan = crate::restrict_boundary::boundary_plan(tgt_schema, tgt_protocol);
+    wtype_extend_validated(instance, tgt_schema, migration, &tgt_plan)
+}
+
+/// The extend of a W-type instance with no validation: the engine of
+/// [`wtype_extend`].
+///
+/// It serves operations that are no boundary (the W-type `Sigma_F` of the
+/// adjunctions) and callers that hold no target protocol.
+///
+/// # Errors
+///
+/// As [`wtype_extend`], without the validation failure.
+pub fn wtype_extend_engine(
+    instance: &WInstance,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+) -> Result<WInstance, RestrictError> {
+    wtype_extend_inner(instance, tgt_schema, migration, false).map(|(extended, _)| extended)
+}
+
+/// [`wtype_extend`] with the target's validation plan compiled already.
+///
+/// # Errors
+///
+/// [`RestrictError::PlanSchemaMismatch`] on the output side, before
+/// anything runs, when `tgt_plan` was compiled for another schema than
+/// `tgt_schema`; otherwise as [`wtype_extend`].
+pub fn wtype_extend_validated(
+    instance: &WInstance,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    tgt_plan: &crate::validation::ValidationPlan,
+) -> Result<WInstance, RestrictError> {
+    use crate::restrict_boundary::{BoundarySide, require_passed, require_schema, unlimited};
+    require_schema(
+        tgt_plan,
+        &crate::identity::schema_digest(tgt_schema),
+        BoundarySide::Output,
+    )?;
+    let extended = wtype_extend_engine(instance, tgt_schema, migration)?;
+    let (budget, external) = unlimited();
+    require_passed(
+        tgt_plan.validate_tree(&extended, &budget, &external),
+        BoundarySide::Output,
+    )?;
     Ok(extended)
 }
 
@@ -2643,6 +3430,17 @@ fn wtype_extend_inner(
 
 #[cfg(test)]
 mod tests {
+    /// The tree engine over the plan of `(src, tgt, migration)`.
+    fn restrict_engine(
+        instance: &WInstance,
+        src: &Schema,
+        tgt: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<WInstance, RestrictError> {
+        let plan = crate::restrict_plan::RestrictPlan::compile(src, tgt, migration)?;
+        wtype_restrict_with_plan(instance, &plan).map(|(view, _)| view)
+    }
+
     use super::*;
     use crate::value::{FieldPresence, Value};
 
@@ -2828,7 +3626,7 @@ mod tests {
                     )
                 })
                 .collect(),
-            edges: HashMap::new(),
+            edges: edges.iter().map(|e| (e.clone(), e.kind.clone())).collect(),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -2888,7 +3686,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend(&inst, &schema, &migration).unwrap();
+        let result = wtype_extend_engine(&inst, &schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
         assert_eq!(result.arc_count(), 2);
         assert_eq!(result.schema_root, Name::from("post:body"));
@@ -2944,7 +3742,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        let result = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
         assert_eq!(result.arc_count(), 2);
         assert_eq!(result.schema_root, Name::from("article:body"));
@@ -2991,7 +3789,7 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let refused = wtype_extend(&inst, &tgt_schema, &migration);
+        let refused = wtype_extend_engine(&inst, &tgt_schema, &migration);
         assert!(
             matches!(refused, Err(RestrictError::NonInjectiveVertexMap { .. })),
             "a contracting vertex map must be refused, not answered with a node \
@@ -3070,7 +3868,7 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let extended = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        let extended = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
         let labelled_a = extended
             .arcs
             .iter()
@@ -3134,7 +3932,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend(&inst, &tgt_schema, &migration).unwrap();
+        let result = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.arc_count(), 2);
         // Check that the remapped edge is used
         let text_arc = result.arcs.iter().find(|a| a.1 == 1).unwrap();
@@ -3178,7 +3976,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend(&inst, &schema, &migration).unwrap();
+        let result = wtype_extend_engine(&inst, &schema, &migration).unwrap();
         // Verify parent/children maps are correctly rebuilt
         assert_eq!(result.parent(1), Some(0));
         assert_eq!(result.parent(2), Some(0));
@@ -3222,7 +4020,7 @@ mod tests {
         };
 
         // Total extend must error rather than silently drop node 2.
-        let err = wtype_extend(&inst, &schema, &migration).unwrap_err();
+        let err = wtype_extend_engine(&inst, &schema, &migration).unwrap_err();
         assert!(
             matches!(err, RestrictError::UnmappedAnchor { node_id: 2, .. }),
             "expected UnmappedAnchor for node 2, got {err:?}"
@@ -3300,7 +4098,10 @@ mod tests {
         let tgt_schema = Schema {
             protocol: "test".into(),
             vertices: HashMap::new(),
-            edges: HashMap::new(),
+            edges: HashMap::from([
+                (tgt_content_edge.clone(), Name::from("prop")),
+                (tgt_title_edge.clone(), Name::from("prop")),
+            ]),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -3350,7 +4151,7 @@ mod tests {
             &[src_text_edge, src_title_edge],
         );
 
-        let result = wtype_restrict(&inst, &src_schema, &tgt_schema, &migration)
+        let result = restrict_engine(&inst, &src_schema, &tgt_schema, &migration)
             .expect("restrict should succeed");
 
         // All three nodes must survive (root + renamed + unchanged)
@@ -3428,7 +4229,7 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let restricted = wtype_restrict(&instance, &src_schema, &tgt_schema, &migration).unwrap();
+        let restricted = restrict_engine(&instance, &src_schema, &tgt_schema, &migration).unwrap();
         assert!(restricted.nodes.contains_key(&1));
         assert!(!restricted.nodes.contains_key(&2));
         assert_eq!(restricted.arcs, vec![(0, 1, tgt_a)]);
@@ -3579,7 +4380,7 @@ mod tests {
     }
 
     #[test]
-    fn value_to_expr_literal_preserves_string_list() {
+    fn value_to_expr_literal_preserves_string_list() -> Result<(), NotExpressible> {
         // A list converts to `Literal::List`, element-wise, so that `map`
         // and `fold` can reach it. It is NOT joined into a string.
         let val = Value::List(vec![
@@ -3587,7 +4388,7 @@ mod tests {
             Value::Str("b".into()),
             Value::Str("c".into()),
         ]);
-        match value_to_expr_literal(&val) {
+        match value_to_expr_literal(&val)? {
             panproto_expr::Literal::List(items) => assert_eq!(
                 items,
                 vec![
@@ -3598,10 +4399,11 @@ mod tests {
             ),
             other => panic!("expected Literal::List, got {other:?}"),
         }
+        Ok(())
     }
 
     #[test]
-    fn value_to_expr_literal_keeps_non_string_list_elements() {
+    fn value_to_expr_literal_keeps_non_string_list_elements() -> Result<(), NotExpressible> {
         // Mixed-type elements all survive. The previous joined-string
         // projection dropped every non-string element, which turned a list
         // of integers into an empty string.
@@ -3611,7 +4413,7 @@ mod tests {
             Value::Bool(true),
             Value::Null,
         ]);
-        match value_to_expr_literal(&val) {
+        match value_to_expr_literal(&val)? {
             panproto_expr::Literal::List(items) => assert_eq!(
                 items,
                 vec![
@@ -3624,25 +4426,27 @@ mod tests {
             ),
             other => panic!("expected Literal::List, got {other:?}"),
         }
+        Ok(())
     }
 
     #[test]
-    fn value_to_expr_literal_empty_list_is_empty_list() {
-        match value_to_expr_literal(&Value::List(Vec::new())) {
+    fn value_to_expr_literal_empty_list_is_empty_list() -> Result<(), NotExpressible> {
+        match value_to_expr_literal(&Value::List(Vec::new()))? {
             panproto_expr::Literal::List(items) => assert!(items.is_empty()),
             other => panic!("expected Literal::List, got {other:?}"),
         }
+        Ok(())
     }
 
     #[test]
-    fn value_to_expr_literal_nests_lists_and_records() {
+    fn value_to_expr_literal_nests_lists_and_records() -> Result<(), NotExpressible> {
         // A list of records: the shape an ATProto array-of-objects field
         // takes, and the one `map (\o -> o.a) objs` has to traverse.
         let val = Value::List(vec![Value::Unknown(HashMap::from([
             ("a".to_string(), Value::Int(1)),
             ("b".to_string(), Value::Int(10)),
         ]))]);
-        match value_to_expr_literal(&val) {
+        match value_to_expr_literal(&val)? {
             panproto_expr::Literal::List(items) => match &items[..] {
                 [panproto_expr::Literal::Record(fields)] => {
                     assert_eq!(fields.len(), 2);
@@ -3655,10 +4459,11 @@ mod tests {
             },
             other => panic!("expected Literal::List, got {other:?}"),
         }
+        Ok(())
     }
 
     #[test]
-    fn value_to_expr_literal_record_fields_are_sorted() {
+    fn value_to_expr_literal_record_fields_are_sorted() -> Result<(), NotExpressible> {
         // `Value::Unknown` is a HashMap, so field order must be imposed
         // rather than inherited: the same map must always produce the same
         // `Literal::Record`, or equality and hashing over it are unstable.
@@ -3668,7 +4473,7 @@ mod tests {
             ("mike".to_string(), Value::Int(2)),
         ]));
         for _ in 0..16 {
-            match value_to_expr_literal(&val) {
+            match value_to_expr_literal(&val)? {
                 panproto_expr::Literal::Record(fields) => {
                     let keys: Vec<&str> = fields.iter().map(|(k, _)| &**k).collect();
                     assert_eq!(keys, vec!["alpha", "mike", "zulu"]);
@@ -3676,36 +4481,41 @@ mod tests {
                 other => panic!("expected Literal::Record, got {other:?}"),
             }
         }
+        Ok(())
     }
 
     #[test]
-    fn value_to_expr_literal_non_collection_variants_pass_through() {
+    fn value_to_expr_literal_non_collection_variants_pass_through() -> Result<(), NotExpressible> {
         assert!(matches!(
-            value_to_expr_literal(&Value::Bool(true)),
+            value_to_expr_literal(&Value::Bool(true))?,
             panproto_expr::Literal::Bool(true)
         ));
         assert!(matches!(
-            value_to_expr_literal(&Value::Int(7)),
+            value_to_expr_literal(&Value::Int(7))?,
             panproto_expr::Literal::Int(7)
         ));
         assert!(matches!(
-            value_to_expr_literal(&Value::Null),
+            value_to_expr_literal(&Value::Null)?,
             panproto_expr::Literal::Null
         ));
         assert_eq!(
-            value_to_expr_literal(&Value::Bytes(vec![1, 2, 3])),
+            value_to_expr_literal(&Value::Bytes(vec![1, 2, 3]))?,
             panproto_expr::Literal::Bytes(vec![1, 2, 3])
         );
         // An empty record is a record, not a null.
         assert!(matches!(
-            value_to_expr_literal(&Value::Unknown(HashMap::new())),
+            value_to_expr_literal(&Value::Unknown(HashMap::new()))?,
             panproto_expr::Literal::Record(ref f) if f.is_empty()
         ));
-        // Variants with no faithful Literal counterpart stay Null.
-        assert!(matches!(
+        // Variants with no faithful Literal counterpart are refused, never
+        // read as a null.
+        assert_eq!(
             value_to_expr_literal(&Value::Token("t".into())),
-            panproto_expr::Literal::Null
-        ));
+            Err(NotExpressible {
+                value_type: "token"
+            })
+        );
+        Ok(())
     }
 
     #[test]
@@ -3733,7 +4543,7 @@ mod tests {
     }
 
     #[test]
-    fn value_literal_round_trip_is_identity_on_containers() {
+    fn value_literal_round_trip_is_identity_on_containers() -> Result<(), NotExpressible> {
         // The two converters are mutually inverse on the container
         // variants, which is what makes a transform's output re-readable
         // by the next transform in the sequence.
@@ -3748,7 +4558,8 @@ mod tests {
             ),
             ("flag".to_string(), Value::Bool(false)),
         ]));
-        assert_eq!(expr_literal_to_value(&value_to_expr_literal(&val)), val);
+        assert_eq!(expr_literal_to_value(&value_to_expr_literal(&val)?), val);
+        Ok(())
     }
 
     // -----------------------------------------------------------------
@@ -4210,7 +5021,7 @@ mod tests {
         let tgt_schema = Schema {
             protocol: "test".into(),
             vertices: HashMap::new(),
-            edges: HashMap::new(),
+            edges: HashMap::from([(edge.clone(), Name::from("prop"))]),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -4234,7 +5045,7 @@ mod tests {
         let src_schema = Schema {
             protocol: "test".into(),
             vertices: HashMap::new(),
-            edges: HashMap::new(),
+            edges: HashMap::from([(edge.clone(), Name::from("prop"))]),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -4280,7 +5091,7 @@ mod tests {
         migration.add_conditional_survival("item", predicate);
 
         let result =
-            wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
+            restrict_engine(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
 
         // Node 1 (level=2) survives, node 2 (level=1) is dropped
         assert_eq!(result.node_count(), 2);
@@ -4318,7 +5129,7 @@ mod tests {
         let tgt_schema = Schema {
             protocol: "test".into(),
             vertices: HashMap::new(),
-            edges: HashMap::new(),
+            edges: HashMap::from([(edge.clone(), Name::from("prop"))]),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -4342,7 +5153,7 @@ mod tests {
         let src_schema = Schema {
             protocol: "test".into(),
             vertices: HashMap::new(),
-            edges: HashMap::new(),
+            edges: HashMap::from([(edge.clone(), Name::from("prop"))]),
             hyper_edges: HashMap::new(),
             constraints: HashMap::new(),
             required: HashMap::new(),
@@ -4379,7 +5190,7 @@ mod tests {
         };
 
         let result =
-            wtype_restrict(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
+            restrict_engine(&inst, &src_schema, &tgt_schema, &migration).expect("restrict ok");
 
         assert_eq!(result.node_count(), 2);
         assert!(result.nodes.contains_key(&1));
@@ -5117,7 +5928,7 @@ mod tests {
                     expansion_path: HashMap::new(),
                 };
 
-                let result = wtype_restrict(&instance, &schema, &schema, &migration);
+                let result = restrict_engine(&instance, &schema, &schema, &migration);
                 prop_assert!(result.is_ok(), "identity restrict should succeed");
                 let restricted = result.unwrap();
                 prop_assert_eq!(

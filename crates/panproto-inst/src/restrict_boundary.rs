@@ -64,3 +64,58 @@ impl std::fmt::Display for BoundarySide {
         })
     }
 }
+
+/// The validation plan of a boundary: `schema` under `protocol`, with the
+/// default options.
+pub(crate) fn boundary_plan(
+    schema: &panproto_schema::Schema,
+    protocol: &Protocol,
+) -> crate::validation::ValidationPlan {
+    crate::validation::ValidationPlan::compile(
+        schema,
+        protocol,
+        &crate::validation::ValidationOptions::default(),
+    )
+}
+
+/// `Ok` when `report` passed, else the boundary failure on `side`.
+pub(crate) fn require_passed(
+    report: crate::validation::ValidationReport,
+    side: BoundarySide,
+) -> Result<(), crate::error::RestrictError> {
+    if report.status == panproto_gat::CheckStatus::Passed {
+        Ok(())
+    } else {
+        Err(crate::error::RestrictError::Validation {
+            side,
+            report: Box::new(report),
+        })
+    }
+}
+
+/// `Ok` when `plan` was compiled for the schema whose digest is `expected`,
+/// else [`PlanSchemaMismatch`](crate::error::RestrictError::PlanSchemaMismatch)
+/// on `side`.
+pub(crate) fn require_schema(
+    plan: &crate::validation::ValidationPlan,
+    expected: &crate::identity::Digest,
+    side: BoundarySide,
+) -> Result<(), crate::error::RestrictError> {
+    if plan.schema_digest() == expected {
+        Ok(())
+    } else {
+        Err(crate::error::RestrictError::PlanSchemaMismatch { side })
+    }
+}
+
+/// The default budget and no external verdicts: what a boundary validates
+/// with.
+pub(crate) fn unlimited() -> (
+    crate::validation::ValidationBudget,
+    crate::validation::ExternalVerdicts,
+) {
+    (
+        crate::validation::ValidationBudget::default(),
+        crate::validation::ExternalVerdicts::default(),
+    )
+}

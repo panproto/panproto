@@ -459,7 +459,7 @@ pub enum RestrictError {
         /// The error's position in the precedence order.
         key: ErrorKey,
         /// The error.
-        error: Box<RestrictError>,
+        error: Box<Self>,
     },
 
     /// The migration keeps or drops a table, relation or column of a table
@@ -480,7 +480,9 @@ pub enum RestrictError {
     /// An expression at a node reads a child whose target holds no value of
     /// its own and whose subgraph is not a tree, so the child has no
     /// structured value.
-    #[error("child `{field}` of node {node} is read as a structure, but its subgraph is not a tree")]
+    #[error(
+        "child `{field}` of node {node} is read as a structure, but its subgraph is not a tree"
+    )]
     StructuralChildNotATree {
         /// The node the expression is evaluated at.
         node: u32,
@@ -491,7 +493,9 @@ pub enum RestrictError {
     /// The migration resolves a contracted pair of source vertices to an
     /// edge that does not join the images of the pair, or that the target
     /// schema does not declare.
-    #[error("the contracted pair {pair:?} is resolved to {image:?}, which does not join it in the target")]
+    #[error(
+        "the contracted pair {pair:?} is resolved to {image:?}, which does not join it in the target"
+    )]
     IncoherentPairImage {
         /// The images `(a', b')` of the contracted pair.
         pair: Box<(Name, Name)>,

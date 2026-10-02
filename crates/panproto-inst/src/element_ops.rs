@@ -234,8 +234,10 @@ impl ElementOps for GInstance {
         );
         env = env.extend(Arc::from("_id"), Literal::Int(i64::from(node.id)));
 
-        if let Some(FieldPresence::Present(val)) = &node.value {
-            env = env.extend(Arc::from("_value"), value_to_expr_literal(val));
+        if let Some(FieldPresence::Present(val)) = &node.value
+            && let Ok(lit) = value_to_expr_literal(val)
+        {
+            env = env.extend(Arc::from("_value"), lit);
         }
 
         env.extend(
@@ -451,8 +453,12 @@ fn node_to_literal(node: &Node) -> Literal {
     ));
     let mut extra: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
     extra.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    // A field whose value has no expression literal is left out rather than
+    // given an invented one.
     for (key, val) in extra {
-        fields.push((Arc::from(key.as_str()), value_to_expr_literal(val)));
+        if let Ok(lit) = value_to_expr_literal(val) {
+            fields.push((Arc::from(key.as_str()), lit));
+        }
     }
     Literal::Record(fields)
 }
@@ -646,11 +652,13 @@ fn finstance_row_to_literal(instance: &FInstance, id: RowId) -> Literal {
     if let Some(row) = instance.row(id) {
         let mut columns: Vec<(&String, &Value)> = row.iter().collect();
         columns.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        fields.extend(
-            columns
-                .into_iter()
-                .map(|(k, v)| (Arc::from(k.as_str()), value_to_expr_literal(v))),
-        );
+        // A cell whose value has no expression literal is left out rather
+        // than given an invented one.
+        fields.extend(columns.into_iter().filter_map(|(k, v)| {
+            value_to_expr_literal(v)
+                .ok()
+                .map(|lit| (Arc::from(k.as_str()), lit))
+        }));
     }
     Literal::Record(fields)
 }

@@ -28,6 +28,7 @@ pub mod complement;
 /// Incremental contraction tracker for ancestor contraction.
 pub mod contraction;
 pub mod contraction_keys;
+pub mod contraction_plan;
 pub mod delta_convert;
 /// Edit errors for tree and table edits.
 pub mod edit_error;
@@ -43,7 +44,9 @@ pub mod fan_violation;
 pub mod functor;
 /// Graph-shaped instance representation.
 pub mod ginstance;
+pub mod graph_complement;
 pub mod graph_edit;
+pub mod graph_restrict;
 /// Internal hom schema construction and evaluation.
 pub mod hom;
 pub mod identity;
@@ -75,9 +78,11 @@ pub mod rel_schema;
 pub mod restrict_boundary;
 pub mod restrict_plan;
 pub mod segment;
+pub mod table_complement;
 pub mod table_delta;
 /// Edit algebra for functor (table-shaped) instances.
 pub mod table_edit;
+pub mod table_restrict;
 /// Edit algebra for W-type (tree-shaped) instances.
 pub mod tree_edit;
 /// Validation of W-type instances against schemas.
@@ -106,20 +111,23 @@ pub use adjunction::{
 pub use attributes::{AttributeDecl, AttributeSchema, AttributeViolation};
 pub use complement::Complement;
 pub use contraction::{ContractionRecord, ContractionTracker};
+pub use contraction_plan::{
+    ContractionMode, ContractionPlan, PairResolution, PlannedPair, UnresolvedReason, resolve_pair,
+};
 pub use edit_error::EditError;
 pub use element_ops::ElementOps;
 pub use error::{InstError, ParseError, RestrictError};
 pub use error_detail::{ErrorDetail, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
-pub use functor::{FInstance, functor_extend, functor_restrict};
+pub use functor::FInstance;
 pub use functor::{
     ForeignKeyPair, KeyLookupError, Row, Table, canonical_finstance_bytes, write_finstance,
     write_pair_record, write_row_record,
 };
 pub use ginstance::{
-    EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json,
-    graph_extend, graph_restrict, reify_fans, to_node_link_json, unreify_fans,
+    EdgeId, GEdge, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, from_node_link_json, reify_fans,
+    to_node_link_json, unreify_fans,
 };
 pub use ginstance::{
     FanDomain, FanEmbedding, NotTreeReason, TreeEmbedding, TreeShapeReport,
@@ -127,7 +135,12 @@ pub use ginstance::{
     write_edge_record, write_ginstance, write_node_record,
 };
 pub use ginstance::{NotTableReason, TableEmbedding, TableShapeReport};
+pub use graph_complement::GraphComplement;
 pub use graph_edit::{GraphDelta, GraphEdit};
+pub use graph_restrict::{
+    graph_extend, graph_extend_validated, graph_restrict, graph_restrict_validated,
+    graph_restrict_with_complement, graph_restrict_with_plan,
+};
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
 pub use identity::{
@@ -154,10 +167,17 @@ pub use query::{
 pub use reachability::ReachabilityIndex;
 pub use rel_schema::{RelSchema, RelSchemaError};
 pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
-pub use restrict_plan::SurvivalElement;
+pub use restrict_plan::{
+    BoundaryPlan, CellFate, CellPlan, EdgeFate, EdgeImage, RestrictPlan, SurvivalElement,
+};
 pub use segment::{IdAllocator, IdRange, SegmentId};
+pub use table_complement::{DroppedRow, TableComplement};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
+pub use table_restrict::{
+    functor_extend, functor_extend_engine, functor_extend_validated, functor_restrict,
+    functor_restrict_validated, functor_restrict_with_complement, functor_restrict_with_plan,
+};
 pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};
 pub use validation::{
@@ -178,4 +198,9 @@ pub use wtype::{
     collect_child_values, collect_scalar_child_values, expr_literal_to_value,
     extend_env_from_extra_fields, node_to_value, reconstruct_fans, referenced_names, resolve_edge,
     value_to_expr_literal, wtype_extend, wtype_extend_partial, wtype_restrict,
+};
+pub use wtype::{
+    InstanceRef, NotExpressible, TreeSynthesis, wtype_extend_engine, wtype_extend_validated,
+    wtype_restrict_validated,
+    wtype_restrict_with_plan, wtype_restrict_with_synthesis,
 };
