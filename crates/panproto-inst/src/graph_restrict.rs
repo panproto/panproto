@@ -868,6 +868,5 @@ pub fn graph_extend_validated(
 }
 
 #[cfg(test)]
-#[allow(clippy::unwrap_used, clippy::expect_used)]
 #[path = "graph_restrict_agreement.rs"]
 mod agreement;
