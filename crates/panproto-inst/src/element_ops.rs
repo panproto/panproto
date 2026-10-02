@@ -26,8 +26,8 @@ use panproto_schema::Edge as SchemaEdge;
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GInstance};
 use crate::metadata::Node;
-use crate::value::{FieldPresence, Value};
 use crate::query::QueryError;
+use crate::value::{FieldPresence, Value};
 use crate::view_ref::RowId;
 use crate::wtype::{
     WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
@@ -250,7 +250,11 @@ impl ElementOps for WInstance {
         let Some(node) = self.nodes.get(&element_id) else {
             return Ok(panproto_expr::Env::new());
         };
-        let children_count = self.arcs.iter().filter(|(p, _, _)| *p == element_id).count();
+        let children_count = self
+            .arcs
+            .iter()
+            .filter(|(p, _, _)| *p == element_id)
+            .count();
         predicate_env_at(
             schema,
             &crate::wtype::TreeChildren::new(self),
@@ -259,7 +263,10 @@ impl ElementOps for WInstance {
             vec![
                 ("_anchor", Literal::Str(node.anchor.as_ref().into())),
                 ("_id", Literal::Int(i64::from(element_id))),
-                ("_children_count", Literal::Int(count_literal(children_count))),
+                (
+                    "_children_count",
+                    Literal::Int(count_literal(children_count)),
+                ),
             ],
         )
     }
@@ -375,7 +382,10 @@ impl ElementOps for GInstance {
             vec![
                 ("_anchor", Literal::Str(node.anchor.as_ref().into())),
                 ("_id", Literal::Int(i64::from(element_id))),
-                ("_edge_count", Literal::Int(count_literal(self.out_edges(element_id).len()))),
+                (
+                    "_edge_count",
+                    Literal::Int(count_literal(self.out_edges(element_id).len())),
+                ),
             ],
         )
     }
@@ -550,7 +560,10 @@ impl ElementOps for FInstance {
             vec![
                 ("_anchor", Literal::Str(table.as_ref().into())),
                 ("_id", Literal::Int(i64::from(element_id))),
-                ("_edge_count", Literal::Int(count_literal(self.out_pair_count(row)))),
+                (
+                    "_edge_count",
+                    Literal::Int(count_literal(self.out_pair_count(row))),
+                ),
             ],
         )
     }
@@ -1377,7 +1390,8 @@ mod tests {
             path: Vec::new(),
         };
         let schema = panproto_schema::Schema::default();
-        let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema).unwrap()
+        let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema)
+            .unwrap()
             .into_iter()
             .map(|m| m.node_id)
             .collect();

@@ -144,7 +144,8 @@ fn query_answers(
         .vertex("n", "record", None)?
         .edge("n", "n", "link", None)?
         .build()?;
-    Ok(execute_graph(query, graph, &schema).unwrap()
+    Ok(execute_graph(query, graph, &schema)
+        .unwrap()
         .into_iter()
         .map(|m| m.node_id)
         .collect())

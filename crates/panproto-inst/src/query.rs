@@ -78,7 +78,9 @@ pub struct QueryMatch {
 pub enum QueryError {
     /// The predicate reads a child name two or more of the element's
     /// children carry.
-    #[error("element {node} has several children named `{field}`, and the predicate reads the name")]
+    #[error(
+        "element {node} has several children named `{field}`, and the predicate reads the name"
+    )]
     AmbiguousChildField {
         /// The element.
         node: u32,
@@ -87,7 +89,9 @@ pub enum QueryError {
     },
     /// The predicate reads a child whose subgraph is not a tree, so the
     /// child has no structured value.
-    #[error("child `{field}` of element {node} is read as a structure, but its subgraph is not a tree")]
+    #[error(
+        "child `{field}` of element {node} is read as a structure, but its subgraph is not a tree"
+    )]
     StructuralChildNotATree {
         /// The element.
         node: u32,
@@ -194,7 +198,10 @@ pub fn execute_elements<T: ElementOps>(
     // 2. Each path step maps a set to a set.
     for edge_kind in &query.path {
         let current: Vec<u32> = reached.into_iter().collect();
-        reached = instance.pushforward(&current, edge_kind).into_iter().collect();
+        reached = instance
+            .pushforward(&current, edge_kind)
+            .into_iter()
+            .collect();
     }
 
     // 3. Selection in ascending element id, up to `limit`.
@@ -243,10 +250,12 @@ pub fn execute_elements<T: ElementOps>(
 
     // 5. Grouping: a stable sort keeps ascending id within a group.
     if let Some(ref group_key) = query.group_by {
-        results.sort_by(|a, b| match (a.fields.get(group_key), b.fields.get(group_key)) {
-            (Some(x), Some(y)) => x.canonical_cmp(y),
-            (x, y) => x.is_some().cmp(&y.is_some()),
-        });
+        results.sort_by(
+            |a, b| match (a.fields.get(group_key), b.fields.get(group_key)) {
+                (Some(x), Some(y)) => x.canonical_cmp(y),
+                (x, y) => x.is_some().cmp(&y.is_some()),
+            },
+        );
     }
 
     Ok(results)
