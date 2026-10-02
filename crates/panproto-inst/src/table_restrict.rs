@@ -416,8 +416,9 @@ pub fn functor_restrict_validated(
 /// merge them into that fibre unasked; a surviving target vertex no row
 /// reaches is sent to the empty set, so it has no table. Rows keep their
 /// [`RowId`]s, so the coproduct over a merging fibre is a disjoint union
-/// with no renumbering, and the operation creates no rows. Within each
-/// target table the rows are padded to the union of their columns with
+/// with no renumbering, and the operation creates no rows. A row takes its
+/// source table's value transforms as the tree extend applies them. Within
+/// each target table the rows are padded to the union of their columns with
 /// [`Value::Null`]. Edges are read the same way: a source edge (one
 /// `edge_remap` remaps, or a surviving edge it neither remaps nor names as
 /// another edge's image) travels to its image, an edge the migration does
@@ -448,8 +449,9 @@ pub fn functor_restrict_validated(
 /// two unmentioned edges that collide, the later in edge order is named),
 /// [`RestrictError::NoEdgeFound`], naming the images of the edge's
 /// endpoints, when the migration carries an edge to an image that does not
-/// join them (it states no functor), and `RestrictError` if a row's
-/// op-to-term assignment fails to evaluate.
+/// join them (it states no functor), and the error of a row's value
+/// transforms (its source table's field transforms, then its op-to-term
+/// assignments, applied as the tree extend applies them) when one fails.
 /// The output failing validation is [`RestrictError::Validation`] on the
 /// output side.
 pub fn functor_extend(
@@ -506,8 +508,9 @@ pub fn functor_extend_validated(
 /// two unmentioned edges that collide, the later in edge order is named),
 /// [`RestrictError::NoEdgeFound`], naming the images of the edge's
 /// endpoints, when the migration carries an edge to an image that does not
-/// join them (it states no functor), and `RestrictError` if a row's
-/// op-to-term assignment fails to evaluate.
+/// join them (it states no functor), and the error of a row's value
+/// transforms (its source table's field transforms, then its op-to-term
+/// assignments, applied as the tree extend applies them) when one fails.
 pub fn functor_extend_engine(
     instance: &FInstance,
     migration: &CompiledMigration,
@@ -527,11 +530,15 @@ pub fn functor_extend_engine(
             .get(src_vertex)
             .cloned()
             .unwrap_or_else(|| src_vertex.clone());
-        let assignments = migration.op_term_assignments.get(src_vertex);
+        let transforms = migration.value_transforms(src_vertex);
         for (id, row) in table.rows() {
             let mut new_row = row.clone();
-            if let Some(assignments) = assignments {
-                crate::wtype::apply_term_assignments_to_row(&mut new_row, assignments)?;
+            if !transforms.is_empty() {
+                let ctx = TransformContext::for_table(None, instance, id, &transforms);
+                let mut node = Node::new(id.0, tgt_vertex.clone());
+                node.extra_fields = new_row;
+                crate::wtype::apply_field_transforms(&mut node, &transforms, &ctx)?;
+                new_row = node.extra_fields;
             }
             out.place_row(tgt_vertex.clone(), id, new_row);
         }

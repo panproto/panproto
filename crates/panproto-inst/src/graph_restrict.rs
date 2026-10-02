@@ -759,14 +759,16 @@ pub fn graph_restrict_validated(
 ///
 /// Maps source nodes into the target schema by remapping anchors through
 /// `vertex_remap`. A node whose anchor has no remap is kept under its own
-/// anchor when that anchor is in `surviving_verts` and dropped otherwise.
-/// An edge is carried, under its own [`EdgeId`] and position, when both
+/// anchor when that anchor is in `surviving_verts` and dropped otherwise. A
+/// kept node takes its source vertex's value transforms, over its children
+/// in the source, as the tree extend applies them. An edge is carried, under its own [`EdgeId`] and position, when both
 /// endpoints are kept and its schema edge is renamed by `edge_remap` or
 /// listed in `surviving_edges`. The input's schema is not a parameter, so
 /// its callers validate the input at their own boundary.
 ///
 /// # Errors
 ///
+/// The error of a node's value transforms when one fails, and
 /// [`RestrictError::Validation`] on the output side when the output does
 /// not validate.
 pub fn graph_extend(
@@ -809,6 +811,11 @@ pub fn graph_extend_validated(
             kept.anchor.clone_from(remapped);
         } else if !migration.surviving_verts.contains(&node.anchor) {
             continue;
+        }
+        let transforms = migration.value_transforms(&node.anchor);
+        if !transforms.is_empty() {
+            let ctx = TransformContext::for_graph(None, instance, id, &transforms);
+            crate::wtype::apply_field_transforms(&mut kept, &transforms, &ctx)?;
         }
         extended = extended.with_node(kept);
     }
