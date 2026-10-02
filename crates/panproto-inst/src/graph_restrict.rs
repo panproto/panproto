@@ -142,13 +142,15 @@ pub fn graph_restrict_with_plan(
     run.finish()
 }
 
-/// The view of a graph restrict along a compiled plan, taking the tree
-/// engine when the input is a tree the plan keeps a tree.
+/// The view of a graph restrict along a compiled plan, taking the table
+/// engine when the input is a table and the plan was compiled for tables,
+/// and the tree engine when the input is a tree the plan keeps a tree.
 ///
 /// The result is the view [`graph_restrict_with_plan`] gives, under the same
-/// ids, or its error: [`graph_restrict_on_tree`] is tried first, and when it
-/// declines or the tree engine fails, the graph engine runs, so the graph
-/// engine alone decides which error a caller sees. The precondition is
+/// ids, or its error: [`graph_restrict_on_table`] is tried first, then
+/// [`graph_restrict_on_tree`], and when both decline (a fast path declines
+/// whenever its engine fails) the graph engine runs, so the graph engine
+/// alone decides which error a caller sees. The precondition is
 /// [`graph_restrict_with_plan`]'s.
 ///
 /// # Errors
@@ -158,10 +160,85 @@ pub fn graph_restrict_dispatched(
     instance: &GInstance,
     plan: &RestrictPlan,
 ) -> Result<GInstance, RestrictError> {
-    graph_restrict_on_tree(instance, plan).map_or_else(
-        || graph_restrict_with_plan(instance, plan).map(|(view, _)| view),
-        Ok,
-    )
+    graph_restrict_on_table(instance, plan)
+        .or_else(|| graph_restrict_on_tree(instance, plan))
+        .map_or_else(
+            || graph_restrict_with_plan(instance, plan).map(|(view, _)| view),
+            Ok,
+        )
+}
+
+/// The table fast path of [`graph_restrict_dispatched`], or `None` when it
+/// declines.
+///
+/// The view is the one [`graph_restrict_with_plan`] gives, computed by the
+/// table engine ([`functor_restrict_with_plan`](crate::functor_restrict_with_plan))
+/// on the table the input is ([`GInstance::try_to_finstance`]).
+///
+/// The path declines when the plan has no table layer (it was not compiled
+/// by [`RestrictPlan::compile_for_tables`]), the input is not a table, or the
+/// table engine refuses it. Otherwise the table view maps back exactly: a
+/// row is the node of its id, re-anchored and holding the row's cells; a
+/// kept pair is the source edge that carries it, under that edge's id; a
+/// contracted pair is a synthesized edge, whose id the graph engine's
+/// allocation gives its key. The path declines, too, on a view pair that
+/// several source edges carry (the graph keeps each, the table one pair)
+/// or that no source edge and no contraction gives.
+#[must_use]
+pub fn graph_restrict_on_table(instance: &GInstance, plan: &RestrictPlan) -> Option<GInstance> {
+    plan.boundary.as_ref()?.table.as_ref()?;
+    let (table, embedding) = instance.try_to_finstance(plan.source()).ok()?;
+    let (view, complement) = crate::table_restrict::functor_restrict_with_plan(&table, plan).ok()?;
+    let mut graph = GInstance::new();
+    for row in view.row_ids() {
+        let mut node = instance.node(row.0)?.clone();
+        node.anchor.clone_from(view.table_of(row)?);
+        node.extra_fields.clone_from(view.row(row)?);
+        graph = graph.with_node(node);
+    }
+    let mut contracted = Vec::new();
+    for (edge, pairs) in view.foreign_keys() {
+        for &(src, tgt) in pairs {
+            let key = (edge.clone(), src, tgt);
+            let carriers: Vec<&Edge> = complement.original_fk_edges.get(&key).map_or_else(
+                || plan.edge_image.preimages(edge),
+                |recorded| recorded.iter().collect(),
+            );
+            let sources: Vec<EdgeId> = carriers
+                .into_iter()
+                .filter_map(|carrier| embedding.pairs.get(&(carrier.clone(), src, tgt)).copied())
+                .collect();
+            let synthesized = complement.synthesized_fk_pairs.contains(&key);
+            match sources.as_slice() {
+                [] if synthesized => {}
+                [id] => graph.place_edge(
+                    *id,
+                    GEdge {
+                        src: src.0,
+                        tgt: tgt.0,
+                        edge: edge.clone(),
+                        position: instance.edge(*id)?.position,
+                    },
+                ),
+                _ => return None,
+            }
+            if synthesized {
+                contracted.push((src.0, tgt.0, edge.clone()));
+            }
+        }
+    }
+    let key = |(src, tgt, edge): &(u32, u32, Edge)| SynthKey::Contract {
+        src: *src,
+        tgt: *tgt,
+        edge: edge.clone(),
+    };
+    let floor = floor_above(instance.max_edge_id().map(|e| e.0));
+    let ids = allocate_synthesized(contracted.iter().map(key), floor, IdKind::Edge).ok()?;
+    for pair in &contracted {
+        let (src, tgt, edge) = pair;
+        graph.place_edge(EdgeId(ids[&key(pair)]), GEdge::new(*src, *tgt, edge.clone()));
+    }
+    Some(graph)
 }
 
 /// The tree fast path of [`graph_restrict_dispatched`], or `None` when it
@@ -718,6 +795,13 @@ pub fn graph_restrict_with_complement(
 /// The restrict of a graph instance, validating both boundaries: the first
 /// projection of [`graph_restrict_with_complement`].
 ///
+/// With both protocols in hand the restrict is dispatched
+/// ([`graph_restrict_dispatched`]): when the input is a table and the
+/// migration has a plan for tables ([`RestrictPlan::compile_for_tables`]),
+/// over that plan, whose graph view is the protocol plan's (the table layer
+/// is read by no graph stage), and otherwise over the protocol plan. The
+/// result is the graph engine's in every case.
+///
 /// # Errors
 ///
 /// As [`graph_restrict_with_complement`].
@@ -728,8 +812,26 @@ pub fn graph_restrict(
     migration: &CompiledMigration,
     protocols: BoundaryProtocols<'_>,
 ) -> Result<GInstance, RestrictError> {
-    graph_restrict_with_complement(instance, src_schema, tgt_schema, migration, protocols)
-        .map(|(view, _)| view)
+    let (budget, external) = unlimited();
+    let src_plan = boundary_plan(src_schema, protocols.src);
+    require_passed(
+        src_plan.validate_graph(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, migration, protocols)?;
+    let table_plan = matches!(
+        instance.table_shape(src_schema),
+        crate::ginstance::TableShapeReport::Table
+    )
+    .then(|| RestrictPlan::compile_for_tables(src_schema, tgt_schema, migration, protocols).ok())
+    .flatten();
+    let restricted = graph_restrict_dispatched(instance, table_plan.as_ref().unwrap_or(&plan))?;
+    let tgt_plan = boundary_plan(tgt_schema, protocols.tgt);
+    require_passed(
+        tgt_plan.validate_graph(&restricted, &budget, &external),
+        BoundarySide::Output,
+    )?;
+    Ok(restricted)
 }
 
 /// [`graph_restrict_with_complement`] over plans compiled already.

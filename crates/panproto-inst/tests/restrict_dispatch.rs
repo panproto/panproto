@@ -10,7 +10,8 @@ use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::Name;
 use panproto_inst::{
     CompiledMigration, GInstance, Node, RestrictError, RestrictPlan, Value,
-    graph_restrict_dispatched, graph_restrict_on_tree, graph_restrict_with_plan,
+    graph_restrict_dispatched, graph_restrict_on_table, graph_restrict_on_tree,
+    graph_restrict_with_plan,
 };
 use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
 use proptest::prelude::*;
@@ -296,4 +297,229 @@ fn a_tree_engine_error_is_decided_by_the_graph_path() {
         dispatched.unlocated(),
         RestrictError::SurvivalPredicateFailed { .. }
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Tables
+// ---------------------------------------------------------------------------
+
+fn table_protocol() -> Protocol {
+    Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "int".to_owned(),
+            panproto_schema::ScalarKind::Int {
+                bits: 64,
+                signed: true,
+            },
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+fn column(table: &str) -> Edge {
+    Edge {
+        src: table.into(),
+        tgt: format!("{table}.c").into(),
+        kind: "prop".into(),
+        name: Some("c".into()),
+    }
+}
+
+fn fk(src: &str, tgt: &str, name: &str) -> Edge {
+    Edge {
+        src: src.into(),
+        tgt: tgt.into(),
+        kind: "fk".into(),
+        name: Some(name.into()),
+    }
+}
+
+/// Tables `t0..t2`, each with the column `c` of kind `int`, and the
+/// relations between them.
+fn table_schema(relations: &[Edge]) -> Schema {
+    let protocol = table_protocol();
+    let mut builder = SchemaBuilder::new(&protocol);
+    for t in ["t0", "t1", "t2"] {
+        let c = format!("{t}.c");
+        builder = builder
+            .vertex(t, "record", None)
+            .and_then(|b| b.vertex(&c, "int", None))
+            .and_then(|b| b.edge(t, &c, "prop", Some("c")))
+            .unwrap();
+    }
+    for r in relations {
+        builder = builder
+            .edge(&r.src, &r.tgt, &r.kind, r.name.as_deref())
+            .unwrap();
+    }
+    builder.build().unwrap()
+}
+
+/// The migration that keeps the tables `keep` says, every column of a kept
+/// table and every relation, with the predicate `c > 0` on every table when
+/// `predicate` is set.
+fn table_migration(relations: &[Edge], keep: &[bool], predicate: bool) -> CompiledMigration {
+    let mut m = CompiledMigration::default();
+    for (i, t) in ["t0", "t1", "t2"].iter().enumerate() {
+        if keep[i] {
+            m.surviving_verts.insert((*t).into());
+            m.surviving_verts.insert(format!("{t}.c").into());
+            m.surviving_edges.insert(column(t));
+        }
+        if predicate {
+            m.add_conditional_survival(
+                t,
+                Expr::Builtin(
+                    BuiltinOp::Gt,
+                    vec![Expr::Var("c".into()), Expr::Lit(Literal::Int(0))],
+                ),
+            );
+        }
+    }
+    m.surviving_edges.extend(relations.iter().cloned());
+    m
+}
+
+/// A table-shaped graph over `table_schema(relations)`: node `3 i` in table
+/// `rows[i].0` with `c = rows[i].1`, and an edge per pair whose relation
+/// joins the two rows' tables.
+fn table_graph(relations: &[Edge], rows: &[(usize, i64)], pairs: &[(usize, usize, usize)]) -> GInstance {
+    let names = ["t0", "t1", "t2"];
+    let mut g = GInstance::new();
+    for (i, (t, c)) in rows.iter().enumerate() {
+        let id = 3 * u32::try_from(i).unwrap();
+        g = g.with_node(Node::new(id, names[*t]).with_extra_field("c", Value::Int(*c)));
+    }
+    let mut seen = std::collections::BTreeSet::new();
+    for &(s, t, r) in pairs {
+        let (Some(relation), Some((ts, _)), Some((tt, _))) = (relations.get(r), rows.get(s), rows.get(t))
+        else {
+            continue;
+        };
+        if relation.src == names[*ts] && relation.tgt == names[*tt] && seen.insert((r, s, t)) {
+            let (src, tgt) = (3 * u32::try_from(s).unwrap(), 3 * u32::try_from(t).unwrap());
+            g.add_edge(src, tgt, relation.clone()).unwrap();
+        }
+    }
+    g
+}
+
+fn arb_table_case() -> impl Strategy<Value = (GInstance, Schema, CompiledMigration)> {
+    (
+        prop::collection::vec((0usize..3, 0usize..3), 0..4),
+        prop::collection::vec(prop::bool::weighted(0.7), 3),
+        any::<bool>(),
+        prop::collection::vec((0usize..3, -3i64..3), 0..7),
+        prop::collection::vec((0usize..7, 0usize..7, 0usize..4), 0..8),
+    )
+        .prop_map(|(relation_spec, keep, predicate, rows, pairs)| {
+            let names = ["t0", "t1", "t2"];
+            let mut relations: Vec<Edge> = relation_spec
+                .iter()
+                .map(|(s, t)| fk(names[*s], names[*t], &format!("r{s}{t}")))
+                .collect();
+            relations.sort();
+            relations.dedup();
+            let schema = table_schema(&relations);
+            let m = table_migration(&relations, &keep, predicate);
+            (table_graph(&relations, &rows, &pairs), schema, m)
+        })
+}
+
+#[test]
+fn the_table_dispatch_square_commutes() {
+    // On every table-shaped graph and every migration with a plan for
+    // tables, the table path, when it is taken, gives the graph engine's
+    // view under the same ids, over the table plan and over the protocol
+    // plan alike; the dispatcher gives it in every case.
+    let protocol = table_protocol();
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let taken = AtomicUsize::new(0);
+    let mut runner = TestRunner::new(Config {
+        cases: 1024,
+        ..Config::default()
+    });
+    runner
+        .run(&arb_table_case(), |(g, schema, m)| {
+            let Ok(table_plan) = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols)
+            else {
+                return Ok(());
+            };
+            let plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols).unwrap();
+            let engine = graph_restrict_with_plan(&g, &plan).map(|(view, _)| view);
+            let on_table_plan = graph_restrict_with_plan(&g, &table_plan).map(|(view, _)| view);
+            match (&engine, &on_table_plan) {
+                (Ok(a), Ok(b)) => prop_assert!(GInstance::identical(a, b), "{a:?}\n{b:?}"),
+                (Err(a), Err(b)) => prop_assert_eq!(format!("{a:?}"), format!("{b:?}")),
+                _ => prop_assert!(false, "{engine:?}\n{on_table_plan:?}"),
+            }
+            if let Some(fast) = graph_restrict_on_table(&g, &table_plan) {
+                taken.fetch_add(1, Ordering::Relaxed);
+                let engine = engine.as_ref().unwrap();
+                prop_assert!(GInstance::identical(&fast, engine), "{fast:?}\n{engine:?}");
+            }
+            square(&g, &table_plan)
+        })
+        .unwrap();
+    let taken = taken.into_inner();
+    assert!(taken >= 200, "table path taken {taken} times");
+}
+
+#[test]
+fn the_table_path_maps_kept_and_contracted_pairs_back() {
+    // t1 is dropped: the row of t0 reaches the row of t2 through it, so the
+    // pair is contracted onto the direct relation r02, which also carries a
+    // kept pair between other rows.
+    let relations = vec![fk("t0", "t1", "r01"), fk("t1", "t2", "r12"), fk("t0", "t2", "r02")];
+    let schema = table_schema(&relations);
+    let m = table_migration(&relations, &[true, false, true], false);
+    let protocol = table_protocol();
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols).unwrap();
+    let g = table_graph(
+        &relations,
+        &[(0, 1), (1, 1), (2, 1), (0, 2), (2, 2)],
+        &[(0, 1, 0), (1, 2, 1), (3, 4, 2)],
+    );
+    let fast = graph_restrict_on_table(&g, &plan).expect("the table path is taken");
+    let (engine, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    assert!(GInstance::identical(&fast, &engine), "{fast:?}\n{engine:?}");
+    assert_eq!(complement.synthesized_edges.len(), 1);
+    assert_eq!(fast.edge_count(), 2);
+    // The schema-taking restrict, which dispatches, gives the same view as
+    // the one that returns the complement, which does not.
+    let dispatched = panproto_inst::graph_restrict(&g, &schema, &schema, &m, protocols).unwrap();
+    let (direct, _) =
+        panproto_inst::graph_restrict_with_complement(&g, &schema, &schema, &m, protocols).unwrap();
+    assert!(GInstance::identical(&dispatched, &direct));
+}
+
+#[test]
+fn the_table_path_declines_without_a_table_plan_or_a_table() {
+    let relations = vec![fk("t0", "t1", "r01")];
+    let schema = table_schema(&relations);
+    let m = table_migration(&relations, &[true, true, true], false);
+    let protocol = table_protocol();
+    let protocols = panproto_inst::BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    let g = table_graph(&relations, &[(0, 1), (1, 1)], &[(0, 1, 0)]);
+    // A plan with no table layer.
+    let plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols).unwrap();
+    assert!(graph_restrict_on_table(&g, &plan).is_none());
+    // A graph that is no table: a positioned edge.
+    let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols).unwrap();
+    assert!(graph_restrict_on_table(&g, &table_plan).is_some());
+    let mut positioned = g.clone();
+    let id = positioned.edges_sorted().next().unwrap().0;
+    positioned.set_edge_position(id, Some(0)).unwrap();
+    assert!(graph_restrict_on_table(&positioned, &table_plan).is_none());
 }
