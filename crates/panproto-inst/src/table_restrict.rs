@@ -159,17 +159,19 @@ impl<'a> TableRun<'a> {
         let image = self.plan.target_anchor(table).clone();
         let mut node = Node::new(id.0, image.clone());
         node.extra_fields.clone_from(row);
-        let track = self.plan.transform(&mut node, table, &ctx, true)?;
+        self.plan.transform(&mut node, table, &ctx, true)?;
         if !self.reverse.recovers(&image, table) {
             self.complement.original_tables.insert(id, table.clone());
         }
-        // Each source cell is compared with the cell the view holds its
-        // value in, under the column it was renamed to if it was renamed.
+        // Each source cell is compared with the view's cell of the same
+        // name (T.3): a column the view holds under no cell of its name,
+        // renamed or dropped, is a dropped cell, and one it holds with
+        // another value is an original cell. Put rebuilds the row from
+        // these and the view's cells of the source table's columns, so get
+        // paired with the complement is injective on sources whatever the
+        // transforms did, value-dependent renames included.
         for (column, value) in row {
-            let held = track
-                .image_of(column, &node.extra_fields)
-                .and_then(|key| node.extra_fields.get(key));
-            match held {
+            match node.extra_fields.get(column) {
                 None => {
                     self.complement
                         .dropped_cells

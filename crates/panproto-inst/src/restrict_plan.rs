@@ -682,9 +682,6 @@ impl RestrictPlan {
     /// its source table, then the coercion of every key a transform wrote
     /// that is a column of its target table to that column's spec.
     ///
-    /// Returns what the run did to the element's keys, from which each
-    /// source key's key in the result is read ([`KeyTrack::image_of`]).
-    ///
     /// # Errors
     ///
     /// The errors of the transforms ([`apply_field_transforms`]), and
@@ -698,23 +695,22 @@ impl RestrictPlan {
         source_anchor: &Name,
         ctx: &TransformContext<'_>,
         cells: bool,
-    ) -> Result<KeyTrack, RestrictError> {
+    ) -> Result<(), RestrictError> {
         let transforms = self.migration.value_transforms(source_anchor);
         let layer = self.cells();
         let fates = layer
             .filter(|_| cells)
             .and_then(|layer| layer.fates.get(source_anchor));
         if transforms.is_empty() && fates.is_none() {
-            // Nothing moves, writes or drops a key, so each key holds its
-            // own value, which the empty track states.
-            return Ok(KeyTrack::default());
+            // Nothing moves, writes or drops a key, so nothing is coerced.
+            return Ok(());
         }
-        let mut track = KeyTrack::over(node.extra_fields.keys());
+        let mut track = KeyTrack::default();
         if !transforms.is_empty() {
             apply_transforms_tracked(node, &transforms, ctx, &mut track)?;
         }
         let Some(layer) = layer else {
-            return Ok(track);
+            return Ok(());
         };
         if let Some(fates) = fates {
             apply_cell_fates(&mut node.extra_fields, fates, &mut track);
@@ -734,7 +730,7 @@ impl RestrictPlan {
                 })?;
             node.extra_fields.insert(key, coerced);
         }
-        Ok(track)
+        Ok(())
     }
 
     /// The value vertex of `column` of the target table `table`.
@@ -767,7 +763,7 @@ impl RestrictPlan {
 /// Apply cell fates to a row's cells all at once: every dropped or renamed
 /// column is read from the cells as they were, so a rename onto a column
 /// that is itself renamed or dropped moves the right value. A renamed value
-/// carries whether a transform wrote it and the key it came from.
+/// carries whether a transform wrote it.
 fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], track: &mut KeyTrack) {
     let mut moved = Vec::new();
     for fate in fates {

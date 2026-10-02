@@ -44,10 +44,10 @@ pub struct TableComplement {
     /// The rows the view does not hold: rows of dropped tables and rows a
     /// survival predicate drops.
     pub dropped_rows: BTreeMap<RowId, DroppedRow>,
-    /// The cells of kept rows whose value the view does not hold, by row
-    /// and source column. A column the migration renames is held, under
-    /// its new name, and so is no dropped cell; a column whose value is
-    /// replaced by a value moved onto its name is one.
+    /// The source cells of kept rows whose column the view row holds no
+    /// cell of that name for, by row and source column, with their source
+    /// value. A column the migration renames or drops is one: the view
+    /// holds no cell under its name, whatever name its value now has.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub dropped_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs the view does not hold, by source foreign key.
@@ -65,9 +65,16 @@ pub struct TableComplement {
     /// one that is not the source table). An injective rename records
     /// nothing.
     pub original_tables: BTreeMap<RowId, Name>,
-    /// The source values of cells of kept rows that the view holds with
-    /// another value, under their column or the one the migration renamed
-    /// it to, by row and source column.
+    /// The source cells of kept rows whose column the view row holds a
+    /// cell of that name for with another value, by row and source column,
+    /// with their source value.
+    ///
+    /// With [`dropped_cells`](Self::dropped_cells) it names every source
+    /// column on which the view row and the source row disagree, so a put
+    /// rebuilds the source row, column by column of its source table, from
+    /// `dropped_cells`, else `original_cells`, else the view's cell of that
+    /// name; get paired with the complement is thus injective on sources,
+    /// value-dependent renames included.
     #[serde(with = "panproto_schema::serde_helpers::btree_map_as_vec")]
     pub original_cells: BTreeMap<(RowId, String), Value>,
     /// The pairs contraction synthesized, each keyed in the graph form by

@@ -833,10 +833,10 @@ proptest! {
 }
 
 #[test]
-fn a_renamed_column_is_no_dropped_cell() {
-    // The column `a` is renamed to `a2` by the edge map: the view holds its
-    // value under the new name, so the complement records nothing for it
-    // and a bijective rename leaves trivial residue.
+fn a_renamed_column_is_a_dropped_cell() {
+    // The column `a` is renamed to `a2` by the edge map: the view row holds
+    // no cell named `a`, so the source cell is a dropped cell (T.3), and a
+    // column rename leaves non-trivial residue, as it does in the graph.
     let src = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
     let tgt = tables(&[("t", &[("a2", "int"), ("b", "int")])], &[]);
     let m = CompiledMigration {
@@ -863,15 +863,36 @@ fn a_renamed_column_is_no_dropped_cell() {
         view.row(RowId(0)).unwrap(),
         &cells(&[("a2", Value::Int(1)), ("b", Value::Int(2))])
     );
-    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([((RowId(0), "a".to_owned()), Value::Int(1))])
+    );
     assert_eq!(complement.original_cells, BTreeMap::new());
-    assert!(complement.residue_is_trivial(), "{complement:?}");
+    assert!(!complement.residue_is_trivial(), "{complement:?}");
+    assert_eq!(
+        restored_row(
+            view.row(RowId(0)).unwrap(),
+            &complement,
+            RowId(0),
+            &["a", "b"]
+        ),
+        cells(&[("a", Value::Int(1)), ("b", Value::Int(2))])
+    );
+    let p = protocol();
+    let graph_plan = RestrictPlan::compile_with_protocols(&src, &tgt, &m, protocols(&p)).unwrap();
+    let (_, graph_complement) =
+        graph_restrict_with_plan(&GInstance::from_finstance(&f).unwrap().0, &graph_plan).unwrap();
+    assert!(
+        !graph_complement.residue_is_trivial(),
+        "{graph_complement:?}"
+    );
 }
 
 #[test]
 fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
     let (schema, f) = people();
-    // A rename alone: nothing recorded.
+    // A rename alone: the view row holds no cell named `name`, so each
+    // source cell of that column is a dropped cell under it.
     let mut m = identity(&schema);
     m.add_field_rename("person", "name", "label");
     let (view, complement) = functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
@@ -879,9 +900,17 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
         view.row(RowId(0)).unwrap().get("label"),
         Some(&Value::Str("Ann".into()))
     );
-    assert!(complement.residue_is_trivial(), "{complement:?}");
+    assert_eq!(
+        complement.dropped_cells,
+        BTreeMap::from([
+            ((RowId(0), "name".to_owned()), Value::Str("Ann".into())),
+            ((RowId(1), "name".to_owned()), Value::Str("Bo".into())),
+        ])
+    );
+    assert_eq!(complement.original_cells, BTreeMap::new());
     // A rename, then a change of the renamed value: the source value is
-    // recorded under the source column, and nothing is dropped.
+    // recorded under the source column, as a dropped cell, since the view
+    // row holds no cell of its name.
     let mut m = identity(&schema);
     m.add_field_rename("person", "age", "years");
     m.field_transforms.entry("person".into()).or_default().push(
@@ -900,16 +929,17 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
         view.row(RowId(0)).unwrap().get("years"),
         Some(&Value::Int(11))
     );
-    assert_eq!(complement.dropped_cells, BTreeMap::new());
     assert_eq!(
-        complement.original_cells,
+        complement.dropped_cells,
         BTreeMap::from([
             ((RowId(0), "age".to_owned()), Value::Int(10)),
             ((RowId(1), "age".to_owned()), Value::Int(40)),
         ])
     );
-    // A rename onto a column the row holds: that column's own value is
-    // gone from the view, so it is a dropped cell, and the moved one is not.
+    assert_eq!(complement.original_cells, BTreeMap::new());
+    // A rename onto a column the row holds: the view row holds no cell
+    // named `a`, so `a` is a dropped cell, and its cell named `b` holds
+    // `a`'s value, so `b` is an original cell.
     let two = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
     let row = FInstance::new()
         .with_rows(
@@ -926,9 +956,21 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
     assert_eq!(view.row(RowId(0)).unwrap(), &cells(&[("b", Value::Int(1))]));
     assert_eq!(
         complement.dropped_cells,
+        BTreeMap::from([((RowId(0), "a".to_owned()), Value::Int(1))])
+    );
+    assert_eq!(
+        complement.original_cells,
         BTreeMap::from([((RowId(0), "b".to_owned()), Value::Int(2))])
     );
-    assert_eq!(complement.original_cells, BTreeMap::new());
+    assert_eq!(
+        restored_row(
+            view.row(RowId(0)).unwrap(),
+            &complement,
+            RowId(0),
+            &["a", "b"]
+        ),
+        cells(&[("a", Value::Int(1)), ("b", Value::Int(2))])
+    );
     // A computed value written over a column the row holds is that
     // column's changed value.
     let mut m = identity(&schema);
@@ -949,4 +991,213 @@ fn a_cell_renamed_by_a_transform_is_traced_to_its_source_column() {
             ((RowId(1), "age".to_owned()), Value::Int(40)),
         ])
     );
+}
+
+/// The source row a put rebuilds from the view row and the complement,
+/// column by column of the row's source table: `dropped_cells`, else
+/// `original_cells`, else the view's cell of that name (T.3).
+fn restored_row(
+    view_row: &HashMap<String, Value>,
+    complement: &TableComplement,
+    id: RowId,
+    columns: &[&str],
+) -> HashMap<String, Value> {
+    columns
+        .iter()
+        .filter_map(|column| {
+            let key = (id, (*column).to_owned());
+            complement
+                .dropped_cells
+                .get(&key)
+                .or_else(|| complement.original_cells.get(&key))
+                .or_else(|| view_row.get(*column))
+                .map(|value| ((*column).to_owned(), value.clone()))
+        })
+        .collect()
+}
+
+/// `Case [a > 1 => rename a -> tmp, c -> a, tmp -> c]` on the table
+/// `t(a, c)`: a swap of the two columns that runs only where `a > 1`.
+fn value_dependent_swap() -> (Schema, CompiledMigration) {
+    let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+    let mut m = identity(&schema);
+    let rename = |old: &str, new: &str| panproto_inst::FieldTransform::RenameField {
+        old_key: old.into(),
+        new_key: new.into(),
+    };
+    m.field_transforms.insert(
+        "t".into(),
+        vec![panproto_inst::FieldTransform::Case {
+            branches: vec![panproto_inst::CaseBranch {
+                predicate: Expr::Builtin(
+                    BuiltinOp::Gt,
+                    vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+                ),
+                transforms: vec![rename("a", "tmp"), rename("c", "a"), rename("tmp", "c")],
+            }],
+        }],
+    );
+    (schema, m)
+}
+
+#[test]
+fn a_value_dependent_swap_leaves_distinct_table_complements() {
+    // The sources {a: 1, c: 2} and {a: 2, c: 1} have one view, {a: 1,
+    // c: 2}: the first does not swap and the second does. Which one a put
+    // must restore depends on a source value, so no trace of keys through
+    // the renames can tell them apart; the per-column comparison of T.3
+    // does, and the complements differ.
+    let (schema, m) = value_dependent_swap();
+    let p = protocol();
+    let graph_plan =
+        RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
+    let run = |a: i64, c: i64| {
+        let row = cells(&[("a", Value::Int(a)), ("c", Value::Int(c))]);
+        let f = FInstance::new()
+            .with_rows("t", [(RowId(0), row.clone())])
+            .unwrap();
+        let (view, complement) =
+            functor_restrict_with_plan(&f, &plan(&schema, &schema, &m)).unwrap();
+        let view_row = view.row(RowId(0)).unwrap().clone();
+        assert_eq!(
+            restored_row(&view_row, &complement, RowId(0), &["a", "c"]),
+            row,
+            "{complement:?}"
+        );
+        let (graph, _) = GInstance::from_finstance(&f).unwrap();
+        let (_, graph_complement) = graph_restrict_with_plan(&graph, &graph_plan).unwrap();
+        assert_eq!(
+            complement.residue_is_trivial(),
+            graph_complement.residue_is_trivial(),
+            "table {complement:?}\ngraph {graph_complement:?}"
+        );
+        (view_row, complement)
+    };
+    let (unswapped_view, unswapped) = run(1, 2);
+    let (swapped_view, swapped) = run(2, 1);
+    assert_eq!(unswapped_view, swapped_view);
+    assert_eq!(
+        unswapped_view,
+        cells(&[("a", Value::Int(1)), ("c", Value::Int(2))])
+    );
+    assert!(unswapped.residue_is_trivial(), "{unswapped:?}");
+    assert_eq!(swapped.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        swapped.original_cells,
+        BTreeMap::from([
+            ((RowId(0), "a".to_owned()), Value::Int(2)),
+            ((RowId(0), "c".to_owned()), Value::Int(1)),
+        ])
+    );
+    assert_ne!(unswapped, swapped);
+}
+
+/// One value transform of `t(a, c)` from a pool that renames, swaps on a
+/// value, drops, overwrites, changes in place and computes a column the
+/// table lacks.
+fn pooled_transform(choice: u8) -> panproto_inst::FieldTransform {
+    use panproto_inst::{CaseBranch, FieldTransform};
+    let var = |name: &str| Expr::Var(name.into());
+    let int = |n: i64| Expr::Lit(Literal::Int(n));
+    let rename = |old: &str, new: &str| FieldTransform::RenameField {
+        old_key: old.into(),
+        new_key: new.into(),
+    };
+    match choice {
+        0 => value_dependent_swap().1.field_transforms["t"][0].clone(),
+        1 => FieldTransform::ComputeField {
+            target_key: "k".into(),
+            expr: int(1),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
+        },
+        2 => FieldTransform::ApplyExpr {
+            key: "a".into(),
+            expr: Expr::Builtin(BuiltinOp::Mul, vec![var("a"), int(0)]),
+            inverse: None,
+            coercion_class: panproto_gat::CoercionClass::Opaque,
+        },
+        3 => FieldTransform::DropField { key: "c".into() },
+        4 => rename("a", "c"),
+        5 => FieldTransform::Case {
+            branches: vec![CaseBranch {
+                predicate: Expr::Builtin(BuiltinOp::Gt, vec![var("a"), int(0)]),
+                transforms: vec![rename("a", "z")],
+            }],
+        },
+        _ => FieldTransform::AddField {
+            key: "c".into(),
+            value: Value::Int(0),
+        },
+    }
+}
+
+proptest! {
+    #![proptest_config(ProptestConfig::with_cases(512))]
+
+    /// Under value transforms that rename, swap on a value, drop,
+    /// overwrite, change in place and compute, on every surviving row: the
+    /// table complement rebuilds the source row column by column (so get
+    /// paired with it is injective on sources), and the table records the
+    /// row's cells exactly when the graph engine records its fields on the
+    /// table's graph form, except on a row whose view holds a cell outside
+    /// the source table's columns while every source column keeps its name
+    /// and value, which the graph records and the table does not (T.7).
+    #[test]
+    fn table_and_graph_cell_residues_agree_but_for_a_computed_column(
+        choices in prop::collection::vec(0u8..7, 0..4),
+        rows in prop::collection::vec((-2i64..3, -2i64..3), 0..4),
+    ) {
+        let schema = tables(&[("t", &[("a", "int"), ("c", "int")])], &[]);
+        let mut m = identity(&schema);
+        m.field_transforms
+            .insert("t".into(), choices.iter().map(|c| pooled_transform(*c)).collect());
+        let mut f = FInstance::new();
+        for (i, (a, c)) in rows.iter().enumerate() {
+            f = f
+                .with_rows(
+                    "t",
+                    [(
+                        RowId(u32::try_from(i).unwrap()),
+                        cells(&[("a", Value::Int(*a)), ("c", Value::Int(*c))]),
+                    )],
+                )
+                .unwrap();
+        }
+        let p = protocol();
+        let table_plan = RestrictPlan::compile_for_tables(&schema, &schema, &m, protocols(&p)).unwrap();
+        let graph_plan = RestrictPlan::compile_with_protocols(&schema, &schema, &m, protocols(&p)).unwrap();
+        let (graph, _) = GInstance::from_finstance(&f).unwrap();
+        match (functor_restrict_with_plan(&f, &table_plan), graph_restrict_with_plan(&graph, &graph_plan)) {
+            (Ok((view, complement)), Ok((_, graph_complement))) => {
+                for id in view.row_ids() {
+                    let (view_row, source_row) = (view.row(id).unwrap(), f.row(id).unwrap());
+                    prop_assert_eq!(
+                        &restored_row(view_row, &complement, id, &["a", "c"]),
+                        source_row
+                    );
+                    let table_records = complement.dropped_cells.keys().chain(complement.original_cells.keys()).any(|(r, _)| *r == id);
+                    let graph_records = graph_complement.original_extra_fields.contains_key(&id.0);
+                    let extra = view_row.keys().any(|k| k != "a" && k != "c");
+                    prop_assert!(
+                        graph_records == table_records || (graph_records && !table_records && extra),
+                        "row {:?}: table {:?}\ngraph {:?}", id, complement, graph_complement
+                    );
+                    if graph_records {
+                        let snapshot: HashMap<String, Value> = graph_complement.original_extra_fields[&id.0]
+                            .iter()
+                            .map(|(k, v)| (k.clone(), v.clone()))
+                            .collect();
+                        prop_assert_eq!(&snapshot, source_row);
+                    }
+                }
+            }
+            (Err(table_error), Err(graph_error)) => {
+                prop_assert_eq!(table_error.kind_index(), graph_error.unlocated().kind_index());
+            }
+            (table, graph) => {
+                prop_assert!(false, "table {:?} graph {:?}", table.map(|r| r.0), graph.map(|r| r.0));
+            }
+        }
+    }
 }

@@ -1,7 +1,8 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 //! The table restrict takes time linear in a row's cells up to a
-//! logarithmic factor: tracing each source cell to the key that holds its
-//! value in the view costs no scan of the row's other keys.
+//! logarithmic factor: comparing each source cell with the view's cell of
+//! its name, through the value transforms and cell fates that move and
+//! keep keys, costs no scan of the row's other keys.
 
 mod common;
 
@@ -44,11 +45,12 @@ enum Fate {
     /// The identity: no transform and no cell fate runs, so no key is
     /// tracked at all.
     Identity,
-    /// A value transform keeps every column, so every key is tracked and
-    /// traced through the kept set.
+    /// A value transform keeps every column, so every key is tracked
+    /// through the kept set.
     Keep,
     /// Every column `ci` is renamed to `di`, so every cell is moved by a
-    /// cell fate and traced to the key that now holds it.
+    /// cell fate, and each source cell is a dropped cell, since the view
+    /// row holds no cell of its column's name.
     Rename,
 }
 
@@ -126,17 +128,35 @@ fn wide(width: usize, rows: u32, fate: Fate) -> (RestrictPlan, FInstance, HashMa
 }
 
 /// The time of the restrict, after checking that the plan maps the first
-/// row to `expected` and records nothing.
+/// row to `expected` and that the complement records exactly the cells T.3
+/// names: none under [`Fate::Identity`] and [`Fate::Keep`], and every
+/// source cell, as a dropped cell, under [`Fate::Rename`].
 fn restrict_time(
     plan: &RestrictPlan,
     instance: &FInstance,
     expected: &HashMap<String, Value>,
+    fate: Fate,
 ) -> Duration {
     let start = Instant::now();
     let (view, complement) = functor_restrict_with_plan(instance, plan).unwrap();
     let elapsed = start.elapsed();
     assert_eq!(view.row(RowId(0)), Some(expected));
-    assert!(complement.residue_is_trivial(), "{complement:?}");
+    if matches!(fate, Fate::Rename) {
+        let mut cleared = complement.clone();
+        cleared.dropped_cells.clear();
+        assert!(cleared.residue_is_trivial(), "{cleared:?}");
+        let cells: usize = instance
+            .row_ids()
+            .into_iter()
+            .map(|id| instance.row(id).unwrap().len())
+            .sum();
+        assert_eq!(complement.dropped_cells.len(), cells);
+        for ((id, column), value) in &complement.dropped_cells {
+            assert_eq!(instance.row(*id).unwrap().get(column), Some(value));
+        }
+    } else {
+        assert!(complement.residue_is_trivial(), "{complement:?}");
+    }
     elapsed
 }
 
@@ -148,11 +168,11 @@ fn growth_from_250_to_4000_columns(fate: Fate) -> f64 {
     let (small, large) = common::sizes_in_units(
         7,
         common::Probe {
-            work: || restrict_time(&small_plan, &small_table, &small_row),
+            work: || restrict_time(&small_plan, &small_table, &small_row, fate),
             unit: || drop(std::hint::black_box(small_table.clone())),
         },
         common::Probe {
-            work: || restrict_time(&large_plan, &large_table, &large_row),
+            work: || restrict_time(&large_plan, &large_table, &large_row, fate),
             unit: || drop(std::hint::black_box(large_table.clone())),
         },
     );
@@ -174,8 +194,8 @@ fn growth_from_250_to_4000_columns(fate: Fate) -> f64 {
 //
 // Each fate guards a different path. The identity tracks no key, so it
 // guards only the path on which no transform or cell fate runs; keeping
-// every column traces each cell through the kept set; renaming every
-// column moves each cell by a cell fate and traces it to its new key.
+// every column tracks each key through the kept set; renaming every
+// column moves each cell by a cell fate and records each source cell.
 
 #[test]
 fn a_wide_row_is_not_charged_per_cell_and_key() {
@@ -197,9 +217,10 @@ fn renaming_the_columns_of_a_wide_row_is_not_charged_per_cell_and_key() {
 
 #[test]
 fn every_renamed_cell_of_a_wide_row_is_traced_to_its_source_column() {
-    // Renaming every column moves each cell's value to a new key; each
-    // source cell is found under its new key, so nothing is dropped or
-    // recorded as changed.
+    // Renaming every column moves each cell's value to a new key; the view
+    // row holds no cell named after any source column, so each source cell
+    // is recorded under its source column as a dropped cell (T.3), with
+    // its source value, and none as changed.
     let p = protocol();
     let width = 64;
     let mut src = SchemaBuilder::new(&p).vertex("t", "record", None).unwrap();
@@ -242,6 +263,11 @@ fn every_renamed_cell_of_a_wide_row_is_traced_to_its_source_column() {
     let instance = FInstance::new().with_rows("t", [(RowId(0), row)]).unwrap();
     let (view, complement) = functor_restrict_with_plan(&instance, &plan).unwrap();
     assert_eq!(view.row(RowId(0)), Some(&expected));
-    assert_eq!(complement.dropped_cells, BTreeMap::new());
+    assert_eq!(
+        complement.dropped_cells,
+        (0..width)
+            .map(|i| ((RowId(0), format!("c{i}")), Value::Int(i64::from(i))))
+            .collect::<BTreeMap<_, _>>()
+    );
     assert_eq!(complement.original_cells, BTreeMap::new());
 }
