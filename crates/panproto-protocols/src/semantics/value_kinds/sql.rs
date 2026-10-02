@@ -4,7 +4,9 @@
 //! columns one vertex kind, `number`, which therefore holds an exact
 //! decimal (every float lexeme is one); every integer type is `integer`,
 //! at the widest width, narrowed by a column's `int_bits` parameter; a
-//! `BYTEA` or `BLOB` literal is hexadecimal.
+//! `BYTEA` or `BLOB` literal is hexadecimal. An array column holds one list
+//! value in its cell, of any element kind, so `array` is a value kind like
+//! `json`, and its element vertex is part of that value.
 
 use panproto_schema::{BytesText, ScalarKind};
 
@@ -60,16 +62,15 @@ pub(super) const ROWS: &[ValueKindRow] = &[
         vertex_kind: "json",
         kind: ScalarKind::Any,
     },
+    ValueKindRow {
+        protocol: "sql",
+        vertex_kind: "array",
+        kind: ScalarKind::Any,
+    },
 ];
 
 /// The vertex kinds of this family that hold no scalar.
-pub(super) const NON_SCALAR: &[NonScalarRow] = &[
-    NonScalarRow {
-        protocol: "sql",
-        vertex_kind: "table",
-    },
-    NonScalarRow {
-        protocol: "sql",
-        vertex_kind: "array",
-    },
-];
+pub(super) const NON_SCALAR: &[NonScalarRow] = &[NonScalarRow {
+    protocol: "sql",
+    vertex_kind: "table",
+}];

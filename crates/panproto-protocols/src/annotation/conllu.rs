@@ -48,6 +48,7 @@ pub fn protocol() -> Protocol {
             "text".into(),
             "newpar".into(),
             "newdoc".into(),
+            "value".into(),
         ],
         has_order: true,
         ..Default::default()
@@ -73,6 +74,13 @@ pub fn register_theories<S: BuildHasher>(registry: &mut HashMap<String, Theory, 
 /// The DEPS column (enhanced dependencies) is modeled with `enhanced-dep`
 /// edges. Empty nodes (decimal IDs such as `1.1`) do not carry UPOS, XPOS,
 /// LEMMA, or FEATS information per the CoNLL-U specification.
+///
+/// A word's own columns are edges to vertices that hold one value each,
+/// named by the column: `lemma`, `upos`, `xpos`, `feat:<Name>` for each
+/// feature, `deprel` for the relation of a root dependency, and `deps:<i>`
+/// for the relation of its `i`-th enhanced root dependency. The value is a
+/// `value` constraint on the edge's target. A dependency between two words
+/// is an edge named by its relation.
 ///
 /// # Errors
 ///
@@ -177,8 +185,9 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                         .vertex(&lemma_id, "lemma", None)
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                     builder = builder
-                        .edge(&token_vertex_id, &lemma_id, "lemma-of", Some(lemma_str))
+                        .edge(&token_vertex_id, &lemma_id, "lemma-of", Some("lemma"))
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                    builder = builder.constraint(&lemma_id, "value", lemma_str);
                 }
 
                 // UPOS vertex + edge
@@ -188,8 +197,9 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                         .vertex(&upos_id, "upos-tag", None)
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                     builder = builder
-                        .edge(&token_vertex_id, &upos_id, "upos", Some(upos))
+                        .edge(&token_vertex_id, &upos_id, "upos", Some("upos"))
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                    builder = builder.constraint(&upos_id, "value", upos);
                 }
 
                 // XPOS vertex + edge
@@ -199,8 +209,9 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                         .vertex(&xpos_id, "xpos-tag", None)
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                     builder = builder
-                        .edge(&token_vertex_id, &xpos_id, "xpos", Some(xpos))
+                        .edge(&token_vertex_id, &xpos_id, "xpos", Some("xpos"))
                         .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                    builder = builder.constraint(&xpos_id, "value", xpos);
                 }
 
                 // FEATS -> feature vertices
@@ -210,9 +221,23 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                         builder = builder
                             .vertex(&feat_id, "feature", None)
                             .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                        // `Name=Value`: the column is the name, the cell the
+                        // value; a feature written without `=` has a name
+                        // and no value.
+                        let (feat_name, feat_value) = feat_pair
+                            .split_once('=')
+                            .map_or((feat_pair, None), |(n, v)| (n, Some(v)));
                         builder = builder
-                            .edge(&token_vertex_id, &feat_id, "feat", Some(feat_pair))
+                            .edge(
+                                &token_vertex_id,
+                                &feat_id,
+                                "feat",
+                                Some(&format!("feat:{feat_name}")),
+                            )
                             .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                        if let Some(feat_value) = feat_value {
+                            builder = builder.constraint(&feat_id, "value", feat_value);
+                        }
                     }
                 }
             }
@@ -250,8 +275,9 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                     .vertex(&deprel_id, "deprel", None)
                     .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                 builder = builder
-                    .edge(dep_vertex, &deprel_id, "dep", Some(deprel_col))
+                    .edge(dep_vertex, &deprel_id, "dep", Some("deprel"))
                     .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                builder = builder.constraint(&deprel_id, "value", deprel_col);
             } else if let Some(head_vertex) = token_ids.get(head_col) {
                 // dep edge from head to dependent
                 builder = builder
@@ -263,6 +289,7 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
         // Resolve enhanced dependency edges.
         // Format: "head:relation|head:relation" where head is a token ID.
         for (dep_vertex, deps_col) in &deferred_enhanced {
+            let mut roots = 0usize;
             for (ei, pair) in deps_col.split('|').enumerate() {
                 // Split on the first colon: head_id:relation
                 if let Some(colon_pos) = pair.find(':') {
@@ -276,8 +303,15 @@ pub fn parse_conllu(input: &str) -> Result<Schema, ProtocolError> {
                             .vertex(&edep_id, "deprel", None)
                             .map_err(|e| ProtocolError::Parse(e.to_string()))?;
                         builder = builder
-                            .edge(dep_vertex, &edep_id, "enhanced-dep", Some(relation))
+                            .edge(
+                                dep_vertex,
+                                &edep_id,
+                                "enhanced-dep",
+                                Some(&format!("deps:{roots}")),
+                            )
                             .map_err(|e| ProtocolError::Parse(e.to_string()))?;
+                        builder = builder.constraint(&edep_id, "value", relation);
+                        roots += 1;
                     } else if let Some(head_vertex) = token_ids.get(head_id) {
                         builder = builder
                             .edge(head_vertex, dep_vertex, "enhanced-dep", Some(&label))
@@ -382,17 +416,31 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                     })
                 })
                 .collect();
-            // Also check outgoing enhanced-dep from this node to a deprel vertex (root).
-            let outgoing = schema.outgoing_edges(&token_vertex.id);
-            for e in outgoing.iter().filter(|e| e.kind == "enhanced-dep") {
-                if let Some(tgt_v) = schema.vertices.get(&e.tgt) {
-                    if tgt_v.kind == "deprel" {
-                        if let Some(rel) = e.name.as_deref() {
-                            edeps.push(format!("0:{rel}"));
-                        }
-                    }
-                }
-            }
+            // Also the enhanced root dependencies: outgoing enhanced-dep
+            // edges to a deprel vertex, the i-th named `deps:<i>`, each
+            // holding its relation as the target's value.
+            let mut roots: Vec<(usize, String)> = schema
+                .outgoing_edges(&token_vertex.id)
+                .iter()
+                .filter(|e| e.kind == "enhanced-dep")
+                .filter(|e| {
+                    schema
+                        .vertices
+                        .get(&e.tgt)
+                        .is_some_and(|v| v.kind == "deprel")
+                })
+                .filter_map(|e| {
+                    let index = e
+                        .name
+                        .as_deref()
+                        .and_then(|n| n.strip_prefix("deps:"))
+                        .and_then(|i| i.parse::<usize>().ok())?;
+                    let relation = constraint_value(schema, &e.tgt, "value")?;
+                    Some((index, format!("0:{relation}")))
+                })
+                .collect();
+            roots.sort();
+            edeps.extend(roots.into_iter().map(|(_, root)| root));
             if !edeps.is_empty() {
                 // Sort by head index numerically.
                 edeps.sort_by(|a, b| {
@@ -415,48 +463,46 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
 
             let is_word = token_vertex.kind == "word";
 
-            // Lemma from lemma-of edge name (words only).
-            let lemma = if is_word {
-                let lemma_edges = children_by_edge(schema, &token_vertex.id, "lemma-of");
-                lemma_edges
-                    .first()
-                    .and_then(|(e, _)| e.name.as_deref())
-                    .unwrap_or("_")
-            } else {
-                "_"
+            // LEMMA, UPOS and XPOS: the value held by the target of the
+            // word's edge of that column (words only).
+            let column_value = |edge_kind: &str| {
+                if is_word {
+                    children_by_edge(schema, &token_vertex.id, edge_kind)
+                        .first()
+                        .and_then(|(_, v)| constraint_value(schema, &v.id, "value"))
+                        .unwrap_or("_")
+                } else {
+                    "_"
+                }
             };
+            let lemma = column_value("lemma-of");
+            let upos = column_value("upos");
+            let xpos = column_value("xpos");
 
-            // UPOS from upos edge name (words only).
-            let upos = if is_word {
-                let upos_edges = children_by_edge(schema, &token_vertex.id, "upos");
-                upos_edges
-                    .first()
-                    .and_then(|(e, _)| e.name.as_deref())
-                    .unwrap_or("_")
-            } else {
-                "_"
-            };
-
-            // XPOS from xpos edge name (words only).
-            let xpos = if is_word {
-                let xpos_edges = children_by_edge(schema, &token_vertex.id, "xpos");
-                xpos_edges
-                    .first()
-                    .and_then(|(e, _)| e.name.as_deref())
-                    .unwrap_or("_")
-            } else {
-                "_"
-            };
-
-            // FEATS from feat edge names (words only).
+            // FEATS: each `feat:<Name>` edge with its target's value, in
+            // the order the features were written (words only).
             let feats = if is_word {
-                let feat_edges = children_by_edge(schema, &token_vertex.id, "feat");
+                let mut feat_edges: Vec<(usize, String)> =
+                    children_by_edge(schema, &token_vertex.id, "feat")
+                        .into_iter()
+                        .filter_map(|(e, v)| {
+                            let name = e.name.as_deref()?.strip_prefix("feat:")?;
+                            let position =
+                                v.id.rsplit_once(".feat_")
+                                    .and_then(|(_, i)| i.parse::<usize>().ok())
+                                    .unwrap_or(usize::MAX);
+                            let feature = constraint_value(schema, &v.id, "value")
+                                .map_or_else(|| name.to_owned(), |value| format!("{name}={value}"));
+                            Some((position, feature))
+                        })
+                        .collect();
+                feat_edges.sort();
                 if feat_edges.is_empty() {
                     "_".to_string()
                 } else {
                     feat_edges
-                        .iter()
-                        .filter_map(|(e, _)| e.name.as_deref())
+                        .into_iter()
+                        .map(|(_, feature)| feature)
                         .collect::<Vec<_>>()
                         .join("|")
                 }
@@ -477,12 +523,19 @@ pub fn emit_conllu(schema: &Schema) -> Result<String, ProtocolError> {
                     .iter()
                     .find(|e| e.kind == "dep")
                     .and_then(|e| e.name.as_deref());
-                // Also check outgoing dep to a deprel vertex (root case).
+                // A root word's relation is the value held by the deprel
+                // vertex its `deprel` edge reaches.
                 let root_dep = schema
                     .outgoing_edges(&token_vertex.id)
                     .iter()
-                    .find(|e| e.kind == "dep")
-                    .and_then(|e| e.name.as_deref());
+                    .filter(|e| e.kind == "dep")
+                    .find(|e| {
+                        schema
+                            .vertices
+                            .get(&e.tgt)
+                            .is_some_and(|v| v.kind == "deprel")
+                    })
+                    .and_then(|e| constraint_value(schema, &e.tgt, "value"));
                 incoming_dep.or(root_dep).unwrap_or("_")
             };
 
@@ -727,6 +780,61 @@ mod tests {
         let emitted = emit_conllu(&schema).expect("should emit");
         let schema2 = parse_conllu(&emitted).expect("should re-parse");
         assert_eq!(schema.vertex_count(), schema2.vertex_count());
+    }
+
+    /// Every attribute edge out of a word is named by its column role and
+    /// its target holds the value as a `value` constraint, so a word's
+    /// columns are distinct even when a tag repeats a relation name (a
+    /// root with DEPREL `root` and DEPS `0:root`); word-to-word dependencies
+    /// keep their relation names; and emission reads the values back.
+    #[test]
+    fn conllu_attribute_edges_are_named_by_column_role() {
+        let text = "\
+1\tThe\tthe\tDET\tDT\tDefinite=Def|PronType=Art\t2\tdet\t_\t_
+2\tcat\tcat\tNOUN\tNN\tNumber=Sing\t0\troot\t0:root\t_
+";
+        let schema = parse_conllu(text).expect("should parse");
+        let named = |src: &str, kind: &str| -> Vec<(String, Option<String>)> {
+            let mut out: Vec<(String, Option<String>)> = schema
+                .outgoing_edges(src)
+                .iter()
+                .filter(|e| e.kind == kind)
+                .map(|e| {
+                    (
+                        e.name.as_deref().unwrap_or("").to_owned(),
+                        constraint_value(&schema, &e.tgt, "value").map(str::to_owned),
+                    )
+                })
+                .collect();
+            out.sort();
+            out
+        };
+        let one = "sent_0.tok_1";
+        let value = |v: &str| Some(v.to_owned());
+        assert_eq!(named(one, "lemma-of"), [("lemma".to_owned(), value("the"))]);
+        assert_eq!(named(one, "upos"), [("upos".to_owned(), value("DET"))]);
+        assert_eq!(named(one, "xpos"), [("xpos".to_owned(), value("DT"))]);
+        assert_eq!(
+            named(one, "feat"),
+            [
+                ("feat:Definite".to_owned(), value("Def")),
+                ("feat:PronType".to_owned(), value("Art")),
+            ]
+        );
+        let two = "sent_0.tok_2";
+        assert_eq!(
+            named(two, "dep"),
+            [
+                ("deprel".to_owned(), value("root")),
+                ("det".to_owned(), None),
+            ]
+        );
+        assert_eq!(
+            named(two, "enhanced-dep"),
+            [("deps:0".to_owned(), value("root"))]
+        );
+        let emitted = emit_conllu(&schema).expect("should emit");
+        assert_eq!(emitted, format!("{text}\n"));
     }
 
     #[test]

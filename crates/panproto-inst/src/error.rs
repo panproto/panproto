@@ -330,6 +330,79 @@ pub enum RestrictError {
         /// The edge whose pairs have no image.
         edge: Edge,
     },
+
+    /// The migration keeps a foreign key but names an image that is not a
+    /// foreign key of the target running between the images of its
+    /// endpoints, so it states no functor between the relation-ified
+    /// schemas.
+    #[error(
+        "the migration carries foreign key {source_edge:?} to {image:?}, \
+         which is not a foreign key between the images of its endpoints"
+    )]
+    IncoherentEdgeImage {
+        /// The source foreign key (boxed, as the image is, so that the
+        /// error stays within the size `clippy::result_large_err` allows).
+        source_edge: Box<Edge>,
+        /// The image the migration names for it.
+        image: Box<Edge>,
+    },
+
+    /// The migration keeps a source table but sends it to a vertex that is
+    /// not a table of the target.
+    #[error(
+        "the migration sends table `{vertex}` to `{image}`, which is not a table of the target"
+    )]
+    VertexImageNotATable {
+        /// The source table.
+        vertex: Name,
+        /// The image the migration names for it.
+        image: Name,
+    },
+
+    /// The migration keeps a column (an attribute arrow of a kept table) but
+    /// names no attribute arrow of the target as its image: the image it
+    /// names is no attribute arrow, leaves another table than the image of
+    /// the column's table, or ends elsewhere than the image of the column's
+    /// vertex, or a surviving column has no attribute arrow of its kind and
+    /// name in the target.
+    #[error(
+        "the migration carries column {edge:?} to {image:?}, \
+         which is no column of the image of its table"
+    )]
+    IncoherentAttributeImage {
+        /// The source attribute arrow (boxed, as the image is, so that the
+        /// error stays within the size `clippy::result_large_err` allows).
+        edge: Box<Edge>,
+        /// The image the migration names for it, or `None` when a
+        /// surviving column has none in the target.
+        image: Option<Box<Edge>>,
+    },
+
+    /// A column of a target table is the image of no kept column of its
+    /// fibre, so the right Kan extension would have to range over every
+    /// value there and has no result.
+    #[error("column `{column}` of target table `{table}` is the image of no source column")]
+    AttributeOutsideImage {
+        /// The least such table.
+        table: Name,
+        /// The least such column of it.
+        column: String,
+    },
+
+    /// The migration sends an edge inside a column's value to an edge that
+    /// is no edge inside a target column's value, or renames it, changes its
+    /// kind, or changes the kind of an endpoint, so it would change the
+    /// structure of the values cells hold.
+    #[error("the migration changes the structure of the values inside cells at edge {edge:?}")]
+    ValueStructureRemap {
+        /// The source edge inside a value.
+        edge: Edge,
+    },
+
+    /// A schema the migration runs between has no attributed relation-ified
+    /// form under its protocol.
+    #[error("the schema has no relation-ified form: {0}")]
+    RelSchema(#[from] crate::rel_schema::RelSchemaError),
 }
 
 /// Errors from JSON parsing.
