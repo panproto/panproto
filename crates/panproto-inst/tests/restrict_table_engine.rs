@@ -1885,3 +1885,38 @@ fn the_default_protocol_declares_the_leaf_edges_alone() {
         vec!["a".to_owned(), "addr".to_owned()]
     );
 }
+
+#[test]
+fn validate_attributes_is_the_attribute_projection_under_the_default_protocol() {
+    // `validate_attributes` derives the attribute discipline under
+    // `Protocol::default`, which has no value kinds: it agrees with the
+    // `Attribute` checks of `validate_wtype` under that protocol, and not
+    // under one that classifies `addr` as a structured column of `t`.
+    let classifying = protocol_with_struct();
+    let schema = leaf_and_struct_table(&classifying);
+    let addr = Value::Unknown(HashMap::from([("x".to_owned(), Value::Int(2))]));
+    let tree = panproto_inst::WInstance::new(
+        HashMap::from([(
+            0,
+            panproto_inst::Node::new(0, "t")
+                .with_extra_field("a", Value::Int(1))
+                .with_extra_field("addr", addr),
+        )]),
+        vec![],
+        vec![],
+        0,
+        "t".into(),
+    );
+    let attribute_count = |p: &Protocol| {
+        panproto_inst::validate_wtype(&tree, &schema, p)
+            .diagnostics
+            .iter()
+            .filter(|d| d.check.kind == panproto_inst::CheckKind::Attribute)
+            .count()
+    };
+    let projection = panproto_inst::validate_attributes(&schema, &tree);
+    assert_eq!(projection.len(), 1, "{projection:?}");
+    assert!(format!("{projection:?}").contains("addr"), "{projection:?}");
+    assert_eq!(attribute_count(&Protocol::default()), projection.len());
+    assert_eq!(attribute_count(&classifying), 0);
+}
