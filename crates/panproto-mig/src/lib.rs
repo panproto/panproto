@@ -59,7 +59,10 @@ pub use compose::compose;
 pub use compose::{
     ComposeReport, OnMissing, RelabelComposition, compose_relabeling, compose_with_report,
 };
-pub use coverage::{CoverageReport, PartialFailure, PartialReason, check_coverage};
+pub use coverage::{
+    CoverageReport, GraphCoverageReport, PartialFailure, PartialReason, check_coverage,
+    check_graph_coverage,
+};
 pub use error::{ComposeError, ExistenceError, InvertError, LiftError, MigError, SpanError};
 pub use existence::{ExistenceReport, check_existence};
 pub use hom_search::{

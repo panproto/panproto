@@ -1368,18 +1368,32 @@ mod composition_rule {
         }
     }
 
-    /// The fused lens and the sequential pair agree on `source`: views
-    /// equivalent (neither synthesizes a node, so equivalence is exact,
-    /// child order included), and sources written back identical for the
-    /// view and an edit of it.
+    /// The fused lens and the sequential pair agree on `source`. A refusal
+    /// is an outcome: either both gets refuse, with equal errors (compared
+    /// by their `Debug` forms, since `LensError` has no `PartialEq`), or
+    /// both succeed, with views equivalent (neither synthesizes a node, so
+    /// equivalence is exact, child order included) and sources written
+    /// back identical for the view and an edit of it.
     fn agree(
         fused: &Lens,
         sequential: &SequentialTreeLens,
         source: &WInstance,
     ) -> Result<(), TestCaseError> {
-        let (seq_view, seq_c) = sequential.get(source).unwrap();
-        let (view, c) = panproto_lens::get(fused, source)
-            .map_err(|e| TestCaseError::fail(format!("the fused get failed: {e}")))?;
+        let ((seq_view, seq_c), (view, c)) =
+            match (sequential.get(source), panproto_lens::get(fused, source)) {
+                (Ok(seq), Ok(fused)) => (seq, fused),
+                (Err(seq), Err(fused)) => {
+                    prop_assert_eq!(format!("{seq:?}"), format!("{fused:?}"));
+                    return Ok(());
+                }
+                (seq, fused) => {
+                    return Err(TestCaseError::fail(format!(
+                        "one get refused: in sequence {:?}, fused {:?}",
+                        seq.err(),
+                        fused.err()
+                    )));
+                }
+            };
         prop_assert!(c.synthesized_nodes.is_empty() && seq_c.1.synthesized_nodes.is_empty());
         if let Some(difference) = view_difference(&view, &seq_view) {
             return Err(TestCaseError::fail(format!("views differ: {difference}")));
@@ -1870,10 +1884,23 @@ mod composition_rule {
                     agree(&fused, &SequentialTreeLens { first, second }, &instance)?;
                 }
                 TreeComposite::Sequential(sequential) => {
-                    let (view, _) = sequential.get(&instance).unwrap();
-                    let (middle, _) = panproto_lens::get(&first, &instance).unwrap();
-                    let (expected, _) = panproto_lens::get(&second, &middle).unwrap();
-                    prop_assert_eq!(view_difference(&view, &expected), None);
+                    let staged = panproto_lens::get(&first, &instance)
+                        .and_then(|(middle, _)| panproto_lens::get(&second, &middle));
+                    match (sequential.get(&instance), staged) {
+                        (Ok((view, _)), Ok((expected, _))) => {
+                            prop_assert_eq!(view_difference(&view, &expected), None);
+                        }
+                        (Err(refused), Err(expected)) => {
+                            prop_assert_eq!(format!("{refused:?}"), format!("{expected:?}"));
+                        }
+                        (outcome, expected) => {
+                            return Err(TestCaseError::fail(format!(
+                                "one get refused: in sequence {:?}, staged {:?}",
+                                outcome.err(),
+                                expected.err()
+                            )));
+                        }
+                    }
                 }
             }
         }
@@ -1882,8 +1909,8 @@ mod composition_rule {
     /// Value layers for the value-composition tests, on `anchor`: `0`
     /// none, `1` the invertible transform `level := level + 1`, `2` the
     /// survival predicate `level == 3`, `3` the survival predicate
-    /// `missing == 1`, which fails to evaluate on every node and so keeps
-    /// it.
+    /// `missing == 1`, which reads a variable no node binds, so get refuses
+    /// at the first node, in ascending id, of the anchor that carries it.
     fn value_layer(lens: &mut Lens, anchor: &str, layer: u8) {
         use panproto_expr::{BuiltinOp, Expr, Literal};
         use panproto_inst::FieldTransform;
@@ -1965,20 +1992,30 @@ mod composition_rule {
         );
     }
 
-    /// A predicate of each lens on one anchor: the first fails to evaluate,
-    /// which keeps the node, and the second is false, which drops it. One
-    /// migration conjoins them, and the failed conjunct keeps the node.
+    /// A predicate of each lens on one anchor: the first, `level == 3`, is
+    /// false on a node of level 2, so the pair drops it in its first stage
+    /// and never evaluates the second, `missing == 1`. One migration
+    /// conjoins them, evaluates both conjuncts, and refuses on the unbound
+    /// variable of the second.
     #[test]
     fn predicates_of_both_lenses_on_one_anchor_are_kept_in_sequence() {
-        let (first, second) = (valued_identity(3), valued_identity(2));
+        let (first, second) = (valued_identity(2), valued_identity(3));
         let source = levelled_source(&[2]);
         let fused = panproto_lens::compose(&first, &second).unwrap();
-        let (view, _) = panproto_lens::get(&fused, &source).unwrap();
+        let refused = panproto_lens::get(&fused, &source).unwrap_err();
         let composite = panproto_lens::compose_tree(&first, &second).unwrap();
         let sequential = SequentialTreeLens { first, second };
         let (seq_view, _) = sequential.get(&source).unwrap();
-        assert!(!seq_view.nodes.contains_key(&1), "the second lens drops it");
-        assert!(view.nodes.contains_key(&1), "the conjunction keeps it");
+        assert!(!seq_view.nodes.contains_key(&1), "the first lens drops it");
+        assert!(
+            matches!(
+                refused,
+                panproto_lens::LensError::Restrict(
+                    panproto_inst::RestrictError::SurvivalPredicateFailed { node: 1, .. }
+                )
+            ),
+            "the conjunction refuses: {refused:?}"
+        );
         assert!(
             matches!(composite, TreeComposite::Sequential(_)),
             "{composite:?}"
@@ -2330,10 +2367,25 @@ mod composition_rule {
                     TreeComposite::Sequential(sequential) => {
                         assert!(!fusable, "{case} was kept in sequence");
                         for source in sources {
-                            let (view, _) = sequential.get(source).unwrap();
-                            let (middle, _) = panproto_lens::get(&first, source).unwrap();
-                            let (expected, _) = panproto_lens::get(&second, &middle).unwrap();
-                            assert_eq!(view_difference(&view, &expected), None, "{case}");
+                            let staged = panproto_lens::get(&first, source)
+                                .and_then(|(middle, _)| panproto_lens::get(&second, &middle));
+                            match (sequential.get(source), staged) {
+                                (Ok((view, _)), Ok((expected, _))) => {
+                                    assert_eq!(view_difference(&view, &expected), None, "{case}");
+                                }
+                                (Err(refused), Err(expected)) => {
+                                    assert_eq!(
+                                        format!("{refused:?}"),
+                                        format!("{expected:?}"),
+                                        "{case}"
+                                    );
+                                }
+                                (outcome, expected) => panic!(
+                                    "{case}: one get refused: in sequence {:?}, staged {:?}",
+                                    outcome.err(),
+                                    expected.err()
+                                ),
+                            }
                         }
                     }
                 }

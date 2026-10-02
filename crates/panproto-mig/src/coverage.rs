@@ -3,7 +3,7 @@
 //! Provides dry-run capability: check which records can be migrated
 //! and which will fail, before modifying any data.
 
-use panproto_inst::{CompiledMigration, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, EdgeId, GInstance, WInstance};
 use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
 
@@ -60,56 +60,170 @@ pub enum PartialReason {
     },
 }
 
-/// Check migration coverage by attempting lift on each root-level record.
+/// Check migration coverage by attempting the restrict on each record.
 ///
-/// For each root-level subtree in the source instance, attempts to apply
-/// the compiled migration via [`panproto_inst::wtype_restrict`]. Records
-/// that lift successfully are counted; those that fail are captured with
-/// their failure reason.
-///
-/// # Errors
-///
-/// This function does not itself return an error; all per-record failures
-/// are captured in the [`CoverageReport`].
+/// Each tree is one record, named by its root. A record succeeds when the
+/// schema-taking restrict ([`panproto_inst::wtype_restrict`], which
+/// validates both boundaries under `protocols`) returns a view, and fails
+/// with the reason its error gives otherwise.
 #[must_use]
 pub fn check_coverage(
     compiled: &CompiledMigration,
     instances: &[WInstance],
     src_schema: &Schema,
     tgt_schema: &Schema,
+    protocols: BoundaryProtocols<'_>,
 ) -> CoverageReport {
-    let total_records = instances.len();
+    let outcomes = instances.iter().map(|instance| {
+        let outcome =
+            panproto_inst::wtype_restrict(instance, src_schema, tgt_schema, compiled, protocols)
+                .map(|_| ())
+                .map_err(|e| restrict_error_to_reason(e.unlocated()));
+        (instance.root, outcome)
+    });
+    coverage_of(outcomes)
+}
+
+/// The coverage of records with their outcomes.
+fn coverage_of(
+    outcomes: impl IntoIterator<Item = (u32, Result<(), PartialReason>)>,
+) -> CoverageReport {
+    let mut total_records: usize = 0;
     let mut successful: usize = 0;
     let mut failed = Vec::new();
-
-    for instance in instances {
-        match panproto_inst::wtype_restrict(instance, src_schema, tgt_schema, compiled) {
-            Ok(_) => {
-                successful += 1;
-            }
-            Err(e) => {
-                failed.push(PartialFailure {
-                    record_id: instance.root,
-                    reason: restrict_error_to_reason(&e),
-                });
-            }
+    for (record_id, outcome) in outcomes {
+        total_records += 1;
+        match outcome {
+            Ok(()) => successful += 1,
+            Err(reason) => failed.push(PartialFailure { record_id, reason }),
         }
     }
-
+    let as_float = |n: usize| f64::from(u32::try_from(n).unwrap_or(u32::MAX));
     let coverage_ratio = if total_records == 0 {
         1.0
     } else {
-        #[allow(clippy::cast_precision_loss)]
-        let ratio = successful as f64 / total_records as f64;
-        ratio
+        as_float(successful) / as_float(total_records)
     };
-
     CoverageReport {
         total_records,
         successful,
         failed,
         coverage_ratio,
     }
+}
+
+/// The coverage of a graph migration, with the ids the successful records
+/// drop.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GraphCoverageReport {
+    /// The coverage: one record per weakly connected component.
+    pub coverage: CoverageReport,
+    /// The nodes the restrict drops from the records that succeed,
+    /// ascending.
+    pub dropped_nodes: Vec<u32>,
+    /// The edges the restrict drops from the records that succeed,
+    /// ascending.
+    pub dropped_edges: Vec<EdgeId>,
+}
+
+/// Check graph migration coverage, one record per weakly connected
+/// component of each instance.
+///
+/// A record is named by the least node id of its component. It fails
+/// exactly when the schema-taking graph restrict
+/// ([`panproto_inst::graph_restrict_with_complement`], which validates both
+/// boundaries under `protocols`) of the component's induced subgraph
+/// returns an error, with the reason that error (without its location)
+/// gives; dropping data is not a failure. The ids the restrict drops from
+/// the components that succeed, read off their complements, are reported
+/// beside the coverage.
+#[must_use]
+pub fn check_graph_coverage(
+    compiled: &CompiledMigration,
+    instances: &[GInstance],
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    protocols: BoundaryProtocols<'_>,
+) -> GraphCoverageReport {
+    let mut dropped_nodes = std::collections::BTreeSet::new();
+    let mut dropped_edges = std::collections::BTreeSet::new();
+    let mut outcomes = Vec::new();
+    for instance in instances {
+        for component in weak_components(instance) {
+            let record_id = component.first().copied().unwrap_or_default();
+            let outcome = induced(instance, &component)
+                .map_err(|error| PartialReason::ExprEvalFailed {
+                    expr_name: "induced subgraph".into(),
+                    error: error.to_string(),
+                })
+                .and_then(|part| {
+                    panproto_inst::graph_restrict_with_complement(
+                        &part, src_schema, tgt_schema, compiled, protocols,
+                    )
+                    .map_err(|e| restrict_error_to_reason(e.unlocated()))
+                })
+                .map(|(_, complement)| {
+                    dropped_nodes.extend(complement.dropped_nodes.keys().copied());
+                    dropped_edges.extend(complement.dropped_edges.keys().copied());
+                });
+            outcomes.push((record_id, outcome));
+        }
+    }
+    GraphCoverageReport {
+        coverage: coverage_of(outcomes),
+        dropped_nodes: dropped_nodes.into_iter().collect(),
+        dropped_edges: dropped_edges.into_iter().collect(),
+    }
+}
+
+/// The weakly connected components of a graph, each ascending, in
+/// ascending order of their least node.
+fn weak_components(instance: &GInstance) -> Vec<Vec<u32>> {
+    let mut ids: Vec<u32> = instance.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    let mut seen = std::collections::HashSet::new();
+    let mut components = Vec::new();
+    for &start in &ids {
+        if !seen.insert(start) {
+            continue;
+        }
+        let mut component = vec![start];
+        let mut frontier = vec![start];
+        while let Some(at) = frontier.pop() {
+            let neighbours = instance
+                .successors(at)
+                .chain(instance.predecessors(at))
+                .collect::<Vec<_>>();
+            for next in neighbours {
+                if seen.insert(next) {
+                    component.push(next);
+                    frontier.push(next);
+                }
+            }
+        }
+        component.sort_unstable();
+        components.push(component);
+    }
+    components
+}
+
+/// The subgraph of `instance` induced by `nodes`, its edges under their own
+/// ids.
+fn induced(instance: &GInstance, nodes: &[u32]) -> Result<GInstance, panproto_inst::InstError> {
+    let mut part = GInstance::new();
+    for &id in nodes {
+        if let Some(node) = instance.node(id) {
+            part.insert_node(node.clone())?;
+        }
+    }
+    for &id in nodes {
+        for &edge_id in instance.out_edges(id) {
+            if let Some(edge) = instance.edge(edge_id) {
+                part.insert_edge(edge_id, edge.clone())?;
+            }
+        }
+    }
+    Ok(part)
 }
 
 /// Map a [`panproto_inst::RestrictError`] to a [`PartialReason`].
@@ -153,9 +267,17 @@ mod tests {
     use panproto_gat::Name;
     use panproto_inst::value::FieldPresence;
     use panproto_inst::{CompiledMigration, Node, Value, WInstance};
-    use panproto_schema::{Edge, Schema, Vertex};
+    use panproto_schema::{Edge, Protocol, Schema, Vertex};
 
     use super::*;
+
+    /// The same protocol on both sides.
+    fn both(protocol: &Protocol) -> BoundaryProtocols<'_> {
+        BoundaryProtocols {
+            src: protocol,
+            tgt: protocol,
+        }
+    }
 
     fn test_schema(vertices: &[(&str, &str)], edges: &[Edge]) -> Schema {
         let mut vert_map = HashMap::new();
@@ -267,7 +389,13 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let report = check_coverage(&compiled, &[inst1, inst2], &schema, &schema);
+        let report = check_coverage(
+            &compiled,
+            &[inst1, inst2],
+            &schema,
+            &schema,
+            both(&Protocol::default()),
+        );
         assert_eq!(report.total_records, 2);
         assert_eq!(report.successful, 2);
         assert!(report.failed.is_empty());
@@ -291,7 +419,7 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let report = check_coverage(&compiled, &[], &schema, &schema);
+        let report = check_coverage(&compiled, &[], &schema, &schema, both(&Protocol::default()));
         assert_eq!(report.total_records, 0);
         assert_eq!(report.successful, 0);
         assert!(report.failed.is_empty());
@@ -349,6 +477,7 @@ mod tests {
             &[good_instance, bad_instance],
             &src_schema,
             &tgt_schema,
+            both(&Protocol::default()),
         );
         assert_eq!(report.total_records, 2);
         assert_eq!(report.successful, 1);

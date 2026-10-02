@@ -6,8 +6,8 @@ use divan::Bencher;
 use panproto_gat::Name;
 use panproto_inst::value::{FieldPresence, Value};
 use panproto_inst::{
-    CompiledMigration, FInstance, Node, WInstance, functor_extend, functor_restrict, parse_json,
-    wtype_restrict,
+    BoundaryProtocols, CompiledMigration, FInstance, Node, RestrictPlan, WInstance,
+    functor_extend_engine, functor_restrict_with_plan, parse_json, wtype_restrict_with_plan,
 };
 use panproto_schema::{Edge, Schema, Vertex};
 
@@ -317,7 +317,8 @@ fn wtype_restrict_deep_tree(bencher: Bencher, depth: usize) {
     }
     let compiled = identity_compiled(&verts, &edges);
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -335,7 +336,8 @@ fn wtype_restrict_wide_tree(bencher: Bencher, width: usize) {
     }
     let compiled = identity_compiled(&verts, &edges);
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -378,7 +380,9 @@ fn wtype_restrict_contraction(bencher: Bencher, depth: usize) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| wtype_restrict(&instance, &tgt_schema, &tgt_schema, &compiled));
+    let plan =
+        RestrictPlan::compile(&tgt_schema, &tgt_schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -422,7 +426,8 @@ fn wtype_restrict_identity(bencher: Bencher) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| wtype_restrict(&instance, &schema, &schema, &compiled));
+    let plan = RestrictPlan::compile(&schema, &schema, &compiled).expect("the plan compiles");
+    bencher.bench(|| wtype_restrict_with_plan(&instance, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -446,22 +451,45 @@ fn functor_restrict_n_tables(bencher: Bencher, n: usize) {
             .expect("the ids are fresh");
     }
 
-    // Identity migration keeping all tables
-    let surviving_verts: HashSet<Name> = (0..n).map(|i| Name::from(format!("t{i}"))).collect();
-    let compiled = CompiledMigration {
-        surviving_verts,
-        surviving_edges: HashSet::new(),
-        vertex_remap: HashMap::new(),
-        edge_remap: HashMap::new(),
-        resolver: HashMap::new(),
-        hyper_resolver: HashMap::new(),
-        field_transforms: HashMap::new(),
-        conditional_survival: HashMap::new(),
-        op_term_assignments: HashMap::new(),
-        expansion_path: HashMap::new(),
+    // Identity migration keeping all tables and their column, over a schema
+    // whose protocol classifies `t{i}` as tables and `col` as a column.
+    let mut vertices: Vec<(String, &str)> = Vec::new();
+    let mut columns: Vec<Edge> = Vec::new();
+    for i in 0..n {
+        vertices.push((format!("t{i}"), "record"));
+        vertices.push((format!("t{i}.col"), "string"));
+        columns.push(make_edge(&format!("t{i}"), &format!("t{i}.col"), "col"));
+    }
+    let named: Vec<(&str, &str)> = vertices.iter().map(|(v, k)| (v.as_str(), *k)).collect();
+    let schema = test_schema(&named, &columns);
+    let protocol = panproto_schema::Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "string".to_owned(),
+            panproto_schema::ScalarKind::Str,
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..panproto_schema::Protocol::default()
     };
+    let compiled = CompiledMigration {
+        surviving_verts: vertices
+            .iter()
+            .map(|(v, _)| Name::from(v.as_str()))
+            .collect(),
+        surviving_edges: columns.iter().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    let plan = RestrictPlan::compile_for_tables(
+        &schema,
+        &schema,
+        &compiled,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .expect("the plan compiles");
 
-    bencher.bench(|| functor_restrict(&inst, &compiled));
+    bencher.bench(|| functor_restrict_with_plan(&inst, &plan));
 }
 
 // ---------------------------------------------------------------------------
@@ -499,7 +527,7 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| functor_extend(&inst, &compiled));
+    bencher.bench(|| functor_extend_engine(&inst, &compiled));
 }
 
 // ---------------------------------------------------------------------------
@@ -673,5 +701,157 @@ fn tree_to_graph_with_fans(bencher: Bencher, n: u32) {
     bencher.bench_local(|| {
         panproto_inst::GInstance::from_wtype_embedded(divan::black_box(&tree), None)
             .expect("a tree embeds")
+    });
+}
+
+// ---------------------------------------------------------------------------
+// Restrict plans, the graph engine and queries
+// ---------------------------------------------------------------------------
+
+/// A schema whose two surviving vertices `s` and `t` are joined only through
+/// a dropped cycle of `n` vertices, each entered from `s` and leaving to
+/// `t`, with the target edge `s -> t` the contraction resolves to.
+fn dropped_region_schemas(n: usize) -> (Schema, Schema, CompiledMigration) {
+    let protocol = panproto_schema::Protocol::default();
+    let mut src = panproto_schema::SchemaBuilder::new(&protocol);
+    for v in ["s", "t"] {
+        src = src.vertex(v, "record", None).expect("fresh vertex");
+    }
+    for i in 0..n {
+        src = src
+            .vertex(&format!("d{i}"), "record", None)
+            .expect("fresh vertex");
+    }
+    for i in 0..n {
+        let d = format!("d{i}");
+        let next = format!("d{}", (i + 1) % n);
+        src = src
+            .edge("s", &d, "prop", Some(&format!("in{i}")))
+            .and_then(|b| b.edge(&d, &next, "prop", Some(&format!("next{i}"))))
+            .and_then(|b| b.edge(&d, "t", "prop", Some(&format!("out{i}"))))
+            .expect("fresh edges");
+    }
+    let tgt = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("s", "record", None)
+        .and_then(|b| b.vertex("t", "record", None))
+        .and_then(|b| b.edge("s", "t", "prop", Some("t")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .expect("target schema");
+    let migration = CompiledMigration {
+        surviving_verts: ["s", "t"].into_iter().map(Name::from).collect(),
+        ..CompiledMigration::default()
+    };
+    (src.build().expect("source schema"), tgt, migration)
+}
+
+/// Compiling a restrict plan over a dropped region of `n` vertices and
+/// `3n` edges, which is cyclic and so unbounded. Compile is
+/// `O(V (V + E))` and enumerates no path (the region holds exponentially
+/// many), so doubling `n` at most quadruples the time.
+#[divan::bench(args = [50, 100, 200, 400], sample_count = 20)]
+fn contraction_plan_compile_large_dropped_region(bencher: Bencher, n: usize) {
+    let (src, tgt, migration) = dropped_region_schemas(n);
+    bencher.bench_local(|| {
+        RestrictPlan::compile(divan::black_box(&src), &tgt, &migration).expect("compiles")
+    });
+}
+
+/// A chain of `n` diamonds over one anchor: `n` merge points joined by
+/// `2^n` paths.
+fn diamond_chain(n: u32) -> panproto_inst::GInstance {
+    let c = make_edge("r", "r", "c");
+    let mut graph = panproto_inst::GInstance::new();
+    for id in 0..=3 * n {
+        graph = graph.with_node(Node::new(id, "r"));
+    }
+    for i in 0..n {
+        let top = 3 * i;
+        for mid in [top + 1, top + 2] {
+            graph = graph
+                .with_edge(top, mid, c.clone())
+                .with_edge(mid, top + 3, c.clone());
+        }
+    }
+    graph
+}
+
+/// A query of `2n` steps over [`diamond_chain`]: path steps map sets to
+/// sets, so the cost is `O(steps (V + E))` although the paths number `2^n`.
+#[divan::bench(args = [50, 100, 200], sample_count = 20)]
+fn query_diamond_chain(bencher: Bencher, n: u32) {
+    let graph = diamond_chain(n);
+    let schema = panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol::default())
+        .vertex("r", "record", None)
+        .and_then(|b| b.edge("r", "r", "prop", Some("c")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .expect("schema");
+    let steps = usize::try_from(2 * n).expect("small");
+    let query = panproto_inst::InstanceQuery {
+        anchor: Name::from("r"),
+        path: vec!["c".into(); steps],
+        ..Default::default()
+    };
+    bencher.bench_local(|| {
+        panproto_inst::execute_graph(divan::black_box(&query), &graph, &schema).expect("answers")
+    });
+}
+
+/// One restrict over a tree-shaped input of `n` nodes, half of them
+/// dropped, for the tree engine on the tree and the graph engine on its
+/// graph form.
+fn halved_tree(n: u32) -> (WInstance, RestrictPlan) {
+    let keep_edge = make_edge("item", "item", "next");
+    let drop_edge = make_edge("item", "gone", "gone");
+    let mut nodes: HashMap<u32, Node> = HashMap::new();
+    let mut arcs = Vec::new();
+    for id in 0..n {
+        let dropped = id % 2 == 1;
+        nodes.insert(id, Node::new(id, if dropped { "gone" } else { "item" }));
+        if id > 0 {
+            let parent = (id - 1) / 2 * 2;
+            arcs.push((
+                parent,
+                id,
+                if dropped {
+                    drop_edge.clone()
+                } else {
+                    keep_edge.clone()
+                },
+            ));
+        }
+    }
+    let protocol = panproto_schema::Protocol::default();
+    let src = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("item", "record", None)
+        .and_then(|b| b.vertex("gone", "record", None))
+        .and_then(|b| b.edge("item", "item", "prop", Some("next")))
+        .and_then(|b| b.edge("item", "gone", "prop", Some("gone")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .expect("source schema");
+    let tgt = panproto_schema::SchemaBuilder::new(&protocol)
+        .vertex("item", "record", None)
+        .and_then(|b| b.edge("item", "item", "prop", Some("next")))
+        .and_then(panproto_schema::SchemaBuilder::build)
+        .expect("target schema");
+    let migration = CompiledMigration {
+        surviving_verts: std::iter::once(Name::from("item")).collect(),
+        ..CompiledMigration::default()
+    };
+    let plan = RestrictPlan::compile(&src, &tgt, &migration).expect("compiles");
+    (WInstance::new(nodes, arcs, vec![], 0, "item".into()), plan)
+}
+
+#[divan::bench(args = [1_000, 10_000])]
+fn restrict_tree_engine_on_halved_tree(bencher: Bencher, n: u32) {
+    let (tree, plan) = halved_tree(n);
+    bencher.bench_local(|| wtype_restrict_with_plan(divan::black_box(&tree), &plan).expect("ok"));
+}
+
+#[divan::bench(args = [1_000, 10_000])]
+fn restrict_graph_engine_on_halved_tree(bencher: Bencher, n: u32) {
+    let (tree, plan) = halved_tree(n);
+    let graph = panproto_inst::GInstance::from_wtype(&tree).expect("a tree embeds");
+    bencher.bench_local(|| {
+        panproto_inst::graph_restrict_with_plan(divan::black_box(&graph), &plan).expect("ok")
     });
 }

@@ -12,7 +12,9 @@ use panproto_inst::identity::{
     ComplementShape, IdentityCarrier, IdentityEnvelope, IdentityPolicy, IdentityStatus,
     compose_identities,
 };
-use panproto_inst::{Fan, Node, PutDomainError, ViewRef, WInstance, wtype_restrict};
+use panproto_inst::{
+    Fan, Node, PutDomainError, RestrictPlan, ViewRef, WInstance, wtype_restrict_with_plan,
+};
 use panproto_schema::Edge;
 
 use crate::Lens;
@@ -490,7 +492,8 @@ pub(crate) fn get_with_identity(
     instance: &WInstance,
     envelope: &IdentityEnvelope,
 ) -> Result<(WInstance, Complement), LensError> {
-    let view = wtype_restrict(instance, &lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+    let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
+    let (view, _) = wtype_restrict_with_plan(instance, &plan)?;
 
     // Compute complement: everything in source not in view
     let mut dropped_nodes = HashMap::new();
@@ -1003,7 +1006,9 @@ fn value_violations(
         };
         &unconditional
     };
-    let Ok(recomputed) = wtype_restrict(source, &lens.src_schema, &lens.tgt_schema, forward) else {
+    let Ok((recomputed, _)) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, forward)
+        .and_then(|plan| wtype_restrict_with_plan(source, &plan))
+    else {
         return in_report_order(found);
     };
     for (&id, view_node) in &view.nodes {
@@ -1777,8 +1782,9 @@ fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldT
             } => {
                 // Handle "__value__" specially: target node.value, not extra_fields.
                 if key == "__value__" {
-                    if let Some(panproto_inst::value::FieldPresence::Present(val)) = &node.value {
-                        let input = panproto_inst::value_to_expr_literal(val);
+                    if let Some(panproto_inst::value::FieldPresence::Present(val)) = &node.value
+                        && let Ok(input) = panproto_inst::value_to_expr_literal(val)
+                    {
                         let env = panproto_expr::Env::new()
                             .extend(std::sync::Arc::from("v"), input.clone())
                             .extend(std::sync::Arc::from("__value__"), input);

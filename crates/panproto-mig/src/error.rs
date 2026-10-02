@@ -244,6 +244,19 @@ pub enum ExistenceError {
         /// `check_morphism`.
         detail: String,
     },
+
+    /// A label of a mapped hyper-edge cannot be carried onto the attribute
+    /// arrows of the two schemas: the label has more than one arrow, its
+    /// renamed label has no arrow in the target or is no label of the target
+    /// hyper-edge, the edge map sends its arrow elsewhere, or a removed
+    /// label's arrow keeps a same-named image.
+    #[error("label {label} of hyper-edge {hyper_edge} does not match the attribute arrows")]
+    LabelArrowMismatch {
+        /// The source hyper-edge.
+        hyper_edge: String,
+        /// The source label.
+        label: String,
+    },
 }
 
 /// Errors from the lift (record migration) operation.

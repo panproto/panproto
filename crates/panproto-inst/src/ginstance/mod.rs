@@ -38,14 +38,13 @@ mod tree_shape;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::fmt;
 
-use panproto_schema::{Edge, Schema};
+use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
-use crate::error::{InstError, RestrictError};
+use crate::error::InstError;
 use crate::metadata::Node;
 use crate::segment::{IdAllocator, IdKind, IdRange};
 use crate::value::{FieldPresence, Value};
-use crate::wtype::CompiledMigration;
 
 pub use canonical::{
     canonical_ginstance_bytes, write_edge_record, write_ginstance, write_node_record,
@@ -811,105 +810,24 @@ fn values_identical(a: &Value, b: &Value) -> bool {
     }
 }
 
-/// The target anchor a node's anchor maps to: its image under
-/// `vertex_remap`, or the anchor itself when the vertex is not renamed.
-fn target_anchor<'a>(
-    migration: &'a CompiledMigration,
-    anchor: &'a panproto_gat::Name,
-) -> &'a panproto_gat::Name {
-    migration.vertex_remap.get(anchor).unwrap_or(anchor)
-}
-
-/// Restrict a graph instance along a compiled migration.
-///
-/// A node survives when its target anchor, the image of its anchor under
-/// `vertex_remap` or the anchor itself when the vertex is not renamed, is in
-/// `surviving_verts`. A surviving node is re-anchored to its target anchor and
-/// keeps its id, value and other data. An edge survives, under its own
-/// [`EdgeId`] and position, when both endpoints survive and its schema edge is
-/// either renamed by `edge_remap` or listed in `surviving_edges`.
-///
-/// # Errors
-///
-/// Returns an error if the restrict pipeline fails.
-pub fn graph_restrict(
-    instance: &GInstance,
-    _src_schema: &Schema,
-    _tgt_schema: &Schema,
-    migration: &CompiledMigration,
-) -> Result<GInstance, RestrictError> {
-    let mut result = GInstance::new();
-    for (&id, node) in &instance.nodes {
-        let anchor = target_anchor(migration, &node.anchor);
-        if migration.surviving_verts.contains(anchor) {
-            let mut kept = node.clone();
-            kept.anchor.clone_from(anchor);
-            result.nodes.insert(id, kept);
-        }
-    }
-    carry_edges(instance, migration, &mut result);
-    Ok(result)
-}
-
-/// Extend (left Kan extension, `Sigma_F`) a graph instance along a migration.
-///
-/// Maps source nodes into the target schema by remapping anchors through
-/// `vertex_remap`. A node whose anchor has no remap is kept under its own
-/// anchor when that anchor is in `surviving_verts` and dropped otherwise. An
-/// edge is carried, under its own [`EdgeId`] and position, when both endpoints
-/// are kept and its schema edge is renamed by `edge_remap` or listed in
-/// `surviving_edges`.
-///
-/// # Errors
-///
-/// Returns [`RestrictError`] if the extend pipeline fails.
-pub fn graph_extend(
-    instance: &GInstance,
-    _tgt_schema: &Schema,
-    migration: &CompiledMigration,
-) -> Result<GInstance, RestrictError> {
-    let mut result = GInstance::new();
-    for (&id, node) in &instance.nodes {
-        let mut kept = node.clone();
-        if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
-            kept.anchor.clone_from(remapped);
-        } else if !migration.surviving_verts.contains(&node.anchor) {
-            continue;
-        }
-        result.nodes.insert(id, kept);
-    }
-    carry_edges(instance, migration, &mut result);
-    Ok(result)
-}
-
-/// Copy into `result` every edge of `instance` whose endpoints are both nodes
-/// of `result` and whose schema edge the migration keeps, relabelled through
-/// `edge_remap`.
-fn carry_edges(instance: &GInstance, migration: &CompiledMigration, result: &mut GInstance) {
-    for (id, edge) in instance.edges_sorted() {
-        if !result.nodes.contains_key(&edge.src) || !result.nodes.contains_key(&edge.tgt) {
-            continue;
-        }
-        let label = if let Some(renamed) = migration.edge_remap.get(&edge.edge) {
-            renamed.clone()
-        } else if migration.surviving_edges.contains(&edge.edge) {
-            edge.edge.clone()
-        } else {
-            continue;
-        };
-        index_insert(&mut result.out_index, edge.src, id);
-        index_insert(&mut result.in_index, edge.tgt, id);
-        result.edge_ids.observe(id.0);
-        result.edge_order.insert(id.0);
-        result.edges.insert(
-            id,
-            GEdge {
-                src: edge.src,
-                tgt: edge.tgt,
-                edge: label,
-                position: edge.position,
-            },
+impl GInstance {
+    /// Insert an edge under `id` without the checks of
+    /// [`Self::insert_edge`], keeping every index current.
+    ///
+    /// For an engine that builds a graph from parts it has already checked:
+    /// the caller guarantees that `id` is unused and that both endpoints
+    /// are nodes of the graph (debug builds assert both).
+    pub(crate) fn place_edge(&mut self, id: EdgeId, edge: GEdge) {
+        debug_assert!(!self.edges.contains_key(&id), "edge {id} placed twice");
+        debug_assert!(
+            self.nodes.contains_key(&edge.src) && self.nodes.contains_key(&edge.tgt),
+            "edge {id} placed between missing nodes"
         );
+        index_insert(&mut self.out_index, edge.src, id);
+        index_insert(&mut self.in_index, edge.tgt, id);
+        self.edge_ids.observe(id.0);
+        self.edge_order.insert(id.0);
+        self.edges.insert(id, edge);
     }
 }
 
@@ -917,6 +835,8 @@ fn carry_edges(instance: &GInstance, migration: &CompiledMigration, result: &mut
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
     use super::*;
+    use crate::wtype::CompiledMigration;
+    use panproto_schema::Schema;
 
     fn knows() -> Edge {
         Edge {
@@ -1042,9 +962,11 @@ mod tests {
         let h = people(2)
             .with_edge_id(EdgeId(3), 0, 1, knows())
             .with_edge_id(EdgeId(8), 1, 0, knows());
-        let schema = empty_schema();
-        let mut restricted = graph_restrict(&h, &schema, &schema, &migration(&["person"], &[]))
-            .expect("graph_restrict should succeed");
+        let schema = knows_schema();
+        let plan =
+            crate::RestrictPlan::compile(&schema, &schema, &migration(&["person"], &[])).unwrap();
+        let (mut restricted, _) =
+            crate::graph_restrict_with_plan(&h, &plan).expect("the restrict should succeed");
         restricted.remove_edge(EdgeId(8)).unwrap();
         assert_eq!(restricted.max_edge_id(), Some(EdgeId(3)));
         assert_eq!(restricted.add_edge(0, 0, knows()).unwrap(), EdgeId(4));
@@ -1064,9 +986,11 @@ mod tests {
     #[test]
     fn a_restricted_graph_allocates_above_the_edges_it_kept() {
         let g = people(2).with_edge_id(EdgeId(6), 0, 1, knows());
-        let schema = empty_schema();
-        let mut restricted = graph_restrict(&g, &schema, &schema, &migration(&["person"], &[]))
-            .expect("graph_restrict should succeed");
+        let schema = knows_schema();
+        let plan =
+            crate::RestrictPlan::compile(&schema, &schema, &migration(&["person"], &[])).unwrap();
+        let (mut restricted, _) =
+            crate::graph_restrict_with_plan(&g, &plan).expect("the restrict should succeed");
         assert_eq!(restricted.add_edge(1, 0, knows()).unwrap(), EdgeId(7));
     }
 
@@ -1236,41 +1160,13 @@ mod tests {
         }
     }
 
-    fn empty_schema() -> Schema {
+    fn knows_schema() -> Schema {
         panproto_schema::SchemaBuilder::new(&panproto_schema::Protocol::default())
             .vertex("person", "record", None)
             .expect("a vertex")
+            .edge("person", "person", "knows", None)
+            .expect("an edge")
             .build()
             .expect("a one-vertex schema builds")
-    }
-
-    #[test]
-    fn graph_restrict_drops_unmapped_nodes() {
-        let g = GInstance::new()
-            .with_node(Node::new(0, "a"))
-            .with_node(Node::new(1, "b"))
-            .with_node(Node::new(2, "c"));
-        let schema = empty_schema();
-        let restricted = graph_restrict(
-            &g,
-            &schema,
-            &schema,
-            &migration(&["a_new"], &[("a", "a_new")]),
-        )
-        .expect("graph_restrict should succeed");
-        assert_eq!(restricted.node_count(), 1);
-        assert_eq!(restricted.node(0).unwrap().anchor, "a_new");
-    }
-
-    #[test]
-    fn graph_restrict_keeps_edge_ids_and_positions() {
-        let mut g = people(3)
-            .with_edge_id(EdgeId(4), 0, 1, knows())
-            .with_edge_id(EdgeId(9), 1, 2, knows());
-        g.set_edge_position(EdgeId(9), Some(2)).unwrap();
-        let schema = empty_schema();
-        let restricted = graph_restrict(&g, &schema, &schema, &migration(&["person"], &[]))
-            .expect("graph_restrict should succeed");
-        assert!(GInstance::identical(&restricted, &g));
     }
 }

@@ -582,3 +582,109 @@ impl FidelityLog {
         }
     }
 }
+
+/// Coerce an already-built `value` to `spec`, at `site`: the value a column
+/// of kind `spec` holds for it.
+///
+/// The value is read back through its lexeme: under [`ScalarKind::Any`] it
+/// is returned unchanged; a non-finite [`Value::Float`] is returned
+/// unchanged under a float kind and refused with
+/// [`FidelityReason::NonFinite`] under any other; every other value with a
+/// scalar lexeme is [`coerce`] of that lexeme, which is `true` or `false`
+/// of class [`LexClass::Bool`] for a boolean, the decimal digits of class
+/// [`LexClass::Number`] for an integer, the canonical text of class
+/// `Number` for a decimal, the shortest text that reads back as the same
+/// float (Rust's `Display`) of class `Number` for a finite float (under a
+/// 32-bit float kind, a float that a 32-bit float holds exactly takes
+/// instead the shortest text that reads back as that 32-bit float, the
+/// lexeme its column writes), the text of class [`LexClass::String`] for a
+/// string or a token, the RFC 3339 text of class [`LexClass::DateTime`] for
+/// a date or time, and `null` of class [`LexClass::Null`] for null. Any
+/// other value (bytes, links, blobs,
+/// records, lists, labelled nulls) has no scalar lexeme and is returned
+/// unchanged; validation types it.
+///
+/// So an `Ok` value denotes exactly what the input's lexeme denotes, since
+/// [`coerce`] holds a lexeme exactly or refuses it, and coercing the result
+/// again returns it unchanged.
+///
+/// ```
+/// use panproto_inst::Value;
+/// use panproto_inst::value::ValueSite;
+/// use panproto_inst::value::coerce::coerce_value;
+/// use panproto_schema::{ScalarKind, ValueSpec};
+///
+/// let int = ValueSpec::new(ScalarKind::Int { bits: 64, signed: true });
+/// let site = ValueSite::new("person.age", None);
+/// assert_eq!(coerce_value(&Value::Float(2.0), &int, site.clone())?, Value::Int(2));
+/// assert!(coerce_value(&Value::Float(2.5), &int, site.clone()).is_err());
+/// let any = ValueSpec::new(ScalarKind::Any);
+/// assert_eq!(coerce_value(&Value::Float(2.0), &any, site)?, Value::Float(2.0));
+/// # Ok::<(), panproto_inst::ValueFidelityError>(())
+/// ```
+///
+/// # Errors
+///
+/// A [`ValueFidelityError`] at `site` when the kind cannot hold the value's
+/// lexeme exactly.
+pub fn coerce_value(
+    value: &Value,
+    spec: &ValueSpec,
+    site: ValueSite,
+) -> Result<Value, ValueFidelityError> {
+    if spec.kind == ScalarKind::Any {
+        return Ok(value.clone());
+    }
+    let (text, class) = match value {
+        Value::Float(f) if !f.is_finite() => {
+            return if matches!(spec.kind, ScalarKind::Float { .. }) {
+                Ok(value.clone())
+            } else {
+                Err(ValueFidelityError {
+                    site,
+                    lexeme: f.to_string(),
+                    target: spec.kind.clone(),
+                    reason: FidelityReason::NonFinite,
+                })
+            };
+        }
+        Value::Bool(b) => (b.to_string(), LexClass::Bool),
+        Value::Int(n) => (n.to_string(), LexClass::Number),
+        Value::BigInt(n) => (n.to_string(), LexClass::Number),
+        Value::Decimal(d) => (d.to_string(), LexClass::Number),
+        Value::Float(f) => (float_text(*f, &spec.kind), LexClass::Number),
+        Value::Str(s) | Value::Token(s) => (s.clone(), LexClass::String),
+        Value::Temporal(t) => (t.to_string(), LexClass::DateTime),
+        Value::Null => ("null".to_owned(), LexClass::Null),
+        Value::Bytes(_)
+        | Value::CidLink(_)
+        | Value::Blob { .. }
+        | Value::Opaque { .. }
+        | Value::Unknown(_)
+        | Value::List(_)
+        | Value::LabeledNull(_) => return Ok(value.clone()),
+    };
+    coerce(&Lexeme::new(&text, class), spec).map_err(|error| error.at(site))
+}
+
+/// The lexeme of a finite float coerced to `kind`: the shortest text that
+/// reads back as the float, except under a 32-bit float kind, where a float
+/// that a 32-bit float holds exactly reads back through `f32`.
+///
+/// A 32-bit column stores the `f32` nearest its lexeme, widened to `f64`
+/// (`0.1` is stored as `0.100000001490116...`); the `f64` text of that value
+/// would name a number the column cannot hold, so the value is written as
+/// the column writes it.
+fn float_text(f: f64, kind: &ScalarKind) -> String {
+    let text = f.to_string();
+    if matches!(kind, ScalarKind::Float { bits: 32 })
+        && let Ok(narrow) = text.parse::<f32>()
+        && f64::from(narrow).to_bits() == f.to_bits()
+    {
+        // The `f32` nearest the text is the float itself exactly when a
+        // 32-bit float holds it: the text is within half an `f64` unit of
+        // the float, far inside half an `f32` unit.
+        return narrow.to_string();
+    }
+    text
+}

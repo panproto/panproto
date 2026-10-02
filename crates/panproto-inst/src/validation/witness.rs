@@ -129,7 +129,7 @@ use std::collections::{BTreeSet, HashSet, VecDeque};
 use panproto_gat::Name;
 use panproto_schema::{CanonicalWriter, Cardinality, Edge, Key, KeyPart, RefSource, Reference};
 
-use crate::attributes::{AttributeSchema, AttributeViolation};
+use crate::attributes::AttributeViolation;
 use crate::fan_violation::FanViolation;
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, FanDomain, GInstance};
@@ -807,7 +807,7 @@ fn missing_value(ctx: &Context<'_>, d: &Diagnostic, n: &ViewRef, field: Option<&
 /// The attribute discipline of the schema reports the violation's attribute
 /// at `n`.
 fn attribute_refuted(ctx: &Context<'_>, n: &ViewRef, violation: &Violation) -> bool {
-    let attrs = AttributeSchema::from_schema(&ctx.plan.schema);
+    let attrs = &ctx.plan.attributes;
     let (found, id) = match (ctx.view, n) {
         (InstanceView::Graph(g), ViewRef::Node(id)) => (attrs.validate_ginstance(g), *id),
         (InstanceView::Tree(t, _), ViewRef::Node(id)) => (attrs.validate_wtype(t), *id),

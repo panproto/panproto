@@ -260,15 +260,14 @@ fn node_to_literal(instance: &WInstance, node_id: u32) -> Literal {
     ));
     let mut extra: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
     extra.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    // A field whose value has no expression literal is left out rather than
+    // given an invented one.
     for (key, val) in extra {
-        fields.push((Arc::from(key.as_str()), value_to_literal(val)));
+        if let Ok(lit) = crate::wtype::value_to_expr_literal(val) {
+            fields.push((Arc::from(key.as_str()), lit));
+        }
     }
     Literal::Record(fields)
-}
-
-/// Convert an instance Value to a Literal.
-fn value_to_literal(val: &Value) -> Literal {
-    crate::wtype::value_to_expr_literal(val)
 }
 
 #[cfg(test)]

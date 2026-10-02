@@ -5,6 +5,10 @@ use panproto_schema::Edge;
 
 use crate::fan_violation::FanViolation;
 use crate::ginstance::{EdgeId, NotTableReason, NotTreeReason};
+use crate::restrict_boundary::BoundarySide;
+use crate::restrict_plan::SurvivalElement;
+use crate::segment::{ErrorKey, IdKind};
+use crate::validation::ValidationReport;
 use crate::value::ValueFidelityError;
 use crate::view_ref::RowId;
 
@@ -403,6 +407,187 @@ pub enum RestrictError {
     /// form under its protocol.
     #[error("the schema has no relation-ified form: {0}")]
     RelSchema(#[from] crate::rel_schema::RelSchemaError),
+
+    /// Validation at the boundary of a schema-taking restrict or extend did
+    /// not pass: the input under the source schema, or the output under the
+    /// target schema.
+    #[error("the {side} of the restrict did not validate: status {:?}", .report.status)]
+    Validation {
+        /// The side whose report did not pass.
+        side: BoundarySide,
+        /// The report.
+        report: Box<ValidationReport>,
+    },
+
+    /// An expression at a node reads a child name that two or more of the
+    /// node's out-edges carry, so the name binds a list and the expression
+    /// cannot be read as asking for one value.
+    #[error("node {node} has several children named `{field}`, and an expression reads the name")]
+    AmbiguousChildField {
+        /// The node the expression is evaluated at.
+        node: u32,
+        /// The repeated child name.
+        field: String,
+    },
+
+    /// The migration needs a construction a table instance cannot hold: an
+    /// expansion of an edge or of a contracted pair into a path, or a
+    /// hyper-edge resolution.
+    #[error("the migration is not representable on tables: {reason}")]
+    NotTableRepresentable {
+        /// What the migration needs that tables lack.
+        reason: String,
+    },
+
+    /// An expression at a node reads a field whose value has no expression
+    /// literal, so it cannot be evaluated without inventing a value.
+    #[error("field `{field}` of node {node} holds a {value_type}, which no expression can read")]
+    ValueNotExpressible {
+        /// The node the expression is evaluated at.
+        node: u32,
+        /// The field read.
+        field: String,
+        /// The type name of the value that has no literal.
+        value_type: String,
+    },
+
+    /// An error of the graph engine, with the element it arose at and its
+    /// position in the engine's precedence order. The message is the inner
+    /// error's; the inner error is never itself located.
+    #[error("{error}")]
+    At {
+        /// The error's position in the precedence order.
+        key: ErrorKey,
+        /// The error.
+        error: Box<Self>,
+    },
+
+    /// The migration keeps or drops a table, relation or column of a table
+    /// instance differently under the survival rule of the restrict and
+    /// under the table functor of the migration, so the table restrict is
+    /// not defined on it.
+    #[error("the restrict and the table functor of the migration disagree on {element}")]
+    SurvivalRulesDisagree {
+        /// The first element on which they disagree.
+        element: Box<SurvivalElement>,
+    },
+
+    /// The table engine was handed a plan compiled without the table
+    /// functor of the migration.
+    #[error("the table restrict needs a plan compiled for tables")]
+    TablePlanRequired,
+
+    /// An expression at a node reads a child whose target holds no value of
+    /// its own and whose subgraph is not a tree, so the child has no
+    /// structured value.
+    #[error(
+        "child `{field}` of node {node} is read as a structure, but its subgraph is not a tree"
+    )]
+    StructuralChildNotATree {
+        /// The node the expression is evaluated at.
+        node: u32,
+        /// The child name read.
+        field: String,
+    },
+
+    /// The migration resolves a contracted pair of source vertices to an
+    /// edge that does not join the images of the pair, or that the target
+    /// schema does not declare.
+    #[error(
+        "the contracted pair {pair:?} is resolved to {image:?}, \
+         which does not join it in the target"
+    )]
+    IncoherentPairImage {
+        /// The images `(a', b')` of the contracted pair.
+        pair: Box<(Name, Name)>,
+        /// The incoherent resolution (a label of an expansion, or the
+        /// resolved edge).
+        image: Box<Edge>,
+    },
+
+    /// A value a transform wrote to a column of the node's target table
+    /// cannot be held exactly by that column's declared kind.
+    #[error("node {node}: {error}")]
+    ValueFidelity {
+        /// The node whose transform wrote the value.
+        node: u32,
+        /// The fidelity failure.
+        error: Box<ValueFidelityError>,
+    },
+
+    /// No id below `u32::MAX` at or above the floor is free for a
+    /// synthesized node or edge.
+    #[error("no {kind} id is free for a synthesized element")]
+    IdsExhausted {
+        /// Which ids ran out.
+        kind: IdKind,
+    },
+
+    /// A survival predicate at a node failed to evaluate, or evaluated to
+    /// something other than a boolean (reported as a type error expecting
+    /// `bool`).
+    #[error("the survival predicate of node {node} did not evaluate to a boolean: {source}")]
+    SurvivalPredicateFailed {
+        /// The node.
+        node: u32,
+        /// The evaluation failure.
+        #[source]
+        source: panproto_expr::ExprError,
+    },
+
+    /// A plan handed to a validated restrict or extend was compiled for a
+    /// schema other than the one a validation plan was compiled for.
+    #[error("the {side} validation plan was compiled for another schema than the restrict plan")]
+    PlanSchemaMismatch {
+        /// The side whose validation plan does not match.
+        side: BoundarySide,
+    },
+
+    /// An expansion has more hops than a synthesized key can number: the
+    /// key numbers them with 16 bits, so a path takes at most 65536 edges.
+    #[error(
+        "the expansion from `{src}` to `{tgt}` has {hops} hops, \
+         more than the 65536 a synthesized key can number"
+    )]
+    ExpansionTooLong {
+        /// The anchor the path leaves.
+        src: String,
+        /// The anchor the path enters.
+        tgt: String,
+        /// The number of edges on the path.
+        hops: usize,
+    },
+
+    /// A row of a table instance does not conform to the source schema of
+    /// a table restrict: it lies at no table, or its cells are not exactly
+    /// its table's columns. The table restrict reads total rows only, so
+    /// that the complement can name every column on which a view row and
+    /// its source row disagree.
+    #[error(
+        "row {} does not conform to the source schema{}: {reason}",
+        .row.0,
+        at_column(.column.as_deref())
+    )]
+    NonConforming {
+        /// The least offending row.
+        row: RowId,
+        /// The offending column, when the violation is at a cell.
+        column: Option<String>,
+        /// What is wrong: [`NonConformance::TableOutside`],
+        /// [`NonConformance::MissingCell`] or
+        /// [`NonConformance::StrayCell`].
+        ///
+        /// [`NonConformance::TableOutside`]: crate::NonConformance::TableOutside
+        /// [`NonConformance::MissingCell`]: crate::NonConformance::MissingCell
+        /// [`NonConformance::StrayCell`]: crate::NonConformance::StrayCell
+        reason: crate::NonConformance,
+    },
+}
+
+/// The place of a non-conforming row's violation in its message: ` at
+/// column` and the column's name, or nothing for a violation at the row.
+pub(crate) fn at_column(column: Option<&str>) -> String {
+    column.map_or_else(String::new, |column| format!(" at column `{column}`"))
 }
 
 /// Errors from JSON parsing.

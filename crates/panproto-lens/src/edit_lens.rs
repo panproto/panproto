@@ -192,7 +192,10 @@ impl EditLens {
     /// # Errors
     ///
     /// Returns [`EditLensError::Restrict`] if a field transform carried by
-    /// the migration fails to evaluate.
+    /// the migration fails to evaluate, or, as
+    /// [`panproto_inst::RestrictError::ValueNotExpressible`] at the edited
+    /// node, if a field edit sets a value with no expression literal that
+    /// an `ApplyExpr` transform reads.
     ///
     /// That this is fallible at all is worth stating precisely, since an
     /// isomorphism is total by definition. The partiality is not a claim
@@ -218,7 +221,7 @@ impl EditLens {
                 ref field,
                 ref value,
             } => {
-                let (name, val) = self.translate_field_edit(field.as_ref(), value)?;
+                let (name, val) = self.translate_field_edit(node_id, field.as_ref(), value)?;
                 TreeEdit::SetField {
                     node_id,
                     field: Name::from(name.as_str()),
@@ -830,7 +833,7 @@ impl EditLens {
         // specifies any for this node's source anchor: translate the field
         // name and possibly coerce the value.
         let field_str = field.to_string();
-        let translated = self.translate_field_edit(&field_str, value)?;
+        let translated = self.translate_field_edit(node_id, &field_str, value)?;
 
         // Refinement type checking: validate the translated value against
         // the target schema's constraints for the target vertex.
@@ -1389,16 +1392,20 @@ impl EditLens {
         field.to_owned()
     }
 
-    /// Translate a field edit (name + value) through field transforms.
-    /// Returns the translated (name, value) pair.
+    /// Translate a field edit (name + value) on the node `node_id` through
+    /// field transforms. Returns the translated (name, value) pair.
     ///
     /// # Errors
     ///
     /// Returns [`EditLensError::Restrict`] if an `ApplyExpr` transform's
     /// expression fails to evaluate, rather than passing the untransformed
-    /// value through as though the transform had been a no-op.
+    /// value through as though the transform had been a no-op, and, with
+    /// [`panproto_inst::RestrictError::ValueNotExpressible`] at `node_id`,
+    /// if the value an `ApplyExpr` transform reads has no expression
+    /// literal.
     fn translate_field_edit(
         &self,
+        node_id: u32,
         field: &str,
         value: &panproto_inst::Value,
     ) -> Result<(String, panproto_inst::Value), EditLensError> {
@@ -1415,7 +1422,13 @@ impl EditLens {
                         name.clone_from(new_key);
                     }
                     panproto_inst::FieldTransform::ApplyExpr { key, expr, .. } if key == field => {
-                        let input = panproto_inst::value_to_expr_literal(&val);
+                        let input = panproto_inst::value_to_expr_literal(&val).map_err(|e| {
+                            panproto_inst::RestrictError::ValueNotExpressible {
+                                node: node_id,
+                                field: key.clone(),
+                                value_type: e.value_type.to_owned(),
+                            }
+                        })?;
                         let env = panproto_expr::Env::new()
                             .extend(std::sync::Arc::from(key.as_str()), input);
                         let config = panproto_expr::EvalConfig::default();
@@ -1554,6 +1567,47 @@ mod tests {
             "the composite must fold term assignments, not only field transforms"
         );
         assert_eq!(edit_lens.optic_kind(), crate::optic::OpticKind::Lens);
+    }
+
+    #[test]
+    fn an_unexpressible_field_edit_is_refused_as_not_expressible() {
+        // Under an `ApplyExpr` transform on `text`, a field edit setting a
+        // token, which has no expression literal, is refused as not
+        // expressible, at the edited node, through both callers.
+        let schema = three_node_schema();
+        let mut lens = identity_lens(&schema);
+        lens.compiled.field_transforms.insert(
+            Name::from("post:body"),
+            vec![panproto_inst::FieldTransform::ApplyExpr {
+                key: "text".to_string(),
+                expr: panproto_expr::Expr::Var(std::sync::Arc::from("text")),
+                inverse: Some(panproto_expr::Expr::Var(std::sync::Arc::from("text"))),
+                coercion_class: panproto_gat::CoercionClass::Iso,
+            }],
+        );
+        let mut edit_lens = EditLens::from_lens(lens, test_protocol());
+        edit_lens.initialize(&three_node_instance()).unwrap();
+        let expected = |node: u32| {
+            format!(
+                "{:?}",
+                crate::edit_error::EditLensError::Restrict(
+                    panproto_inst::RestrictError::ValueNotExpressible {
+                        node,
+                        field: "text".to_owned(),
+                        value_type: "token".to_owned(),
+                    }
+                )
+            )
+        };
+        let edit = |node_id: u32| TreeEdit::SetField {
+            node_id,
+            field: Name::from("text"),
+            value: panproto_inst::Value::Token("t".into()),
+        };
+        let refused = edit_lens.get_edit(edit(1)).unwrap_err();
+        assert_eq!(format!("{refused:?}"), expected(1));
+        let refused = edit_lens.translate_iso(edit(2)).unwrap_err();
+        assert_eq!(format!("{refused:?}"), expected(2));
     }
 
     #[test]

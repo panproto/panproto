@@ -145,6 +145,7 @@ fn query_answers(
         .edge("n", "n", "link", None)?
         .build()?;
     Ok(execute_graph(query, graph, &schema)
+        .unwrap()
         .into_iter()
         .map(|m| m.node_id)
         .collect())
@@ -207,6 +208,7 @@ fn a_graph_query_over_a_long_path_takes_time_in_the_graph_size()
         path: (0..400).map(|_| Name::from("link")).collect(),
         ..Default::default()
     };
-    assert_eq!(query_answers(&around, &cycle)?, vec![1, 0]);
+    // The answer is the set reached, in ascending node id.
+    assert_eq!(query_answers(&around, &cycle)?, vec![0, 1]);
     Ok(())
 }

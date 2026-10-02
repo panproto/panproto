@@ -186,7 +186,7 @@
   "report": {
     "shape": "graph",
     "scope": "instance",
-    "plan": "6d94c48f7b48a6be567d22a90c75f45591d31af0bb39f73d09446b544cdc0755",
+    "plan": "1045d6a23f690d89f12d81d81577c1c73aea9263d2dc2321a1cea7e73bc31c40",
     "status": "passed",
     "diagnostics": [],
     "incomplete": [],

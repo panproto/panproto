@@ -9,7 +9,7 @@ use panproto_gat::Name;
 use panproto_inst::identity::{Digest, GRAPH_INSTANCE_CONTEXT, TABLE_INSTANCE_CONTEXT};
 use panproto_inst::{
     CanonicalSink, CompiledMigration, DigestHasher, FInstance, InstError, KeyLookupError, Row,
-    RowId, TableEdit, Value, canonical_finstance_bytes, functor_extend, write_finstance,
+    RowId, TableEdit, Value, canonical_finstance_bytes, functor_extend_engine, write_finstance,
     write_pair_record, write_row_record,
 };
 use panproto_schema::{CanonicalWriter, Edge};
@@ -307,7 +307,7 @@ fn functor_extend_keeps_row_ids_and_creates_no_rows() {
     migration
         .vertex_remap
         .insert("user".into(), "member".into());
-    let extended = functor_extend(&f, &migration).unwrap();
+    let extended = functor_extend_engine(&f, &migration).unwrap();
     assert_eq!(extended.row_ids(), f.row_ids());
     assert_eq!(
         extended.table("member").unwrap().ids(),
@@ -340,7 +340,7 @@ fn functor_extend_allocates_fills_by_target_table() {
     migration.surviving_verts.insert("empty".into());
     migration.vertex_remap.insert("a".into(), "t".into());
     migration.vertex_remap.insert("b".into(), "t".into());
-    let extended = functor_extend(&f, &migration).unwrap();
+    let extended = functor_extend_engine(&f, &migration).unwrap();
     assert_eq!(extended.row_ids(), vec![RowId(1), RowId(4)]);
     assert_eq!(extended.table("t").unwrap().ids(), vec![RowId(1), RowId(4)]);
     assert_eq!(

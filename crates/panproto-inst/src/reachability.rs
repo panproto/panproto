@@ -1,7 +1,11 @@
-//! Incremental reachability index for W-type instances.
+//! Reachability: an incremental index for W-type instances, and the
+//! strongly connected components and reachable sets of any graph.
 //!
-//! Tracks which nodes are reachable from the root without recomputing
-//! a full BFS on every edit. Used by the edit lens pipeline.
+//! [`ReachabilityIndex`] tracks which nodes of a tree are reachable from the
+//! root without recomputing a full BFS on every edit; the edit lens pipeline
+//! uses it. [`strongly_connected_components`] and [`reachable_from`] answer
+//! the same questions for any directed graph in a deterministic order, and
+//! [`graph_components`] applies the first to a [`GInstance`](crate::GInstance).
 
 use std::collections::{HashMap, VecDeque};
 
@@ -212,6 +216,139 @@ impl ReachabilityIndex {
 
         false
     }
+}
+
+/// The strongly connected components of a directed graph, by Tarjan's
+/// algorithm, in a deterministic order.
+///
+/// `nodes` lists the vertices (repeats are ignored) and `edges` the arcs;
+/// an arc whose endpoints are not both listed is ignored. Each component is
+/// sorted ascending, and the components are sorted by their least vertex,
+/// so the result depends on the graph alone and not on the order in which
+/// it was listed. A vertex on no cycle is a component of its own; a
+/// component of two or more vertices, or a vertex with a loop, holds a
+/// cycle. The search is iterative, so a deep graph cannot overflow the
+/// stack, and runs in `O(V + E)` after an `O((V + E) log V)` setup.
+///
+/// ```
+/// use panproto_inst::reachability::strongly_connected_components;
+///
+/// let components = strongly_connected_components([3, 1, 2, 4], [(1, 2), (2, 1), (2, 3), (4, 4)]);
+/// assert_eq!(components, vec![vec![1, 2], vec![3], vec![4]]);
+/// ```
+#[must_use]
+pub fn strongly_connected_components<N: Ord + Copy>(
+    nodes: impl IntoIterator<Item = N>,
+    edges: impl IntoIterator<Item = (N, N)>,
+) -> Vec<Vec<N>> {
+    let vertices: std::collections::BTreeSet<N> = nodes.into_iter().collect();
+    let index_of: std::collections::BTreeMap<N, usize> =
+        vertices.iter().enumerate().map(|(i, &v)| (v, i)).collect();
+    let order: Vec<N> = vertices.into_iter().collect();
+    let mut successors: Vec<Vec<usize>> = vec![Vec::new(); order.len()];
+    for (u, v) in edges {
+        if let (Some(&i), Some(&j)) = (index_of.get(&u), index_of.get(&v)) {
+            successors[i].push(j);
+        }
+    }
+    for list in &mut successors {
+        list.sort_unstable();
+        list.dedup();
+    }
+
+    let unvisited = usize::MAX;
+    let mut index = vec![unvisited; order.len()];
+    let mut low = vec![0_usize; order.len()];
+    let mut on_stack = vec![false; order.len()];
+    let mut stack: Vec<usize> = Vec::new();
+    let mut next_index = 0_usize;
+    let mut components: Vec<Vec<N>> = Vec::new();
+    // Each frame is a vertex and how many of its successors it has visited.
+    let mut frames: Vec<(usize, usize)> = Vec::new();
+
+    for root in 0..order.len() {
+        if index[root] != unvisited {
+            continue;
+        }
+        frames.push((root, 0));
+        index[root] = next_index;
+        low[root] = next_index;
+        next_index += 1;
+        stack.push(root);
+        on_stack[root] = true;
+        while let Some(&(v, cursor)) = frames.last() {
+            if let Some(&w) = successors[v].get(cursor) {
+                if let Some(top) = frames.last_mut() {
+                    top.1 += 1;
+                }
+                if index[w] == unvisited {
+                    index[w] = next_index;
+                    low[w] = next_index;
+                    next_index += 1;
+                    stack.push(w);
+                    on_stack[w] = true;
+                    frames.push((w, 0));
+                } else if on_stack[w] {
+                    low[v] = low[v].min(index[w]);
+                }
+                continue;
+            }
+            frames.pop();
+            if let Some(&(parent, _)) = frames.last() {
+                low[parent] = low[parent].min(low[v]);
+            }
+            if low[v] == index[v] {
+                let mut component = Vec::new();
+                while let Some(w) = stack.pop() {
+                    on_stack[w] = false;
+                    component.push(order[w]);
+                    if w == v {
+                        break;
+                    }
+                }
+                component.sort_unstable();
+                components.push(component);
+            }
+        }
+    }
+    components.sort_unstable_by(|a, b| a[0].cmp(&b[0]));
+    components
+}
+
+/// The vertices reachable from `start` along `edges` (`start` included), in
+/// ascending order.
+///
+/// ```
+/// use panproto_inst::reachability::reachable_from;
+///
+/// assert_eq!(reachable_from(1, [(1, 2), (2, 3), (4, 1)]), vec![1, 2, 3]);
+/// ```
+#[must_use]
+pub fn reachable_from<N: Ord + Copy>(start: N, edges: impl IntoIterator<Item = (N, N)>) -> Vec<N> {
+    let mut successors: std::collections::BTreeMap<N, Vec<N>> = std::collections::BTreeMap::new();
+    for (u, v) in edges {
+        successors.entry(u).or_default().push(v);
+    }
+    let mut seen = std::collections::BTreeSet::from([start]);
+    let mut frontier = vec![start];
+    while let Some(at) = frontier.pop() {
+        for &next in successors.get(&at).map_or(&[][..], Vec::as_slice) {
+            if seen.insert(next) {
+                frontier.push(next);
+            }
+        }
+    }
+    seen.into_iter().collect()
+}
+
+/// The strongly connected components of a graph instance's nodes along its
+/// edges, as [`strongly_connected_components`] orders them.
+#[must_use]
+pub fn graph_components(instance: &crate::GInstance) -> Vec<Vec<u32>> {
+    strongly_connected_components(
+        instance.nodes().keys().copied(),
+        instance.edges().values().map(|e| (e.src, e.tgt)),
+    )
 }
 
 #[cfg(test)]

@@ -26,11 +26,10 @@ use panproto_schema::Edge as SchemaEdge;
 use crate::functor::FInstance;
 use crate::ginstance::{EdgeId, GInstance};
 use crate::metadata::Node;
+use crate::query::QueryError;
 use crate::value::{FieldPresence, Value};
 use crate::view_ref::RowId;
-use crate::wtype::{
-    WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
-};
+use crate::wtype::{TreeChildren, WInstance, build_env_with_children, value_to_expr_literal};
 
 /// Operations on the category of elements `∫F` of an instance presheaf.
 ///
@@ -115,6 +114,188 @@ pub trait ElementOps {
 
     /// Leaf value at element `x`, if present.
     fn element_value(&self, element_id: u32) -> Option<FieldPresence>;
+
+    /// The per-run view a query reads its elements through
+    /// ([`ElementScope`]), prepared once so that reading one element costs
+    /// that element's own fields and edges.
+    ///
+    /// The generic query run (`execute_elements`) calls it once per run.
+    /// It is a required method of this public trait, since a bound that
+    /// only the crate could name cannot constrain a public generic.
+    fn scope(&self) -> ElementScope<'_>;
+}
+
+/// What a query run reads at each element of one instance, prepared once
+/// per run.
+///
+/// For a tree it holds the index of the arcs by parent, so binding an
+/// element's children reads that element's arcs and not every arc of the
+/// tree; graphs and tables index their edges and pairs already. Built by
+/// [`ElementOps::scope`], whose return type makes it public; its contents
+/// are private, and the query run is its only reader.
+pub struct ElementScope<'a> {
+    of: ScopeOf<'a>,
+}
+
+/// The instance a scope reads.
+enum ScopeOf<'a> {
+    Tree(TreeChildren<'a>),
+    Graph(&'a GInstance),
+    Table(&'a FInstance),
+}
+
+impl ElementScope<'_> {
+    /// The environment a query predicate is evaluated in at element `x`:
+    /// the element's fields and children as every shape binds them, with
+    /// only the names `predicate` reads converted, and the metadata of
+    /// [`stalk`](ElementOps::stalk).
+    ///
+    /// # Errors
+    ///
+    /// [`QueryError::AmbiguousChildField`],
+    /// [`QueryError::StructuralChildNotATree`] or
+    /// [`QueryError::ValueNotExpressible`] for a predicate refused before
+    /// evaluation.
+    pub fn predicate_env(
+        &self,
+        schema: &panproto_schema::Schema,
+        element_id: u32,
+        predicate: &panproto_expr::Expr,
+    ) -> Result<panproto_expr::Env, QueryError> {
+        match &self.of {
+            ScopeOf::Tree(children) => {
+                let tree = children.tree();
+                let Some(node) = tree.nodes.get(&element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    children,
+                    crate::wtype::InstanceRef::Tree(tree, element_id),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_children_count",
+                            Literal::Int(count_literal(children.arc_count(element_id))),
+                        ),
+                    ],
+                )
+            }
+            ScopeOf::Graph(graph) => {
+                let Some(node) = graph.node(element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    *graph,
+                    crate::wtype::InstanceRef::Graph(graph, element_id),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_edge_count",
+                            Literal::Int(count_literal(graph.out_edges(element_id).len())),
+                        ),
+                    ],
+                )
+            }
+            ScopeOf::Table(table) => {
+                let Some((name, row)) = table.resolve_element(element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    *table,
+                    crate::wtype::InstanceRef::Table(table, row),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(name.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_edge_count",
+                            Literal::Int(count_literal(table.out_pair_count(row))),
+                        ),
+                    ],
+                )
+            }
+        }
+    }
+
+    /// The observable fields at element `x`, as
+    /// [`attributes`](ElementOps::attributes) gives them: the present
+    /// values its children bind, under its own fields, which win.
+    #[must_use]
+    pub fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
+        let (own, mut combined) = match &self.of {
+            ScopeOf::Tree(children) => (
+                children
+                    .tree()
+                    .nodes
+                    .get(&element_id)
+                    .map(|n| &n.extra_fields),
+                present_children(children, element_id),
+            ),
+            ScopeOf::Graph(graph) => (
+                graph.node(element_id).map(|n| &n.extra_fields),
+                present_children(*graph, element_id),
+            ),
+            ScopeOf::Table(table) => (
+                table.row(RowId(element_id)),
+                present_children(*table, element_id),
+            ),
+        };
+        let Some(own) = own else {
+            return HashMap::new();
+        };
+        for (key, val) in own {
+            combined.insert(key.clone(), val.clone());
+        }
+        combined
+    }
+}
+
+/// The predicate environment at the element `at` of `source`: the
+/// demand-driven bindings of fields and children, then the metadata, the
+/// element's own value bound as `_value` only when the predicate reads it.
+fn predicate_env_at<S: crate::wtype::ChildSource + ?Sized>(
+    schema: &panproto_schema::Schema,
+    source: &S,
+    at: crate::wtype::InstanceRef<'_>,
+    predicate: &panproto_expr::Expr,
+    metadata: Vec<(&str, Literal)>,
+) -> Result<panproto_expr::Env, QueryError> {
+    let element = at.element();
+    let names: std::collections::BTreeSet<String> = panproto_expr::free_vars(predicate)
+        .into_iter()
+        .map(|v| v.to_string())
+        .collect();
+    let reads_value = names.contains("_value");
+    let ctx = crate::wtype::TransformContext::bound(
+        Some(schema),
+        source,
+        at,
+        &crate::wtype::Demand::from_names(names),
+    );
+    let no_fields = HashMap::new();
+    let fields = source.fields(element).unwrap_or(&no_fields);
+    let mut env = ctx
+        .environment(predicate, fields)
+        .map_err(QueryError::from_refusal)?;
+    for (name, literal) in metadata {
+        env = env.extend(Arc::from(name), literal);
+    }
+    if reads_value && let Some(FieldPresence::Present(val)) = source.presence(element) {
+        let literal = value_to_expr_literal(val).map_err(|e| QueryError::ValueNotExpressible {
+            node: element,
+            field: "_value".to_owned(),
+            value_type: e.value_type.to_owned(),
+        })?;
+        env = env.extend(Arc::from("_value"), literal);
+    }
+    Ok(env)
 }
 
 // ---------------------------------------------------------------------------
@@ -134,15 +315,20 @@ impl ElementOps for WInstance {
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
-        let mut result = Vec::new();
-        for &node_id in elements {
-            for &(src, tgt, ref edge) in &self.arcs {
-                if src == node_id && edge.kind == *edge_kind {
-                    result.push(tgt);
-                }
+        // The matching arcs by parent, in arc order, read once: each element
+        // then costs its own matching arcs.
+        let mut by_parent: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &(src, tgt, ref edge) in &self.arcs {
+            if edge.kind == *edge_kind {
+                by_parent.entry(src).or_default().push(tgt);
             }
         }
-        result
+        elements
+            .iter()
+            .filter_map(|node_id| by_parent.get(node_id))
+            .flatten()
+            .copied()
+            .collect()
     }
 
     fn stalk(&self, element_id: u32) -> panproto_expr::Env {
@@ -162,15 +348,7 @@ impl ElementOps for WInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(node) = self.nodes.get(&element_id) else {
-            return HashMap::new();
-        };
-        let scalars = collect_scalar_child_values(self, element_id);
-        let mut combined = scalars;
-        for (key, val) in &node.extra_fields {
-            combined.insert(key.clone(), val.clone());
-        }
-        combined
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -179,6 +357,12 @@ impl ElementOps for WInstance {
 
     fn element_value(&self, element_id: u32) -> Option<FieldPresence> {
         self.nodes.get(&element_id).and_then(|n| n.value.clone())
+    }
+
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Tree(TreeChildren::new(self)),
+        }
     }
 }
 
@@ -224,7 +408,7 @@ impl ElementOps for GInstance {
 
         // Scalar values of out-edge targets: the dependent-sum projection
         // for graph-shaped instances, as child scalars are for trees.
-        let child_scalars = collect_graph_scalar_children(self, element_id);
+        let child_scalars = present_children(self, element_id);
         let mut env = build_env_with_children(&node.extra_fields, &child_scalars);
 
         // Metadata
@@ -234,8 +418,10 @@ impl ElementOps for GInstance {
         );
         env = env.extend(Arc::from("_id"), Literal::Int(i64::from(node.id)));
 
-        if let Some(FieldPresence::Present(val)) = &node.value {
-            env = env.extend(Arc::from("_value"), value_to_expr_literal(val));
+        if let Some(FieldPresence::Present(val)) = &node.value
+            && let Ok(lit) = value_to_expr_literal(val)
+        {
+            env = env.extend(Arc::from("_value"), lit);
         }
 
         env.extend(
@@ -254,15 +440,7 @@ impl ElementOps for GInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(node) = self.node(element_id) else {
-            return HashMap::new();
-        };
-        let child_scalars = collect_graph_scalar_children(self, element_id);
-        let mut combined = child_scalars;
-        for (key, val) in &node.extra_fields {
-            combined.insert(key.clone(), val.clone());
-        }
-        combined
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -272,6 +450,12 @@ impl ElementOps for GInstance {
     fn element_value(&self, element_id: u32) -> Option<FieldPresence> {
         self.node(element_id).and_then(|n| n.value.clone())
     }
+
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Graph(self),
+        }
+    }
 }
 
 /// A count as an expression integer, saturating at `i64::MAX`.
@@ -279,29 +463,29 @@ fn count_literal(count: usize) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// Collect scalar values from a graph node's outgoing edge targets.
+/// The present values an element's children bind, by column name: the
+/// dependent-sum projection `Σ_{e: v→w} π_scalar(Fiber(w))` of any shape.
 ///
-/// Analogous to [`collect_scalar_child_values`] for W-type instances:
-/// this is the dependent-sum projection `Σ_{e: v→w} π_scalar(Fiber(w))`
-/// for graph-shaped instances. Out-edges are read in
-/// [`GInstance::ordered_out_edges`] order; each whose target holds a
-/// present value binds it under `edge.name` (or `edge.tgt`), a later edge
-/// overriding an earlier one of the same name, matching the W-type
-/// convention.
-fn collect_graph_scalar_children(instance: &GInstance, node_id: u32) -> HashMap<String, Value> {
-    let mut result = HashMap::new();
-    for id in instance.ordered_out_edges(node_id) {
-        let Some(edge) = instance.edge(id) else {
-            continue;
-        };
-        if let Some(FieldPresence::Present(val)) =
-            instance.node(edge.tgt).and_then(|n| n.value.as_ref())
-        {
-            let field_name = edge.edge.name.as_deref().unwrap_or(&*edge.edge.tgt);
-            result.insert(field_name.to_string(), val.clone());
-        }
-    }
-    result
+/// One rule for every shape ([`crate::wtype::bind_children`]): children
+/// are read in child order (a graph's
+/// [`ordered_out_edges`](GInstance::ordered_out_edges), a table row's pairs
+/// in ascending foreign key and target), fan edges and loops excluded; a
+/// child binds the present value of its target under its column name (the
+/// edge's name, else its target vertex); a name two or more children carry
+/// binds the [`Value::List`] of their bindings, in child order, never the
+/// last of them; a name the element's own fields hold binds nothing here,
+/// since the field wins.
+fn present_children<S: crate::wtype::ChildSource + ?Sized>(
+    source: &S,
+    element_id: u32,
+) -> HashMap<String, Value> {
+    crate::wtype::bind_children(
+        None,
+        source,
+        element_id,
+        &crate::wtype::Demand::Names(std::collections::BTreeSet::new()),
+    )
+    .values
 }
 
 // ---------------------------------------------------------------------------
@@ -378,10 +562,10 @@ impl ElementOps for FInstance {
             return panproto_expr::Env::new();
         };
 
-        // FInstance has no structural children; the stalk is the column
-        // values and the row as `self`, as for the row's node in the graph
-        // form (whose targets carry no value).
-        let mut env = build_env_with_children(row, &HashMap::new());
+        // A row's children are its pairs, whose target rows hold no value of
+        // their own, so they bind only the lists of repeated names: exactly
+        // what the row's node binds in the graph form.
+        let mut env = build_env_with_children(row, &present_children(self, element_id));
 
         // Metadata
         env = env.extend(
@@ -407,7 +591,7 @@ impl ElementOps for FInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        self.row(RowId(element_id)).cloned().unwrap_or_default()
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -417,6 +601,12 @@ impl ElementOps for FInstance {
     fn element_value(&self, _element_id: u32) -> Option<FieldPresence> {
         // FInstance rows have no distinguished leaf value.
         None
+    }
+
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Table(self),
+        }
     }
 }
 
@@ -451,8 +641,12 @@ fn node_to_literal(node: &Node) -> Literal {
     ));
     let mut extra: Vec<(&String, &Value)> = node.extra_fields.iter().collect();
     extra.sort_unstable_by(|a, b| a.0.cmp(b.0));
+    // A field whose value has no expression literal is left out rather than
+    // given an invented one.
     for (key, val) in extra {
-        fields.push((Arc::from(key.as_str()), value_to_expr_literal(val)));
+        if let Ok(lit) = value_to_expr_literal(val) {
+            fields.push((Arc::from(key.as_str()), lit));
+        }
     }
     Literal::Record(fields)
 }
@@ -646,11 +840,13 @@ fn finstance_row_to_literal(instance: &FInstance, id: RowId) -> Literal {
     if let Some(row) = instance.row(id) {
         let mut columns: Vec<(&String, &Value)> = row.iter().collect();
         columns.sort_unstable_by(|a, b| a.0.cmp(b.0));
-        fields.extend(
-            columns
-                .into_iter()
-                .map(|(k, v)| (Arc::from(k.as_str()), value_to_expr_literal(v))),
-        );
+        // A cell whose value has no expression literal is left out rather
+        // than given an invented one.
+        fields.extend(columns.into_iter().filter_map(|(k, v)| {
+            value_to_expr_literal(v)
+                .ok()
+                .map(|lit| (Arc::from(k.as_str()), lit))
+        }));
     }
     Literal::Record(fields)
 }
@@ -1236,6 +1432,7 @@ mod tests {
         };
         let schema = panproto_schema::Schema::default();
         let found: Vec<u32> = crate::query::execute_functor(&query, &f, &schema)
+            .unwrap()
             .into_iter()
             .map(|m| m.node_id)
             .collect();
@@ -1272,8 +1469,8 @@ mod tests {
             },
         ];
         for query in &queries {
-            let on_table = crate::query::execute_functor(query, &f, &schema);
-            let on_graph = crate::query::execute_graph(query, &g, &schema);
+            let on_table = crate::query::execute_functor(query, &f, &schema).unwrap();
+            let on_graph = crate::query::execute_graph(query, &g, &schema).unwrap();
             let key = |m: &crate::query::QueryMatch| {
                 let mut fields: Vec<(String, Value)> = m
                     .fields

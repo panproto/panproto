@@ -11,45 +11,52 @@ use crate::error::LiftError;
 
 /// Apply a compiled migration to a W-type instance.
 ///
-/// Delegates to [`panproto_inst::wtype_restrict`], which executes the
-/// 5-step pipeline: anchor surviving, reachability BFS, ancestor
-/// contraction, edge resolution, and fan reconstruction.
+/// Compiles the plan of the migration ([`panproto_inst::RestrictPlan::compile`])
+/// and runs the tree engine ([`panproto_inst::wtype_restrict_with_plan`])
+/// on it; the instance's boundaries are not validated.
 ///
 /// # Errors
 ///
-/// Returns `LiftError::Restrict` if the underlying restrict operation
-/// fails (e.g., edge resolution ambiguity, root pruned).
+/// Returns `LiftError::Restrict` if the plan does not compile or the
+/// underlying restrict operation fails (e.g., edge resolution ambiguity,
+/// root pruned).
 pub fn lift_wtype(
     compiled: &CompiledMigration,
     src_schema: &Schema,
     tgt_schema: &Schema,
     instance: &WInstance,
 ) -> Result<WInstance, LiftError> {
-    let result = panproto_inst::wtype_restrict(instance, src_schema, tgt_schema, compiled)?;
+    let plan = panproto_inst::RestrictPlan::compile(src_schema, tgt_schema, compiled)?;
+    let (result, _) = panproto_inst::wtype_restrict_with_plan(instance, &plan)?;
     Ok(result)
 }
 
 /// Apply a compiled migration to a set-valued functor instance.
 ///
 /// Delegates to [`panproto_inst::functor_restrict`], which carries the
-/// instance forward along the migration and keeps the fragment that survives:
-/// each surviving target vertex takes the rows of every source vertex the
-/// migration sends to it.
+/// instance forward along the migration and keeps the fragment that
+/// survives, reading tables and columns through the two protocols and
+/// validating both boundaries.
 ///
 /// # Errors
 ///
 /// Returns `LiftError::Restrict` if the underlying restrict operation fails.
 pub fn lift_functor(
     compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     instance: &FInstance,
+    protocols: panproto_inst::BoundaryProtocols<'_>,
 ) -> Result<FInstance, LiftError> {
-    let result = panproto_inst::functor_restrict(instance, compiled)?;
+    let result =
+        panproto_inst::functor_restrict(instance, src_schema, tgt_schema, compiled, protocols)?;
     Ok(result)
 }
 
 /// Apply a compiled migration as a left Kan extension (`Sigma_F`) to a W-type instance.
 ///
-/// Delegates to [`panproto_inst::wtype_extend`], which pushes every node
+/// Runs the extend engine ([`panproto_inst::wtype_extend_engine`]), which
+/// does not validate and pushes every node
 /// forward along the migration morphism, remapping anchors and edges. This
 /// is a *total* operation: it requires each source node's anchor to be
 /// remapped or surviving, and reports an unmapped anchor rather than
@@ -65,7 +72,7 @@ pub fn lift_wtype_sigma(
     tgt_schema: &Schema,
     instance: &WInstance,
 ) -> Result<WInstance, LiftError> {
-    let result = panproto_inst::wtype_extend(instance, tgt_schema, compiled)?;
+    let result = panproto_inst::wtype_extend_engine(instance, tgt_schema, compiled)?;
     Ok(result)
 }
 
@@ -98,7 +105,7 @@ pub fn lift_wtype_pi(
 /// extension path, then close it under a term-level chase.
 ///
 /// This is the `sigma` pipeline entry for set-valued instances: it runs
-/// [`panproto_inst::functor_extend`], which moves each row to its image
+/// [`panproto_inst::functor_extend_engine`], which moves each row to its image
 /// table under its own id and pads the cells it lacks there with
 /// `Value::Null`, and then saturates the result under `dependencies` with
 /// [`crate::chase::chase`], enforcing tuple- and equality-generating
@@ -127,7 +134,7 @@ pub fn lift_functor_sigma(
 
 /// [`lift_functor_sigma`], with the row map of the chase that creates rows.
 ///
-/// The extension ([`panproto_inst::functor_extend`]) keeps every row's id and
+/// The extension ([`panproto_inst::functor_extend_engine`]) keeps every row's id and
 /// creates no row; the chase then adds rows and keeps every extended row.
 /// The returned [`FInstanceHom`] is the chase's homomorphism
 /// ([`crate::chase::chase_with_hom`]) from the extension of `instance`
@@ -146,7 +153,7 @@ pub fn lift_functor_sigma_with_hom(
     dependencies: &[crate::chase::Dependency],
     budget: crate::chase::ChaseBudget,
 ) -> Result<(FInstance, FInstanceHom), LiftError> {
-    let extended = panproto_inst::functor_extend(instance, compiled)?;
+    let extended = panproto_inst::functor_extend_engine(instance, compiled)?;
     if dependencies.is_empty() {
         let identity = FInstanceHom::identity(&extended);
         return Ok((extended, identity));
@@ -907,7 +914,7 @@ mod tests {
         };
         let budget = ChaseBudget::new(10, 10);
 
-        let extended = panproto_inst::functor_extend(&instance, &compiled).unwrap();
+        let extended = panproto_inst::functor_extend_engine(&instance, &compiled).unwrap();
         let (result, hom) =
             lift_functor_sigma_with_hom(&compiled, &instance, std::slice::from_ref(&copy), budget)
                 .unwrap();

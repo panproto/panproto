@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::CompiledMigration;
-use panproto_schema::Schema;
+use panproto_schema::{Edge, Schema};
 
 use crate::error::ExistenceError;
 use crate::migration::Migration;
@@ -64,6 +64,10 @@ pub fn compile(
         surviving_edges.insert(tgt_e.clone());
         edge_remap.insert(src_e.clone(), tgt_e.clone());
     }
+
+    // Step 2b: Lower the label renames of mapped hyper-edges onto the
+    // attribute arrows they name, as ordinary edge remaps.
+    lower_label_renames(src, tgt, migration, &mut edge_remap, &mut surviving_edges)?;
 
     // Also include edges in the target that are between surviving vertices
     // and not explicitly remapped. These edges "survive" because both
@@ -149,6 +153,140 @@ pub fn compile(
         op_term_assignments,
         expansion_path: HashMap::new(),
     })
+}
+
+/// The arrow of `label` in hyper-edge `hyper_edge` of `schema`: the schema
+/// edge named by the label from the vertex at the hyper-edge's parent label
+/// to the vertex at the label. `Ok(None)` when there is none, and `Err(())`
+/// when there are several.
+fn label_arrow(
+    schema: &Schema,
+    hyper_edge: &panproto_schema::HyperEdge,
+    label: &Name,
+) -> Result<Option<Edge>, ()> {
+    let (Some(parent), Some(child)) = (
+        hyper_edge.signature.get(&hyper_edge.parent_label),
+        hyper_edge.signature.get(label),
+    ) else {
+        return Ok(None);
+    };
+    let mut arrows = schema
+        .edges_between(parent, child)
+        .iter()
+        .filter(|e| e.name.as_ref() == Some(label));
+    match (arrows.next(), arrows.next()) {
+        (None, _) => Ok(None),
+        (Some(arrow), None) => Ok(Some(arrow.clone())),
+        (Some(_), Some(_)) => Err(()),
+    }
+}
+
+/// Lower the label renames of every mapped hyper-edge onto its attribute
+/// arrows.
+///
+/// For each `(H, H')` of `hyper_edge_map` and each label `l` of `H` other
+/// than its parent label, in ascending `(H, l)`: the target label `l'` is
+/// `label_map[(H, l)]` (keyed by the source label) when present and `l`
+/// otherwise. When `l'` is a label of `H'`, the arrow of `l` in the source
+/// is paired with the arrow of `l'` in the target: `edge_remap` gains it,
+/// unless `edge_map` maps the source arrow already, in which case its image
+/// must be the target arrow, or the target arrow is the source arrow's
+/// direct image (the target edge of its kind and name between the images
+/// of its endpoints), which a restrict gives the arrow with no entry. When
+/// `l` is no label of `H'` and `label_map` does not rename it, the label is
+/// removed: the target must hold no edge of the arrow's kind named `l`
+/// between the images of its endpoints, so the arrow has no image. A label
+/// without an arrow in the source is not lowered.
+///
+/// So when the lowering refuses nothing and every lowered label's target
+/// arrow is the source arrow's direct image or its `edge_map` image, it
+/// adds no entry, and the migration compiles exactly as the same migration
+/// with no hyper-edge mapped. Renaming no label is not enough for that: a
+/// label kept under its own name whose target arrow is not the source
+/// arrow's direct image gains an entry, and a removed label whose arrow
+/// keeps a same-named image is refused, while the same migrations with the
+/// hyper-edge unmapped compile.
+///
+/// # Errors
+///
+/// [`ExistenceError::LabelArrowMismatch`] for the first label, in
+/// ascending `(H, l)`, with two arrows in the source or the target, a
+/// `label_map` entry that names no label of `H'`, a lowered label with no
+/// arrow in the target, an `edge_map` image other than the target arrow,
+/// or a removed label whose arrow keeps a same-named image.
+fn lower_label_renames(
+    src: &Schema,
+    tgt: &Schema,
+    migration: &Migration,
+    edge_remap: &mut HashMap<Edge, Edge>,
+    surviving_edges: &mut HashSet<Edge>,
+) -> Result<(), ExistenceError> {
+    let endpoint = |v: &Name| migration.vertex_map.get(v).unwrap_or(v).clone();
+    let mut hyper_edges: Vec<(&Name, &Name)> = migration.hyper_edge_map.iter().collect();
+    hyper_edges.sort();
+    for (source_id, target_id) in hyper_edges {
+        let (Some(source), Some(target)) = (
+            src.hyper_edges.get(source_id),
+            tgt.hyper_edges.get(target_id),
+        ) else {
+            continue;
+        };
+        let mut labels: Vec<&Name> = source
+            .signature
+            .keys()
+            .filter(|l| **l != source.parent_label)
+            .collect();
+        labels.sort();
+        for label in labels {
+            let mismatch = || ExistenceError::LabelArrowMismatch {
+                hyper_edge: source_id.to_string(),
+                label: label.to_string(),
+            };
+            let renamed = migration.label_map.get(&(source_id.clone(), label.clone()));
+            let target_label = renamed.unwrap_or(label);
+            if renamed.is_some() && !target.signature.contains_key(target_label) {
+                return Err(mismatch());
+            }
+            let Some(arrow) = label_arrow(src, source, label).map_err(|()| mismatch())? else {
+                continue;
+            };
+            if target.signature.contains_key(target_label) {
+                let image = label_arrow(tgt, target, target_label)
+                    .map_err(|()| mismatch())?
+                    .ok_or_else(mismatch)?;
+                match migration.edge_map.get(&arrow) {
+                    Some(mapped) if *mapped != image => return Err(mismatch()),
+                    Some(_) => {}
+                    None => {
+                        // The direct image of the arrow, the target edge of
+                        // its kind and name between the images of its
+                        // endpoints, is what a restrict gives it with no
+                        // entry, so an entry is added only where it differs.
+                        let direct = Edge {
+                            src: endpoint(&arrow.src),
+                            tgt: endpoint(&arrow.tgt),
+                            kind: arrow.kind.clone(),
+                            name: arrow.name.clone(),
+                        };
+                        if image != direct {
+                            edge_remap.insert(arrow, image.clone());
+                            surviving_edges.insert(image);
+                        }
+                    }
+                }
+            } else {
+                let (from, to) = (endpoint(&arrow.src), endpoint(&arrow.tgt));
+                let keeps_image = tgt
+                    .edges_between(&from, &to)
+                    .iter()
+                    .any(|e| e.kind == arrow.kind && e.name.as_ref() == Some(label));
+                if keeps_image {
+                    return Err(mismatch());
+                }
+            }
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

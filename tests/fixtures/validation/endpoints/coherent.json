@@ -180,7 +180,7 @@
   "report": {
     "shape": "graph",
     "scope": "instance",
-    "plan": "ce3be74dbf127e73c831ac4caec81ef8cbfe1694fed00fe4dbb8444a192e0896",
+    "plan": "c15270b72e1970500f0a83d78cb76c9e9fce59083e6df3c12d1006fd94385bdc",
     "status": "passed",
     "diagnostics": [],
     "incomplete": [],

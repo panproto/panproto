@@ -59,7 +59,7 @@ use crate::pi::{PiLimit, pi_limit};
 use crate::rel_schema::RelSchema;
 use crate::value::Value;
 use crate::view_ref::RowId;
-use crate::wtype::{CompiledMigration, WInstance, wtype_extend};
+use crate::wtype::{CompiledMigration, WInstance};
 
 /// Error raised when an adjunction transport is undefined for the given
 /// migration or instance.
@@ -103,7 +103,7 @@ pub enum AdjunctionError {
     )]
     AnchorOutsideImage(Name),
 
-    /// The underlying left Kan extension ([`wtype_extend`]) failed.
+    /// The underlying left Kan extension ([`wtype_extend`](crate::wtype_extend)) failed.
     #[error("Sigma (left Kan extension) failed: {0}")]
     Sigma(#[from] RestrictError),
 
@@ -153,7 +153,11 @@ pub enum AdjunctionError {
     /// An input does not conform to the schema it must be an instance of:
     /// a row outside its tables, a missing or stray cell, a labelled null
     /// nested inside a cell, or a pair outside its relations.
-    #[error("row {row:?} does not conform to the schema (column {column:?}): {reason}")]
+    #[error(
+        "row {} does not conform to the schema{}: {reason}",
+        .row.0,
+        crate::error::at_column(.column.as_deref())
+    )]
     NonConforming {
         /// The least offending row (for a pair, its source row).
         row: RowId,
@@ -347,7 +351,8 @@ fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>,
 /// each node's anchor `v` to `F(v)` and each arc's edge accordingly,
 /// preserving node identity.
 ///
-/// This delegates to [`wtype_extend`]; `tgt_schema` is consulted only when
+/// This is the engine of [`wtype_extend`](crate::wtype_extend), with no boundary validation;
+/// `tgt_schema` is consulted only when
 /// an arc's edge is neither remapped nor surviving (never the case for the
 /// full relabelling migrations this adjunction targets).
 ///
@@ -360,7 +365,7 @@ pub fn w_sigma(
     tgt_schema: &Schema,
     migration: &CompiledMigration,
 ) -> Result<WInstance, AdjunctionError> {
-    Ok(wtype_extend(x, tgt_schema, migration)?)
+    Ok(crate::wtype::wtype_extend_engine(x, tgt_schema, migration)?)
 }
 
 /// `Delta_F` for W-type instances, defined for vertex-injective total maps.
