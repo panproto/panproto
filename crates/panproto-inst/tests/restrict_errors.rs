@@ -299,6 +299,31 @@ fn a_restrict_error_detail_carries_its_error_key() {
 }
 
 #[test]
+fn a_nonconforming_row_is_displayed_by_its_number_and_column_name() {
+    let at_cell = RestrictError::NonConforming {
+        row: panproto_inst::RowId(3),
+        column: Some("c".into()),
+        reason: panproto_inst::NonConformance::MissingCell,
+    };
+    assert_eq!(
+        at_cell.to_string(),
+        "row 3 does not conform to the source schema at column `c`: the row holds no cell at a \
+         column of its table"
+    );
+    let at_row = RestrictError::NonConforming {
+        row: panproto_inst::RowId(4),
+        column: None,
+        reason: panproto_inst::NonConformance::TableOutside {
+            table: "ghost".into(),
+        },
+    };
+    assert_eq!(
+        at_row.to_string(),
+        "row 4 does not conform to the source schema: `ghost` is no table of the schema"
+    );
+}
+
+#[test]
 fn a_restrict_error_fits_the_result_size_clippy_allows() {
     let size = std::mem::size_of::<RestrictError>();
     println!("size_of::<RestrictError>() = {size}");

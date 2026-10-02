@@ -563,7 +563,11 @@ pub enum RestrictError {
     /// its table's columns. The table restrict reads total rows only, so
     /// that the complement can name every column on which a view row and
     /// its source row disagree.
-    #[error("row {row:?} does not conform to the source schema (column {column:?}): {reason}")]
+    #[error(
+        "row {} does not conform to the source schema{}: {reason}",
+        .row.0,
+        at_column(.column.as_deref())
+    )]
     NonConforming {
         /// The least offending row.
         row: RowId,
@@ -578,6 +582,12 @@ pub enum RestrictError {
         /// [`NonConformance::StrayCell`]: crate::NonConformance::StrayCell
         reason: crate::NonConformance,
     },
+}
+
+/// The place of a non-conforming row's violation in its message: ` at
+/// column` and the column's name, or nothing for a violation at the row.
+fn at_column(column: Option<&str>) -> String {
+    column.map_or_else(String::new, |column| format!(" at column `{column}`"))
 }
 
 /// Errors from JSON parsing.
