@@ -746,3 +746,91 @@ fn a_relation_carried_only_by_name_is_refused_on_tables() {
     let plan = RestrictPlan::compile(&src, &tgt, &m).unwrap();
     assert_eq!(plan.edge_image.fate(&f("a")), Some(&EdgeFate::Keep(f("A"))));
 }
+
+/// The source edge `r -x-> leaf`, and a target that joins `r` to `leaf`
+/// only through a chain of `k` intermediates `m0 .. m(k-1)`, with the
+/// migration that keeps both ends and expands the edge along the chain.
+fn long_expansion(k: usize) -> (Schema, Schema, CompiledMigration) {
+    let src = schema(&["r", "leaf"], &[&e("r", "leaf", "x")]);
+    let names: Vec<String> = (0..k).map(|i| format!("m{i}")).collect();
+    let mut anchors: Vec<&str> = vec!["r"];
+    anchors.extend(names.iter().map(String::as_str));
+    anchors.push("leaf");
+    let mut builder = SchemaBuilder::new(&Protocol::default());
+    for v in &anchors {
+        builder = builder.vertex(v, "record", None).unwrap();
+    }
+    for hop in anchors.windows(2) {
+        builder = builder.edge(hop[0], hop[1], "prop", Some("h")).unwrap();
+    }
+    let tgt = builder.build().unwrap();
+    let mut m = keep(&["r", "leaf"]);
+    m.expansion_path.insert(
+        pair("r", "leaf"),
+        names.iter().map(|n| Name::from(n.as_str())).collect(),
+    );
+    (src, tgt, m)
+}
+
+#[test]
+fn an_expansion_longer_than_a_synthesized_key_can_number_is_refused() {
+    // A synthesized key numbers an expansion's hops with 16 bits: 65536
+    // labels (65535 intermediates) fit, 65537 do not.
+    let (src, tgt, m) = long_expansion(65_535);
+    let image = EdgeImage::compile(&src, &tgt, &m).unwrap();
+    assert!(matches!(
+        image.fate(&e("r", "leaf", "x")),
+        Some(EdgeFate::Expand { labels, .. }) if labels.len() == 65_536
+    ));
+    let (src, tgt, m) = long_expansion(65_536);
+    let error = RestrictPlan::compile(&src, &tgt, &m).unwrap_err();
+    assert!(
+        matches!(
+            &error,
+            RestrictError::ExpansionTooLong { src, tgt, hops }
+                if src == "r" && tgt == "leaf" && *hops == 65_537
+        ),
+        "{error:?}"
+    );
+}
+
+#[test]
+fn an_engine_refuses_an_expansion_too_long_to_number() {
+    // A plan whose fields were changed after compilation to hold a longer
+    // expansion is refused by the engines too, at the edge, rather than
+    // numbered wrongly.
+    let (src, tgt, m) = long_expansion(1);
+    let mut plan = RestrictPlan::compile(&src, &tgt, &m).unwrap();
+    let hop = e("r", "m0", "h");
+    plan.edge_image.fates.insert(
+        e("r", "leaf", "x"),
+        EdgeFate::Expand {
+            intermediates: vec![Name::from("m0"); 65_536],
+            labels: vec![hop; 65_537],
+        },
+    );
+    let tree = panproto_inst::WInstance::new(
+        [
+            (0, panproto_inst::Node::new(0, "r")),
+            (1, panproto_inst::Node::new(1, "leaf")),
+        ]
+        .into(),
+        vec![(0, 1, e("r", "leaf", "x"))],
+        vec![],
+        0,
+        "r".into(),
+    );
+    let too_long = |error: &RestrictError| {
+        matches!(
+            error.unlocated(),
+            RestrictError::ExpansionTooLong { hops: 65_537, .. }
+        )
+    };
+    let tree_error = panproto_inst::wtype_restrict_with_plan(&tree, &plan).unwrap_err();
+    assert!(too_long(&tree_error), "{tree_error:?}");
+    assert_eq!(tree_error.key(), None);
+    let graph = panproto_inst::GInstance::from_wtype(&tree).unwrap();
+    let graph_error = panproto_inst::graph_restrict_with_plan(&graph, &plan).unwrap_err();
+    assert!(too_long(&graph_error), "{graph_error:?}");
+    assert_eq!(graph_error.key().map(|k| (k.stage, k.id)), Some((1, 0)));
+}

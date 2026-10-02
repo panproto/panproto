@@ -122,10 +122,12 @@ fn is_fan_node(node: &Node) -> bool {
 /// [`RestrictError::FieldTransformFailed`],
 /// [`RestrictError::ValueFidelity`]); in stage 1
 /// [`RestrictError::IncoherentEdgeImage`] for an edge between surviving
-/// nodes whose label is no source schema edge, and
+/// nodes whose label is no source schema edge,
 /// [`RestrictError::NoEdgeFound`] or [`RestrictError::AmbiguousEdge`] for
-/// one whose fate is unresolved; in stage 2 the same two for an unresolved
-/// pair or a pair the plan does not hold; in stage 3
+/// one whose fate is unresolved, and [`RestrictError::ExpansionTooLong`] for
+/// one whose expansion has more edges than a synthesized key numbers; in
+/// stage 2 the same three for an unresolved or over-long pair or a pair the
+/// plan does not hold; in stage 3
 /// [`RestrictError::FanReconstructionFailed`] for a fan whose renamed labels
 /// collide; in stage 5 [`RestrictError::IdsExhausted`].
 pub fn graph_restrict_with_plan(
@@ -390,13 +392,18 @@ impl<'a> GraphRun<'a> {
                 intermediates,
                 labels,
             }) => {
-                self.chains.push(SynthChain::Expand {
-                    arc: id,
-                    parent: edge.src,
-                    child: edge.tgt,
-                    intermediates: intermediates.clone(),
-                    labels: labels.clone(),
-                });
+                let anchor = |node: u32| {
+                    self.nodes
+                        .get(&node)
+                        .map_or_else(Name::default, |n| n.anchor.clone())
+                };
+                self.chains.push(SynthChain::expand(
+                    id,
+                    (edge.src, edge.tgt),
+                    (&anchor(edge.src), &anchor(edge.tgt)),
+                    intermediates,
+                    labels,
+                )?);
                 self.complement.dropped_edges.insert(id, edge.clone());
                 Ok(())
             }
@@ -484,12 +491,12 @@ impl<'a> GraphRun<'a> {
             PairResolution::Expand {
                 intermediates,
                 labels,
-            } => Ok(SynthChain::ContractExpand {
-                src: source,
-                tgt: target,
-                intermediates: intermediates.clone(),
-                labels: labels.clone(),
-            }),
+            } => SynthChain::contract_expand(
+                (source, target),
+                (&pair.target.0, &pair.target.1),
+                intermediates,
+                labels,
+            ),
             PairResolution::Unresolved(reason) => {
                 Err(self
                     .plan
@@ -622,13 +629,13 @@ impl<'a> GraphRun<'a> {
         let floor = self.complement.id_floor;
         let mut node_anchors: BTreeMap<SynthKey, Name> = BTreeMap::new();
         for chain in &self.chains {
-            node_anchors.extend(chain.node_keys().map_err(|e| e.at(5, 0, 0))?);
+            node_anchors.extend(chain.node_keys());
         }
         let node_ids = allocate_synthesized(node_anchors.keys().cloned(), floor.node, IdKind::Node)
             .map_err(|e| locate_exhaustion(e, IdKind::Node))?;
         let mut arcs = Vec::new();
         for chain in &self.chains {
-            arcs.extend(chain.arcs(&node_ids).map_err(|e| e.at(5, 0, 0))?);
+            arcs.extend(chain.arcs(&node_ids));
         }
         let edge_ids = allocate_synthesized(
             arcs.iter().map(|(key, ..)| key.clone()),

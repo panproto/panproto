@@ -35,7 +35,8 @@ use crate::value::coerce::coerce_value;
 use crate::value::{Value, ValueSite};
 use crate::view_ref::SynthKey;
 use crate::wtype::{
-    CompiledMigration, KeyTrack, TransformContext, apply_transforms_tracked, direct_source_edge_image,
+    CompiledMigration, KeyTrack, TransformContext, apply_transforms_tracked, check_expansion,
+    direct_source_edge_image,
 };
 
 /// An element of the source schema on which the survival rule of the
@@ -115,7 +116,9 @@ impl EdgeImage {
     /// [`RestrictError::IncoherentEdgeImage`] for the least source edge
     /// whose kept image, or one of whose expansion labels, is not a target
     /// edge joining the anchors it stands between (`a'` to `b'` for a kept
-    /// image; consecutive anchors of the path for a label).
+    /// image; consecutive anchors of the path for a label), and
+    /// [`RestrictError::ExpansionTooLong`] for the least one expanded into a
+    /// path of more than 65536 edges, more than a synthesized key numbers.
     pub fn compile(
         src: &Schema,
         tgt: &Schema,
@@ -159,6 +162,9 @@ impl EdgeImage {
             };
         if let Some(image) = incoherent_label(tgt, a, b, &resolution) {
             return Err(incoherent(image));
+        }
+        if let PairResolution::Expand { labels, .. } = &resolution {
+            check_expansion(a, b, labels)?;
         }
         Ok(match resolution {
             PairResolution::Label(image) => EdgeFate::Keep(image),
@@ -846,6 +852,7 @@ impl RestrictError {
             Self::IdsExhausted { .. } => 29,
             Self::SurvivalPredicateFailed { .. } => 30,
             Self::PlanSchemaMismatch { .. } => 31,
+            Self::ExpansionTooLong { .. } => 32,
         }
     }
 

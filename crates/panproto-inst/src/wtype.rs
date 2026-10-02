@@ -1201,21 +1201,77 @@ pub(crate) enum SynthChain {
     },
 }
 
-/// The hop of a path position as a key component.
-fn hop(h: usize) -> Result<u16, RestrictError> {
-    u16::try_from(h).map_err(|_| RestrictError::IdsExhausted {
-        kind: crate::segment::IdKind::Node,
+/// The most labels an expansion can have: a synthesized key numbers the
+/// hops of an expansion with 16 bits, from 0.
+pub(crate) const MAX_EXPANSION_LABELS: usize = 1 << 16;
+
+/// Refuse an expansion from the anchor `a` to the anchor `b` whose labels a
+/// synthesized key cannot number.
+pub(crate) fn check_expansion(a: &Name, b: &Name, labels: &[Edge]) -> Result<(), RestrictError> {
+    if labels.len() <= MAX_EXPANSION_LABELS {
+        return Ok(());
+    }
+    Err(RestrictError::ExpansionTooLong {
+        src: a.to_string(),
+        tgt: b.to_string(),
+        hops: labels.len(),
     })
 }
 
 impl SynthChain {
-    /// The keys of the chain's synthesized nodes, one per intermediate.
-    pub(crate) fn node_keys(
-        &self,
-    ) -> Result<Vec<(crate::view_ref::SynthKey, Name)>, RestrictError> {
+    /// The chain of a source edge `arc` from `parent` to `child` expanded,
+    /// between the anchors `a` and `b`, into a path.
+    ///
+    /// # Errors
+    ///
+    /// [`RestrictError::ExpansionTooLong`] for a path with more labels than
+    /// a synthesized key can number.
+    pub(crate) fn expand(
+        arc: crate::ginstance::EdgeId,
+        (parent, child): (u32, u32),
+        (a, b): (&Name, &Name),
+        intermediates: &[Name],
+        labels: &[Edge],
+    ) -> Result<Self, RestrictError> {
+        check_expansion(a, b, labels)?;
+        Ok(Self::Expand {
+            arc,
+            parent,
+            child,
+            intermediates: intermediates.to_vec(),
+            labels: labels.to_vec(),
+        })
+    }
+
+    /// The chain of the contracted pair `(src, tgt)` resolved, between the
+    /// anchors `a` and `b`, to a path.
+    ///
+    /// # Errors
+    ///
+    /// [`RestrictError::ExpansionTooLong`] for a path with more labels than
+    /// a synthesized key can number.
+    pub(crate) fn contract_expand(
+        (src, tgt): (u32, u32),
+        (a, b): (&Name, &Name),
+        intermediates: &[Name],
+        labels: &[Edge],
+    ) -> Result<Self, RestrictError> {
+        check_expansion(a, b, labels)?;
+        Ok(Self::ContractExpand {
+            src,
+            tgt,
+            intermediates: intermediates.to_vec(),
+            labels: labels.to_vec(),
+        })
+    }
+
+    /// The keys of the chain's synthesized nodes, one per intermediate,
+    /// numbered by hop from 0 (the constructors keep every hop within the
+    /// 16 bits of a key).
+    pub(crate) fn node_keys(&self) -> Vec<(crate::view_ref::SynthKey, Name)> {
         use crate::view_ref::SynthKey;
         let (intermediates, key): (&[Name], &dyn Fn(u16) -> SynthKey) = match self {
-            Self::Contract { .. } => return Ok(Vec::new()),
+            Self::Contract { .. } => return Vec::new(),
             Self::Expand {
                 arc, intermediates, ..
             } => (intermediates, &|h| SynthKey::Expand {
@@ -1235,21 +1291,21 @@ impl SynthChain {
         };
         intermediates
             .iter()
-            .enumerate()
-            .map(|(h, anchor)| Ok((key(hop(h)?), anchor.clone())))
+            .zip(0..=u16::MAX)
+            .map(|(anchor, h)| (key(h), anchor.clone()))
             .collect()
     }
 
-    /// The chain's synthesized arcs, each with its key, given the ids of
-    /// the synthesized nodes.
+    /// The chain's synthesized arcs, each with its key, given the ids
+    /// allocated to the keys of [`Self::node_keys`].
     pub(crate) fn arcs(
         &self,
         ids: &BTreeMap<crate::view_ref::SynthKey, u32>,
-    ) -> Result<Vec<(crate::view_ref::SynthKey, u32, u32, Edge)>, RestrictError> {
+    ) -> Vec<(crate::view_ref::SynthKey, u32, u32, Edge)> {
         use crate::view_ref::SynthKey;
         let (from, to, labels, key): (u32, u32, &[Edge], &dyn Fn(u16) -> SynthKey) = match self {
             Self::Contract { src, tgt, edge } => {
-                return Ok(vec![(
+                return vec![(
                     SynthKey::Contract {
                         src: *src,
                         tgt: *tgt,
@@ -1258,7 +1314,7 @@ impl SynthChain {
                     *src,
                     *tgt,
                     edge.clone(),
-                )]);
+                )];
             }
             Self::Expand {
                 arc,
@@ -1281,19 +1337,15 @@ impl SynthChain {
         let last = labels.len().saturating_sub(1);
         let mut previous = from;
         let mut arcs = Vec::with_capacity(labels.len());
-        for (h, label) in labels.iter().enumerate() {
-            let key = key(hop(h)?);
-            let next = if h == last {
-                to
-            } else {
-                ids.get(&key).copied().ok_or(RestrictError::IdsExhausted {
-                    kind: crate::segment::IdKind::Node,
-                })?
-            };
+        for ((h, label), hop) in labels.iter().enumerate().zip(0..=u16::MAX) {
+            let key = key(hop);
+            // Every inner hop's key is a key of `node_keys`, which the
+            // caller allocated an id.
+            let next = if h == last { to } else { ids[&key] };
             arcs.push((key, previous, next, label.clone()));
             previous = next;
         }
-        Ok(arcs)
+        arcs
     }
 }
 
@@ -1388,17 +1440,17 @@ fn traverse(
                         Some(crate::restrict_plan::EdgeFate::Expand {
                             intermediates,
                             labels,
-                        }) => chains.push(SynthChain::Expand {
-                            arc: crate::ginstance::EdgeId(u32::try_from(index).map_err(|_| {
+                        }) => chains.push(SynthChain::expand(
+                            crate::ginstance::EdgeId(u32::try_from(index).map_err(|_| {
                                 RestrictError::IdsExhausted {
                                     kind: crate::segment::IdKind::Edge,
                                 }
                             })?),
-                            parent,
-                            child,
-                            intermediates: intermediates.clone(),
-                            labels: labels.clone(),
-                        }),
+                            (parent, child),
+                            (image(parent), image(child)),
+                            intermediates,
+                            labels,
+                        )?),
                         // The subtree under a dropped arc goes with it.
                         Some(crate::restrict_plan::EdgeFate::Drop) => continue,
                         Some(crate::restrict_plan::EdgeFate::Unresolved(reason)) => {
@@ -1448,12 +1500,12 @@ fn contracted_chain(
         crate::contraction_plan::PairResolution::Expand {
             intermediates,
             labels,
-        } => Ok(SynthChain::ContractExpand {
-            src: source,
-            tgt: child,
-            intermediates: intermediates.clone(),
-            labels: labels.clone(),
-        }),
+        } => SynthChain::contract_expand(
+            (source, child),
+            (&pair.target.0, &pair.target.1),
+            intermediates,
+            labels,
+        ),
         crate::contraction_plan::PairResolution::Unresolved(reason) => {
             Err(plan.unresolved(&pair.target.0, &pair.target.1, *reason))
         }
@@ -1529,7 +1581,7 @@ pub fn wtype_restrict_with_plan(
     let id_floor = crate::complement::tree_id_floor(instance).unwrap_or(u32::MAX);
     let mut synthesized_anchors: BTreeMap<SynthKey, Name> = BTreeMap::new();
     for chain in &chains {
-        synthesized_anchors.extend(chain.node_keys()?);
+        synthesized_anchors.extend(chain.node_keys());
     }
     let synthesized_ids = crate::restrict_plan::allocate_synthesized(
         synthesized_anchors.keys().cloned(),
@@ -1565,7 +1617,7 @@ pub fn wtype_restrict_with_plan(
     kept.sort_unstable_by_key(|(index, ..)| *index);
     let mut synthesized_arcs = Vec::new();
     for chain in &chains {
-        synthesized_arcs.extend(chain.arcs(&synthesized_ids)?);
+        synthesized_arcs.extend(chain.arcs(&synthesized_ids));
     }
     synthesized_arcs.sort_unstable_by(|a, b| a.0.cmp(&b.0));
     let new_arcs: Vec<(u32, u32, Edge)> = kept

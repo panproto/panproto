@@ -270,6 +270,14 @@ fn a_restrict_error_detail_carries_its_error_key() {
             RestrictError::NotTableRepresentable { reason: "r".into() },
             "not_table_representable",
         ),
+        (
+            RestrictError::ExpansionTooLong {
+                src: "a".into(),
+                tgt: "b".into(),
+                hops: 65_537,
+            },
+            "expansion_too_long",
+        ),
     ];
     for (error, kind) in kinds {
         match error.detail() {

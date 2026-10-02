@@ -541,6 +541,20 @@ pub enum RestrictError {
         /// The side whose validation plan does not match.
         side: BoundarySide,
     },
+
+    /// An expansion has more hops than a synthesized key can number: the
+    /// key numbers them with 16 bits, so a path takes at most 65536 edges.
+    #[error(
+        "the expansion from `{src}` to `{tgt}` has {hops} hops, more than the 65536 a synthesized key can number"
+    )]
+    ExpansionTooLong {
+        /// The anchor the path leaves.
+        src: String,
+        /// The anchor the path enters.
+        tgt: String,
+        /// The number of edges on the path.
+        hops: usize,
+    },
 }
 
 /// Errors from JSON parsing.

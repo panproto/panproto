@@ -52,7 +52,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::error::RestrictError;
 use crate::reachability::strongly_connected_components;
-use crate::wtype::{CompiledMigration, resolve_edge};
+use crate::wtype::{CompiledMigration, check_expansion, resolve_edge};
 
 /// The pairs of source vertices that contraction can join, each with its
 /// target, its region of dropped edges and its resolution.
@@ -355,7 +355,9 @@ impl ContractionPlan {
     ///
     /// [`RestrictError::IncoherentPairImage`] for the first pair, in
     /// ascending source pair, whose resolution names an edge that is not a
-    /// target edge joining the anchors it stands between.
+    /// target edge joining the anchors it stands between, or
+    /// [`RestrictError::ExpansionTooLong`] for the first that resolves to a
+    /// path of more than 65536 edges, more than a synthesized key numbers.
     pub fn compile(
         src: &Schema,
         tgt: &Schema,
@@ -400,19 +402,18 @@ impl ContractionPlan {
                 let region: BTreeSet<Edge> = edges.into_iter().cloned().collect();
                 let bounded = !has_cycle(&region, &interior);
                 let target = (remap(migration, a).clone(), remap(migration, b).clone());
-                let resolution = match resolutions.get(&target) {
-                    Some(resolution) => resolution.clone(),
-                    None => {
-                        let resolution = resolve_pair(tgt, migration, &target.0, &target.1);
-                        resolutions.insert(target.clone(), resolution.clone());
-                        resolution
-                    }
-                };
+                let resolution = resolutions
+                    .entry(target.clone())
+                    .or_insert_with(|| resolve_pair(tgt, migration, &target.0, &target.1))
+                    .clone();
                 if let Some(image) = incoherent_label(tgt, &target.0, &target.1, &resolution) {
                     return Err(RestrictError::IncoherentPairImage {
                         pair: Box::new(target),
                         image: Box::new(image.clone()),
                     });
+                }
+                if let PairResolution::Expand { labels, .. } = &resolution {
+                    check_expansion(&target.0, &target.1, labels)?;
                 }
                 pairs.insert(
                     (a.clone(), b.clone()),
