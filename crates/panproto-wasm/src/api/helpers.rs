@@ -28,12 +28,17 @@ use crate::slab::{self, Resource};
 /// `what` names the argument in the error.
 pub fn decode_complement(bytes: &[u8], what: &str) -> Result<lens::Complement, WasmError> {
     use inst::identity::{AnyComplement, ComplementShape, Encoding};
-    let AnyComplement::WType(complement) =
-        inst::identity::decode_complement(bytes, Encoding::MsgpackNamed, ComplementShape::WType)
-            .map_err(|e| WasmError::DeserializationFailed {
-                reason: format!("{what}: {e}"),
-            })?;
-    Ok(*complement)
+    match inst::identity::decode_complement(bytes, Encoding::MsgpackNamed, ComplementShape::WType)
+        .map_err(|e| WasmError::DeserializationFailed {
+        reason: format!("{what}: {e}"),
+    })? {
+        AnyComplement::WType(complement) => Ok(*complement),
+        AnyComplement::Functor(_) => Err(WasmError::DeserializationFailed {
+            reason: format!(
+                "{what}: decoded a table complement where a tree complement was required"
+            ),
+        }),
+    }
 }
 
 /// Decode a `MessagePack` list of tree complements, one per record, with
@@ -47,13 +52,17 @@ pub fn decode_complements(bytes: &[u8], what: &str) -> Result<Vec<lens::Compleme
             .map_err(|e| WasmError::DeserializationFailed {
             reason: format!("{what}: {e}"),
         })?;
-    Ok(decoded
+    decoded
         .into_iter()
-        .map(|decoded| {
-            let AnyComplement::WType(complement) = decoded;
-            *complement
+        .map(|decoded| match decoded {
+            AnyComplement::WType(complement) => Ok(*complement),
+            AnyComplement::Functor(_) => Err(WasmError::DeserializationFailed {
+                reason: format!(
+                    "{what}: decoded a table complement where a tree complement was required"
+                ),
+            }),
         })
-        .collect())
+        .collect()
 }
 
 /// Infer a suitable root vertex from a schema for JSON parsing.

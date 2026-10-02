@@ -73,6 +73,7 @@ use serde::de::{self, IgnoredAny, MapAccess, SeqAccess, Visitor};
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use crate::complement::Complement;
+use crate::table_complement::TableComplement;
 use crate::value::{FieldPresence, Value};
 use crate::wtype::{
     CaseBranch, CompiledMigration, FieldTransform, TermAssignment, TermBranch, TermScope,
@@ -1785,6 +1786,8 @@ pub enum Encoding {
 pub enum AnyComplement {
     /// A tree complement.
     WType(Box<Complement>),
+    /// A table complement.
+    Functor(Box<TableComplement>),
 }
 
 impl AnyComplement {
@@ -1793,6 +1796,7 @@ impl AnyComplement {
     pub const fn shape(&self) -> ComplementShape {
         match self {
             Self::WType(_) => ComplementShape::WType,
+            Self::Functor(_) => ComplementShape::Functor,
         }
     }
 
@@ -1801,6 +1805,7 @@ impl AnyComplement {
     pub fn identity(&self) -> Option<&IdentityEnvelope> {
         match self {
             Self::WType(c) => c.identity.as_ref(),
+            Self::Functor(c) => c.identity.as_ref(),
         }
     }
 }
@@ -1852,7 +1857,11 @@ fn decode_shape(
         ComplementShape::WType => Some(
             decode_as::<Complement>(bytes, encoding).map(|c| AnyComplement::WType(Box::new(c))),
         ),
-        ComplementShape::Graph | ComplementShape::Functor | ComplementShape::Resolution => None,
+        ComplementShape::Functor => Some(
+            decode_as::<TableComplement>(bytes, encoding)
+                .map(|c| AnyComplement::Functor(Box::new(c))),
+        ),
+        ComplementShape::Graph | ComplementShape::Resolution => None,
     }
 }
 
@@ -1871,7 +1880,14 @@ fn decode_shape_seq(
                 .map(|c| AnyComplement::WType(Box::new(c)))
                 .collect()
         })),
-        ComplementShape::Graph | ComplementShape::Functor | ComplementShape::Resolution => None,
+        ComplementShape::Functor => Some(decode_as::<Vec<TableComplement>>(bytes, encoding).map(
+            |cs| {
+                cs.into_iter()
+                    .map(|c| AnyComplement::Functor(Box::new(c)))
+                    .collect()
+            },
+        )),
+        ComplementShape::Graph | ComplementShape::Resolution => None,
     }
 }
 

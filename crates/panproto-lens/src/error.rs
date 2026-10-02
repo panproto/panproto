@@ -98,6 +98,15 @@ pub enum LensError {
         found: usize,
     },
 
+    /// A table path received the wrong number of boundary protocols.
+    #[error("table lens path needs {expected} boundary contexts; found {found}")]
+    PathContextMismatch {
+        /// Number of boundary contexts required.
+        expected: usize,
+        /// Number supplied by the caller.
+        found: usize,
+    },
+
     /// A caller that can store only one compiled lens received a path whose
     /// tree normal form has more than one group.
     #[error("lens path has {stages} normal-form groups; one is required")]

@@ -58,6 +58,8 @@ pub mod protolens;
 pub mod protolens_nat;
 pub mod symbolic;
 pub mod symmetric;
+pub mod table_lens;
+pub mod table_shape;
 
 // Re-exports for convenience.
 pub use asymmetric::{
@@ -105,6 +107,7 @@ pub use symbolic::{
     simplify_steps,
 };
 pub use symmetric::{CoherenceViolation, SymmetricLens};
+pub use table_shape::{TableContext, TableShape};
 
 use panproto_inst::CompiledMigration;
 use panproto_schema::Schema;

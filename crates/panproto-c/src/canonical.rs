@@ -29,9 +29,14 @@ fn complement_error(err: IdentityError) -> FfiError {
     }
 }
 
-fn into_tree(decoded: AnyComplement) -> Complement {
-    let AnyComplement::WType(complement) = decoded;
-    *complement
+fn into_tree(decoded: AnyComplement) -> Result<Complement, FfiError> {
+    match decoded {
+        AnyComplement::WType(complement) => Ok(*complement),
+        AnyComplement::Functor(_) => Err(FfiError::Operation(
+            "complement: decoded a table complement where a tree complement was required"
+                .to_owned(),
+        )),
+    }
 }
 
 /// Decode one tree complement from CBOR, with the shape, format and
@@ -43,9 +48,9 @@ fn into_tree(decoded: AnyComplement) -> Complement {
 /// complement, and [`FfiError::Operation`] if it is one of another
 /// format or envelope layout.
 pub fn decode_complement(bytes: &[u8]) -> Result<Complement, FfiError> {
-    decode_any(bytes, Encoding::Cbor, ComplementShape::WType)
-        .map(into_tree)
-        .map_err(complement_error)
+    let decoded =
+        decode_any(bytes, Encoding::Cbor, ComplementShape::WType).map_err(complement_error)?;
+    into_tree(decoded)
 }
 
 /// Decode a CBOR list of tree complements, one per record, with the
@@ -55,9 +60,9 @@ pub fn decode_complement(bytes: &[u8]) -> Result<Complement, FfiError> {
 ///
 /// As [`decode_complement`].
 pub fn decode_complements(bytes: &[u8]) -> Result<Vec<Complement>, FfiError> {
-    decode_any_seq(bytes, Encoding::Cbor, ComplementShape::WType)
-        .map(|decoded| decoded.into_iter().map(into_tree).collect())
-        .map_err(complement_error)
+    let decoded =
+        decode_any_seq(bytes, Encoding::Cbor, ComplementShape::WType).map_err(complement_error)?;
+    decoded.into_iter().map(into_tree).collect()
 }
 
 /// Decode a value of type `T` from a CBOR byte slice.

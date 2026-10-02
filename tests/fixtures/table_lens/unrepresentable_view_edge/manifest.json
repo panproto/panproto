@@ -1,0 +1,9 @@
+{
+  "format_version": 1,
+  "name": "unrepresentable_view_edge",
+  "source_protocol": "table_test_v1",
+  "target_protocol": "table_test_v1",
+  "class": null,
+  "expected_error": "unrepresentable_view_edge",
+  "runner": "unrepresentable_view_edge"
+}

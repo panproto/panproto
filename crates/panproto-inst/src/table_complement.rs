@@ -13,9 +13,10 @@ use panproto_schema::Edge;
 use serde::{Deserialize, Serialize};
 
 use crate::functor::Row;
-use crate::identity::IdentityEnvelope;
+use crate::ginstance::TableEmbedding;
+use crate::identity::{ComplementShape, IdentityCarrier, IdentityEnvelope};
 use crate::value::Value;
-use crate::view_ref::RowId;
+use crate::view_ref::{RowId, SynthIndex, SynthKey};
 
 /// A row the view does not hold, with the table it was in.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -131,10 +132,62 @@ impl TableComplement {
     pub fn reserved_row_ids(&self) -> BTreeSet<RowId> {
         self.dropped_rows.keys().copied().collect()
     }
+
+    /// The graph edge ids under which `embedding` presents the synthesized
+    /// foreign-key pairs recorded by this complement.
+    #[must_use]
+    pub fn synth_index(&self, embedding: &TableEmbedding) -> SynthIndex {
+        let edges = self
+            .synthesized_fk_pairs
+            .iter()
+            .filter_map(|(edge, src, tgt)| {
+                embedding
+                    .pairs
+                    .get(&(edge.clone(), *src, *tgt))
+                    .copied()
+                    .map(|id| {
+                        (
+                            id,
+                            SynthKey::Contract {
+                                src: src.0,
+                                tgt: tgt.0,
+                                edge: edge.clone(),
+                            },
+                        )
+                    })
+            })
+            .collect();
+        SynthIndex {
+            nodes: BTreeMap::new(),
+            edges,
+        }
+    }
 }
 
 impl Default for TableComplement {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl IdentityCarrier for TableComplement {
+    const SHAPE: ComplementShape = ComplementShape::Functor;
+
+    fn identity(&self) -> Option<&IdentityEnvelope> {
+        self.identity.as_ref()
+    }
+
+    fn set_identity(&mut self, envelope: Option<IdentityEnvelope>) {
+        self.identity = envelope;
+    }
+
+    fn legacy_fingerprint(&self) -> u64 {
+        0
+    }
+
+    fn set_legacy_fingerprint(&mut self, _fingerprint: u64) {}
+
+    fn records_nothing(&self) -> bool {
+        self.residue_is_trivial() && self.synthesized_fk_pairs.is_empty() && self.id_floor == 0
     }
 }

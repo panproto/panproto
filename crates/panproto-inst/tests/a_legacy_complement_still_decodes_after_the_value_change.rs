@@ -45,6 +45,9 @@ fn every_legacy_complement_fixture_decodes_after_the_value_change() {
                         );
                         decoded += 1;
                     }
+                    Ok(AnyComplement::Functor(_)) => {
+                        panic!("{} decoded as a table complement", path.display())
+                    }
                     Err(e) => panic!("{} decodes: {e}", path.display()),
                 }
             }
