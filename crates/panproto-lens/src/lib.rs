@@ -45,12 +45,14 @@ pub mod edit_provenance;
 pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
+pub mod graph_lens;
 pub mod hint;
 pub mod identity;
 pub mod laws;
 pub mod layout_complement;
 pub mod lens_graph;
 pub mod lens_path;
+pub mod lens_shape;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
@@ -79,10 +81,15 @@ pub use edit_lens::EditLens;
 pub use edit_pipeline::EditPipeline;
 pub use edit_provenance::EditProvenance;
 pub use error::{LawViolation, LensError};
+pub use graph_lens::{
+    AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
+    SequentialGraphLens,
+};
 pub use identity::ComplementIdentity;
 pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
 pub use lens_graph::LensGraph;
 pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};
+pub use lens_shape::{GraphShape, LensShape, TreeShape};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use panproto_inst::{ErrorDetail, PutDomainError};
 pub use protolens::{

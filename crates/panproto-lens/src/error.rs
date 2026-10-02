@@ -231,3 +231,39 @@ impl std::error::Error for LawViolation {
         }
     }
 }
+
+impl LensError {
+    /// The structured detail exposed to language bindings, when this error
+    /// has a shared cross-binding representation.
+    #[must_use]
+    pub fn detail(&self) -> Option<panproto_inst::ErrorDetail> {
+        use panproto_inst::{ErrorDetail, IdentityError};
+
+        match self {
+            Self::Identity(IdentityError::Mismatch {
+                field,
+                expected,
+                found,
+            }) => Some(ErrorDetail::IdentityMismatch {
+                field: *field,
+                expected: expected.clone(),
+                found: found.clone(),
+            }),
+            Self::Identity(IdentityError::LegacyComplementRejected { reason }) => {
+                Some(ErrorDetail::LegacyRejected {
+                    reason: *reason,
+                    fingerprint: 0,
+                })
+            }
+            Self::Identity(IdentityError::UnboundComplement) => {
+                Some(ErrorDetail::UnboundComplement {})
+            }
+            Self::PutDomain(error) => Some(ErrorDetail::PutDomain {
+                error: (**error).clone(),
+            }),
+            Self::Restrict(error) => Some(error.detail()),
+            Self::AtStage { error, .. } => error.detail(),
+            _ => None,
+        }
+    }
+}

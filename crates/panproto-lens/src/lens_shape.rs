@@ -1,0 +1,653 @@
+//! Shape-specific execution and observational equivalence for lenses.
+
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+
+use panproto_inst::{
+    EdgeId, GEdge, GInstance, GraphComplement, PutDomainError, SynthIndex, SynthKey, WInstance,
+};
+
+use crate::derived::{DerivedMap, extra_fields_equiv_modulo};
+use crate::{Complement, Lens, LensError};
+
+/// The instance operations a generic lens law needs from one shape.
+pub trait LensShape {
+    /// Instance representation.
+    type Instance: Clone;
+    /// Complement representation.
+    type Complement: Clone;
+    /// Shape-specific execution context.
+    type Context;
+
+    /// Forward direction.
+    ///
+    /// # Errors
+    ///
+    /// Plan compilation or shape execution failure.
+    fn get(
+        lens: &Lens,
+        source: &Self::Instance,
+        ctx: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), LensError>;
+
+    /// Backward direction.
+    ///
+    /// # Errors
+    ///
+    /// Identity, put-domain or restoration failure.
+    fn put(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Result<Self::Instance, LensError>;
+
+    /// Put-domain predicate.
+    ///
+    /// # Errors
+    ///
+    /// Every ordered reason the view cannot be written back.
+    fn check_put_domain(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        ctx: &Self::Context,
+    ) -> Result<(), Vec<PutDomainError>>;
+
+    /// Stable keys of synthesized presentation objects.
+    fn synth_index(complement: &Self::Complement) -> SynthIndex;
+
+    /// Law equivalence, indexed by synthesized keys.
+    fn equivalent(a: &Self::Instance, ia: &SynthIndex, b: &Self::Instance, ib: &SynthIndex)
+    -> bool;
+
+    /// The first difference under [`Self::equivalent`].
+    fn divergence(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> Option<String>;
+
+    /// The first independent-coordinate difference.
+    fn divergence_modulo_derived(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+        derived: &DerivedMap,
+    ) -> Option<String>;
+
+    /// The first complement field read by put on which two complements differ.
+    fn complement_divergence(a: &Self::Complement, b: &Self::Complement) -> Option<String>;
+
+    /// Equivalent but non-identical presentation witnesses.
+    fn congruence_witnesses(
+        instance: &Self::Instance,
+        index: &SynthIndex,
+    ) -> Vec<(Self::Instance, SynthIndex)>;
+}
+
+/// Tree-shaped lens execution.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TreeShape;
+
+/// Graph-shaped lens execution.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct GraphShape;
+
+impl LensShape for TreeShape {
+    type Instance = WInstance;
+    type Complement = Complement;
+    type Context = ();
+
+    fn get(
+        lens: &Lens,
+        source: &Self::Instance,
+        _ctx: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), LensError> {
+        crate::asymmetric::get(lens, source)
+    }
+
+    fn put(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Result<Self::Instance, LensError> {
+        crate::asymmetric::put(lens, view, complement)
+    }
+
+    fn check_put_domain(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Result<(), Vec<PutDomainError>> {
+        crate::asymmetric::check_put_domain(lens, view, complement)
+    }
+
+    fn synth_index(complement: &Self::Complement) -> SynthIndex {
+        SynthIndex {
+            nodes: complement.synthesized_keys.clone(),
+            edges: BTreeMap::new(),
+        }
+    }
+
+    fn equivalent(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> bool {
+        tree_normalized(a, ia, b, ib)
+            .is_some_and(|(left, right)| crate::laws::instances_equivalent(&left, &right))
+    }
+
+    fn divergence(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> Option<String> {
+        (!Self::equivalent(a, ia, b, ib)).then(|| "tree instances differ".to_owned())
+    }
+
+    fn divergence_modulo_derived(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+        _derived: &DerivedMap,
+    ) -> Option<String> {
+        Self::divergence(a, ia, b, ib)
+    }
+
+    fn complement_divergence(a: &Self::Complement, b: &Self::Complement) -> Option<String> {
+        if a.dropped_nodes.len() != b.dropped_nodes.len()
+            || !a.dropped_nodes.iter().all(|(id, node)| {
+                b.dropped_nodes
+                    .get(id)
+                    .is_some_and(|other| crate::asymmetric::node_equiv(node, other))
+            })
+        {
+            return Some("dropped_nodes differ".to_owned());
+        }
+        if sorted(&a.dropped_arcs) != sorted(&b.dropped_arcs) {
+            return Some("dropped_arcs differ".to_owned());
+        }
+        if a.dropped_fans != b.dropped_fans {
+            return Some("dropped_fans differ".to_owned());
+        }
+        if a.original_parent != b.original_parent {
+            return Some("original_parent differs".to_owned());
+        }
+        if a.arc_edges != b.arc_edges || a.arc_order != b.arc_order {
+            return Some("arc restoration differs".to_owned());
+        }
+        if a.original_anchors != b.original_anchors {
+            return Some("original_anchors differ".to_owned());
+        }
+        if !map_values_equiv(&a.original_extra_fields, &b.original_extra_fields) {
+            return Some("original_extra_fields differ".to_owned());
+        }
+        if !presence_maps_equiv(&a.original_values, &b.original_values) {
+            return Some("original_values differ".to_owned());
+        }
+        let a_keys: BTreeSet<&SynthKey> = a.synthesized_keys.values().collect();
+        let b_keys: BTreeSet<&SynthKey> = b.synthesized_keys.values().collect();
+        (a_keys != b_keys).then(|| "synthesized keys differ".to_owned())
+    }
+
+    fn congruence_witnesses(
+        instance: &Self::Instance,
+        index: &SynthIndex,
+    ) -> Vec<(Self::Instance, SynthIndex)> {
+        let Some((&old, key)) = index.nodes.iter().next() else {
+            return Vec::new();
+        };
+        let Some(new) = fresh_node_id(instance.nodes.keys().copied()) else {
+            return Vec::new();
+        };
+        let mut nodes = instance.nodes.clone();
+        let Some(mut node) = nodes.remove(&old) else {
+            return Vec::new();
+        };
+        node.id = new;
+        nodes.insert(new, node);
+        let arcs = instance
+            .arcs
+            .iter()
+            .map(|(parent, child, edge)| {
+                (
+                    if *parent == old { new } else { *parent },
+                    if *child == old { new } else { *child },
+                    edge.clone(),
+                )
+            })
+            .collect();
+        let mut fans = instance.fans.clone();
+        for fan in &mut fans {
+            if fan.parent == old {
+                fan.parent = new;
+            }
+            for child in fan.children.values_mut() {
+                if *child == old {
+                    *child = new;
+                }
+            }
+        }
+        let mut next = index.clone();
+        next.nodes.remove(&old);
+        next.nodes.insert(new, key.clone());
+        vec![(
+            WInstance::new(
+                nodes,
+                arcs,
+                fans,
+                if instance.root == old {
+                    new
+                } else {
+                    instance.root
+                },
+                instance.schema_root.clone(),
+            ),
+            next,
+        )]
+    }
+}
+
+impl LensShape for GraphShape {
+    type Instance = GInstance;
+    type Complement = GraphComplement;
+    type Context = ();
+
+    fn get(
+        lens: &Lens,
+        source: &Self::Instance,
+        _ctx: &Self::Context,
+    ) -> Result<(Self::Instance, Self::Complement), LensError> {
+        crate::graph_lens::get(lens, source)
+    }
+
+    fn put(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Result<Self::Instance, LensError> {
+        crate::graph_lens::put(lens, view, complement)
+    }
+
+    fn check_put_domain(
+        lens: &Lens,
+        view: &Self::Instance,
+        complement: &Self::Complement,
+        _ctx: &Self::Context,
+    ) -> Result<(), Vec<PutDomainError>> {
+        crate::graph_lens::check_put_domain(lens, view, complement)
+    }
+
+    fn synth_index(complement: &Self::Complement) -> SynthIndex {
+        complement.synth_index()
+    }
+
+    fn equivalent(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> bool {
+        graph_divergence(a, ia, b, ib, None).is_none()
+    }
+
+    fn divergence(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+    ) -> Option<String> {
+        graph_divergence(a, ia, b, ib, None)
+    }
+
+    fn divergence_modulo_derived(
+        a: &Self::Instance,
+        ia: &SynthIndex,
+        b: &Self::Instance,
+        ib: &SynthIndex,
+        derived: &DerivedMap,
+    ) -> Option<String> {
+        graph_divergence(a, ia, b, ib, Some(derived))
+    }
+
+    fn complement_divergence(a: &Self::Complement, b: &Self::Complement) -> Option<String> {
+        graph_complement_divergence(a, b)
+    }
+
+    fn congruence_witnesses(
+        instance: &Self::Instance,
+        index: &SynthIndex,
+    ) -> Vec<(Self::Instance, SynthIndex)> {
+        graph_congruence_witness(instance, index)
+            .into_iter()
+            .collect()
+    }
+}
+
+fn graph_divergence(
+    a: &GInstance,
+    ia: &SynthIndex,
+    b: &GInstance,
+    ib: &SynthIndex,
+    derived: Option<&DerivedMap>,
+) -> Option<String> {
+    if a.node_count() != b.node_count() {
+        return Some(format!(
+            "node count: {} vs {}",
+            a.node_count(),
+            b.node_count()
+        ));
+    }
+    let b_nodes_by_key: BTreeMap<&SynthKey, u32> =
+        ib.nodes.iter().map(|(&id, key)| (key, id)).collect();
+    let mut a_to_b = BTreeMap::new();
+    let mut a_ids: Vec<u32> = a.nodes().keys().copied().collect();
+    a_ids.sort_unstable();
+    for id in a_ids {
+        if !ia.nodes.contains_key(&id) && ib.nodes.contains_key(&id) {
+            return Some(format!("source node {id} is synthesized on the right"));
+        }
+        let other_id = ia
+            .nodes
+            .get(&id)
+            .and_then(|key| b_nodes_by_key.get(key).copied())
+            .unwrap_or(id);
+        let left = &a.nodes()[&id];
+        let Some(right) = b.node(other_id) else {
+            return Some(format!("node {id} is absent on the right"));
+        };
+        if left.anchor != right.anchor
+            || left.discriminator != right.discriminator
+            || left.position != right.position
+            || left.shape != right.shape
+            || !crate::asymmetric::extra_fields_equiv(&left.annotations, &right.annotations)
+        {
+            return Some(format!("node {id} differs"));
+        }
+        if let Some(derived) = derived {
+            if let Some(fiber) = derived.get(&left.anchor) {
+                if let Some(detail) =
+                    extra_fields_equiv_modulo(&left.extra_fields, &right.extra_fields, fiber, &[])
+                {
+                    return Some(format!("node {id}: {detail}"));
+                }
+                if !fiber.value_is_derived()
+                    && !crate::asymmetric::presence_equiv(left.value.as_ref(), right.value.as_ref())
+                {
+                    return Some(format!("node {id} value differs"));
+                }
+            } else if !crate::asymmetric::extra_fields_equiv(
+                &left.extra_fields,
+                &right.extra_fields,
+            ) || !crate::asymmetric::presence_equiv(
+                left.value.as_ref(),
+                right.value.as_ref(),
+            ) {
+                return Some(format!("node {id} fields differ"));
+            }
+        } else if !crate::asymmetric::extra_fields_equiv(&left.extra_fields, &right.extra_fields)
+            || !crate::asymmetric::presence_equiv(left.value.as_ref(), right.value.as_ref())
+        {
+            return Some(format!("node {id} fields differ"));
+        }
+        a_to_b.insert(id, other_id);
+    }
+    if a.edge_count() != b.edge_count() {
+        return Some(format!(
+            "edge count: {} vs {}",
+            a.edge_count(),
+            b.edge_count()
+        ));
+    }
+    let b_edges_by_key: BTreeMap<&SynthKey, EdgeId> =
+        ib.edges.iter().map(|(&id, key)| (key, id)).collect();
+    for (id, left) in a.edges_sorted() {
+        if !ia.edges.contains_key(&id) && ib.edges.contains_key(&id) {
+            return Some(format!("source edge {id} is synthesized on the right"));
+        }
+        let other_id = ia
+            .edges
+            .get(&id)
+            .and_then(|key| b_edges_by_key.get(key).copied())
+            .unwrap_or(id);
+        let Some(right) = b.edge(other_id) else {
+            return Some(format!("edge {id} is absent on the right"));
+        };
+        if a_to_b.get(&left.src).copied().unwrap_or(left.src) != right.src
+            || a_to_b.get(&left.tgt).copied().unwrap_or(left.tgt) != right.tgt
+            || left.edge != right.edge
+            || (!ia.edges.contains_key(&id) && left.position != right.position)
+        {
+            return Some(format!("edge {id} differs"));
+        }
+    }
+    None
+}
+
+fn graph_complement_divergence(a: &GraphComplement, b: &GraphComplement) -> Option<String> {
+    if !node_btree_equiv(&a.dropped_nodes, &b.dropped_nodes) {
+        return Some("dropped_nodes differ".to_owned());
+    }
+    if a.dropped_edges != b.dropped_edges {
+        return Some("dropped_edges differ".to_owned());
+    }
+    if a.original_edges != b.original_edges {
+        return Some("original_edges differ".to_owned());
+    }
+    if a.original_anchors != b.original_anchors {
+        return Some("original_anchors differ".to_owned());
+    }
+    if !btree_value_maps_equiv(&a.original_extra_fields, &b.original_extra_fields) {
+        return Some("original_extra_fields differ".to_owned());
+    }
+    if !btree_presence_maps_equiv(&a.original_values, &b.original_values) {
+        return Some("original_values differ".to_owned());
+    }
+    let a_nodes: BTreeSet<&SynthKey> = a.synthesized_nodes.values().collect();
+    let b_nodes: BTreeSet<&SynthKey> = b.synthesized_nodes.values().collect();
+    if a_nodes != b_nodes {
+        return Some("synthesized node keys differ".to_owned());
+    }
+    let a_edges: BTreeSet<&SynthKey> = a.synthesized_edges.values().collect();
+    let b_edges: BTreeSet<&SynthKey> = b.synthesized_edges.values().collect();
+    (a_edges != b_edges).then(|| "synthesized edge keys differ".to_owned())
+}
+
+fn graph_congruence_witness(
+    instance: &GInstance,
+    index: &SynthIndex,
+) -> Option<(GInstance, SynthIndex)> {
+    let node_new = if index.nodes.is_empty() {
+        None
+    } else {
+        fresh_node_id(instance.nodes().keys().copied())
+    };
+    let edge_new = if index.edges.is_empty() {
+        None
+    } else {
+        fresh_edge_id(instance.edges().keys().map(|id| id.0))
+    };
+    let node_pair = index.nodes.keys().next().copied().zip(node_new);
+    let edge_pair = index.edges.keys().next().copied().zip(edge_new.map(EdgeId));
+    if node_pair.is_none() && edge_pair.is_none() {
+        return None;
+    }
+    let mut graph = GInstance::new();
+    for node in instance.nodes().values() {
+        let mut copy = node.clone();
+        if node_pair.is_some_and(|(old, _)| old == copy.id) {
+            copy.id = node_pair.map_or(copy.id, |(_, new)| new);
+        }
+        graph.insert_node(copy).ok()?;
+    }
+    for (id, edge) in instance.edges_sorted() {
+        let copy = GEdge {
+            src: node_pair
+                .filter(|(old, _)| *old == edge.src)
+                .map_or(edge.src, |(_, new)| new),
+            tgt: node_pair
+                .filter(|(old, _)| *old == edge.tgt)
+                .map_or(edge.tgt, |(_, new)| new),
+            edge: edge.edge.clone(),
+            position: edge.position,
+        };
+        let new_id = edge_pair
+            .filter(|(old, _)| *old == id)
+            .map_or(id, |(_, new)| new);
+        graph.insert_edge(new_id, copy).ok()?;
+    }
+    let mut next = index.clone();
+    if let Some((old, new)) = node_pair
+        && let Some(key) = next.nodes.remove(&old)
+    {
+        next.nodes.insert(new, key);
+    }
+    if let Some((old, new)) = edge_pair
+        && let Some(key) = next.edges.remove(&old)
+    {
+        next.edges.insert(new, key);
+    }
+    Some((graph, next))
+}
+
+fn tree_normalized(
+    a: &WInstance,
+    ia: &SynthIndex,
+    b: &WInstance,
+    ib: &SynthIndex,
+) -> Option<(WInstance, WInstance)> {
+    let a_keys: BTreeSet<&SynthKey> = ia.nodes.values().collect();
+    let b_keys: BTreeSet<&SynthKey> = ib.nodes.values().collect();
+    if a_keys != b_keys {
+        return None;
+    }
+    let b_by_key: BTreeMap<&SynthKey, u32> = ib.nodes.iter().map(|(&id, key)| (key, id)).collect();
+    let remap: HashMap<u32, u32> = ia
+        .nodes
+        .iter()
+        .filter_map(|(&a_id, key)| b_by_key.get(key).map(|&b_id| (b_id, a_id)))
+        .collect();
+    Some((a.clone(), remap_tree(b, &remap)?))
+}
+
+fn remap_tree(instance: &WInstance, remap: &HashMap<u32, u32>) -> Option<WInstance> {
+    let mut nodes = HashMap::new();
+    for node in instance.nodes.values() {
+        let mut copy = node.clone();
+        copy.id = remap.get(&copy.id).copied().unwrap_or(copy.id);
+        if nodes.insert(copy.id, copy).is_some() {
+            return None;
+        }
+    }
+    let arcs = instance
+        .arcs
+        .iter()
+        .map(|(parent, child, edge)| {
+            (
+                remap.get(parent).copied().unwrap_or(*parent),
+                remap.get(child).copied().unwrap_or(*child),
+                edge.clone(),
+            )
+        })
+        .collect();
+    let mut fans = instance.fans.clone();
+    for fan in &mut fans {
+        fan.parent = remap.get(&fan.parent).copied().unwrap_or(fan.parent);
+        for child in fan.children.values_mut() {
+            *child = remap.get(child).copied().unwrap_or(*child);
+        }
+    }
+    Some(WInstance::new(
+        nodes,
+        arcs,
+        fans,
+        remap.get(&instance.root).copied().unwrap_or(instance.root),
+        instance.schema_root.clone(),
+    ))
+}
+
+fn sorted<T: Clone + Ord>(values: &[T]) -> Vec<T> {
+    let mut result = values.to_vec();
+    result.sort();
+    result
+}
+
+fn fresh_node_id(ids: impl Iterator<Item = u32>) -> Option<u32> {
+    ids.max().map_or(Some(0), |id| id.checked_add(1))
+}
+
+fn fresh_edge_id(ids: impl Iterator<Item = u32>) -> Option<u32> {
+    fresh_node_id(ids)
+}
+
+fn node_btree_equiv(
+    a: &BTreeMap<u32, panproto_inst::Node>,
+    b: &BTreeMap<u32, panproto_inst::Node>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(id, node)| {
+            b.get(id)
+                .is_some_and(|other| crate::asymmetric::node_equiv(node, other))
+        })
+}
+
+fn map_values_equiv(
+    a: &HashMap<u32, HashMap<String, panproto_inst::Value>>,
+    b: &HashMap<u32, HashMap<String, panproto_inst::Value>>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(id, fields)| {
+            b.get(id)
+                .is_some_and(|other| crate::asymmetric::extra_fields_equiv(fields, other))
+        })
+}
+
+fn presence_maps_equiv(
+    a: &HashMap<u32, Option<panproto_inst::FieldPresence>>,
+    b: &HashMap<u32, Option<panproto_inst::FieldPresence>>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(id, value)| {
+            b.get(id).is_some_and(|other| {
+                crate::asymmetric::presence_equiv(value.as_ref(), other.as_ref())
+            })
+        })
+}
+
+fn btree_value_maps_equiv(
+    a: &BTreeMap<u32, BTreeMap<String, panproto_inst::Value>>,
+    b: &BTreeMap<u32, BTreeMap<String, panproto_inst::Value>>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(id, fields)| {
+            b.get(id).is_some_and(|other| {
+                fields.len() == other.len()
+                    && fields.iter().all(|(key, value)| {
+                        other.get(key).is_some_and(|other_value| {
+                            crate::asymmetric::value_equiv(value, other_value)
+                        })
+                    })
+            })
+        })
+}
+
+fn btree_presence_maps_equiv(
+    a: &BTreeMap<u32, Option<panproto_inst::FieldPresence>>,
+    b: &BTreeMap<u32, Option<panproto_inst::FieldPresence>>,
+) -> bool {
+    a.len() == b.len()
+        && a.iter().all(|(id, value)| {
+            b.get(id).is_some_and(|other| {
+                crate::asymmetric::presence_equiv(value.as_ref(), other.as_ref())
+            })
+        })
+}
