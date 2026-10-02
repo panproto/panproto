@@ -1,4 +1,5 @@
-//! Constraint-semantics rows for the RDF and edge-list protocols (`ntriples`, `nquads`, `turtle`, `jsonld`, `edgelist`).
+//! Constraint-semantics rows for the RDF and edge-list protocols
+//! (`ntriples`, `nquads`, `turtle`, `jsonld`, `edgelist`).
 
 use super::ConstraintRow;
 

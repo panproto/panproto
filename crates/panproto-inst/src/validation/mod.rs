@@ -53,6 +53,7 @@ mod footprint;
 mod plan;
 mod report;
 mod state;
+mod witness;
 
 use std::collections::BTreeMap;
 
@@ -74,6 +75,7 @@ pub use report::{
     FanRecord, IncompleteCheck, IncompleteReason, ReportDecodeError, ReportScope, Requirement,
     SchemaRef, SchemaSourceMap, SourceLocation, ValidationReport, Violation, aggregate_status,
 };
+pub use witness::CheckedInstance;
 
 impl ValidationPlan {
     /// Validate a graph against the plan (scope

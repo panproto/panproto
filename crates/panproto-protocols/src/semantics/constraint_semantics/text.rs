@@ -1,4 +1,5 @@
-//! Constraint-semantics rows for the generic text protocols (`csv`, `tsv`, `yaml`, `toml` and node-link JSON).
+//! Constraint-semantics rows for the generic text protocols (`csv`, `tsv`,
+//! `yaml`, `toml` and node-link JSON).
 
 use super::ConstraintRow;
 

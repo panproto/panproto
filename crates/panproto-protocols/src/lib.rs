@@ -50,6 +50,7 @@ pub mod domain;
 pub mod emit;
 /// Error types for protocol operations.
 pub mod error;
+pub mod graph_instance_model;
 /// Raw file protocol for non-code files (README, LICENSE, images, etc.).
 pub mod raw_file;
 
@@ -93,6 +94,7 @@ use panproto_expr::limits::{Budget, Resource};
 use panproto_schema::Schema;
 
 pub use error::ProtocolError;
+pub use graph_instance_model::graph_instance_model;
 
 // Re-export existing protocols at crate root for backward compatibility.
 pub use web_document::atproto;

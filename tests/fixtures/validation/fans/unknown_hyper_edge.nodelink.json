@@ -1,0 +1,102 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "words",
+        "src": "doc",
+        "tgt": "word"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "words",
+        "src": "doc",
+        "tgt": "word"
+      },
+      "id": 1,
+      "position": null,
+      "src": 0,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "hyper_parent",
+        "name": null,
+        "src": "nope",
+        "tgt": "doc"
+      },
+      "id": 2,
+      "position": null,
+      "src": 3,
+      "tgt": 0
+    },
+    {
+      "edge": {
+        "kind": "hyper_label",
+        "name": "arg0",
+        "src": "nope",
+        "tgt": "word"
+      },
+      "id": 3,
+      "position": null,
+      "src": 3,
+      "tgt": 1
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "doc",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "word",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "word",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "nope",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "hyper_edge"
+      },
+      "value": null
+    }
+  ]
+}

@@ -1,0 +1,368 @@
+{
+  "name": "anchors/unknown_fk_label",
+  "protocol": "validation-fixtures-table",
+  "protocol_definition": {
+    "name": "validation-fixtures-table",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "table",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "actor": {
+        "id": "actor",
+        "kind": "table",
+        "nsid": null
+      },
+      "film": {
+        "id": "film",
+        "kind": "table",
+        "nsid": null
+      },
+      "title": {
+        "id": "title",
+        "kind": "string",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "film",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "stars"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "film",
+          "tgt": "title",
+          "kind": "prop",
+          "name": "title"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "film": [
+        {
+          "src": "film",
+          "tgt": "title",
+          "kind": "prop",
+          "name": "title"
+        },
+        {
+          "src": "film",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "stars"
+        }
+      ]
+    },
+    "incoming": {
+      "actor": [
+        {
+          "src": "film",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "stars"
+        }
+      ],
+      "title": [
+        {
+          "src": "film",
+          "tgt": "title",
+          "kind": "prop",
+          "name": "title"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "film",
+          "actor"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "stars"
+          }
+        ]
+      ],
+      [
+        [
+          "film",
+          "title"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "title",
+            "kind": "prop",
+            "name": "title"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "table": {
+      "tables": {
+        "actor": {
+          "1": {}
+        },
+        "film": {
+          "0": {
+            "title": {
+              "Str": "Alien"
+            }
+          }
+        }
+      },
+      "foreign_keys": [
+        [
+          {
+            "src": "film",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "directs"
+          },
+          [
+            [
+              0,
+              1
+            ]
+          ]
+        ]
+      ]
+    }
+  },
+  "edit_trace": {
+    "table": []
+  },
+  "report": {
+    "shape": "table",
+    "scope": "instance",
+    "plan": "8d226fdcc7b17af8f15be7392c713a6054bbbef6d115b432aa6aacd5b0d4dafb",
+    "status": "failed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "pair": {
+            "edge": {
+              "src": "film",
+              "tgt": "actor",
+              "kind": "fk",
+              "name": "directs"
+            },
+            "src": 0,
+            "tgt": 1
+          }
+        },
+        "elements": [
+          {
+            "pair": {
+              "edge": {
+                "src": "film",
+                "tgt": "actor",
+                "kind": "fk",
+                "name": "directs"
+              },
+              "src": 0,
+              "tgt": 1
+            }
+          }
+        ],
+        "violation": {
+          "undeclared_edge": {
+            "label": {
+              "src": "film",
+              "tgt": "actor",
+              "kind": "fk",
+              "name": "directs"
+            }
+          }
+        },
+        "source": null
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

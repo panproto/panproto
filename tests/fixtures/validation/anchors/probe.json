@@ -1,0 +1,593 @@
+{
+  "name": "anchors/probe",
+  "protocol": "validation-fixtures-graph",
+  "protocol_definition": {
+    "name": "validation-fixtures-graph",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "graph",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "org": {
+        "id": "org",
+        "kind": "object",
+        "nsid": null
+      },
+      "person": {
+        "id": "person",
+        "kind": "object",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "person",
+          "tgt": "org",
+          "kind": "prop",
+          "name": "worksAt"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {
+      "person": [
+        {
+          "sort": "maxLength",
+          "value": "3"
+        }
+      ]
+    },
+    "required": {
+      "person": [
+        {
+          "src": "person",
+          "tgt": "org",
+          "kind": "prop",
+          "name": "worksAt"
+        }
+      ]
+    },
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "person": [
+        {
+          "src": "person",
+          "tgt": "org",
+          "kind": "prop",
+          "name": "worksAt"
+        }
+      ]
+    },
+    "incoming": {
+      "org": [
+        {
+          "src": "person",
+          "tgt": "org",
+          "kind": "prop",
+          "name": "worksAt"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "person",
+          "org"
+        ],
+        [
+          {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "worksAt"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "graph": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "person",
+          "value": {
+            "Present": {
+              "Str": "ann"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "1": {
+          "id": 1,
+          "anchor": "person",
+          "value": {
+            "Present": {
+              "Str": "abcdefgh"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "2": {
+          "id": 2,
+          "anchor": "org",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "3": {
+          "id": 3,
+          "anchor": "person",
+          "value": {
+            "Present": {
+              "Str": "bob"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "4": {
+          "id": 4,
+          "anchor": "ghost",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "edges": {
+        "0": {
+          "src": 0,
+          "tgt": 2,
+          "edge": {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "worksAt"
+          },
+          "position": null
+        },
+        "1": {
+          "src": 0,
+          "tgt": 2,
+          "edge": {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "worksAt"
+          },
+          "position": null
+        },
+        "2": {
+          "src": 1,
+          "tgt": 2,
+          "edge": {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "worksAt"
+          },
+          "position": null
+        },
+        "3": {
+          "src": 1,
+          "tgt": 0,
+          "edge": {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "worksAt"
+          },
+          "position": null
+        },
+        "4": {
+          "src": 0,
+          "tgt": 2,
+          "edge": {
+            "src": "person",
+            "tgt": "org",
+            "kind": "prop",
+            "name": "undeclared"
+          },
+          "position": null
+        }
+      }
+    }
+  },
+  "edit_trace": {
+    "graph": []
+  },
+  "report": {
+    "shape": "graph",
+    "scope": "instance",
+    "plan": "e6472fddf50e16dcc64a7337a215a7a8896092c87a5c7630367fe438a325c5f6",
+    "status": "failed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "node": 4
+        },
+        "elements": [
+          {
+            "node": 4
+          }
+        ],
+        "violation": {
+          "unknown_anchor": {
+            "anchor": "ghost"
+          }
+        },
+        "source": null
+      },
+      {
+        "check": {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "edge": 4
+        },
+        "elements": [
+          {
+            "edge": 4
+          }
+        ],
+        "violation": {
+          "undeclared_edge": {
+            "label": {
+              "src": "person",
+              "tgt": "org",
+              "kind": "prop",
+              "name": "undeclared"
+            }
+          }
+        },
+        "source": null
+      },
+      {
+        "check": {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "edge": 3
+        },
+        "elements": [
+          {
+            "node": 0
+          },
+          {
+            "edge": 3
+          }
+        ],
+        "violation": {
+          "incoherent_endpoint": {
+            "side": "tgt",
+            "expected": "org",
+            "found": "person"
+          }
+        },
+        "source": null
+      },
+      {
+        "check": {
+          "kind": "required_edge",
+          "decl": {
+            "required": {
+              "vertex": "person",
+              "edge": {
+                "src": "person",
+                "tgt": "org",
+                "kind": "prop",
+                "name": "worksAt"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "node": 3
+        },
+        "elements": [
+          {
+            "node": 3
+          }
+        ],
+        "violation": {
+          "missing_required_edge": {
+            "edge": {
+              "src": "person",
+              "tgt": "org",
+              "kind": "prop",
+              "name": "worksAt"
+            }
+          }
+        },
+        "source": null
+      },
+      {
+        "check": {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "person",
+              "constraint": {
+                "sort": "maxLength",
+                "value": "3"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "node": 1
+        },
+        "elements": [
+          {
+            "node": 1
+          }
+        ],
+        "violation": {
+          "value_constraint": {
+            "sort": "maxLength",
+            "bound": "3",
+            "value": {
+              "Str": "abcdefgh"
+            }
+          }
+        },
+        "source": null
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 4,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 4,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 4,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_edge",
+          "decl": {
+            "required": {
+              "vertex": "person",
+              "edge": {
+                "src": "person",
+                "tgt": "org",
+                "kind": "prop",
+                "name": "worksAt"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 2,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "person",
+              "constraint": {
+                "sort": "maxLength",
+                "value": "3"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 2,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "person"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}
