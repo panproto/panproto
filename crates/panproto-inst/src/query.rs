@@ -112,16 +112,16 @@ pub enum QueryError {
 
 impl QueryError {
     /// The query form of a refusal of the binding layer.
-    pub(crate) fn from_refusal(error: crate::error::RestrictError) -> Self {
-        use crate::error::RestrictError;
-        match error {
-            RestrictError::AmbiguousChildField { node, field } => {
+    pub(crate) fn from_refusal(refusal: crate::wtype::Unreadable) -> Self {
+        use crate::wtype::Unreadable;
+        match refusal {
+            Unreadable::AmbiguousChildField { node, field } => {
                 Self::AmbiguousChildField { node, field }
             }
-            RestrictError::StructuralChildNotATree { node, field } => {
+            Unreadable::StructuralChildNotATree { node, field } => {
                 Self::StructuralChildNotATree { node, field }
             }
-            RestrictError::ValueNotExpressible {
+            Unreadable::ValueNotExpressible {
                 node,
                 field,
                 value_type,
@@ -129,11 +129,6 @@ impl QueryError {
                 node,
                 field,
                 value_type,
-            },
-            other => Self::ValueNotExpressible {
-                node: 0,
-                field: String::new(),
-                value_type: other.to_string(),
             },
         }
     }

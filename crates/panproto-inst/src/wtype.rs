@@ -2706,7 +2706,7 @@ impl<'a> TransformContext<'a> {
         &self,
         expr: &panproto_expr::Expr,
         fields: &HashMap<String, Value>,
-    ) -> Result<panproto_expr::Env, RestrictError> {
+    ) -> Result<panproto_expr::Env, Unreadable> {
         let free: BTreeSet<String> = panproto_expr::free_vars(expr)
             .into_iter()
             .map(|v| v.to_string())
@@ -2727,14 +2727,14 @@ impl<'a> TransformContext<'a> {
         names: impl IntoIterator<Item = &'n str> + Clone,
         whole: bool,
         fields: &HashMap<String, Value>,
-    ) -> Result<(), RestrictError> {
+    ) -> Result<(), Unreadable> {
         let node = self.element();
         let mut read: BTreeSet<&str> = names.into_iter().collect();
         if let Some(name) = read
             .iter()
             .find(|n| self.repeated.contains(**n) && !fields.contains_key(**n))
         {
-            return Err(RestrictError::AmbiguousChildField {
+            return Err(Unreadable::AmbiguousChildField {
                 node,
                 field: (*name).to_owned(),
             });
@@ -2746,12 +2746,52 @@ impl<'a> TransformContext<'a> {
             .iter()
             .find(|n| self.not_trees.contains(**n) && !fields.contains_key(**n))
         {
-            return Err(RestrictError::StructuralChildNotATree {
+            return Err(Unreadable::StructuralChildNotATree {
                 node,
                 field: (*name).to_owned(),
             });
         }
         Ok(())
+    }
+}
+
+/// Why an expression is refused before evaluation: what it reads cannot
+/// be bound. Every such refusal is one of these three, which restrict
+/// reports as the [`RestrictError`] variants and a query as the
+/// [`QueryError`](crate::QueryError) variants of the same names.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Unreadable {
+    /// A read child name two or more children carry.
+    AmbiguousChildField { node: u32, field: String },
+    /// A read structural child whose subgraph is no tree.
+    StructuralChildNotATree { node: u32, field: String },
+    /// A read value with no expression literal.
+    ValueNotExpressible {
+        node: u32,
+        field: String,
+        value_type: String,
+    },
+}
+
+impl From<Unreadable> for RestrictError {
+    fn from(refusal: Unreadable) -> Self {
+        match refusal {
+            Unreadable::AmbiguousChildField { node, field } => {
+                Self::AmbiguousChildField { node, field }
+            }
+            Unreadable::StructuralChildNotATree { node, field } => {
+                Self::StructuralChildNotATree { node, field }
+            }
+            Unreadable::ValueNotExpressible {
+                node,
+                field,
+                value_type,
+            } => Self::ValueNotExpressible {
+                node,
+                field,
+                value_type,
+            },
+        }
     }
 }
 
@@ -2768,13 +2808,13 @@ fn demand_env(
     free: &BTreeSet<String>,
     fields: &HashMap<String, Value>,
     children: &HashMap<String, Value>,
-) -> Result<panproto_expr::Env, RestrictError> {
+) -> Result<panproto_expr::Env, Unreadable> {
     let mut combined = children.clone();
     for (key, val) in fields {
         combined.insert(key.clone(), val.clone());
     }
     let convert = |field: &str, val: &Value| {
-        value_to_expr_literal(val).map_err(|e| RestrictError::ValueNotExpressible {
+        value_to_expr_literal(val).map_err(|e| Unreadable::ValueNotExpressible {
             node,
             field: field.to_owned(),
             value_type: e.value_type.to_owned(),
