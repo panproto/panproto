@@ -1020,3 +1020,53 @@ fn a_relabelled_fan_records_its_relabelled_edges() {
         BTreeMap::from([(fan_node, Name::from("h"))])
     );
 }
+
+#[test]
+fn an_unnamed_parent_edge_keeps_its_name_and_is_not_recorded() {
+    // `from_wtype`, which reads no schema, leaves the parent edge of a fan
+    // unnamed, a graph that validates as the named form does. Get keeps
+    // the parent edge's name absent, and an absent view name maps back to
+    // an absent source name, so the identity records nothing, as the tree
+    // engine records nothing for the same tree, and a retarget records
+    // only the fan node's anchor.
+    let tree = fanned_tree();
+    let s = fanned_schema(&[("h", "p")]);
+    let g = GInstance::from_wtype(&tree).unwrap();
+    let edges = fan_edges(&g);
+    let parent = fan_edge(&edges, "hyper_parent", None);
+    let plan = RestrictPlan::compile(&s, &s, &keep(&["r", "c"])).unwrap();
+    let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    for (id, source) in &edges {
+        assert_eq!(view.edge(*id), Some(source));
+    }
+    assert!(complement.residue_is_trivial(), "{complement:?}");
+    let (tree_view, _) = wtype_restrict_with_plan(&tree, &plan).unwrap();
+    assert_eq!(tree_view.fans, tree.fans);
+
+    let both = fanned_schema(&[("h", "p"), ("h2", "q")]);
+    let g = GInstance::from_wtype(&tree).unwrap();
+    let mut m = keep(&["r", "c"]);
+    m.hyper_resolver.insert(
+        ("h".into(), vec!["x".into(), "y".into()]),
+        (
+            "h2".into(),
+            HashMap::from([("x".into(), "x".into()), ("y".into(), "y".into())]),
+        ),
+    );
+    let plan = RestrictPlan::compile(&both, &both, &m).unwrap();
+    let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    assert_eq!(view.edge(parent).unwrap().edge.name, None, "{view:?}");
+    assert_eq!(complement.original_edges, BTreeMap::new());
+    assert_eq!(
+        complement.original_anchors,
+        BTreeMap::from([(edges[&parent].src, Name::from("h"))])
+    );
+    // The named form of the same tree keeps its name `p`, which the
+    // retarget renames `q`: get stays injective on the two forms.
+    let named = GInstance::from_wtype_with_schema(&tree, &both).unwrap();
+    let (named_view, _) = graph_restrict_with_plan(&named, &plan).unwrap();
+    assert_eq!(
+        named_view.edge(parent).unwrap().edge.name.as_deref(),
+        Some("q")
+    );
+}

@@ -84,27 +84,33 @@ fn an_identity_lens_over_fans_records_no_fan_edge() {
     assert_eq!(view.fans, tree.fans);
     assert!(complement.residue_is_trivial(), "{complement:?}");
 
-    // The graph form, valid against the schema: its parent edge is named
-    // by the parent label the schema declares.
+    // Both graph forms, valid against the schema: the one whose parent
+    // edge is named by the parent label the schema declares, and the one
+    // `from_wtype` builds, reading no schema, whose parent edge is unnamed.
     let plan = RestrictPlan::compile(&s, &s, &lens.compiled).unwrap();
-    let g = GInstance::from_wtype_with_schema(&tree, &s).unwrap();
-    let fan_edges: Vec<_> = g
-        .edges_sorted()
-        .filter(|(_, edge)| edge.edge.kind.starts_with("hyper_"))
-        .map(|(id, edge)| (id, edge.clone()))
-        .collect();
-    assert_eq!(fan_edges.len(), 3, "{fan_edges:?}");
-    let (graph_view, graph_complement) = graph_restrict_with_plan(&g, &plan).unwrap();
-    for (id, source) in &fan_edges {
-        assert_eq!(graph_view.edge(*id), Some(source));
+    let forms = [
+        GInstance::from_wtype_with_schema(&tree, &s).unwrap(),
+        GInstance::from_wtype(&tree).unwrap(),
+    ];
+    for g in &forms {
+        let fan_edges: Vec<_> = g
+            .edges_sorted()
+            .filter(|(_, edge)| edge.edge.kind.starts_with("hyper_"))
+            .map(|(id, edge)| (id, edge.clone()))
+            .collect();
+        assert_eq!(fan_edges.len(), 3, "{fan_edges:?}");
+        let (graph_view, graph_complement) = graph_restrict_with_plan(g, &plan).unwrap();
+        for (id, source) in &fan_edges {
+            assert_eq!(graph_view.edge(*id), Some(source));
+        }
+        assert_eq!(graph_complement.original_edges, BTreeMap::new());
+        assert_eq!(
+            graph_complement.original_anchors,
+            BTreeMap::<u32, Name>::new()
+        );
+        assert!(
+            graph_complement.residue_is_trivial(),
+            "{graph_complement:?}"
+        );
     }
-    assert_eq!(graph_complement.original_edges, BTreeMap::new());
-    assert_eq!(
-        graph_complement.original_anchors,
-        BTreeMap::<u32, Name>::new()
-    );
-    assert!(
-        graph_complement.residue_is_trivial(),
-        "{graph_complement:?}"
-    );
 }

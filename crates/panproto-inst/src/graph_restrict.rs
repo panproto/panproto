@@ -698,7 +698,13 @@ impl<'a> GraphRun<'a> {
                 continue;
             };
             let name = if edge.edge.kind == HYPER_PARENT_KIND {
-                parent_label.clone().or_else(|| edge.edge.name.clone())
+                // An unnamed parent edge (the form `from_wtype` builds,
+                // reading no schema) stays unnamed; a named one takes the
+                // view hyper-edge's parent label.
+                edge.edge
+                    .name
+                    .as_ref()
+                    .and_then(|name| parent_label.clone().or_else(|| Some(name.clone())))
             } else {
                 let renamed = rename(edge.edge.name.as_deref().unwrap_or_default());
                 if !seen.insert(renamed.clone()) {
@@ -754,10 +760,12 @@ impl<'a> GraphRun<'a> {
     /// `target_anchor`) maps back to:
     /// the fan edge label from the source anchor A(fan) of the fan node to
     /// the source anchor A(target) of the target, under the view label's
-    /// name for a child edge and, for the parent edge, under the parent
+    /// name for a child edge and, for a named parent edge, under the parent
     /// label the source schema declares for hyper-edge A(fan) (the view
     /// label's name when the source schema declares no such hyper-edge,
     /// as the view takes the source name when the target declares none).
+    /// An unnamed parent edge maps back unnamed, as get keeps a source
+    /// parent edge unnamed.
     ///
     /// Get records a kept fan edge exactly when this is not its source
     /// label, so a fan stage that keeps the fan's hyper-edge and labels
@@ -774,12 +782,14 @@ impl<'a> GraphRun<'a> {
         let hyper_edge = self.source_anchor(fan, fan_anchor)?;
         let tgt = self.source_anchor(target, target_anchor)?;
         let name = if label.kind == HYPER_PARENT_KIND {
-            self.plan
-                .source()
-                .hyper_edges
-                .get(hyper_edge)
-                .map(|h| h.parent_label.clone())
-                .or_else(|| label.name.clone())
+            label.name.as_ref().and_then(|name| {
+                self.plan
+                    .source()
+                    .hyper_edges
+                    .get(hyper_edge)
+                    .map(|h| h.parent_label.clone())
+                    .or_else(|| Some(name.clone()))
+            })
         } else {
             label.name.clone()
         };
