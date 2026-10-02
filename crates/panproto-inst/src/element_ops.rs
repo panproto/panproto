@@ -29,9 +29,7 @@ use crate::metadata::Node;
 use crate::query::QueryError;
 use crate::value::{FieldPresence, Value};
 use crate::view_ref::RowId;
-use crate::wtype::{
-    WInstance, build_env_with_children, collect_scalar_child_values, value_to_expr_literal,
-};
+use crate::wtype::{TreeChildren, WInstance, build_env_with_children, value_to_expr_literal};
 
 /// Operations on the category of elements `∫F` of an instance presheaf.
 ///
@@ -117,10 +115,35 @@ pub trait ElementOps {
     /// Leaf value at element `x`, if present.
     fn element_value(&self, element_id: u32) -> Option<FieldPresence>;
 
+    /// The per-run view a query reads its elements through
+    /// ([`ElementScope`]), prepared once so that reading one element costs
+    /// that element's own fields and edges.
+    fn scope(&self) -> ElementScope<'_>;
+}
+
+/// What a query run reads at each element of one instance, prepared once
+/// per run.
+///
+/// For a tree it holds the index of the arcs by parent, so binding an
+/// element's children reads that element's arcs and not every arc of the
+/// tree; graphs and tables index their edges and pairs already. Built by
+/// [`ElementOps::scope`].
+pub struct ElementScope<'a> {
+    of: ScopeOf<'a>,
+}
+
+/// The instance a scope reads.
+enum ScopeOf<'a> {
+    Tree(TreeChildren<'a>),
+    Graph(&'a GInstance),
+    Table(&'a FInstance),
+}
+
+impl ElementScope<'_> {
     /// The environment a query predicate is evaluated in at element `x`:
     /// the element's fields and children as every shape binds them, with
     /// only the names `predicate` reads converted, and the metadata of
-    /// [`stalk`](Self::stalk).
+    /// [`stalk`](ElementOps::stalk).
     ///
     /// # Errors
     ///
@@ -128,12 +151,101 @@ pub trait ElementOps {
     /// [`QueryError::StructuralChildNotATree`] or
     /// [`QueryError::ValueNotExpressible`] for a predicate refused before
     /// evaluation.
-    fn predicate_env(
+    pub fn predicate_env(
         &self,
         schema: &panproto_schema::Schema,
         element_id: u32,
         predicate: &panproto_expr::Expr,
-    ) -> Result<panproto_expr::Env, QueryError>;
+    ) -> Result<panproto_expr::Env, QueryError> {
+        match &self.of {
+            ScopeOf::Tree(children) => {
+                let tree = children.tree();
+                let Some(node) = tree.nodes.get(&element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    children,
+                    crate::wtype::InstanceRef::Tree(tree, element_id),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_children_count",
+                            Literal::Int(count_literal(children.arc_count(element_id))),
+                        ),
+                    ],
+                )
+            }
+            ScopeOf::Graph(graph) => {
+                let Some(node) = graph.node(element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    *graph,
+                    crate::wtype::InstanceRef::Graph(graph, element_id),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(node.anchor.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_edge_count",
+                            Literal::Int(count_literal(graph.out_edges(element_id).len())),
+                        ),
+                    ],
+                )
+            }
+            ScopeOf::Table(table) => {
+                let Some((name, row)) = table.resolve_element(element_id) else {
+                    return Ok(panproto_expr::Env::new());
+                };
+                predicate_env_at(
+                    schema,
+                    *table,
+                    crate::wtype::InstanceRef::Table(table, row),
+                    predicate,
+                    vec![
+                        ("_anchor", Literal::Str(name.as_ref().into())),
+                        ("_id", Literal::Int(i64::from(element_id))),
+                        (
+                            "_edge_count",
+                            Literal::Int(count_literal(table.out_pair_count(row))),
+                        ),
+                    ],
+                )
+            }
+        }
+    }
+
+    /// The observable fields at element `x`, as
+    /// [`attributes`](ElementOps::attributes) gives them: the present
+    /// values its children bind, under its own fields, which win.
+    #[must_use]
+    pub fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
+        let (own, mut combined) = match &self.of {
+            ScopeOf::Tree(children) => (
+                children.tree().nodes.get(&element_id).map(|n| &n.extra_fields),
+                present_children(children, element_id),
+            ),
+            ScopeOf::Graph(graph) => (
+                graph.node(element_id).map(|n| &n.extra_fields),
+                present_children(*graph, element_id),
+            ),
+            ScopeOf::Table(table) => (
+                table.row(RowId(element_id)),
+                present_children(*table, element_id),
+            ),
+        };
+        let Some(own) = own else {
+            return HashMap::new();
+        };
+        for (key, val) in own {
+            combined.insert(key.clone(), val.clone());
+        }
+        combined
+    }
 }
 
 /// The predicate environment at the element `at` of `source`: the
@@ -194,15 +306,20 @@ impl ElementOps for WInstance {
     }
 
     fn pushforward(&self, elements: &[u32], edge_kind: &Name) -> Vec<u32> {
-        let mut result = Vec::new();
-        for &node_id in elements {
-            for &(src, tgt, ref edge) in &self.arcs {
-                if src == node_id && edge.kind == *edge_kind {
-                    result.push(tgt);
-                }
+        // The matching arcs by parent, in arc order, read once: each element
+        // then costs its own matching arcs.
+        let mut by_parent: HashMap<u32, Vec<u32>> = HashMap::new();
+        for &(src, tgt, ref edge) in &self.arcs {
+            if edge.kind == *edge_kind {
+                by_parent.entry(src).or_default().push(tgt);
             }
         }
-        result
+        elements
+            .iter()
+            .filter_map(|node_id| by_parent.get(node_id))
+            .flatten()
+            .copied()
+            .collect()
     }
 
     fn stalk(&self, element_id: u32) -> panproto_expr::Env {
@@ -222,15 +339,7 @@ impl ElementOps for WInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(node) = self.nodes.get(&element_id) else {
-            return HashMap::new();
-        };
-        let scalars = collect_scalar_child_values(self, element_id);
-        let mut combined = scalars;
-        for (key, val) in &node.extra_fields {
-            combined.insert(key.clone(), val.clone());
-        }
-        combined
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -241,34 +350,10 @@ impl ElementOps for WInstance {
         self.nodes.get(&element_id).and_then(|n| n.value.clone())
     }
 
-    fn predicate_env(
-        &self,
-        schema: &panproto_schema::Schema,
-        element_id: u32,
-        predicate: &panproto_expr::Expr,
-    ) -> Result<panproto_expr::Env, QueryError> {
-        let Some(node) = self.nodes.get(&element_id) else {
-            return Ok(panproto_expr::Env::new());
-        };
-        let children_count = self
-            .arcs
-            .iter()
-            .filter(|(p, _, _)| *p == element_id)
-            .count();
-        predicate_env_at(
-            schema,
-            &crate::wtype::TreeChildren::new(self),
-            crate::wtype::InstanceRef::Tree(self, element_id),
-            predicate,
-            vec![
-                ("_anchor", Literal::Str(node.anchor.as_ref().into())),
-                ("_id", Literal::Int(i64::from(element_id))),
-                (
-                    "_children_count",
-                    Literal::Int(count_literal(children_count)),
-                ),
-            ],
-        )
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Tree(TreeChildren::new(self)),
+        }
     }
 }
 
@@ -346,15 +431,7 @@ impl ElementOps for GInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(node) = self.node(element_id) else {
-            return HashMap::new();
-        };
-        let child_scalars = present_children(self, element_id);
-        let mut combined = child_scalars;
-        for (key, val) in &node.extra_fields {
-            combined.insert(key.clone(), val.clone());
-        }
-        combined
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -365,29 +442,10 @@ impl ElementOps for GInstance {
         self.node(element_id).and_then(|n| n.value.clone())
     }
 
-    fn predicate_env(
-        &self,
-        schema: &panproto_schema::Schema,
-        element_id: u32,
-        predicate: &panproto_expr::Expr,
-    ) -> Result<panproto_expr::Env, QueryError> {
-        let Some(node) = self.node(element_id) else {
-            return Ok(panproto_expr::Env::new());
-        };
-        predicate_env_at(
-            schema,
-            self,
-            crate::wtype::InstanceRef::Graph(self, element_id),
-            predicate,
-            vec![
-                ("_anchor", Literal::Str(node.anchor.as_ref().into())),
-                ("_id", Literal::Int(i64::from(element_id))),
-                (
-                    "_edge_count",
-                    Literal::Int(count_literal(self.out_edges(element_id).len())),
-                ),
-            ],
-        )
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Graph(self),
+        }
     }
 }
 
@@ -524,14 +582,7 @@ impl ElementOps for FInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        let Some(row) = self.row(RowId(element_id)) else {
-            return HashMap::new();
-        };
-        let mut combined = present_children(self, element_id);
-        for (key, val) in row {
-            combined.insert(key.clone(), val.clone());
-        }
-        combined
+        self.scope().attributes(element_id)
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {
@@ -543,29 +594,10 @@ impl ElementOps for FInstance {
         None
     }
 
-    fn predicate_env(
-        &self,
-        schema: &panproto_schema::Schema,
-        element_id: u32,
-        predicate: &panproto_expr::Expr,
-    ) -> Result<panproto_expr::Env, QueryError> {
-        let Some((table, row)) = self.resolve_element(element_id) else {
-            return Ok(panproto_expr::Env::new());
-        };
-        predicate_env_at(
-            schema,
-            self,
-            crate::wtype::InstanceRef::Table(self, row),
-            predicate,
-            vec![
-                ("_anchor", Literal::Str(table.as_ref().into())),
-                ("_id", Literal::Int(i64::from(element_id))),
-                (
-                    "_edge_count",
-                    Literal::Int(count_literal(self.out_pair_count(row))),
-                ),
-            ],
-        )
+    fn scope(&self) -> ElementScope<'_> {
+        ElementScope {
+            of: ScopeOf::Table(self),
+        }
     }
 }
 

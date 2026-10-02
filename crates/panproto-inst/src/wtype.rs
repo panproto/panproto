@@ -2154,6 +2154,16 @@ impl<'a> TreeChildren<'a> {
         }
         Self { tree, by_parent }
     }
+
+    /// The tree the index is of.
+    pub(crate) const fn tree(&self) -> &'a WInstance {
+        self.tree
+    }
+
+    /// The number of arcs whose parent is `id`, loops included.
+    pub(crate) fn arc_count(&self, id: u32) -> usize {
+        self.by_parent.get(&id).map_or(0, Vec::len)
+    }
 }
 
 impl ChildSource for TreeChildren<'_> {
@@ -3328,6 +3338,7 @@ fn wtype_extend_inner(
     }
 
     // Build new nodes: remap anchors where applicable
+    let children = TreeChildren::new(instance);
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
     for (&id, node) in &instance.nodes {
         let mut new_node = node.clone();
@@ -3351,7 +3362,12 @@ fn wtype_extend_inner(
         // full fiber projection.
         let transforms = migration.value_transforms(&node.anchor);
         if !transforms.is_empty() {
-            let ctx = TransformContext::new(None, instance, id, &transforms);
+            let ctx = TransformContext::bound(
+                None,
+                &children,
+                InstanceRef::Tree(instance, id),
+                &transform_demand(&transforms),
+            );
             apply_field_transforms(&mut new_node, &transforms, &ctx)?;
         }
         new_nodes.insert(id, new_node);

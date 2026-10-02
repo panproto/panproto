@@ -205,6 +205,7 @@ pub fn execute_elements<T: ElementOps>(
     }
 
     // 3. Selection in ascending element id, up to `limit`.
+    let scope = instance.scope();
     let limit = query.limit.unwrap_or(usize::MAX);
     let mut selected: Vec<u32> = Vec::new();
     for id in reached {
@@ -214,7 +215,7 @@ pub fn execute_elements<T: ElementOps>(
         let keep = match &query.predicate {
             None => true,
             Some(predicate) => {
-                let env = instance.predicate_env(schema, id, predicate)?;
+                let env = scope.predicate_env(schema, id, predicate)?;
                 matches!(
                     crate::instance_env::eval_with_element_ops(
                         predicate,
@@ -238,7 +239,7 @@ pub fn execute_elements<T: ElementOps>(
         .filter_map(|id| {
             let anchor = instance.sort(id)?;
             let value = instance.element_value(id);
-            let all_fields = instance.attributes(id);
+            let all_fields = scope.attributes(id);
             Some(QueryMatch {
                 node_id: id,
                 anchor,
