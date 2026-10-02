@@ -1847,54 +1847,108 @@ pub fn apply_field_transforms(
 /// A key a transform computes afresh, or adds, has no origin; a key whose
 /// value is changed in place keeps its origin. So after the run a source
 /// key `c` is held by the view under the key whose origin is `c`, if any.
+/// No transform copies a value, so each original key is the origin of at
+/// most one key, and the track keeps that inverse too: finding the key that
+/// holds an original key's value is one lookup, not a scan of the keys.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KeyTrack {
     /// The keys a transform wrote.
     pub(crate) written: BTreeSet<String>,
     /// For each key carrying an original key's value, that key.
-    pub(crate) origin: BTreeMap<String, String>,
+    origin: BTreeMap<String, String>,
+    /// The inverse of `origin`: for each original key whose value some key
+    /// carries, that key.
+    holder: BTreeMap<String, String>,
+}
+
+/// A key's state taken off a [`KeyTrack`] when its value moves: whether a
+/// transform wrote it, and the original key whose value it carries.
+pub(crate) struct KeyState {
+    written: bool,
+    origin: Option<String>,
 }
 
 impl KeyTrack {
     /// The track at the start of a run over `keys`: nothing written, each
     /// key its own origin.
     pub(crate) fn over<'k>(keys: impl Iterator<Item = &'k String>) -> Self {
+        let origin: BTreeMap<String, String> = keys.map(|k| (k.clone(), k.clone())).collect();
         Self {
             written: BTreeSet::new(),
-            origin: keys.map(|k| (k.clone(), k.clone())).collect(),
+            holder: origin.clone(),
+            origin,
         }
     }
 
-    /// The key `from` was moved to `to`, replacing what `to` held.
-    fn moved(&mut self, from: &str, to: &str) {
-        let was_written = self.written.remove(from);
-        let origin = self.origin.remove(from);
-        if was_written {
+    /// Set the origin of `key` to `origin`, or to none, replacing the one
+    /// it had.
+    fn set_origin(&mut self, key: &str, origin: Option<String>) {
+        if let Some(previous) = self.origin.remove(key) {
+            self.holder.remove(&previous);
+        }
+        if let Some(origin) = origin {
+            self.holder.insert(origin.clone(), key.to_owned());
+            self.origin.insert(key.to_owned(), origin);
+        }
+    }
+
+    /// Take the state of `key`, whose value is leaving it: afterwards the
+    /// key is unwritten and carries no original value.
+    pub(crate) fn take(&mut self, key: &str) -> KeyState {
+        let written = self.written.remove(key);
+        let origin = self.origin.remove(key);
+        if let Some(origin) = &origin {
+            self.holder.remove(origin);
+        }
+        KeyState { written, origin }
+    }
+
+    /// Put a taken state on `to`, whose value is now the one the state was
+    /// taken with, replacing what `to` held.
+    pub(crate) fn put(&mut self, to: &str, state: KeyState) {
+        if state.written {
             self.written.insert(to.to_owned());
         } else {
             self.written.remove(to);
         }
-        match origin {
-            Some(origin) => self.origin.insert(to.to_owned(), origin),
-            None => self.origin.remove(to),
-        };
+        self.set_origin(to, state.origin);
+    }
+
+    /// The key `from` was moved to `to`, replacing what `to` held.
+    fn moved(&mut self, from: &str, to: &str) {
+        let state = self.take(from);
+        self.put(to, state);
     }
 
     /// The key was removed.
     pub(crate) fn removed(&mut self, key: &str) {
         self.written.remove(key);
-        self.origin.remove(key);
+        self.set_origin(key, None);
     }
 
     /// The key was written with a fresh value, carried from no key.
     fn computed(&mut self, key: &str) {
         self.written.insert(key.to_owned());
-        self.origin.remove(key);
+        self.set_origin(key, None);
     }
 
     /// The key's value was changed in place.
     fn changed(&mut self, key: &str) {
         self.written.insert(key.to_owned());
+    }
+
+    /// Only the keys in `keys` were kept.
+    fn kept(&mut self, keys: &HashSet<&str>) {
+        self.written.retain(|k| keys.contains(k.as_str()));
+        let dropped: Vec<String> = self
+            .origin
+            .keys()
+            .filter(|k| !keys.contains(k.as_str()))
+            .cloned()
+            .collect();
+        for key in dropped {
+            self.set_origin(&key, None);
+        }
     }
 
     /// The key that holds the value of the original key `key`, if any: the
@@ -1906,7 +1960,7 @@ impl KeyTrack {
         key: &'t str,
         fields: &HashMap<String, Value>,
     ) -> Option<&'t str> {
-        if let Some((held, _)) = self.origin.iter().find(|(_, o)| o.as_str() == key) {
+        if let Some(held) = self.holder.get(key) {
             return Some(held.as_str());
         }
         (fields.contains_key(key) && !self.origin.contains_key(key)).then_some(key)
@@ -1943,9 +1997,9 @@ pub(crate) fn apply_transforms_tracked(
                 }
             }
             FieldTransform::KeepFields { keys } => {
-                node.extra_fields.retain(|k, _| keys.contains(k));
-                track.written.retain(|k| keys.contains(k));
-                track.origin.retain(|k, _| keys.contains(k));
+                let keep: HashSet<&str> = keys.iter().map(String::as_str).collect();
+                node.extra_fields.retain(|k, _| keep.contains(k.as_str()));
+                track.kept(&keep);
             }
             FieldTransform::ApplyExpr { key, expr, .. } => {
                 if apply_expr_transform(node, key, expr, ctx)? {

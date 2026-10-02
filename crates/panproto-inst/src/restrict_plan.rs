@@ -769,24 +769,14 @@ fn apply_cell_fates(fields: &mut HashMap<String, Value>, fates: &[CellFate], tra
             }
             CellFate::Rename(from, to) => {
                 if let Some(value) = fields.remove(from) {
-                    let was_written = track.written.remove(from);
-                    let origin = track.origin.remove(from);
-                    moved.push((to, value, was_written, origin));
+                    moved.push((to, value, track.take(from)));
                 }
             }
         }
     }
-    for (to, value, was_written, origin) in moved {
+    for (to, value, state) in moved {
         fields.insert(to.clone(), value);
-        if was_written {
-            track.written.insert(to.clone());
-        } else {
-            track.written.remove(to);
-        }
-        match origin {
-            Some(origin) => track.origin.insert(to.clone(), origin),
-            None => track.origin.remove(to),
-        };
+        track.put(to, state);
     }
 }
 
