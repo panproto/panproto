@@ -846,3 +846,65 @@ fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
         format!("{:?}", graph_err.unlocated())
     );
 }
+
+#[test]
+fn every_kept_fan_edge_is_recorded_since_no_fan_label_maps_back_by_preimage() {
+    // A fan label is no source schema edge, so the back-mapping rule of a
+    // put (the unique preimage of the view label under the edge image)
+    // never returns it: every kept fan edge is recorded, changed or not. A
+    // fan node is recorded when the reverse vertex map does not return its
+    // source anchor, as every node is.
+    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let tree = WInstance::new(
+        [
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "c")),
+            (2, Node::new(2, "c")),
+        ]
+        .into(),
+        vec![(0, 1, e("r", "c", "c")), (0, 2, e("r", "c", "c"))],
+        vec![Fan {
+            hyper_edge_id: "h".into(),
+            parent: 0,
+            children: HashMap::from([("x".to_owned(), 1), ("y".to_owned(), 2)]),
+        }],
+        0,
+        "r".into(),
+    );
+    let g = GInstance::from_wtype(&tree).unwrap();
+    let fan_edges: BTreeMap<EdgeId, GEdge> = g
+        .edges_sorted()
+        .filter(|(_, edge)| edge.edge.kind.starts_with("hyper_"))
+        .map(|(id, edge)| (id, edge.clone()))
+        .collect();
+    assert_eq!(fan_edges.len(), 3, "{fan_edges:?}");
+    let fan_node = fan_edges.values().next().unwrap().src;
+
+    // Unchanged: the fan edges are recorded, the fan node is not.
+    let plan = RestrictPlan::compile(&s, &s, &keep(&["r", "c"])).unwrap();
+    let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    for (id, source) in &fan_edges {
+        assert_eq!(view.edge(*id), Some(source));
+        assert_eq!(complement.original_edges.get(id), Some(source), "{id}");
+    }
+    assert!(!complement.original_anchors.contains_key(&fan_node));
+
+    // Retargeted to another hyper-edge: the fan node is recorded too.
+    let mut m = keep(&["r", "c"]);
+    m.hyper_resolver.insert(
+        ("h".into(), vec!["x".into(), "y".into()]),
+        (
+            "h2".into(),
+            HashMap::from([("x".into(), "x2".into()), ("y".into(), "y".into())]),
+        ),
+    );
+    let plan = RestrictPlan::compile(&s, &s, &m).unwrap();
+    let (_, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    for (id, source) in &fan_edges {
+        assert_eq!(complement.original_edges.get(id), Some(source), "{id}");
+    }
+    assert_eq!(
+        complement.original_anchors.get(&fan_node),
+        Some(&Name::from("h"))
+    );
+}

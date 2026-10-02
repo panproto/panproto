@@ -569,7 +569,7 @@ impl<'a> GraphRun<'a> {
         };
         let mut view = node.clone();
         view.anchor.clone_from(&hyper_edge);
-        if view.anchor != node.anchor {
+        if !self.reverse.recovers(&view.anchor, &node.anchor) {
             self.complement
                 .original_anchors
                 .insert(id, node.anchor.clone());
@@ -607,9 +607,10 @@ impl<'a> GraphRun<'a> {
                 kind: edge.edge.kind.clone(),
                 name,
             };
-            if label != edge.edge {
-                self.complement.original_edges.insert(edge_id, edge.clone());
-            }
+            // A fan label is no source schema edge, so no preimage under the
+            // edge image returns it: a kept fan edge maps back only through
+            // its record.
+            self.complement.original_edges.insert(edge_id, edge.clone());
             self.edges.insert(
                 edge_id,
                 GEdge {

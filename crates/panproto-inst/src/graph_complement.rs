@@ -41,14 +41,16 @@ pub struct GraphComplement {
     pub dropped_edges: BTreeMap<EdgeId, GEdge>,
     /// The source form of each kept edge whose source label the view does
     /// not determine: the edge maps back to its label only when exactly one
-    /// source edge has its view label as image (for a fan edge, when its
-    /// label is unchanged). A kept edge keeps its endpoints, so the recorded
-    /// edge's endpoints are the view's.
+    /// source edge has its view label as image, which never holds for a fan
+    /// edge, whose label is no source schema edge, so every kept fan edge is
+    /// recorded. A kept edge keeps its endpoints, so the recorded edge's
+    /// endpoints are the view's.
     pub original_edges: BTreeMap<EdgeId, GEdge>,
-    /// The source anchor of each kept node whose view anchor does not map
-    /// back to it: the vertex map has several preimages for the view anchor,
-    /// or one that is not the source anchor (for a fan node, when its anchor
-    /// changed). An injective rename records nothing.
+    /// The source anchor of each kept node, fan nodes included, whose view
+    /// anchor does not map back to it: the vertex map has several preimages
+    /// for the view anchor, or one that is not the source anchor, or none
+    /// and the view anchor is not the source anchor. An injective rename
+    /// records nothing.
     pub original_anchors: BTreeMap<u32, Name>,
     /// The source fields of each kept node whose fields the restrict
     /// changed.
