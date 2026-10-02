@@ -229,7 +229,7 @@ fn merge_vec_dedup<T: Clone + PartialEq>(target: &mut Vec<T>, source: &[T]) {
 /// delegating to [`value_equiv`] for `Value`-bearing positions so that
 /// `f64::NaN` compares equal to itself (bit-equality) and `HashMap`
 /// values compare order-independently.
-fn node_equiv(a: &Node, b: &Node) -> bool {
+pub(crate) fn node_equiv(a: &Node, b: &Node) -> bool {
     a.id == b.id
         && a.anchor == b.anchor
         && a.discriminator == b.discriminator
@@ -1683,7 +1683,7 @@ fn invert_computations_on_child_scalars(
 /// Transforms are processed in reverse of their forward order so that
 /// when multiple transforms chain (e.g. rename-then-compute) the later
 /// forward transform is undone first.
-fn propagate_view_edits_through_inverse(
+pub(crate) fn propagate_view_edits_through_inverse(
     node: &mut Node,
     view_fields: &std::collections::HashMap<String, panproto_inst::value::Value>,
     transforms: &[panproto_inst::FieldTransform],
@@ -1793,7 +1793,10 @@ fn propagate_view_edits_through_inverse(
 /// from `complement.original_extra_fields`, which is always captured by
 /// `get`. This function is only reached for externally constructed
 /// complements or composed lenses where snapshots were not propagated.
-fn apply_inverse_transforms(node: &mut Node, transforms: &[panproto_inst::FieldTransform]) {
+pub(crate) fn apply_inverse_transforms(
+    node: &mut Node,
+    transforms: &[panproto_inst::FieldTransform],
+) {
     use panproto_inst::FieldTransform;
 
     // Apply in reverse order (undo last transform first).

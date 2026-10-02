@@ -12,10 +12,10 @@ use panproto_gat::Name;
 use serde::{Deserialize, Serialize};
 
 use crate::ginstance::{EdgeId, GEdge};
-use crate::identity::IdentityEnvelope;
+use crate::identity::{ComplementShape, IdentityCarrier, IdentityEnvelope};
 use crate::metadata::Node;
 use crate::value::{FieldPresence, Value};
-use crate::view_ref::{IdFloor, SynthKey};
+use crate::view_ref::{IdFloor, SynthIndex, SynthKey};
 
 /// The complement of a graph restrict: the part of the source outside the
 /// image of `get`, together with the fibre coordinates `get` forgets.
@@ -156,10 +156,44 @@ impl GraphComplement {
             .find(|(_, k)| *k == key)
             .map(|(id, _)| *id)
     }
+
+    /// Every synthesized object's presentation id and stable key.
+    #[must_use]
+    pub fn synth_index(&self) -> SynthIndex {
+        SynthIndex {
+            nodes: self.synthesized_nodes.clone(),
+            edges: self.synthesized_edges.clone(),
+        }
+    }
 }
 
 impl Default for GraphComplement {
     fn default() -> Self {
         Self::empty()
+    }
+}
+
+impl IdentityCarrier for GraphComplement {
+    const SHAPE: ComplementShape = ComplementShape::Graph;
+
+    fn identity(&self) -> Option<&IdentityEnvelope> {
+        self.identity.as_ref()
+    }
+
+    fn set_identity(&mut self, envelope: Option<IdentityEnvelope>) {
+        self.identity = envelope;
+    }
+
+    fn legacy_fingerprint(&self) -> u64 {
+        0
+    }
+
+    fn set_legacy_fingerprint(&mut self, _fingerprint: u64) {}
+
+    fn records_nothing(&self) -> bool {
+        self.residue_is_trivial()
+            && self.synthesized_nodes.is_empty()
+            && self.synthesized_edges.is_empty()
+            && self.id_floor == IdFloor::default()
     }
 }

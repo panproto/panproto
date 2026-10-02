@@ -12,12 +12,15 @@ use panproto_inst::identity::{
     ComplementShape, IdentityCarrier, IdentityEnvelope, IdentityField, IdentityPolicy,
     IdentityStatus,
 };
-use panproto_inst::{CompiledMigration, Digest, PutDomainError, WInstance};
+use panproto_inst::{
+    CompiledMigration, Digest, GInstance, GraphComplement, PutDomainError, WInstance,
+};
 use panproto_schema::Schema;
 use serde::{Deserialize, Serialize};
 
 use crate::asymmetric;
 use crate::compose::{check_boundary, duplicate, tree_fusion};
+use crate::graph_lens::{self, graph_fusion};
 use crate::{Complement, Lens, LensError};
 
 /// One group in a shape-specific normal form of a [`LensPath`].
@@ -234,6 +237,165 @@ impl LensPath {
         groups
     }
 
+    /// Deterministic graph normal form.
+    ///
+    /// Starting with the atomic stages, repeatedly fuses the leftmost
+    /// adjacent pair admitted by the graph fusion predicate.
+    #[must_use]
+    pub fn graph_normal_form(&self) -> Vec<NormalGroup> {
+        let mut groups: Vec<NormalGroup> = self
+            .stages
+            .iter()
+            .enumerate()
+            .map(|(index, lens)| NormalGroup {
+                stages: index..index + 1,
+                lens: duplicate(lens),
+            })
+            .collect();
+        loop {
+            let Some((index, fused)) = groups.windows(2).enumerate().find_map(|(index, pair)| {
+                graph_fusion(&pair[0].lens, &pair[1].lens).map(|lens| (index, lens))
+            }) else {
+                break;
+            };
+            let stages = groups[index].stages.start..groups[index + 1].stages.end;
+            groups.splice(
+                index..=index + 1,
+                [NormalGroup {
+                    stages,
+                    lens: fused,
+                }],
+            );
+        }
+        groups
+    }
+
+    /// Forward graph-lens fold over graph normal-form groups.
+    ///
+    /// # Errors
+    ///
+    /// A group error, located by its normal-form and atomic-stage indices.
+    pub fn get_graph(
+        &self,
+        source: &GInstance,
+    ) -> Result<(GInstance, PathComplement<GraphComplement>), LensError> {
+        let groups = self.graph_normal_form();
+        let mut view = source.clone();
+        let mut entries = Vec::with_capacity(groups.len());
+        for (group_index, group) in groups.iter().enumerate() {
+            let at = stage_index(group_index, group);
+            let (next, complement) =
+                graph_lens::get(&group.lens, &view).map_err(|error| locate(at, error))?;
+            entries.push(PathComplementEntry {
+                complement,
+                envelope: group.lens.identity(ComplementShape::Graph),
+                stage_digests: self.digests_for(group.stages.clone(), ComplementShape::Graph),
+            });
+            view = next;
+        }
+        Ok((view, PathComplement::new(entries)))
+    }
+
+    /// Backward graph-lens fold over graph normal-form groups.
+    ///
+    /// # Errors
+    ///
+    /// A complement-count mismatch or a located group error.
+    pub fn put_graph(
+        &self,
+        view: &GInstance,
+        complement: &PathComplement<GraphComplement>,
+    ) -> Result<GInstance, LensError> {
+        self.put_graph_checked(view, complement, IdentityPolicy::AllowLegacy)
+            .map(|(source, _)| source)
+    }
+
+    /// Backward graph fold under an explicit identity policy.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::put_graph`].
+    pub fn put_graph_checked(
+        &self,
+        view: &GInstance,
+        complement: &PathComplement<GraphComplement>,
+        policy: IdentityPolicy,
+    ) -> Result<(GInstance, Vec<IdentityStatus>), LensError> {
+        let groups = self.graph_normal_form();
+        check_entry_count(groups.len(), complement.len())?;
+        let mut source = view.clone();
+        let mut statuses = vec![IdentityStatus::Unbound; groups.len()];
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            let entry = &complement.0[group_index];
+            let at = stage_index(group_index, group);
+            self.check_graph_entry(group, entry)
+                .map_err(|error| locate(at.clone(), error))?;
+            let (next, status) =
+                graph_lens::put_checked(&group.lens, &source, &entry.complement, policy)
+                    .map_err(|error| locate(at, error))?;
+            statuses[group_index] = status;
+            source = next;
+        }
+        Ok((source, statuses))
+    }
+
+    /// Put-domain predicate for the graph fold.
+    ///
+    /// The rightmost failing group whose right neighbours pass is reported.
+    ///
+    /// # Errors
+    ///
+    /// The failing group and all of its ordered violations.
+    pub fn check_graph_put_domain(
+        &self,
+        view: &GInstance,
+        complement: &PathComplement<GraphComplement>,
+    ) -> Result<(), (StageIndex, Vec<PutDomainError>)> {
+        let groups = self.graph_normal_form();
+        if groups.len() != complement.len() {
+            return Ok(());
+        }
+        let mut source = view.clone();
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            let entry = &complement.0[group_index];
+            let at = stage_index(group_index, group);
+            if let Err(violations) =
+                graph_lens::check_put_domain(&group.lens, &source, &entry.complement)
+            {
+                return Err((at, violations));
+            }
+            let mut for_domain = entry.complement.clone();
+            for_domain.stamp(
+                group.lens.identity(ComplementShape::Graph),
+                &group.lens.src_schema,
+            );
+            match graph_lens::put(&group.lens, &source, &for_domain) {
+                Ok(next) => source = next,
+                Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
+                Err(_) => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+
+    /// Reconstruct through every graph group without a complement.
+    ///
+    /// # Errors
+    ///
+    /// A located group is not an isomorphism or its graph put fails.
+    pub fn put_graph_without_complement(&self, view: &GInstance) -> Result<GInstance, LensError> {
+        let groups = self.graph_normal_form();
+        let mut source = view.clone();
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            source = graph_lens::put_without_complement(&group.lens, &source)
+                .map_err(|error| locate(stage_index(group_index, group), error))?;
+        }
+        Ok(source)
+    }
+
     /// Forward tree-lens fold over this path's normal-form groups.
     ///
     /// # Errors
@@ -395,9 +557,13 @@ impl LensPath {
     }
 
     fn digests(&self, stages: Range<usize>) -> Vec<Digest> {
+        self.digests_for(stages, ComplementShape::WType)
+    }
+
+    fn digests_for(&self, stages: Range<usize>, shape: ComplementShape) -> Vec<Digest> {
         self.stages[stages]
             .iter()
-            .map(|stage| stage.identity(ComplementShape::WType).lens)
+            .map(|stage| stage.identity(shape).lens)
             .collect()
     }
 
@@ -411,6 +577,27 @@ impl LensPath {
             return Err(error.into());
         }
         let expected_digests = self.digests(group.stages.clone());
+        if expected_digests != entry.stage_digests {
+            return Err(panproto_inst::IdentityError::Mismatch {
+                field: IdentityField::Lens,
+                expected: digest_list(&expected_digests),
+                found: digest_list(&entry.stage_digests),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn check_graph_entry(
+        &self,
+        group: &NormalGroup,
+        entry: &PathComplementEntry<GraphComplement>,
+    ) -> Result<(), LensError> {
+        let expected_envelope = group.lens.identity(ComplementShape::Graph);
+        if let Some(error) = expected_envelope.mismatch(&entry.envelope) {
+            return Err(error.into());
+        }
+        let expected_digests = self.digests_for(group.stages.clone(), ComplementShape::Graph);
         if expected_digests != entry.stage_digests {
             return Err(panproto_inst::IdentityError::Mismatch {
                 field: IdentityField::Lens,
