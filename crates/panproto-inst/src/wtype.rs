@@ -1382,6 +1382,48 @@ fn failing_predicates(
     Ok(failing)
 }
 
+/// Evaluate the survival predicates of `plan` over the tree `instance`.
+///
+/// The result has one entry per node whose anchor survives and carries a
+/// predicate, in ascending node id, holding `true` or `false`, or why the
+/// predicate gives neither.
+///
+/// The predicate is evaluated exactly as the tree restrict evaluates it,
+/// over the node's own fields and its children bound by column name, before
+/// any transform. A node whose entry is not `Ok(true)` is one `get` drops
+/// (`Ok(false)`) or refuses the instance at (`Err`), so a source that `put`
+/// restores passes the next `get` only if every entry is `Ok(true)`.
+#[must_use]
+pub fn tree_survival_verdicts(
+    instance: &WInstance,
+    plan: &crate::restrict_plan::RestrictPlan,
+) -> BTreeMap<u32, Result<bool, crate::error_detail::PredicateRefusal>> {
+    let children = TreeChildren::new(instance);
+    let mut verdicts = BTreeMap::new();
+    for (&id, node) in &instance.nodes {
+        if !plan.anchor_survives(&node.anchor)
+            || !plan
+                .migration()
+                .conditional_survival
+                .contains_key(&node.anchor)
+        {
+            continue;
+        }
+        let ctx = TransformContext::bound(
+            Some(plan.source()),
+            &children,
+            InstanceRef::Tree(instance, id),
+            &plan.demand(&node.anchor),
+        );
+        verdicts.insert(
+            id,
+            plan.predicate_outcome(&node.anchor, &ctx, &node.extra_fields)
+                .into_refusal(),
+        );
+    }
+    verdicts
+}
+
 /// What the tree traversal keeps: the surviving source nodes, the kept arcs
 /// with their source index, and the synthesized paths.
 struct Traversal {

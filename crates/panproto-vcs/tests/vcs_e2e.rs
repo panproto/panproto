@@ -551,6 +551,7 @@ fn load_migration_from_commit(store: &dyn Store, commit_id: ObjectId) -> Migrati
 fn blog_schema_evolution() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // v1: initial (User, User.name, User.email, Post, Post.title, Post.body)
     let v1 = blog_v1();
@@ -635,6 +636,7 @@ fn blog_schema_evolution() -> Result<(), Box<dyn std::error::Error>> {
 fn concurrent_feature_merge() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // Base: v2 (has Comment)
     repo.add(&blog_v2())?;
@@ -694,6 +696,7 @@ fn concurrent_feature_merge() -> Result<(), Box<dyn std::error::Error>> {
 fn merge_conflict_resolution() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // Base: v1
     repo.add(&blog_v1())?;
@@ -770,6 +773,7 @@ fn merge_conflict_resolution() -> Result<(), Box<dyn std::error::Error>> {
 fn theory_tracking() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // v1
     repo.add(&blog_v1())?;
@@ -841,6 +845,7 @@ fn theory_tracking() -> Result<(), Box<dyn std::error::Error>> {
 fn rebase_with_data() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // Base: v1
     repo.add(&blog_v1())?;
@@ -907,6 +912,7 @@ fn rebase_with_data() -> Result<(), Box<dyn std::error::Error>> {
 fn stash_and_cherry_pick() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // v1 base
     repo.add(&blog_v1())?;
@@ -979,6 +985,7 @@ fn stash_and_cherry_pick() -> Result<(), Box<dyn std::error::Error>> {
 fn bisect_breaking_change() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // Build 8 incremental commits, each adding one vertex.
     // Commit at index 5 (the 6th commit) "breaks" by removing User.email.
@@ -1107,6 +1114,7 @@ fn bisect_breaking_change() -> Result<(), Box<dyn std::error::Error>> {
 fn composition_path_coherence() -> Result<(), Box<dyn std::error::Error>> {
     let dir = tempfile::tempdir()?;
     let mut repo = Repository::init(dir.path())?;
+    repo.set_protocol(blog_protocol());
 
     // Build linear v1 -> v2 -> v3 -> v4.
     repo.add(&blog_v1())?;

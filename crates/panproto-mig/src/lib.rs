@@ -73,7 +73,8 @@ pub use hom_search::{
 };
 pub use invert::invert;
 pub use lift::{
-    lift_functor, lift_functor_pi, lift_functor_sigma, lift_wtype, lift_wtype_pi, lift_wtype_sigma,
+    lift_functor, lift_functor_pi, lift_functor_sigma, lift_graph, lift_wtype, lift_wtype_pi,
+    lift_wtype_sigma,
 };
 pub use lift::{lift_functor_pi_with_provenance, lift_functor_sigma_with_hom};
 pub use migration::{COERCION_INPUT, Migration, compose_coercions, invert_coercion};

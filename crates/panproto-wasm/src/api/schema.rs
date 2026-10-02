@@ -467,7 +467,15 @@ pub fn lift_record(migration: u32, record: &[u8]) -> Result<Vec<u8>, JsError> {
 
     let result = slab::with_resource(migration, |r| {
         let (compiled, src_schema, tgt_schema) = extract_migration_ref(r)?;
-        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols).map_err(|e| {
             WasmError::LiftFailed {
                 reason: e.to_string(),
             }
@@ -604,11 +612,17 @@ pub fn lift_json(migration: u32, json_bytes: &[u8], root_vertex: &str) -> Result
             }
         })?;
 
-        let lifted =
-            mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance).map_err(|e| {
-                WasmError::LiftFailed {
-                    reason: e.to_string(),
-                }
+        let (src_protocol, tgt_protocol) = (
+            super::helpers::protocol_of(&src_schema),
+            super::helpers::protocol_of(&tgt_schema),
+        );
+        let protocols = inst::BoundaryProtocols {
+            src: &src_protocol,
+            tgt: &tgt_protocol,
+        };
+        let lifted = mig::lift_wtype(compiled, &src_schema, &tgt_schema, &instance, protocols)
+            .map_err(|e| WasmError::LiftFailed {
+                reason: e.to_string(),
             })?;
 
         let out_json = inst::to_json(&tgt_schema, &lifted);

@@ -297,7 +297,10 @@ pub fn emit_instance_preserving(
 /// Validate a W-type instance against a schema.
 ///
 /// Returns `MessagePack`-encoded `Vec<String>` of validation error
-/// messages. An empty vector means the instance is valid.
+/// messages. An empty vector means the instance is valid. The instance is
+/// validated under the schema's protocol (a built-in one when the name is
+/// recognized), and the messages are those of the entries that decide the
+/// report's status.
 ///
 /// # Errors
 ///
@@ -311,10 +314,30 @@ pub fn validate_instance(schema_handle: u32, instance_bytes: &[u8]) -> Result<Ve
             reason: e.to_string(),
         })?;
 
-    let errors: Vec<String> = inst::validate_wtype(&schema, &instance)
-        .into_iter()
-        .map(|e| format!("{e:?}"))
-        .collect();
+    let protocol = super::helpers::lookup_builtin_protocol(&schema.protocol)
+        .unwrap_or_else(|| super::helpers::default_protocol(&schema.protocol));
+    let report = inst::validate_wtype(&instance, &schema, &protocol);
+    // The entries that decide the status: none when it passed, otherwise
+    // every required diagnostic in report order, then every required check
+    // left undecided.
+    let required = inst::validation::Requirement::Required;
+    let errors: Vec<String> = if report.status == panproto_core::gat::CheckStatus::Passed {
+        Vec::new()
+    } else {
+        report
+            .diagnostics
+            .iter()
+            .filter(|d| d.requirement == required)
+            .map(ToString::to_string)
+            .chain(
+                report
+                    .incomplete
+                    .iter()
+                    .filter(|i| i.requirement == required)
+                    .map(ToString::to_string),
+            )
+            .collect()
+    };
 
     rmp_serde::to_vec_named(&errors).map_err(|e| -> JsError {
         WasmError::SerializationFailed {

@@ -117,7 +117,7 @@ pub use contraction_plan::{
 pub use edit_error::EditError;
 pub use element_ops::ElementOps;
 pub use error::{InstError, ParseError, RestrictError};
-pub use error_detail::{ErrorDetail, PutDomainError};
+pub use error_detail::{ErrorDetail, PredicateRefusal, PutDomainError};
 pub use fan::Fan;
 pub use fan_violation::FanViolation;
 pub use functor::FInstance;
@@ -205,6 +205,7 @@ pub use wtype::{
     value_to_expr_literal, wtype_extend, wtype_extend_partial, wtype_restrict,
 };
 pub use wtype::{
-    InstanceRef, NotExpressible, TreeSynthesis, wtype_extend_engine, wtype_extend_validated,
-    wtype_restrict_validated, wtype_restrict_with_plan, wtype_restrict_with_synthesis,
+    InstanceRef, NotExpressible, TreeSynthesis, tree_survival_verdicts, wtype_extend_engine,
+    wtype_extend_validated, wtype_restrict_validated, wtype_restrict_with_plan,
+    wtype_restrict_with_synthesis,
 };

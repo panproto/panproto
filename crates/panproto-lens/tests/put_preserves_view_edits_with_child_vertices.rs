@@ -315,11 +315,12 @@ fn put_preserves_view_edit_via_json_reparse_and_remap() {
         .map(|(parent, child, _)| (*child, (*parent, *child)))
         .expect("the reparse adds a user.bio node");
     match asymmetric::put(&lens, &remapped, &complement) {
-        Err(panproto_lens::LensError::PutDomain(
+        Err(panproto_lens::LensError::PutDomain(error)) => match *error {
             panproto_lens::PutDomainError::UnrepresentableViewEdge {
                 elem: panproto_inst::ViewRef::Arc { parent, child },
-            },
-        )) => assert_eq!((parent, child), bio_arc),
+            } => assert_eq!((parent, child), bio_arc),
+            other => panic!("expected the user.bio arc to be refused, got {other:?}"),
+        },
         other => panic!("expected the user.bio arc to be refused, got {other:?}"),
     }
     let mut nodes = remapped.nodes.clone();

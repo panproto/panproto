@@ -1208,6 +1208,7 @@ fn cherry_pick_no_commit() -> Result<(), Box<dyn std::error::Error>> {
         feature_commit,
         "alice",
         &opts,
+        &HashMap::new(),
     )?;
 
     // HEAD should NOT have advanced.
@@ -2260,6 +2261,7 @@ fn cherry_pick_record_origin() -> Result<(), Box<dyn std::error::Error>> {
         feature_commit,
         "alice",
         &options,
+        &HashMap::new(),
     )?;
 
     // Load the new commit and check its message.

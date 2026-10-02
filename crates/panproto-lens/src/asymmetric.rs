@@ -408,8 +408,11 @@ impl EdgePreimages {
 /// Forward lens direction: restrict the source instance to the target view
 /// and capture the complement.
 ///
-/// This runs `wtype_restrict` and then computes the set difference between
-/// the source and result to populate the complement.
+/// This runs the tree restrict on the lens's plan
+/// ([`wtype_restrict_with_plan`]) and then computes the set difference
+/// between the source and result to populate the complement, recording the
+/// key of every node the restrict synthesized
+/// ([`Complement::synthesized_keys`](panproto_inst::Complement::synthesized_keys)).
 ///
 /// The complement is stamped with the lens's
 /// [`identity`](Lens::identity), which `put` checks.
@@ -493,7 +496,7 @@ pub(crate) fn get_with_identity(
     envelope: &IdentityEnvelope,
 ) -> Result<(WInstance, Complement), LensError> {
     let plan = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled)?;
-    let (view, _) = wtype_restrict_with_plan(instance, &plan)?;
+    let (view, synthesis) = wtype_restrict_with_plan(instance, &plan)?;
 
     // Compute complement: everything in source not in view
     let mut dropped_nodes = HashMap::new();
@@ -566,7 +569,7 @@ pub(crate) fn get_with_identity(
     }
 
     // Capture node ids that appear in the view but not in the source
-    // instance. These were synthesized by `wtype_restrict` to satisfy a
+    // instance. These were synthesized by the restrict to satisfy a
     // nest-style `expansion_path` in the compiled migration (a direct
     // source arc expanded into a multi-hop target path). `put` drops
     // them when collapsing back to the source.
@@ -606,7 +609,10 @@ pub(crate) fn get_with_identity(
         // it records `u32::MAX`, against which `fresh_view_node_id` reports
         // exhaustion.
         id_floor: panproto_inst::complement::tree_id_floor(instance).unwrap_or(u32::MAX),
-        synthesized_keys: std::collections::BTreeMap::new(),
+        // The key of every node the restrict synthesized: an expansion node
+        // by the source arc it expands (its edge id in the source's graph
+        // form) and its hop.
+        synthesized_keys: synthesis.synthesized_keys,
         identity: None,
     };
     complement.stamp(envelope.clone(), &lens.src_schema);
@@ -682,14 +688,14 @@ pub(crate) fn put_with_identity(
         .into_iter()
         .next()
     {
-        return Err(LensError::PutDomain(first));
+        return Err(LensError::PutDomain(Box::new(first)));
     }
     let source = reassemble(lens, view, complement)?;
     if let Some(first) = value_violations(lens, view, complement, &source)
         .into_iter()
         .next()
     {
-        return Err(LensError::PutDomain(first));
+        return Err(LensError::PutDomain(Box::new(first)));
     }
     Ok((source, status))
 }
@@ -716,8 +722,15 @@ pub(crate) fn put_with_identity(
 /// * [`PutDomainError::AmbiguousReverseAnchor`]: a view node added or moved
 ///   in the view is anchored at a vertex with several source preimages.
 /// * [`PutDomainError::SurvivalPredicateFails`]: a restored node's
-///   survival predicate is false on its restored fields, so the next `get`
+///   survival predicate is false on the restored source, so the next `get`
 ///   would hide it again.
+/// * [`PutDomainError::SurvivalPredicateRefused`]: a restored node's
+///   survival predicate gives neither `true` nor `false` on the restored
+///   source (it reads a repeated or non-tree child, a value with no
+///   expression literal, fails to evaluate or yields no boolean), so the
+///   next `get` would refuse the source. Predicates are evaluated as `get`
+///   evaluates them, over the restored node's fields and its restored
+///   children bound by column name.
 /// * [`PutDomainError::DerivedCellEdited`] and
 ///   [`PutDomainError::TransformNotInvertible`]: recomputing the forward
 ///   transforms of a restored node does not give the value the view holds
@@ -849,6 +862,7 @@ fn violation_ref(violation: &PutDomainError) -> Option<ViewRef> {
         | PutDomainError::UnrepresentableViewEdge { elem }
         | PutDomainError::AmbiguousReverseAnchor { elem, .. }
         | PutDomainError::SurvivalPredicateFails { elem }
+        | PutDomainError::SurvivalPredicateRefused { elem, .. }
         | PutDomainError::DerivedCellEdited { elem, .. }
         | PutDomainError::TransformNotInvertible { elem, .. }
         | PutDomainError::MissingRequiredCell { elem, .. } => Some(elem.clone()),
@@ -895,7 +909,7 @@ fn structural_violations(
             Ok(anchor) => {
                 anchors.insert(id, anchor.clone());
             }
-            Err(violation) => found.push(violation),
+            Err(violation) => found.push(*violation),
         }
     }
 
@@ -951,7 +965,7 @@ fn produced_by_get(
 
 /// The violations found by writing the view back and running the forward
 /// direction again on the result: every restored node whose survival
-/// predicate is false, and every computed field whose recomputed value is
+/// predicate is not true, and every computed field whose recomputed value is
 /// not the value the view holds.
 ///
 /// The forward transforms are recomputed with the survival predicates
@@ -972,23 +986,25 @@ fn value_violations(
         return Vec::new();
     }
     let mut found = Vec::new();
-    let config = panproto_expr::EvalConfig::default();
-    for &id in view.nodes.keys() {
-        if complement.synthesized_nodes.contains(&id) {
-            continue;
-        }
-        let Some(restored) = source.nodes.get(&id) else {
-            continue;
-        };
-        if let Some(predicate) = compiled.conditional_survival.get(&restored.anchor) {
-            let env = panproto_inst::build_env_from_extra_fields(&restored.extra_fields);
-            if matches!(
-                panproto_expr::eval(predicate, &env, &config),
-                Ok(panproto_expr::Literal::Bool(false))
-            ) {
-                found.push(PutDomainError::SurvivalPredicateFails {
-                    elem: ViewRef::Node(id),
-                });
+    if !compiled.conditional_survival.is_empty()
+        && let Ok(plan) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, compiled)
+    {
+        // Every predicate is evaluated on the restored source exactly as the
+        // next `get` evaluates it: over the node's fields and its children
+        // bound by column name.
+        let verdicts = panproto_inst::tree_survival_verdicts(source, &plan);
+        for &id in view.nodes.keys() {
+            if complement.synthesized_nodes.contains(&id) {
+                continue;
+            }
+            let elem = ViewRef::Node(id);
+            match verdicts.get(&id) {
+                None | Some(Ok(true)) => {}
+                Some(Ok(false)) => found.push(PutDomainError::SurvivalPredicateFails { elem }),
+                Some(Err(refusal)) => found.push(PutDomainError::SurvivalPredicateRefused {
+                    elem,
+                    refusal: refusal.clone(),
+                }),
             }
         }
     }
@@ -1155,7 +1171,7 @@ fn restored_anchor<'a>(
     id: u32,
     view_anchor: &'a Name,
     view_arc: Option<(u32, &Edge)>,
-) -> Result<&'a Name, PutDomainError> {
+) -> Result<&'a Name, Box<PutDomainError>> {
     let recorded = complement.original_anchors.get(&id).filter(|recorded| {
         lens.compiled
             .vertex_remap
@@ -1207,9 +1223,11 @@ fn restored_anchor<'a>(
                 .original_anchors
                 .get(&id)
                 .filter(|recorded| many.contains(recorded));
-            return from_record.ok_or_else(|| PutDomainError::AmbiguousReverseAnchor {
-                elem: ViewRef::Node(id),
-                candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
+            return from_record.ok_or_else(|| {
+                Box::new(PutDomainError::AmbiguousReverseAnchor {
+                    elem: ViewRef::Node(id),
+                    candidates: many.iter().map(|anchor| (*anchor).clone()).collect(),
+                })
             });
         }
     }
@@ -1218,13 +1236,19 @@ fn restored_anchor<'a>(
         || {
             reverse_anchors
                 .source_anchor(view_anchor)
-                .map_err(|candidates| PutDomainError::AmbiguousReverseAnchor {
-                    elem: ViewRef::Node(id),
-                    candidates: candidates.to_vec(),
+                .map_err(|candidates| {
+                    Box::new(PutDomainError::AmbiguousReverseAnchor {
+                        elem: ViewRef::Node(id),
+                        candidates: candidates.to_vec(),
+                    })
                 })
         },
         Ok,
     )
+}
+
+fn put_domain(error: PutDomainError) -> LensError {
+    LensError::PutDomain(Box::new(error))
 }
 
 /// The backward direction proper, once the complement's identity is
@@ -1335,7 +1359,7 @@ fn reassemble(
     dropped_ids.sort_unstable();
     for id in dropped_ids {
         if nodes.contains_key(&id) {
-            return Err(LensError::PutDomain(PutDomainError::IdCollision {
+            return Err(put_domain(PutDomainError::IdCollision {
                 elem: ViewRef::Node(id),
             }));
         }
@@ -2420,10 +2444,15 @@ mod tests {
             reanchor(&mut view, 1, "t2", "unmapped");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
-                    elem: ViewRef::Node(1),
-                    candidates,
-                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                Err(LensError::PutDomain(error)) => match *error {
+                    PutDomainError::AmbiguousReverseAnchor {
+                        elem: ViewRef::Node(1),
+                        candidates,
+                    } => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                    other => {
+                        panic!("expected an ambiguous reverse anchor for node 1, got {other:?}")
+                    }
+                },
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }
@@ -2579,10 +2608,15 @@ mod tests {
             reanchor(&mut view, 1, "t2", "m");
 
             match put(&lens, &view, &complement) {
-                Err(LensError::PutDomain(PutDomainError::AmbiguousReverseAnchor {
-                    elem: ViewRef::Node(1),
-                    candidates,
-                })) => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                Err(LensError::PutDomain(error)) => match *error {
+                    PutDomainError::AmbiguousReverseAnchor {
+                        elem: ViewRef::Node(1),
+                        candidates,
+                    } => assert_eq!(candidates, vec![Name::from("d"), Name::from("e")]),
+                    other => {
+                        panic!("expected an ambiguous reverse anchor for node 1, got {other:?}")
+                    }
+                },
                 other => panic!("expected an ambiguous reverse anchor for node 1, got {other:?}"),
             }
         }

@@ -363,7 +363,8 @@ pub fn compose_with_report(
     }
 
     // Compose resolvers. Resolver keys are in the TARGET vertex space
-    // (used by wtype_restrict after anchor remapping). So m1's resolver
+    // (read by the restrict plan, `RestrictPlan`, after anchor remapping,
+    // on which every restrict engine runs). So m1's resolver
     // keys are G2 vertices; remap to G3 via m2.vertex_map. Edges are
     // also in target space and need remapping via m2.edge_map.
     let mut resolver = HashMap::new();

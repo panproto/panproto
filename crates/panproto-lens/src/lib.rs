@@ -50,6 +50,7 @@ pub mod identity;
 pub mod laws;
 pub mod layout_complement;
 pub mod lens_graph;
+pub mod lens_path;
 pub mod optic;
 pub mod protolens;
 pub mod protolens_nat;
@@ -70,7 +71,6 @@ pub use complement_type::{
     complement_spec_at,
 };
 pub use compose::compose;
-pub use compose::{SequentialTreeLens, TreeComposite, compose_tree};
 pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
 pub use derived::{DerivedFiber, DerivedMap, collect_derived_fields};
 pub use diff_to_protolens::{DiffSpec, KindChange, diff_to_lens, diff_to_protolens};
@@ -82,6 +82,7 @@ pub use error::{LawViolation, LensError};
 pub use identity::ComplementIdentity;
 pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
 pub use lens_graph::LensGraph;
+pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};
 pub use optic::{OpticKind, classify_transform, refine_scoped_optic};
 pub use panproto_inst::{ErrorDetail, PutDomainError};
 pub use protolens::{
@@ -513,10 +514,12 @@ pub(crate) mod tests {
         let composed = crate::compose(&l1, &l2).unwrap_or_else(|e| panic!("compose failed: {e}"));
         let instance = three_node_instance();
 
-        let result = crate::check_laws(&composed, &instance);
-        assert!(
-            result.is_ok(),
-            "composed identity lenses should satisfy laws: {result:?}"
-        );
+        let (view, complement) = composed
+            .get(&instance)
+            .unwrap_or_else(|error| panic!("path get failed: {error}"));
+        let restored = composed
+            .put(&view, &complement)
+            .unwrap_or_else(|error| panic!("path put failed: {error}"));
+        assert!(crate::instances_equivalent(&restored, &instance));
     }
 }

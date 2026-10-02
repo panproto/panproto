@@ -1,5 +1,10 @@
 //! Rebase: replay commits onto a new base.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
+use panproto_schema::Protocol;
+
 use crate::ObjectId;
 use crate::cherry_pick::advance_head;
 use crate::dag;
@@ -21,11 +26,21 @@ use crate::store::{self, Store};
 /// 4. For each commit in order: three-way merge (base = parent's schema,
 ///    ours = current tip, theirs = commit's schema). Create new commit.
 ///
+/// Each replayed commit's data is lifted under the protocol its schema
+/// names, resolved through the commit's protocol object, then
+/// `registered`, then the protocol registry
+/// ([`resolve_protocol`](crate::data_mig::resolve_protocol)).
+///
 /// # Errors
 ///
 /// Returns an error if any step produces conflicts, or if no merge base
 /// is found.
-pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<ObjectId, VcsError> {
+pub fn rebase<S: BuildHasher>(
+    store: &mut dyn Store,
+    onto: ObjectId,
+    author: &str,
+    registered: &HashMap<String, Protocol, S>,
+) -> Result<ObjectId, VcsError> {
     let head_id = store::resolve_head(store)?.ok_or_else(|| VcsError::RefNotFound {
         name: "HEAD".to_owned(),
     })?;
@@ -60,7 +75,7 @@ pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<Obj
 
     // Replay each commit.
     for commit_id in &commits_to_replay {
-        current_tip = replay_one(store, *commit_id, current_tip, author)?;
+        current_tip = replay_one(store, *commit_id, current_tip, author, registered)?;
     }
 
     // Append reflog.
@@ -76,11 +91,12 @@ pub fn rebase(store: &mut dyn Store, onto: ObjectId, author: &str) -> Result<Obj
 }
 
 /// Replay a single commit on top of `current_tip`, returning the new commit ID.
-fn replay_one(
+fn replay_one<S: BuildHasher>(
     store: &mut dyn Store,
     commit_id: ObjectId,
     current_tip: ObjectId,
     author: &str,
+    registered: &HashMap<String, Protocol, S>,
 ) -> Result<ObjectId, VcsError> {
     let commit = load_commit(store, commit_id)?;
     let parent_id = commit.parents.first().ok_or(VcsError::NoPath)?;
@@ -113,8 +129,13 @@ fn replay_one(
     // Lift the replayed commit's versioned data through the replay schema
     // change (its own schema -> the merged schema) so rebase carries data
     // forward instead of silently dropping it.
-    let (lifted_data_ids, lifted_complement_ids) =
-        crate::data_mig::lift_commit_data(store, &commit, &theirs_schema, &result.merged_schema)?;
+    let (lifted_data_ids, lifted_complement_ids) = crate::data_mig::lift_commit_data(
+        store,
+        &commit,
+        &theirs_schema,
+        &result.merged_schema,
+        registered,
+    )?;
 
     // Square coherence: each lifted data set must migrate back through its
     // complement to reconstruct the original, so the replay square commutes.
@@ -125,6 +146,7 @@ fn replay_one(
         &lifted_complement_ids,
         &theirs_schema,
         &result.merged_schema,
+        registered,
     )?;
 
     let mig_src = store.put(&Object::FlatSchema(Box::new(ours_schema)))?;
@@ -199,6 +221,21 @@ mod tests {
     use panproto_schema::{Schema, Vertex};
     use std::collections::HashMap;
 
+    /// The protocol the tests' schemas name, registered by name: no
+    /// registry declares "test".
+    fn registered() -> HashMap<String, panproto_schema::Protocol> {
+        HashMap::from([(
+            "test".to_owned(),
+            panproto_schema::Protocol {
+                name: "test".into(),
+                schema_theory: "ThGraph".into(),
+                instance_theory: "ThWType".into(),
+                obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+                ..Default::default()
+            },
+        )])
+    }
+
     fn make_schema(vertices: &[(&str, &str)]) -> Schema {
         let mut vert_map = HashMap::new();
         for (id, kind) in vertices {
@@ -271,7 +308,7 @@ mod tests {
         store.set_ref("refs/heads/main", c2_id)?;
 
         // Rebase feature onto c1.
-        let new_tip = rebase(&mut store, c1_id, "bob")?;
+        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
 
         // Verify the rebased commit has both b and c.
         let new_commit = match store.get(&new_tip)? {
@@ -349,7 +386,7 @@ mod tests {
         // Rebase feature onto c1: the feature schema ({a, featf}) is lifted
         // to the merged schema ({a, mainf, featf}), so the data must be
         // lifted too rather than dropped.
-        let new_tip = rebase(&mut store, c1_id, "bob")?;
+        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
 
         let new_commit = load_commit(&store, new_tip)?;
         assert_eq!(new_commit.parents[0], c1_id);
@@ -390,7 +427,7 @@ mod tests {
         let src = make_schema(&[("a", "object")]);
         let tgt = make_schema(&[("a", "object"), ("b", "string")]);
         let base = single_record_dataset(&mut store, &src, "rec")?;
-        let protocol = crate::data_mig::protocol_for_schema(&src);
+        let protocol = registered()["test"].clone();
         let (replayed, complement) =
             crate::data_mig::migrate_forward(&mut store, base, &src, &tgt, &protocol)?;
 
@@ -453,7 +490,7 @@ mod tests {
 
         store.set_ref("refs/heads/main", c2_id)?;
 
-        let new_tip = rebase(&mut store, c1_id, "bob")?;
+        let new_tip = rebase(&mut store, c1_id, "bob", &registered())?;
         let new_commit = load_commit(&store, new_tip)?;
 
         // The replayed schema equals the tip schema, so the original data id

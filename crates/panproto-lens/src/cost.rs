@@ -561,15 +561,23 @@ mod quantale_laws {
                 .unwrap();
             let fg = crate::compose::compose(&f, &g).unwrap();
 
-            let (_, comp_fg) = crate::asymmetric::get(&fg, &instance).unwrap();
+            let (_, comp_fg) = fg.get(&instance).unwrap();
             let (view_b, comp_f) = crate::asymmetric::get(&f, &instance).unwrap();
             let (_, comp_g) = crate::asymmetric::get(&g, &view_b).unwrap();
 
             prop_assert!(
-                comp_fg.dropped_nodes.len()
+                comp_fg
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.complement.dropped_nodes.len())
+                    .sum::<usize>()
                     <= comp_f.dropped_nodes.len() + comp_g.dropped_nodes.len(),
                 "composed complement dropped more nodes ({}) than the parts ({} + {})",
-                comp_fg.dropped_nodes.len(),
+                comp_fg
+                    .entries()
+                    .iter()
+                    .map(|entry| entry.complement.dropped_nodes.len())
+                    .sum::<usize>(),
                 comp_f.dropped_nodes.len(),
                 comp_g.dropped_nodes.len(),
             );

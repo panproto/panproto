@@ -473,6 +473,7 @@ pub fn pp_lens_compose(l1: u32, l2: u32, out_handle: &mut u32) -> i32 {
         })?;
 
         let composed = lens::compose(&lens1, &lens2)
+            .and_then(lens::LensPath::into_single)
             .map_err(|e| FfiError::Operation(format!("compose: {e}")))?;
 
         *out_handle = handle::alloc(Resource::MigrationWithSchemas {
@@ -510,6 +511,7 @@ pub fn pp_protolens_instantiate(chain: u32, schema: u32, out_handle: &mut u32) -
         let lens_obj = if let Some(compiled) = compiled_doc {
             compiled
                 .instantiate(&schema_val, &protocol)
+                .and_then(lens::LensPath::into_single)
                 .map_err(|e| FfiError::Operation(format!("instantiate: {e}")))?
         } else {
             chain_val
@@ -1073,7 +1075,7 @@ mod tests {
     }
 
     #[test]
-    fn compiled_document_instantiates_ordered_value_stages() {
+    fn a_compiled_document_with_multiple_groups_is_not_a_single_lens() {
         let schema = ordered_value_schema();
         let schema_h = schema_handle(&schema);
         let doc = br#"{
@@ -1103,36 +1105,16 @@ mod tests {
         let mut lens_h = u32::MAX;
         assert_eq!(
             pp_protolens_instantiate(chain_h, schema_h, &mut lens_h),
-            PpStatus::Ok as i32,
+            PpStatus::Operation as i32,
         );
-
-        let source =
-            panproto_core::inst::parse_json(&schema, "post", &serde_json::json!({"text": "hello"}))
-                .unwrap();
-        let source_cbor = canonical::encode(&source).unwrap();
-        let mut get_out: repr_c::Vec<u8> = Vec::new().into();
-        assert_eq!(
-            pp_lens_get_record(lens_h, slice(&source_cbor).as_ref(), &mut get_out),
-            PpStatus::Ok as i32,
+        let error = crate::error::take_last_error().expect("instantiation error");
+        assert!(
+            error.message.contains("lens path has 2 normal-form groups"),
+            "{}",
+            error.message
         );
-        let (view_cbor, _) = split_get_record(&get_out);
-        pp_buf_free(get_out);
-        let view: WInstance = canonical::decode(&view_cbor).unwrap();
-        let target = handle::with_resource(lens_h, |resource| match resource {
-            Resource::MigrationWithSchemas { tgt_schema, .. } => Ok((**tgt_schema).clone()),
-            other => Err(FfiError::TypeMismatch {
-                expected: "MigrationWithSchemas",
-                actual: other.type_name(),
-            }),
-        })
-        .unwrap();
-        let json = panproto_core::inst::to_json(&target, &view);
+        assert_eq!(lens_h, u32::MAX);
 
-        assert_eq!(json.get("amount"), Some(&serde_json::json!("hello")));
-        assert_eq!(json.get("derived"), Some(&serde_json::json!("hello!")));
-        assert!(json.get("text").is_none());
-
-        assert_eq!(pp_handle_free(lens_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(chain_h), PpStatus::Ok as i32);
         assert_eq!(pp_handle_free(schema_h), PpStatus::Ok as i32);
     }

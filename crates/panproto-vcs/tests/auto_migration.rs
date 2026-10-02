@@ -306,7 +306,7 @@ fn sigma_then_chase_workflow() {
 
     // Compile and apply Sigma_F (extend)
     let compiled = compile(&src_schema, &tgt_schema, &mig).unwrap();
-    let extended = panproto_inst::functor_extend(&instance, &compiled).unwrap();
+    let extended = panproto_inst::functor_extend_engine(&instance, &compiled).unwrap();
 
     // After extend, "user" table should have 1 row, "profile" should be empty
     assert_eq!(extended.row_count("user"), 1);
@@ -596,7 +596,8 @@ fn full_pipeline_auto_morphism_to_lift() {
     let compiled = compile(&old_schema, &new_schema, &mig).unwrap();
 
     // Lift via Sigma_F (left Kan extension) since we have renames
-    let lifted = lift_wtype_sigma(&compiled, &new_schema, &instance).unwrap();
+    let protocol = test_protocol();
+    let lifted = lift_wtype_sigma(&compiled, &instance, &new_schema, &protocol).unwrap();
 
     // Verify lifted instance structure
     assert_eq!(lifted.node_count(), 2, "should preserve both nodes");
@@ -713,7 +714,18 @@ fn schema_pushout_with_overlap_and_lift() {
     let instance = WInstance::new(nodes, arcs, vec![], 0, Name::from("root"));
 
     // Lift the instance into the pushout schema
-    let lifted = lift_wtype(&compiled, &schema_a, &pushout, &instance).unwrap();
+    let protocol = test_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema_a,
+        &pushout,
+        &instance,
+        panproto_inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // Verify the lifted instance has the same node count (all vertices survive)
     assert_eq!(

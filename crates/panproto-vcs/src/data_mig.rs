@@ -4,6 +4,9 @@
 //! infrastructure. Complements are stored as VCS objects so backward
 //! migration never loses data.
 
+use std::collections::HashMap;
+use std::hash::BuildHasher;
+
 use panproto_inst::WInstance;
 use panproto_inst::identity::{AnyComplement, ComplementShape, Encoding, decode_complements};
 use panproto_schema::{Protocol, Schema};
@@ -22,22 +25,6 @@ pub struct StaleData {
     pub data_schema_id: ObjectId,
     /// The schema ID at HEAD.
     pub head_schema_id: ObjectId,
-}
-
-/// Build a default protocol suitable for lens generation.
-///
-/// When no protocol definition is stored in the repository, this
-/// constructs a minimal protocol from the schema's protocol name.
-fn default_protocol(name: &str) -> Protocol {
-    Protocol {
-        name: name.into(),
-        schema_theory: "ThGraph".into(),
-        instance_theory: "ThWType".into(),
-        edge_rules: vec![],
-        obj_kinds: vec!["object".into(), "string".into(), "record".into()],
-        constraint_sorts: vec![],
-        ..Default::default()
-    }
 }
 
 /// Migrate a data set forward through a schema change.
@@ -350,14 +337,88 @@ fn infer_root(schema: &Schema) -> String {
         .map_or_else(|| "root".to_owned(), std::string::ToString::to_string)
 }
 
-/// Construct a protocol definition from a schema's protocol name.
+/// The places a protocol name is resolved in, read in this order by
+/// [`resolve_protocol`].
+#[derive(Debug)]
+pub struct ProtocolSources<'a, S> {
+    /// The protocol object of the repository state at hand: the one staged
+    /// for the next commit, else the one the commit records
+    /// ([`CommitObject::protocol_id`]).
+    pub stored: Option<&'a Protocol>,
+    /// The protocols a caller registered, by name
+    /// ([`Repository::set_protocol`](crate::Repository::set_protocol)).
+    pub registered: &'a HashMap<String, Protocol, S>,
+}
+
+impl<S> Clone for ProtocolSources<'_, S> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<S> Copy for ProtocolSources<'_, S> {}
+
+/// Resolve the protocol named by `name`.
 ///
-/// Returns a minimal protocol suitable for lens generation. VCS
-/// callers should prefer loading a stored `Protocol` object when
-/// available.
-#[must_use]
-pub fn protocol_for_schema(schema: &Schema) -> Protocol {
-    default_protocol(&schema.protocol)
+/// Resolution first checks the stored protocol object, then the protocol
+/// registered under `name`, then the `panproto-protocols` registry by
+/// canonical name or alias.
+///
+/// # Errors
+///
+/// [`VcsError::UnknownProtocol`] when none of the three resolves `name`.
+pub fn resolve_protocol<S: BuildHasher>(
+    name: &str,
+    sources: ProtocolSources<'_, S>,
+) -> Result<Protocol, VcsError> {
+    if let Some(stored) = sources.stored.filter(|p| p.name == name) {
+        return Ok(stored.clone());
+    }
+    if let Some(registered) = sources.registered.get(name) {
+        return Ok(registered.clone());
+    }
+    if let Some(descriptor) = panproto_protocols::registry::descriptor(name) {
+        return Ok((descriptor.protocol)());
+    }
+    Err(VcsError::UnknownProtocol {
+        name: name.to_owned(),
+    })
+}
+
+/// The protocol of `schema`: its protocol name resolved by
+/// [`resolve_protocol`], so that data validation and data migration read
+/// one protocol.
+///
+/// # Errors
+///
+/// [`VcsError::UnknownProtocol`] when the name does not resolve.
+pub fn protocol_for_schema<S: BuildHasher>(
+    schema: &Schema,
+    sources: ProtocolSources<'_, S>,
+) -> Result<Protocol, VcsError> {
+    resolve_protocol(&schema.protocol, sources)
+}
+
+/// The protocol object `commit` records, if it records one.
+///
+/// # Errors
+///
+/// A store error, or [`VcsError::WrongObjectType`] when the recorded
+/// object is not a protocol.
+pub fn commit_protocol(
+    store: &dyn Store,
+    commit: &CommitObject,
+) -> Result<Option<Protocol>, VcsError> {
+    let Some(id) = commit.protocol_id else {
+        return Ok(None);
+    };
+    match store.get(&id)? {
+        Object::Protocol(protocol) => Ok(Some(*protocol)),
+        other => Err(VcsError::WrongObjectType {
+            expected: "protocol",
+            found: other.type_name(),
+        }),
+    }
 }
 
 /// Lift a commit's versioned data sets through a schema change.
@@ -369,7 +430,8 @@ pub fn protocol_for_schema(schema: &Schema) -> Protocol {
 /// that does not change the schema preserves the exact object
 /// references. Otherwise each [`DataSetObject`] in `commit.data_ids` is
 /// lifted forward through the schema change via [`migrate_forward`]
-/// (using [`protocol_for_schema`] for the lens protocol), and the
+/// (using [`protocol_for_schema`] over the protocol `commit` records and
+/// `registered` for the lens protocol), and the
 /// returned complement ids are the commit's original complements
 /// extended with the fresh complement produced for each lifted data set.
 ///
@@ -381,20 +443,33 @@ pub fn protocol_for_schema(schema: &Schema) -> Protocol {
 ///
 /// Returns [`VcsError::DataMigrationFailed`], or [`VcsError::TypeMismatch`]
 /// if a referenced object is not a `DataSet`, when lifting a data set
-/// fails, so the caller aborts loudly rather than dropping data.
-pub fn lift_commit_data(
+/// fails, so the caller aborts loudly rather than dropping data, and
+/// [`VcsError::UnknownProtocol`] when the source schema's protocol name
+/// does not resolve.
+pub fn lift_commit_data<S: BuildHasher>(
     store: &mut dyn Store,
     commit: &CommitObject,
     src_schema: &Schema,
     tgt_schema: &Schema,
+    registered: &HashMap<String, Protocol, S>,
 ) -> Result<(Vec<ObjectId>, Vec<ObjectId>), VcsError> {
     // Content-addressed identity check: an unchanged schema lifts data
     // to itself, so keep the exact object references intact.
-    if crate::hash::hash_schema(src_schema)? == crate::hash::hash_schema(tgt_schema)? {
+    // A commit with no data needs no protocol; only data is lifted.
+    if commit.data_ids.is_empty()
+        || crate::hash::hash_schema(src_schema)? == crate::hash::hash_schema(tgt_schema)?
+    {
         return Ok((commit.data_ids.clone(), commit.complement_ids.clone()));
     }
 
-    let protocol = protocol_for_schema(src_schema);
+    let stored = commit_protocol(store, commit)?;
+    let protocol = protocol_for_schema(
+        src_schema,
+        ProtocolSources {
+            stored: stored.as_ref(),
+            registered,
+        },
+    )?;
     let mut new_data_ids = Vec::with_capacity(commit.data_ids.len());
     let mut new_complement_ids = commit.complement_ids.clone();
     for data_id in &commit.data_ids {
@@ -509,6 +584,24 @@ mod tests {
         }
     }
 
+    /// The protocol the tests' schemas name, which no registry declares.
+    fn test_protocol() -> Protocol {
+        Protocol {
+            name: "test".into(),
+            schema_theory: "ThGraph".into(),
+            instance_theory: "ThWType".into(),
+            edge_rules: vec![],
+            obj_kinds: vec!["object".into(), "string".into(), "record".into()],
+            constraint_sorts: vec![],
+            ..Default::default()
+        }
+    }
+
+    /// The registered protocols the tests resolve "test" through.
+    fn registered() -> HashMap<String, Protocol> {
+        HashMap::from([("test".to_owned(), test_protocol())])
+    }
+
     fn make_commit(schema_id: ObjectId, data_ids: Vec<ObjectId>) -> CommitObject {
         CommitObject::builder(schema_id, "test", "test", "test")
             .timestamp(0)
@@ -586,7 +679,7 @@ mod tests {
         let schema = make_schema(&[("a", "object")]);
         let schema_id = crate::tree::store_schema_as_tree(&mut store, schema.clone())?;
 
-        let protocol = default_protocol("test");
+        let protocol = test_protocol();
         let result = migrate_forward(&mut store, schema_id, &schema, &schema, &protocol);
 
         assert!(result.is_err());
@@ -623,10 +716,112 @@ mod tests {
     }
 
     #[test]
-    fn protocol_for_schema_uses_protocol_name() {
+    fn a_protocol_name_resolves_in_order() -> Result<(), VcsError> {
         let schema = make_schema(&[("a", "object")]);
-        let protocol = protocol_for_schema(&schema);
-        assert_eq!(protocol.name, "test");
+        let none = HashMap::new();
+        let stored = Protocol {
+            obj_kinds: vec!["stored".into()],
+            ..test_protocol()
+        };
+        // A stored protocol of that name comes first.
+        let found = protocol_for_schema(
+            &schema,
+            ProtocolSources {
+                stored: Some(&stored),
+                registered: &registered(),
+            },
+        )?;
+        assert_eq!(found, stored);
+        // A stored protocol of another name is passed over for the
+        // registered one.
+        let other = Protocol {
+            name: "other".into(),
+            ..test_protocol()
+        };
+        let found = protocol_for_schema(
+            &schema,
+            ProtocolSources {
+                stored: Some(&other),
+                registered: &registered(),
+            },
+        )?;
+        assert_eq!(found, test_protocol());
+        // A name only the registry declares resolves to its protocol.
+        let atproto = resolve_protocol(
+            "atproto",
+            ProtocolSources {
+                stored: None,
+                registered: &none,
+            },
+        )?;
+        assert_eq!(
+            atproto,
+            (panproto_protocols::registry::descriptor("atproto")
+                .ok_or(VcsError::NothingStaged)?
+                .protocol)()
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn data_migration_refuses_an_unknown_protocol() -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::Node;
+
+        let mut store = MemStore::new();
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+        let mut nodes = HashMap::new();
+        nodes.insert(0_u32, Node::new(0, "a"));
+        let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let ds_id = store.put(&Object::DataSet(DataSetObject {
+            schema_id: crate::hash::hash_schema(&src)?,
+            data: rmp_serde::to_vec(&vec![inst])?,
+            record_count: 1,
+            key: None,
+        }))?;
+        let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
+        match lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new()) {
+            Err(VcsError::UnknownProtocol { name }) => assert_eq!(name, "test"),
+            other => panic!("an unknown protocol name was accepted: {other:?}"),
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn data_migration_uses_the_resolved_protocol() -> Result<(), Box<dyn std::error::Error>> {
+        use panproto_inst::Node;
+
+        let mut store = MemStore::new();
+        let src = make_schema(&[("a", "object")]);
+        let tgt = make_schema(&[("a", "object"), ("b", "string")]);
+        let mut nodes = HashMap::new();
+        nodes.insert(0_u32, Node::new(0, "a"));
+        let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
+        let ds_id = store.put(&Object::DataSet(DataSetObject {
+            schema_id: crate::hash::hash_schema(&src)?,
+            data: rmp_serde::to_vec(&vec![inst])?,
+            record_count: 1,
+            key: None,
+        }))?;
+        // The commit records the protocol object, so it resolves the name
+        // with nothing registered.
+        let protocol_id = store.put(&Object::Protocol(Box::new(test_protocol())))?;
+        let commit = CommitObject::builder(crate::hash::hash_schema(&src)?, "test", "test", "c")
+            .timestamp(0)
+            .data_ids(vec![ds_id])
+            .protocol_id(protocol_id)
+            .build();
+        let (data_ids, complement_ids) =
+            lift_commit_data(&mut store, &commit, &src, &tgt, &HashMap::new())?;
+        assert_eq!(data_ids.len(), 1);
+        assert_eq!(complement_ids.len(), 1);
+        // The lift is the migration under that protocol.
+        let mut expected = MemStore::new();
+        let expected_ds = expected.put(&store.get(&ds_id)?)?;
+        let (expected_view, _) =
+            migrate_forward(&mut expected, expected_ds, &src, &tgt, &test_protocol())?;
+        assert_eq!(data_ids[0], expected_view);
+        Ok(())
     }
 
     #[test]
@@ -650,7 +845,8 @@ mod tests {
         let ds_id = store.put(&Object::DataSet(ds))?;
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
 
-        let (data_ids, complement_ids) = lift_commit_data(&mut store, &commit, &src, &tgt)?;
+        let (data_ids, complement_ids) =
+            lift_commit_data(&mut store, &commit, &src, &tgt, &registered())?;
         assert_eq!(data_ids.len(), 1);
         assert_eq!(complement_ids.len(), 1);
         assert_ne!(data_ids[0], ds_id, "data set lifted to a fresh object");
@@ -674,7 +870,7 @@ mod tests {
         let mut store = MemStore::new();
         let src = make_schema(&[("a", "object")]);
         let tgt = make_schema(&[("a", "object"), ("b", "string")]);
-        let protocol = protocol_for_schema(&src);
+        let protocol = test_protocol();
         let mut nodes = HashMap::new();
         nodes.insert(0_u32, Node::new(0, "a"));
         let inst = WInstance::new(nodes, vec![], vec![], 0, Name::from("a"));
@@ -718,7 +914,8 @@ mod tests {
         let commit = make_commit(crate::hash::hash_schema(&src)?, vec![ds_id]);
 
         // Equal src and tgt: ids returned verbatim with no new objects.
-        let (data_ids, complement_ids) = lift_commit_data(&mut store, &commit, &src, &src)?;
+        let (data_ids, complement_ids) =
+            lift_commit_data(&mut store, &commit, &src, &src, &HashMap::new())?;
         assert_eq!(data_ids, vec![ds_id]);
         assert!(complement_ids.is_empty());
         Ok(())

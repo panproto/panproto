@@ -134,6 +134,78 @@ pub enum PutDomainError {
         /// What is wrong with it.
         reason: FanViolation,
     },
+    /// Writing the view element back would give a source element whose
+    /// survival predicate gives no verdict: `get` would refuse the restored
+    /// source rather than keep or drop the element.
+    ///
+    /// ```
+    /// use panproto_inst::{PredicateRefusal, PutDomainError, ViewRef};
+    ///
+    /// let e = PutDomainError::SurvivalPredicateRefused {
+    ///     elem: ViewRef::Node(1),
+    ///     refusal: PredicateRefusal::NotBoolean { got: "int".into() },
+    /// };
+    /// let json = serde_json::to_string(&e).unwrap();
+    /// assert_eq!(
+    ///     json,
+    ///     r#"{"survival_predicate_refused":{"elem":{"node":1},"refusal":{"not_boolean":{"got":"int"}}}}"#,
+    /// );
+    /// assert_eq!(serde_json::from_str::<PutDomainError>(&json).unwrap(), e);
+    /// assert_eq!(e.variant_index(), 11);
+    /// ```
+    #[error("view element {elem:?} would be refused by its survival predicate: {refusal}")]
+    SurvivalPredicateRefused {
+        /// The element.
+        elem: ViewRef,
+        /// Why the predicate gives no verdict.
+        refusal: PredicateRefusal,
+    },
+}
+
+/// Why a survival predicate gives neither `true` nor `false` at an element.
+///
+/// The variants follow the order `get` checks: a read child name that two or
+/// more children carry, a read structural child that is no tree, a read value
+/// with no expression literal, then an evaluation that fails or yields no
+/// boolean.
+///
+/// Serialized externally tagged in `snake_case`, with the derives of
+/// [`PutDomainError`].
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, thiserror::Error)]
+#[serde(rename_all = "snake_case")]
+pub enum PredicateRefusal {
+    /// The predicate reads a child name two or more children carry.
+    #[error("child field {field} is carried by several children")]
+    AmbiguousChildField {
+        /// The child name.
+        field: String,
+    },
+    /// The predicate reads a structural child whose subgraph is no tree.
+    #[error("structural child {field} is not a tree")]
+    StructuralChildNotATree {
+        /// The child name.
+        field: String,
+    },
+    /// The predicate reads a value with no expression literal.
+    #[error("field {field} holds a {value_type} value, which has no expression literal")]
+    ValueNotExpressible {
+        /// The field.
+        field: String,
+        /// The value's type name.
+        value_type: String,
+    },
+    /// The predicate fails to evaluate.
+    #[error("evaluation failed: {message}")]
+    EvaluationFailed {
+        /// The evaluator's message.
+        message: String,
+    },
+    /// The predicate evaluates to a literal that is not a boolean.
+    #[error("evaluates to a {got}, not a bool")]
+    NotBoolean {
+        /// The literal's type name.
+        got: String,
+    },
 }
 
 impl PutDomainError {
@@ -153,6 +225,7 @@ impl PutDomainError {
             Self::DuplicateKey { .. } => 8,
             Self::MissingRequiredCell { .. } => 9,
             Self::MalformedFan { .. } => 10,
+            Self::SurvivalPredicateRefused { .. } => 11,
         }
     }
 }

@@ -63,20 +63,47 @@ pub enum LensError {
         detail: String,
     },
 
-    /// A value-level transform of the second lens reads a field the first
-    /// lens drops, so the composed expression has no binding for it.
-    ///
-    /// Caught when the lenses are composed rather than when the composite
-    /// runs, where it would surface as an `UnboundVariable` far from its
-    /// cause.
+    /// A value-level transform of a later lens reads a field the preceding
+    /// lens drops, so those stages cannot be fused into one lens.
     #[error(
-        "composition failed: transform on `{anchor}` reads field `{field}`, dropped by the first lens"
+        "lens fusion refused: transform on `{anchor}` reads field `{field}`, dropped by the first lens"
     )]
     ComposeUnboundField {
         /// The anchor vertex carrying the transform.
         anchor: String,
         /// The field the transform's expression reads.
         field: String,
+    },
+
+    /// A lens path operation failed in one normal-form group.
+    ///
+    /// The inner error is never another `AtStage`: a caller that locates an
+    /// already located error replaces its location with the outer path's
+    /// group.
+    #[error("lens path group {at:?} failed: {error}")]
+    AtStage {
+        /// The normal-form group and atomic stages at which the error arose.
+        at: crate::lens_path::StageIndex,
+        /// The unlocated error returned by that group.
+        error: Box<Self>,
+    },
+
+    /// A path complement has a different number of entries from the
+    /// normal-form groups of the path receiving it.
+    #[error("path complement has {found} entries; expected {expected}")]
+    PathComplementMismatch {
+        /// Number of normal-form groups.
+        expected: usize,
+        /// Number of supplied complement entries.
+        found: usize,
+    },
+
+    /// A caller that can store only one compiled lens received a path whose
+    /// tree normal form has more than one group.
+    #[error("lens path has {stages} normal-form groups; one is required")]
+    NotSingleStage {
+        /// Number of normal-form groups in the path.
+        stages: usize,
     },
 
     /// A source was asked to be reconstructed from a view alone, but the
@@ -131,7 +158,7 @@ pub enum LensError {
     /// report order, that
     /// [`check_put_domain`](crate::asymmetric::check_put_domain) finds.
     #[error("the view is outside the domain of put: {0}")]
-    PutDomain(panproto_inst::PutDomainError),
+    PutDomain(Box<panproto_inst::PutDomainError>),
 
     /// No enrichment synthesis driver is registered for the named
     /// `(kind, enricher)` pair. The driver must be registered via

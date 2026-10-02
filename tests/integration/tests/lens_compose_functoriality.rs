@@ -18,7 +18,7 @@ use panproto_inst::value::Value;
 use panproto_inst::{CompiledMigration, FieldTransform, WInstance, parse_json};
 use panproto_lens::asymmetric::get;
 use panproto_lens::protolens::{ProtolensChain, combinators};
-use panproto_lens::{Lens, compose};
+use panproto_lens::{Lens, LensPath, compose};
 use panproto_schema::{Edge, Protocol, Schema, Vertex};
 use smallvec::SmallVec;
 
@@ -209,9 +209,9 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 
     // Composite: get(m2 ∘ m1)(x).
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect(
-        "the composite must evaluate: m2's `displayName` conjugates to m1's source name `name`",
-    );
+    let (vc, _) = composed
+        .get(&instance)
+        .expect("the composed path evaluates");
 
     assert_eq!(
         slug_of(&vc),
@@ -223,8 +223,7 @@ fn composite_agrees_with_sequential_across_an_edge_rename() {
 /// The unsound direction: an expression naming a field that does *not*
 /// exist in `m2`'s input schema was the one the composite used to accept,
 /// because the un-conjugated name happened to match `m1`'s source frame.
-/// It has to be rejected, and composition time is where the cause is still
-/// legible.
+/// It has to be rejected when the composed path executes its second stage.
 #[test]
 fn composite_rejects_an_expression_written_against_the_wrong_frame() {
     let src = user_schema("name");
@@ -242,20 +241,12 @@ fn composite_rejects_an_expression_written_against_the_wrong_frame() {
         "reading `name` fails against m2's own input, as it must"
     );
 
-    match compose(&l1, &l2) {
-        Err(panproto_lens::LensError::ComposeUnboundField { anchor, field }) => {
-            assert_eq!(anchor, "user");
-            assert_eq!(
-                field, "name",
-                "the diagnostic names the field that the rename took away"
-            );
-        }
-        Err(other) => panic!("expected ComposeUnboundField, got {other:?}"),
-        Ok(composed) => assert!(
-            get(&composed, &instance).is_err(),
-            "a composite that accepts this rejects nothing sequential application rejects"
-        ),
-    }
+    let composed = compose(&l1, &l2).expect("path composition checks only the boundary");
+    assert_eq!(composed.tree_normal_form().len(), 2);
+    assert!(
+        composed.get(&instance).is_err(),
+        "the composed path rejects exactly where sequential application rejects"
+    );
 }
 
 /// An `extra_fields` rename reaches the value layer by a different route
@@ -292,7 +283,7 @@ fn composite_agrees_with_sequential_across_an_extra_field_rename() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
     assert_eq!(
         slug_of(&vc),
@@ -320,9 +311,11 @@ fn rename_chain_resolves_transitively() {
     let l2 = compute_slug_lens(&s_c, "c");
 
     let chained = compose(&l_ab, &l_bc).expect("compose the two renames");
-    let composed = compose(&chained, &l2).expect("compose with the reader");
+    let composed = chained
+        .then(&LensPath::single(l2))
+        .expect("compose with the reader");
 
-    let (view, _) = get(&composed, &instance).expect("composite evaluates");
+    let (view, _) = composed.get(&instance).expect("composed path evaluates");
     assert_eq!(
         slug_of(&view),
         Some(Value::Str("alice".into())),
@@ -426,7 +419,7 @@ fn rename_swap_conjugates_simultaneously() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
     assert_eq!(
         joined(&v2),
@@ -474,7 +467,7 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
     let (v1, _) = get(&l1, &instance).expect("get m1");
     let (v2, _) = get(&l2, &v1).expect("get m2");
     let composed = compose(&l1, &l2).expect("compose");
-    let (vc, _) = get(&composed, &instance).expect("get composite");
+    let (vc, _) = composed.get(&instance).expect("get composed path");
 
     let field = |view: &WInstance, key: &str| {
         view.nodes
@@ -501,9 +494,9 @@ fn apply_expr_on_a_renamed_edge_writes_to_the_output_name() {
 }
 
 /// An `m2` expression reading a field `m1` drops is reported when the
-/// lenses are composed, not as an `UnboundVariable` when the composite runs.
+/// lenses are executed, at the stage that reads the absent field.
 #[test]
-fn reading_a_dropped_field_fails_at_composition_time() {
+fn reading_a_dropped_field_refuses_at_the_reading_stage() {
     let schema = user_schema("name");
 
     let mut m1 = identity_migration(&schema);
@@ -520,13 +513,16 @@ fn reading_a_dropped_field_fails_at_composition_time() {
     };
     let l2 = compute_slug_lens(&schema, "handle");
 
-    let result = compose(&l1, &l2);
+    let composed = compose(&l1, &l2).expect("path composition checks only the boundary");
+    let instance: WInstance = parse_json(
+        &schema,
+        "user",
+        &serde_json::json!({"name": "Alice", "handle": "ALICE"}),
+    )
+    .expect("parse");
     assert!(
-        matches!(
-            result,
-            Err(panproto_lens::LensError::ComposeUnboundField { ref field, .. }) if field == "handle"
-        ),
-        "composition must name the dropped field it cannot bind: {result:?}"
+        composed.get(&instance).is_err(),
+        "the second stage cannot read the field dropped by the first"
     );
 }
 
@@ -553,6 +549,6 @@ fn dropping_an_extra_field_shadowing_a_child_edge_still_composes() {
         .expect("`name` survives as a child edge, so reading it after DropField is sound");
     let instance: WInstance =
         parse_json(&schema, "user", &serde_json::json!({"name": "Alice"})).expect("parse");
-    let (view, _) = get(&composed, &instance).expect("composite evaluates");
+    let (view, _) = composed.get(&instance).expect("composed path evaluates");
     assert_eq!(slug_of(&view), Some(Value::Str("alice".into())));
 }
