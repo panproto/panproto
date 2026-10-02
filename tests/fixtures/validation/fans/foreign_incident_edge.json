@@ -42,7 +42,8 @@
       "pattern": "pattern",
       "required": "required_value"
     },
-    "value_kinds": {}
+    "value_kinds": {},
+    "non_value_kinds": []
   },
   "schema": {
     "protocol": "",

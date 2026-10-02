@@ -325,6 +325,56 @@ fn sql_keys_references_and_defaults_compile_to_no_check() {
     }
 }
 
+/// The `conllu` sort `value` carries the text of a token's lemma, tags,
+/// features and relations for the emitter to write back, and restricts no
+/// value: it is an annotation, and a parsed sentence that declares it
+/// compiles to no check and to no static finding.
+#[test]
+fn conllu_values_are_annotations_that_compile_to_no_check() {
+    use panproto_inst::validation::{SchemaRef, ValidationOptions, ValidationPlan};
+    let conllu = (descriptor("conllu").expect("conllu is registered").protocol)();
+    assert_eq!(
+        conllu.constraint_semantics.get("value"),
+        Some(&ConstraintSemantics::Annotation)
+    );
+    assert!(!ConstraintSemantics::Annotation.compiles_to_check());
+
+    let schema = parse_schema_source(
+        "conllu",
+        "# sent_id = 1\n# text = Dogs bark.\n\
+         1\tDogs\tdog\tNOUN\tNNS\tNumber=Plur\t2\tnsubj\t2:nsubj\t_\n\
+         2\tbark\tbark\tVERB\tVBP\tMood=Ind\t0\troot\t0:root\tSpaceAfter=No\n\
+         3\t.\t.\tPUNCT\t.\t_\t2\tpunct\t2:punct\t_\n\n",
+    )
+    .expect("the sentence parses");
+    let declared = schema
+        .constraints
+        .values()
+        .flatten()
+        .filter(|c| c.sort == "value")
+        .count();
+    assert!(declared > 0, "the sentence declares no `value`");
+
+    let plan = ValidationPlan::compile(&schema, &conllu, &ValidationOptions::default());
+    let value_checks: Vec<CheckKind> = plan
+        .checks()
+        .keys()
+        .filter(|k| {
+            matches!(
+                &k.decl,
+                SchemaRef::Constraint { constraint, .. } if constraint.sort == "value"
+            )
+        })
+        .map(|k| k.kind)
+        .collect();
+    assert_eq!(value_checks, Vec::<CheckKind>::new());
+    assert!(
+        plan.static_findings().is_empty(),
+        "{:#?}",
+        plan.static_findings()
+    );
+}
+
 /// An enum type's labels are SQL string literals in their quotes, which an
 /// enumeration constraint would compare with the bare cell value and
 /// refute; the labels compile to a check decided outside panproto instead,

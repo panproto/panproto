@@ -38,6 +38,7 @@ pub(super) const ROWS: &[ConstraintRow] = &[
     row("conllu", "text", || ConstraintSemantics::Annotation),
     row("conllu", "newpar", || ConstraintSemantics::Annotation),
     row("conllu", "newdoc", || ConstraintSemantics::Annotation),
+    row("conllu", "value", || ConstraintSemantics::Annotation),
     row("amr", "value", || ConstraintSemantics::Annotation),
     row("amr", "alignment", || ConstraintSemantics::Annotation),
     row("amr", "wiki", || ConstraintSemantics::Annotation),
