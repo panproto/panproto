@@ -13,14 +13,16 @@ use panproto_inst::identity::{
     IdentityStatus,
 };
 use panproto_inst::{
-    CompiledMigration, Digest, GInstance, GraphComplement, PutDomainError, WInstance,
+    BoundaryProtocols, CompiledMigration, Digest, FInstance, GInstance, GraphComplement,
+    PutDomainError, TableComplement, WInstance,
 };
-use panproto_schema::Schema;
+use panproto_schema::{Protocol, Schema};
 use serde::{Deserialize, Serialize};
 
 use crate::asymmetric;
 use crate::compose::{check_boundary, duplicate, tree_fusion};
 use crate::graph_lens::{self, graph_fusion};
+use crate::table_lens::{self, table_fusion};
 use crate::{Complement, Lens, LensError};
 
 /// One group in a shape-specific normal form of a [`LensPath`].
@@ -268,6 +270,200 @@ impl LensPath {
             );
         }
         groups
+    }
+
+    /// Deterministic table normal form under the supplied boundary protocols.
+    ///
+    /// There must be one protocol for the source boundary, every shared
+    /// boundary and the target boundary, in atomic-stage order.
+    ///
+    /// # Errors
+    ///
+    /// [`LensError::PathContextMismatch`] when the protocol count is not
+    /// one more than the number of atomic stages.
+    pub fn table_normal_form(&self, protocols: &[Protocol]) -> Result<Vec<NormalGroup>, LensError> {
+        self.check_table_contexts(protocols)?;
+        let mut groups: Vec<NormalGroup> = self
+            .stages
+            .iter()
+            .enumerate()
+            .map(|(index, lens)| NormalGroup {
+                stages: index..index + 1,
+                lens: duplicate(lens),
+            })
+            .collect();
+        loop {
+            let Some((index, fused)) = groups.windows(2).enumerate().find_map(|(index, pair)| {
+                table_fusion(
+                    &pair[0].lens,
+                    &pair[1].lens,
+                    &protocols[pair[0].stages.start],
+                    &protocols[pair[0].stages.end],
+                    &protocols[pair[1].stages.end],
+                )
+                .map(|lens| (index, lens))
+            }) else {
+                break;
+            };
+            let stages = groups[index].stages.start..groups[index + 1].stages.end;
+            groups.splice(
+                index..=index + 1,
+                [NormalGroup {
+                    stages,
+                    lens: fused,
+                }],
+            );
+        }
+        Ok(groups)
+    }
+
+    /// Forward table-lens fold over table normal-form groups.
+    ///
+    /// # Errors
+    ///
+    /// A context-count mismatch or a located group error.
+    pub fn get_table(
+        &self,
+        source: &FInstance,
+        protocols: &[Protocol],
+    ) -> Result<(FInstance, PathComplement<TableComplement>), LensError> {
+        let groups = self.table_normal_form(protocols)?;
+        let mut view = source.clone();
+        let mut entries = Vec::with_capacity(groups.len());
+        for (group_index, group) in groups.iter().enumerate() {
+            let at = stage_index(group_index, group);
+            let context = table_context(protocols, group);
+            let (next, complement) =
+                table_lens::get(&group.lens, &view, context).map_err(|error| locate(at, error))?;
+            entries.push(PathComplementEntry {
+                complement,
+                envelope: group.lens.identity(ComplementShape::Functor),
+                stage_digests: self.digests_for(group.stages.clone(), ComplementShape::Functor),
+            });
+            view = next;
+        }
+        Ok((view, PathComplement::new(entries)))
+    }
+
+    /// Backward table-lens fold under the default identity policy.
+    ///
+    /// # Errors
+    ///
+    /// A context or complement-count mismatch, or a located group error.
+    pub fn put_table(
+        &self,
+        view: &FInstance,
+        complement: &PathComplement<TableComplement>,
+        protocols: &[Protocol],
+    ) -> Result<FInstance, LensError> {
+        self.put_table_checked(view, complement, protocols, IdentityPolicy::AllowLegacy)
+            .map(|(source, _)| source)
+    }
+
+    /// Backward table fold under an explicit identity policy.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::put_table`].
+    pub fn put_table_checked(
+        &self,
+        view: &FInstance,
+        complement: &PathComplement<TableComplement>,
+        protocols: &[Protocol],
+        policy: IdentityPolicy,
+    ) -> Result<(FInstance, Vec<IdentityStatus>), LensError> {
+        let groups = self.table_normal_form(protocols)?;
+        check_entry_count(groups.len(), complement.len())?;
+        let mut source = view.clone();
+        let mut statuses = vec![IdentityStatus::Unbound; groups.len()];
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            let entry = &complement.0[group_index];
+            let at = stage_index(group_index, group);
+            self.check_table_entry(group, entry)
+                .map_err(|error| locate(at.clone(), error))?;
+            let (next, status) = table_lens::put_checked(
+                &group.lens,
+                &source,
+                &entry.complement,
+                table_context(protocols, group),
+                policy,
+            )
+            .map_err(|error| locate(at, error))?;
+            statuses[group_index] = status;
+            source = next;
+        }
+        Ok((source, statuses))
+    }
+
+    /// Put-domain predicate for the table fold.
+    ///
+    /// The rightmost failing group whose right neighbours pass is reported.
+    /// A context-count mismatch is outside this predicate and returns
+    /// success; execution methods report it as [`LensError::PathContextMismatch`].
+    ///
+    /// # Errors
+    ///
+    /// The failing group and all of its ordered violations.
+    pub fn check_table_put_domain(
+        &self,
+        view: &FInstance,
+        complement: &PathComplement<TableComplement>,
+        protocols: &[Protocol],
+    ) -> Result<(), (StageIndex, Vec<PutDomainError>)> {
+        let Ok(groups) = self.table_normal_form(protocols) else {
+            return Ok(());
+        };
+        if groups.len() != complement.len() {
+            return Ok(());
+        }
+        let mut source = view.clone();
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            let entry = &complement.0[group_index];
+            let at = stage_index(group_index, group);
+            let context = table_context(protocols, group);
+            if let Err(violations) =
+                table_lens::check_put_domain(&group.lens, &source, &entry.complement, context)
+            {
+                return Err((at, violations));
+            }
+            let mut for_domain = entry.complement.clone();
+            for_domain.stamp(
+                group.lens.identity(ComplementShape::Functor),
+                &group.lens.src_schema,
+            );
+            match table_lens::put(&group.lens, &source, &for_domain, context) {
+                Ok(next) => source = next,
+                Err(LensError::PutDomain(violation)) => return Err((at, vec![*violation])),
+                Err(_) => return Ok(()),
+            }
+        }
+        Ok(())
+    }
+
+    /// Reconstruct through every table group without a complement.
+    ///
+    /// # Errors
+    ///
+    /// A context mismatch or a located non-isomorphism or put error.
+    pub fn put_table_without_complement(
+        &self,
+        view: &FInstance,
+        protocols: &[Protocol],
+    ) -> Result<FInstance, LensError> {
+        let groups = self.table_normal_form(protocols)?;
+        let mut source = view.clone();
+        for group_index in (0..groups.len()).rev() {
+            let group = &groups[group_index];
+            source = table_lens::put_without_complement(
+                &group.lens,
+                &source,
+                table_context(protocols, group),
+            )
+            .map_err(|error| locate(stage_index(group_index, group), error))?;
+        }
+        Ok(source)
     }
 
     /// Forward graph-lens fold over graph normal-form groups.
@@ -608,6 +804,39 @@ impl LensPath {
         }
         Ok(())
     }
+
+    fn check_table_entry(
+        &self,
+        group: &NormalGroup,
+        entry: &PathComplementEntry<TableComplement>,
+    ) -> Result<(), LensError> {
+        let expected_envelope = group.lens.identity(ComplementShape::Functor);
+        if let Some(error) = expected_envelope.mismatch(&entry.envelope) {
+            return Err(error.into());
+        }
+        let expected_digests = self.digests_for(group.stages.clone(), ComplementShape::Functor);
+        if expected_digests != entry.stage_digests {
+            return Err(panproto_inst::IdentityError::Mismatch {
+                field: IdentityField::Lens,
+                expected: digest_list(&expected_digests),
+                found: digest_list(&entry.stage_digests),
+            }
+            .into());
+        }
+        Ok(())
+    }
+
+    fn check_table_contexts(&self, protocols: &[Protocol]) -> Result<(), LensError> {
+        let expected = self.stages.len() + 1;
+        if protocols.len() == expected {
+            Ok(())
+        } else {
+            Err(LensError::PathContextMismatch {
+                expected,
+                found: protocols.len(),
+            })
+        }
+    }
 }
 
 const fn check_entry_count(expected: usize, found: usize) -> Result<(), LensError> {
@@ -622,6 +851,16 @@ fn stage_index(group: usize, normal: &NormalGroup) -> StageIndex {
     StageIndex {
         group,
         stages: normal.stages.clone(),
+    }
+}
+
+const fn table_context<'a>(
+    protocols: &'a [Protocol],
+    group: &NormalGroup,
+) -> BoundaryProtocols<'a> {
+    BoundaryProtocols {
+        src: &protocols[group.stages.start],
+        tgt: &protocols[group.stages.end],
     }
 }
 

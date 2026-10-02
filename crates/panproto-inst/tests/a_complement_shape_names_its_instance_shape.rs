@@ -126,7 +126,7 @@ fn a_tree_complement_is_not_a_table_or_resolution_complement() {
 }
 
 /// Bytes that are no complement at all are undecodable, and the message
-/// names every kind it tried, the ones this build has no type for included.
+/// names every kind it tried, including unsupported complement types.
 #[test]
 fn undecodable_bytes_name_every_kind_tried() {
     let err = decode_complement(
@@ -142,7 +142,7 @@ fn undecodable_bytes_name_every_kind_tried() {
         assert!(message.contains(&format!("as {shape}:")), "{message}");
     }
     assert!(
-        message.starts_with("as functor: this build has no functor complement type"),
+        message.starts_with("as functor:"),
         "the expected kind comes first: {message}"
     );
 }
@@ -174,6 +174,9 @@ fn every_frozen_complement_still_decodes_as_a_tree_complement() {
                         assert!(c.identity.is_none(), "{} has no envelope", path.display());
                         assert_ne!(c.source_fingerprint, 0, "{}", path.display());
                         decoded += 1;
+                    }
+                    Ok(AnyComplement::Functor(_)) => {
+                        panic!("{} decoded as a table complement", path.display())
                     }
                     Err(e) => panic!("{}: {e}", path.display()),
                 }

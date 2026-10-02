@@ -166,11 +166,13 @@ pub fn migrate_backward(
         reason: format!("deserialize complement: {e}"),
     })?
     .into_iter()
-    .map(|decoded| {
-        let AnyComplement::WType(complement) = decoded;
-        *complement
+    .map(|decoded| match decoded {
+        AnyComplement::WType(complement) => Ok(*complement),
+        AnyComplement::Functor(_) => Err(VcsError::DataMigrationFailed {
+            reason: "decoded a table complement where a tree complement was required".to_owned(),
+        }),
     })
-    .collect();
+    .collect::<Result<Vec<_>, _>>()?;
 
     // 3. Generate lens (same direction as forward -- we use put for backward)
     let config = panproto_lens::AutoLensConfig::default();
