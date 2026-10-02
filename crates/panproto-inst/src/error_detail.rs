@@ -245,9 +245,9 @@ pub enum ErrorDetail {
     /// A restrict failed. `kind` is the snake-case name of the
     /// [`RestrictError`] variant and `message` its display text.
     Restrict {
-        /// The error's position in the graph engine's precedence order, when
-        /// the projection knows it. [`RestrictError::detail`] sets `None`,
-        /// since it reads only the variant and its display text.
+        /// The error's position in the graph engine's precedence order:
+        /// [`RestrictError::key`], which is `Some` exactly for an error the
+        /// graph engine located.
         key: Option<ErrorKey>,
         /// The snake-case name of the error's variant.
         kind: String,
@@ -278,14 +278,35 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::AttributeOutsideImage { .. } => "attribute_outside_image",
         RestrictError::ValueStructureRemap { .. } => "value_structure_remap",
         RestrictError::RelSchema(_) => "rel_schema",
+        RestrictError::Validation { .. } => "validation",
+        RestrictError::AmbiguousChildField { .. } => "ambiguous_child_field",
+        RestrictError::NotTableRepresentable { .. } => "not_table_representable",
+        RestrictError::ValueNotExpressible { .. } => "value_not_expressible",
+        RestrictError::At { error, .. } => restrict_kind(error),
+        RestrictError::SurvivalRulesDisagree { .. } => "survival_rules_disagree",
+        RestrictError::TablePlanRequired => "table_plan_required",
+        RestrictError::StructuralChildNotATree { .. } => "structural_child_not_a_tree",
+        RestrictError::IncoherentPairImage { .. } => "incoherent_pair_image",
+        RestrictError::ValueFidelity { .. } => "value_fidelity",
+        RestrictError::IdsExhausted { .. } => "ids_exhausted",
+        RestrictError::SurvivalPredicateFailed { .. } => "survival_predicate_failed",
+        RestrictError::PlanSchemaMismatch { .. } => "plan_schema_mismatch",
     }
 }
 
 impl RestrictError {
-    /// The error's structured detail: [`ErrorDetail::Restrict`] with its
-    /// variant name and display text, and no precedence key.
+    /// The error's structured detail.
+    ///
+    /// A boundary failure ([`RestrictError::Validation`]) projects onto
+    /// [`ErrorDetail::Validation`] with its report. Every other error
+    /// projects onto [`ErrorDetail::Restrict`] with its variant name and
+    /// display text, and with its [`key`](Self::key): the error's position
+    /// in the graph engine's precedence order when the graph engine located
+    /// it ([`RestrictError::At`], whose kind and message are its inner
+    /// error's), and `None` otherwise.
     ///
     /// ```
+    /// use panproto_inst::segment::ErrorKey;
     /// use panproto_inst::{ErrorDetail, RestrictError};
     ///
     /// assert_eq!(
@@ -296,13 +317,32 @@ impl RestrictError {
     ///         message: "root node was pruned during restriction".to_owned(),
     ///     },
     /// );
+    ///
+    /// let key = ErrorKey { stage: 1, id: 4, id2: 0, kind: 0 };
+    /// let located = RestrictError::At {
+    ///     key,
+    ///     error: Box::new(RestrictError::NoEdgeFound { src: "a".into(), tgt: "b".into() }),
+    /// };
+    /// assert_eq!(
+    ///     located.detail(),
+    ///     ErrorDetail::Restrict {
+    ///         key: Some(key),
+    ///         kind: "no_edge_found".to_owned(),
+    ///         message: "no edge found between a and b in target schema".to_owned(),
+    ///     },
+    /// );
     /// ```
     #[must_use]
     pub fn detail(&self) -> ErrorDetail {
-        ErrorDetail::Restrict {
-            key: None,
-            kind: restrict_kind(self).to_owned(),
-            message: self.to_string(),
+        match self {
+            Self::Validation { report, .. } => ErrorDetail::Validation {
+                report: (**report).clone(),
+            },
+            _ => ErrorDetail::Restrict {
+                key: self.key(),
+                kind: restrict_kind(self).to_owned(),
+                message: self.to_string(),
+            },
         }
     }
 }

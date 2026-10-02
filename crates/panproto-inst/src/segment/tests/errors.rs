@@ -126,9 +126,9 @@ fn payload_errors(pair: ViewRef) -> Vec<SegmentError> {
                 segment: s(1),
                 key: ErrorKey {
                     stage: 1,
-                    kind: 2,
                     id: 3,
                     id2: 0,
+                    kind: 2,
                 },
             },
             detail: Box::new(RestrictError::RootPruned.detail()),
@@ -287,16 +287,16 @@ fn a_restrict_error_projects_onto_its_detail() -> TestResult {
     let keyed = ErrorDetail::Restrict {
         key: Some(ErrorKey {
             stage: 4,
-            kind: 0,
             id: 1,
             id2: 0,
+            kind: 0,
         }),
         kind: "root_pruned".into(),
         message: String::new(),
     };
     assert_eq!(
         serde_json::to_string(&keyed)?,
-        r#"{"restrict":{"key":{"stage":4,"kind":0,"id":1,"id2":0},"kind":"root_pruned","message":""}}"#
+        r#"{"restrict":{"key":{"stage":4,"id":1,"id2":0,"kind":0},"kind":"root_pruned","message":""}}"#
     );
     round_trip(&keyed)?;
     Ok(())
@@ -304,29 +304,36 @@ fn a_restrict_error_projects_onto_its_detail() -> TestResult {
 
 #[test]
 fn segment_error_positions_order_by_their_error_keys() {
-    let k = |stage, kind, id, id2| ErrorKey {
+    let k = |stage, id, id2, kind| ErrorKey {
         stage,
-        kind,
         id,
         id2,
+        kind,
     };
     let mut keys = vec![
         k(1, 0, 0, 0),
-        k(0, 3, 9, 0),
-        k(0, 3, 2, 5),
-        k(0, 1, 99, 0),
+        k(0, 9, 0, 3),
+        k(0, 2, 5, 3),
+        k(0, 99, 0, 1),
         k(4, 0, 0, 0),
-        k(2, 0, 1, 2),
+        k(2, 1, 2, 0),
+        k(2, 1, 5, 1),
+        k(2, 2, 3, 0),
     ];
     keys.sort();
+    // Within a stage the element decides and the kind never does: node 2
+    // comes before node 9 whatever their kinds, and the pair (1, 5) before
+    // the pair (2, 3).
     assert_eq!(
         keys,
         vec![
-            k(0, 1, 99, 0),
-            k(0, 3, 2, 5),
-            k(0, 3, 9, 0),
+            k(0, 2, 5, 3),
+            k(0, 9, 0, 3),
+            k(0, 99, 0, 1),
             k(1, 0, 0, 0),
-            k(2, 0, 1, 2),
+            k(2, 1, 2, 0),
+            k(2, 1, 5, 1),
+            k(2, 2, 3, 0),
             k(4, 0, 0, 0)
         ]
     );
@@ -337,9 +344,26 @@ fn segment_error_positions_order_by_their_error_keys() {
     // The first error of a whole instance is the least key, whichever
     // segment holds it.
     let firsts = [
-        at(0, k(1, 0, 4, 0)),
-        at(1, k(0, 2, 7, 0)),
-        at(2, k(0, 2, 8, 0)),
+        at(0, k(1, 4, 0, 0)),
+        at(1, k(0, 7, 0, 2)),
+        at(2, k(0, 3, 0, 9)),
     ];
-    assert_eq!(firsts.iter().map(|a| a.key).min(), Some(k(0, 2, 7, 0)));
+    assert_eq!(firsts.iter().map(|a| a.key).min(), Some(k(0, 3, 0, 9)));
+}
+
+#[test]
+fn error_key_bytes_are_stage_id_id2_kind() {
+    let key = ErrorKey {
+        stage: 2,
+        id: 0x0102_0304,
+        id2: 0x0506_0708,
+        kind: 9,
+    };
+    let mut sink = panproto_schema::CanonicalWriter::new();
+    key.write(&mut sink);
+    let mut expected = vec![2_u8];
+    expected.extend_from_slice(&0x0102_0304_u32.to_le_bytes());
+    expected.extend_from_slice(&0x0506_0708_u32.to_le_bytes());
+    expected.push(9);
+    assert_eq!(sink.into_bytes(), expected);
 }

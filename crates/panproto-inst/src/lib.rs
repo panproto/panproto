@@ -72,6 +72,8 @@ pub mod query;
 pub mod reachability;
 /// The relation-ified schema of a table schema.
 pub mod rel_schema;
+pub mod restrict_boundary;
+pub mod restrict_plan;
 pub mod segment;
 pub mod table_delta;
 /// Edit algebra for functor (table-shaped) instances.
@@ -151,6 +153,8 @@ pub use query::{
 };
 pub use reachability::ReachabilityIndex;
 pub use rel_schema::{RelSchema, RelSchemaError};
+pub use restrict_boundary::{BoundaryProtocols, BoundarySide};
+pub use restrict_plan::SurvivalElement;
 pub use segment::{IdAllocator, IdRange, SegmentId};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;

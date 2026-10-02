@@ -27,40 +27,47 @@ use panproto_schema::InstanceShapeKind;
 /// The position of an error in the graph engine's precedence order.
 ///
 /// Errors compare by `stage` (0 node survival and transforms, 1 edges, 2
-/// contraction pairs, 3 fans, 4 a pruned root of segmented tree execution),
-/// then by `kind` within the stage, then by `id` and `id2` (the node, the
-/// edge id or the pair the error is about). The order is total, so the
-/// first error of a whole instance is the least of the first errors of its
-/// segments.
+/// contraction pairs, 3 fans, 4 a pruned root of segmented tree execution,
+/// 5 the exhaustion of synthesized ids), then by `id` and `id2` (the node,
+/// the edge id or the pair the error is about), then by `kind`. Within one
+/// stage the engine evaluates its elements in ascending `(id, id2)` and
+/// returns the first error it meets, and one element yields at most one
+/// error, so no two errors share `(stage, id, id2)` and `kind` never
+/// decides: the least key is the first error. Every element belongs to one
+/// segment, so the first error of a whole instance is the least of the
+/// first errors of its segments.
 ///
-/// Its canonical bytes are the four integers in field order.
+/// Its canonical bytes are the fields in order: `stage` as one byte, `id`
+/// and `id2` as `u32`, `kind` as one byte.
 ///
 /// ```
 /// use panproto_inst::segment::ErrorKey;
 ///
-/// let node = ErrorKey { stage: 0, kind: 3, id: 90, id2: 0 };
-/// let edge = ErrorKey { stage: 1, kind: 0, id: 2, id2: 0 };
+/// let node = ErrorKey { stage: 0, id: 90, id2: 0, kind: 3 };
+/// let edge = ErrorKey { stage: 1, id: 2, id2: 0, kind: 0 };
 /// assert!(node < edge);
+/// let earlier = ErrorKey { stage: 0, id: 3, id2: 0, kind: 9 };
+/// assert!(earlier < node, "within a stage the element decides, not the kind");
 /// ```
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct ErrorKey {
     /// The engine stage the error arises in.
     pub stage: u8,
-    /// The error's kind within its stage.
-    pub kind: u8,
     /// The node, edge id or pair source the error is about.
     pub id: u32,
     /// The pair target, or 0.
     pub id2: u32,
+    /// The error's kind within its stage.
+    pub kind: u8,
 }
 
 impl ErrorKey {
-    /// Write the key's canonical bytes: `stage`, `kind`, `id`, `id2`.
+    /// Write the key's canonical bytes: `stage`, `id`, `id2`, `kind`.
     pub fn write<S: CanonicalSink + ?Sized>(&self, sink: &mut S) {
         sink.tag(self.stage);
-        sink.tag(self.kind);
         sink.u32(self.id);
         sink.u32(self.id2);
+        sink.tag(self.kind);
     }
 }
 
