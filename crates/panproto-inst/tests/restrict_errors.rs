@@ -324,6 +324,32 @@ fn a_nonconforming_row_is_displayed_by_its_number_and_column_name() {
 }
 
 #[test]
+fn adjunction_nonconforming_displays_a_sentence() {
+    // The Kan extensions refuse a non-conforming input with a sentence that
+    // names the row by its number and the column by its name, as the table
+    // restrict does, never with the Debug forms of either.
+    let at_cell = panproto_inst::AdjunctionError::NonConforming {
+        row: panproto_inst::RowId(3),
+        column: Some("c".into()),
+        reason: panproto_inst::NonConformance::StrayCell,
+    };
+    assert_eq!(
+        at_cell.to_string(),
+        "row 3 does not conform to the schema at column `c`: the row holds a cell at no column \
+         of its table"
+    );
+    let at_row = panproto_inst::AdjunctionError::NonConforming {
+        row: panproto_inst::RowId(4),
+        column: None,
+        reason: panproto_inst::NonConformance::NestedLabeledNull,
+    };
+    assert_eq!(
+        at_row.to_string(),
+        "row 4 does not conform to the schema: the cell holds a labelled null inside a value"
+    );
+}
+
+#[test]
 fn a_restrict_error_fits_the_result_size_clippy_allows() {
     let size = std::mem::size_of::<RestrictError>();
     println!("size_of::<RestrictError>() = {size}");

@@ -153,7 +153,11 @@ pub enum AdjunctionError {
     /// An input does not conform to the schema it must be an instance of:
     /// a row outside its tables, a missing or stray cell, a labelled null
     /// nested inside a cell, or a pair outside its relations.
-    #[error("row {row:?} does not conform to the schema (column {column:?}): {reason}")]
+    #[error(
+        "row {} does not conform to the schema{}: {reason}",
+        .row.0,
+        crate::error::at_column(.column.as_deref())
+    )]
     NonConforming {
         /// The least offending row (for a pair, its source row).
         row: RowId,

@@ -586,7 +586,7 @@ pub enum RestrictError {
 
 /// The place of a non-conforming row's violation in its message: ` at
 /// column` and the column's name, or nothing for a violation at the row.
-fn at_column(column: Option<&str>) -> String {
+pub(crate) fn at_column(column: Option<&str>) -> String {
     column.map_or_else(String::new, |column| format!(" at column `{column}`"))
 }
 
