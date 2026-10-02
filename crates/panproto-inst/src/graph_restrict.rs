@@ -85,7 +85,9 @@ fn is_fan_node(node: &Node) -> bool {
 ///    least one child survive; it is re-anchored and its labels renamed by
 ///    the migration's hyper-edge resolver when that resolves its surviving
 ///    shape, and keeps its hyper-edge and labels otherwise. Label edges to
-///    dropped children are dropped.
+///    dropped children are dropped. A kept fan edge is recorded in the
+///    complement exactly when its view label does not map back to its
+///    source label (see `GraphComplement::original_edges`).
 /// 5. Synthesized nodes and edges take ids in ascending key order from the
 ///    complement's node and edge floors (one above the largest id of the
 ///    whole source, saturating at `u32::MAX`), never `u32::MAX`. A
@@ -703,10 +705,13 @@ impl<'a> GraphRun<'a> {
                 kind: edge.edge.kind.clone(),
                 name,
             };
-            // A fan label is no source schema edge, so no preimage under the
-            // edge image returns it: a kept fan edge maps back only through
-            // its record.
-            self.complement.original_edges.insert(edge_id, edge.clone());
+            if self
+                .fan_label_back(id, &view.anchor, edge.tgt, &target_view.anchor, &label)
+                .as_ref()
+                != Some(&edge.edge)
+            {
+                self.complement.original_edges.insert(edge_id, edge.clone());
+            }
             self.edges.insert(
                 edge_id,
                 GEdge {
@@ -719,6 +724,61 @@ impl<'a> GraphRun<'a> {
         }
         self.fan_nodes.insert(id, view);
         Ok(())
+    }
+
+    /// The source anchor of the kept node `id` whose view anchor is
+    /// `view_anchor`: its `original_anchors` entry, else the unique reverse
+    /// vertex-map image of its view anchor (the anchor itself when no remap
+    /// names it). `None` only when neither determines it, which get never
+    /// leaves, since it records the anchor of every node the reverse map
+    /// does not recover.
+    fn source_anchor<'s>(&'s self, id: u32, view_anchor: &'s Name) -> Option<&'s Name> {
+        self.complement
+            .original_anchors
+            .get(&id)
+            .or_else(|| self.reverse.source_of(view_anchor))
+    }
+
+    /// The label a view fan edge `label` from the fan node `fan` (view
+    /// anchor `fan_anchor`) to the node `target` (view anchor
+    /// `target_anchor`) maps back to (L.4 (3), Arbiter ruling A12 (3)):
+    /// the fan edge label from the source anchor A(fan) of the fan node to
+    /// the source anchor A(target) of the target, under the view label's
+    /// name for a child edge and, for the parent edge, under the parent
+    /// label the source schema declares for hyper-edge A(fan) (the view
+    /// label's name when the source schema declares no such hyper-edge,
+    /// as the view takes the source name when the target declares none).
+    ///
+    /// Get records a kept fan edge exactly when this is not its source
+    /// label, so a fan stage that keeps the fan's hyper-edge and labels
+    /// (anchor renames included, which A recovers) records nothing, and a
+    /// relabelled edge is recorded.
+    fn fan_label_back(
+        &self,
+        fan: u32,
+        fan_anchor: &Name,
+        target: u32,
+        target_anchor: &Name,
+        label: &Edge,
+    ) -> Option<Edge> {
+        let hyper_edge = self.source_anchor(fan, fan_anchor)?;
+        let tgt = self.source_anchor(target, target_anchor)?;
+        let name = if label.kind == HYPER_PARENT_KIND {
+            self.plan
+                .source()
+                .hyper_edges
+                .get(hyper_edge)
+                .map(|h| h.parent_label.clone())
+                .or_else(|| label.name.clone())
+        } else {
+            label.name.clone()
+        };
+        Some(Edge {
+            src: hyper_edge.clone(),
+            tgt: tgt.clone(),
+            kind: label.kind.clone(),
+            name,
+        })
     }
 
     /// Stage 5 and the view: allocate synthesized ids and assemble.

@@ -550,10 +550,16 @@ impl<'m> ReverseAnchors<'m> {
 
     /// Whether `view_anchor` maps back to exactly `source_anchor`.
     pub(crate) fn recovers(&self, view_anchor: &Name, source_anchor: &Name) -> bool {
+        self.source_of(view_anchor) == Some(source_anchor)
+    }
+
+    /// The source anchor `view_anchor` maps back to: its one explicit
+    /// preimage, itself when it has none, and `None` when it has several.
+    pub(crate) fn source_of<'a>(&'a self, view_anchor: &'a Name) -> Option<&'a Name> {
         match self.preimages.get(view_anchor).map(Vec::as_slice) {
-            None | Some([]) => view_anchor == source_anchor,
-            Some([only]) => *only == source_anchor,
-            Some(_) => false,
+            None | Some([]) => Some(view_anchor),
+            Some([only]) => Some(*only),
+            Some(_) => None,
         }
     }
 }

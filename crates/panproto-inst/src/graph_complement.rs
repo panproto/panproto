@@ -40,11 +40,16 @@ pub struct GraphComplement {
     /// edges replaced by an expansion, and fan edges to dropped children.
     pub dropped_edges: BTreeMap<EdgeId, GEdge>,
     /// The source form of each kept edge whose source label the view does
-    /// not determine: the edge maps back to its label only when exactly one
-    /// source edge has its view label as image, which never holds for a fan
-    /// edge, whose label is no source schema edge, so every kept fan edge is
-    /// recorded. A kept edge keeps its endpoints, so the recorded edge's
-    /// endpoints are the view's.
+    /// not determine. A schema edge maps back to its label only when
+    /// exactly one source edge has its view label as image. A fan edge,
+    /// whose label is no source schema edge, maps back to the fan edge
+    /// label between the source anchors of its endpoints under its view
+    /// label's name, or, for the parent edge, the parent label the source
+    /// schema declares for the fan's source hyper-edge; it is recorded
+    /// exactly when that is not its source label, so a fan whose
+    /// hyper-edge and labels are kept records no edge, and a relabelled
+    /// edge is recorded. A kept edge keeps its endpoints, so the recorded
+    /// edge's endpoints are the view's.
     pub original_edges: BTreeMap<EdgeId, GEdge>,
     /// The source anchor of each kept node, fan nodes included, whose view
     /// anchor does not map back to it: the vertex map has several preimages

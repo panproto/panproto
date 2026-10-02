@@ -850,15 +850,10 @@ fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
     );
 }
 
-#[test]
-fn every_kept_fan_edge_is_recorded_since_no_fan_label_maps_back_by_preimage() {
-    // A fan label is no source schema edge, so the back-mapping rule of a
-    // put (the unique preimage of the view label under the edge image)
-    // never returns it: every kept fan edge is recorded, changed or not. A
-    // fan node is recorded when the reverse vertex map does not return its
-    // source anchor, as every node is.
-    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
-    let tree = WInstance::new(
+/// `r(0)` with two `c` children, 1 and 2, under the arc `c`, and the fan
+/// of hyper-edge `h` from `r` to them under the labels `x` and `y`.
+fn fanned_tree() -> WInstance {
+    WInstance::new(
         [
             (0, Node::new(0, "r")),
             (1, Node::new(1, "c")),
@@ -873,26 +868,77 @@ fn every_kept_fan_edge_is_recorded_since_no_fan_label_maps_back_by_preimage() {
         }],
         0,
         "r".into(),
-    );
-    let g = GInstance::from_wtype(&tree).unwrap();
-    let fan_edges: BTreeMap<EdgeId, GEdge> = g
-        .edges_sorted()
+    )
+}
+
+/// `r -c-> c` with the hyper-edges `hyper` (each `(id, parent label)`),
+/// each with the parent label on `r` and the child labels `x`, `y` and
+/// `z` on `c`.
+fn fanned_schema(hyper: &[(&str, &str)]) -> Schema {
+    let protocol = Protocol::default();
+    let mut builder = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .unwrap()
+        .vertex("c", "record", None)
+        .unwrap()
+        .edge("r", "c", "prop", Some("c"))
+        .unwrap();
+    for (id, parent) in hyper {
+        let sig = HashMap::from([
+            ((*parent).to_owned(), "r".to_owned()),
+            ("x".to_owned(), "c".to_owned()),
+            ("y".to_owned(), "c".to_owned()),
+            ("z".to_owned(), "c".to_owned()),
+        ]);
+        builder = builder.hyper_edge(id, "rel", sig, parent).unwrap();
+    }
+    builder.build().unwrap()
+}
+
+/// The fan edges of `g`, by id.
+fn fan_edges(g: &GInstance) -> BTreeMap<EdgeId, GEdge> {
+    g.edges_sorted()
         .filter(|(_, edge)| edge.edge.kind.starts_with("hyper_"))
         .map(|(id, edge)| (id, edge.clone()))
-        .collect();
-    assert_eq!(fan_edges.len(), 3, "{fan_edges:?}");
-    let fan_node = fan_edges.values().next().unwrap().src;
+        .collect()
+}
 
-    // Unchanged: the fan edges are recorded, the fan node is not.
+/// The id of the fan edge of `edges` under the label `kind` and `name`.
+fn fan_edge(edges: &BTreeMap<EdgeId, GEdge>, kind: &str, name: Option<&str>) -> EdgeId {
+    edges
+        .iter()
+        .find(|(_, e)| e.edge.kind == kind && e.edge.name.as_deref() == name)
+        .map(|(id, _)| *id)
+        .unwrap()
+}
+
+#[test]
+fn a_kept_fan_edge_is_recorded_only_when_its_label_does_not_map_back() {
+    // A view fan edge maps back to the label of the source anchors of its
+    // endpoints (A(f), A(t)) under its own label, or, for the parent edge,
+    // the source parent label of A(f) (Arbiter ruling A12 (3)); it is
+    // recorded exactly when that is not its source label. A fan node is
+    // recorded when the reverse vertex map does not return its source
+    // anchor, as every node is.
+    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let g = GInstance::from_wtype(&fanned_tree()).unwrap();
+    let edges = fan_edges(&g);
+    assert_eq!(edges.len(), 3, "{edges:?}");
+    let fan_node = edges.values().next().unwrap().src;
+
+    // Unchanged: no fan edge and not the fan node is recorded.
     let plan = RestrictPlan::compile(&s, &s, &keep(&["r", "c"])).unwrap();
     let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
-    for (id, source) in &fan_edges {
+    for (id, source) in &edges {
         assert_eq!(view.edge(*id), Some(source));
-        assert_eq!(complement.original_edges.get(id), Some(source), "{id}");
     }
+    assert_eq!(complement.original_edges, BTreeMap::new());
     assert!(!complement.original_anchors.contains_key(&fan_node));
+    assert!(complement.residue_is_trivial(), "{complement:?}");
 
-    // Retargeted to another hyper-edge: the fan node is recorded too.
+    // Retargeted to another hyper-edge, with `x` relabelled `x2`: the fan
+    // node is recorded, and so is the edge of `x`, whose view label maps
+    // back to `x2` on `h`; `y` and the parent map back to their labels.
     let mut m = keep(&["r", "c"]);
     m.hyper_resolver.insert(
         ("h".into(), vec!["x".into(), "y".into()]),
@@ -903,11 +949,74 @@ fn every_kept_fan_edge_is_recorded_since_no_fan_label_maps_back_by_preimage() {
     );
     let plan = RestrictPlan::compile(&s, &s, &m).unwrap();
     let (_, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
-    for (id, source) in &fan_edges {
-        assert_eq!(complement.original_edges.get(id), Some(source), "{id}");
-    }
+    let x = fan_edge(&edges, "hyper_label", Some("x"));
+    assert_eq!(
+        complement.original_edges,
+        BTreeMap::from([(x, edges[&x].clone())])
+    );
     assert_eq!(
         complement.original_anchors.get(&fan_node),
         Some(&Name::from("h"))
+    );
+}
+
+#[test]
+fn a_relabelled_fan_records_its_relabelled_edges() {
+    let tree = fanned_tree();
+    // Relabelled in place, `x` to `z`: the edge of `x` is recorded, with
+    // its source label, and the edge of `y` and the parent edge are not.
+    let s = fanned_schema(&[("h", "p")]);
+    let g = GInstance::from_wtype_with_schema(&tree, &s).unwrap();
+    let edges = fan_edges(&g);
+    let x = fan_edge(&edges, "hyper_label", Some("x"));
+    let mut m = keep(&["r", "c"]);
+    m.hyper_resolver.insert(
+        ("h".into(), vec!["x".into(), "y".into()]),
+        (
+            "h".into(),
+            HashMap::from([("x".into(), "z".into()), ("y".into(), "y".into())]),
+        ),
+    );
+    let plan = RestrictPlan::compile(&s, &s, &m).unwrap();
+    let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    assert_eq!(
+        view.edge(x).unwrap().edge.name.as_deref(),
+        Some("z"),
+        "{view:?}"
+    );
+    assert_eq!(
+        complement.original_edges,
+        BTreeMap::from([(x, edges[&x].clone())])
+    );
+    assert!(complement.original_anchors.is_empty(), "{complement:?}");
+
+    // Retargeted to `h2`, whose parent label is `q`, with the child labels
+    // kept: the view's parent edge is named `q`, which maps back to `p`
+    // through the source hyper-edge `h`, so no fan edge is recorded, and
+    // only the fan node's anchor is.
+    let both = fanned_schema(&[("h", "p"), ("h2", "q")]);
+    let g = GInstance::from_wtype_with_schema(&tree, &both).unwrap();
+    let edges = fan_edges(&g);
+    let parent = fan_edge(&edges, "hyper_parent", Some("p"));
+    let fan_node = edges[&parent].src;
+    let mut m = keep(&["r", "c"]);
+    m.hyper_resolver.insert(
+        ("h".into(), vec!["x".into(), "y".into()]),
+        (
+            "h2".into(),
+            HashMap::from([("x".into(), "x".into()), ("y".into(), "y".into())]),
+        ),
+    );
+    let plan = RestrictPlan::compile(&both, &both, &m).unwrap();
+    let (view, complement) = graph_restrict_with_plan(&g, &plan).unwrap();
+    assert_eq!(
+        view.edge(parent).unwrap().edge.name.as_deref(),
+        Some("q"),
+        "{view:?}"
+    );
+    assert_eq!(complement.original_edges, BTreeMap::new());
+    assert_eq!(
+        complement.original_anchors,
+        BTreeMap::from([(fan_node, Name::from("h"))])
     );
 }
