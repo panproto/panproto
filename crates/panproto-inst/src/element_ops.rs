@@ -224,7 +224,7 @@ impl ElementOps for GInstance {
 
         // Scalar values of out-edge targets: the dependent-sum projection
         // for graph-shaped instances, as child scalars are for trees.
-        let child_scalars = collect_graph_scalar_children(self, element_id);
+        let child_scalars = present_children(self, element_id);
         let mut env = build_env_with_children(&node.extra_fields, &child_scalars);
 
         // Metadata
@@ -259,7 +259,7 @@ impl ElementOps for GInstance {
         let Some(node) = self.node(element_id) else {
             return HashMap::new();
         };
-        let child_scalars = collect_graph_scalar_children(self, element_id);
+        let child_scalars = present_children(self, element_id);
         let mut combined = child_scalars;
         for (key, val) in &node.extra_fields {
             combined.insert(key.clone(), val.clone());
@@ -281,29 +281,29 @@ fn count_literal(count: usize) -> i64 {
     i64::try_from(count).unwrap_or(i64::MAX)
 }
 
-/// Collect scalar values from a graph node's outgoing edge targets.
+/// The present values an element's children bind, by column name: the
+/// dependent-sum projection `Σ_{e: v→w} π_scalar(Fiber(w))` of any shape.
 ///
-/// Analogous to [`collect_scalar_child_values`] for W-type instances:
-/// this is the dependent-sum projection `Σ_{e: v→w} π_scalar(Fiber(w))`
-/// for graph-shaped instances. Out-edges are read in
-/// [`GInstance::ordered_out_edges`] order; each whose target holds a
-/// present value binds it under `edge.name` (or `edge.tgt`), a later edge
-/// overriding an earlier one of the same name, matching the W-type
-/// convention.
-fn collect_graph_scalar_children(instance: &GInstance, node_id: u32) -> HashMap<String, Value> {
-    let mut result = HashMap::new();
-    for id in instance.ordered_out_edges(node_id) {
-        let Some(edge) = instance.edge(id) else {
-            continue;
-        };
-        if let Some(FieldPresence::Present(val)) =
-            instance.node(edge.tgt).and_then(|n| n.value.as_ref())
-        {
-            let field_name = edge.edge.name.as_deref().unwrap_or(&*edge.edge.tgt);
-            result.insert(field_name.to_string(), val.clone());
-        }
-    }
-    result
+/// One rule for every shape ([`crate::wtype::bind_children`]): children
+/// are read in child order (a graph's
+/// [`ordered_out_edges`](GInstance::ordered_out_edges), a table row's pairs
+/// in ascending foreign key and target), fan edges and loops excluded; a
+/// child binds the present value of its target under its column name (the
+/// edge's name, else its target vertex); a name two or more children carry
+/// binds the [`Value::List`] of their bindings, in child order, never the
+/// last of them; a name the element's own fields hold binds nothing here,
+/// since the field wins.
+fn present_children<S: crate::wtype::ChildSource + ?Sized>(
+    source: &S,
+    element_id: u32,
+) -> HashMap<String, Value> {
+    crate::wtype::bind_children(
+        None,
+        source,
+        element_id,
+        &crate::wtype::Demand::Names(std::collections::BTreeSet::new()),
+    )
+    .values
 }
 
 // ---------------------------------------------------------------------------
@@ -380,10 +380,10 @@ impl ElementOps for FInstance {
             return panproto_expr::Env::new();
         };
 
-        // FInstance has no structural children; the stalk is the column
-        // values and the row as `self`, as for the row's node in the graph
-        // form (whose targets carry no value).
-        let mut env = build_env_with_children(row, &HashMap::new());
+        // A row's children are its pairs, whose target rows hold no value of
+        // their own, so they bind only the lists of repeated names: exactly
+        // what the row's node binds in the graph form.
+        let mut env = build_env_with_children(row, &present_children(self, element_id));
 
         // Metadata
         env = env.extend(
@@ -409,7 +409,14 @@ impl ElementOps for FInstance {
     }
 
     fn attributes(&self, element_id: u32) -> HashMap<String, Value> {
-        self.row(RowId(element_id)).cloned().unwrap_or_default()
+        let Some(row) = self.row(RowId(element_id)) else {
+            return HashMap::new();
+        };
+        let mut combined = present_children(self, element_id);
+        for (key, val) in row {
+            combined.insert(key.clone(), val.clone());
+        }
+        combined
     }
 
     fn sort(&self, element_id: u32) -> Option<Name> {

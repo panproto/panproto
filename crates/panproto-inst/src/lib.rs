@@ -201,6 +201,5 @@ pub use wtype::{
 };
 pub use wtype::{
     InstanceRef, NotExpressible, TreeSynthesis, wtype_extend_engine, wtype_extend_validated,
-    wtype_restrict_validated,
-    wtype_restrict_with_plan, wtype_restrict_with_synthesis,
+    wtype_restrict_validated, wtype_restrict_with_plan, wtype_restrict_with_synthesis,
 };
