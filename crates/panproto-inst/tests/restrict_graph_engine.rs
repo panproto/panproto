@@ -716,7 +716,7 @@ fn arb_case() -> impl Strategy<Value = (GInstance, Schema, Schema, CompiledMigra
         .map(|(u, v)| e(names[u], names[v], &format!("e{u}{v}")))
         .collect();
     (
-        prop::collection::vec((0usize..4), 0..6),
+        prop::collection::vec(0usize..4, 0..6),
         prop::collection::vec((0usize..6, 0usize..6, 0usize..16), 0..10),
         prop::collection::vec(any::<bool>(), 4),
         prop::collection::vec(any::<bool>(), 16),
@@ -792,4 +792,50 @@ proptest! {
         let kept_edges = view.edge_count() - complement.synthesized_edges.len();
         prop_assert_eq!(kept_edges + complement.dropped_edges.len(), g.edge_count());
     }
+}
+
+#[test]
+fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
+    // The resolver sends both labels of the fan over r to `z`: the tree may
+    // not keep one child and lose the other, so both shapes refuse.
+    let s = schema(&["r", "c"], &[&e("r", "c", "c")]);
+    let tree = WInstance::new(
+        [
+            (0, Node::new(0, "r")),
+            (1, Node::new(1, "c")),
+            (2, Node::new(2, "c")),
+        ]
+        .into(),
+        vec![(0, 1, e("r", "c", "c")), (0, 2, e("r", "c", "c"))],
+        vec![Fan {
+            hyper_edge_id: "h".into(),
+            parent: 0,
+            children: HashMap::from([("x".to_owned(), 1), ("y".to_owned(), 2)]),
+        }],
+        0,
+        "r".into(),
+    );
+    let mut m = keep(&["r", "c"]);
+    m.hyper_resolver.insert(
+        ("h".into(), vec!["x".into(), "y".into()]),
+        (
+            "h".into(),
+            HashMap::from([("x".into(), "z".into()), ("y".into(), "z".into())]),
+        ),
+    );
+    let plan = RestrictPlan::compile(&s, &s, &m).unwrap();
+    let refused = |err: &RestrictError| {
+        matches!(
+            err.unlocated(),
+            RestrictError::FanReconstructionFailed { hyper_edge_id, .. } if hyper_edge_id == "h"
+        )
+    };
+    let tree_err = wtype_restrict_with_plan(&tree, &plan).unwrap_err();
+    assert!(refused(&tree_err), "tree: {tree_err:?}");
+    let g = GInstance::from_wtype(&tree).unwrap();
+    let graph_err = graph_restrict_with_plan(&g, &plan).unwrap_err();
+    assert!(refused(&graph_err), "graph: {graph_err:?}");
+    // Both locate the refusal at the fan node of the embedded graph.
+    assert_eq!(tree_err.key(), graph_err.key());
+    assert_eq!(tree_err.key().map(|k| (k.stage, k.id)), Some((3, 3)));
 }
