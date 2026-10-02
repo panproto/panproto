@@ -1115,20 +1115,10 @@ pub fn reconstruct_fans(
     migration: &CompiledMigration,
     _tgt_schema: &Schema,
 ) -> Result<Vec<Fan>, RestrictError> {
-    reconstruct_fans_at(instance, surviving, migration).map_err(|(_, err)| err)
-}
-
-/// [`reconstruct_fans`], reporting the index in `fans` of the fan that
-/// failed.
-fn reconstruct_fans_at(
-    instance: &WInstance,
-    surviving: &FxHashSet<u32>,
-    migration: &CompiledMigration,
-) -> Result<Vec<Fan>, (usize, RestrictError)> {
     let mut result = Vec::new();
     let resolver = FanResolver::new(migration);
 
-    for (index, fan) in instance.fans.iter().enumerate() {
+    for fan in &instance.fans {
         if !surviving.contains(&fan.parent) {
             continue;
         }
@@ -1155,13 +1145,10 @@ fn reconstruct_fans_at(
                 .and_then(|(_, labels)| labels.get(old_label.as_str()))
                 .map_or_else(|| old_label.clone(), ToString::to_string);
             if children.contains_key(&new_label) {
-                return Err((
-                    index,
-                    RestrictError::FanReconstructionFailed {
-                        hyper_edge_id,
-                        detail: format!("two children are relabelled `{new_label}`"),
-                    },
-                ));
+                return Err(RestrictError::FanReconstructionFailed {
+                    hyper_edge_id,
+                    detail: format!("two children are relabelled `{new_label}`"),
+                });
             }
             children.insert(new_label, node_id);
         }
@@ -1173,23 +1160,6 @@ fn reconstruct_fans_at(
     }
 
     Ok(result)
-}
-
-/// The node id the embedded graph of `instance` gives its `index`-th fan:
-/// fan nodes take the ids above the tree's nodes, in `fans` order.
-fn tree_fan_node_id(instance: &WInstance, index: usize) -> u32 {
-    let mut ids = crate::segment::IdAllocator::from_source(
-        crate::segment::IdRange::FULL,
-        instance.nodes.keys().copied(),
-    );
-    let mut id = u32::MAX;
-    for _ in 0..=index {
-        match ids.allocate() {
-            Ok(next) => id = next,
-            Err(_) => return u32::MAX,
-        }
-    }
-    id
 }
 
 // ---------------------------------------------------------------------------
@@ -1605,8 +1575,13 @@ pub fn wtype_restrict_with_plan(
         .collect();
 
     let surviving_fx: FxHashSet<u32> = surviving.iter().copied().collect();
-    let new_fans = reconstruct_fans_at(instance, &surviving_fx, migration)
-        .map_err(|(index, err)| err.at(3, tree_fan_node_id(instance, index), 0))?;
+    let new_fans = reconstruct_fans(
+        instance,
+        &surviving_fx,
+        &FxHashMap::default(),
+        migration,
+        plan.target(),
+    )?;
     let new_schema_root = plan.target_anchor(&instance.schema_root).clone();
     Ok((
         WInstance::new(

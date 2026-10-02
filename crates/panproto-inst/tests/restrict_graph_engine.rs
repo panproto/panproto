@@ -835,7 +835,14 @@ fn a_fan_relabel_that_merges_children_is_refused_in_both_shapes() {
     let g = GInstance::from_wtype(&tree).unwrap();
     let graph_err = graph_restrict_with_plan(&g, &plan).unwrap_err();
     assert!(refused(&graph_err), "graph: {graph_err:?}");
-    // Both locate the refusal at the fan node of the embedded graph.
-    assert_eq!(tree_err.key(), graph_err.key());
-    assert_eq!(tree_err.key().map(|k| (k.stage, k.id)), Some((3, 3)));
+    // Only the graph engine locates its errors: the graph error is keyed at
+    // the fan node of the embedded graph, the tree error carries no key, and
+    // the two agree once the location is removed.
+    assert_eq!(tree_err.key(), None);
+    assert!(!matches!(tree_err, RestrictError::At { .. }), "{tree_err:?}");
+    assert_eq!(graph_err.key().map(|k| (k.stage, k.id)), Some((3, 3)));
+    assert_eq!(
+        format!("{tree_err:?}"),
+        format!("{:?}", graph_err.unlocated())
+    );
 }
