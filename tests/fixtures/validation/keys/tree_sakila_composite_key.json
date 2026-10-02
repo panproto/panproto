@@ -1,0 +1,2130 @@
+{
+  "name": "keys/tree_sakila_composite_key",
+  "protocol": "validation-fixtures-tree",
+  "protocol_definition": {
+    "name": "validation-fixtures-tree",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "tree",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "actor": {
+        "id": "actor",
+        "kind": "table",
+        "nsid": null
+      },
+      "actor.actor_id": {
+        "id": "actor.actor_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "actor.name": {
+        "id": "actor.name",
+        "kind": "string",
+        "nsid": null
+      },
+      "db": {
+        "id": "db",
+        "kind": "object",
+        "nsid": null
+      },
+      "film": {
+        "id": "film",
+        "kind": "table",
+        "nsid": null
+      },
+      "film.film_id": {
+        "id": "film.film_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "film.title": {
+        "id": "film.title",
+        "kind": "string",
+        "nsid": null
+      },
+      "film_actor": {
+        "id": "film_actor",
+        "kind": "table",
+        "nsid": null
+      },
+      "film_actor.actor_id": {
+        "id": "film_actor.actor_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "film_actor.film_id": {
+        "id": "film_actor.film_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "staff": {
+        "id": "staff",
+        "kind": "table",
+        "nsid": null
+      },
+      "staff.reports_to": {
+        "id": "staff.reports_to",
+        "kind": "integer",
+        "nsid": null
+      },
+      "staff.staff_id": {
+        "id": "staff.staff_id",
+        "kind": "integer",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "db",
+          "tgt": "actor",
+          "kind": "prop",
+          "name": "actor"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "db",
+          "tgt": "film",
+          "kind": "prop",
+          "name": "film"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "db",
+          "tgt": "film_actor",
+          "kind": "prop",
+          "name": "film_actor"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "db",
+          "tgt": "staff",
+          "kind": "prop",
+          "name": "staff"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "actor": [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ],
+      "db": [
+        {
+          "src": "db",
+          "tgt": "actor",
+          "kind": "prop",
+          "name": "actor"
+        },
+        {
+          "src": "db",
+          "tgt": "film",
+          "kind": "prop",
+          "name": "film"
+        },
+        {
+          "src": "db",
+          "tgt": "film_actor",
+          "kind": "prop",
+          "name": "film_actor"
+        },
+        {
+          "src": "db",
+          "tgt": "staff",
+          "kind": "prop",
+          "name": "staff"
+        }
+      ],
+      "film": [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        }
+      ],
+      "film_actor": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        }
+      ],
+      "staff": [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        },
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        },
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        }
+      ]
+    },
+    "incoming": {
+      "actor": [
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        },
+        {
+          "src": "db",
+          "tgt": "actor",
+          "kind": "prop",
+          "name": "actor"
+        }
+      ],
+      "actor.actor_id": [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        }
+      ],
+      "actor.name": [
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ],
+      "film": [
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        },
+        {
+          "src": "db",
+          "tgt": "film",
+          "kind": "prop",
+          "name": "film"
+        }
+      ],
+      "film.film_id": [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        }
+      ],
+      "film.title": [
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        }
+      ],
+      "film_actor": [
+        {
+          "src": "db",
+          "tgt": "film_actor",
+          "kind": "prop",
+          "name": "film_actor"
+        }
+      ],
+      "film_actor.actor_id": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        }
+      ],
+      "film_actor.film_id": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        }
+      ],
+      "staff": [
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        },
+        {
+          "src": "db",
+          "tgt": "staff",
+          "kind": "prop",
+          "name": "staff"
+        }
+      ],
+      "staff.reports_to": [
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        }
+      ],
+      "staff.staff_id": [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "actor",
+          "actor.actor_id"
+        ],
+        [
+          {
+            "src": "actor",
+            "tgt": "actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ]
+      ],
+      [
+        [
+          "actor",
+          "actor.name"
+        ],
+        [
+          {
+            "src": "actor",
+            "tgt": "actor.name",
+            "kind": "prop",
+            "name": "name"
+          }
+        ]
+      ],
+      [
+        [
+          "db",
+          "actor"
+        ],
+        [
+          {
+            "src": "db",
+            "tgt": "actor",
+            "kind": "prop",
+            "name": "actor"
+          }
+        ]
+      ],
+      [
+        [
+          "db",
+          "film"
+        ],
+        [
+          {
+            "src": "db",
+            "tgt": "film",
+            "kind": "prop",
+            "name": "film"
+          }
+        ]
+      ],
+      [
+        [
+          "db",
+          "film_actor"
+        ],
+        [
+          {
+            "src": "db",
+            "tgt": "film_actor",
+            "kind": "prop",
+            "name": "film_actor"
+          }
+        ]
+      ],
+      [
+        [
+          "db",
+          "staff"
+        ],
+        [
+          {
+            "src": "db",
+            "tgt": "staff",
+            "kind": "prop",
+            "name": "staff"
+          }
+        ]
+      ],
+      [
+        [
+          "film",
+          "film.film_id"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "film.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ]
+      ],
+      [
+        [
+          "film",
+          "film.title"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "film.title",
+            "kind": "prop",
+            "name": "title"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "actor"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "film_actor_actor"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film",
+            "kind": "fk",
+            "name": "film_actor_film"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film_actor.actor_id"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film_actor.film_id"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff",
+            "kind": "fk",
+            "name": "staff_reports_to"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff.reports_to"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff.reports_to",
+            "kind": "prop",
+            "name": "reports_to"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff.staff_id"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff.staff_id",
+            "kind": "prop",
+            "name": "staff_id"
+          }
+        ]
+      ]
+    ],
+    "declarations": {
+      "keys": {
+        "actor": [
+          {
+            "id": "actor_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "actor",
+                    "tgt": "actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "film": [
+          {
+            "id": "film_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "film",
+                    "tgt": "film.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "film_actor": [
+          {
+            "id": "film_actor_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              },
+              {
+                "path": [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "staff": [
+          {
+            "id": "staff_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "staff",
+                    "tgt": "staff.staff_id",
+                    "kind": "prop",
+                    "name": "staff_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ]
+      },
+      "references": {
+        "film_actor_actor": {
+          "id": "film_actor_actor",
+          "holder": "film_actor",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "actor",
+          "target_key": "actor_pk",
+          "edge": {
+            "src": "film_actor",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "film_actor_actor"
+          },
+          "cardinality": "one",
+          "nullable": false,
+          "on_unresolved": "error",
+          "mode": "add_edge"
+        },
+        "film_actor_film": {
+          "id": "film_actor_film",
+          "holder": "film_actor",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "film",
+          "target_key": "film_pk",
+          "edge": {
+            "src": "film_actor",
+            "tgt": "film",
+            "kind": "fk",
+            "name": "film_actor_film"
+          },
+          "cardinality": "one",
+          "nullable": false,
+          "on_unresolved": "error",
+          "mode": "add_edge"
+        },
+        "staff_reports_to": {
+          "id": "staff_reports_to",
+          "holder": "staff",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "staff",
+                    "tgt": "staff.reports_to",
+                    "kind": "prop",
+                    "name": "reports_to"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "staff",
+          "target_key": "staff_pk",
+          "edge": {
+            "src": "staff",
+            "tgt": "staff",
+            "kind": "fk",
+            "name": "staff_reports_to"
+          },
+          "cardinality": "one",
+          "nullable": true,
+          "on_unresolved": "error",
+          "mode": "add_edge"
+        }
+      }
+    }
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "tree": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "db",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "1": {
+          "id": 1,
+          "anchor": "actor",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "2": {
+          "id": 2,
+          "anchor": "actor.actor_id",
+          "value": {
+            "Present": {
+              "Int": 1
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "3": {
+          "id": 3,
+          "anchor": "actor.name",
+          "value": {
+            "Present": {
+              "Str": "Ann"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "4": {
+          "id": 4,
+          "anchor": "actor",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "5": {
+          "id": 5,
+          "anchor": "actor.actor_id",
+          "value": {
+            "Present": {
+              "Int": 2
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "6": {
+          "id": 6,
+          "anchor": "actor.name",
+          "value": {
+            "Present": {
+              "Str": "Bo"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "7": {
+          "id": 7,
+          "anchor": "film",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "8": {
+          "id": 8,
+          "anchor": "film.film_id",
+          "value": {
+            "Present": {
+              "Int": 10
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "9": {
+          "id": 9,
+          "anchor": "film.title",
+          "value": {
+            "Present": {
+              "Str": "Alien"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "10": {
+          "id": 10,
+          "anchor": "film",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "11": {
+          "id": 11,
+          "anchor": "film.film_id",
+          "value": {
+            "Present": {
+              "Int": 11
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "12": {
+          "id": 12,
+          "anchor": "film.title",
+          "value": {
+            "Present": {
+              "Str": "Heat"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "13": {
+          "id": 13,
+          "anchor": "film_actor",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "14": {
+          "id": 14,
+          "anchor": "film_actor.actor_id",
+          "value": {
+            "Present": {
+              "Int": 1
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "15": {
+          "id": 15,
+          "anchor": "film_actor.film_id",
+          "value": {
+            "Present": {
+              "Int": 10
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "16": {
+          "id": 16,
+          "anchor": "film_actor",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "17": {
+          "id": 17,
+          "anchor": "film_actor.actor_id",
+          "value": {
+            "Present": {
+              "Int": 1
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "18": {
+          "id": 18,
+          "anchor": "film_actor.film_id",
+          "value": {
+            "Present": {
+              "Int": 11
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "19": {
+          "id": 19,
+          "anchor": "film_actor",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "20": {
+          "id": 20,
+          "anchor": "film_actor.actor_id",
+          "value": {
+            "Present": {
+              "Int": 2
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "21": {
+          "id": 21,
+          "anchor": "film_actor.film_id",
+          "value": {
+            "Present": {
+              "Int": 10
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "22": {
+          "id": 22,
+          "anchor": "staff",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "23": {
+          "id": 23,
+          "anchor": "staff.staff_id",
+          "value": {
+            "Present": {
+              "Int": 1
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "24": {
+          "id": 24,
+          "anchor": "staff",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "25": {
+          "id": 25,
+          "anchor": "staff.staff_id",
+          "value": {
+            "Present": {
+              "Int": 2
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "26": {
+          "id": 26,
+          "anchor": "staff.reports_to",
+          "value": {
+            "Present": {
+              "Int": 1
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "27": {
+          "id": 27,
+          "anchor": "staff",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "28": {
+          "id": 28,
+          "anchor": "staff.staff_id",
+          "value": {
+            "Present": {
+              "Int": 3
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "29": {
+          "id": 29,
+          "anchor": "staff.reports_to",
+          "value": {
+            "Present": {
+              "Int": 2
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "arcs": [
+        [
+          0,
+          1,
+          {
+            "src": "db",
+            "tgt": "actor",
+            "kind": "prop",
+            "name": "actor"
+          }
+        ],
+        [
+          1,
+          2,
+          {
+            "src": "actor",
+            "tgt": "actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ],
+        [
+          1,
+          3,
+          {
+            "src": "actor",
+            "tgt": "actor.name",
+            "kind": "prop",
+            "name": "name"
+          }
+        ],
+        [
+          0,
+          4,
+          {
+            "src": "db",
+            "tgt": "actor",
+            "kind": "prop",
+            "name": "actor"
+          }
+        ],
+        [
+          4,
+          5,
+          {
+            "src": "actor",
+            "tgt": "actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ],
+        [
+          4,
+          6,
+          {
+            "src": "actor",
+            "tgt": "actor.name",
+            "kind": "prop",
+            "name": "name"
+          }
+        ],
+        [
+          0,
+          7,
+          {
+            "src": "db",
+            "tgt": "film",
+            "kind": "prop",
+            "name": "film"
+          }
+        ],
+        [
+          7,
+          8,
+          {
+            "src": "film",
+            "tgt": "film.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ],
+        [
+          7,
+          9,
+          {
+            "src": "film",
+            "tgt": "film.title",
+            "kind": "prop",
+            "name": "title"
+          }
+        ],
+        [
+          0,
+          10,
+          {
+            "src": "db",
+            "tgt": "film",
+            "kind": "prop",
+            "name": "film"
+          }
+        ],
+        [
+          10,
+          11,
+          {
+            "src": "film",
+            "tgt": "film.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ],
+        [
+          10,
+          12,
+          {
+            "src": "film",
+            "tgt": "film.title",
+            "kind": "prop",
+            "name": "title"
+          }
+        ],
+        [
+          0,
+          13,
+          {
+            "src": "db",
+            "tgt": "film_actor",
+            "kind": "prop",
+            "name": "film_actor"
+          }
+        ],
+        [
+          13,
+          14,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ],
+        [
+          13,
+          15,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ],
+        [
+          0,
+          16,
+          {
+            "src": "db",
+            "tgt": "film_actor",
+            "kind": "prop",
+            "name": "film_actor"
+          }
+        ],
+        [
+          16,
+          17,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ],
+        [
+          16,
+          18,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ],
+        [
+          0,
+          19,
+          {
+            "src": "db",
+            "tgt": "film_actor",
+            "kind": "prop",
+            "name": "film_actor"
+          }
+        ],
+        [
+          19,
+          20,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ],
+        [
+          19,
+          21,
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ],
+        [
+          0,
+          22,
+          {
+            "src": "db",
+            "tgt": "staff",
+            "kind": "prop",
+            "name": "staff"
+          }
+        ],
+        [
+          22,
+          23,
+          {
+            "src": "staff",
+            "tgt": "staff.staff_id",
+            "kind": "prop",
+            "name": "staff_id"
+          }
+        ],
+        [
+          0,
+          24,
+          {
+            "src": "db",
+            "tgt": "staff",
+            "kind": "prop",
+            "name": "staff"
+          }
+        ],
+        [
+          24,
+          25,
+          {
+            "src": "staff",
+            "tgt": "staff.staff_id",
+            "kind": "prop",
+            "name": "staff_id"
+          }
+        ],
+        [
+          24,
+          26,
+          {
+            "src": "staff",
+            "tgt": "staff.reports_to",
+            "kind": "prop",
+            "name": "reports_to"
+          }
+        ],
+        [
+          0,
+          27,
+          {
+            "src": "db",
+            "tgt": "staff",
+            "kind": "prop",
+            "name": "staff"
+          }
+        ],
+        [
+          27,
+          28,
+          {
+            "src": "staff",
+            "tgt": "staff.staff_id",
+            "kind": "prop",
+            "name": "staff_id"
+          }
+        ],
+        [
+          27,
+          29,
+          {
+            "src": "staff",
+            "tgt": "staff.reports_to",
+            "kind": "prop",
+            "name": "reports_to"
+          }
+        ]
+      ],
+      "fans": [],
+      "root": 0,
+      "schema_root": "db",
+      "parent_map": {
+        "1": 0,
+        "2": 1,
+        "3": 1,
+        "4": 0,
+        "5": 4,
+        "6": 4,
+        "7": 0,
+        "8": 7,
+        "9": 7,
+        "10": 0,
+        "11": 10,
+        "12": 10,
+        "13": 0,
+        "14": 13,
+        "15": 13,
+        "16": 0,
+        "17": 16,
+        "18": 16,
+        "19": 0,
+        "20": 19,
+        "21": 19,
+        "22": 0,
+        "23": 22,
+        "24": 0,
+        "25": 24,
+        "26": 24,
+        "27": 0,
+        "28": 27,
+        "29": 27
+      },
+      "children_map": {
+        "0": [
+          1,
+          4,
+          7,
+          10,
+          13,
+          16,
+          19,
+          22,
+          24,
+          27
+        ],
+        "1": [
+          2,
+          3
+        ],
+        "4": [
+          5,
+          6
+        ],
+        "7": [
+          8,
+          9
+        ],
+        "10": [
+          11,
+          12
+        ],
+        "13": [
+          14,
+          15
+        ],
+        "16": [
+          17,
+          18
+        ],
+        "19": [
+          20,
+          21
+        ],
+        "22": [
+          23
+        ],
+        "24": [
+          25,
+          26
+        ],
+        "27": [
+          28,
+          29
+        ]
+      }
+    }
+  },
+  "edit_trace": {
+    "tree": []
+  },
+  "report": {
+    "shape": "tree",
+    "scope": "instance",
+    "plan": "8a8aeddd10c4df606688b792af649a6ba51432c8a81d5b5a34541daacc083580",
+    "status": "passed",
+    "diagnostics": [],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 30,
+          "passed": 30,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reserved_vocabulary",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 59,
+          "passed": 59,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 29,
+          "passed": 29,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 29,
+          "passed": 29,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "actor",
+              "key": "actor_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "film",
+              "key": "film_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "film_actor",
+              "key": "film_actor_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "staff",
+              "key": "staff_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "actor"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film_actor"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "staff"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "tree_root",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "tree_parent_map",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 30,
+          "passed": 30,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "actor",
+              "key": "actor_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "film",
+              "key": "film_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "film_actor",
+              "key": "film_actor_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "staff",
+              "key": "staff_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "film_actor_actor"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "film_actor_film"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "staff_reports_to"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "tree_reachable",
+          "decl": "schema"
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 30,
+          "passed": 30,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

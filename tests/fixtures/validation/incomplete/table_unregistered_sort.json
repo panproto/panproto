@@ -1,0 +1,296 @@
+{
+  "name": "incomplete/table_unregistered_sort",
+  "protocol": "validation-fixtures-table",
+  "protocol_definition": {
+    "name": "validation-fixtures-table",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "table",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "item": {
+        "id": "item",
+        "kind": "table",
+        "nsid": null
+      }
+    },
+    "edges": [],
+    "hyper_edges": {},
+    "constraints": {
+      "item": [
+        {
+          "sort": "colour",
+          "value": "red"
+        }
+      ]
+    },
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {},
+    "incoming": {},
+    "between": []
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "table": {
+      "tables": {
+        "item": {
+          "0": {}
+        }
+      },
+      "foreign_keys": []
+    }
+  },
+  "edit_trace": {
+    "table": []
+  },
+  "report": {
+    "shape": "table",
+    "scope": "instance",
+    "plan": "1f08ad860cef288037e82e897d4d4ff71277a8da43c61b427e1590c13276ab50",
+    "status": "incomplete",
+    "diagnostics": [],
+    "incomplete": [
+      {
+        "check": {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        "class": "static",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "ill_formed_declaration": {
+            "detail": "vertex item has invalid constraint sort: colour"
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        "class": "static",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "unsupported_declaration": {
+            "sort": "colour"
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "item",
+              "constraint": {
+                "sort": "colour",
+                "value": "red"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "unsupported_declaration": {
+            "sort": "colour"
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "item",
+              "constraint": {
+                "sort": "colour",
+                "value": "red"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "ill_formed_declaration": {
+            "detail": "vertex item has invalid constraint sort: colour"
+          }
+        }
+      }
+    ],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "item",
+              "constraint": {
+                "sort": "colour",
+                "value": "red"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

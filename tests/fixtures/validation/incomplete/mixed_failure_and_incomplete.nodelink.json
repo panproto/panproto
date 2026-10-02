@@ -1,0 +1,29 @@
+{
+  "edges": [],
+  "nodes": [
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "ghost",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

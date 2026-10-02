@@ -1541,6 +1541,60 @@ fn trigger_table_is_the_rustdoc_table_restricted_to_compiled_kinds() {
         DeltaElementKind::InsertFan.triggers(),
         &[CheckKind::FanWellFormed]
     );
+    // A value check reads the fields of its subject and the labels of the
+    // subject's out-edges, so field and out-edge changes trigger it, and an
+    // edge label change triggers `External`, whose instances hold value
+    // sites.
+    for change in [
+        DeltaElementKind::AttrField,
+        DeltaElementKind::SetField,
+        DeltaElementKind::RemoveField,
+        DeltaElementKind::AddEdge,
+        DeltaElementKind::DelEdge,
+        DeltaElementKind::AttrEdgeLabel,
+        DeltaElementKind::AddPair,
+        DeltaElementKind::DelPair,
+        DeltaElementKind::DeleteNode,
+        DeltaElementKind::MoveSubtree,
+    ] {
+        for kind in [CheckKind::ValueConstraint, CheckKind::RequiredValue] {
+            assert!(change.triggers().contains(&kind), "{change:?} {kind:?}");
+        }
+    }
+    assert!(
+        DeltaElementKind::AttrEdgeLabel
+            .triggers()
+            .contains(&CheckKind::External)
+    );
+    // The code is the rustdoc table, row for row.
+    let source = include_str!("../src/validation/plan.rs");
+    let table: Vec<(Vec<String>, Vec<String>)> = source
+        .lines()
+        .filter_map(|line| line.strip_prefix("/// | `"))
+        .map(|row| {
+            let cells: Vec<&str> = row.trim_end_matches(" |").split(" | ").collect();
+            let names = |cell: &str| -> Vec<String> {
+                cell.split(", ")
+                    .map(|n| n.trim_matches('`').to_owned())
+                    .collect()
+            };
+            (names(cells[0]), names(cells[1]))
+        })
+        .filter(|(changes, _)| {
+            DeltaElementKind::ALL
+                .iter()
+                .any(|c| changes.contains(&format!("{c:?}")))
+        })
+        .collect();
+    for change in DeltaElementKind::ALL {
+        let rows: Vec<&Vec<String>> = table
+            .iter()
+            .filter(|(changes, _)| changes.contains(&format!("{change:?}")))
+            .map(|(_, kinds)| kinds)
+            .collect();
+        let code: Vec<String> = change.triggers().iter().map(|k| format!("{k:?}")).collect();
+        assert_eq!(rows, vec![&code], "{change:?}");
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,292 @@
+{
+  "name": "incomplete/source_map",
+  "protocol": "validation-fixtures-graph",
+  "protocol_definition": {
+    "name": "validation-fixtures-graph",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "graph",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "name": {
+        "id": "name",
+        "kind": "string",
+        "nsid": null
+      }
+    },
+    "edges": [],
+    "hyper_edges": {},
+    "constraints": {
+      "name": [
+        {
+          "sort": "maxLength",
+          "value": "3"
+        }
+      ]
+    },
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {},
+    "incoming": {},
+    "between": []
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": [
+      [
+        {
+          "constraint": {
+            "vertex": "name",
+            "constraint": {
+              "sort": "maxLength",
+              "value": "3"
+            }
+          }
+        },
+        {
+          "source": "schemas/name.json",
+          "start_byte": 12,
+          "end_byte": 27
+        }
+      ]
+    ]
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "graph": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "name",
+          "value": {
+            "Present": {
+              "Str": "toolong"
+            }
+          },
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "edges": {}
+    }
+  },
+  "edit_trace": {
+    "graph": []
+  },
+  "report": {
+    "shape": "graph",
+    "scope": "instance",
+    "plan": "2bd41f31f8589f745b1ec4046a4d734b54f8d2b1f0b3794d86ed90b13a97e15e",
+    "status": "failed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "name",
+              "constraint": {
+                "sort": "maxLength",
+                "value": "3"
+              }
+            }
+          }
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": {
+          "node": 0
+        },
+        "elements": [
+          {
+            "node": 0
+          }
+        ],
+        "violation": {
+          "value_constraint": {
+            "sort": "maxLength",
+            "bound": "3",
+            "value": {
+              "Str": "toolong"
+            }
+          }
+        },
+        "source": {
+          "source": "schemas/name.json",
+          "start_byte": 12,
+          "end_byte": 27
+        }
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "value_constraint",
+          "decl": {
+            "constraint": {
+              "vertex": "name",
+              "constraint": {
+                "sort": "maxLength",
+                "value": "3"
+              }
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

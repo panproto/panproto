@@ -1,0 +1,138 @@
+{
+  "edges": [
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "next",
+        "src": "item",
+        "tgt": "item"
+      },
+      "id": 0,
+      "position": null,
+      "src": 0,
+      "tgt": 1
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "next",
+        "src": "item",
+        "tgt": "item"
+      },
+      "id": 1,
+      "position": null,
+      "src": 1,
+      "tgt": 2
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "next",
+        "src": "item",
+        "tgt": "item"
+      },
+      "id": 2,
+      "position": null,
+      "src": 2,
+      "tgt": 3
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "next",
+        "src": "item",
+        "tgt": "item"
+      },
+      "id": 3,
+      "position": null,
+      "src": 3,
+      "tgt": 4
+    },
+    {
+      "edge": {
+        "kind": "prop",
+        "name": "next",
+        "src": "item",
+        "tgt": "item"
+      },
+      "id": 4,
+      "position": null,
+      "src": 4,
+      "tgt": 5
+    }
+  ],
+  "nodes": [
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 0,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 1,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 2,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 3,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 4,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    },
+    {
+      "anchor": "item",
+      "annotations": {},
+      "discriminator": null,
+      "extra_fields": {},
+      "id": 5,
+      "position": null,
+      "shape": {
+        "kind": "plain"
+      },
+      "value": null
+    }
+  ]
+}

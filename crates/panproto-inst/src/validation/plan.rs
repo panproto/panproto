@@ -73,6 +73,14 @@ pub struct ExternalVerdict {
 
 /// The external verdicts supplied to one validation, keyed by check name and
 /// element.
+///
+/// For an application check ([`ExternalCheckDecl`]) the name is the check's,
+/// and its elements are those anchored at one of its anchors. For a
+/// constraint sort whose semantics is `External` the name is the sort, and
+/// its elements are those holding a value site of a vertex the sort
+/// constrains. One verdict per sort and element answers for every site of
+/// that sort on the element: a row with two columns under one `External`
+/// sort has one verdict for both.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct ExternalVerdicts(
@@ -242,6 +250,8 @@ mod rows {
         K::RequiredEdge,
         K::OutDegree,
         K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::KeyUnique,
         K::ReferenceResolves,
         K::Acyclic,
@@ -252,6 +262,8 @@ mod rows {
         K::RequiredEdge,
         K::OutDegree,
         K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::KeyUnique,
         K::ReferenceResolves,
         K::Acyclic,
@@ -263,7 +275,13 @@ mod rows {
         K::KeyUnique,
         K::ReferenceResolves,
     ];
-    pub const FIELD: &[K] = &[K::Attribute, K::KeyUnique, K::ReferenceResolves];
+    pub const FIELD: &[K] = &[
+        K::ValueConstraint,
+        K::RequiredValue,
+        K::Attribute,
+        K::KeyUnique,
+        K::ReferenceResolves,
+    ];
     pub const ATTR_META: &[K] = &[K::NodeAnchor, K::FanWellFormed, K::KeyUnique, K::External];
     pub const ATTR_ANCHOR: &[K] = &[
         K::NodeAnchor,
@@ -287,9 +305,12 @@ mod rows {
         K::RequiredEdge,
         K::OutDegree,
         K::PositionDistinct,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::KeyUnique,
         K::ReferenceResolves,
         K::Acyclic,
+        K::External,
     ];
     pub const ATTR_EDGE_POSITION: &[K] = &[K::PositionDistinct, K::KeyUnique];
     pub const ADD_ROW: &[K] = &[
@@ -308,6 +329,8 @@ mod rows {
         K::EndpointCoherence,
         K::RequiredEdge,
         K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::KeyUnique,
         K::ReferenceResolves,
         K::External,
@@ -315,6 +338,8 @@ mod rows {
     pub const DEL_PAIR: &[K] = &[
         K::RequiredEdge,
         K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::KeyUnique,
         K::ReferenceResolves,
         K::External,
@@ -358,6 +383,8 @@ mod rows {
         K::FanWellFormed,
         K::RequiredEdge,
         K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::TreeRoot,
         K::TreeParentMap,
         K::KeyUnique,
@@ -401,6 +428,8 @@ mod rows {
         K::EndpointCoherence,
         K::RequiredEdge,
         K::OutDegree,
+        K::ValueConstraint,
+        K::RequiredValue,
         K::TreeParentMap,
         K::KeyUnique,
         K::ReferenceResolves,
@@ -421,24 +450,24 @@ mod rows {
 /// |---|---|
 /// | `AddNode` | `NodeAnchor`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `DelNode`, `DelRow` | `KeyUnique`, `ReferenceResolves` |
-/// | `AddEdge` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
-/// | `DelEdge` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `AddEdge` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
+/// | `DelEdge` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
 /// | `AttrValue` | `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves` |
-/// | `AttrField`, `SetField`, `RemoveField` | `Attribute`, `KeyUnique`, `ReferenceResolves` |
+/// | `AttrField`, `SetField`, `RemoveField` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
 /// | `AttrMeta` | `NodeAnchor`, `FanWellFormed`, `KeyUnique`, `External` |
 /// | `AttrAnchor` | `NodeAnchor`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
-/// | `AttrEdgeLabel` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `KeyUnique`, `ReferenceResolves`, `Acyclic` |
+/// | `AttrEdgeLabel` | `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `PositionDistinct`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `Acyclic`, `External` |
 /// | `AttrEdgePosition` | `PositionDistinct`, `KeyUnique` |
 /// | `AddRow` | `NodeAnchor`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
-/// | `AddPair` | `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `KeyUnique`, `ReferenceResolves`, `External` |
-/// | `DelPair` | `RequiredEdge`, `OutDegree`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `AddPair` | `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
+/// | `DelPair` | `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `Cell` | `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves` |
 /// | `Table` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
 /// | `InsertNode` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
-/// | `DeleteNode` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `DeleteNode` | `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `ContractNode`, `JoinFeatures` | `NodeAnchor`, `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `FanWellFormed`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `TreeRoot`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `RelabelNode` | `NodeAnchor`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `Attribute`, `KeyUnique`, `ReferenceResolves`, `External` |
-/// | `MoveSubtree` | `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
+/// | `MoveSubtree` | `ReservedVocabulary`, `EdgeDeclared`, `EndpointCoherence`, `RequiredEdge`, `OutDegree`, `ValueConstraint`, `RequiredValue`, `TreeParentMap`, `KeyUnique`, `ReferenceResolves`, `TreeReachable`, `External` |
 /// | `InsertFan`, `DeleteFan` | `FanWellFormed` |
 ///
 /// A kind with no compiled check is dropped from its row, and a row left

@@ -1,0 +1,1210 @@
+{
+  "name": "keys/dangling_foreign_key_lenient",
+  "protocol": "validation-fixtures-table",
+  "protocol_definition": {
+    "name": "validation-fixtures-table",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "table",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "actor": {
+        "id": "actor",
+        "kind": "table",
+        "nsid": null
+      },
+      "actor.actor_id": {
+        "id": "actor.actor_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "actor.name": {
+        "id": "actor.name",
+        "kind": "string",
+        "nsid": null
+      },
+      "film": {
+        "id": "film",
+        "kind": "table",
+        "nsid": null
+      },
+      "film.film_id": {
+        "id": "film.film_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "film.title": {
+        "id": "film.title",
+        "kind": "string",
+        "nsid": null
+      },
+      "film_actor": {
+        "id": "film_actor",
+        "kind": "table",
+        "nsid": null
+      },
+      "film_actor.actor_id": {
+        "id": "film_actor.actor_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "film_actor.film_id": {
+        "id": "film_actor.film_id",
+        "kind": "integer",
+        "nsid": null
+      },
+      "staff": {
+        "id": "staff",
+        "kind": "table",
+        "nsid": null
+      },
+      "staff.reports_to": {
+        "id": "staff.reports_to",
+        "kind": "integer",
+        "nsid": null
+      },
+      "staff.staff_id": {
+        "id": "staff.staff_id",
+        "kind": "integer",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        },
+        "fk"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        },
+        "prop"
+      ],
+      [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "actor": [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ],
+      "film": [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        }
+      ],
+      "film_actor": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        },
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        }
+      ],
+      "staff": [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        },
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        },
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        }
+      ]
+    },
+    "incoming": {
+      "actor": [
+        {
+          "src": "film_actor",
+          "tgt": "actor",
+          "kind": "fk",
+          "name": "film_actor_actor"
+        }
+      ],
+      "actor.actor_id": [
+        {
+          "src": "actor",
+          "tgt": "actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        }
+      ],
+      "actor.name": [
+        {
+          "src": "actor",
+          "tgt": "actor.name",
+          "kind": "prop",
+          "name": "name"
+        }
+      ],
+      "film": [
+        {
+          "src": "film_actor",
+          "tgt": "film",
+          "kind": "fk",
+          "name": "film_actor_film"
+        }
+      ],
+      "film.film_id": [
+        {
+          "src": "film",
+          "tgt": "film.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        }
+      ],
+      "film.title": [
+        {
+          "src": "film",
+          "tgt": "film.title",
+          "kind": "prop",
+          "name": "title"
+        }
+      ],
+      "film_actor.actor_id": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.actor_id",
+          "kind": "prop",
+          "name": "actor_id"
+        }
+      ],
+      "film_actor.film_id": [
+        {
+          "src": "film_actor",
+          "tgt": "film_actor.film_id",
+          "kind": "prop",
+          "name": "film_id"
+        }
+      ],
+      "staff": [
+        {
+          "src": "staff",
+          "tgt": "staff",
+          "kind": "fk",
+          "name": "staff_reports_to"
+        }
+      ],
+      "staff.reports_to": [
+        {
+          "src": "staff",
+          "tgt": "staff.reports_to",
+          "kind": "prop",
+          "name": "reports_to"
+        }
+      ],
+      "staff.staff_id": [
+        {
+          "src": "staff",
+          "tgt": "staff.staff_id",
+          "kind": "prop",
+          "name": "staff_id"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "actor",
+          "actor.actor_id"
+        ],
+        [
+          {
+            "src": "actor",
+            "tgt": "actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ]
+      ],
+      [
+        [
+          "actor",
+          "actor.name"
+        ],
+        [
+          {
+            "src": "actor",
+            "tgt": "actor.name",
+            "kind": "prop",
+            "name": "name"
+          }
+        ]
+      ],
+      [
+        [
+          "film",
+          "film.film_id"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "film.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ]
+      ],
+      [
+        [
+          "film",
+          "film.title"
+        ],
+        [
+          {
+            "src": "film",
+            "tgt": "film.title",
+            "kind": "prop",
+            "name": "title"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "actor"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "film_actor_actor"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film",
+            "kind": "fk",
+            "name": "film_actor_film"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film_actor.actor_id"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.actor_id",
+            "kind": "prop",
+            "name": "actor_id"
+          }
+        ]
+      ],
+      [
+        [
+          "film_actor",
+          "film_actor.film_id"
+        ],
+        [
+          {
+            "src": "film_actor",
+            "tgt": "film_actor.film_id",
+            "kind": "prop",
+            "name": "film_id"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff",
+            "kind": "fk",
+            "name": "staff_reports_to"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff.reports_to"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff.reports_to",
+            "kind": "prop",
+            "name": "reports_to"
+          }
+        ]
+      ],
+      [
+        [
+          "staff",
+          "staff.staff_id"
+        ],
+        [
+          {
+            "src": "staff",
+            "tgt": "staff.staff_id",
+            "kind": "prop",
+            "name": "staff_id"
+          }
+        ]
+      ]
+    ],
+    "declarations": {
+      "keys": {
+        "actor": [
+          {
+            "id": "actor_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "actor",
+                    "tgt": "actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "film": [
+          {
+            "id": "film_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "film",
+                    "tgt": "film.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "film_actor": [
+          {
+            "id": "film_actor_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              },
+              {
+                "path": [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ],
+        "staff": [
+          {
+            "id": "staff_pk",
+            "parts": [
+              {
+                "path": [
+                  {
+                    "src": "staff",
+                    "tgt": "staff.staff_id",
+                    "kind": "prop",
+                    "name": "staff_id"
+                  }
+                ]
+              }
+            ],
+            "role": "primary",
+            "scope": "global"
+          }
+        ]
+      },
+      "references": {
+        "film_actor_actor": {
+          "id": "film_actor_actor",
+          "holder": "film_actor",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.actor_id",
+                    "kind": "prop",
+                    "name": "actor_id"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "actor",
+          "target_key": "actor_pk",
+          "edge": {
+            "src": "film_actor",
+            "tgt": "actor",
+            "kind": "fk",
+            "name": "film_actor_actor"
+          },
+          "cardinality": "one",
+          "nullable": false,
+          "on_unresolved": "complement",
+          "mode": "add_edge"
+        },
+        "film_actor_film": {
+          "id": "film_actor_film",
+          "holder": "film_actor",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "film_actor",
+                    "tgt": "film_actor.film_id",
+                    "kind": "prop",
+                    "name": "film_id"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "film",
+          "target_key": "film_pk",
+          "edge": {
+            "src": "film_actor",
+            "tgt": "film",
+            "kind": "fk",
+            "name": "film_actor_film"
+          },
+          "cardinality": "one",
+          "nullable": false,
+          "on_unresolved": "complement",
+          "mode": "add_edge"
+        },
+        "staff_reports_to": {
+          "id": "staff_reports_to",
+          "holder": "staff",
+          "source": {
+            "key_value": {
+              "parts": [
+                [
+                  {
+                    "src": "staff",
+                    "tgt": "staff.reports_to",
+                    "kind": "prop",
+                    "name": "reports_to"
+                  }
+                ]
+              ]
+            }
+          },
+          "target_vertex": "staff",
+          "target_key": "staff_pk",
+          "edge": {
+            "src": "staff",
+            "tgt": "staff",
+            "kind": "fk",
+            "name": "staff_reports_to"
+          },
+          "cardinality": "one",
+          "nullable": true,
+          "on_unresolved": "error",
+          "mode": "add_edge"
+        }
+      }
+    }
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": null
+  },
+  "external": [],
+  "instance": {
+    "table": {
+      "tables": {
+        "actor": {
+          "1": {
+            "actor_id": {
+              "Int": 1
+            },
+            "name": {
+              "Str": "Ann"
+            }
+          },
+          "2": {
+            "actor_id": {
+              "Int": 2
+            },
+            "name": {
+              "Str": "Bo"
+            }
+          }
+        },
+        "film": {
+          "3": {
+            "film_id": {
+              "Int": 10
+            },
+            "title": {
+              "Str": "Alien"
+            }
+          },
+          "4": {
+            "film_id": {
+              "Int": 11
+            },
+            "title": {
+              "Str": "Heat"
+            }
+          }
+        },
+        "film_actor": {
+          "5": {
+            "actor_id": {
+              "Int": 9
+            },
+            "film_id": {
+              "Int": 10
+            }
+          }
+        },
+        "staff": {
+          "6": {
+            "staff_id": {
+              "Int": 1
+            }
+          },
+          "7": {
+            "reports_to": {
+              "Int": 1
+            },
+            "staff_id": {
+              "Int": 2
+            }
+          },
+          "8": {
+            "reports_to": {
+              "Int": 2
+            },
+            "staff_id": {
+              "Int": 3
+            }
+          }
+        }
+      },
+      "foreign_keys": []
+    }
+  },
+  "edit_trace": {
+    "table": []
+  },
+  "report": {
+    "shape": "table",
+    "scope": "instance",
+    "plan": "fdd99de3f8ee7ef93e323195157421e0cbdb9745de5e982e84a8a1a94696e402",
+    "status": "passed",
+    "diagnostics": [
+      {
+        "check": {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "film_actor_actor"
+          }
+        },
+        "class": "maintained_global",
+        "requirement": "advisory",
+        "subject": {
+          "row": 5
+        },
+        "elements": [
+          {
+            "row": 5
+          }
+        ],
+        "violation": {
+          "dangling_reference": {
+            "reference": "film_actor_actor",
+            "key": [
+              {
+                "Int": 9
+              }
+            ]
+          }
+        },
+        "source": null
+      }
+    ],
+    "incomplete": [],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 8,
+          "passed": 8,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "actor",
+              "key": "actor_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "film",
+              "key": "film_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "film_actor",
+              "key": "film_actor_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "required_value",
+          "decl": {
+            "key": {
+              "vertex": "staff",
+              "key": "staff_pk"
+            }
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "actor"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 2,
+          "passed": 2,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "film_actor"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "attribute",
+          "decl": {
+            "vertex": "staff"
+          }
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "actor",
+              "key": "actor_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "film",
+              "key": "film_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "film_actor",
+              "key": "film_actor_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "key_unique",
+          "decl": {
+            "key": {
+              "vertex": "staff",
+              "key": "staff_pk"
+            }
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "film_actor_actor"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "advisory",
+          "instances": 1,
+          "passed": 0,
+          "failed": 1,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "film_actor_film"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "advisory",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "reference_resolves",
+          "decl": {
+            "reference": "staff_reports_to"
+          }
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 3,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}

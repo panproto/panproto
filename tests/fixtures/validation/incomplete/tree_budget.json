@@ -1,0 +1,571 @@
+{
+  "name": "incomplete/tree_budget",
+  "protocol": "validation-fixtures-tree",
+  "protocol_definition": {
+    "name": "validation-fixtures-tree",
+    "schema_theory": "",
+    "instance_theory": "",
+    "schema_composition": null,
+    "instance_composition": null,
+    "edge_rules": [],
+    "obj_kinds": [],
+    "constraint_sorts": [
+      "maxLength",
+      "minimum",
+      "maximum",
+      "maxOut",
+      "minOut",
+      "acyclic",
+      "pattern",
+      "required"
+    ],
+    "has_order": false,
+    "has_coproducts": false,
+    "has_recursion": false,
+    "has_causal": false,
+    "nominal_identity": false,
+    "has_defaults": false,
+    "has_coercions": false,
+    "has_mergers": false,
+    "has_policies": false,
+    "syntactic_shape": "tree",
+    "semantic_shape": "graph",
+    "constraint_semantics": {
+      "acyclic": "acyclic",
+      "maxLength": {
+        "max_length": "chars"
+      },
+      "maxOut": "max_out_degree",
+      "maximum": "maximum",
+      "minOut": "min_out_degree",
+      "minimum": "minimum",
+      "pattern": "pattern",
+      "required": "required_value"
+    },
+    "value_kinds": {},
+    "non_value_kinds": []
+  },
+  "schema": {
+    "protocol": "",
+    "vertices": {
+      "item": {
+        "id": "item",
+        "kind": "object",
+        "nsid": null
+      }
+    },
+    "edges": [
+      [
+        {
+          "src": "item",
+          "tgt": "item",
+          "kind": "prop",
+          "name": "next"
+        },
+        "prop"
+      ]
+    ],
+    "hyper_edges": {},
+    "constraints": {},
+    "required": {},
+    "nsids": {},
+    "entries": [],
+    "variants": {},
+    "orderings": [],
+    "recursion_points": {},
+    "spans": {},
+    "usage_modes": [],
+    "nominal": {},
+    "coercions": [],
+    "mergers": {},
+    "defaults": {},
+    "policies": {},
+    "outgoing": {
+      "item": [
+        {
+          "src": "item",
+          "tgt": "item",
+          "kind": "prop",
+          "name": "next"
+        }
+      ]
+    },
+    "incoming": {
+      "item": [
+        {
+          "src": "item",
+          "tgt": "item",
+          "kind": "prop",
+          "name": "next"
+        }
+      ]
+    },
+    "between": [
+      [
+        [
+          "item",
+          "item"
+        ],
+        [
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ]
+      ]
+    ]
+  },
+  "options": {
+    "requirements": [],
+    "external": {},
+    "sources": []
+  },
+  "budget": {
+    "max_reads": 3
+  },
+  "external": [],
+  "instance": {
+    "tree": {
+      "nodes": {
+        "0": {
+          "id": 0,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "1": {
+          "id": 1,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "2": {
+          "id": 2,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "3": {
+          "id": 3,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "4": {
+          "id": 4,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        },
+        "5": {
+          "id": 5,
+          "anchor": "item",
+          "value": null,
+          "discriminator": null,
+          "extra_fields": {},
+          "position": null,
+          "shape": {
+            "kind": "plain"
+          },
+          "annotations": {}
+        }
+      },
+      "arcs": [
+        [
+          0,
+          1,
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ],
+        [
+          1,
+          2,
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ],
+        [
+          2,
+          3,
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ],
+        [
+          3,
+          4,
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ],
+        [
+          4,
+          5,
+          {
+            "src": "item",
+            "tgt": "item",
+            "kind": "prop",
+            "name": "next"
+          }
+        ]
+      ],
+      "fans": [],
+      "root": 0,
+      "schema_root": "item",
+      "parent_map": {
+        "1": 0,
+        "2": 1,
+        "3": 2,
+        "4": 3,
+        "5": 4
+      },
+      "children_map": {
+        "0": [
+          1
+        ],
+        "1": [
+          2
+        ],
+        "2": [
+          3
+        ],
+        "3": [
+          4
+        ],
+        "4": [
+          5
+        ]
+      }
+    }
+  },
+  "edit_trace": {
+    "tree": []
+  },
+  "report": {
+    "shape": "tree",
+    "scope": "instance",
+    "plan": "17aeb5a7da227f8d7227bb22718a2b329783b9514a0c300af9676d21ed252339",
+    "status": "incomplete",
+    "diagnostics": [],
+    "incomplete": [
+      {
+        "check": {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "node": 3
+            }
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "reserved_vocabulary",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "node": 0
+            }
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "arc": {
+                "parent": 0,
+                "child": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "arc": {
+                "parent": 0,
+                "child": 1
+              }
+            }
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "tree_root",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": null
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "tree_parent_map",
+          "decl": "schema"
+        },
+        "class": "graph_local",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "node": 0
+            }
+          }
+        }
+      },
+      {
+        "check": {
+          "kind": "tree_reachable",
+          "decl": "schema"
+        },
+        "class": "maintained_global",
+        "requirement": "required",
+        "subject": null,
+        "reason": {
+          "budget": {
+            "limit": 3,
+            "spent": 3,
+            "from": {
+              "node": 0
+            }
+          }
+        }
+      }
+    ],
+    "coverage": [
+      [
+        {
+          "kind": "schema_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "declaration_interpretable",
+          "decl": "schema"
+        },
+        {
+          "class": "static",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 1,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "node_anchor",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 6,
+          "passed": 3,
+          "failed": 0,
+          "incomplete": 3
+        }
+      ],
+      [
+        {
+          "kind": "reserved_vocabulary",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 11,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 11
+        }
+      ],
+      [
+        {
+          "kind": "edge_declared",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 5
+        }
+      ],
+      [
+        {
+          "kind": "endpoint_coherence",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 5,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 5
+        }
+      ],
+      [
+        {
+          "kind": "fan_well_formed",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 0,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 0
+        }
+      ],
+      [
+        {
+          "kind": "tree_root",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 1,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 1
+        }
+      ],
+      [
+        {
+          "kind": "tree_parent_map",
+          "decl": "schema"
+        },
+        {
+          "class": "graph_local",
+          "requirement": "required",
+          "instances": 6,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 6
+        }
+      ],
+      [
+        {
+          "kind": "tree_reachable",
+          "decl": "schema"
+        },
+        {
+          "class": "maintained_global",
+          "requirement": "required",
+          "instances": 6,
+          "passed": 0,
+          "failed": 0,
+          "incomplete": 6
+        }
+      ]
+    ]
+  },
+  "edit_outcomes": []
+}
