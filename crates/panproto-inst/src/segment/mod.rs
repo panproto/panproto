@@ -37,6 +37,7 @@ mod stream;
 #[cfg(test)]
 mod tests;
 mod tree_bytes;
+mod validate;
 
 pub use crate::identity::SEGMENT_EDGE_IDS_CONTEXT;
 pub use body::{
@@ -62,3 +63,4 @@ pub use tree_bytes::{
     FanRecord, canonical_winstance_bytes, winstance_digest, write_arc_record, write_winstance,
     write_winstance_header,
 };
+pub use validate::validate_segment;
