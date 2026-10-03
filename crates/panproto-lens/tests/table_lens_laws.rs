@@ -6,7 +6,9 @@ use std::fs;
 
 use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::{CoercionClass, Name};
-use panproto_inst::identity::{AnyComplement, Encoding, IdentityField, decode_complement};
+use panproto_inst::identity::{
+    AnyComplement, Encoding, IdentityCarrier, IdentityField, decode_complement,
+};
 use panproto_inst::{
     BoundaryProtocols, CompiledMigration, ComplementShape, EdgeId, FInstance, FieldTransform,
     IdentityError, PutDomainError, RowId, SynthIndex, TableComplement, TableEmbedding, Value,
@@ -15,8 +17,8 @@ use panproto_inst::{
 use panproto_lens::asymmetric::ComplementCompose;
 use panproto_lens::table_lens;
 use panproto_lens::{
-    ComplementIdentity, GraphComposite, Lens, LensError, LensPath, LensShape, TableContext,
-    TableShape,
+    ComplementIdentity, GraphComposite, LawShape, Lens, LensError, LensPath, LensShape, SmallScope,
+    TableContext, TableShape,
 };
 use panproto_schema::{
     ConstraintSemantics, Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, ScalarKind, Schema,
@@ -256,6 +258,643 @@ fn one_column() -> (Protocol, Schema, Lens, FInstance) {
         .with_rows("t", [(RowId(0), row(&[("a", Value::Int(1))]))])
         .unwrap();
     (p, schema, lens, source)
+}
+
+fn raw_complement_free_put(
+    lens: &Lens,
+    view: &FInstance,
+    boundary: BoundaryProtocols<'_>,
+) -> Result<FInstance, LensError> {
+    let mut complement = TableComplement::empty();
+    complement.stamp(lens.identity(ComplementShape::Functor), &lens.src_schema);
+    table_lens::put(lens, view, &complement, boundary)
+}
+
+#[test]
+fn table_put_without_complement_agrees_with_the_shape_classifier() {
+    let (protocol, schema, lens, source) = one_column();
+    let boundary = contexts(&protocol);
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    assert!(table_lens::obstruction_to_isomorphism(&lens, boundary).is_none());
+    let restored = table_lens::put_without_complement(&lens, &view, boundary).unwrap();
+    assert_eq!(source, restored);
+
+    let projection = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: std::iter::once("t".into()).collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: schema,
+        tgt_schema: tables(&[("t", &[])], &[]),
+    };
+    let (view, _) = table_lens::get(&projection, &source, boundary).unwrap();
+    assert!(!table_lens::is_isomorphism(&projection, boundary));
+    assert!(matches!(
+        table_lens::put_without_complement(&projection, &view, boundary),
+        Err(LensError::NotAnIsomorphism { .. })
+    ));
+}
+
+#[test]
+fn table_obstructions_are_reported() {
+    let protocol = protocol();
+    let relation = fk("right", "left", "left");
+    let lens = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: std::iter::once("middle".into()).collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: tables(
+            &[("right", &[]), ("middle", &[]), ("left", &[])],
+            &[&relation],
+        ),
+        tgt_schema: tables(&[("middle", &[])], &[]),
+    };
+    let boundary = contexts(&protocol);
+
+    assert!(!table_lens::is_isomorphism(&lens, boundary));
+    assert_eq!(
+        table_lens::obstruction_to_isomorphism(&lens, boundary).as_deref(),
+        Some("table `left` is dropped, so its rows cannot be reconstructed without a complement")
+    );
+}
+
+#[test]
+fn a_target_only_default_is_complement_free_for_tables() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        surviving_edges: source_schema.edges.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::AddField {
+            key: "b".to_owned(),
+            value: Value::Int(0),
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(1))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).and_then(|r| r.get("b")),
+        Some(&Value::Int(0))
+    );
+    let restored = table_lens::put_without_complement(&lens, &view, boundary).unwrap();
+    assert_eq!(restored, source);
+}
+
+#[test]
+fn repeated_defaults_on_one_derived_column_are_complement_free() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        surviving_edges: source_schema.edges.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![
+            FieldTransform::AddField {
+                key: "b".to_owned(),
+                value: Value::Int(0),
+            },
+            FieldTransform::AddField {
+                key: "b".to_owned(),
+                value: Value::Int(1),
+            },
+        ],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(7))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, complement) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert!(complement.residue_is_trivial());
+    assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(0));
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn renaming_a_source_column_over_a_derived_column_is_complement_free() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("old", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("new", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: std::iter::once(Name::from("t")).collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![
+            FieldTransform::AddField {
+                key: "new".to_owned(),
+                value: Value::Int(0),
+            },
+            FieldTransform::RenameField {
+                old_key: "old".to_owned(),
+                new_key: "new".to_owned(),
+            },
+        ],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("old", Value::Int(7))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["new"], Value::Int(7));
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn a_fresh_computed_column_does_not_obstruct_complement_free_put() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        surviving_edges: source_schema.edges.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ComputeField {
+            target_key: "b".to_owned(),
+            expr: Expr::Var("a".into()),
+            inverse: None,
+            coercion_class: CoercionClass::Projection,
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(7))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, complement) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert!(complement.residue_is_trivial());
+    assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(7));
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn a_fresh_computed_isomorphism_preserves_a_retained_source_column() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: source_schema.vertices.keys().cloned().collect(),
+        surviving_edges: source_schema.edges.keys().cloned().collect(),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ComputeField {
+            target_key: "b".to_owned(),
+            expr: Expr::Var("a".into()),
+            inverse: Some(Expr::Var("b".into())),
+            coercion_class: CoercionClass::Iso,
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows(
+            "t",
+            [
+                (RowId(0), row(&[("a", Value::Int(7))])),
+                (RowId(1), row(&[])),
+                (RowId(2), row(&[("a", Value::Null)])),
+            ],
+        )
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    assert!(table_lens::obstruction_to_isomorphism(&lens, boundary).is_none());
+    let (view, complement) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert!(complement.residue_is_trivial());
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn an_optional_computed_replacement_is_not_a_table_isomorphism() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("b", "int")])], &[]);
+    let replacement = |inverse, coercion_class| {
+        let mut compiled = CompiledMigration {
+            surviving_verts: std::iter::once(Name::from("t")).collect(),
+            ..CompiledMigration::default()
+        };
+        compiled.field_transforms.insert(
+            "t".into(),
+            vec![
+                FieldTransform::ComputeField {
+                    target_key: "b".to_owned(),
+                    expr: Expr::Var("a".into()),
+                    inverse,
+                    coercion_class,
+                },
+                FieldTransform::DropField {
+                    key: "a".to_owned(),
+                },
+            ],
+        );
+        Lens {
+            compiled,
+            src_schema: source_schema.clone(),
+            tgt_schema: target_schema.clone(),
+        }
+    };
+    let lossy = replacement(None, CoercionClass::Projection);
+    let invertible = replacement(Some(Expr::Var("b".into())), CoercionClass::Iso);
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(7))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(!table_lens::is_isomorphism(&lossy, boundary));
+    assert!(!table_lens::is_isomorphism(&invertible, boundary));
+    let (view, _) = table_lens::get(&invertible, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(7));
+    assert_eq!(
+        raw_complement_free_put(&invertible, &view, boundary).unwrap(),
+        source
+    );
+
+    let absent = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[]))])
+        .unwrap();
+    let (absent_view, _) = table_lens::get(&invertible, &absent, boundary).unwrap();
+    assert_ne!(
+        raw_complement_free_put(&invertible, &absent_view, boundary).unwrap(),
+        absent
+    );
+}
+
+#[test]
+fn an_in_place_computed_isomorphism_restores_its_source_cell() {
+    let (protocol, _schema, mut lens, source) = one_column();
+    lens.compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::ComputeField {
+            target_key: "a".to_owned(),
+            expr: Expr::Builtin(
+                BuiltinOp::Add,
+                vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+            ),
+            inverse: Some(Expr::Builtin(
+                BuiltinOp::Sub,
+                vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+            )),
+            coercion_class: CoercionClass::Iso,
+        }],
+    );
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["a"], Value::Int(2));
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn redundant_transform_and_structural_renames_remain_invertible() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: ["t", "t.b"].into_iter().map(Name::from).collect(),
+        surviving_edges: [column("t", "b")].into(),
+        vertex_remap: HashMap::from([("t.a".into(), "t.b".into())]),
+        edge_remap: HashMap::from([(column("t", "a"), column("t", "b"))]),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::RenameField {
+            old_key: "a".to_owned(),
+            new_key: "b".to_owned(),
+        }],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(7))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(7));
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn an_encoded_carrier_must_reach_its_matching_inverse() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("b", "int")])], &[]);
+    let mut compiled = CompiledMigration {
+        surviving_verts: ["t", "t.b"].into_iter().map(Name::from).collect(),
+        surviving_edges: [column("t", "b")].into(),
+        vertex_remap: HashMap::from([("t.a".into(), "t.b".into())]),
+        edge_remap: HashMap::from([(column("t", "a"), column("t", "b"))]),
+        ..CompiledMigration::default()
+    };
+    compiled.field_transforms.insert(
+        "t".into(),
+        vec![
+            FieldTransform::ComputeField {
+                target_key: "b".to_owned(),
+                expr: Expr::Builtin(
+                    BuiltinOp::Add,
+                    vec![Expr::Var("a".into()), Expr::Lit(Literal::Int(1))],
+                ),
+                inverse: Some(Expr::Builtin(
+                    BuiltinOp::Sub,
+                    vec![Expr::Var("b".into()), Expr::Lit(Literal::Int(1))],
+                )),
+                coercion_class: CoercionClass::Iso,
+            },
+            FieldTransform::DropField {
+                key: "a".to_owned(),
+            },
+        ],
+    );
+    let lens = Lens {
+        compiled,
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), row(&[("a", Value::Int(1))]))])
+        .unwrap();
+    let boundary = contexts(&protocol);
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(view.row(RowId(0)).unwrap()["b"], Value::Int(2));
+
+    assert!(!table_lens::is_isomorphism(&lens, boundary));
+    assert!(matches!(
+        table_lens::put(&lens, &view, &TableComplement::empty(), boundary),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::DerivedCellEdited {
+                elem: ViewRef::Row(RowId(0)), ref field
+            } if field == "b")
+    ));
+}
+
+#[test]
+fn structural_column_rename_chains_are_simultaneous() {
+    let protocol = protocol();
+    let source_schema = tables(&[("t", &[("a", "int"), ("b", "int")])], &[]);
+    let target_schema = tables(&[("t", &[("b", "int"), ("c", "int")])], &[]);
+    let lens = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: ["t", "t.b", "t.c"].into_iter().map(Name::from).collect(),
+            surviving_edges: [column("t", "b"), column("t", "c")].into(),
+            vertex_remap: HashMap::from([
+                ("t.a".into(), "t.b".into()),
+                ("t.b".into(), "t.c".into()),
+            ]),
+            edge_remap: HashMap::from([
+                (column("t", "a"), column("t", "b")),
+                (column("t", "b"), column("t", "c")),
+            ]),
+            ..CompiledMigration::default()
+        },
+        src_schema: source_schema,
+        tgt_schema: target_schema,
+    };
+    let source = FInstance::new()
+        .with_rows(
+            "t",
+            [(RowId(0), row(&[("a", Value::Int(1)), ("b", Value::Int(2))]))],
+        )
+        .unwrap();
+    let boundary = contexts(&protocol);
+
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert_eq!(
+        view.row(RowId(0)).unwrap(),
+        &row(&[("b", Value::Int(1)), ("c", Value::Int(2))])
+    );
+    assert_eq!(
+        table_lens::put_without_complement(&lens, &view, boundary).unwrap(),
+        source
+    );
+}
+
+#[test]
+fn a_nested_path_transform_is_not_a_table_isomorphism() {
+    let (protocol, _schema, mut lens, _source) = one_column();
+    lens.compiled.field_transforms.insert(
+        "t".into(),
+        vec![FieldTransform::PathTransform {
+            path: vec!["a".to_owned()],
+            inner: Box::new(FieldTransform::RenameField {
+                old_key: "x".to_owned(),
+                new_key: "y".to_owned(),
+            }),
+        }],
+    );
+    let boundary = contexts(&protocol);
+    assert!(!table_lens::is_isomorphism(&lens, boundary));
+    assert!(
+        table_lens::obstruction_to_isomorphism(&lens, boundary)
+            .is_some_and(|detail| detail.contains("nested path transform"))
+    );
+}
+
+#[test]
+fn table_isomorphism_is_classified_throughout_finite_scope() {
+    let protocol = protocol();
+    let relation = fk("left", "right", "right");
+    let schema = tables(
+        &[
+            ("left", &[("value", "int")]),
+            ("right", &[("value", "int")]),
+        ],
+        &[&relation],
+    );
+    let lens = identity(&schema);
+    let boundary = contexts(&protocol);
+    let context = TableContext {
+        src: protocol.clone(),
+        tgt: protocol.clone(),
+    };
+    let sources = TableShape::enumerate_small(
+        &schema,
+        SmallScope {
+            max_nodes: 2,
+            max_edges: 1,
+        },
+        &context,
+    );
+    assert!(
+        sources.iter().any(|source| source.pair_count() == 1),
+        "finite table scope must include a foreign-key carrier"
+    );
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    let identity_round_trips = sources.iter().all(|source| {
+        let (view, _) = table_lens::get(&lens, source, boundary).expect("finite table get");
+        raw_complement_free_put(&lens, &view, boundary).is_ok_and(|restored| *source == restored)
+    });
+    assert_eq!(
+        table_lens::is_isomorphism(&lens, boundary),
+        identity_round_trips
+    );
+
+    let source_schema = tables(&[("t", &[("a", "int")])], &[]);
+    let target_schema = tables(&[("t", &[])], &[]);
+    let projection = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: std::iter::once("t".into()).collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: source_schema.clone(),
+        tgt_schema: target_schema,
+    };
+    assert!(!table_lens::is_isomorphism(&projection, boundary));
+    let column_sources = TableShape::enumerate_small(
+        &source_schema,
+        SmallScope {
+            max_nodes: 1,
+            max_edges: 0,
+        },
+        &context,
+    );
+    let column_round_trips = column_sources.iter().all(|source| {
+        let (view, _) =
+            table_lens::get(&projection, source, boundary).expect("column projection get");
+        raw_complement_free_put(&projection, &view, boundary)
+            .is_ok_and(|restored| *source == restored)
+    });
+    assert!(
+        !column_round_trips,
+        "the finite scope has a populated dropped cell"
+    );
+    assert_eq!(
+        table_lens::is_isomorphism(&projection, boundary),
+        column_round_trips
+    );
+}
+
+#[test]
+fn table_foreign_key_classifier_agrees_with_raw_complement_free_put() {
+    let protocol = protocol();
+    let boundary = contexts(&protocol);
+    let context = TableContext {
+        src: protocol.clone(),
+        tgt: protocol.clone(),
+    };
+    let source_relation = fk("left", "right", "right");
+    let relation_source_schema = tables(
+        &[
+            ("left", &[("value", "int")]),
+            ("right", &[("value", "int")]),
+        ],
+        &[&source_relation],
+    );
+    let relation_target_schema = tables(
+        &[
+            ("left", &[("value", "int")]),
+            ("right", &[("value", "int")]),
+        ],
+        &[],
+    );
+    let relation_projection = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: relation_target_schema.vertices.keys().cloned().collect(),
+            surviving_edges: relation_target_schema.edges.keys().cloned().collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: relation_source_schema.clone(),
+        tgt_schema: relation_target_schema,
+    };
+    let relation_sources = TableShape::enumerate_small(
+        &relation_source_schema,
+        SmallScope {
+            max_nodes: 2,
+            max_edges: 1,
+        },
+        &context,
+    );
+    assert!(
+        relation_sources
+            .iter()
+            .any(|source| source.pair_count() == 1)
+    );
+    let relation_round_trips = relation_sources.iter().all(|source| {
+        let (view, _) = table_lens::get(&relation_projection, source, boundary)
+            .expect("foreign-key projection get");
+        raw_complement_free_put(&relation_projection, &view, boundary)
+            .is_ok_and(|restored| *source == restored)
+    });
+    assert!(!relation_round_trips, "the finite scope has a dropped pair");
+    assert_eq!(
+        table_lens::is_isomorphism(&relation_projection, boundary),
+        relation_round_trips
+    );
 }
 
 #[test]
@@ -572,6 +1211,16 @@ fn requiredness_and_keys_are_the_only_cell_domain_constraints() {
     empty_view
         .insert_row("t", RowId(0), HashMap::new())
         .unwrap();
+    assert!(!table_lens::is_isomorphism(&lens, contexts(&p)));
+    assert!(
+        table_lens::obstruction_to_isomorphism(&lens, contexts(&p))
+            .is_some_and(|detail| detail.contains("required-value constraint"))
+    );
+    assert!(matches!(
+        raw_complement_free_put(&lens, &empty_view, contexts(&p)),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::MissingRequiredCell { .. })
+    ));
     let missing = table_lens::check_put_domain(&lens, &empty_view, &empty_complement, contexts(&p))
         .unwrap_err();
     assert!(missing.iter().any(|error| matches!(
@@ -600,6 +1249,100 @@ fn requiredness_and_keys_are_the_only_cell_domain_constraints() {
         PutDomainError::DuplicateKey { table, elems, .. }
             if table.as_str() == "t" && elems.len() == 2
     )));
+}
+
+#[test]
+fn table_classifier_ignores_validation_results_that_put_does_not_map() {
+    let required = required_protocol();
+    let schema = SchemaBuilder::new(&required)
+        .vertex("t", "record", None)
+        .unwrap()
+        .constraint("t", "required", "true")
+        .build()
+        .unwrap();
+    let lens = identity(&schema);
+    let source = FInstance::new()
+        .with_rows("t", [(RowId(0), HashMap::new())])
+        .unwrap();
+    let boundary = contexts(&required);
+    let (view, _) = table_lens::get(&lens, &source, boundary).unwrap();
+    assert!(table_lens::is_isomorphism(&lens, boundary));
+    assert_eq!(
+        raw_complement_free_put(&lens, &view, boundary).unwrap(),
+        source
+    );
+
+    let cast = Edge {
+        src: "film".into(),
+        tgt: "actor".into(),
+        kind: "prop".into(),
+        name: Some("cast".into()),
+    };
+    let field_schema = SchemaBuilder::new(&required)
+        .vertex("film", "record", None)
+        .unwrap()
+        .vertex("actor", "record", None)
+        .unwrap()
+        .edge("film", "actor", "prop", Some("cast"))
+        .unwrap()
+        .constraint("actor", "required", "true")
+        .build()
+        .unwrap();
+    let field_lens = identity(&field_schema);
+    let missing_field = FInstance::new()
+        .with_rows("film", [(RowId(0), HashMap::new())])
+        .unwrap();
+    let (view, _) = table_lens::get(&field_lens, &missing_field, boundary).unwrap();
+    assert!(!table_lens::is_isomorphism(&field_lens, boundary));
+    assert!(matches!(
+        raw_complement_free_put(&field_lens, &view, boundary),
+        Err(LensError::PutDomain(error))
+            if matches!(&*error, PutDomainError::MissingRequiredCell { field, .. }
+                if field == cast.name.as_ref().unwrap().as_str())
+    ));
+
+    let protocol = protocol();
+    let parent = fk("p", "t", "t");
+    let mut position_schema = tables(&[("p", &[]), ("t", &[])], &[&parent]);
+    position_schema.orderings.insert(parent.clone(), 0);
+    position_schema.declarations.keys.insert(
+        "t".into(),
+        vec![Key {
+            id: "by-position".into(),
+            parts: vec![KeyPart::Position { within: parent }],
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+        }],
+    );
+    let position_lens = identity(&position_schema);
+    let positioned = FInstance::new()
+        .with_rows("t", [(RowId(0), HashMap::new())])
+        .unwrap();
+    let boundary = contexts(&protocol);
+    let (view, _) = table_lens::get(&position_lens, &positioned, boundary).unwrap();
+    assert!(table_lens::is_isomorphism(&position_lens, boundary));
+    assert_eq!(
+        raw_complement_free_put(&position_lens, &view, boundary).unwrap(),
+        positioned
+    );
+
+    let mut empty_path_schema = tables(&[("t", &[])], &[]);
+    empty_path_schema.declarations.keys.insert(
+        "t".into(),
+        vec![Key {
+            id: "by-own-value".into(),
+            parts: vec![KeyPart::Path(Vec::new())],
+            role: KeyRole::Unique,
+            scope: KeyScope::Global,
+        }],
+    );
+    let empty_path_lens = identity(&empty_path_schema);
+    let (view, _) = table_lens::get(&empty_path_lens, &positioned, boundary).unwrap();
+    assert!(table_lens::is_isomorphism(&empty_path_lens, boundary));
+    assert_eq!(
+        raw_complement_free_put(&empty_path_lens, &view, boundary).unwrap(),
+        positioned
+    );
 }
 
 #[test]
@@ -667,6 +1410,16 @@ fn duplicate_key_ties_break_on_column_and_canonical_value_bytes() {
         )
         .unwrap();
     let (view, complement) = table_lens::get(&lens, &source, contexts(&p)).unwrap();
+    assert!(!table_lens::is_isomorphism(&lens, contexts(&p)));
+    assert!(
+        table_lens::obstruction_to_isomorphism(&lens, contexts(&p))
+            .is_some_and(|detail| detail.contains("duplicate key values"))
+    );
+    assert!(matches!(
+        raw_complement_free_put(&lens, &view, contexts(&p)),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::DuplicateKey { .. })
+    ));
     let violations =
         table_lens::check_put_domain(&lens, &view, &complement, contexts(&p)).unwrap_err();
     let duplicates: Vec<_> = violations
@@ -698,6 +1451,18 @@ fn an_undeclared_optional_cell_may_remain_absent() {
         table_lens::get(&lens, &source, contexts(&p)).unwrap().0,
         view
     );
+}
+
+#[test]
+fn table_get_refuses_an_undeclared_row_key() {
+    let (protocol, _schema, lens, _) = one_column();
+    let source = FInstance::new()
+        .with_rows(
+            "t",
+            [(RowId(0), row(&[("a", Value::Int(1)), ("x", Value::Int(2))]))],
+        )
+        .unwrap();
+    assert!(table_lens::get(&lens, &source, contexts(&protocol)).is_err());
 }
 
 #[test]

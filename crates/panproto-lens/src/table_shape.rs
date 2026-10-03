@@ -60,17 +60,26 @@ impl LensShape for TableShape {
         crate::table_lens::check_put_domain(lens, view, complement, ctx.protocols())
     }
 
-    fn synth_index(_complement: &Self::Complement) -> SynthIndex {
-        SynthIndex::default()
+    fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
+        panproto_inst::GInstance::from_finstance(instance).map_or_else(
+            |_| SynthIndex::default(),
+            |(_, embedding)| complement.synth_index(&embedding),
+        )
     }
 
     fn equivalent(
         a: &Self::Instance,
-        _ia: &SynthIndex,
+        ia: &SynthIndex,
         b: &Self::Instance,
-        _ib: &SynthIndex,
+        ib: &SynthIndex,
     ) -> bool {
-        a == b
+        let Ok((a_graph, _)) = panproto_inst::GInstance::from_finstance(a) else {
+            return false;
+        };
+        let Ok((b_graph, _)) = panproto_inst::GInstance::from_finstance(b) else {
+            return false;
+        };
+        crate::lens_shape::GraphShape::equivalent(&a_graph, ia, &b_graph, ib)
     }
 
     fn divergence(
@@ -128,5 +137,48 @@ impl LensShape for TableShape {
         _index: &SynthIndex,
     ) -> Vec<(Self::Instance, SynthIndex)> {
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeSet, HashMap};
+
+    use panproto_inst::{EdgeId, FInstance, RowId, SynthKey, TableComplement};
+    use panproto_schema::Edge;
+
+    use super::TableShape;
+    use crate::lens_shape::LensShape;
+
+    fn foreign_key() -> Edge {
+        Edge {
+            src: "author".into(),
+            tgt: "book".into(),
+            kind: "fk".into(),
+            name: Some("wrote".into()),
+        }
+    }
+
+    #[test]
+    fn table_synth_index_names_a_synthesized_pair_in_its_view_embedding()
+    -> Result<(), panproto_inst::InstError> {
+        let edge = foreign_key();
+        let mut view = FInstance::new();
+        view.insert_row("author", RowId(4), HashMap::new())?;
+        view.insert_row("book", RowId(9), HashMap::new())?;
+        view.insert_foreign_key(edge.clone(), RowId(4), RowId(9))?;
+        let mut complement = TableComplement::empty();
+        complement.synthesized_fk_pairs = BTreeSet::from([(edge.clone(), RowId(4), RowId(9))]);
+
+        let index = TableShape::synth_index(&view, &complement);
+        assert_eq!(
+            index.edges.get(&EdgeId(0)),
+            Some(&SynthKey::Contract {
+                src: 4,
+                tgt: 9,
+                edge,
+            })
+        );
+        Ok(())
     }
 }

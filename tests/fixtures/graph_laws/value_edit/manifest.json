@@ -1,0 +1,1 @@
+{"format_version":2,"mutation":"value_edit","expected":"ran","observation":{"ran":1,"shape_cannot_express":0,"no_candidate":5,"in_domain":1,"in_domain_ok":1,"negative":0,"negative_ok":0},"refusal":null}

@@ -3120,6 +3120,12 @@ fn apply_drop_sort_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+    new_schema.hyper_edges.retain(|_, hyper_edge| {
+        !hyper_edge
+            .signature
+            .values()
+            .any(|vertex| to_remove.contains(vertex))
+    });
 
     // Remove coercions where either key references the dropped sort
     new_schema
@@ -3206,6 +3212,9 @@ fn apply_drop_op_from_schema(schema: &Schema, name: &Arc<str>) -> Schema {
         .map(|(e, k)| (e.clone(), k.clone()))
         .collect();
     new_schema.edges = new_edges;
+    new_schema
+        .hyper_edges
+        .retain(|_, hyper_edge| *hyper_edge.kind != **name);
     rebuild_indices(&mut new_schema);
     new_schema
 }
@@ -3411,8 +3420,11 @@ fn identity_lens(schema: &Schema) -> Lens {
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used)]
 mod tests {
+    use std::collections::HashMap;
+
     use panproto_inst::value::Value;
-    use panproto_schema::Protocol;
+    use panproto_inst::{EdgeId, GInstance, HYPER_LABEL_KIND, HYPER_PARENT_KIND, Node, NodeShape};
+    use panproto_schema::{Edge, Protocol, SchemaBuilder};
 
     use super::{
         ComplementConstructor, ProtolensChain, combinators, elementary, horizontal_compose,
@@ -3910,6 +3922,101 @@ mod tests {
         let lens = p.instantiate(&schema, &protocol).unwrap();
         assert_eq!(lens.src_schema.vertices.len(), 3);
         assert_eq!(lens.tgt_schema.vertices.len(), 1);
+    }
+
+    #[test]
+    fn drop_sort_and_drop_op_cascade_dependent_hyperedges() {
+        let protocol = test_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "leaf", "rel", Some("leaf"))
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "rel",
+                HashMap::from([
+                    ("parent".to_owned(), "root".to_owned()),
+                    ("child".to_owned(), "leaf".to_owned()),
+                ]),
+                "parent",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+
+        let without_leaf = elementary::drop_sort("string")
+            .target_schema(&schema, &protocol)
+            .unwrap();
+        assert!(!without_leaf.hyper_edges.contains_key("fan"));
+
+        let without_rel = elementary::drop_op("rel")
+            .target_schema(&schema, &protocol)
+            .unwrap();
+        assert!(without_rel.edges.is_empty());
+        assert!(!without_rel.hyper_edges.contains_key("fan"));
+    }
+
+    #[test]
+    fn dropping_a_hyperedge_operation_records_its_reified_graph_residue() {
+        let protocol = test_protocol();
+        let schema = SchemaBuilder::new(&protocol)
+            .vertex("root", "object", None::<&str>)
+            .unwrap()
+            .vertex("leaf", "string", None::<&str>)
+            .unwrap()
+            .edge("root", "leaf", "rel", Some("leaf"))
+            .unwrap()
+            .hyper_edge(
+                "fan",
+                "rel",
+                HashMap::from([
+                    ("parent".to_owned(), "root".to_owned()),
+                    ("child".to_owned(), "leaf".to_owned()),
+                ]),
+                "parent",
+            )
+            .unwrap()
+            .build()
+            .unwrap();
+        let lens = elementary::drop_op("rel")
+            .instantiate(&schema, &protocol)
+            .unwrap();
+        let parent = Edge {
+            src: "fan".into(),
+            tgt: "root".into(),
+            kind: HYPER_PARENT_KIND.into(),
+            name: Some("parent".into()),
+        };
+        let child = Edge {
+            src: "fan".into(),
+            tgt: "leaf".into(),
+            kind: HYPER_LABEL_KIND.into(),
+            name: Some("child".into()),
+        };
+        let ordinary = Edge {
+            src: "root".into(),
+            tgt: "leaf".into(),
+            kind: "rel".into(),
+            name: Some("leaf".into()),
+        };
+        let source = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"))
+            .with_node(Node::new(2, "fan").with_shape(NodeShape::HyperEdge))
+            .with_edge_id(EdgeId(0), 2, 0, parent)
+            .with_edge_id(EdgeId(1), 2, 1, child)
+            .with_edge_id(EdgeId(2), 0, 1, ordinary);
+
+        let (view, complement) = crate::graph_lens::get(&lens, &source).unwrap();
+        assert!(view.node(2).is_none());
+        assert!(view.edges().is_empty());
+        assert!(complement.dropped_nodes.contains_key(&2));
+        assert_eq!(complement.dropped_edges.len(), 3);
+        let restored = crate::graph_lens::put(&lens, &view, &complement).unwrap();
+        assert!(GInstance::identical(&source, &restored));
     }
 
     #[test]

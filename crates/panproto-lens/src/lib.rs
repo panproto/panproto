@@ -4,8 +4,8 @@
 //!
 //! Every schema migration is a lens with a `get` direction (= restrict,
 //! projecting data forward) and a `put` direction (= restore from
-//! complement, bringing modifications back). The lens laws (`GetPut`
-//! and `PutGet`) guarantee round-trip fidelity.
+//! complement, bringing modifications back). The strict law gate checks
+//! `GetPut`, `PutGet`, totality, `PutTwice`, and presentation congruence.
 //!
 //! This crate provides:
 //!
@@ -17,7 +17,7 @@
 //! - **[`ProtolensChain`]**: Composable sequence of protolenses.
 //! - **[`auto_generate`]**: Automatic protolens generation from two schemas.
 //! - **[`compose()`]**: Compose two lenses sequentially.
-//! - **[`check_laws`]**: Verify `GetPut` and `PutGet` on a test instance.
+//! - **[`check_laws`]**: Run the five strict gates on a test instance.
 //!
 //! The mathematical foundations are based on asymmetric lenses with
 //! complement (Diskin et al., 2011), GAT-based protolenses (natural
@@ -47,6 +47,8 @@ pub mod enrichment_registry;
 pub mod error;
 pub mod fibration;
 pub mod graph_lens;
+pub mod graph_protolens;
+pub mod graph_symmetric;
 pub mod hint;
 pub mod identity;
 pub mod laws;
@@ -60,7 +62,9 @@ pub mod protolens_nat;
 pub mod symbolic;
 pub mod symmetric;
 pub mod table_lens;
+pub mod table_protolens;
 pub mod table_shape;
+pub mod table_symmetric;
 
 // Re-exports for convenience.
 pub use asymmetric::{
@@ -68,12 +72,15 @@ pub use asymmetric::{
 };
 pub use auto_lens::{
     AutoLensConfig, AutoLensResult, Stringency, auto_generate, auto_generate_candidates,
-    auto_generate_candidates_with_hints, auto_generate_with_hints,
+    auto_generate_candidates_with_hints, auto_generate_graph, auto_generate_table,
+    auto_generate_with_hints,
 };
 pub use candidate::{CandidateStep, LensCandidate};
 pub use complement_type::{
-    CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, chain_complement_spec,
-    complement_spec_at,
+    CapturedField, ComplementKind, ComplementSpec, DefaultRequirement, GraphComplementSpec,
+    GraphResidueKind, TableComplementSpec, TableResidueKind, chain_complement_spec,
+    complement_spec_at, graph_chain_complement_spec, graph_complement_spec_at,
+    table_chain_complement_spec, table_complement_spec_at,
 };
 pub use compose::compose;
 pub use cost::{chain_cost, complement_cost, verify_identity_cost, verify_subadditivity};
@@ -92,8 +99,17 @@ pub use graph_lens::{
     AlignError, Aligner, Alignment, GraphComposite, GraphCompositeComplement, IdAligner,
     SequentialGraphLens,
 };
+pub use graph_protolens::AppliedGraphProtolens;
 pub use identity::ComplementIdentity;
-pub use laws::{check_get_put, check_laws, check_put_get, check_put_put, instances_equivalent};
+pub use laws::{
+    FamilyReport, LawReport, LawShape, LensClassification, Mutation, MutationCases, SkipReason,
+    SmallScope, check_congruence, check_congruence_for_shape, check_get_put,
+    check_get_put_for_shape, check_laws, check_laws_exhaustive, check_laws_report, check_locality,
+    check_locality_for_shape, check_put_get, check_put_get_for_shape, check_put_injectivity,
+    check_put_injectivity_for_shape, check_put_put, check_put_twice, check_put_twice_for_shape,
+    check_totality, check_totality_for_shape, check_weak_put_get, check_weak_put_get_for_shape,
+    instances_equivalent,
+};
 pub use lens_graph::LensGraph;
 pub use lens_path::{LensPath, NormalGroup, PathComplement, PathComplementEntry, StageIndex};
 pub use lens_shape::{GraphShape, LensShape, TreeShape};
@@ -112,7 +128,9 @@ pub use symbolic::{
     simplify_steps,
 };
 pub use symmetric::{CoherenceViolation, SymmetricLens};
+pub use table_protolens::AppliedTableProtolens;
 pub use table_shape::{TableContext, TableShape};
+pub use table_symmetric::TableSymmetricContext;
 
 use std::collections::{BTreeMap, BTreeSet};
 

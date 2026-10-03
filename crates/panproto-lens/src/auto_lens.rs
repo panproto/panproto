@@ -10,6 +10,7 @@ use std::sync::Arc;
 
 use panproto_gat::{Name, Theory, TheoryEndofunctor, TheoryMorphism, TheoryTransform, factorize};
 use panproto_inst::value::Value;
+use panproto_inst::{BoundaryProtocols, RestrictPlan};
 use panproto_mig::SpanSearch;
 use panproto_mig::align::evidence::{
     AggregationPolicy, Cardinality, Provenance, RowFilter, aggregate,
@@ -898,6 +899,61 @@ pub fn auto_generate(
         seed_anchors,
         coerce_proposals,
     })
+}
+
+/// Automatically generate a lens and verify that its compiled migration is
+/// executable by the graph restrict engine.
+///
+/// This runs the same alignment and search pipeline as [`auto_generate`]; the
+/// only additional step is graph-plan compilation against the resulting
+/// source and target schemas.
+///
+/// # Errors
+///
+/// Returns the errors of [`auto_generate`] or graph-plan compilation.
+pub fn auto_generate_graph(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+) -> Result<AutoLensResult, LensError> {
+    let result = auto_generate(src, tgt, protocol, config)?;
+    RestrictPlan::compile(
+        &result.lens.src_schema,
+        &result.lens.tgt_schema,
+        &result.lens.compiled,
+    )?;
+    Ok(result)
+}
+
+/// Automatically generate a lens and verify that its compiled migration is
+/// executable by the table restrict engine.
+///
+/// This runs the same alignment and search pipeline as [`auto_generate`]; the
+/// only additional step is relation-schema and table-plan compilation. The
+/// same protocol describes both boundaries, matching [`auto_generate`]'s
+/// shape-neutral input contract.
+///
+/// # Errors
+///
+/// Returns the errors of [`auto_generate`] or table-plan compilation.
+pub fn auto_generate_table(
+    src: &Schema,
+    tgt: &Schema,
+    protocol: &Protocol,
+    config: &AutoLensConfig,
+) -> Result<AutoLensResult, LensError> {
+    let result = auto_generate(src, tgt, protocol, config)?;
+    RestrictPlan::compile_for_tables(
+        &result.lens.src_schema,
+        &result.lens.tgt_schema,
+        &result.lens.compiled,
+        BoundaryProtocols {
+            src: protocol,
+            tgt: protocol,
+        },
+    )?;
+    Ok(result)
 }
 
 /// Default alignment quality below which `auto_generate` triggers the
@@ -1991,7 +2047,9 @@ fn add_sort_protolens(
 mod tests {
     use super::*;
     use panproto_gat::Sort;
-    use panproto_schema::{Protocol, SchemaBuilder};
+    use panproto_inst::{RelSchemaError, RestrictError};
+    use panproto_schema::{Protocol, ScalarKind, SchemaBuilder};
+    use std::collections::{BTreeMap, BTreeSet};
 
     #[test]
     fn stringency_as_str_matches_display_and_serde() {
@@ -2788,6 +2846,63 @@ mod tests {
         let config = AutoLensConfig::default();
         let result = auto_generate(&s, &s, &protocol, &config).unwrap();
         assert!(result.chain.is_empty() || result.alignment_quality > 0.0);
+    }
+
+    #[test]
+    fn graph_auto_generation_validates_executable_plan() {
+        let protocol = test_protocol();
+        let schema = schema_v1(&protocol);
+        let result =
+            auto_generate_graph(&schema, &schema, &protocol, &AutoLensConfig::default()).unwrap();
+        assert!(
+            RestrictPlan::compile(
+                &result.lens.src_schema,
+                &result.lens.tgt_schema,
+                &result.lens.compiled
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn table_auto_generation_validates_executable_plan() {
+        let mut protocol = test_protocol();
+        protocol.value_kinds = BTreeMap::from([
+            ("string".into(), ScalarKind::Str),
+            ("boolean".into(), ScalarKind::Bool),
+        ]);
+        protocol.non_value_kinds = BTreeSet::from(["record".into()]);
+        let schema = schema_v1(&protocol);
+        let result =
+            auto_generate_table(&schema, &schema, &protocol, &AutoLensConfig::default()).unwrap();
+        assert!(
+            RestrictPlan::compile_for_tables(
+                &result.lens.src_schema,
+                &result.lens.tgt_schema,
+                &result.lens.compiled,
+                BoundaryProtocols {
+                    src: &protocol,
+                    tgt: &protocol,
+                }
+            )
+            .is_ok()
+        );
+    }
+
+    #[test]
+    fn table_auto_generation_refuses_a_shape_neutral_result_without_table_boundaries() {
+        let protocol = test_protocol();
+        let schema = schema_v1(&protocol);
+        assert!(
+            auto_generate(&schema, &schema, &protocol, &AutoLensConfig::default()).is_ok(),
+            "the shared search must succeed before the table-only gate is exercised"
+        );
+        assert!(matches!(
+            auto_generate_table(&schema, &schema, &protocol, &AutoLensConfig::default()),
+            Err(LensError::Restrict(RestrictError::RelSchema(
+                RelSchemaError::UnclassifiedKind { vertex, kind }
+            ))) if vertex.as_ref() == "post" && kind.as_ref() == "record"
+        ));
     }
 
     #[test]

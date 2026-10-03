@@ -5,7 +5,7 @@
 //! direction restores the original source instance from a (possibly modified)
 //! view plus the complement.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{
@@ -708,6 +708,10 @@ pub(crate) fn put_with_identity(
 ///
 /// * [`PutDomainError::IdCollision`]: a view node has the id of a node the
 ///   complement holds as dropped, so restoring that node would overwrite it.
+/// * [`PutDomainError::SynthesizedEdited`]: a node or arc introduced by the
+///   forward presentation of a contraction or expansion was removed or its
+///   label was changed. Such an element has no independent source object to
+///   which the edit could be written back.
 /// * [`PutDomainError::ContractedEdgeInserted`]: a view arc that `get` did
 ///   not produce joins two nodes whose source anchors the lens contracts (a
 ///   path through at least one dropped vertex) to exactly the arc's label,
@@ -879,7 +883,7 @@ fn structural_violations(
     view: &WInstance,
     complement: &Complement,
 ) -> Vec<PutDomainError> {
-    let mut found = Vec::new();
+    let mut found = synthesized_edits(view, complement);
     let reverse_anchors = ReverseAnchors::new(&lens.compiled.vertex_remap);
     let edge_preimages = EdgePreimages::new(lens);
     let mut view_arc_into: HashMap<u32, (u32, &Edge)> = HashMap::new();
@@ -943,6 +947,81 @@ fn structural_violations(
     }
 
     in_report_order(found)
+}
+
+/// Edits to the presentation-only part of a tree view.
+///
+/// Every arc recorded in `contraction_choices` was created by `get`: either
+/// it bypasses a dropped source path or it is one hop of an expanded source
+/// edge. Likewise, every id in `synthesized_nodes` names an expansion node
+/// with no source counterpart. Removing one of these elements, relabelling
+/// its arc, or inserting another arc through a synthesized node cannot be
+/// translated to the source. Detecting the edit before reassembly is
+/// essential: reassembly intentionally discards the presentation layer and
+/// would otherwise accept the edit while the next `get` silently restores
+/// the old presentation.
+fn synthesized_edits(view: &WInstance, complement: &Complement) -> Vec<PutDomainError> {
+    let mut found = Vec::new();
+
+    for &id in &complement.synthesized_nodes {
+        let expected_anchors: BTreeSet<_> = complement
+            .contraction_choices
+            .iter()
+            .filter_map(|(&(parent, child), edge)| {
+                if child == id {
+                    Some(edge.tgt.clone())
+                } else if parent == id {
+                    Some(edge.src.clone())
+                } else {
+                    None
+                }
+            })
+            .collect();
+        let unchanged = view.nodes.get(&id).is_some_and(|node| {
+            node.id == id
+                && expected_anchors.len() == 1
+                && expected_anchors.contains(&node.anchor)
+                && node.value.is_none()
+                && node.discriminator.is_none()
+                && node.extra_fields.is_empty()
+                && node.position.is_none()
+                && matches!(node.shape, panproto_inst::NodeShape::Plain)
+                && node.annotations.is_empty()
+        });
+        if !unchanged {
+            found.push(PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Node(id),
+            });
+        }
+    }
+
+    for (&(parent, child), expected) in &complement.contraction_choices {
+        let matches = view.arcs.iter().any(|(p, c, edge)| {
+            let same_endpoints = (*p, *c) == (parent, child);
+            same_endpoints && edge == expected
+        });
+        if !matches {
+            found.push(PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Arc { parent, child },
+            });
+        }
+    }
+
+    for (parent, child, edge) in &view.arcs {
+        let touches_synthesized = complement.synthesized_nodes.contains(parent)
+            || complement.synthesized_nodes.contains(child);
+        let is_recorded = complement.contraction_choices.get(&(*parent, *child)) == Some(edge);
+        if touches_synthesized && !is_recorded {
+            found.push(PutDomainError::SynthesizedEdited {
+                elem: ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                },
+            });
+        }
+    }
+
+    found
 }
 
 /// Whether the view arc `(parent, child, edge)` is one `get` put there: an
@@ -1022,10 +1101,14 @@ fn value_violations(
         };
         &unconditional
     };
-    let Ok((recomputed, _)) = RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, forward)
+    let recomputed = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, forward)
         .and_then(|plan| wtype_restrict_with_plan(source, &plan))
-    else {
-        return in_report_order(found);
+    {
+        Ok((recomputed, _)) => recomputed,
+        Err(error) => {
+            found.extend(put_refusal_from_restrict(lens, source, error));
+            return in_report_order(found);
+        }
     };
     for (&id, view_node) in &view.nodes {
         if complement.synthesized_nodes.contains(&id) {
@@ -1076,6 +1159,92 @@ fn value_violations(
         }
     }
     in_report_order(found)
+}
+
+/// Translate a forward refusal on the reconstructed source into the typed
+/// put-domain reason that prevents `PutGet` from attempting that source.
+fn put_refusal_from_restrict(
+    lens: &Lens,
+    source: &WInstance,
+    error: panproto_inst::RestrictError,
+) -> Vec<PutDomainError> {
+    use panproto_inst::{PredicateRefusal, RestrictError};
+
+    let error = match error {
+        RestrictError::At { error, .. } => *error,
+        other => other,
+    };
+    match error {
+        RestrictError::SurvivalPredicateFailed { node, source } => {
+            let refusal = match source {
+                panproto_expr::ExprError::TypeError { expected, got } if expected == "bool" => {
+                    PredicateRefusal::NotBoolean { got }
+                }
+                other => PredicateRefusal::EvaluationFailed {
+                    message: other.to_string(),
+                },
+            };
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(node),
+                refusal,
+            }]
+        }
+        RestrictError::AmbiguousChildField { node, field } => {
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(node),
+                refusal: PredicateRefusal::AmbiguousChildField { field },
+            }]
+        }
+        RestrictError::StructuralChildNotATree { node, field } => {
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(node),
+                refusal: PredicateRefusal::StructuralChildNotATree { field },
+            }]
+        }
+        RestrictError::ValueNotExpressible {
+            node,
+            field,
+            value_type,
+        } => vec![PutDomainError::SurvivalPredicateRefused {
+            elem: ViewRef::Node(node),
+            refusal: PredicateRefusal::ValueNotExpressible { field, value_type },
+        }],
+        RestrictError::FieldTransformFailed {
+            key,
+            source: failure,
+        } => {
+            let mut ids: Vec<_> = source.nodes.keys().copied().collect();
+            ids.sort_unstable();
+            let node = ids
+                .iter()
+                .copied()
+                .find(|id| {
+                    source.nodes.get(id).is_some_and(|node| {
+                        lens.compiled
+                            .field_transforms
+                            .get(&node.anchor)
+                            .is_some_and(|transforms| {
+                                transforms.iter().any(|transform| {
+                                    written_key(transform).is_some_and(|written| written == key)
+                                })
+                            })
+                    })
+                })
+                .unwrap_or(source.root);
+            vec![PutDomainError::SurvivalPredicateRefused {
+                elem: ViewRef::Node(node),
+                refusal: PredicateRefusal::EvaluationFailed {
+                    message: failure.to_string(),
+                },
+            }]
+        }
+        other => vec![PutDomainError::SurvivalPredicateRefused {
+            elem: ViewRef::Node(source.root),
+            refusal: PredicateRefusal::EvaluationFailed {
+                message: other.to_string(),
+            },
+        }],
+    }
 }
 
 /// The key a field transform writes, `__value__` for a leaf-value coercion,
@@ -1504,70 +1673,161 @@ fn capture_pre_transform_state(
 /// instead of the original record. A W-type instance has at most one arc
 /// per parent/child pair, and a genuine list node is distinguished by
 /// arcs to *distinct* children, which deduping on that key preserves.
+type SourceArc = (u32, u32, Edge);
+type OrderedArcState = (Vec<SourceArc>, HashSet<(u32, u32)>, usize);
+
+fn pull_back_view_arcs(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    nodes: &HashMap<u32, Node>,
+) -> (Vec<SourceArc>, HashSet<u32>) {
+    let mut desired = Vec::new();
+    let mut presentation_children = HashSet::new();
+    for (view_parent, child, _) in &view.arcs {
+        let presentation_arc = complement.synthesized_nodes.contains(view_parent)
+            || complement.synthesized_nodes.contains(child)
+            || complement
+                .contraction_choices
+                .contains_key(&(*view_parent, *child));
+        if presentation_arc {
+            if !complement.synthesized_nodes.contains(child) {
+                presentation_children.insert(*child);
+            }
+            continue;
+        }
+        if !nodes.contains_key(child) {
+            continue;
+        }
+        let source_parent = complement
+            .original_parent
+            .get(child)
+            .filter(|_| {
+                complement
+                    .contraction_choices
+                    .contains_key(&(*view_parent, *child))
+                    || complement.synthesized_nodes.contains(view_parent)
+                    || !nodes.contains_key(view_parent)
+            })
+            .copied()
+            .unwrap_or(*view_parent);
+        if !nodes.contains_key(&source_parent) {
+            continue;
+        }
+        if let Some(arc) = find_original_arc(
+            lens,
+            view,
+            nodes,
+            source_parent,
+            *child,
+            &complement.contraction_choices,
+            &complement.arc_edges,
+        ) {
+            desired.push(arc);
+        }
+    }
+    (desired, presentation_children)
+}
+
+fn append_ordered_source_arcs(
+    lens: &Lens,
+    view: &WInstance,
+    complement: &Complement,
+    nodes: &HashMap<u32, Node>,
+    desired: &[SourceArc],
+    presentation_children: &HashSet<u32>,
+) -> OrderedArcState {
+    let mut arcs = Vec::new();
+    let mut seen_pairs = HashSet::new();
+    let mut desired_index = 0;
+    for &(parent, child) in &complement.arc_order {
+        if complement.original_parent.contains_key(&child) {
+            if presentation_children.contains(&child) {
+                let restored = complement
+                    .dropped_arcs
+                    .iter()
+                    .find(|arc| (arc.0, arc.1) == (parent, child))
+                    .cloned()
+                    .or_else(|| {
+                        find_original_arc(
+                            lens,
+                            view,
+                            nodes,
+                            parent,
+                            child,
+                            &complement.contraction_choices,
+                            &complement.arc_edges,
+                        )
+                    });
+                if let Some(arc) = restored
+                    && seen_pairs.insert((arc.0, arc.1))
+                {
+                    arcs.push(arc);
+                }
+            } else if let Some(arc) = desired.get(desired_index) {
+                desired_index += 1;
+                if seen_pairs.insert((arc.0, arc.1)) {
+                    arcs.push(arc.clone());
+                }
+            }
+        } else if let Some(arc) = complement
+            .dropped_arcs
+            .iter()
+            .find(|arc| (arc.0, arc.1) == (parent, child))
+            && nodes.contains_key(&arc.0)
+            && nodes.contains_key(&arc.1)
+            && seen_pairs.insert((parent, child))
+        {
+            arcs.push(arc.clone());
+        }
+    }
+    (arcs, seen_pairs, desired_index)
+}
+
 fn rebuild_source_arcs(
     lens: &Lens,
     view: &WInstance,
     complement: &Complement,
     nodes: &HashMap<u32, Node>,
-) -> Vec<(u32, u32, Edge)> {
-    let mut arcs = Vec::new();
-    let mut seen_pairs: HashSet<(u32, u32)> = HashSet::new();
-
-    let restore_surviving =
-        |child_id: u32, arcs: &mut Vec<(u32, u32, Edge)>, seen: &mut HashSet<(u32, u32)>| {
-            let Some(&original_parent) = complement.original_parent.get(&child_id) else {
-                return;
-            };
-            if !nodes.contains_key(&child_id) || child_id == view.root {
-                return;
-            }
-            if let Some(arc) = find_original_arc(
-                lens,
-                view,
-                nodes,
-                original_parent,
-                child_id,
-                &complement.contraction_choices,
-                &complement.arc_edges,
-            ) && seen.insert((arc.0, arc.1))
-            {
-                arcs.push(arc);
-            }
-        };
-    let restore_dropped =
-        |pair: (u32, u32), arcs: &mut Vec<(u32, u32, Edge)>, seen: &mut HashSet<(u32, u32)>| {
-            if let Some(arc) = complement
-                .dropped_arcs
-                .iter()
-                .find(|arc| (arc.0, arc.1) == pair)
-                && nodes.contains_key(&arc.0)
-                && nodes.contains_key(&arc.1)
-                && seen.insert(pair)
-            {
+) -> Vec<SourceArc> {
+    // Pull every independent view arc back to a source arc in view order.
+    let (desired, presentation_children) = pull_back_view_arcs(lens, view, complement, nodes);
+    let (mut arcs, mut seen_pairs, desired_index) = if complement.arc_order.is_empty() {
+        // Legacy complements keep observable view order, then hidden arcs.
+        let mut arcs = Vec::new();
+        let mut seen_pairs = HashSet::new();
+        for arc in &desired {
+            if seen_pairs.insert((arc.0, arc.1)) {
                 arcs.push(arc.clone());
             }
-        };
+        }
+        (arcs, seen_pairs, desired.len())
+    } else {
+        append_ordered_source_arcs(
+            lens,
+            view,
+            complement,
+            nodes,
+            &desired,
+            &presentation_children,
+        )
+    };
 
-    for &(parent, child) in &complement.arc_order {
-        restore_surviving(child, &mut arcs, &mut seen_pairs);
-        restore_dropped((parent, child), &mut arcs, &mut seen_pairs);
+    for arc in desired.into_iter().skip(desired_index) {
+        if seen_pairs.insert((arc.0, arc.1)) {
+            arcs.push(arc);
+        }
     }
-
-    // Whatever the recorded sequence did not cover.
-    let mut remaining: Vec<u32> = complement.original_parent.keys().copied().collect();
-    remaining.sort_unstable();
-    for child_id in remaining {
-        restore_surviving(child_id, &mut arcs, &mut seen_pairs);
-    }
+    let recorded_pairs = complement.arc_order.iter().copied().collect::<HashSet<_>>();
     for arc in &complement.dropped_arcs {
         if nodes.contains_key(&arc.0)
             && nodes.contains_key(&arc.1)
+            && (complement.arc_order.is_empty() || !recorded_pairs.contains(&(arc.0, arc.1)))
             && seen_pairs.insert((arc.0, arc.1))
         {
             arcs.push(arc.clone());
         }
     }
-
     arcs
 }
 
@@ -1734,14 +1994,10 @@ pub(crate) fn propagate_view_edits_through_inverse(
                 inverse,
                 ..
             } => {
-                // The source never carried the computed key, so it must not
-                // appear in the restored node whatever else happens here.
-                node.extra_fields.remove(target_key);
-
                 // The inverse recovers the *source* coordinate the forward
-                // expression read, not the computed key it wrote; writing it
-                // back to `target_key` would both reinstate a field the
-                // source never had and drop the edit on the floor.
+                // expression read. The snapshot remains authoritative for
+                // every other source coordinate, including an existing
+                // coordinate overwritten by the computed key.
                 if let Some(inv_expr) = inverse
                     && working.contains_key(target_key)
                     && let Some(source_key) = crate::derived::sole_source_var(expr)
@@ -1849,11 +2105,17 @@ pub(crate) fn apply_inverse_transforms(
                     let env = panproto_inst::build_env_from_extra_fields(&node.extra_fields);
                     let config = panproto_expr::EvalConfig::default();
                     if let Ok(result) = panproto_expr::eval(inv_expr, &env, &config) {
-                        node.extra_fields
-                            .insert(source_key, panproto_inst::expr_literal_to_value(&result));
+                        node.extra_fields.insert(
+                            source_key.clone(),
+                            panproto_inst::expr_literal_to_value(&result),
+                        );
                     }
+                    if source_key != *target_key {
+                        node.extra_fields.remove(target_key);
+                    }
+                } else {
+                    node.extra_fields.remove(target_key);
                 }
-                node.extra_fields.remove(target_key);
             }
             FieldTransform::RenameField { old_key, new_key } => {
                 // Reverse: rename new_key back to old_key.

@@ -13,12 +13,12 @@ use panproto_inst::identity::{
     compose_identities,
 };
 use panproto_inst::{
-    ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, GEdge, GInstance,
-    GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdAllocator, IdRange, InstError,
-    PairResolution, PutDomainError, RestrictPlan, SynthKey, ViewRef, canonical_label_shape,
-    graph_restrict_with_plan,
+    ContractionMode, ContractionPlan, EdgeFate, EdgeId, FanResolver, FieldTransform, GEdge,
+    GInstance, GraphComplement, HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdAllocator, IdRange,
+    InstError, PairResolution, PutDomainError, RestrictPlan, SynthKey, ViewRef,
+    canonical_label_shape, graph_restrict_with_plan,
 };
-use panproto_schema::Edge;
+use panproto_schema::{Edge, Schema};
 
 use crate::asymmetric::{
     ComplementCompose, apply_inverse_transforms, extra_fields_equiv, node_equiv, presence_equiv,
@@ -42,6 +42,131 @@ pub fn get(lens: &Lens, source: &GInstance) -> Result<(GInstance, GraphComplemen
     let (view, mut complement) = graph_restrict_with_plan(source, &plan)?;
     complement.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
     Ok((view, complement))
+}
+
+/// Run the gating graph-lens laws over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`; it is not a
+/// proof over all graph instances.
+///
+/// # Errors
+///
+/// The first law violation in the specified gate order.
+pub fn check_laws(
+    lens: &Lens,
+    source: &GInstance,
+) -> Result<crate::laws::LawReport, crate::LawViolation> {
+    crate::laws::check_laws_report::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph `GetPut`.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// An operational error or `GetPut` violation.
+pub fn check_get_put(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_get_put_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check strict graph `PutGet` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// An operational error or `PutGet` violation.
+pub fn check_put_get(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_get_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph put totality over its generated admitted views.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first admitted mutation on which put fails.
+pub fn check_totality(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_totality_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph `PutTwice` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first repeated-put drift.
+pub fn check_put_twice(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_twice_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph presentation congruence.
+///
+/// A pass means "no counterexample found" among the coherent
+/// presentation witnesses for `source`.
+///
+/// # Errors
+///
+/// The first domain or put result that is not congruent.
+pub fn check_congruence(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_congruence_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph `WeakPutGet` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`. This is a
+/// named non-gating check.
+///
+/// # Errors
+///
+/// The first weak round-trip violation.
+pub fn check_weak_put_get(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_weak_put_get_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph put injectivity on generated distinct admitted views.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first pair of inequivalent views with one put result.
+pub fn check_put_injectivity(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_injectivity_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check graph put locality against the exact inverse-image-plus-cascade
+/// footprint.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first mutation whose actual and specified footprints differ.
+pub fn check_locality(lens: &Lens, source: &GInstance) -> Result<(), crate::LawViolation> {
+    crate::laws::check_locality_for_shape::<crate::GraphShape>(lens, source, &())
+}
+
+/// Check the gating laws on every graph in a finite canonical scope.
+///
+/// A pass means "no counterexample found" in `scope`; it is not a
+/// proof outside that finite universe.
+///
+/// # Errors
+///
+/// The first law violation in deterministic enumeration order.
+pub fn check_laws_exhaustive(
+    lens: &Lens,
+    schema: &Schema,
+    scope: crate::laws::SmallScope,
+) -> Result<Vec<crate::laws::LawReport>, crate::LawViolation> {
+    <crate::GraphShape as crate::laws::LawShape>::enumerate_small(schema, scope, &())
+        .iter()
+        .map(|source| crate::laws::check_laws_report::<crate::GraphShape>(lens, source, &()))
+        .collect()
 }
 
 /// Backward graph-lens direction under the default identity policy.
@@ -98,12 +223,192 @@ pub fn put_checked(
 /// [`LensError::NotAnIsomorphism`] when the lens has non-terminal residue,
 /// or an ordinary graph put error.
 pub fn put_without_complement(lens: &Lens, view: &GInstance) -> Result<GInstance, LensError> {
-    if let Some(detail) = lens.obstruction_to_isomorphism() {
+    if let Some(detail) = obstruction_to_isomorphism(lens) {
         return Err(LensError::NotAnIsomorphism { detail });
     }
     let mut complement = GraphComplement::empty();
     complement.stamp(lens.identity(ComplementShape::Graph), &lens.src_schema);
     put(lens, view, &complement)
+}
+
+/// Whether graph get leaves no source information in its complement.
+///
+/// This is the graph counterpart of [`Lens::is_isomorphism`]. In addition
+/// to the ordinary vertex, edge and value coordinates, it accounts for
+/// reified hyper-edges: a non-identity resolver changes a fan anchor or child
+/// label and graph get records that source coordinate in its complement.
+#[must_use]
+pub fn is_isomorphism(lens: &Lens) -> bool {
+    obstruction_to_isomorphism(lens).is_none()
+}
+
+/// The first graph coordinate that prevents complement-free reconstruction.
+///
+/// The result is deterministic. A pass means that no obstruction was found
+/// by the complete static graph classifier; it is not a claim about lenses
+/// outside the graph restrict domain.
+#[must_use]
+pub fn obstruction_to_isomorphism(lens: &Lens) -> Option<String> {
+    let plan = match RestrictPlan::compile(&lens.src_schema, &lens.tgt_schema, &lens.compiled) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return Some(format!(
+                "the migration is not executable as a graph lens: {error}"
+            ));
+        }
+    };
+
+    let mut vertices = lens.src_schema.vertices.keys().collect::<Vec<_>>();
+    vertices.sort();
+    let mut vertex_images = BTreeMap::new();
+    for source in vertices {
+        if !crate::asymmetric::vertex_survives(lens, source) {
+            return Some(format!(
+                "vertex `{source}` does not survive, so a graph node over it cannot be reconstructed"
+            ));
+        }
+        if lens.compiled.conditional_survival.contains_key(source) {
+            return Some(format!(
+                "vertex `{source}` survives conditionally, so some graph nodes over it are dropped"
+            ));
+        }
+        let image = lens.compiled.vertex_remap.get(source).unwrap_or(source);
+        if let Some(other) = vertex_images.insert(image, source) {
+            return Some(format!(
+                "vertices `{other}` and `{source}` both map to `{image}`, so a view node does not determine its source anchor"
+            ));
+        }
+        if lens
+            .compiled
+            .op_term_assignments
+            .get(source)
+            .is_some_and(|assignments| !assignments.is_empty())
+        {
+            return Some(format!(
+                "vertex `{source}` has term assignments that graph put does not invert without a complement"
+            ));
+        }
+        if let Some(transforms) = lens.compiled.field_transforms.get(source)
+            && let Some(detail) = graph_transform_obstruction(transforms)
+        {
+            return Some(format!("vertex `{source}` {detail}"));
+        }
+    }
+
+    for (source, fate) in &plan.edge_image.fates {
+        let EdgeFate::Keep(image) = fate else {
+            return Some(format!(
+                "edge `{:?}` is not kept as one graph edge, so it cannot be reconstructed without a complement",
+                source.name
+            ));
+        };
+        if plan.edge_image.preimages(image).len() != 1 {
+            return Some(format!(
+                "more than one source edge maps to `{:?}`, so a view edge does not determine its source label",
+                image.name
+            ));
+        }
+    }
+
+    if let Some(source) = lens.src_schema.hyper_edges.keys().min() {
+        return Some(format!(
+            "hyper-edge `{source}` admits a schema-valid parent-only fan, which graph restrict currently drops"
+        ));
+    }
+    if let Some(detail) = graph_validation_obstruction(&lens.src_schema) {
+        return Some(detail);
+    }
+    None
+}
+
+fn graph_validation_obstruction(schema: &panproto_schema::Schema) -> Option<String> {
+    let mut required = schema
+        .required
+        .iter()
+        .filter(|(vertex, _)| schema.vertices.contains_key(*vertex))
+        .flat_map(|(vertex, edges)| edges.iter().map(move |edge| (vertex, edge)))
+        .filter(|(_, edge)| !schema.defaults.contains_key(&edge.tgt))
+        .collect::<Vec<_>>();
+    required.sort();
+    if let Some((vertex, edge)) = required.first() {
+        let field = edge
+            .name
+            .as_ref()
+            .map_or_else(|| edge.tgt.to_string(), Name::to_string);
+        return Some(format!(
+            "vertex `{vertex}` requires field `{field}`, so graph put can refuse a finite source in which it is absent"
+        ));
+    }
+
+    let mut keys = schema
+        .declarations
+        .keys
+        .iter()
+        .filter(|(vertex, _)| schema.vertices.contains_key(*vertex))
+        .flat_map(|(vertex, keys)| keys.iter().map(move |key| (vertex, &key.id)))
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys.first().map(|(vertex, key)| {
+        format!(
+            "vertex `{vertex}` declares key `{key}`, so graph put can refuse a finite source with duplicate key values"
+        )
+    })
+}
+
+fn graph_transform_obstruction(transforms: &[FieldTransform]) -> Option<String> {
+    for transform in transforms {
+        let detail = match transform {
+            FieldTransform::RenameField { old_key, new_key } if old_key == new_key => None,
+            FieldTransform::RenameField { .. } => Some(
+                "renames an open graph field and may overwrite an independently present target key"
+                    .to_owned(),
+            ),
+            FieldTransform::ApplyExpr {
+                inverse,
+                coercion_class,
+                ..
+            } if inverse.is_some()
+                && matches!(coercion_class, panproto_gat::CoercionClass::Iso) =>
+            {
+                None
+            }
+            FieldTransform::PathTransform { path, inner } if path.is_empty() => {
+                graph_transform_obstruction(std::slice::from_ref(inner))
+            }
+            FieldTransform::MapReferences { rename_map, .. }
+                if rename_map
+                    .iter()
+                    .all(|(source, target)| target.as_deref() == Some(source.as_str())) =>
+            {
+                None
+            }
+            FieldTransform::Case { branches }
+                if branches.iter().all(|branch| branch.transforms.is_empty()) =>
+            {
+                None
+            }
+            FieldTransform::PathTransform { .. } => Some(
+                "has a nested path transform that graph put cannot invert without a complement"
+                    .to_owned(),
+            ),
+            FieldTransform::Case { .. } => Some(
+                "has a conditional transform that graph put cannot invert without a complement"
+                    .to_owned(),
+            ),
+            FieldTransform::AddField { .. }
+            | FieldTransform::DropField { .. }
+            | FieldTransform::KeepFields { .. }
+            | FieldTransform::MapReferences { .. }
+            | FieldTransform::ApplyExpr { .. }
+            | FieldTransform::ComputeField { .. } => {
+                Some("has a value transform without an operational graph inverse".to_owned())
+            }
+        };
+        if detail.is_some() {
+            return detail;
+        }
+    }
+    None
 }
 
 /// Every reason `view` lies outside the graph put domain.

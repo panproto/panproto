@@ -12,9 +12,10 @@
 //! 3. A node added in the view under such a merged anchor was given one of
 //!    the candidates arbitrarily.
 //!
-//! And one way a law checker could not fail: `check_put_put` compared a
-//! put with itself. It now puts a genuinely different first view, and the
-//! last test here is a lens it catches.
+//! The `check_put_put` regression also uses a genuinely different first
+//! view. The stable-slot reconstruction below is expected to satisfy that
+//! check: removing and then restoring a visible child must not lose the
+//! child's position among hidden siblings.
 
 #![allow(clippy::expect_used, clippy::unwrap_used)]
 
@@ -225,11 +226,11 @@ fn a_node_added_under_a_merged_anchor_has_no_single_source_anchor() {
 }
 
 /// `post` with `tag` children interleaved with `note` children the lens
-/// drops. A view that loses a tag and a view that has it back do not
-/// compose: once the first put has forgotten where the tag sat among the
-/// notes, the second cannot put it back.
+/// drops. Stable source slots retain the visible child's position among the
+/// hidden notes, so removing the middle tag and then restoring the original
+/// view agrees with restoring that view directly.
 #[test]
-fn put_put_catches_a_lens_whose_put_depends_on_the_previous_source() {
+fn put_put_preserves_a_restored_childs_slot_among_hidden_siblings() {
     let tag = prop("post", "post.tag", "tags");
     let note = prop("post", "post.note", "notes");
     let src = schema(
@@ -281,10 +282,7 @@ fn put_put_catches_a_lens_whose_put_depends_on_the_previous_source() {
         without_b.schema_root,
     );
 
-    match check_put_put(&lens, &source, &without_b, &view) {
-        Err(LawViolation::PutPut { .. }) => {}
-        other => panic!("expected a PutPut violation, got {other:?}"),
-    }
+    assert!(check_put_put(&lens, &source, &without_b, &view).is_ok());
 }
 
 #[test]

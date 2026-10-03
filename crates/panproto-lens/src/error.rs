@@ -1,8 +1,9 @@
 //! Error types for lens operations.
 //!
-//! [`LensError`] covers failures during lens construction and combinator
-//! compilation. [`LawViolation`] reports failures of the round-trip laws
-//! (`GetPut`, `PutGet` and `PutPut`).
+//! [`LensError`] covers failures during lens construction, combinator
+//! compilation, and lens execution. [`LawViolation`] reports typed failures
+//! from the strict gate sequence and the standalone law and classification
+//! checks.
 
 use std::fmt;
 
@@ -231,6 +232,44 @@ pub enum LawViolation {
         detail: String,
     },
 
+    /// `WeakPutGet` law violation.
+    WeakPutGet {
+        /// Human-readable description of the difference.
+        detail: String,
+    },
+
+    /// A view declared in-domain could not be put.
+    Totality {
+        /// The mutation family that exposed partiality.
+        mutation: crate::laws::Mutation,
+        /// The operational error returned by put.
+        error: String,
+    },
+
+    /// Repeating a put with the complement returned by re-get drifted.
+    PutTwice {
+        /// Human-readable description of the difference.
+        detail: String,
+    },
+
+    /// Two distinct in-domain views put to one source.
+    PutInjectivity {
+        /// Human-readable description of the collision.
+        detail: String,
+    },
+
+    /// Put changed a source carrier outside the edit footprint and cascade.
+    Locality {
+        /// Human-readable description of the unexpected change.
+        detail: String,
+    },
+
+    /// Observational equivalence was not a congruence of get or put.
+    Congruence {
+        /// Human-readable description of the difference.
+        detail: String,
+    },
+
     /// An error occurred while checking the laws.
     Error(LensError),
 }
@@ -241,7 +280,42 @@ impl fmt::Display for LawViolation {
             Self::GetPut { detail } => write!(f, "GetPut law violated: {detail}"),
             Self::PutGet { detail } => write!(f, "PutGet law violated: {detail}"),
             Self::PutPut { detail } => write!(f, "PutPut law violated: {detail}"),
+            Self::WeakPutGet { detail } => write!(f, "WeakPutGet law violated: {detail}"),
+            Self::Totality { mutation, error } => {
+                write!(f, "Totality law violated by {}: {error}", mutation.as_str())
+            }
+            Self::PutTwice { detail } => write!(f, "PutTwice law violated: {detail}"),
+            Self::PutInjectivity { detail } => {
+                write!(f, "PutInjectivity law violated: {detail}")
+            }
+            Self::Locality { detail } => write!(f, "Locality law violated: {detail}"),
+            Self::Congruence { detail } => write!(f, "Congruence law violated: {detail}"),
             Self::Error(e) => write!(f, "error during law check: {e}"),
+        }
+    }
+}
+
+impl LawViolation {
+    /// Structured detail exposed to language bindings.
+    #[must_use]
+    pub fn detail(&self) -> panproto_inst::ErrorDetail {
+        let (law, detail) = match self {
+            Self::GetPut { detail } => ("get_put", detail.clone()),
+            Self::PutGet { detail } => ("put_get", detail.clone()),
+            Self::PutPut { detail } => ("put_put", detail.clone()),
+            Self::WeakPutGet { detail } => ("weak_put_get", detail.clone()),
+            Self::Totality { mutation, error } => {
+                ("totality", format!("{}: {error}", mutation.as_str()))
+            }
+            Self::PutTwice { detail } => ("put_twice", detail.clone()),
+            Self::PutInjectivity { detail } => ("put_injectivity", detail.clone()),
+            Self::Locality { detail } => ("locality", detail.clone()),
+            Self::Congruence { detail } => ("congruence", detail.clone()),
+            Self::Error(error) => ("operation", error.to_string()),
+        };
+        panproto_inst::ErrorDetail::LawViolation {
+            law: law.to_owned(),
+            detail,
         }
     }
 }
@@ -287,6 +361,92 @@ impl LensError {
             Self::Restrict(error) => Some(error.detail()),
             Self::AtStage { error, .. } => error.detail(),
             _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::LawViolation;
+    use crate::laws::Mutation;
+    use panproto_inst::ErrorDetail;
+
+    #[test]
+    fn law_violations_project_to_stable_binding_details() {
+        let cases = [
+            (
+                LawViolation::GetPut {
+                    detail: "get-put".to_owned(),
+                },
+                "get_put",
+                "get-put",
+            ),
+            (
+                LawViolation::PutGet {
+                    detail: "put-get".to_owned(),
+                },
+                "put_get",
+                "put-get",
+            ),
+            (
+                LawViolation::PutPut {
+                    detail: "put-put".to_owned(),
+                },
+                "put_put",
+                "put-put",
+            ),
+            (
+                LawViolation::WeakPutGet {
+                    detail: "weak".to_owned(),
+                },
+                "weak_put_get",
+                "weak",
+            ),
+            (
+                LawViolation::Totality {
+                    mutation: Mutation::Reconnect,
+                    error: "partial put".to_owned(),
+                },
+                "totality",
+                "reconnect: partial put",
+            ),
+            (
+                LawViolation::PutTwice {
+                    detail: "twice".to_owned(),
+                },
+                "put_twice",
+                "twice",
+            ),
+            (
+                LawViolation::PutInjectivity {
+                    detail: "collision".to_owned(),
+                },
+                "put_injectivity",
+                "collision",
+            ),
+            (
+                LawViolation::Locality {
+                    detail: "footprint".to_owned(),
+                },
+                "locality",
+                "footprint",
+            ),
+            (
+                LawViolation::Congruence {
+                    detail: "reindexing".to_owned(),
+                },
+                "congruence",
+                "reindexing",
+            ),
+        ];
+        for (violation, law, detail) in cases {
+            assert_eq!(
+                violation.detail(),
+                ErrorDetail::LawViolation {
+                    law: law.to_owned(),
+                    detail: detail.to_owned(),
+                }
+            );
         }
     }
 }
