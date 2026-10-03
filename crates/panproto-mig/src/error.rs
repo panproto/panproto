@@ -300,6 +300,10 @@ pub enum LiftError {
     /// bound.
     #[error("Kan extension failed: {0}")]
     Adjunction(#[from] panproto_inst::AdjunctionError),
+
+    /// A Kan extension of graph instances failed.
+    #[error("graph Kan extension failed: {0}")]
+    GraphKan(#[from] panproto_inst::GraphKanError),
 }
 
 impl LiftError {

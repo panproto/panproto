@@ -366,6 +366,9 @@ const fn restrict_kind(error: &RestrictError) -> &'static str {
         RestrictError::PlanSchemaMismatch { .. } => "plan_schema_mismatch",
         RestrictError::ExpansionTooLong { .. } => "expansion_too_long",
         RestrictError::NonConforming { .. } => "non_conforming",
+        RestrictError::UnmappedEdge { .. } => "unmapped_edge",
+        RestrictError::SigmaConstantClash { .. } => "sigma_constant_clash",
+        RestrictError::NullIdsExhausted => "null_ids_exhausted",
     }
 }
 

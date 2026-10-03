@@ -9,8 +9,9 @@ use std::time::Instant;
 
 use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance};
 use panproto_mig::lift_wtype;
+use panproto_protocols::atproto;
 use panproto_schema::{Edge, Schema, Vertex};
 use smallvec::SmallVec;
 
@@ -154,17 +155,22 @@ fn simple_projection_throughput() -> Result<(), Box<dyn std::error::Error>> {
         op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
+    let protocol = atproto::protocol();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
 
     // Warm up.
     for _ in 0..100 {
-        let _ = lift_wtype(&compiled, &schema, &schema, &instance)?;
+        let _ = lift_wtype(&compiled, &schema, &schema, &instance, protocols)?;
     }
 
     // Benchmark.
     let iterations = 100_000;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = lift_wtype(&compiled, &schema, &schema, &instance)?;
+        let _ = lift_wtype(&compiled, &schema, &schema, &instance, protocols)?;
     }
     let elapsed = start.elapsed();
 
@@ -189,7 +195,7 @@ fn simple_projection_throughput() -> Result<(), Box<dyn std::error::Error>> {
 
 #[test]
 fn projection_with_drop_throughput() -> Result<(), Box<dyn std::error::Error>> {
-    let _schema = simple_schema();
+    let schema = simple_schema();
     let instance = simple_instance();
 
     // Projection: drop body.time.
@@ -257,11 +263,16 @@ fn projection_with_drop_throughput() -> Result<(), Box<dyn std::error::Error>> {
         op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
+    let protocol = atproto::protocol();
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
 
     let iterations = 100_000;
     let start = Instant::now();
     for _ in 0..iterations {
-        let _ = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+        let _ = lift_wtype(&compiled, &schema, &tgt_schema, &instance, protocols)?;
     }
     let elapsed = start.elapsed();
 

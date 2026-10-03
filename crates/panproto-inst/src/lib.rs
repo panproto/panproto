@@ -150,8 +150,9 @@ pub use graph_kan::{
     g_transpose_left, g_transpose_right, g_unit,
 };
 pub use graph_restrict::{
-    graph_extend, graph_extend_validated, graph_restrict, graph_restrict_validated,
-    graph_restrict_with_complement, graph_restrict_with_plan,
+    graph_extend, graph_extend_engine, graph_extend_partial, graph_extend_validated,
+    graph_restrict, graph_restrict_validated, graph_restrict_with_complement,
+    graph_restrict_with_plan,
 };
 pub use hom::{curry_migration, eval_hom, hom_schema};
 pub use identity::{CanonicalSink, DigestHasher};
@@ -192,8 +193,9 @@ pub use table_complement::{DroppedRow, TableComplement};
 pub use table_delta::{TableDelta, canonical_table_delta_bytes};
 pub use table_edit::TableEdit;
 pub use table_restrict::{
-    functor_extend, functor_extend_engine, functor_extend_validated, functor_restrict,
-    functor_restrict_validated, functor_restrict_with_complement, functor_restrict_with_plan,
+    functor_extend, functor_extend_engine, functor_extend_partial, functor_extend_validated,
+    functor_restrict, functor_restrict_validated, functor_restrict_with_complement,
+    functor_restrict_with_plan,
 };
 pub use tree_edit::{TreeEdit, canonical_tree_edit_bytes};
 pub use validate::{validate_attributes, validate_wtype};

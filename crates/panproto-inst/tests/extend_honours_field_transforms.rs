@@ -7,8 +7,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, FInstance, GInstance, Node, RowId, Value, WInstance, functor_extend,
-    graph_extend, wtype_extend_engine,
+    BoundaryProtocols, CompiledMigration, FInstance, GInstance, Node, RowId, Value, WInstance,
+    functor_extend, graph_extend, wtype_extend_engine,
 };
 use panproto_schema::{Protocol, ScalarKind, Schema, SchemaBuilder};
 
@@ -40,19 +40,21 @@ fn schema(column: &str) -> Schema {
 /// The fields of the one `t` element after extend, in every shape.
 fn extended_fields(m: &CompiledMigration, tgt: &Schema) -> [BTreeMap<String, Value>; 3] {
     let p = protocol();
+    let src = schema("x");
+    let protocols = BoundaryProtocols { src: &p, tgt: &p };
     let fields = HashMap::from([("x".to_owned(), Value::Int(7))]);
     let table = FInstance::new()
         .with_rows("t", [(RowId(0), fields.clone())])
         .unwrap();
-    let table_out = functor_extend(&table, tgt, m, &p).unwrap();
+    let table_out = functor_extend(&table, &src, tgt, m, protocols).unwrap();
     let mut node = Node::new(0, "t");
     for (k, v) in &fields {
         node = node.with_extra_field(k, v.clone());
     }
     let graph = GInstance::new().with_node(node.clone());
-    let graph_out = graph_extend(&graph, tgt, m, &p).unwrap();
+    let graph_out = graph_extend(&graph, &src, tgt, m, protocols).unwrap();
     let tree = WInstance::new(HashMap::from([(0, node)]), vec![], vec![], 0, "t".into());
-    let tree_out = wtype_extend_engine(&tree, tgt, m).unwrap();
+    let tree_out = wtype_extend_engine(&tree, &src, tgt, m, protocols).unwrap();
     let sorted = |map: &HashMap<String, Value>| -> BTreeMap<String, Value> {
         map.iter().map(|(k, v)| (k.clone(), v.clone())).collect()
     };

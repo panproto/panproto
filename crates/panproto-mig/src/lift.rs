@@ -105,15 +105,41 @@ pub fn lift_functor(
 /// not validate.
 pub fn lift_wtype_sigma(
     compiled: &CompiledMigration,
-    instance: &WInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
-    tgt_protocol: &Protocol,
+    instance: &WInstance,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<WInstance, LiftError> {
     Ok(panproto_inst::wtype_extend(
+        instance, src_schema, tgt_schema, compiled, protocols,
+    )?)
+}
+
+/// Apply a compiled migration as relational graph `Sigma_F`.
+///
+/// This is the graph-Kan lift. It transports through the relational graph
+/// encoding and therefore has the exact domain documented by
+/// [`panproto_inst::g_sigma`]. It agrees with [`lift_wtype_sigma`] on trees
+/// whose schema image is bijective and relationally encodable.
+///
+/// # Errors
+///
+/// Returns [`LiftError::GraphKan`] for a classification, encoding, table
+/// Sigma, or decoding refusal.
+pub fn lift_graph_sigma(
+    compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    instance: &GInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<GInstance, LiftError> {
+    Ok(panproto_inst::g_sigma(
         instance,
+        src_schema,
+        protocols.src,
         tgt_schema,
+        protocols.tgt,
         compiled,
-        tgt_protocol,
     )?)
 }
 
@@ -146,15 +172,12 @@ pub fn lift_wtype_pi(
 /// extension path, then close it under a term-level chase.
 ///
 /// This is the `sigma` pipeline entry for set-valued instances: it runs
-/// [`panproto_inst::functor_extend_engine`], which moves each row to its image
-/// table under its own id and pads the cells it lacks there with
-/// `Value::Null`, and then saturates the result under `dependencies` with
+/// [`panproto_inst::functor_extend_engine`], the total table `Sigma_F`, and
+/// then saturates the result under `dependencies` with
 /// [`crate::chase::chase`], enforcing tuple- and equality-generating
-/// dependencies (with labeled nulls) that the extension cannot. Pass an
-/// empty `dependencies` slice to run the extension alone. The extension is
-/// not the table left Kan extension `Sigma_F`, which gives a column outside
-/// the image a fresh labeled null rather than `Value::Null`; that is
-/// [`panproto_inst::f_sigma`].
+/// dependencies. Pass an empty `dependencies` slice to run the extension
+/// alone. A target column outside the image receives a fresh labelled null,
+/// as in [`panproto_inst::f_sigma`].
 ///
 /// The result after the chase is validated against `tgt_schema` under
 /// `tgt_protocol`. The extension alone is never validated: the nulls it pads
@@ -172,19 +195,21 @@ pub fn lift_wtype_pi(
 /// [`RestrictError::Validation`] on the output side.
 pub fn lift_functor_sigma(
     compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     instance: &FInstance,
     dependencies: &[crate::chase::Dependency],
     budget: crate::chase::ChaseBudget,
-    tgt_schema: &Schema,
-    tgt_protocol: &Protocol,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<FInstance, LiftError> {
     lift_functor_sigma_with_hom(
         compiled,
+        src_schema,
+        tgt_schema,
         instance,
         dependencies,
         budget,
-        tgt_schema,
-        tgt_protocol,
+        protocols,
     )
     .map(|(result, _)| result)
 }
@@ -207,13 +232,16 @@ pub fn lift_functor_sigma(
 /// As [`lift_functor_sigma`].
 pub fn lift_functor_sigma_with_hom(
     compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     instance: &FInstance,
     dependencies: &[crate::chase::Dependency],
     budget: crate::chase::ChaseBudget,
-    tgt_schema: &Schema,
-    tgt_protocol: &Protocol,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<(FInstance, FInstanceHom), LiftError> {
-    let extended = panproto_inst::functor_extend_engine(instance, compiled)?;
+    let extended = panproto_inst::functor_extend_engine(
+        instance, src_schema, tgt_schema, compiled, protocols,
+    )?;
     let (result, hom) = if dependencies.is_empty() {
         let identity = FInstanceHom::identity(&extended);
         (extended, identity)
@@ -228,7 +256,7 @@ pub fn lift_functor_sigma_with_hom(
             }
         }
     };
-    let report = panproto_inst::validate_table(&result, tgt_schema, tgt_protocol);
+    let report = panproto_inst::validate_table(&result, tgt_schema, protocols.tgt);
     if report.status != panproto_gat::CheckStatus::Passed {
         return Err(LiftError::Restrict(RestrictError::Validation {
             side: BoundarySide::Output,
@@ -236,6 +264,34 @@ pub fn lift_functor_sigma_with_hom(
         }));
     }
     Ok((result, hom))
+}
+
+/// Apply a compiled migration as relational graph `Pi_F`.
+///
+/// It agrees with [`lift_wtype_pi`] on trees whose schema image is bijective
+/// and relationally encodable.
+///
+/// # Errors
+///
+/// Returns [`LiftError::GraphKan`] for a classification, encoding, table
+/// Pi, or decoding refusal.
+pub fn lift_graph_pi(
+    compiled: &CompiledMigration,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    instance: &GInstance,
+    protocols: BoundaryProtocols<'_>,
+    max_product_size: usize,
+) -> Result<GInstance, LiftError> {
+    Ok(panproto_inst::g_pi(
+        instance,
+        src_schema,
+        protocols.src,
+        tgt_schema,
+        protocols.tgt,
+        compiled,
+        max_product_size,
+    )?)
 }
 
 /// Apply a compiled migration as a right Kan extension (`Pi_F`) to a functor instance.
@@ -435,6 +491,64 @@ mod tests {
         test_schema(&vertices, &edges)
     }
 
+    fn map_column(
+        compiled: &mut CompiledMigration,
+        source_table: &str,
+        source_column: &str,
+        target_table: &str,
+        target_column: &str,
+    ) {
+        let source_vertex: panproto_gat::Name = format!("{source_table}.{source_column}").into();
+        let target_vertex: panproto_gat::Name = format!("{target_table}.{target_column}").into();
+        let source_edge = Edge {
+            src: source_table.into(),
+            tgt: source_vertex.clone(),
+            kind: "prop".into(),
+            name: Some(source_column.into()),
+        };
+        let target_edge = Edge {
+            src: target_table.into(),
+            tgt: target_vertex.clone(),
+            kind: "prop".into(),
+            name: Some(target_column.into()),
+        };
+        compiled.surviving_verts.insert(target_vertex.clone());
+        compiled.surviving_edges.insert(target_edge.clone());
+        compiled.vertex_remap.insert(source_vertex, target_vertex);
+        compiled.edge_remap.insert(source_edge, target_edge);
+    }
+
+    #[test]
+    fn graph_sigma_and_pi_lifts_match_tree_lifts_on_trees() {
+        let protocol = table_protocol();
+        let schema = table_schema(&[("t", &[])]);
+        let compiled = CompiledMigration {
+            surviving_verts: HashSet::from(["t".into()]),
+            ..CompiledMigration::default()
+        };
+        let tree = WInstance::new(
+            HashMap::from([(7, Node::new(7, "t"))]),
+            vec![],
+            vec![],
+            7,
+            "t".into(),
+        );
+        let (graph, _) = GInstance::from_wtype_embedded(&tree, None).unwrap();
+
+        let tree_sigma =
+            lift_wtype_sigma(&compiled, &schema, &schema, &tree, both(&protocol)).unwrap();
+        let graph_sigma =
+            lift_graph_sigma(&compiled, &schema, &schema, &graph, both(&protocol)).unwrap();
+        let (tree_sigma_graph, _) = GInstance::from_wtype_embedded(&tree_sigma, None).unwrap();
+        assert!(GInstance::identical(&tree_sigma_graph, &graph_sigma));
+
+        let tree_pi = lift_wtype_pi(&compiled, &schema, &tree, 8).unwrap();
+        let graph_pi =
+            lift_graph_pi(&compiled, &schema, &schema, &graph, both(&protocol), 8).unwrap();
+        let (tree_pi_graph, _) = GInstance::from_wtype_embedded(&tree_pi, None).unwrap();
+        assert!(GInstance::identical(&tree_pi_graph, &graph_pi));
+    }
+
     #[test]
     fn identity_migration_preserves_all_nodes() {
         // Test 1: identity migration preserves all nodes.
@@ -601,7 +715,7 @@ mod tests {
         };
 
         // Schema 1: body + body.text + body.createdAt (source, not used directly)
-        let _s1 = test_schema(
+        let s1 = test_schema(
             &[
                 ("body", "object"),
                 ("body.text", "string"),
@@ -719,11 +833,12 @@ mod tests {
         let instance = WInstance::new(nodes, arcs, vec![], 0, panproto_gat::Name::from("body"));
 
         // Sequential: lift_sigma(m2, lift_sigma(m1, I))
-        let step1 = lift_wtype_sigma(&m1, &instance, &s2, &test_protocol()).unwrap();
-        let sequential = lift_wtype_sigma(&m2, &step1, &s3, &test_protocol()).unwrap();
+        let protocol = test_protocol();
+        let step1 = lift_wtype_sigma(&m1, &s1, &s2, &instance, both(&protocol)).unwrap();
+        let sequential = lift_wtype_sigma(&m2, &s2, &s3, &step1, both(&protocol)).unwrap();
 
         // Direct: lift_sigma(m12, I)
-        let direct = lift_wtype_sigma(&m12, &instance, &s3, &test_protocol()).unwrap();
+        let direct = lift_wtype_sigma(&m12, &s1, &s3, &instance, both(&protocol)).unwrap();
 
         // Σ preserves node ids, so the identity node map is the candidate
         // isomorphism between the sequential and direct results. Asserting it
@@ -796,7 +911,9 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let result = lift_wtype_sigma(&id_migration, &instance, &schema, &test_protocol()).unwrap();
+        let protocol = test_protocol();
+        let result =
+            lift_wtype_sigma(&id_migration, &schema, &schema, &instance, both(&protocol)).unwrap();
         assert_eq!(
             result.node_count(),
             instance.node_count(),
@@ -951,13 +1068,16 @@ mod tests {
             left: AtomTerm::Var("v".into()),
             right: AtomTerm::Const(Value::Str("z".into())),
         };
+        let schema = table_schema(&[("t", &["a"])]);
+        let protocol = table_protocol();
         let Err(err) = lift_functor_sigma(
             &compiled,
+            &schema,
+            &schema,
             &instance,
             &[conflicting],
             ChaseBudget::new(50, 50),
-            &table_schema(&[("t", &["a"])]),
-            &table_protocol(),
+            both(&protocol),
         ) else {
             panic!("an unsatisfiable equality must fail the lift");
         };
@@ -986,13 +1106,15 @@ mod tests {
                 ],
             )],
         };
+        let target = table_schema(&[("t", &["a", "prev"])]);
         let Err(err) = lift_functor_sigma(
             &compiled,
+            &schema,
+            &target,
             &instance,
             &[regenerating],
             ChaseBudget::new(5, 3),
-            &table_schema(&[("t", &["a", "prev"])]),
-            &table_protocol(),
+            both(&protocol),
         ) else {
             panic!("a chase that cannot converge must fail the lift");
         };
@@ -1009,12 +1131,11 @@ mod tests {
         assert!(err.is_retryable(), "a spent budget invites a retry");
     }
 
-    /// The `sigma` lift runs the extension, not the table left Kan
-    /// extension: merging two tables into one pads each row's missing
-    /// column with `Value::Null`, keeps every row id, and creates no
-    /// labeled null.
+    /// Merging two tables into one fills each row's missing image column
+    /// with a fresh labelled null, keeps every row id, and creates no row.
+    /// A lift with no chase then refuses the unresolved nulls at validation.
     #[test]
-    fn sigma_lift_pads_a_merged_table_with_null_and_no_labeled_null() {
+    fn sigma_engine_fills_a_merged_table_and_the_lift_requires_a_chase() {
         use crate::chase::ChaseBudget;
         use panproto_inst::{FInstance, RowId};
 
@@ -1029,16 +1150,15 @@ mod tests {
         compiled.surviving_verts.insert("u".into());
         compiled.vertex_remap.insert("t1".into(), "u".into());
         compiled.vertex_remap.insert("t2".into(), "u".into());
+        map_column(&mut compiled, "t1", "a", "u", "a");
+        map_column(&mut compiled, "t2", "b", "u", "b");
 
-        let result = lift_functor_sigma(
-            &compiled,
-            &instance,
-            &[],
-            ChaseBudget::new(10, 10),
-            &table_schema(&[("u", &["a", "b"])]),
-            &table_protocol(),
-        )
-        .unwrap();
+        let src = table_schema(&[("t1", &["a"]), ("t2", &["b"])]);
+        let tgt = table_schema(&[("u", &["a", "b"])]);
+        let protocol = table_protocol();
+        let result =
+            panproto_inst::functor_extend_engine(&instance, &src, &tgt, &compiled, both(&protocol))
+                .unwrap();
         assert_eq!(result.row_ids(), vec![RowId(0), RowId(1)]);
         for id in [RowId(0), RowId(1)] {
             assert_eq!(result.table_of(id).map(AsRef::as_ref), Some("u"));
@@ -1048,16 +1168,31 @@ mod tests {
             row(RowId(0)),
             HashMap::from([
                 ("a".to_owned(), Value::Str("x".into())),
-                ("b".to_owned(), Value::Null),
+                ("b".to_owned(), Value::LabeledNull(0)),
             ])
         );
         assert_eq!(
             row(RowId(1)),
             HashMap::from([
-                ("a".to_owned(), Value::Null),
+                ("a".to_owned(), Value::LabeledNull(1)),
                 ("b".to_owned(), Value::Str("y".into())),
             ])
         );
+        assert!(matches!(
+            lift_functor_sigma(
+                &compiled,
+                &src,
+                &tgt,
+                &instance,
+                &[],
+                ChaseBudget::new(10, 10),
+                both(&protocol),
+            ),
+            Err(LiftError::Restrict(RestrictError::Validation {
+                side: BoundarySide::Output,
+                ..
+            }))
+        ));
     }
 
     /// Every lift that creates rows returns the row map of the step that
@@ -1078,27 +1213,41 @@ mod tests {
         let mut compiled = CompiledMigration::default();
         compiled.surviving_verts.insert("u".into());
         compiled.vertex_remap.insert("t".into(), "u".into());
+        map_column(&mut compiled, "t", "a", "u", "a");
         let copy = Dependency::Tgd {
             body: vec![Atom::new("u", [("a", AtomTerm::Var("v".into()))])],
             head: vec![Atom::new("w", [("b", AtomTerm::Var("v".into()))])],
         };
         let budget = ChaseBudget::new(10, 10);
+        let src = table_schema(&[("t", &["a"])]);
         let tgt = table_schema(&[("u", &["a"]), ("w", &["b"])]);
         let protocol = table_protocol();
 
-        let extended = panproto_inst::functor_extend_engine(&instance, &compiled).unwrap();
+        let extended =
+            panproto_inst::functor_extend_engine(&instance, &src, &tgt, &compiled, both(&protocol))
+                .unwrap();
         let (result, hom) = lift_functor_sigma_with_hom(
             &compiled,
+            &src,
+            &tgt,
             &instance,
             std::slice::from_ref(&copy),
             budget,
-            &tgt,
-            &protocol,
+            both(&protocol),
         )
         .unwrap();
         assert_eq!(
             result,
-            lift_functor_sigma(&compiled, &instance, &[copy], budget, &tgt, &protocol).unwrap()
+            lift_functor_sigma(
+                &compiled,
+                &src,
+                &tgt,
+                &instance,
+                &[copy],
+                budget,
+                both(&protocol),
+            )
+            .unwrap()
         );
         let checked = hom.check(&extended, &result);
         assert!(
@@ -1125,9 +1274,16 @@ mod tests {
             Some(&Value::Str("y".into()))
         );
 
-        let (alone, identity) =
-            lift_functor_sigma_with_hom(&compiled, &instance, &[], budget, &tgt, &protocol)
-                .unwrap();
+        let (alone, identity) = lift_functor_sigma_with_hom(
+            &compiled,
+            &src,
+            &tgt,
+            &instance,
+            &[],
+            budget,
+            both(&protocol),
+        )
+        .unwrap();
         assert_eq!(alone, extended);
         assert_eq!(identity, panproto_inst::FInstanceHom::identity(&extended));
 
@@ -1354,6 +1510,7 @@ mod tests {
         compiled.surviving_verts.insert("u".into());
         compiled.surviving_verts.insert("w".into());
         compiled.vertex_remap.insert("t".into(), "u".into());
+        map_column(&mut compiled, "t", "tag", "u", "tag");
         (instance, compiled)
     }
 
@@ -1366,8 +1523,11 @@ mod tests {
         use crate::chase::{Atom, AtomTerm, ChaseBudget, Dependency};
 
         let (instance, compiled) = tagged_rows();
+        let src = table_schema(&[("t", &["tag"])]);
         let (tgt, protocol) = (referencing_schema(), referencing_protocol());
-        let extended = panproto_inst::functor_extend_engine(&instance, &compiled).unwrap();
+        let extended =
+            panproto_inst::functor_extend_engine(&instance, &src, &tgt, &compiled, both(&protocol))
+                .unwrap();
         let unchased = panproto_inst::validate_table(&extended, &tgt, &protocol);
         assert_eq!(
             unchased.status,
@@ -1380,11 +1540,12 @@ mod tests {
         };
         let result = lift_functor_sigma(
             &compiled,
+            &src,
+            &tgt,
             &instance,
             &[named],
             ChaseBudget::new(10, 10),
-            &tgt,
-            &protocol,
+            both(&protocol),
         )
         .unwrap();
         assert_eq!(result.row_count("w"), 1);
@@ -1402,14 +1563,16 @@ mod tests {
 
         // Tables: without the chase the named row is missing.
         let (instance, compiled) = tagged_rows();
+        let src = table_schema(&[("t", &["tag"])]);
         let (tgt, protocol) = (referencing_schema(), referencing_protocol());
         let err = lift_functor_sigma(
             &compiled,
+            &src,
+            &tgt,
             &instance,
             &[],
             ChaseBudget::new(10, 10),
-            &tgt,
-            &protocol,
+            both(&protocol),
         )
         .unwrap_err();
         assert!(
@@ -1434,6 +1597,7 @@ mod tests {
             &[("body", "object"), ("body.text", "string")],
             std::slice::from_ref(&leaf),
         );
+        let src = tgt.clone();
         tgt.constraints.insert(
             "body.text".into(),
             vec![panproto_schema::Constraint {
@@ -1466,7 +1630,7 @@ mod tests {
             surviving_edges: HashSet::from([leaf]),
             ..CompiledMigration::default()
         };
-        let err = lift_wtype_sigma(&identity, &tree, &tgt, &protocol).unwrap_err();
+        let err = lift_wtype_sigma(&identity, &src, &tgt, &tree, both(&protocol)).unwrap_err();
         assert!(
             matches!(
                 &err,
@@ -1482,7 +1646,7 @@ mod tests {
         if let Some(node) = short.nodes.get_mut(&1) {
             node.value = Some(FieldPresence::Present(Value::Str("ok".into())));
         }
-        assert!(lift_wtype_sigma(&identity, &short, &tgt, &protocol).is_ok());
+        assert!(lift_wtype_sigma(&identity, &src, &tgt, &short, both(&protocol)).is_ok());
     }
 
     /// The table `Pi` lift is the right Kan extension along the one

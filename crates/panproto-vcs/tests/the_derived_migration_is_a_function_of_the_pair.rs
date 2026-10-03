@@ -212,7 +212,7 @@ fn dump() -> String {
     let pi = panproto_mig::lift_wtype(&compiled, &old, &new, &record(&old), protocols)
         .map_or_else(|e| format!("Err({e})"), |i| describe(&i));
     let _ = writeln!(out, "restrict-lifted record arcs = {pi}");
-    let sigma = panproto_mig::lift_wtype_sigma(&compiled, &record(&old), &new, &proto)
+    let sigma = panproto_mig::lift_wtype_sigma(&compiled, &old, &new, &record(&old), protocols)
         .map_or_else(|e| format!("Err({e})"), |i| describe(&i));
     let _ = writeln!(out, "sigma-lifted record arcs = {sigma}");
 

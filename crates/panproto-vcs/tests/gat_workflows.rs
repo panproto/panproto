@@ -960,7 +960,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
     assert_eq!(&*w_res.nodes[&1].anchor, "label");
 
     // Extend: remap vertices.
-    let w_ext = AcsetOps::extend(&w, &tgt_schema, &compiled, &protocol)?;
+    let w_ext = AcsetOps::extend(&w, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::element_count(&w_ext), 2);
     assert_eq!(&*w_ext.nodes[&0].anchor, "human");
 
@@ -978,7 +978,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
     assert_eq!(f_res.row_count("human"), 1);
 
     // Extend.
-    let f_ext = AcsetOps::extend(&f, &tgt_schema, &compiled, &protocol)?;
+    let f_ext = AcsetOps::extend(&f, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::shape_name(&f_ext), "functor");
     assert_eq!(f_ext.row_count("human"), 1);
 
@@ -998,7 +998,7 @@ fn acset_restrict_extend_across_all_shapes() -> Result<(), Box<dyn std::error::E
     }
 
     // Extend.
-    let g_ext = AcsetOps::extend(&g, &tgt_schema, &compiled, &protocol)?;
+    let g_ext = AcsetOps::extend(&g, &src_schema, &tgt_schema, &compiled, protocols)?;
     assert_eq!(AcsetOps::element_count(&g_ext), 2);
     for node in g_ext.nodes().values() {
         assert_eq!(&*node.anchor, "human");

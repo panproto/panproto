@@ -518,10 +518,17 @@ fn table_restrict_refuses_an_unclassified_kind() {
 fn functor_extend_classifies_by_the_target_schema() {
     let p = protocol();
     let (schema, f) = people();
-    let extended = functor_extend(&f, &schema, &identity(&schema), &p).unwrap();
+    let extended = functor_extend(&f, &schema, &schema, &identity(&schema), protocols(&p)).unwrap();
     assert_eq!(extended, f);
     let unclassified = Protocol::default();
-    let error = functor_extend(&f, &schema, &identity(&schema), &unclassified).unwrap_err();
+    let error = functor_extend(
+        &f,
+        &schema,
+        &schema,
+        &identity(&schema),
+        protocols(&unclassified),
+    )
+    .unwrap_err();
     assert!(matches!(error, RestrictError::RelSchema(_)), "{error:?}");
 }
 

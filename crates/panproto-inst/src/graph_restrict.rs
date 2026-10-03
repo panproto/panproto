@@ -11,7 +11,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashSet, VecDeque};
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Protocol, Schema};
+use panproto_schema::{Edge, Schema};
 
 use crate::contraction_plan::PairResolution;
 use crate::error::RestrictError;
@@ -27,7 +27,7 @@ use crate::restrict_plan::{
 use crate::segment::IdKind;
 use crate::validation::ValidationPlan;
 use crate::value::FieldPresence;
-use crate::view_ref::{IdFloor, SynthKey};
+use crate::view_ref::{IdFloor, SynthKey, ViewRef};
 use crate::wtype::{
     CompiledMigration, FanResolver, InstanceRef, SynthChain, TransformContext,
     canonical_label_shape, is_fan_edge,
@@ -777,30 +777,53 @@ pub fn graph_restrict_validated(
 /// migration, validating the output against `tgt_schema` under
 /// `tgt_protocol`.
 ///
-/// Maps source nodes into the target schema by remapping anchors through `vertex_remap`. A node
-/// whose anchor has no remap is kept under its own anchor when that anchor is in `surviving_verts`
-/// and dropped otherwise. A kept node takes its source vertex's value transforms, over its children
-/// in the source, as the tree extend applies them. An edge is carried, under its own [`EdgeId`] and
-/// position, when both endpoints are kept and its schema edge is renamed by `edge_remap` or listed
-/// in `surviving_edges`. The input's schema is not a parameter, so its callers validate the input
-/// at their own boundary.
+/// Every source node and edge must have an image in the target schema. Nodes
+/// keep their ids even when several source anchors share an image; edges keep
+/// their [`EdgeId`] and position. Value transforms are applied at the source
+/// vertex before the node is relabelled. Both schema boundaries are validated
+/// under their respective protocols.
 ///
 /// # Errors
 ///
-/// The error of a node's value transforms when one fails, and
-/// [`RestrictError::Validation`] on the output side when the output does
-/// not validate.
+/// [`RestrictError::UnmappedAnchor`] or [`RestrictError::UnmappedEdge`] for
+/// an element with no image, the error of a node's value transforms when one
+/// fails, and [`RestrictError::Validation`] when either boundary does not
+/// validate.
 pub fn graph_extend(
     instance: &GInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
-    tgt_protocol: &Protocol,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<GInstance, RestrictError> {
-    let tgt_plan = boundary_plan(tgt_schema, tgt_protocol);
-    graph_extend_validated(instance, tgt_schema, migration, &tgt_plan)
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_graph_elements(instance, tgt_schema, &total)?;
+    let src_validation = boundary_plan(src_schema, protocols.src);
+    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
+    let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    graph_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 
-/// [`graph_extend`] with the target's validation plan compiled already.
+/// The total graph-extension engine, with no boundary validation.
+///
+/// # Errors
+///
+/// As [`graph_extend`], except boundary validation.
+pub fn graph_extend_engine(
+    instance: &GInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<GInstance, RestrictError> {
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_graph_elements(instance, tgt_schema, &total)?;
+    let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    graph_extend_inner(instance, &plan, false).map(|(extended, _)| extended)
+}
+
+/// [`graph_extend`] with both validation plans and the migration plan
+/// compiled already.
 ///
 /// # Errors
 ///
@@ -809,45 +832,139 @@ pub fn graph_extend(
 /// `tgt_schema`; otherwise as [`graph_extend`].
 pub fn graph_extend_validated(
     instance: &GInstance,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
+    src_plan: &ValidationPlan,
     tgt_plan: &ValidationPlan,
+    plan: &RestrictPlan,
 ) -> Result<GInstance, RestrictError> {
-    require_schema(
-        tgt_plan,
-        &crate::identity::schema_digest(tgt_schema),
+    require_schema(src_plan, &plan.src_schema, BoundarySide::Input)?;
+    require_schema(tgt_plan, &plan.tgt_schema, BoundarySide::Output)?;
+    require_total_graph_elements(instance, plan.target(), plan.migration())?;
+    let (budget, external) = unlimited();
+    require_passed(
+        src_plan.validate_graph(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let extended = graph_extend_inner(instance, plan, false)?.0;
+    require_passed(
+        tgt_plan.validate_graph(&extended, &budget, &external),
         BoundarySide::Output,
     )?;
+    Ok(extended)
+}
+
+/// Partial graph extension: omit every unmapped node or edge and return
+/// their graph references.
+///
+/// # Errors
+///
+/// Plan compilation, transform, or boundary validation errors.
+pub fn graph_extend_partial(
+    instance: &GInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(GInstance, Vec<ViewRef>), RestrictError> {
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    let src_validation = boundary_plan(src_schema, protocols.src);
+    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
+    let plan = RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    let (budget, external) = unlimited();
+    require_passed(
+        src_validation.validate_graph(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let result = graph_extend_inner(instance, &plan, true)?;
+    require_passed(
+        tgt_validation.validate_graph(&result.0, &budget, &external),
+        BoundarySide::Output,
+    )?;
+    Ok(result)
+}
+
+fn require_total_graph_elements(
+    instance: &GInstance,
+    target: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(), RestrictError> {
     let mut ids: Vec<u32> = instance.nodes().keys().copied().collect();
     ids.sort_unstable();
-    let mut extended = GInstance::new();
     for id in ids {
         let Some(node) = instance.node(id) else {
             continue;
         };
-        let mut kept = node.clone();
-        if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
-            kept.anchor.clone_from(remapped);
-        } else if !migration.surviving_verts.contains(&node.anchor) {
+        if crate::wtype::extension_vertex_image(target, migration, &node.anchor).is_none() {
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: node.anchor.clone(),
+                node_id: id,
+            });
+        }
+    }
+    for (id, edge) in instance.edges_sorted() {
+        if crate::wtype::extension_edge_image(target, migration, &edge.edge).is_none() {
+            return Err(RestrictError::UnmappedEdge {
+                edge: Box::new(edge.edge.clone()),
+                element: ViewRef::Edge(id),
+            });
+        }
+    }
+    Ok(())
+}
+
+fn graph_extend_inner(
+    instance: &GInstance,
+    plan: &RestrictPlan,
+    partial: bool,
+) -> Result<(GInstance, Vec<ViewRef>), RestrictError> {
+    let migration = plan.migration();
+    let target = plan.target();
+    let mut dropped = Vec::new();
+    let mut extended = GInstance::new();
+    let mut ids: Vec<u32> = instance.nodes().keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        let Some(node) = instance.node(id) else {
             continue;
-        }
+        };
+        let Some(image) = crate::wtype::extension_vertex_image(target, migration, &node.anchor)
+        else {
+            if partial {
+                dropped.push(ViewRef::Node(id));
+                continue;
+            }
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: node.anchor.clone(),
+                node_id: id,
+            });
+        };
+        let mut kept = node.clone();
+        kept.anchor = image;
         let transforms = migration.value_transforms(&node.anchor);
-        if !transforms.is_empty() {
-            let ctx = TransformContext::for_graph(None, instance, id, &transforms);
-            crate::wtype::apply_field_transforms(&mut kept, &transforms, &ctx)?;
-        }
+        let ctx = if transforms.is_empty() {
+            TransformContext::detached()
+        } else {
+            TransformContext::for_graph(Some(plan.source()), instance, id, &transforms)
+        };
+        plan.transform(&mut kept, &node.anchor, &ctx, true)?;
         extended = extended.with_node(kept);
     }
     for (id, edge) in instance.edges_sorted() {
         if extended.node(edge.src).is_none() || extended.node(edge.tgt).is_none() {
+            if partial {
+                dropped.push(ViewRef::Edge(id));
+            }
             continue;
         }
-        let label = if let Some(renamed) = migration.edge_remap.get(&edge.edge) {
-            renamed.clone()
-        } else if migration.surviving_edges.contains(&edge.edge) {
-            edge.edge.clone()
-        } else {
-            continue;
+        let Some(label) = crate::wtype::extension_edge_image(target, migration, &edge.edge) else {
+            let element = ViewRef::Edge(id);
+            if partial {
+                dropped.push(element);
+                continue;
+            }
+            return Err(RestrictError::UnmappedEdge {
+                edge: Box::new(edge.edge.clone()),
+                element,
+            });
         };
         extended.place_edge(
             id,
@@ -859,12 +976,9 @@ pub fn graph_extend_validated(
             },
         );
     }
-    let (budget, external) = unlimited();
-    require_passed(
-        tgt_plan.validate_graph(&extended, &budget, &external),
-        BoundarySide::Output,
-    )?;
-    Ok(extended)
+    dropped.sort_unstable();
+    dropped.dedup();
+    Ok((extended, dropped))
 }
 
 #[cfg(test)]

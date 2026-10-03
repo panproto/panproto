@@ -5,14 +5,24 @@
 //! projection migration with reachability filtering drops nested
 //! children correctly.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance};
 use panproto_mig::lift_wtype;
-use panproto_schema::{Edge, Schema, Vertex};
+use panproto_protocols::atproto;
+use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder, Vertex};
 use smallvec::SmallVec;
+
+fn test_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+        non_value_kinds: BTreeSet::from(["object".to_owned()]),
+        ..Protocol::default()
+    }
+}
 
 /// Build a recursive threadViewPost schema.
 ///
@@ -141,6 +151,12 @@ fn thread_view_post_schema() -> Schema {
             name: None,
         },
         Edge {
+            src: "tvp.replies:items:v0".into(),
+            tgt: "tvp.replies:items:v0".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
+        },
+        Edge {
             src: "tvp".into(),
             tgt: "tvp.parent".into(),
             kind: "prop".into(),
@@ -151,6 +167,12 @@ fn thread_view_post_schema() -> Schema {
             tgt: "tvp.parent:v0".into(),
             kind: "variant".into(),
             name: None,
+        },
+        Edge {
+            src: "tvp.parent:v0".into(),
+            tgt: "tvp.parent:v0".into(),
+            kind: "prop".into(),
+            name: Some("text".into()),
         },
     ];
 
@@ -384,6 +406,7 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
     // Build a target schema with only the surviving elements.
     let tgt_vertices: HashMap<Name, Vertex> = full_schema
         .vertices
+        .clone()
         .into_iter()
         .filter(|(k, _)| surviving_verts.contains(k))
         .collect();
@@ -443,7 +466,17 @@ fn projection_drops_replies_and_parent() -> Result<(), Box<dyn std::error::Error
         expansion_path: HashMap::new(),
     };
 
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let protocol = atproto::protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &full_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // Should keep only the root + post subtree (4 nodes max, but
     // reachability may further prune depending on anchor survival).
@@ -489,6 +522,15 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
             name: Some("data".into()),
         },
     ];
+
+    let protocol = test_protocol();
+    let src_schema = SchemaBuilder::new(&protocol)
+        .vertex("root", "object", None)?
+        .vertex("mid", "object", None)?
+        .vertex("leaf", "string", None)?
+        .edge("root", "mid", "prop", Some("child"))?
+        .edge("mid", "leaf", "prop", Some("data"))?
+        .build()?;
 
     let mut nodes = HashMap::new();
     nodes.insert(0, Node::new(0, "root"));
@@ -575,7 +617,16 @@ fn reachability_prunes_orphaned_children() -> Result<(), Box<dyn std::error::Err
         expansion_path: HashMap::new(),
     };
 
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let lifted = lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // The restrict pipeline should handle ancestor contraction:
     // leaf's parent (mid) is dropped, so leaf should be re-parented

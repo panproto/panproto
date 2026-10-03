@@ -5,7 +5,7 @@
 //! [`WInstance`](crate::WInstance), [`FInstance`](crate::FInstance),
 //! and [`GInstance`](crate::GInstance).
 
-use panproto_schema::{Protocol, Schema};
+use panproto_schema::Schema;
 
 use crate::error::RestrictError;
 use crate::functor::FInstance;
@@ -46,9 +46,10 @@ pub trait AcsetOps: Clone + std::fmt::Debug {
     /// [`RestrictError::Validation`] when the output does not validate.
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
-        tgt_protocol: &Protocol,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError>;
 
     /// Returns the number of top-level elements (nodes, rows, or vertices).
@@ -71,11 +72,12 @@ impl AcsetOps for WInstance {
 
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
-        tgt_protocol: &Protocol,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::wtype::wtype_extend(self, tgt_schema, migration, tgt_protocol)
+        crate::wtype::wtype_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -100,11 +102,12 @@ impl AcsetOps for FInstance {
 
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
-        tgt_protocol: &Protocol,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::table_restrict::functor_extend(self, tgt_schema, migration, tgt_protocol)
+        crate::table_restrict::functor_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -129,11 +132,12 @@ impl AcsetOps for GInstance {
 
     fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
-        tgt_protocol: &Protocol,
+        protocols: BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
-        crate::graph_restrict::graph_extend(self, tgt_schema, migration, tgt_protocol)
+        crate::graph_restrict::graph_extend(self, src_schema, tgt_schema, migration, protocols)
     }
 
     fn element_count(&self) -> usize {
@@ -150,7 +154,7 @@ mod tests {
     use std::collections::{BTreeMap, BTreeSet, HashMap};
 
     use panproto_gat::Name;
-    use panproto_schema::{Edge, ScalarKind, SchemaBuilder};
+    use panproto_schema::{Edge, Protocol, ScalarKind, SchemaBuilder};
 
     use super::*;
     use crate::metadata::Node;
@@ -166,6 +170,13 @@ mod tests {
         Protocol {
             value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
             non_value_kinds: BTreeSet::from(["record".to_owned()]),
+            ..Protocol::default()
+        }
+    }
+
+    fn object_protocol() -> Protocol {
+        Protocol {
+            non_value_kinds: BTreeSet::from(["object".to_owned()]),
             ..Protocol::default()
         }
     }
@@ -353,10 +364,10 @@ mod tests {
             crate::table_restrict::functor_restrict(&f, &schema, &schema, &migration, protocols)?;
         assert_eq!(via_trait, via_fn);
         assert_eq!(via_trait, f, "the identity keeps the table");
-        let extended = AcsetOps::extend(&f, &schema, &migration, &protocol)?;
+        let extended = AcsetOps::extend(&f, &schema, &schema, &migration, protocols)?;
         assert_eq!(
             extended,
-            crate::table_restrict::functor_extend(&f, &schema, &migration, &protocol)?
+            crate::table_restrict::functor_extend(&f, &schema, &schema, &migration, protocols,)?
         );
         Ok(())
     }
@@ -399,7 +410,12 @@ mod tests {
         let mut migration = keep(&["person"]);
         migration.surviving_edges.insert(knows("person"));
 
-        let result = AcsetOps::extend(&g, &schema, &migration, &Protocol::default())?;
+        let protocol = object_protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let result = AcsetOps::extend(&g, &schema, &schema, &migration, protocols)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(result.edge_count(), 1);
         assert_eq!(result.node(0).and_then(|n| n.value.clone()), Some(alice()));
@@ -410,14 +426,20 @@ mod tests {
     #[test]
     fn graph_extend_vertex_remap_updates_anchors() -> TestResult {
         let g = two_node_ginstance();
-        let schema = schema(&[("human", "object")], &[&knows("human")])?;
+        let target = schema(&[("human", "object")], &[&knows("human")])?;
         let mut migration = keep(&["human"]);
         migration
             .vertex_remap
             .insert("person".into(), "human".into());
         migration.edge_remap.insert(knows("person"), knows("human"));
 
-        let result = AcsetOps::extend(&g, &schema, &migration, &Protocol::default())?;
+        let src = schema(&[("person", "object")], &[&knows("person")])?;
+        let protocol = object_protocol();
+        let protocols = BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        };
+        let result = AcsetOps::extend(&g, &src, &target, &migration, protocols)?;
         assert_eq!(result.node_count(), 2);
         assert_eq!(
             result.node(0).map(|n| &n.anchor),

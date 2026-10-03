@@ -229,7 +229,7 @@ pub(crate) fn source_vertices(migration: &CompiledMigration) -> BTreeSet<Name> {
 /// domain.
 ///
 /// Every table operation reads the edges a compiled migration carries through
-/// this one function, by way of [`edge_images`].
+/// this one function.
 pub(crate) fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
     let images: HashSet<&Edge> = migration.edge_remap.values().collect();
     let mut domain: BTreeSet<Edge> = migration.edge_remap.keys().cloned().collect();
@@ -239,67 +239,6 @@ pub(crate) fn source_edges(migration: &CompiledMigration) -> BTreeSet<Edge> {
         }
     }
     domain
-}
-
-/// Each source edge ([`source_edges`]) with its image under `F`: the edge
-/// `edge_remap` names, or, for an edge that survives unremapped, the edge of
-/// the same kind and name between the images of its endpoints.
-///
-/// `Sigma_F`, `Delta_F`, [`crate::functor_pi`], [`crate::functor_restrict`]
-/// and [`crate::functor_extend`] carry a foreign key exactly when its edge is
-/// a key of this map, and carry it to the edge this map names.
-pub(crate) fn edge_images(migration: &CompiledMigration) -> HashMap<Edge, Edge> {
-    source_edges(migration)
-        .into_iter()
-        .map(|source| {
-            let target = map_edge(migration, &source);
-            (source, target)
-        })
-        .collect()
-}
-
-/// The first source edge ([`source_edges`], ascending) whose image under
-/// `F` does not join the images of its endpoints, with that image.
-///
-/// Only an edge `edge_remap` remaps can be such an edge: a surviving edge is
-/// relabelled onto the images of its endpoints. A migration with such an
-/// edge states no functor between the two schemas (`panproto_mig::compile`
-/// refuses one as no morphism), so every table operation refuses it rather
-/// than drop the edge's pairs or return a row map that is no homomorphism.
-pub(crate) fn edge_off_endpoints(migration: &CompiledMigration) -> Option<(Edge, Edge)> {
-    source_edges(migration).into_iter().find_map(|edge| {
-        let image = map_edge(migration, &edge);
-        let joins = image.src == map_vertex(migration, &edge.src)
-            && image.tgt == map_vertex(migration, &edge.tgt);
-        (!joins).then_some((edge, image))
-    })
-}
-
-/// [`edge_off_endpoints`] as the refusal of an operation returning
-/// [`RestrictError`]: [`RestrictError::NoEdgeFound`] between the images of
-/// the edge's endpoints, since the migration names no edge between them
-/// for it.
-///
-/// # Errors
-///
-/// As described.
-pub(crate) fn check_edge_endpoints(migration: &CompiledMigration) -> Result<(), RestrictError> {
-    edge_off_endpoints(migration).map_or(Ok(()), |(edge, _)| {
-        Err(RestrictError::NoEdgeFound {
-            src: map_vertex(migration, &edge.src).to_string(),
-            tgt: map_vertex(migration, &edge.tgt).to_string(),
-        })
-    })
-}
-
-/// The edges a migration names only as targets: images of `edge_remap` that
-/// are not themselves source edges.
-pub(crate) fn target_only_edges(migration: &CompiledMigration) -> HashSet<&Edge> {
-    migration
-        .edge_remap
-        .values()
-        .filter(|edge| !migration.edge_remap.contains_key(*edge))
-        .collect()
 }
 
 /// Invert the vertex map over its whole domain, failing when two source
@@ -362,10 +301,14 @@ fn invert_edge_map(migration: &CompiledMigration) -> Result<HashMap<Edge, Edge>,
 /// for instance when the root anchor has no image in the target schema.
 pub fn w_sigma(
     x: &WInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
+    protocols: crate::BoundaryProtocols<'_>,
 ) -> Result<WInstance, AdjunctionError> {
-    Ok(crate::wtype::wtype_extend_engine(x, tgt_schema, migration)?)
+    Ok(crate::wtype::wtype_extend_engine(
+        x, src_schema, tgt_schema, migration, protocols,
+    )?)
 }
 
 /// `Delta_F` for W-type instances, defined for vertex-injective total maps.
@@ -1853,7 +1796,7 @@ pub fn g_delta(
 #[cfg(test)]
 #[allow(clippy::unwrap_used, clippy::expect_used, clippy::too_many_lines)]
 mod tests {
-    use std::collections::{HashMap, HashSet};
+    use std::collections::{BTreeSet, HashMap, HashSet};
 
     use panproto_schema::Vertex;
     use smallvec::SmallVec;
@@ -1928,6 +1871,41 @@ mod tests {
         }
     }
 
+    fn w_sigma_test(
+        instance: &WInstance,
+        target: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<WInstance, AdjunctionError> {
+        let vertices: BTreeSet<&str> = instance
+            .nodes
+            .values()
+            .map(|node| node.anchor.as_str())
+            .collect();
+        let edges: BTreeSet<Edge> = instance
+            .arcs
+            .iter()
+            .map(|(_, _, edge)| edge.clone())
+            .collect();
+        let source = schema_of(
+            &vertices.into_iter().collect::<Vec<_>>(),
+            &edges.into_iter().collect::<Vec<_>>(),
+        );
+        let protocol = panproto_schema::Protocol {
+            non_value_kinds: BTreeSet::from(["object".to_owned()]),
+            ..panproto_schema::Protocol::default()
+        };
+        w_sigma(
+            instance,
+            &source,
+            target,
+            migration,
+            crate::BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+    }
+
     // -- a concrete merging example (functor side) -----------------------
 
     /// Migration merging source vertices `a` and `b` onto target `t`, with
@@ -1997,7 +1975,7 @@ mod tests {
         let m = rename_migration();
         let tgt = schema_of(&["box", "item"], &[edge("box", "item", "child")]);
         let x = w_pair();
-        let sigma = w_sigma(&x, &tgt, &m).expect("sigma");
+        let sigma = w_sigma_test(&x, &tgt, &m).expect("sigma");
         // Sigma relabels anchors forward.
         assert_eq!(sigma.nodes[&0].anchor, Name::from("box"));
         assert_eq!(sigma.nodes[&1].anchor, Name::from("item"));
@@ -2064,7 +2042,7 @@ mod tests {
             0,
             "a".into(),
         );
-        let sigma = w_sigma(&x, &tgt, &m).expect("sigma");
+        let sigma = w_sigma_test(&x, &tgt, &m).expect("sigma");
         let round = w_delta(&sigma, &m).expect("delta inverts sigma on the whole domain");
         assert_eq!(round.nodes[&0].anchor, Name::from("a"));
         assert_eq!(round.nodes[&1].anchor, Name::from("c"));
@@ -2328,7 +2306,7 @@ mod tests {
             fn w_sigma_delta_triangle_identities(scenario in arb_w_scenario()) {
                 let WScenario { x, tgt_schema, migration } = scenario;
 
-                let sigma_x = w_sigma(&x, &tgt_schema, &migration).unwrap();
+                let sigma_x = w_sigma_test(&x, &tgt_schema, &migration).unwrap();
                 let delta_sigma_x = w_delta(&sigma_x, &migration).unwrap();
                 let unit = w_unit(&x);
                 prop_assert!(unit.check(&x, &delta_sigma_x).is_ok());
@@ -2340,7 +2318,7 @@ mod tests {
                 // Counit over Y = Sigma X (anchored inside the image of F).
                 let y = sigma_x;
                 let delta_y = w_delta(&y, &migration).unwrap();
-                let sigma_delta_y = w_sigma(&delta_y, &tgt_schema, &migration).unwrap();
+                let sigma_delta_y = w_sigma_test(&delta_y, &tgt_schema, &migration).unwrap();
                 let counit = w_counit(&y);
                 prop_assert!(counit.check(&sigma_delta_y, &y).is_ok());
                 // Second triangle: psi(eps_Y) is the identity on Delta Y.
@@ -2356,7 +2334,7 @@ mod tests {
             fn w_sigma_delta_hom_bijection(scenario in arb_w_scenario()) {
                 let WScenario { x, tgt_schema, migration } = scenario;
 
-                let sigma_x = w_sigma(&x, &tgt_schema, &migration).unwrap();
+                let sigma_x = w_sigma_test(&x, &tgt_schema, &migration).unwrap();
                 // A non-trivial g : Sigma X -> Y, the renumbering iso onto a
                 // shifted copy of Sigma X.
                 let (y, g) = shift_nodes(&sigma_x, 100);

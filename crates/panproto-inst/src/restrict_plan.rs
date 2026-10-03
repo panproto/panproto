@@ -7,7 +7,7 @@
 //! ([`EdgeImage`]), the contraction plan ([`ContractionPlan`]) and, when
 //! the protocols classify both schemas into tables and columns, the cell
 //! layer ([`CellPlan`]) and, for tables, the table functor of the migration
-//! ([`EntityFunctor`]). The three engines
+//! ([`EntityFunctor`]). The three representation engines
 //! ([`wtype_restrict_with_plan`](crate::wtype_restrict_with_plan),
 //! [`functor_restrict_with_plan`](crate::functor_restrict_with_plan),
 //! [`graph_restrict_with_plan`](crate::graph_restrict_with_plan)) read one
@@ -241,8 +241,9 @@ pub struct BoundaryPlan {
 /// migration it was compiled from, which the engines read, through
 /// accessors private to the crate, for value transforms and survival
 /// predicates; outside the crate the cell layer and the table functor are
-/// read from [`Self::boundary`]. [`Self::compile`], [`Self::compile_with_protocols`]
-/// and [`Self::compile_for_tables`] are its only constructors, so the
+/// read from [`Self::boundary`]. [`Self::compile`], [`Self::compile_with_protocols`],
+/// [`Self::compile_for_tables`] and [`Self::compile_for_table_extension`] are
+/// its only constructors, so the
 /// private fields are exactly the inputs of the compilation that built
 /// the plan (the public fields stay writable). It is `Clone` so that a
 /// lens may hold it, and `Debug` for diagnostics.
@@ -349,6 +350,38 @@ impl RestrictPlan {
         let mut plan = Self::compile(src, tgt, migration)?;
         plan.refuse_unrepresentable_on_tables()?;
         plan.refuse_disagreement(&functor, &source, &target)?;
+        let cells = cell_plan(&plan, &source, &target, protocols);
+        plan.boundary = Some(BoundaryPlan {
+            cells: Some(cells),
+            table: Some(functor),
+        });
+        Ok(plan)
+    }
+
+    /// The table plan for a left Kan extension.
+    ///
+    /// Unlike [`Self::compile_for_tables`], this constructor does not require
+    /// the restrict survival rule to agree with the table functor. Sigma is
+    /// defined by the functor itself: a source relation with no functor image
+    /// is an unmapped element, which total extension refuses and partial
+    /// extension reports. Requiring agreement here would reject precisely the
+    /// partial migrations those two APIs are meant to distinguish.
+    ///
+    /// # Errors
+    ///
+    /// As [`Self::compile_for_tables`] through table representability, but
+    /// never [`RestrictError::SurvivalRulesDisagree`].
+    pub fn compile_for_table_extension(
+        src: &Schema,
+        tgt: &Schema,
+        migration: &CompiledMigration,
+        protocols: BoundaryProtocols<'_>,
+    ) -> Result<Self, RestrictError> {
+        let source = RelSchema::new(src, protocols.src)?;
+        let target = RelSchema::new(tgt, protocols.tgt)?;
+        let functor = EntityFunctor::between(source.clone(), target.clone(), migration)?;
+        let mut plan = Self::compile(src, tgt, migration)?;
+        plan.refuse_unrepresentable_on_tables()?;
         let cells = cell_plan(&plan, &source, &target, protocols);
         plan.boundary = Some(BoundaryPlan {
             cells: Some(cells),
@@ -934,6 +967,9 @@ impl RestrictError {
             Self::PlanSchemaMismatch { .. } => 31,
             Self::ExpansionTooLong { .. } => 32,
             Self::NonConforming { .. } => 33,
+            Self::UnmappedEdge { .. } => 34,
+            Self::SigmaConstantClash { .. } => 35,
+            Self::NullIdsExhausted => 36,
         }
     }
 

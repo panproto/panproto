@@ -559,5 +559,8 @@ fn every_kind_index_is_its_variants_declaration_index() {
             assert_eq!(*index, Some(position), "{name}");
         }
     }
-    assert_eq!(variants.last().map(String::as_str), Some("NonConforming"));
+    assert_eq!(
+        variants.last().map(String::as_str),
+        Some("NullIdsExhausted")
+    );
 }

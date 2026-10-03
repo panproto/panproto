@@ -5,14 +5,14 @@ use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_inst::{
-    AdjunctionError, CellLayout, CompiledMigration, EdgeId, EdgeLayout, EncodingSide, FInstance,
-    FieldPresence, GInstance, GraphKanError, GraphKanHom, GraphLayout, MigrationFunctor, Node,
-    NodeShape, NotEncodableReason, RelSchema, RelSchemaError, RestrictError, Row, RowId, Value,
-    WInstance, decode_graph, encode_graph, g_counit, g_delta, g_delta_along,
-    g_delta_with_provenance, g_pi, g_pi_along, g_pi_along_with_provenance, g_pi_counit,
-    g_pi_restricted, g_pi_transpose_left, g_pi_transpose_right, g_pi_unit, g_sigma_along,
-    g_sigma_along_with_provenance, g_sigma_restricted, g_transpose_left, g_transpose_right, g_unit,
-    wtype_extend_engine, wtype_pi,
+    AdjunctionError, BoundaryProtocols, CellLayout, CompiledMigration, EdgeId, EdgeLayout,
+    EncodingSide, FInstance, FieldPresence, GInstance, GraphKanError, GraphKanHom, GraphLayout,
+    MigrationFunctor, Node, NodeShape, NotEncodableReason, RelSchema, RelSchemaError,
+    RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, g_counit, g_delta,
+    g_delta_along, g_delta_with_provenance, g_pi, g_pi_along, g_pi_along_with_provenance,
+    g_pi_counit, g_pi_restricted, g_pi_transpose_left, g_pi_transpose_right, g_pi_unit,
+    g_sigma_along, g_sigma_along_with_provenance, g_sigma_restricted, g_transpose_left,
+    g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use proptest::prelude::*;
@@ -1266,7 +1266,17 @@ fn tree_kan_boundary_cases_are_not_claimed_as_agreements() {
             )
     }));
     let tree_sigma = GInstance::from_wtype(
-        &wtype_extend_engine(&tree, &target_with_column, &migration).unwrap(),
+        &wtype_extend_engine(
+            &tree,
+            &source,
+            &target_with_column,
+            &migration,
+            BoundaryProtocols {
+                src: &protocol(),
+                tgt: &protocol(),
+            },
+        )
+        .unwrap(),
     )
     .unwrap();
     assert!(tree_sigma.nodes().values().all(|node| node.anchor != "A.y"));
@@ -1544,7 +1554,17 @@ proptest! {
         let graph = GInstance::from_wtype(&tree).unwrap();
         let graph_sigma = g_sigma_restricted(&graph, &functor).unwrap();
         let tree_sigma = GInstance::from_wtype(
-            &wtype_extend_engine(&tree, &target, &migration).unwrap(),
+            &wtype_extend_engine(
+                &tree,
+                &source,
+                &target,
+                &migration,
+                BoundaryProtocols {
+                    src: &protocol(),
+                    tgt: &protocol(),
+                },
+            )
+            .unwrap(),
         ).unwrap();
         prop_assert!(
             GInstance::identical(&graph_sigma, &tree_sigma),

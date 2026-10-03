@@ -4,14 +4,14 @@
 //! contravariance, and other algebraic properties that the panproto
 //! implementations claim to satisfy.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Arc;
 
 use panproto_gat::Name;
 use panproto_gat::{Operation, Sort, Theory, TheoryMorphism, check_morphism, colimit_by_name};
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance, wtype_restrict};
-use panproto_schema::{Edge, Schema, Vertex};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance, wtype_restrict};
+use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use smallvec::SmallVec;
 
 /// Build a schema with the given vertices and edges.
@@ -65,6 +65,22 @@ fn make_schema(verts: &[(&str, &str)], edge_list: &[Edge]) -> Schema {
         incoming,
         between,
         ..Default::default()
+    }
+}
+
+fn test_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+        non_value_kinds: BTreeSet::from(["object".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+const fn protocols(protocol: &Protocol) -> BoundaryProtocols<'_> {
+    BoundaryProtocols {
+        src: protocol,
+        tgt: protocol,
     }
 }
 
@@ -345,11 +361,12 @@ fn restrict_functor_contravariance() -> Result<(), Box<dyn std::error::Error>> {
     );
 
     // Path 1: restrict(g.f, I)
-    let direct = wtype_restrict(&instance, &s1, &s3, &composed_mig)?;
+    let protocol = test_protocol();
+    let direct = wtype_restrict(&instance, &s1, &s3, &composed_mig, protocols(&protocol))?;
 
     // Path 2: restrict(g, restrict(f, I))
-    let step1 = wtype_restrict(&instance, &s1, &s2, &first_mig)?;
-    let step2 = wtype_restrict(&step1, &s2, &s3, &second_mig)?;
+    let step1 = wtype_restrict(&instance, &s1, &s2, &first_mig, protocols(&protocol))?;
+    let step2 = wtype_restrict(&step1, &s2, &s3, &second_mig, protocols(&protocol))?;
 
     // Both should produce the same result: just the root node.
     assert_eq!(direct.node_count(), step2.node_count(), "same node count");
@@ -412,7 +429,8 @@ fn migration_compose_identity_roundtrip() -> Result<(), Box<dyn std::error::Erro
     let instance = WInstance::new(nodes, vec![(0, 1, e)], vec![], 0, "root".into());
 
     // restrict(id, I) == I
-    let restricted = wtype_restrict(&instance, &s1, &s1, &id_mig)?;
+    let protocol = test_protocol();
+    let restricted = wtype_restrict(&instance, &s1, &s1, &id_mig, protocols(&protocol))?;
 
     assert_eq!(restricted.node_count(), instance.node_count());
     for (&id, node) in &instance.nodes {
@@ -626,7 +644,15 @@ mod property {
         fn identity_restrict_preserves_instance(
             (schema, instance, id_mig) in arb_schema_instance_identity()
         ) {
-            let restricted = wtype_restrict(&instance, &schema, &schema, &id_mig).unwrap();
+            let protocol = test_protocol();
+            let restricted = wtype_restrict(
+                &instance,
+                &schema,
+                &schema,
+                &id_mig,
+                protocols(&protocol),
+            )
+            .unwrap();
             prop_assert_eq!(
                 restricted.node_count(),
                 instance.node_count(),
@@ -646,11 +672,33 @@ mod property {
             (s1, s2, s3, mig_12, mig_23, mig_13, instance) in arb_restrict_chain()
         ) {
             // Direct path: restrict(S1 -> S3, I)
-            let direct = wtype_restrict(&instance, &s1, &s3, &mig_13).unwrap();
+            let protocol = test_protocol();
+            let direct = wtype_restrict(
+                &instance,
+                &s1,
+                &s3,
+                &mig_13,
+                protocols(&protocol),
+            )
+            .unwrap();
 
             // Sequential path: restrict(S2 -> S3, restrict(S1 -> S2, I))
-            let step1 = wtype_restrict(&instance, &s1, &s2, &mig_12).unwrap();
-            let step2 = wtype_restrict(&step1, &s2, &s3, &mig_23).unwrap();
+            let step1 = wtype_restrict(
+                &instance,
+                &s1,
+                &s2,
+                &mig_12,
+                protocols(&protocol),
+            )
+            .unwrap();
+            let step2 = wtype_restrict(
+                &step1,
+                &s2,
+                &s3,
+                &mig_23,
+                protocols(&protocol),
+            )
+            .unwrap();
 
             prop_assert_eq!(
                 direct.node_count(),
@@ -774,6 +822,16 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
         &[("root", "object"), ("child", "string")],
         std::slice::from_ref(&e_a),
     );
+    let e_field = Edge {
+        src: "root".into(),
+        tgt: "field".into(),
+        kind: "prop".into(),
+        name: Some("a".into()),
+    };
+    let s2 = make_schema(
+        &[("root", "object"), ("field", "string")],
+        std::slice::from_ref(&e_field),
+    );
 
     // Migration that renames "child" to "field" and "root" to "root"
     let mig = CompiledMigration {
@@ -783,15 +841,7 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
             (Name::from("root"), Name::from("root")),
             (Name::from("child"), Name::from("field")),
         ]),
-        edge_remap: HashMap::from([(
-            e_a.clone(),
-            Edge {
-                src: "root".into(),
-                tgt: "field".into(),
-                kind: "prop".into(),
-                name: Some("a".into()),
-            },
-        )]),
+        edge_remap: HashMap::from([(e_a.clone(), e_field.clone())]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -810,7 +860,8 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
     let instance = WInstance::new(nodes, vec![(0, 1, e_a.clone())], vec![], 0, "root".into());
 
     // extend: S1 -> S2
-    let extended = panproto_inst::wtype_extend(&instance, &s1, &mig)?;
+    let protocol = test_protocol();
+    let extended = panproto_inst::wtype_extend(&instance, &s1, &s2, &mig, protocols(&protocol))?;
     assert!(
         extended
             .nodes
@@ -822,12 +873,12 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
     // restrict: S2 -> S1 (reverse the remap)
     let reverse_mig = CompiledMigration {
         surviving_verts: ["root", "child"].into_iter().map(Name::from).collect(),
-        surviving_edges: std::iter::once(e_a).collect(),
+        surviving_edges: std::iter::once(e_a.clone()).collect(),
         vertex_remap: HashMap::from([
             (Name::from("root"), Name::from("root")),
             (Name::from("field"), Name::from("child")),
         ]),
-        edge_remap: HashMap::new(),
+        edge_remap: HashMap::from([(e_field, e_a)]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -835,7 +886,7 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
         op_term_assignments: HashMap::new(),
         expansion_path: HashMap::new(),
     };
-    let restricted = wtype_restrict(&extended, &s1, &s1, &reverse_mig)?;
+    let restricted = wtype_restrict(&extended, &s2, &s1, &reverse_mig, protocols(&protocol))?;
 
     // The round-trip should preserve node count and data.
     assert_eq!(
@@ -866,14 +917,28 @@ fn sigma_delta_unit_wtype() -> Result<(), Box<dyn std::error::Error>> {
 fn functor_identity_restrict() -> Result<(), Box<dyn std::error::Error>> {
     use panproto_inst::functor::FInstance;
 
+    let name_edge = Edge {
+        src: "users".into(),
+        tgt: "users.name".into(),
+        kind: "prop".into(),
+        name: Some("name".into()),
+    };
+    let schema = make_schema(
+        &[("users", "object"), ("users.name", "string")],
+        std::slice::from_ref(&name_edge),
+    );
+
     let mut row = HashMap::new();
     row.insert("name".to_string(), Value::Str("Alice".into()));
 
     let inst = FInstance::new().with_table("users", vec![row.clone()])?;
 
     let id_mig = CompiledMigration {
-        surviving_verts: std::iter::once(Name::from("users")).collect(),
-        surviving_edges: std::collections::HashSet::new(),
+        surviving_verts: ["users", "users.name"]
+            .into_iter()
+            .map(Name::from)
+            .collect(),
+        surviving_edges: std::iter::once(name_edge).collect(),
         vertex_remap: HashMap::new(),
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
@@ -884,7 +949,9 @@ fn functor_identity_restrict() -> Result<(), Box<dyn std::error::Error>> {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = panproto_inst::functor_restrict(&inst, &id_mig)?;
+    let protocol = test_protocol();
+    let restricted =
+        panproto_inst::functor_restrict(&inst, &schema, &schema, &id_mig, protocols(&protocol))?;
     assert_eq!(restricted.table_count(), 1);
     assert_eq!(restricted.row_count("users"), 1);
 

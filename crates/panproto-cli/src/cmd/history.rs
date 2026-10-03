@@ -48,10 +48,20 @@ pub fn cmd_cherry_pick(
         no_commit,
         record_origin,
     };
+    let registered: std::collections::HashMap<String, panproto_core::schema::Protocol> =
+        panproto_core::protocols::registry::descriptors()
+            .iter()
+            .map(|descriptor| (descriptor.name.to_owned(), (descriptor.protocol)()))
+            .collect();
 
-    let new_id =
-        vcs::cherry_pick::cherry_pick_with_options(repo.store_mut(), commit_id, author, &opts)
-            .into_diagnostic()?;
+    let new_id = vcs::cherry_pick::cherry_pick_with_options(
+        repo.store_mut(),
+        commit_id,
+        author,
+        &opts,
+        &registered,
+    )
+    .into_diagnostic()?;
     println!("Cherry-picked {} -> {}", commit_id.short(), new_id.short());
     Ok(())
 }
