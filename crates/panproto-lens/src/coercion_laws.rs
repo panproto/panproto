@@ -54,7 +54,86 @@ use std::sync::Arc;
 
 use panproto_expr::{Env, EvalConfig, Expr, Literal, eval};
 use panproto_gat::{CoercionClass, DirectedEquation, Theory, ValueKind};
+use panproto_inst::value::FieldPresence;
+use panproto_inst::{FInstance, GInstance, RowId, value_to_expr_literal};
 use rustc_hash::FxHashMap;
+
+/// A graph carrier from which a coercion-law sample was drawn.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum GraphCoercionCarrier {
+    /// A declaration-level failure independent of any instance sample.
+    Declaration,
+    /// The primary value carried by a node.
+    NodeValue {
+        /// Numeric graph node id.
+        node: u32,
+    },
+    /// An extra field retained on a node.
+    Field {
+        /// Numeric graph node id.
+        node: u32,
+        /// Extra-field key.
+        field: String,
+    },
+}
+
+/// A table carrier from which a coercion-law sample was drawn.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum TableCoercionCarrier {
+    /// A declaration-level failure independent of any instance sample.
+    Declaration,
+    /// One cell in a named table row.
+    Cell {
+        /// Table vertex name.
+        table: String,
+        /// Globally unique row id.
+        row: RowId,
+        /// Column name.
+        column: String,
+    },
+}
+
+/// A graph violation together with the carrier that supplied its sample.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GraphCoercionLawViolation {
+    /// Carrier whose value failed the declared law.
+    pub carrier: GraphCoercionCarrier,
+    /// Violation reported by the shared coercion algebra.
+    pub violation: CoercionLawViolation,
+}
+
+/// A table violation together with the carrier that supplied its sample.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct TableCoercionLawViolation {
+    /// Carrier whose value failed the declared law.
+    pub carrier: TableCoercionCarrier,
+    /// Violation reported by the shared coercion algebra.
+    pub violation: CoercionLawViolation,
+}
+
+/// A carrier value that cannot be represented in the expression language.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum CoercionCarrierError {
+    /// An unsupported graph carrier value.
+    #[error("graph carrier {carrier:?} contains an inexpressible {value_type}")]
+    Graph {
+        /// Carrier containing the unsupported value.
+        carrier: GraphCoercionCarrier,
+        /// Stable instance-value type name.
+        value_type: &'static str,
+    },
+    /// An unsupported table carrier value.
+    #[error("table carrier {carrier:?} contains an inexpressible {value_type}")]
+    Table {
+        /// Carrier containing the unsupported value.
+        carrier: TableCoercionCarrier,
+        /// Stable instance-value type name.
+        value_type: &'static str,
+    },
+}
 
 /// A violation of a declared coercion class's round-trip law on a
 /// single sample input.
@@ -197,6 +276,139 @@ pub fn check_coercion_laws(
     }
 
     violations
+}
+
+/// Check the shared coercion algebra using every expressible graph node value
+/// and extra field as a carrier-labelled sample.
+///
+/// Nodes are visited by ascending id, with the primary value before
+/// lexicographically ordered extra fields. Absent values are not samples;
+/// explicit nulls are.
+///
+/// # Errors
+///
+/// Returns [`CoercionCarrierError`] at the first carrier whose value has no
+/// faithful expression literal.
+pub fn check_graph_coercion_laws(
+    forward: &Expr,
+    inverse: Option<&Expr>,
+    class: CoercionClass,
+    instance: &GInstance,
+    var_name: &str,
+) -> Result<Vec<GraphCoercionLawViolation>, CoercionCarrierError> {
+    let mut node_ids: Vec<u32> = instance.nodes().keys().copied().collect();
+    node_ids.sort_unstable();
+    let mut out = check_coercion_laws(forward, inverse, class, &[], var_name)
+        .into_iter()
+        .map(|violation| GraphCoercionLawViolation {
+            carrier: GraphCoercionCarrier::Declaration,
+            violation,
+        })
+        .collect::<Vec<_>>();
+    if !out.is_empty() {
+        return Ok(out);
+    }
+    for node_id in node_ids {
+        let node = &instance.nodes()[&node_id];
+        if let Some(presence) = &node.value {
+            let carrier = GraphCoercionCarrier::NodeValue { node: node_id };
+            let literal = match presence {
+                FieldPresence::Present(value) => {
+                    value_to_expr_literal(value).map_err(|error| CoercionCarrierError::Graph {
+                        carrier: carrier.clone(),
+                        value_type: error.value_type,
+                    })?
+                }
+                FieldPresence::Null => Literal::Null,
+                FieldPresence::Absent => continue,
+            };
+            out.extend(
+                check_coercion_laws(forward, inverse, class, &[literal], var_name)
+                    .into_iter()
+                    .map(|violation| GraphCoercionLawViolation {
+                        carrier: carrier.clone(),
+                        violation,
+                    }),
+            );
+        }
+        let mut fields: Vec<_> = node.extra_fields.iter().collect();
+        fields.sort_unstable_by(|a, b| a.0.cmp(b.0));
+        for (field, value) in fields {
+            let carrier = GraphCoercionCarrier::Field {
+                node: node_id,
+                field: field.clone(),
+            };
+            let literal =
+                value_to_expr_literal(value).map_err(|error| CoercionCarrierError::Graph {
+                    carrier: carrier.clone(),
+                    value_type: error.value_type,
+                })?;
+            out.extend(
+                check_coercion_laws(forward, inverse, class, &[literal], var_name)
+                    .into_iter()
+                    .map(|violation| GraphCoercionLawViolation {
+                        carrier: carrier.clone(),
+                        violation,
+                    }),
+            );
+        }
+    }
+    Ok(out)
+}
+
+/// Check the shared coercion algebra using every table cell as a
+/// carrier-labelled sample.
+///
+/// Tables, rows, and columns are visited in ascending order.
+///
+/// # Errors
+///
+/// Returns [`CoercionCarrierError`] at the first cell whose value has no
+/// faithful expression literal.
+pub fn check_table_coercion_laws(
+    forward: &Expr,
+    inverse: Option<&Expr>,
+    class: CoercionClass,
+    instance: &FInstance,
+    var_name: &str,
+) -> Result<Vec<TableCoercionLawViolation>, CoercionCarrierError> {
+    let mut out = check_coercion_laws(forward, inverse, class, &[], var_name)
+        .into_iter()
+        .map(|violation| TableCoercionLawViolation {
+            carrier: TableCoercionCarrier::Declaration,
+            violation,
+        })
+        .collect::<Vec<_>>();
+    if !out.is_empty() {
+        return Ok(out);
+    }
+    for (table, rows) in instance.tables() {
+        for (row_id, row) in rows.rows() {
+            let mut cells: Vec<_> = row.iter().collect();
+            cells.sort_unstable_by(|a, b| a.0.cmp(b.0));
+            for (column, value) in cells {
+                let carrier = TableCoercionCarrier::Cell {
+                    table: table.to_string(),
+                    row: row_id,
+                    column: column.clone(),
+                };
+                let literal =
+                    value_to_expr_literal(value).map_err(|error| CoercionCarrierError::Table {
+                        carrier: carrier.clone(),
+                        value_type: error.value_type,
+                    })?;
+                out.extend(
+                    check_coercion_laws(forward, inverse, class, &[literal], var_name)
+                        .into_iter()
+                        .map(|violation| TableCoercionLawViolation {
+                            carrier: carrier.clone(),
+                            violation,
+                        }),
+                );
+            }
+        }
+    }
+    Ok(out)
 }
 
 /// Check the round-trip laws of `deq`'s declared coercion class using
@@ -719,6 +931,8 @@ impl CoercionLawValidation for DirectedEquation {
 mod tests {
     use super::*;
     use panproto_expr::{BuiltinOp, Expr};
+    use panproto_inst::{Node, Value};
+    use std::collections::HashMap;
 
     /// `upper x` coerces a string to uppercase.
     fn upper_expr(var: &str) -> Expr {
@@ -728,6 +942,180 @@ mod tests {
     /// Identity expression `x` (a pure pass-through).
     fn identity_expr(var: &str) -> Expr {
         Expr::Var(Arc::from(var))
+    }
+
+    #[test]
+    fn graph_carriers_use_shared_algebra_and_retain_location() {
+        let graph = GInstance::new().with_node(
+            Node::new(7, "text")
+                .with_value(FieldPresence::Present(Value::Str("Alice".into())))
+                .with_extra_field("alias", Value::Str("Bob".into())),
+        );
+        let violations = check_graph_coercion_laws(
+            &upper_expr("x"),
+            Some(&identity_expr("x")),
+            CoercionClass::Iso,
+            &graph,
+            "x",
+        )
+        .unwrap();
+        assert_eq!(violations.len(), 4);
+        assert!(matches!(
+            (&violations[0].carrier, &violations[0].violation),
+            (
+                GraphCoercionCarrier::NodeValue { node: 7 },
+                CoercionLawViolation::Backward { .. }
+            )
+        ));
+        assert!(matches!(
+            (&violations[1].carrier, &violations[1].violation),
+            (
+                GraphCoercionCarrier::NodeValue { node: 7 },
+                CoercionLawViolation::Forward { .. }
+            )
+        ));
+        assert!(matches!(
+            (&violations[2].carrier, &violations[2].violation),
+            (
+                GraphCoercionCarrier::Field { node: 7, field },
+                CoercionLawViolation::Backward { .. }
+            ) if field == "alias"
+        ));
+        assert!(matches!(
+            (&violations[3].carrier, &violations[3].violation),
+            (
+                GraphCoercionCarrier::Field { node: 7, field },
+                CoercionLawViolation::Forward { .. }
+            ) if field == "alias"
+        ));
+    }
+
+    #[test]
+    fn declaration_failures_are_reported_once_without_a_carrier_sample() {
+        let graph = check_graph_coercion_laws(
+            &identity_expr("x"),
+            None,
+            CoercionClass::Iso,
+            &GInstance::new(),
+            "x",
+        )
+        .unwrap();
+        assert_eq!(graph.len(), 1);
+        assert!(matches!(
+            (&graph[0].carrier, &graph[0].violation),
+            (
+                GraphCoercionCarrier::Declaration,
+                CoercionLawViolation::MissingInverse { .. }
+            )
+        ));
+
+        let table = check_table_coercion_laws(
+            &identity_expr("x"),
+            None,
+            CoercionClass::Iso,
+            &FInstance::default(),
+            "x",
+        )
+        .unwrap();
+        assert_eq!(table.len(), 1);
+        assert!(matches!(
+            (&table[0].carrier, &table[0].violation),
+            (
+                TableCoercionCarrier::Declaration,
+                CoercionLawViolation::MissingInverse { .. }
+            )
+        ));
+    }
+
+    #[test]
+    fn honest_identity_passes_on_graph_and_table_carriers() {
+        let graph = GInstance::new().with_node(
+            Node::new(1, "text")
+                .with_value(FieldPresence::Present(Value::Str("a".into())))
+                .with_extra_field("field", Value::Int(1)),
+        );
+        assert!(
+            check_graph_coercion_laws(
+                &identity_expr("x"),
+                Some(&identity_expr("x")),
+                CoercionClass::Iso,
+                &graph,
+                "x",
+            )
+            .unwrap()
+            .is_empty()
+        );
+
+        let table = FInstance::from_parts(
+            [(
+                "t".into(),
+                vec![(RowId(1), HashMap::from([("c".into(), Value::Int(1))]))],
+            )],
+            [],
+        )
+        .unwrap();
+        assert!(
+            check_table_coercion_laws(
+                &identity_expr("x"),
+                Some(&identity_expr("x")),
+                CoercionClass::Iso,
+                &table,
+                "x",
+            )
+            .unwrap()
+            .is_empty()
+        );
+    }
+
+    #[test]
+    fn table_cells_use_shared_algebra_and_retain_location() {
+        let row = HashMap::from([("name".to_owned(), Value::Str("Alice".into()))]);
+        let table = FInstance::from_parts([("person".into(), vec![(RowId(3), row)])], []).unwrap();
+        let violations = check_table_coercion_laws(
+            &upper_expr("x"),
+            Some(&identity_expr("x")),
+            CoercionClass::Iso,
+            &table,
+            "x",
+        )
+        .unwrap();
+        assert_eq!(violations.len(), 2);
+        assert!(matches!(
+            (&violations[0].carrier, &violations[0].violation),
+            (
+                TableCoercionCarrier::Cell { table, row: RowId(3), column },
+                CoercionLawViolation::Backward { .. }
+            ) if table == "person" && column == "name"
+        ));
+        assert!(matches!(
+            (&violations[1].carrier, &violations[1].violation),
+            (
+                TableCoercionCarrier::Cell { table, row: RowId(3), column },
+                CoercionLawViolation::Forward { .. }
+            ) if table == "person" && column == "name"
+        ));
+    }
+
+    #[test]
+    fn graph_carrier_rejects_inexpressible_value_with_location() {
+        let graph = GInstance::new().with_node(
+            Node::new(2, "token").with_value(FieldPresence::Present(Value::Token("red".into()))),
+        );
+        let error = check_graph_coercion_laws(
+            &identity_expr("x"),
+            Some(&identity_expr("x")),
+            CoercionClass::Iso,
+            &graph,
+            "x",
+        )
+        .unwrap_err();
+        assert!(matches!(
+            error,
+            CoercionCarrierError::Graph {
+                carrier: GraphCoercionCarrier::NodeValue { node: 2 },
+                value_type: "token"
+            }
+        ));
     }
 
     #[test]

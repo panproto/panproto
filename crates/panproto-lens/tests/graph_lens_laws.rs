@@ -7,8 +7,9 @@ use std::collections::{BTreeMap, HashMap};
 use panproto_expr::Expr;
 use panproto_inst::identity::{IdentityCarrier, IdentityField};
 use panproto_inst::{
-    CompiledMigration, EdgeId, Fan, GEdge, GInstance, GraphComplement, IdentityError, Node,
-    PutDomainError, SynthIndex, SynthKey, Value, ViewRef, WInstance,
+    CompiledMigration, EdgeId, Fan, FanDomain, FieldTransform, GEdge, GInstance, GraphComplement,
+    HYPER_LABEL_KIND, HYPER_PARENT_KIND, IdentityError, Node, NodeShape, PutDomainError,
+    SynthIndex, SynthKey, Value, ViewRef, WInstance,
 };
 use panproto_lens::graph_lens::{
     Aligner, Alignment, GraphComposite, IdAligner, SequentialGraphLens, align, check_aligner,
@@ -16,7 +17,10 @@ use panproto_lens::graph_lens::{
     fresh_view_node_id, get, put,
 };
 use panproto_lens::lens_shape::{GraphShape, LensShape};
-use panproto_lens::{ComplementCompose, ErrorDetail, Lens, LensError, LensPath};
+use panproto_lens::{
+    ComplementCompose, ErrorDetail, LawShape, Lens, LensError, LensPath, Mutation, MutationCases,
+    SmallScope,
+};
 use panproto_schema::{Edge, Key, KeyPart, KeyRole, KeyScope, Protocol, Schema, SchemaBuilder};
 use proptest::prelude::*;
 
@@ -54,6 +58,15 @@ fn identity_lens(schema: &Schema) -> Lens {
         src_schema: schema.clone(),
         tgt_schema: schema.clone(),
     }
+}
+
+fn raw_complement_free_put(lens: &Lens, view: &GInstance) -> Result<GInstance, LensError> {
+    let mut complement = GraphComplement::empty();
+    complement.stamp(
+        lens.identity(panproto_inst::ComplementShape::Graph),
+        &lens.src_schema,
+    );
+    put(lens, view, &complement)
 }
 
 fn projection_lens() -> Lens {
@@ -178,6 +191,173 @@ fn graph_get_put_restores_exactly_what_get_set_aside() {
     assert!(complement.dropped_edges.contains_key(&EdgeId(4)));
     let restored = put(&lens, &view, &complement).expect("put");
     assert!(GInstance::identical(&source, &restored));
+}
+
+#[test]
+fn graph_put_without_complement_agrees_with_the_shape_classifier() {
+    let schema = schema(false);
+    let lens = identity_lens(&schema);
+    let source = GInstance::new()
+        .with_node(Node::new(7, "a"))
+        .with_value(7, Value::Str("kept".to_owned()));
+    let (view, complement) = get(&lens, &source).expect("get");
+    assert!(complement.residue_is_trivial());
+    assert!(panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert!(panproto_lens::graph_lens::obstruction_to_isomorphism(&lens).is_none());
+    let restored = panproto_lens::graph_lens::put_without_complement(&lens, &view)
+        .expect("complement-free put");
+    assert!(GInstance::identical(&source, &restored));
+
+    let projection = projection_lens();
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&projection));
+    assert!(panproto_lens::graph_lens::obstruction_to_isomorphism(&projection).is_some());
+}
+
+#[test]
+fn graph_obstructions_are_reported() {
+    let lens = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: std::iter::once("b".into()).collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: built_schema(
+            &["b", "c", "a"],
+            &[edge("a", "b", "ab"), edge("b", "c", "bc")],
+        ),
+        tgt_schema: built_schema(&["b"], &[]),
+    };
+
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert_eq!(
+        panproto_lens::graph_lens::obstruction_to_isomorphism(&lens).as_deref(),
+        Some("vertex `a` does not survive, so a graph node over it cannot be reconstructed")
+    );
+}
+
+#[test]
+fn graph_isomorphism_rejects_an_open_field_rename_collision() {
+    let schema = schema(false);
+    let lens = Lens {
+        compiled: CompiledMigration {
+            surviving_verts: std::iter::once("a".into()).collect(),
+            field_transforms: std::iter::once((
+                "a".into(),
+                vec![FieldTransform::RenameField {
+                    old_key: "old".to_owned(),
+                    new_key: "new".to_owned(),
+                }],
+            ))
+            .collect(),
+            ..CompiledMigration::default()
+        },
+        src_schema: schema.clone(),
+        tgt_schema: schema,
+    };
+    let mut node = Node::new(7, "a");
+    node.extra_fields.insert("old".to_owned(), Value::Int(1));
+    node.extra_fields.insert("new".to_owned(), Value::Int(2));
+    let source = GInstance::new().with_node(node);
+    let (view, complement) = get(&lens, &source).expect("get");
+    assert!(!complement.residue_is_trivial());
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert!(
+        panproto_lens::graph_lens::obstruction_to_isomorphism(&lens)
+            .is_some_and(|detail| detail.contains("overwrite"))
+    );
+    assert!(matches!(
+        panproto_lens::graph_lens::put_without_complement(&lens, &view),
+        Err(LensError::NotAnIsomorphism { .. })
+    ));
+}
+
+#[test]
+fn graph_isomorphism_is_classified_throughout_finite_scope() {
+    let source_schema = schema(true);
+    let identity = identity_lens(&source_schema);
+    let scope = SmallScope {
+        max_nodes: 2,
+        max_edges: 2,
+    };
+    let sources = GraphShape::enumerate_small(&source_schema, scope, &());
+    assert!(!sources.is_empty());
+    assert!(panproto_lens::graph_lens::is_isomorphism(&identity));
+    let identity_round_trips = sources.iter().all(|source| {
+        let (view, _) = get(&identity, source).expect("identity get in finite scope");
+        raw_complement_free_put(&identity, &view)
+            .is_ok_and(|restored| GInstance::identical(source, &restored))
+    });
+    assert_eq!(
+        panproto_lens::graph_lens::is_isomorphism(&identity),
+        identity_round_trips
+    );
+
+    let projection = projection_lens();
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&projection));
+    let projection_round_trips = sources.iter().all(|source| {
+        let (view, _) = get(&projection, source).expect("projection get in finite scope");
+        raw_complement_free_put(&projection, &view)
+            .is_ok_and(|restored| GInstance::identical(source, &restored))
+    });
+    assert!(
+        !projection_round_trips,
+        "the finite scope has a dropped node"
+    );
+    assert_eq!(
+        panproto_lens::graph_lens::is_isomorphism(&projection),
+        projection_round_trips
+    );
+
+    let protocol = Protocol::default();
+    let fan_schema = SchemaBuilder::new(&protocol)
+        .vertex("r", "record", None)
+        .expect("parent")
+        .vertex("c", "record", None)
+        .expect("child")
+        .hyper_edge(
+            "h",
+            "rel",
+            HashMap::from([
+                ("p".to_owned(), "r".to_owned()),
+                ("x".to_owned(), "c".to_owned()),
+            ]),
+            "p",
+        )
+        .expect("hyper edge")
+        .build()
+        .expect("fan schema");
+    let fan_sources = GraphShape::enumerate_small(
+        &fan_schema,
+        SmallScope {
+            max_nodes: 3,
+            max_edges: 2,
+        },
+        &(),
+    );
+    assert!(
+        fan_sources.iter().any(|source| {
+            source
+                .edges()
+                .values()
+                .any(|edge| edge.edge.kind.as_str() == HYPER_PARENT_KIND)
+                && source
+                    .edges()
+                    .values()
+                    .all(|edge| edge.edge.kind.as_str() != HYPER_LABEL_KIND)
+        }),
+        "finite graph scope must include a parent-only fan"
+    );
+    let fan_identity = identity_lens(&fan_schema);
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&fan_identity));
+    let fan_round_trips = fan_sources.iter().all(|source| {
+        let (view, _) = get(&fan_identity, source).expect("finite fan get");
+        raw_complement_free_put(&fan_identity, &view)
+            .is_ok_and(|restored| GInstance::identical(source, &restored))
+    });
+    assert!(!fan_round_trips, "the finite scope has a reified hyperedge");
+    assert_eq!(
+        panproto_lens::graph_lens::is_isomorphism(&fan_identity),
+        fan_round_trips
+    );
 }
 
 #[test]
@@ -314,6 +494,38 @@ fn a_contracted_graph_path_round_trips_and_refuses_a_new_contracted_edge() {
             error,
             PutDomainError::ContractedEdgeInserted { elem: ViewRef::Edge(EdgeId(20)) }
         ))
+    ));
+}
+
+#[test]
+fn a_direct_graph_preimage_is_not_a_contracted_edge_negative() {
+    let ad = edge("a", "d", "d");
+    let db = edge("d", "b", "b");
+    let direct = edge("a", "b", "direct");
+    let ab = edge("a", "b", "b");
+    let target = built_schema(&["a", "b"], std::slice::from_ref(&ab));
+    let mut compiled = identity_lens(&target).compiled;
+    compiled.edge_remap.insert(direct.clone(), ab);
+    let lens = Lens {
+        compiled,
+        src_schema: built_schema(&["a", "d", "b"], &[ad, db, direct]),
+        tgt_schema: target,
+    };
+    let source = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(2, "b"));
+    let (view, complement) = get(&lens, &source).expect("get");
+
+    assert!(matches!(
+        GraphShape::mutation_cases(
+            &lens,
+            &source,
+            &view,
+            &complement,
+            &(),
+            Mutation::AddContractedEdge,
+        ),
+        MutationCases::Skip(panproto_lens::SkipReason::NoCandidate)
     ));
 }
 
@@ -491,6 +703,16 @@ fn graph_put_domain_reports_duplicate_keys_and_missing_required_cells() {
         .insert("b".to_owned(), Value::Str("same".to_owned()));
     let duplicate = GInstance::new().with_node(first).with_node(second);
     let (view, complement) = get(&keyed_lens, &duplicate).expect("get duplicate");
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&keyed_lens));
+    assert!(
+        panproto_lens::graph_lens::obstruction_to_isomorphism(&keyed_lens)
+            .is_some_and(|detail| detail.contains("duplicate key values"))
+    );
+    assert!(matches!(
+        raw_complement_free_put(&keyed_lens, &view),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::DuplicateKey { .. })
+    ));
     assert!(matches!(
         check_put_domain(&keyed_lens, &view, &complement),
         Err(errors) if errors.iter().any(|error| matches!(
@@ -507,6 +729,16 @@ fn graph_put_domain_reports_duplicate_keys_and_missing_required_cells() {
     let required_lens = identity_lens(&required_schema);
     let missing = GInstance::new().with_node(Node::new(0, "a"));
     let (view, complement) = get(&required_lens, &missing).expect("get missing");
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&required_lens));
+    assert!(
+        panproto_lens::graph_lens::obstruction_to_isomorphism(&required_lens)
+            .is_some_and(|detail| detail.contains("requires field `b`"))
+    );
+    assert!(matches!(
+        raw_complement_free_put(&required_lens, &view),
+        Err(LensError::PutDomain(error))
+            if matches!(*error, PutDomainError::MissingRequiredCell { .. })
+    ));
     assert!(matches!(
         check_put_domain(&required_lens, &view, &complement),
         Err(errors) if errors.iter().any(|error| matches!(
@@ -515,6 +747,19 @@ fn graph_put_domain_reports_duplicate_keys_and_missing_required_cells() {
                 if field == "b"
         ))
     ));
+
+    let mut defaulted_schema = required_schema;
+    defaulted_schema
+        .defaults
+        .insert("b".into(), Expr::Var("default-b".into()));
+    let defaulted_lens = identity_lens(&defaulted_schema);
+    let missing = GInstance::new().with_node(Node::new(0, "a"));
+    let (view, _) = get(&defaulted_lens, &missing).expect("get defaulted required field");
+    assert!(panproto_lens::graph_lens::is_isomorphism(&defaulted_lens));
+    assert!(
+        raw_complement_free_put(&defaulted_lens, &view)
+            .is_ok_and(|restored| GInstance::identical(&missing, &restored))
+    );
 }
 
 #[test]
@@ -756,6 +1001,70 @@ fn a_relabelled_fan_edge_round_trips_through_its_recorded_source_label() {
     assert_eq!(complement.original_edges.len(), 1);
     let restored = put(&lens, &view, &complement).expect("put");
     assert!(GInstance::identical(&source, &restored));
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert!(matches!(
+        panproto_lens::graph_lens::put_without_complement(&lens, &view),
+        Err(LensError::NotAnIsomorphism { .. })
+    ));
+}
+
+#[test]
+fn a_parent_only_fan_prevents_global_graph_isomorphism() {
+    let schema = SchemaBuilder::new(&Protocol::default())
+        .vertex("r", "record", None)
+        .expect("root")
+        .hyper_edge(
+            "h",
+            "rel",
+            HashMap::from([("p".to_owned(), "r".to_owned())]),
+            "p",
+        )
+        .expect("hyper-edge")
+        .build()
+        .expect("schema");
+    let lens = identity_lens(&schema);
+    let source = GInstance::new()
+        .with_node(Node::new(0, "r"))
+        .with_node(Node::new(1, "h").with_shape(NodeShape::HyperEdge))
+        .with_edge_id(
+            EdgeId(4),
+            1,
+            0,
+            Edge {
+                src: "h".into(),
+                tgt: "r".into(),
+                kind: HYPER_PARENT_KIND.into(),
+                name: Some("p".into()),
+            },
+        );
+    assert!(FanDomain::check_with_schema(&source, &lens.src_schema).is_ok());
+    let (view, complement) = get(&lens, &source).expect("get");
+    assert!(!complement.residue_is_trivial());
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert!(matches!(
+        panproto_lens::graph_lens::put_without_complement(&lens, &view),
+        Err(LensError::NotAnIsomorphism { .. })
+    ));
+}
+
+#[test]
+fn a_nested_path_transform_is_not_a_graph_isomorphism() {
+    let mut lens = identity_lens(&schema(false));
+    lens.compiled.field_transforms.insert(
+        "a".into(),
+        vec![FieldTransform::PathTransform {
+            path: vec!["cell".to_owned()],
+            inner: Box::new(FieldTransform::RenameField {
+                old_key: "x".to_owned(),
+                new_key: "y".to_owned(),
+            }),
+        }],
+    );
+    assert!(!panproto_lens::graph_lens::is_isomorphism(&lens));
+    assert!(
+        panproto_lens::graph_lens::obstruction_to_isomorphism(&lens)
+            .is_some_and(|detail| detail.contains("nested path transform"))
+    );
 }
 
 #[test]
@@ -883,7 +1192,7 @@ fn congruence_witnesses_are_equivalent_but_not_identical() {
         .with_node(Node::new(1, "b"))
         .with_edge_id(EdgeId(4), 0, 1, source_edge);
     let (view, complement) = get(&lens, &source).expect("get");
-    let index = GraphShape::synth_index(&complement);
+    let index = GraphShape::synth_index(&view, &complement);
     let witnesses = GraphShape::congruence_witnesses(&view, &index);
     assert_eq!(witnesses.len(), 1);
     let (witness, witness_index) = &witnesses[0];

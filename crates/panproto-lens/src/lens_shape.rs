@@ -53,8 +53,12 @@ pub trait LensShape {
         ctx: &Self::Context,
     ) -> Result<(), Vec<PutDomainError>>;
 
-    /// Stable keys of synthesized presentation objects.
-    fn synth_index(complement: &Self::Complement) -> SynthIndex;
+    /// Stable keys of synthesized presentation objects in this instance.
+    ///
+    /// The instance is part of the input because tree arcs and table
+    /// foreign-key pairs acquire graph edge ids only through their current
+    /// embedding. A complement alone cannot name those presentation ids.
+    fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex;
 
     /// Law equivalence, indexed by synthesized keys.
     fn equivalent(a: &Self::Instance, ia: &SynthIndex, b: &Self::Instance, ib: &SynthIndex)
@@ -126,11 +130,11 @@ impl LensShape for TreeShape {
         crate::asymmetric::check_put_domain(lens, view, complement)
     }
 
-    fn synth_index(complement: &Self::Complement) -> SynthIndex {
-        SynthIndex {
-            nodes: complement.synthesized_keys.clone(),
-            edges: BTreeMap::new(),
-        }
+    fn synth_index(instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
+        GInstance::from_wtype_embedded(instance, None).map_or_else(
+            |_| SynthIndex::default(),
+            |(_, embedding)| complement.synth_index(&embedding),
+        )
     }
 
     fn equivalent(
@@ -139,8 +143,7 @@ impl LensShape for TreeShape {
         b: &Self::Instance,
         ib: &SynthIndex,
     ) -> bool {
-        tree_normalized(a, ia, b, ib)
-            .is_some_and(|(left, right)| crate::laws::instances_equivalent(&left, &right))
+        tree_divergence(a, ia, b, ib).is_none()
     }
 
     fn divergence(
@@ -149,7 +152,7 @@ impl LensShape for TreeShape {
         b: &Self::Instance,
         ib: &SynthIndex,
     ) -> Option<String> {
-        (!Self::equivalent(a, ia, b, ib)).then(|| "tree instances differ".to_owned())
+        tree_divergence(a, ia, b, ib)
     }
 
     fn divergence_modulo_derived(
@@ -287,7 +290,7 @@ impl LensShape for GraphShape {
         crate::graph_lens::check_put_domain(lens, view, complement)
     }
 
-    fn synth_index(complement: &Self::Complement) -> SynthIndex {
+    fn synth_index(_instance: &Self::Instance, complement: &Self::Complement) -> SynthIndex {
         complement.synth_index()
     }
 
@@ -331,6 +334,45 @@ impl LensShape for GraphShape {
             .into_iter()
             .collect()
     }
+}
+
+fn tree_divergence(
+    a: &WInstance,
+    ia: &SynthIndex,
+    b: &WInstance,
+    ib: &SynthIndex,
+) -> Option<String> {
+    let Some((left, right)) = tree_normalized(a, ia, b, ib) else {
+        return Some("synthesized key sets differ".to_owned());
+    };
+    if left.root != right.root {
+        return Some(format!("root: {} vs {}", left.root, right.root));
+    }
+    if left.schema_root != right.schema_root {
+        return Some(format!(
+            "schema root: {} vs {}",
+            left.schema_root, right.schema_root
+        ));
+    }
+    if left.nodes.len() != right.nodes.len() {
+        return Some(format!(
+            "node count: {} vs {}",
+            left.nodes.len(),
+            right.nodes.len()
+        ));
+    }
+    for (id, node) in &left.nodes {
+        let Some(other) = right.nodes.get(id) else {
+            return Some(format!("node {id} is absent on the right"));
+        };
+        if !crate::asymmetric::node_equiv(node, other) {
+            return Some(format!("node {id} differs"));
+        }
+    }
+    if left.arcs != right.arcs {
+        return Some("ordered arcs differ".to_owned());
+    }
+    (left.fans != right.fans).then(|| "ordered fans differ".to_owned())
 }
 
 fn graph_divergence(
@@ -425,7 +467,7 @@ fn graph_divergence(
         if a_to_b.get(&left.src).copied().unwrap_or(left.src) != right.src
             || a_to_b.get(&left.tgt).copied().unwrap_or(left.tgt) != right.tgt
             || left.edge != right.edge
-            || (!ia.edges.contains_key(&id) && left.position != right.position)
+            || left.position != right.position
         {
             return Some(format!("edge {id} differs"));
         }
@@ -650,4 +692,135 @@ fn btree_presence_maps_equiv(
                 crate::asymmetric::presence_equiv(value.as_ref(), other.as_ref())
             })
         })
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::{BTreeMap, HashMap};
+
+    use panproto_inst::{
+        EdgeId, FieldPresence, GEdge, GInstance, Node, NodeShape, SynthIndex, SynthKey, Value,
+    };
+    use panproto_schema::Edge;
+
+    use super::{GraphShape, LensShape, TreeShape};
+    use crate::Complement;
+
+    fn edge(src: &str, tgt: &str, name: &str) -> Edge {
+        Edge {
+            src: src.into(),
+            tgt: tgt.into(),
+            kind: "prop".into(),
+            name: Some(name.into()),
+        }
+    }
+
+    #[test]
+    fn tree_synth_index_names_expansion_arcs_from_the_view_embedding() {
+        let view = panproto_inst::WInstance::new(
+            HashMap::from([
+                (0, Node::new(0, "root")),
+                (1, Node::new(1, "middle")),
+                (2, Node::new(2, "leaf")),
+            ]),
+            vec![
+                (0, 1, edge("root", "middle", "m")),
+                (1, 2, edge("middle", "leaf", "v")),
+            ],
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let mut complement = Complement::empty();
+        let first = panproto_inst::SynthKey::Expand {
+            source_edge: panproto_inst::EdgeId(0),
+            hop: 0,
+        };
+        complement.synthesized_keys.insert(1, first.clone());
+        complement.arc_order.push((0, 2));
+
+        let index = TreeShape::synth_index(&view, &complement);
+        assert_eq!(index.nodes.get(&1), Some(&first));
+        assert_eq!(index.edges.get(&panproto_inst::EdgeId(0)), Some(&first));
+        assert_eq!(
+            index.edges.get(&panproto_inst::EdgeId(1)),
+            Some(&panproto_inst::SynthKey::Expand {
+                source_edge: panproto_inst::EdgeId(0),
+                hop: 1,
+            })
+        );
+    }
+
+    #[test]
+    fn graph_equivalence_observes_synthesized_edge_position() {
+        let label = edge("root", "leaf", "leaf");
+        let mut left_edge = GEdge::new(0, 1, label.clone());
+        left_edge.position = Some(3);
+        let left = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"))
+            .with_edge_id(EdgeId(7), 0, 1, label.clone());
+        let mut left = left;
+        assert!(left.remove_edge(EdgeId(7)).is_ok());
+        assert!(left.insert_edge(EdgeId(7), left_edge).is_ok());
+
+        let mut right_edge = GEdge::new(0, 1, label);
+        right_edge.position = Some(4);
+        let mut right = GInstance::new()
+            .with_node(Node::new(0, "root"))
+            .with_node(Node::new(1, "leaf"));
+        assert!(right.insert_edge(EdgeId(9), right_edge).is_ok());
+
+        let key = SynthKey::Contract {
+            src: 0,
+            tgt: 1,
+            edge: edge("root", "leaf", "leaf"),
+        };
+        let left_index = SynthIndex {
+            nodes: BTreeMap::new(),
+            edges: std::iter::once((EdgeId(7), key.clone())).collect(),
+        };
+        let right_index = SynthIndex {
+            nodes: BTreeMap::new(),
+            edges: std::iter::once((EdgeId(9), key)).collect(),
+        };
+        assert!(!GraphShape::equivalent(
+            &left,
+            &left_index,
+            &right,
+            &right_index,
+        ));
+    }
+
+    #[test]
+    fn tree_equivalence_is_strict_on_full_node_metadata() {
+        let mut node = Node::new(0, "root")
+            .with_value(FieldPresence::Present(Value::Float(f64::NAN)))
+            .with_shape(NodeShape::List);
+        node.discriminator = Some("tag".into());
+        node.position = Some(7);
+        node.annotations
+            .insert("source".to_owned(), Value::Str("fixture".to_owned()));
+        let base = panproto_inst::WInstance::new(
+            HashMap::from([(0, node)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root".into(),
+        );
+        let index = panproto_inst::SynthIndex::default();
+        assert!(TreeShape::equivalent(&base, &index, &base, &index));
+
+        let mut changed = base.clone();
+        if let Some(node) = changed.nodes.get_mut(&0) {
+            node.position = Some(8);
+        }
+        assert!(!TreeShape::equivalent(&base, &index, &changed, &index));
+
+        let mut changed = base.clone();
+        if let Some(node) = changed.nodes.get_mut(&0) {
+            node.annotations.clear();
+        }
+        assert!(!TreeShape::equivalent(&base, &index, &changed, &index));
+    }
 }

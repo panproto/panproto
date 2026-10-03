@@ -299,6 +299,13 @@ pub enum ErrorDetail {
         /// Every conflict between them, ascending.
         conflicts: Vec<EditConflict>,
     },
+    /// A lens law checker found a counterexample.
+    LawViolation {
+        /// Stable snake-case law name.
+        law: String,
+        /// Human-readable counterexample detail.
+        detail: String,
+    },
     /// Validation at a boundary did not pass.
     Validation {
         /// The report.
@@ -422,5 +429,33 @@ impl RestrictError {
                 message: self.to_string(),
             },
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ErrorDetail;
+
+    #[test]
+    fn error_detail_law_violation_round_trips() -> Result<(), Box<dyn std::error::Error>> {
+        let detail = ErrorDetail::LawViolation {
+            law: "put_twice".to_owned(),
+            detail: "the complement drifted".to_owned(),
+        };
+
+        let json = serde_json::to_string(&detail)?;
+        assert_eq!(
+            json,
+            r#"{"law_violation":{"law":"put_twice","detail":"the complement drifted"}}"#
+        );
+        assert_eq!(serde_json::from_str::<ErrorDetail>(&json)?, detail);
+
+        let message_pack = rmp_serde::to_vec_named(&detail)?;
+        assert_eq!(rmp_serde::from_slice::<ErrorDetail>(&message_pack)?, detail);
+
+        let mut cbor = Vec::new();
+        ciborium::into_writer(&detail, &mut cbor)?;
+        assert_eq!(ciborium::from_reader::<ErrorDetail, _>(&cbor[..])?, detail);
+        Ok(())
     }
 }

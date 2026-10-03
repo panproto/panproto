@@ -128,6 +128,77 @@ fn tree_expand_keys_name_the_source_arc_through_the_embedding() {
 }
 
 #[test]
+fn tree_put_refuses_a_removed_expansion_arc() {
+    let lens = expanding_lens();
+    let (mut view, complement) = panproto_lens::get(&lens, &two_children()).unwrap();
+    let synthesized = *complement.synthesized_nodes.iter().next().unwrap();
+    let removed = view
+        .arcs
+        .iter()
+        .find(|(parent, _, _)| *parent == synthesized)
+        .map(|(parent, child, _)| (*parent, *child))
+        .unwrap();
+    view.arcs
+        .retain(|(parent, child, _)| (*parent, *child) != removed);
+
+    let refusal = PutDomainError::SynthesizedEdited {
+        elem: ViewRef::Arc {
+            parent: removed.0,
+            child: removed.1,
+        },
+    };
+    assert_eq!(
+        panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+        Err(vec![refusal.clone()])
+    );
+    assert!(matches!(
+        panproto_lens::put(&lens, &view, &complement),
+        Err(LensError::PutDomain(error)) if *error == refusal
+    ));
+}
+
+#[test]
+fn tree_put_refuses_a_relabelled_expansion_arc() {
+    let lens = expanding_lens();
+    let (mut view, complement) = panproto_lens::get(&lens, &two_children()).unwrap();
+    let synthesized = *complement.synthesized_nodes.iter().next().unwrap();
+    let changed = view
+        .arcs
+        .iter_mut()
+        .find(|(parent, _, _)| *parent == synthesized)
+        .map(|(parent, child, edge)| {
+            edge.name = Some("changed".into());
+            (*parent, *child)
+        })
+        .unwrap();
+
+    assert_eq!(
+        panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+        Err(vec![PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Arc {
+                parent: changed.0,
+                child: changed.1,
+            },
+        }])
+    );
+}
+
+#[test]
+fn tree_put_refuses_an_edited_expansion_node() {
+    let lens = expanding_lens();
+    let (mut view, complement) = panproto_lens::get(&lens, &two_children()).unwrap();
+    let synthesized = *complement.synthesized_nodes.iter().next().unwrap();
+    view.nodes.get_mut(&synthesized).unwrap().value = Some(FieldPresence::Present(Value::Int(1)));
+
+    assert_eq!(
+        panproto_lens::asymmetric::check_put_domain(&lens, &view, &complement),
+        Err(vec![PutDomainError::SynthesizedEdited {
+            elem: ViewRef::Node(synthesized),
+        }])
+    );
+}
+
+#[test]
 fn tree_complement_field_order() {
     let lens = expanding_lens();
     let (_, complement) = panproto_lens::get(&lens, &two_children()).unwrap();

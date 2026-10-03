@@ -17,7 +17,7 @@ use panproto_inst::{
     RowId, SchemaRef, TableComplement, Value, ViewRef, Violation, functor_restrict_with_plan,
     validate_table,
 };
-use panproto_schema::{Edge, Protocol, ScalarKind};
+use panproto_schema::{ConstraintValue, Edge, Protocol, ScalarKind, Schema};
 
 use crate::asymmetric::{
     ComplementCompose, apply_inverse_transforms, propagate_view_edits_through_inverse, value_equiv,
@@ -45,6 +45,197 @@ pub fn get(
     let (view, mut complement) = restrict_finite_rows(lens, source, &plan, protocols.src)?;
     complement.stamp(lens.identity(ComplementShape::Functor), &lens.src_schema);
     Ok((view, complement))
+}
+
+fn law_context(protocols: BoundaryProtocols<'_>) -> crate::TableContext {
+    crate::TableContext {
+        src: protocols.src.clone(),
+        tgt: protocols.tgt.clone(),
+    }
+}
+
+/// Run the gating table-lens laws over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`; it is not a
+/// proof over all table instances.
+///
+/// # Errors
+///
+/// The first law violation in the specified gate order.
+pub fn check_laws(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<crate::laws::LawReport, crate::LawViolation> {
+    crate::laws::check_laws_report::<crate::TableShape>(lens, source, &law_context(protocols))
+}
+
+/// Check table `GetPut`.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// An operational error or `GetPut` violation.
+pub fn check_get_put(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_get_put_for_shape::<crate::TableShape>(lens, source, &law_context(protocols))
+}
+
+/// Check strict table `PutGet` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// An operational error or `PutGet` violation.
+pub fn check_put_get(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_get_for_shape::<crate::TableShape>(lens, source, &law_context(protocols))
+}
+
+/// Check table put totality over its generated admitted views.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first admitted mutation on which put fails.
+pub fn check_totality(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_totality_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check table `PutTwice` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first repeated-put drift.
+pub fn check_put_twice(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_twice_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check table presentation congruence.
+///
+/// A pass means "no counterexample found" among the coherent
+/// presentation witnesses for `source`.
+///
+/// # Errors
+///
+/// The first domain or put result that is not congruent.
+pub fn check_congruence(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_congruence_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check table `WeakPutGet` over the finite single-step basis.
+///
+/// A pass means "no counterexample found" for `source`. This is a
+/// named non-gating check.
+///
+/// # Errors
+///
+/// The first weak round-trip violation.
+pub fn check_weak_put_get(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_weak_put_get_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check table put injectivity on generated distinct admitted views.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first pair of inequivalent views with one put result.
+pub fn check_put_injectivity(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_put_injectivity_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check table put locality against the exact inverse-image-plus-cascade
+/// footprint.
+///
+/// A pass means "no counterexample found" for `source`.
+///
+/// # Errors
+///
+/// The first mutation whose actual and specified footprints differ.
+pub fn check_locality(
+    lens: &Lens,
+    source: &FInstance,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(), crate::LawViolation> {
+    crate::laws::check_locality_for_shape::<crate::TableShape>(
+        lens,
+        source,
+        &law_context(protocols),
+    )
+}
+
+/// Check the gating laws on every table in a finite canonical scope.
+///
+/// A pass means "no counterexample found" in `scope`; it is not a
+/// proof outside that finite universe.
+///
+/// # Errors
+///
+/// The first law violation in deterministic enumeration order.
+pub fn check_laws_exhaustive(
+    lens: &Lens,
+    schema: &Schema,
+    protocols: BoundaryProtocols<'_>,
+    scope: crate::laws::SmallScope,
+) -> Result<Vec<crate::laws::LawReport>, crate::LawViolation> {
+    let ctx = law_context(protocols);
+    <crate::TableShape as crate::laws::LawShape>::enumerate_small(schema, scope, &ctx)
+        .iter()
+        .map(|source| crate::laws::check_laws_report::<crate::TableShape>(lens, source, &ctx))
+        .collect()
 }
 
 /// Backward table-lens direction under the default identity policy.
@@ -99,19 +290,639 @@ pub fn put_checked(
 ///
 /// # Errors
 ///
-/// [`LensError::NotAnIsomorphism`] when the lens has non-terminal residue,
-/// or an ordinary table put error.
+/// [`LensError::NotAnIsomorphism`] when the view does not determine the
+/// source, or an ordinary table put error.
 pub fn put_without_complement(
     lens: &Lens,
     view: &FInstance,
     protocols: BoundaryProtocols<'_>,
 ) -> Result<FInstance, LensError> {
-    if let Some(detail) = lens.obstruction_to_isomorphism() {
+    if let Some(detail) = obstruction_to_isomorphism(lens, protocols) {
         return Err(LensError::NotAnIsomorphism { detail });
     }
     let mut complement = TableComplement::empty();
     complement.stamp(lens.identity(ComplementShape::Functor), &lens.src_schema);
     put(lens, view, &complement, protocols)
+}
+
+/// Whether a table source is determined by its view alone.
+///
+/// This includes table-plan executability under both boundary protocols;
+/// schema-level losslessness alone is insufficient when the migration is not
+/// a table functor on those boundaries. The domain is all finite,
+/// schema-supported table instances on which get is defined, including
+/// absent optional cells. [`crate::LawShape::enumerate_small`] samples
+/// bounded subuniverses of that domain. Table get refuses rows with
+/// undeclared keys, so untyped coordinates are outside it.
+#[must_use]
+pub fn is_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>) -> bool {
+    obstruction_to_isomorphism(lens, protocols).is_none()
+}
+
+/// The first table coordinate that prevents complement-free reconstruction.
+///
+/// A pass means that no obstruction was found by the complete static table
+/// classifier for these protocols; it is not a claim about other protocol
+/// boundaries.
+#[must_use]
+pub fn obstruction_to_isomorphism(lens: &Lens, protocols: BoundaryProtocols<'_>) -> Option<String> {
+    let plan = match RestrictPlan::compile_for_tables(
+        &lens.src_schema,
+        &lens.tgt_schema,
+        &lens.compiled,
+        protocols,
+    ) {
+        Ok(plan) => plan,
+        Err(error) => {
+            return Some(format!(
+                "the migration is not executable as a table lens on these boundaries: {error}"
+            ));
+        }
+    };
+    let Some(boundary) = &plan.boundary else {
+        return Some("the table plan has no boundary layer".to_owned());
+    };
+    let (Some(functor), Some(cells)) = (&boundary.table, &boundary.cells) else {
+        return Some("the table plan has no table functor or cell layer".to_owned());
+    };
+
+    let mut table_images = BTreeMap::new();
+    for table in functor.source().tables() {
+        let Some(image) = functor.table_map().get(table) else {
+            return Some(format!(
+                "table `{table}` is dropped, so its rows cannot be reconstructed without a complement"
+            ));
+        };
+        if let Some(other) = table_images.insert(image, table) {
+            return Some(format!(
+                "tables `{other}` and `{table}` both map to `{image}`, so a view row does not determine its source table"
+            ));
+        }
+        if lens.compiled.conditional_survival.contains_key(table) {
+            return Some(format!(
+                "table `{table}` survives conditionally, so some rows are dropped"
+            ));
+        }
+
+        let source_columns = functor
+            .source()
+            .columns(table)
+            .keys()
+            .cloned()
+            .collect::<BTreeSet<_>>();
+        let transforms = lens.compiled.value_transforms(table);
+        let fates = cells.fates.get(table).map_or(&[][..], Vec::as_slice);
+        if let Some(detail) = table_column_obstruction(&transforms, &source_columns, fates) {
+            return Some(format!("table `{table}` {detail}"));
+        }
+    }
+
+    let mut relation_images = BTreeMap::new();
+    for relation in functor.source().relations() {
+        let Some(image) = functor.relation_map().get(relation) else {
+            return Some(format!(
+                "foreign key `{:?}` is dropped, so its pairs cannot be reconstructed without a complement",
+                relation.name
+            ));
+        };
+        if let Some(other) = relation_images.insert(image, relation) {
+            return Some(format!(
+                "foreign keys `{:?}` and `{:?}` have one image, so a view pair does not determine its source relation",
+                other.name, relation.name
+            ));
+        }
+    }
+    let field_vertices = lens
+        .src_schema
+        .edges
+        .keys()
+        .filter(|edge| {
+            edge.kind == "prop" && edge.name.is_some() && functor.source().is_table(&edge.src)
+        })
+        .map(|edge| edge.tgt.clone())
+        .collect::<BTreeSet<_>>();
+    if let Some(detail) = table_validation_obstruction(
+        &lens.src_schema,
+        protocols.src,
+        functor.source(),
+        &field_vertices,
+    ) {
+        return Some(detail);
+    }
+    None
+}
+
+fn table_validation_obstruction(
+    schema: &Schema,
+    protocol: &Protocol,
+    source: &panproto_inst::RelSchema,
+    field_vertices: &BTreeSet<Name>,
+) -> Option<String> {
+    let mut required = schema
+        .constraints
+        .iter()
+        .flat_map(|(vertex, constraints)| {
+            constraints.iter().filter_map(move |constraint| {
+                if !field_vertices.contains(vertex) {
+                    return None;
+                }
+                let semantics = protocol
+                    .constraint_semantics
+                    .get(constraint.sort.as_ref())?;
+                matches!(
+                    semantics.parse_value(&constraint.sort, &constraint.value),
+                    Ok(ConstraintValue::Required(true))
+                )
+                .then_some((vertex, &constraint.sort))
+            })
+        })
+        .collect::<Vec<_>>();
+    required.sort();
+    if let Some((vertex, sort)) = required.first() {
+        return Some(format!(
+            "vertex `{vertex}` has required-value constraint `{sort}` at a named table field site, so table put can refuse a finite source in which that field is absent"
+        ));
+    }
+
+    let mut keys = schema
+        .declarations
+        .keys
+        .iter()
+        .filter(|(table, _)| source.is_table(table))
+        .flat_map(|(table, keys)| {
+            keys.iter().filter_map(move |key| {
+                let primary_can_miss = matches!(key.role, panproto_schema::KeyRole::Primary)
+                    && key
+                        .parts
+                        .iter()
+                        .any(|part| matches!(part, panproto_schema::KeyPart::Path(_)));
+                let uniqueness_can_fail = key.parts.iter().all(|part| match part {
+                    panproto_schema::KeyPart::Path(path) => {
+                        table_path_is_evaluable(source, table, path)
+                    }
+                    panproto_schema::KeyPart::Position { .. } => false,
+                });
+                (primary_can_miss || uniqueness_can_fail).then_some((
+                    table,
+                    &key.id,
+                    primary_can_miss,
+                ))
+            })
+        })
+        .collect::<Vec<_>>();
+    keys.sort();
+    keys.first().map(|(table, key, primary_can_miss)| {
+        if *primary_can_miss {
+            format!(
+                "table `{table}` declares primary key `{key}`, so table put can refuse a finite source with a missing key path"
+            )
+        } else {
+            format!(
+                "table `{table}` declares key `{key}`, so table put can refuse a finite source with duplicate key values"
+            )
+        }
+    })
+}
+
+fn table_path_is_evaluable(source: &panproto_inst::RelSchema, table: &Name, path: &[Edge]) -> bool {
+    let Some((last, prefix)) = path.split_last() else {
+        return false;
+    };
+    let mut at = table;
+    for hop in prefix {
+        if &hop.src != at || !source.relations().contains(hop) {
+            return false;
+        }
+        at = &hop.tgt;
+    }
+    &last.src == at && source.columns(at).values().any(|column| column == last)
+}
+
+#[derive(Clone, Debug)]
+struct TableTransformState {
+    sources: BTreeSet<String>,
+    carriers: BTreeMap<String, BTreeSet<OriginTrace>>,
+}
+
+#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+struct OriginTrace {
+    source: String,
+    coordinate: OriginCoordinate,
+    codecs: Vec<usize>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, Ord, PartialEq, PartialOrd)]
+enum OriginCoordinate {
+    Value,
+    Presence,
+}
+
+impl TableTransformState {
+    fn new(source_columns: &BTreeSet<String>) -> Self {
+        Self {
+            sources: source_columns.clone(),
+            carriers: source_columns
+                .iter()
+                .map(|column| {
+                    (
+                        column.clone(),
+                        BTreeSet::from([
+                            OriginTrace {
+                                source: column.clone(),
+                                coordinate: OriginCoordinate::Value,
+                                codecs: Vec::new(),
+                            },
+                            OriginTrace {
+                                source: column.clone(),
+                                coordinate: OriginCoordinate::Presence,
+                                codecs: Vec::new(),
+                            },
+                        ]),
+                    )
+                })
+                .collect(),
+        }
+    }
+
+    fn first_missing_source(&self) -> Option<String> {
+        self.sources
+            .iter()
+            .find(|source| {
+                !self
+                    .carriers
+                    .values()
+                    .any(|origins| origins.iter().any(|origin| origin.source == **source))
+            })
+            .cloned()
+    }
+
+    fn first_missing_without(&self, excluded: &str) -> Option<String> {
+        self.sources
+            .iter()
+            .find(|source| {
+                !self.carriers.iter().any(|(key, origins)| {
+                    key != excluded && origins.iter().any(|origin| origin.source == **source)
+                })
+            })
+            .cloned()
+    }
+}
+
+fn table_column_obstruction(
+    transforms: &[FieldTransform],
+    source_columns: &BTreeSet<String>,
+    fates: &[CellFate],
+) -> Option<String> {
+    let mut state = TableTransformState::new(source_columns);
+    let flat = flattened_transforms(transforms);
+    for (step, transform) in flat.iter().enumerate() {
+        if let Some(detail) = table_transform_step_obstruction(transform, step, &mut state) {
+            return Some(detail);
+        }
+    }
+    let decoded = decode_source_origins(&state, &flat, fates);
+    if let Some(source) = source_columns.iter().find(|source| {
+        let raw = BTreeSet::from([
+            OriginTrace {
+                source: (*source).clone(),
+                coordinate: OriginCoordinate::Value,
+                codecs: Vec::new(),
+            },
+            OriginTrace {
+                source: (*source).clone(),
+                coordinate: OriginCoordinate::Presence,
+                codecs: Vec::new(),
+            },
+        ]);
+        decoded.get(*source).is_none_or(|origins| origins != &raw)
+    }) {
+        return Some(format!(
+            "drops source column `{source}`, so its cell cannot be reconstructed without a complement"
+        ));
+    }
+    None
+}
+
+fn flattened_transforms(transforms: &[FieldTransform]) -> Vec<&FieldTransform> {
+    fn append<'a>(transforms: &'a [FieldTransform], flat: &mut Vec<&'a FieldTransform>) {
+        for transform in transforms {
+            if let FieldTransform::PathTransform { path, inner } = transform
+                && path.is_empty()
+            {
+                append(std::slice::from_ref(inner), flat);
+            } else {
+                flat.push(transform);
+            }
+        }
+    }
+    let mut flat = Vec::new();
+    append(transforms, &mut flat);
+    flat
+}
+
+fn table_transform_step_obstruction(
+    transform: &FieldTransform,
+    step: usize,
+    state: &mut TableTransformState,
+) -> Option<String> {
+    match transform {
+        FieldTransform::RenameField { old_key, new_key } => {
+            rename_field_obstruction(state, old_key, new_key)
+        }
+        FieldTransform::DropField { key } => remove_carrier(state, key, "drops"),
+        FieldTransform::AddField { key, .. } => add_field_obstruction(state, key),
+        FieldTransform::KeepFields { keys } => keep_fields_obstruction(state, keys),
+        FieldTransform::ApplyExpr {
+            key,
+            inverse,
+            coercion_class,
+            ..
+        } => apply_expr_obstruction(state, key, inverse.as_ref(), *coercion_class, step),
+        FieldTransform::ComputeField {
+            target_key,
+            expr,
+            inverse,
+            coercion_class,
+            ..
+        } => compute_field_obstruction(
+            state,
+            target_key,
+            expr,
+            inverse.as_ref(),
+            *coercion_class,
+            step,
+        ),
+        FieldTransform::MapReferences { field, rename_map }
+            if rename_map
+                .iter()
+                .all(|(source, target)| target.as_deref() == Some(source.as_str())) =>
+        {
+            let _ = field;
+            None
+        }
+        FieldTransform::Case { branches }
+            if branches.iter().all(|branch| branch.transforms.is_empty()) =>
+        {
+            None
+        }
+        FieldTransform::PathTransform { .. } => Some(
+            "has a nested path transform that table put cannot invert without a complement"
+                .to_owned(),
+        ),
+        FieldTransform::Case { .. } => Some(
+            "has a conditional transform that table put cannot invert without a complement"
+                .to_owned(),
+        ),
+        FieldTransform::MapReferences { field, .. } => {
+            if state.carriers.contains_key(field) {
+                let presence = state
+                    .carriers
+                    .get(field)
+                    .into_iter()
+                    .flatten()
+                    .filter(|origin| origin.coordinate == OriginCoordinate::Presence)
+                    .cloned()
+                    .collect();
+                replace_carrier(state, field, presence, "maps references in")
+            } else {
+                None
+            }
+        }
+    }
+}
+
+fn rename_field_obstruction(
+    state: &mut TableTransformState,
+    old_key: &str,
+    new_key: &str,
+) -> Option<String> {
+    let origins = state.carriers.remove(old_key)?;
+    state.carriers.insert(new_key.to_owned(), origins);
+    state.first_missing_source().map(|source| {
+        format!("renames `{old_key}` onto `{new_key}`, losing source column `{source}`")
+    })
+}
+
+fn keep_fields_obstruction(state: &mut TableTransformState, keys: &[String]) -> Option<String> {
+    state.carriers.retain(|key, _| keys.contains(key));
+    state
+        .first_missing_source()
+        .map(|source| format!("removes source column `{source}` through KeepFields"))
+}
+
+fn compute_field_obstruction(
+    state: &mut TableTransformState,
+    target_key: &str,
+    expr: &panproto_expr::Expr,
+    inverse: Option<&panproto_expr::Expr>,
+    coercion_class: panproto_gat::CoercionClass,
+    step: usize,
+) -> Option<String> {
+    let mut origins = state
+        .carriers
+        .get(target_key)
+        .into_iter()
+        .flatten()
+        .filter(|origin| origin.coordinate == OriginCoordinate::Presence)
+        .cloned()
+        .collect::<BTreeSet<_>>();
+    if inverse.is_some() && matches!(coercion_class, panproto_gat::CoercionClass::Iso) {
+        let values = crate::derived::sole_source_var(expr)
+            .and_then(|source| state.carriers.get(&source).cloned())
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|origin| origin.coordinate == OriginCoordinate::Value)
+            .map(|mut origin| {
+                origin.codecs.push(step);
+                origin
+            });
+        origins.extend(values);
+    }
+    replace_carrier(state, target_key, origins, "computes over")
+}
+
+fn apply_expr_obstruction(
+    state: &mut TableTransformState,
+    key: &str,
+    inverse: Option<&panproto_expr::Expr>,
+    coercion_class: panproto_gat::CoercionClass,
+    step: usize,
+) -> Option<String> {
+    if !state.carriers.contains_key(key) {
+        return None;
+    }
+    if inverse.is_some() && matches!(coercion_class, panproto_gat::CoercionClass::Iso) {
+        if let Some(origins) = state.carriers.get_mut(key) {
+            *origins = std::mem::take(origins)
+                .into_iter()
+                .map(|mut origin| {
+                    if origin.coordinate == OriginCoordinate::Value {
+                        origin.codecs.push(step);
+                    }
+                    origin
+                })
+                .collect();
+        }
+        return None;
+    }
+    let presence = state
+        .carriers
+        .get(key)
+        .into_iter()
+        .flatten()
+        .filter(|origin| origin.coordinate == OriginCoordinate::Presence)
+        .cloned()
+        .collect();
+    replace_carrier(state, key, presence, "transforms")
+}
+
+fn add_field_obstruction(state: &mut TableTransformState, key: &str) -> Option<String> {
+    if !state.carriers.contains_key(key) {
+        state.carriers.insert(key.to_owned(), BTreeSet::new());
+        return None;
+    }
+    if let Some(source) = state.first_missing_without(key) {
+        return Some(format!(
+            "adds occupied column `{key}`, whose complement-free inverse would remove source column `{source}`"
+        ));
+    }
+    state.carriers.insert(key.to_owned(), BTreeSet::new());
+    None
+}
+
+fn remove_carrier(state: &mut TableTransformState, key: &str, operation: &str) -> Option<String> {
+    state.carriers.remove(key);
+    state
+        .first_missing_source()
+        .map(|source| format!("{operation} source column `{source}`"))
+}
+
+fn replace_carrier(
+    state: &mut TableTransformState,
+    key: &str,
+    origins: BTreeSet<OriginTrace>,
+    operation: &str,
+) -> Option<String> {
+    state.carriers.insert(key.to_owned(), origins);
+    state
+        .first_missing_source()
+        .map(|source| format!("{operation} `{key}`, losing source column `{source}`"))
+}
+
+fn decode_source_origins(
+    state: &TableTransformState,
+    transforms: &[&FieldTransform],
+    fates: &[CellFate],
+) -> BTreeMap<String, BTreeSet<OriginTrace>> {
+    let mut view = state.carriers.clone();
+    let mut moved = Vec::new();
+    for fate in fates {
+        match fate {
+            CellFate::Drop(source) => {
+                view.remove(source);
+            }
+            CellFate::Rename(source, target) => {
+                if let Some(origins) = view.remove(source) {
+                    moved.push((target.clone(), origins));
+                }
+            }
+        }
+    }
+    for (target, origins) in moved {
+        view.insert(target, origins);
+    }
+
+    let mut decoded = BTreeMap::new();
+    for (target, origins) in view {
+        if let Some(writer) = cell_writer(fates, &target) {
+            decoded.insert(writer, origins);
+        }
+    }
+    decode_transform_origins(transforms, &mut decoded);
+    decoded
+}
+
+fn decode_transform_origins(
+    transforms: &[&FieldTransform],
+    decoded: &mut BTreeMap<String, BTreeSet<OriginTrace>>,
+) {
+    for (step, transform) in transforms.iter().enumerate().rev() {
+        match transform {
+            FieldTransform::RenameField { old_key, new_key } => {
+                if let Some(origins) = decoded.remove(new_key) {
+                    decoded.insert(old_key.clone(), origins);
+                }
+            }
+            FieldTransform::AddField { key, .. } => {
+                decoded.remove(key);
+            }
+            FieldTransform::ApplyExpr {
+                key,
+                inverse: Some(_),
+                ..
+            } => {
+                if let Some(origins) = decoded.get_mut(key) {
+                    *origins = decode_codec(origins, step);
+                }
+            }
+            FieldTransform::ComputeField {
+                target_key,
+                expr,
+                inverse: Some(_),
+                ..
+            } => {
+                if let Some(origins) = decoded.get(target_key).cloned()
+                    && let Some(source_key) = crate::derived::sole_source_var(expr)
+                {
+                    let origins = decode_codec(&origins, step);
+                    if source_key == *target_key {
+                        decoded.insert(source_key, origins);
+                    } else {
+                        decoded.remove(target_key);
+                        decoded.entry(source_key).or_default().extend(origins);
+                    }
+                } else {
+                    decoded.remove(target_key);
+                }
+            }
+            FieldTransform::ComputeField { target_key, .. } => {
+                decoded.remove(target_key);
+            }
+            FieldTransform::ApplyExpr { .. }
+            | FieldTransform::DropField { .. }
+            | FieldTransform::KeepFields { .. }
+            | FieldTransform::PathTransform { .. }
+            | FieldTransform::Case { .. }
+            | FieldTransform::MapReferences { .. } => {}
+        }
+    }
+}
+
+fn decode_codec(origins: &BTreeSet<OriginTrace>, step: usize) -> BTreeSet<OriginTrace> {
+    origins
+        .iter()
+        .filter_map(|origin| {
+            let mut decoded = origin.clone();
+            if decoded.coordinate == OriginCoordinate::Presence {
+                Some(decoded)
+            } else {
+                (decoded.codecs.pop() == Some(step)).then_some(decoded)
+            }
+        })
+        .collect()
+}
+
+fn structural_column_output(source: &str, fates: &[CellFate]) -> Option<String> {
+    for fate in fates {
+        match fate {
+            CellFate::Drop(candidate) if candidate == source => return None,
+            CellFate::Rename(candidate, target) if candidate == source => {
+                return Some(target.clone());
+            }
+            CellFate::Drop(_) | CellFate::Rename(_, _) => {}
+        }
+    }
+    Some(source.to_owned())
 }
 
 /// Every reason `view` lies outside the table put domain.
@@ -478,7 +1289,7 @@ fn pull_changed_rows(
         let source_columns: BTreeSet<String> = columns.keys().cloned().collect();
         let differing = differing_fields(view_row, baseline_row);
         for field in &differing {
-            let writer = cell_writer(&source_columns, fates, field);
+            let writer = cell_writer(fates, field);
             if let Some(error) =
                 cell_edit_obstruction(lens, &source_table, id, field.clone(), writer.as_deref())
             {
@@ -524,7 +1335,7 @@ fn pull_row_edits(
 ) {
     let mut post_transform = source_row.clone();
     for target in options.removed_targets {
-        if let Some(writer) = cell_writer(columns, fates, target) {
+        if let Some(writer) = cell_writer(fates, target) {
             post_transform.remove(&writer);
             if options.has_snapshot {
                 source_row.remove(&writer);
@@ -532,7 +1343,7 @@ fn pull_row_edits(
         }
     }
     for (target, value) in view_row {
-        if let Some(writer) = cell_writer(columns, fates, target) {
+        if let Some(writer) = cell_writer(fates, target) {
             post_transform.insert(writer, value.clone());
         }
     }
@@ -557,11 +1368,7 @@ fn pull_row_edits(
     source_row.retain(|key, _| columns.contains(key));
 }
 
-fn cell_writer(
-    source_columns: &BTreeSet<String>,
-    fates: &[CellFate],
-    target: &str,
-) -> Option<String> {
+fn cell_writer(fates: &[CellFate], target: &str) -> Option<String> {
     let renamed = fates.iter().rev().find_map(|fate| match fate {
         CellFate::Rename(source, image) if image == target => Some(source.clone()),
         CellFate::Drop(_) | CellFate::Rename(_, _) => None,
@@ -572,7 +1379,7 @@ fn cell_writer(
     let displaced = fates.iter().any(|fate| match fate {
         CellFate::Drop(source) | CellFate::Rename(source, _) => source == target,
     });
-    (!displaced && source_columns.contains(target)).then(|| target.to_owned())
+    (!displaced).then(|| target.to_owned())
 }
 
 fn transform_outputs(transforms: &[FieldTransform]) -> BTreeSet<String> {
@@ -747,17 +1554,8 @@ fn forward_stability(
         let fates = source_table
             .and_then(|table| plan.boundary.as_ref()?.cells.as_ref()?.fates.get(table))
             .map_or(&[][..], Vec::as_slice);
-        let columns: BTreeSet<String> = source_table
-            .and_then(|table| {
-                plan.boundary
-                    .as_ref()?
-                    .table
-                    .as_ref()
-                    .map(|f| f.source().columns(table))
-            })
-            .map_or_else(BTreeSet::new, |columns| columns.keys().cloned().collect());
         for field in differing_fields(expected, actual) {
-            let writer = cell_writer(&columns, fates, &field);
+            let writer = cell_writer(fates, &field);
             found.push(classify_cell_edit(
                 lens,
                 source_table,
@@ -886,17 +1684,7 @@ fn output_column(
         }
     }
     let key = output?;
-    let mut structural = Some(key.clone());
-    for fate in fates {
-        match fate {
-            CellFate::Drop(source) if source == &key => structural = None,
-            CellFate::Rename(source, target) if source == &key => {
-                structural = Some(target.clone());
-            }
-            CellFate::Drop(_) | CellFate::Rename(_, _) => {}
-        }
-    }
-    structural
+    structural_column_output(&key, fates)
 }
 
 fn classify_cell_edit(

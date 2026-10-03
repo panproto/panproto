@@ -79,8 +79,9 @@ fn is_fan_node(node: &Node) -> bool {
 ///    once by its resolution in the plan: one synthesized edge, or a
 ///    synthesized path.
 /// 3. Fans, in ascending fan node id. A fan survives when its parent and at
-///    least one child survive; it is re-anchored and its labels renamed by
-///    the migration's hyper-edge resolver when that resolves its surviving
+///    least one child survive and its resolved hyper-edge exists in the
+///    target schema; it is re-anchored and its labels renamed by the
+///    migration's hyper-edge resolver when that resolves its surviving
 ///    shape, and keeps its hyper-edge and labels otherwise. Label edges to
 ///    dropped children are dropped. A kept fan edge is recorded in the
 ///    complement exactly when its view label does not map back to its
@@ -487,6 +488,13 @@ impl<'a> GraphRun<'a> {
         let full_shape = canonical_label_shape(children.iter().map(|(label, _, _)| *label));
         let entry = resolver.resolve(&node.anchor, &shape, &full_shape);
         let hyper_edge = entry.map_or_else(|| node.anchor.clone(), |(he, _)| he.clone());
+        if !self.plan.target().hyper_edges.contains_key(&hyper_edge) {
+            self.complement.dropped_nodes.insert(id, node.clone());
+            for (edge_id, edge) in out {
+                self.complement.dropped_edges.insert(edge_id, edge.clone());
+            }
+            return Ok(());
+        }
         let rename = |label: &str| -> String {
             entry
                 .and_then(|(_, labels)| labels.get(label))
