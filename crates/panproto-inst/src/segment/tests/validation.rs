@@ -281,7 +281,6 @@ fn tree_with_foreign_fan_edge() -> Result<(AnySegment, Partition), SegmentError>
     let partition = Partition::by_node_ranges(InstanceShapeKind::Tree, &[10], 0, 20)?;
     let parent = label("rel", "a", HYPER_PARENT_KIND, None);
     let reserved_arc = label("a", "a", HYPER_LABEL_KIND, Some("ordinary"));
-    let foreign_arc = label("a", "rel", "prop", Some("foreign"));
     let mut boundary = Boundary::default();
     boundary.in_stubs.insert(
         ViewRef::Edge(EdgeId(7)),
@@ -303,7 +302,6 @@ fn tree_with_foreign_fan_edge() -> Result<(AnySegment, Partition), SegmentError>
         arcs: BTreeMap::from([
             (EdgeId(0), (10, 11, parent)),
             (EdgeId(1), (11, 12, reserved_arc)),
-            (EdgeId(42), (11, 10, foreign_arc)),
         ]),
         fans: vec![FanEmbedding {
             node: 10,
@@ -312,10 +310,74 @@ fn tree_with_foreign_fan_edge() -> Result<(AnySegment, Partition), SegmentError>
         }],
         root: Some(11),
         next_node: Some(13),
-        next_edge: Some(43),
+        next_edge: Some(2),
         boundary,
     };
     Ok((AnySegment::Tree(segment), partition))
+}
+
+#[test]
+fn validate_segment_refuses_an_owned_ordinary_arc_incident_to_a_local_fan() -> TestResult {
+    let (mut segment, partition) = tree_with_foreign_fan_edge()?;
+    let AnySegment::Tree(tree) = &mut segment else {
+        panic!("the fixture is a tree segment");
+    };
+    assert!(
+        tree.arcs
+            .insert(
+                EdgeId(42),
+                (11, 10, label("a", "rel", "prop", Some("foreign"))),
+            )
+            .is_none()
+    );
+    tree.next_edge = Some(43);
+
+    assert_eq!(
+        validate_segment(&segment, &partition, &plan()?, &ValidationBudget::default()),
+        Err(SegmentError::Invalid {
+            violations: vec![SegmentError::NotEmbedded {
+                elem: ViewRef::Arc {
+                    parent: 11,
+                    child: 10,
+                },
+            }],
+        })
+    );
+    Ok(())
+}
+
+#[test]
+fn validate_segment_refuses_an_arc_keyed_in_stub_targeting_a_local_fan() -> TestResult {
+    let (mut segment, partition) = tree_with_foreign_fan_edge()?;
+    let AnySegment::Tree(tree) = &mut segment else {
+        panic!("the fixture is a tree segment");
+    };
+    tree.boundary.in_stubs.insert(
+        ViewRef::Arc {
+            parent: 0,
+            child: 10,
+        },
+        InStub {
+            src: 0,
+            src_owner: SegmentId(0),
+            src_anchor: "a".into(),
+            tgt: 10,
+            label: label("a", "rel", "prop", Some("foreign")),
+        },
+    );
+
+    assert_eq!(
+        validate_segment(&segment, &partition, &plan()?, &ValidationBudget::default()),
+        Err(SegmentError::Invalid {
+            violations: vec![SegmentError::NotEmbedded {
+                elem: ViewRef::Arc {
+                    parent: 0,
+                    child: 10,
+                },
+            }],
+        })
+    );
+    Ok(())
 }
 
 #[test]
@@ -337,26 +399,6 @@ fn tree_ordinary_checks_use_the_native_forest_and_fans_use_the_reified_graph() -
                     reason: FanViolation::ForeignIncidentEdge { edge: EdgeId(7) },
                     fan: None,
                 }
-    }));
-    assert!(report.diagnostics.iter().any(|entry| {
-        entry.check.kind == CheckKind::FanWellFormed
-            && entry.subject == Some(ViewRef::Node(10))
-            && entry.violation
-                == Violation::MalformedFan {
-                    reason: FanViolation::ForeignIncidentEdge { edge: EdgeId(42) },
-                    fan: None,
-                }
-            && entry.elements.contains(&ViewRef::Arc {
-                parent: 11,
-                child: 10,
-            })
-    }));
-    assert!(report.diagnostics.iter().all(|entry| {
-        entry.subject
-            != Some(ViewRef::Arc {
-                parent: 11,
-                child: 10,
-            })
     }));
     assert!(report.diagnostics.iter().any(|entry| {
         entry.check.kind == CheckKind::ReservedVocabulary

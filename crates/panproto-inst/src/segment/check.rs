@@ -11,8 +11,9 @@
 //! - (c) every in-stub's target is owned here and its source owner is the
 //!   source's owner and another segment.
 //!
-//! A tree segment's fans must also be well formed in their graph form, and
-//! its root, when it has one, owned and held.
+//! A tree segment's fans must also be well formed in their graph form, its
+//! ordinary arcs and `Arc`-keyed in-stubs must not meet reified fan nodes,
+//! and its root, when it has one, must be owned and held.
 //!
 //! The invariants that span segments need every segment: the ghost and
 //! in-stub copies of every crossing edge agree, edge ids are unique, and a
@@ -247,6 +248,7 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
             out.push(not_embedded(ViewRef::Node(*id)));
         }
     }
+    out.extend(ordinary_fan_incidences(tree).into_iter().map(not_embedded));
     if let Some(root) = tree.root {
         let held = tree.nodes.get(&root).is_some_and(|n| !is_fan_node(n));
         if !held || index.owner_of_node(root) != Some(me) {
@@ -254,6 +256,33 @@ fn tree_violations(tree: &TreeSegment, index: &OwnerIndex) -> Vec<(ViewRef, Segm
         }
     }
     out.extend(counter_violations(tree).into_iter().map(not_embedded));
+    out
+}
+
+/// Ordinary tree arcs cannot meet reified fan nodes. Such an owned arc has
+/// no native-tree interpretation; such an in-stub also erases the arc's
+/// embedding edge id at the segment boundary.
+fn ordinary_fan_incidences(tree: &TreeSegment) -> Vec<ViewRef> {
+    let fan_nodes = tree.fan_node_ids();
+    let fan_edges = tree.fan_edge_ids();
+    let mut out: Vec<ViewRef> = tree
+        .arcs
+        .iter()
+        .filter(|(id, (src, tgt, _))| {
+            !fan_edges.contains(id) && (fan_nodes.contains(src) || fan_nodes.contains(tgt))
+        })
+        .map(|(_, (src, tgt, _))| ViewRef::Arc {
+            parent: *src,
+            child: *tgt,
+        })
+        .collect();
+    out.extend(
+        tree.boundary
+            .in_stubs
+            .iter()
+            .filter(|(at, stub)| matches!(at, ViewRef::Arc { .. }) && fan_nodes.contains(&stub.tgt))
+            .map(|(at, _)| at.clone()),
+    );
     out
 }
 
