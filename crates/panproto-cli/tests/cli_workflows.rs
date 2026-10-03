@@ -2142,7 +2142,7 @@ fn cli_lift_bad_migration_fails() {
 use panproto_core::gat::Name;
 use panproto_core::inst;
 use panproto_core::mig;
-use panproto_core::schema::{Edge, Schema, Vertex};
+use panproto_core::schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use smallvec::SmallVec;
 
 /// Build a schema with named prop edges and all required adjacency indices.
@@ -2215,6 +2215,26 @@ fn make_lift_schema(
     }
 }
 
+fn lift_protocol() -> Protocol {
+    Protocol {
+        name: "test".to_owned(),
+        non_value_kinds: ["object".to_owned()].into(),
+        value_kinds: [
+            ("string".to_owned(), ScalarKind::Str),
+            ("boolean".to_owned(), ScalarKind::Bool),
+            (
+                "integer".to_owned(),
+                ScalarKind::Int {
+                    bits: 64,
+                    signed: true,
+                },
+            ),
+        ]
+        .into(),
+        ..Protocol::default()
+    }
+}
+
 fn make_migration(
     vertex_map: &[(&str, &str)],
     edge_map_entries: &[(Edge, Edge)],
@@ -2273,7 +2293,18 @@ fn lift_api_add_field() {
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Alice"});
     let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     let output = inst::to_json(&tgt_schema, &lifted);
 
     assert_eq!(output["name"], "Alice", "name should be preserved");
@@ -2319,7 +2350,18 @@ fn lift_api_drop_field() {
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Bob", "age": 30});
     let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     let output = inst::to_json(&tgt_schema, &lifted);
 
     assert_eq!(output["name"], "Bob", "name should be preserved");
@@ -2373,7 +2415,18 @@ fn lift_api_identity_all_fields_survive() {
     let compiled = mig::compile(&schema, &schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Eve", "email": "eve@example.com"});
     let instance = inst::parse_json(&schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &schema, &schema, &instance).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     let output = inst::to_json(&schema, &lifted);
 
     assert_eq!(output["name"], "Eve");
@@ -2435,7 +2488,18 @@ fn lift_api_multi_field_projection() {
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"name": "Dana", "email": "dana@example.com", "age": 25});
     let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     let output = inst::to_json(&tgt_schema, &lifted);
 
     assert_eq!(output["name"], "Dana");
@@ -2479,7 +2543,18 @@ fn lift_api_preserves_value_types() {
     let compiled = mig::compile(&src_schema, &tgt_schema, &migration).unwrap();
     let record = serde_json::json!({"active": true, "name": "test"});
     let instance = inst::parse_json(&src_schema, "root", &record).unwrap();
-    let lifted = mig::lift_wtype(&compiled, &src_schema, &tgt_schema, &instance).unwrap();
+    let protocol = lift_protocol();
+    let lifted = mig::lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     let output = inst::to_json(&tgt_schema, &lifted);
 
     assert_eq!(output["active"], true, "boolean value should be preserved");

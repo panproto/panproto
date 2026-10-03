@@ -187,15 +187,16 @@ fn graph_restrict_is_the_first_projection() {
 #[test]
 fn graph_extend_validates_its_output() {
     let c = e("r", "c", "c");
+    let src = schema(&["r", "c"], &[&c], &[]);
     let tgt = schema(&["r", "c"], &[&c], &[("r", &c)]);
     let mut m = keep(&["r", "c"]);
     m.surviving_edges.insert(c);
     let p = Protocol::default();
-    assert!(graph_extend(&rc_graph(1), &tgt, &m, &p).is_ok());
+    assert!(graph_extend(&rc_graph(1), &src, &tgt, &m, both(&p)).is_ok());
     // Without its child, r fails the required edge.
     let lone = GInstance::new().with_node(Node::new(0, "r"));
     assert_eq!(
-        side(graph_extend(&lone, &tgt, &m, &p)),
+        side(graph_extend(&lone, &src, &tgt, &m, both(&p))),
         Some(BoundarySide::Output)
     );
     // The tree extend follows the same rule.
@@ -207,7 +208,7 @@ fn graph_extend_validates_its_output() {
         "r".into(),
     );
     assert_eq!(
-        side(wtype_extend(&lone_tree, &tgt, &m, &p)),
+        side(wtype_extend(&lone_tree, &src, &tgt, &m, both(&p))),
         Some(BoundarySide::Output)
     );
 }
@@ -219,8 +220,11 @@ fn graph_extend_validates_its_target() {
     let other = schema(&["q"], &[], &[]);
     let p = Protocol::default();
     let m = keep(&["r", "c"]);
+    let src_plan = plan_for(&tgt, &p);
+    let tgt_plan = plan_for(&other, &p);
+    let migration_plan = RestrictPlan::compile_with_protocols(&tgt, &tgt, &m, both(&p)).unwrap();
     assert!(matches!(
-        graph_extend_validated(&rc_graph(1), &tgt, &m, &plan_for(&other, &p)),
+        graph_extend_validated(&rc_graph(1), &src_plan, &tgt_plan, &migration_plan),
         Err(RestrictError::PlanSchemaMismatch {
             side: BoundarySide::Output
         })
@@ -296,7 +300,7 @@ fn restrict_validated_equals_the_schema_taking_restrict() {
         functor_restrict_validated(&table, &validation, &validation, &table_plan).unwrap()
     );
     assert_eq!(
-        functor_extend_validated(&table, &table_schema, &tm, &tp, &validation).unwrap(),
+        functor_extend_validated(&table, &validation, &validation, &table_plan).unwrap(),
         table
     );
 }

@@ -3,16 +3,16 @@
 //! checks every invariant, rows enumerate in id order, fresh ids start above
 //! the largest in use, and the canonical bytes are record-sequential.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use panproto_gat::Name;
 use panproto_inst::identity::{Digest, GRAPH_INSTANCE_CONTEXT, TABLE_INSTANCE_CONTEXT};
 use panproto_inst::{
-    CanonicalSink, CompiledMigration, DigestHasher, FInstance, InstError, KeyLookupError, Row,
-    RowId, TableEdit, Value, canonical_finstance_bytes, functor_extend_engine, write_finstance,
-    write_pair_record, write_row_record,
+    BoundaryProtocols, CanonicalSink, CompiledMigration, DigestHasher, FInstance, InstError,
+    KeyLookupError, Row, RowId, TableEdit, Value, canonical_finstance_bytes, functor_extend_engine,
+    write_finstance, write_pair_record, write_row_record,
 };
-use panproto_schema::{CanonicalWriter, Edge};
+use panproto_schema::{CanonicalWriter, Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
 
 fn fk(src: &str, tgt: &str) -> Edge {
     Edge {
@@ -23,8 +23,52 @@ fn fk(src: &str, tgt: &str) -> Edge {
     }
 }
 
+fn column(table: &str, name: &str) -> Edge {
+    Edge {
+        src: table.into(),
+        tgt: format!("{table}.{name}").into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    }
+}
+
 fn named(value: &str) -> Row {
     HashMap::from([("name".to_owned(), Value::Str(value.into()))])
+}
+
+fn table_protocol() -> Protocol {
+    Protocol {
+        value_kinds: BTreeMap::from([("value".to_owned(), ScalarKind::Any)]),
+        non_value_kinds: BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+fn table_schema(spec: &[(&str, &[&str])], relations: &[Edge]) -> Schema {
+    let protocol = table_protocol();
+    let mut builder = SchemaBuilder::new(&protocol);
+    for (table, columns) in spec {
+        builder = builder.vertex(table, "record", None).unwrap();
+        for column in *columns {
+            let target = format!("{table}.{column}");
+            builder = builder
+                .vertex(&target, "value", None)
+                .unwrap()
+                .edge(table, &target, "prop", Some(column))
+                .unwrap();
+        }
+    }
+    for relation in relations {
+        builder = builder
+            .edge(
+                &relation.src,
+                &relation.tgt,
+                &relation.kind,
+                relation.name.as_deref(),
+            )
+            .unwrap();
+    }
+    builder.build().unwrap()
 }
 
 /// Users 5 and 2, posts 9 and 7; post 9 by user 5, post 7 by users 2 and 5.
@@ -307,7 +351,35 @@ fn functor_extend_keeps_row_ids_and_creates_no_rows() {
     migration
         .vertex_remap
         .insert("user".into(), "member".into());
-    let extended = functor_extend_engine(&f, &migration).unwrap();
+    migration
+        .vertex_remap
+        .insert("user.name".into(), "member.name".into());
+    migration
+        .edge_remap
+        .insert(column("user", "name"), column("member", "name"));
+    migration
+        .edge_remap
+        .insert(fk("post", "user"), fk("post", "member"));
+    let src = table_schema(
+        &[("user", &["name"]), ("post", &["name"])],
+        &[fk("post", "user")],
+    );
+    let tgt = table_schema(
+        &[("member", &["name"]), ("post", &["name"])],
+        &[fk("post", "member")],
+    );
+    let protocol = table_protocol();
+    let extended = functor_extend_engine(
+        &f,
+        &src,
+        &tgt,
+        &migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     assert_eq!(extended.row_ids(), f.row_ids());
     assert_eq!(
         extended.table("member").unwrap().ids(),
@@ -322,7 +394,7 @@ fn functor_extend_keeps_row_ids_and_creates_no_rows() {
 /// Extension fills each target table from its fibre by padding cells,
 /// never by adding rows: over a merge of two tables with different
 /// columns, the merged table holds exactly the source rows under their
-/// own ids, each padded with `Null` to the union of the columns, and a
+/// own ids, each padded with a fresh labelled null to the union of the columns, and a
 /// surviving target no row reaches is the empty set, so it has no table.
 #[test]
 fn functor_extend_allocates_fills_by_target_table() {
@@ -340,14 +412,40 @@ fn functor_extend_allocates_fills_by_target_table() {
     migration.surviving_verts.insert("empty".into());
     migration.vertex_remap.insert("a".into(), "t".into());
     migration.vertex_remap.insert("b".into(), "t".into());
-    let extended = functor_extend_engine(&f, &migration).unwrap();
+    migration.vertex_remap.insert("a.n".into(), "t.n".into());
+    migration
+        .vertex_remap
+        .insert("b.name".into(), "t.name".into());
+    migration
+        .edge_remap
+        .insert(column("a", "n"), column("t", "n"));
+    migration
+        .edge_remap
+        .insert(column("b", "name"), column("t", "name"));
+    let src = table_schema(&[("a", &["n"]), ("b", &["name"])], &[]);
+    let tgt = table_schema(&[("t", &["n", "name"]), ("empty", &[])], &[]);
+    let protocol = table_protocol();
+    let extended = functor_extend_engine(
+        &f,
+        &src,
+        &tgt,
+        &migration,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
     assert_eq!(extended.row_ids(), vec![RowId(1), RowId(4)]);
     assert_eq!(extended.table("t").unwrap().ids(), vec![RowId(1), RowId(4)]);
     assert_eq!(
         extended.row(RowId(1)).unwrap().get("name"),
-        Some(&Value::Null)
+        Some(&Value::LabeledNull(0))
     );
-    assert_eq!(extended.row(RowId(4)).unwrap().get("n"), Some(&Value::Null));
+    assert_eq!(
+        extended.row(RowId(4)).unwrap().get("n"),
+        Some(&Value::LabeledNull(1))
+    );
     assert!(!extended.has_table("empty"));
     assert_eq!(extended.row_count("empty"), 0);
     assert_eq!(

@@ -7,11 +7,11 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use panproto_gat::Name;
 use panproto_inst::value::Value;
-use panproto_inst::{FInstance, Node, WInstance};
+use panproto_inst::{BoundaryProtocols, FInstance, Node, WInstance};
 use panproto_mig::hom_search::morphism_to_migration;
 use panproto_mig::{
     Migration, SearchOptions, compile, dependencies_from_schema, discover_overlap,
@@ -32,6 +32,11 @@ fn test_protocol() -> Protocol {
         instance_theory: "ThWType".into(),
         edge_rules: vec![],
         obj_kinds: vec!["object".into(), "string".into(), "integer".into()],
+        non_value_kinds: BTreeSet::from([
+            "object".to_owned(),
+            "string".to_owned(),
+            "integer".to_owned(),
+        ]),
         constraint_sorts: vec![],
         ..Default::default()
     }
@@ -287,7 +292,7 @@ fn sigma_then_chase_workflow() {
 
     // Create a functor instance with one user row
     let instance = FInstance::new()
-        .with_table("user", vec![row("name", Value::Str("Alice".into()))])
+        .with_table("user", vec![HashMap::new()])
         .unwrap();
 
     // Build migration: user -> user (identity), no edge mapping yet
@@ -306,7 +311,18 @@ fn sigma_then_chase_workflow() {
 
     // Compile and apply Sigma_F (extend)
     let compiled = compile(&src_schema, &tgt_schema, &mig).unwrap();
-    let extended = panproto_inst::functor_extend_engine(&instance, &compiled).unwrap();
+    let protocol = test_protocol();
+    let extended = panproto_inst::functor_extend_engine(
+        &instance,
+        &src_schema,
+        &tgt_schema,
+        &compiled,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // After extend, "user" table should have 1 row, "profile" should be empty
     assert_eq!(extended.row_count("user"), 1);
@@ -597,7 +613,17 @@ fn full_pipeline_auto_morphism_to_lift() {
 
     // Lift via Sigma_F (left Kan extension) since we have renames
     let protocol = test_protocol();
-    let lifted = lift_wtype_sigma(&compiled, &instance, &new_schema, &protocol).unwrap();
+    let lifted = lift_wtype_sigma(
+        &compiled,
+        &old_schema,
+        &new_schema,
+        &instance,
+        panproto_inst::BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )
+    .unwrap();
 
     // Verify lifted instance structure
     assert_eq!(lifted.node_count(), 2, "should preserve both nodes");

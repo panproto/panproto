@@ -5,19 +5,27 @@
 
 mod common;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::time::{Duration, Instant};
 
 use panproto_expr::{BuiltinOp, Expr, Literal};
 use panproto_gat::Name;
 use panproto_inst::{
-    CompiledMigration, FieldPresence, FieldTransform, InstanceQuery, Node, Value, WInstance,
-    execute_query, wtype_extend_engine,
+    BoundaryProtocols, CompiledMigration, FieldPresence, FieldTransform, InstanceQuery, Node,
+    Value, WInstance, execute_query, wtype_extend_engine,
 };
-use panproto_schema::{Edge, Protocol, Schema, SchemaBuilder};
+use panproto_schema::{Edge, Protocol, ScalarKind, Schema, SchemaBuilder};
+
+fn protocol() -> Protocol {
+    Protocol {
+        value_kinds: BTreeMap::from([("integer".to_owned(), ScalarKind::Any)]),
+        non_value_kinds: BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    }
+}
 
 fn schema() -> Schema {
-    SchemaBuilder::new(&Protocol::default())
+    SchemaBuilder::new(&protocol())
         .vertex("r", "record", None)
         .unwrap()
         .vertex("mid", "record", None)
@@ -103,7 +111,15 @@ fn run_time(instance: &WInstance, n: usize) -> Duration {
     let start = Instant::now();
     let by_predicate = execute_query(&selected, instance, &s).unwrap();
     let by_path = execute_query(&stepped, instance, &s).unwrap();
-    let extended = wtype_extend_engine(instance, &s, &migration).unwrap();
+    let p = protocol();
+    let extended = wtype_extend_engine(
+        instance,
+        &s,
+        &s,
+        &migration,
+        BoundaryProtocols { src: &p, tgt: &p },
+    )
+    .unwrap();
     let elapsed = start.elapsed();
     assert_eq!(by_predicate.len(), n);
     assert_eq!(by_predicate[0].fields.get("k"), Some(&Value::Int(1)));

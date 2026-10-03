@@ -527,7 +527,28 @@ fn functor_extend_n_tables(bencher: Bencher, n: usize) {
         expansion_path: HashMap::new(),
     };
 
-    bencher.bench(|| functor_extend_engine(&inst, &compiled));
+    let mut vertices: Vec<(String, &str)> = Vec::new();
+    let mut columns = Vec::new();
+    for i in 0..n {
+        vertices.push((format!("t{i}"), "record"));
+        vertices.push((format!("t{i}.col"), "string"));
+        columns.push(make_edge(&format!("t{i}"), &format!("t{i}.col"), "col"));
+    }
+    let named: Vec<(&str, &str)> = vertices.iter().map(|(v, k)| (v.as_str(), *k)).collect();
+    let schema = test_schema(&named, &columns);
+    let protocol = panproto_schema::Protocol {
+        value_kinds: std::collections::BTreeMap::from([(
+            "string".to_owned(),
+            panproto_schema::ScalarKind::Str,
+        )]),
+        non_value_kinds: std::collections::BTreeSet::from(["record".to_owned()]),
+        ..panproto_schema::Protocol::default()
+    };
+    let protocols = BoundaryProtocols {
+        src: &protocol,
+        tgt: &protocol,
+    };
+    bencher.bench(|| functor_extend_engine(&inst, &schema, &schema, &compiled, protocols));
 }
 
 // ---------------------------------------------------------------------------

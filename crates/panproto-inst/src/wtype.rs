@@ -3319,6 +3319,141 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 // Left Kan extension (Σ_F) for W-type instances
 // ---------------------------------------------------------------------------
 
+/// The image of a source vertex under total extension.
+///
+/// An explicit remap wins. Otherwise the vertex maps identically exactly
+/// when the target schema contains it.
+pub(crate) fn extension_vertex_image(
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    vertex: &Name,
+) -> Option<Name> {
+    migration.vertex_remap.get(vertex).cloned().or_else(|| {
+        tgt_schema
+            .vertices
+            .contains_key(vertex)
+            .then(|| vertex.clone())
+    })
+}
+
+/// The image of a source edge under total extension.
+///
+/// An explicit remap wins. Otherwise the edge has an image exactly when the
+/// target has one edge between the images of its endpoints.
+pub(crate) fn extension_edge_image(
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    edge: &Edge,
+) -> Option<Edge> {
+    if let Some(image) = migration.edge_remap.get(edge) {
+        return Some(image.clone());
+    }
+    let src = extension_vertex_image(tgt_schema, migration, &edge.src)?;
+    let tgt = extension_vertex_image(tgt_schema, migration, &edge.tgt)?;
+    let candidates = tgt_schema.edges_between(src.as_str(), tgt.as_str());
+    (candidates.len() == 1).then(|| candidates[0].clone())
+}
+
+/// Complete the structural part of `migration` with every unique direct
+/// image its two schemas determine.
+///
+/// This is the migration plan total extension executes. Source elements for
+/// which it still contains no map are the elements total extension refuses;
+/// the partial forms omit and report them.
+pub(crate) fn total_extension_migration(
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+) -> CompiledMigration {
+    let mut total = migration.clone();
+
+    // A field rename is also the structural image of the corresponding
+    // attribute arrow in the table encoding. Record that image before the
+    // ordinary vertex pass so the value vertex travels with its column.
+    let mut source_edges: Vec<&Edge> = src_schema.edges.keys().collect();
+    source_edges.sort_unstable();
+    for edge in &source_edges {
+        if total.edge_remap.contains_key(*edge) {
+            continue;
+        }
+        let Some(source_name) = edge.name.as_deref() else {
+            continue;
+        };
+        let mut image_name = source_name.to_string();
+        for transform in migration.value_transforms(&edge.src) {
+            if let FieldTransform::RenameField { old_key, new_key } = transform
+                && image_name == old_key
+            {
+                image_name = new_key;
+            }
+        }
+        if image_name == source_name {
+            continue;
+        }
+        let Some(parent) = extension_vertex_image(tgt_schema, &total, &edge.src) else {
+            continue;
+        };
+        let candidates: Vec<&Edge> = tgt_schema
+            .edges
+            .keys()
+            .filter(|candidate| {
+                candidate.src == parent
+                    && candidate.kind == edge.kind
+                    && candidate.name.as_deref() == Some(image_name.as_str())
+            })
+            .collect();
+        if candidates.len() == 1 {
+            let image = candidates[0].clone();
+            total
+                .vertex_remap
+                .entry(edge.tgt.clone())
+                .or_insert_with(|| image.tgt.clone());
+            total.edge_remap.insert((*edge).clone(), image);
+        }
+    }
+
+    let mut vertices: Vec<&Name> = src_schema.vertices.keys().collect();
+    vertices.sort_unstable();
+    for vertex in vertices {
+        if let Some(image) = extension_vertex_image(tgt_schema, migration, vertex) {
+            if !total.vertex_remap.contains_key(vertex) && image != *vertex {
+                total.vertex_remap.insert(vertex.clone(), image.clone());
+            }
+            total.surviving_verts.insert(image);
+        }
+    }
+    for edge in source_edges {
+        if total.edge_remap.contains_key(edge) {
+            continue;
+        }
+        if let Some(image) = extension_edge_image(tgt_schema, &total, edge) {
+            if image == *edge {
+                total.surviving_edges.insert(edge.clone());
+            } else {
+                total.edge_remap.insert(edge.clone(), image);
+            }
+        }
+    }
+    // When an edge survives identically and another source edge maps onto
+    // it, spell the identity image out. This keeps the edge in the source
+    // domain as well as the target image domain of the compiled functor.
+    let overlapping_images: Vec<Edge> = src_schema
+        .edges
+        .keys()
+        .filter(|edge| {
+            total
+                .edge_remap
+                .iter()
+                .any(|(source, image)| source != *edge && image == *edge)
+        })
+        .cloned()
+        .collect();
+    for edge in overlapping_images {
+        total.edge_remap.insert(edge.clone(), edge);
+    }
+    total
+}
+
 /// Left Kan extension (`Sigma_F`) for W-type instances.
 ///
 /// Pushes a W-type instance forward along a migration morphism, mapping
@@ -3334,9 +3469,8 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 /// partial extension — keeping the mappable nodes and learning which nodes
 /// were dropped — should use [`wtype_extend_partial`] instead.
 ///
-/// The output is validated against `tgt_schema` under `tgt_protocol`; the
-/// input's schema is not a parameter, so its callers validate the input at
-/// their own boundary.
+/// The input and output are validated against `src_schema` and `tgt_schema`
+/// under their respective protocols.
 ///
 /// # Errors
 ///
@@ -3345,43 +3479,52 @@ pub fn expr_literal_to_value(lit: &panproto_expr::Literal) -> Value {
 /// remapped anchors. It is never given a different label: resolving by anchors
 /// alone would deliver the value under a sibling field's name.
 ///
-/// Returns [`RestrictError::UnmappedAnchor`] if any source node's anchor is
-/// neither remapped nor surviving, [`RestrictError::NonInjectiveVertexMap`] if
-/// two source anchors share a target anchor, since a W-instance cannot
-/// represent the merge that asks for, [`RestrictError::RootPruned`] if the root
-/// itself cannot be mapped, another [`RestrictError`] variant if edge
-/// resolution fails, or [`RestrictError::Validation`] on the output side
-/// when the output does not validate.
+/// Returns [`RestrictError::UnmappedAnchor`] if any source node's anchor has
+/// no image, [`RestrictError::UnmappedEdge`] if an arc's label has no image,
+/// [`RestrictError::RootPruned`] if the root itself cannot be mapped, another
+/// [`RestrictError`] variant if edge resolution fails, or
+/// [`RestrictError::Validation`] when either boundary does not validate.
 pub fn wtype_extend(
     instance: &WInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
-    tgt_protocol: &panproto_schema::Protocol,
+    protocols: crate::BoundaryProtocols<'_>,
 ) -> Result<WInstance, RestrictError> {
-    let tgt_plan = crate::restrict_boundary::boundary_plan(tgt_schema, tgt_protocol);
-    wtype_extend_validated(instance, tgt_schema, migration, &tgt_plan)
+    let total = total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_tree_elements(instance, tgt_schema, &total)?;
+    let src_validation = crate::restrict_boundary::boundary_plan(src_schema, protocols.src);
+    let tgt_validation = crate::restrict_boundary::boundary_plan(tgt_schema, protocols.tgt);
+    let plan =
+        crate::RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    wtype_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 
 /// The extend of a W-type instance with no validation: the engine of
 /// [`wtype_extend`].
 ///
-/// It serves operations that are no boundary (the W-type `Sigma_F` of the
-/// adjunctions, whose units call it) and callers that hold no target
-/// protocol, among them the lifts of panproto-mig; that is why it is
-/// public.
+/// It serves operations that already own their boundary policy, including
+/// the W-type `Sigma_F` lifts in `panproto-mig`; that is why it is public.
 ///
 /// # Errors
 ///
 /// As [`wtype_extend`], without the validation failure.
 pub fn wtype_extend_engine(
     instance: &WInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
+    protocols: crate::BoundaryProtocols<'_>,
 ) -> Result<WInstance, RestrictError> {
-    wtype_extend_inner(instance, tgt_schema, migration, false).map(|(extended, _)| extended)
+    let total = total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_tree_elements(instance, tgt_schema, &total)?;
+    let plan =
+        crate::RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    wtype_extend_inner(instance, &plan, false).map(|(extended, _)| extended)
 }
 
-/// [`wtype_extend`] with the target's validation plan compiled already.
+/// [`wtype_extend`] with both boundary validation plans and the migration
+/// plan compiled already.
 ///
 /// # Errors
 ///
@@ -3390,18 +3533,20 @@ pub fn wtype_extend_engine(
 /// `tgt_schema`; otherwise as [`wtype_extend`].
 pub fn wtype_extend_validated(
     instance: &WInstance,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
+    src_plan: &crate::validation::ValidationPlan,
     tgt_plan: &crate::validation::ValidationPlan,
+    plan: &crate::RestrictPlan,
 ) -> Result<WInstance, RestrictError> {
     use crate::restrict_boundary::{BoundarySide, require_passed, require_schema, unlimited};
-    require_schema(
-        tgt_plan,
-        &crate::identity::schema_digest(tgt_schema),
-        BoundarySide::Output,
-    )?;
-    let extended = wtype_extend_engine(instance, tgt_schema, migration)?;
+    require_schema(src_plan, &plan.src_schema, BoundarySide::Input)?;
+    require_schema(tgt_plan, &plan.tgt_schema, BoundarySide::Output)?;
+    require_total_tree_elements(instance, plan.target(), plan.migration())?;
     let (budget, external) = unlimited();
+    require_passed(
+        src_plan.validate_tree(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let extended = wtype_extend_inner(instance, plan, false)?.0;
     require_passed(
         tgt_plan.validate_tree(&extended, &budget, &external),
         BoundarySide::Output,
@@ -3411,11 +3556,9 @@ pub fn wtype_extend_validated(
 
 /// Partial left Kan extension: extend what can be mapped, report the rest.
 ///
-/// Like [`wtype_extend`], but instead of failing on a node whose anchor is
-/// neither remapped nor surviving, this variant drops that node and records
-/// its id. The returned `Vec<u32>` lists the dropped source node ids (empty
-/// when the migration is total, in which case the result equals that of
-/// [`wtype_extend`]). Arcs touching a dropped node are dropped as well.
+/// Like [`wtype_extend`], but instead of failing on an unmapped node or arc,
+/// this variant omits it and records its [`crate::ViewRef`]. Arcs touching an
+/// omitted node are omitted as well.
 ///
 /// Use this variant when partial extension is intended, and inspect the
 /// returned ids so the dropped nodes are surfaced rather than lost silently.
@@ -3423,74 +3566,49 @@ pub fn wtype_extend_validated(
 /// # Errors
 ///
 /// Returns [`RestrictError::RootPruned`] if the root cannot be mapped, or
-/// another [`RestrictError`] variant if edge resolution fails. Partiality is
-/// about which *nodes* travel, so [`RestrictError::NonInjectiveVertexMap`] is
-/// refused here too: the instance it describes is malformed rather than
-/// incomplete.
+/// another [`RestrictError`] variant if an otherwise mapped element cannot
+/// be extended.
 pub fn wtype_extend_partial(
     instance: &WInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
-) -> Result<(WInstance, Vec<u32>), RestrictError> {
-    wtype_extend_inner(instance, tgt_schema, migration, true)
+    protocols: crate::BoundaryProtocols<'_>,
+) -> Result<(WInstance, Vec<crate::ViewRef>), RestrictError> {
+    let total = total_extension_migration(src_schema, tgt_schema, migration);
+    let plan =
+        crate::RestrictPlan::compile_with_protocols(src_schema, tgt_schema, &total, protocols)?;
+    wtype_extend_inner(instance, &plan, true)
 }
 
-/// The source anchors landing on each target anchor.
-///
-/// A vertex that survives without being remapped is its own fiber, so a target
-/// anchor reached both by a rename and by a survival is a contraction like any
-/// other.
-fn fiber_map(migration: &CompiledMigration) -> HashMap<Name, Vec<Name>> {
-    let mut fibers: HashMap<Name, Vec<Name>> = HashMap::new();
-    let remapped: FxHashSet<&Name> = migration.vertex_remap.values().collect();
-
-    for (source, target) in &migration.vertex_remap {
-        fibers
-            .entry(target.clone())
-            .or_default()
-            .push(source.clone());
-    }
-    for vertex in &migration.surviving_verts {
-        if !migration.vertex_remap.contains_key(vertex) && !remapped.contains(vertex) {
-            fibers
-                .entry(vertex.clone())
-                .or_default()
-                .push(vertex.clone());
+fn require_total_tree_elements(
+    instance: &WInstance,
+    target: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(), RestrictError> {
+    let mut ids: Vec<u32> = instance.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        let node = &instance.nodes[&id];
+        if extension_vertex_image(target, migration, &node.anchor).is_none() {
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: node.anchor.clone(),
+                node_id: id,
+            });
         }
     }
-    fibers
-}
-
-/// The image of an arc whose edge the migration named no image for.
-///
-/// The resolver wins first: an entry there is a caller saying explicitly which
-/// target edge joins the two anchors. Failing that, the arc keeps its own kind
-/// and name, which the target must actually carry between the remapped
-/// anchors. `None` means the migration does not carry this arc, and the arc is
-/// dropped rather than given a sibling's label.
-///
-/// There is no unique-edge fallback, and its absence is the point.
-/// [`resolve_edge`] has one, which is right where a *contracted* arc has to
-/// land somewhere and wrong here, where the question is what an unmapped arc
-/// should be called: a source with parallel `a` and `b` arcs migrating onto a
-/// target that kept only `a` would send `b`'s value under `a`'s name.
-fn carry_edge(
-    tgt_schema: &Schema,
-    resolver: &HashMap<(Name, Name), Edge>,
-    parent_anchor: &Name,
-    child_anchor: &Name,
-    edge: &Edge,
-) -> Option<Edge> {
-    for ((key_src, key_tgt), resolved) in resolver {
-        if key_src == parent_anchor && key_tgt == child_anchor {
-            return Some(resolved.clone());
+    for (parent, child, edge) in &instance.arcs {
+        if extension_edge_image(target, migration, edge).is_none() {
+            return Err(RestrictError::UnmappedEdge {
+                edge: Box::new(edge.clone()),
+                element: crate::ViewRef::Arc {
+                    parent: *parent,
+                    child: *child,
+                },
+            });
         }
     }
-    tgt_schema
-        .edges_between(parent_anchor.as_str(), child_anchor.as_str())
-        .iter()
-        .find(|candidate| candidate.kind == edge.kind && candidate.name == edge.name)
-        .cloned()
+    Ok(())
 }
 
 /// Shared implementation for [`wtype_extend`] and [`wtype_extend_partial`].
@@ -3500,124 +3618,79 @@ fn carry_edge(
 /// is dropped and its id is collected into the returned vector.
 fn wtype_extend_inner(
     instance: &WInstance,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
+    plan: &crate::RestrictPlan,
     partial: bool,
-) -> Result<(WInstance, Vec<u32>), RestrictError> {
-    // A contracting vertex map has no W-type image. Two source anchors sent to
-    // one target anchor ask for the subtrees under them to be merged, and a
-    // W-instance has no way to say that: the node it produces carries both sets
-    // of children side by side, so a record whose `title` and `subtitle` both
-    // migrate onto `heading` comes out with two arcs labelled `heading` out of
-    // one node. That is not an instance of the target schema, and no later pass
-    // rejects it, so it is refused here — the same guard `wtype_pi` applies, for
-    // the same reason.
-    //
-    // `Migration::resolver` does not authorise the merge. It is an edge
-    // disambiguation table, `(src anchor, tgt anchor) -> Edge`, not a rule for
-    // combining two values into one, and nothing in the lift path reads
-    // `Schema::mergers`.
-    for (target, sources) in fiber_map(migration) {
-        if sources.len() > 1 {
-            let mut sources = sources;
-            sources.sort_unstable();
-            return Err(RestrictError::NonInjectiveVertexMap { target, sources });
-        }
-    }
-
-    // Check root can be mapped
-    let mut dropped_nodes: Vec<u32> = Vec::new();
+) -> Result<(WInstance, Vec<crate::ViewRef>), RestrictError> {
+    let migration = plan.migration();
+    let tgt_schema = plan.target();
+    let mut dropped = Vec::new();
     let root_node = instance
         .nodes
         .get(&instance.root)
         .ok_or(RestrictError::RootPruned)?;
-
-    let root_anchor = &root_node.anchor;
-    if !migration.surviving_verts.contains(root_anchor)
-        && !migration.vertex_remap.contains_key(root_anchor)
-    {
-        return Err(RestrictError::RootPruned);
+    if extension_vertex_image(tgt_schema, migration, &root_node.anchor).is_none() {
+        if partial {
+            return Err(RestrictError::RootPruned);
+        }
+        return Err(RestrictError::UnmappedAnchor {
+            anchor: root_node.anchor.clone(),
+            node_id: root_node.id,
+        });
     }
 
-    // Build new nodes: remap anchors where applicable
     let children = TreeChildren::new(instance);
     let mut new_nodes: HashMap<u32, Node> = HashMap::with_capacity(instance.nodes.len());
-    for (&id, node) in &instance.nodes {
+    let mut ids: Vec<u32> = instance.nodes.keys().copied().collect();
+    ids.sort_unstable();
+    for id in ids {
+        let node = &instance.nodes[&id];
         let mut new_node = node.clone();
-        if let Some(remapped) = migration.vertex_remap.get(&node.anchor) {
-            new_node.anchor.clone_from(remapped);
-        } else if !migration.surviving_verts.contains(&node.anchor) {
-            // Node's anchor has no image in the target schema. A total left
-            // Kan extension cannot map it, so report the loss; only the
-            // partial variant records the id and continues.
+        let Some(image) = extension_vertex_image(tgt_schema, migration, &node.anchor) else {
             if partial {
-                dropped_nodes.push(id);
+                dropped.push(crate::ViewRef::Node(id));
                 continue;
             }
             return Err(RestrictError::UnmappedAnchor {
                 anchor: node.anchor.clone(),
                 node_id: id,
             });
-        }
-        // Apply field transforms (coercions) to the extended node.
-        // Collect scalar child values from the original instance for the
-        // full fiber projection.
+        };
+        new_node.anchor = image;
         let transforms = migration.value_transforms(&node.anchor);
-        if !transforms.is_empty() {
-            let ctx = TransformContext::bound(
-                None,
+        let ctx = if transforms.is_empty() {
+            TransformContext::detached()
+        } else {
+            TransformContext::bound(
+                Some(plan.source()),
                 &children,
                 InstanceRef::Tree(instance, id),
                 &transform_demand(&transforms),
-            );
-            apply_field_transforms(&mut new_node, &transforms, &ctx)?;
-        }
+            )
+        };
+        plan.transform(&mut new_node, &node.anchor, &ctx, true)?;
         new_nodes.insert(id, new_node);
     }
 
-    // Build new arcs: remap edges where applicable
     let mut new_arcs: Vec<(u32, u32, Edge)> = Vec::with_capacity(instance.arcs.len());
     for &(parent, child, ref edge) in &instance.arcs {
-        // Both endpoints must be in the new node set
         if !new_nodes.contains_key(&parent) || !new_nodes.contains_key(&child) {
+            if partial {
+                dropped.push(crate::ViewRef::Arc { parent, child });
+            }
             continue;
         }
-
-        if let Some(new_edge) = migration.edge_remap.get(edge) {
-            new_arcs.push((parent, child, new_edge.clone()));
-        } else {
-            // The migration named no image for this edge, so the arc carries
-            // its own label across: the target edge between the remapped
-            // anchors that agrees with it on kind *and* name.
-            //
-            // Resolving by anchors alone is how a wrong label gets invented.
-            // `resolve_edge` returns the unique target edge between two anchors
-            // whenever there is exactly one, so an arc whose edge was dropped
-            // comes back wearing a *sibling's* name and delivers its value
-            // under a field it was never sent to. A dropped field is a loss; a
-            // relabelled one is a lie, and nothing downstream can tell.
-            //
-            // The resolver still wins where a caller supplied one: that is an
-            // explicit instruction rather than a guess.
-            let parent_anchor = &new_nodes[&parent].anchor;
-            let child_anchor = &new_nodes[&child].anchor;
-            if migration.surviving_edges.contains(edge)
-                && edge.src == *parent_anchor
-                && edge.tgt == *child_anchor
-            {
-                // The edge survives and neither anchor moved, so it is already
-                // a target edge between the right two vertices.
-                new_arcs.push((parent, child, edge.clone()));
-            } else if let Some(carried) = carry_edge(
-                tgt_schema,
-                &migration.resolver,
-                parent_anchor,
-                child_anchor,
-                edge,
-            ) {
-                new_arcs.push((parent, child, carried));
+        let Some(image) = extension_edge_image(tgt_schema, migration, edge) else {
+            let element = crate::ViewRef::Arc { parent, child };
+            if partial {
+                dropped.push(element);
+                continue;
             }
-        }
+            return Err(RestrictError::UnmappedEdge {
+                edge: Box::new(edge.clone()),
+                element,
+            });
+        };
+        new_arcs.push((parent, child, image));
     }
 
     // Handle fans similarly to restrict's reconstruct_fans
@@ -3631,11 +3704,11 @@ fn wtype_extend_inner(
         tgt_schema,
     )?;
 
-    let new_schema_root = migration
-        .vertex_remap
-        .get(&instance.schema_root)
-        .cloned()
+    let new_schema_root = extension_vertex_image(tgt_schema, migration, &instance.schema_root)
         .unwrap_or_else(|| instance.schema_root.clone());
+
+    dropped.sort_unstable();
+    dropped.dedup();
 
     Ok((
         WInstance::new(
@@ -3645,7 +3718,7 @@ fn wtype_extend_inner(
             instance.root,
             new_schema_root,
         ),
-        dropped_nodes,
+        dropped,
     ))
 }
 
@@ -3870,6 +3943,90 @@ mod tests {
         }
     }
 
+    fn schema_for_instance(instance: &WInstance) -> Schema {
+        let vertices: HashMap<_, _> = instance
+            .nodes
+            .values()
+            .map(|node| {
+                (
+                    node.anchor.clone(),
+                    panproto_schema::Vertex {
+                        id: node.anchor.clone(),
+                        kind: Name::from("object"),
+                        nsid: None,
+                    },
+                )
+            })
+            .collect();
+        let edges: BTreeSet<Edge> = instance
+            .arcs
+            .iter()
+            .map(|(_, _, edge)| edge.clone())
+            .collect();
+        let mut between = HashMap::new();
+        for edge in &edges {
+            between
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .or_insert_with(SmallVec::new)
+                .push(edge.clone());
+        }
+        Schema {
+            protocol: "test".into(),
+            vertices,
+            edges: edges
+                .into_iter()
+                .map(|edge| (edge.clone(), edge.kind))
+                .collect(),
+            between,
+            ..Schema::default()
+        }
+    }
+
+    fn object_protocol() -> panproto_schema::Protocol {
+        panproto_schema::Protocol {
+            non_value_kinds: BTreeSet::from(["object".to_owned()]),
+            ..panproto_schema::Protocol::default()
+        }
+    }
+
+    fn extend_engine(
+        instance: &WInstance,
+        target: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<WInstance, RestrictError> {
+        let source = schema_for_instance(instance);
+        let protocol = object_protocol();
+        wtype_extend_engine(
+            instance,
+            &source,
+            target,
+            migration,
+            crate::BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+    }
+
+    fn extend_partial(
+        instance: &WInstance,
+        target: &Schema,
+        migration: &CompiledMigration,
+    ) -> Result<(WInstance, Vec<crate::ViewRef>), RestrictError> {
+        let source = schema_for_instance(instance);
+        let protocol = object_protocol();
+        wtype_extend_partial(
+            instance,
+            &source,
+            target,
+            migration,
+            crate::BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+    }
+
     #[test]
     #[allow(clippy::unwrap_used)]
     fn extend_identity_migration() {
@@ -3907,7 +4064,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend_engine(&inst, &schema, &migration).unwrap();
+        let result = extend_engine(&inst, &schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
         assert_eq!(result.arc_count(), 2);
         assert_eq!(result.schema_root, Name::from("post:body"));
@@ -3963,7 +4120,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
+        let result = extend_engine(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.node_count(), 3);
         assert_eq!(result.arc_count(), 2);
         assert_eq!(result.schema_root, Name::from("article:body"));
@@ -3971,12 +4128,10 @@ mod tests {
         assert_eq!(result.nodes[&1].anchor, Name::from("article:body.text"));
     }
 
-    /// A migration that sends two source anchors to one target anchor asks for
-    /// a merge a W-instance cannot represent, so the extension refuses instead
-    /// of emitting a node with two children under one field.
+    /// A vertex merge preserves the identities of both source nodes.
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn extend_refuses_a_contracting_vertex_map() {
+    fn extend_preserves_nodes_under_a_contracting_vertex_map() {
         let inst = three_node_instance();
         let tgt_edge = Edge {
             src: "article:body".into(),
@@ -4010,22 +4165,22 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let refused = wtype_extend_engine(&inst, &tgt_schema, &migration);
-        assert!(
-            matches!(refused, Err(RestrictError::NonInjectiveVertexMap { .. })),
-            "a contracting vertex map must be refused, not answered with a node \
-             carrying both values: got {refused:?}"
-        );
+        let extended = extend_engine(&inst, &tgt_schema, &migration).unwrap();
+        assert_eq!(extended.node_count(), 3);
+        assert_eq!(extended.arc_count(), 2);
+        assert_eq!(extended.nodes[&1].anchor, Name::from("article:body.one"));
+        assert_eq!(extended.nodes[&2].anchor, Name::from("article:body.one"));
 
-        // The partial variant is about which *nodes* travel, so it refuses too.
-        assert!(matches!(
-            wtype_extend_partial(&inst, &tgt_schema, &migration),
-            Err(RestrictError::NonInjectiveVertexMap { .. })
-        ));
+        let (partial, dropped) = extend_partial(&inst, &tgt_schema, &migration).unwrap();
+        assert_eq!(
+            crate::segment::canonical_winstance_bytes(&partial),
+            crate::segment::canonical_winstance_bytes(&extended)
+        );
+        assert!(dropped.is_empty());
     }
 
-    /// An arc whose edge the migration dropped must not be relabelled onto a
-    /// sibling's edge.
+    /// An otherwise-unmapped arc takes the unique direct target edge between
+    /// the images of its endpoints.
     ///
     /// Two parallel source arcs, `a` and `b`, between one vertex pair; the
     /// target kept only `a`; the migration maps `a` and says nothing about `b`.
@@ -4033,7 +4188,7 @@ mod tests {
     /// between them, which is `a`, and delivers `b`'s value under `a`'s name.
     #[test]
     #[allow(clippy::unwrap_used)]
-    fn a_dropped_edge_is_not_relabelled_onto_a_sibling() {
+    fn an_unmapped_edge_takes_the_unique_direct_target_edge() {
         let src_a = Edge {
             src: "root".into(),
             tgt: "leaf".into(),
@@ -4089,21 +4244,20 @@ mod tests {
             expansion_path: HashMap::new(),
         };
 
-        let extended = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
+        let extended = extend_engine(&inst, &tgt_schema, &migration).unwrap();
         let labelled_a = extended
             .arcs
             .iter()
             .filter(|(_, _, edge)| *edge == tgt_a)
             .count();
         assert_eq!(
-            labelled_a, 1,
-            "only the arc the migration mapped may wear `a`: got {:?}",
+            labelled_a, 2,
+            "both source arcs have the unique direct target edge: got {:?}",
             extended.arcs
         );
-        // `b`'s value went nowhere rather than arriving under `a`.
         assert!(
-            !extended.arcs.iter().any(|(_, child, _)| *child == 2),
-            "the unmapped arc is dropped, not relabelled: {:?}",
+            extended.arcs.iter().any(|(_, child, _)| *child == 2),
+            "the second source node retains its identity: {:?}",
             extended.arcs
         );
     }
@@ -4153,7 +4307,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend_engine(&inst, &tgt_schema, &migration).unwrap();
+        let result = extend_engine(&inst, &tgt_schema, &migration).unwrap();
         assert_eq!(result.arc_count(), 2);
         // Check that the remapped edge is used
         let text_arc = result.arcs.iter().find(|a| a.1 == 1).unwrap();
@@ -4197,7 +4351,7 @@ mod tests {
             op_term_assignments: HashMap::new(),
             expansion_path: HashMap::new(),
         };
-        let result = wtype_extend_engine(&inst, &schema, &migration).unwrap();
+        let result = extend_engine(&inst, &schema, &migration).unwrap();
         // Verify parent/children maps are correctly rebuilt
         assert_eq!(result.parent(1), Some(0));
         assert_eq!(result.parent(2), Some(0));
@@ -4241,15 +4395,24 @@ mod tests {
         };
 
         // Total extend must error rather than silently drop node 2.
-        let err = wtype_extend_engine(&inst, &schema, &migration).unwrap_err();
+        let err = extend_engine(&inst, &schema, &migration).unwrap_err();
         assert!(
             matches!(err, RestrictError::UnmappedAnchor { node_id: 2, .. }),
             "expected UnmappedAnchor for node 2, got {err:?}"
         );
 
         // The explicit partial variant drops node 2 and reports its id.
-        let (extended, dropped) = wtype_extend_partial(&inst, &schema, &migration).unwrap();
-        assert_eq!(dropped, vec![2]);
+        let (extended, dropped) = extend_partial(&inst, &schema, &migration).unwrap();
+        assert_eq!(
+            dropped,
+            vec![
+                crate::ViewRef::Node(2),
+                crate::ViewRef::Arc {
+                    parent: 0,
+                    child: 2,
+                },
+            ]
+        );
         assert_eq!(extended.node_count(), 2);
         assert!(!extended.nodes.contains_key(&2));
     }

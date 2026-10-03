@@ -17,12 +17,12 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 
 use panproto_gat::Name;
-use panproto_schema::{Edge, Protocol, Schema};
+use panproto_schema::{Edge, Schema};
 
 use crate::adjunction::NonConformance;
 use crate::contraction_plan::PairResolution;
 use crate::error::RestrictError;
-use crate::functor::{FInstance, PairSet, Row, same_value};
+use crate::functor::{FInstance, Row, same_value};
 use crate::metadata::Node;
 use crate::rel_schema::RelSchema;
 use crate::restrict_boundary::{
@@ -31,7 +31,6 @@ use crate::restrict_boundary::{
 use crate::restrict_plan::{EdgeFate, RestrictPlan, ReverseAnchors, floor_above};
 use crate::table_complement::{DroppedRow, TableComplement};
 use crate::validation::ValidationPlan;
-use crate::value::Value;
 use crate::view_ref::RowId;
 use crate::wtype::{CompiledMigration, InstanceRef, TransformContext};
 
@@ -66,7 +65,7 @@ use crate::wtype::{CompiledMigration, InstanceRef, TransformContext};
 /// table functor. Then, in ascending row id and for each row in this order,
 /// [`RestrictError::NonConforming`] for a row at no table of the source
 /// schema or whose cells are not exactly its table's columns (the engine
-/// reads total rows: an absent cell and a [`Value::Null`] one differ), and
+/// reads total rows: an absent cell and a [`crate::Value::Null`] one differ), and
 /// the refusals of its survival predicate and transforms; in ascending foreign key and pair,
 /// [`RestrictError::IncoherentEdgeImage`] for a pair whose key is no source
 /// schema edge, and [`RestrictError::NotTableRepresentable`],
@@ -456,70 +455,43 @@ pub fn functor_restrict_validated(
 }
 
 /// The extend operation for table instances (`Sigma_F`), classifying the
-/// target schema under `tgt_protocol` and validating the output against it.
+/// target schema under `protocols.tgt` and validating both boundaries.
 ///
 /// This is the left Kan extension: given an instance of the source schema
 /// and a migration mapping (source -> target), produce an instance of the
-/// target schema by moving every table to its image. A vertex in the
-/// migration's domain (the vertices `vertex_remap` renames, together with
-/// those `surviving_verts` lists that it neither renames nor names as some
-/// other vertex's image) goes to the image `vertex_remap` names, or keeps
-/// its name when it survives unrenamed; a vertex the migration does not
-/// mention at all keeps its name. A vertex the migration names only as a
-/// target, the image of some other vertex that it does not rename itself,
-/// has no image of its own, and extend refuses rows held there rather than
-/// merge them into that fibre unasked; a surviving target vertex no row
-/// reaches is sent to the empty set, so it has no table. Rows keep their
-/// [`RowId`]s, so the coproduct over a merging fibre is a disjoint union
-/// with no renumbering, and the operation creates no rows. A row takes its
-/// source table's value transforms as the tree extend applies them. Within
-/// each target table the rows are padded to the union of their columns with
-/// [`Value::Null`]. Edges are read the same way: a source edge (one
-/// `edge_remap` remaps, or a surviving edge it neither remaps nor names as
-/// another edge's image) travels to its image, an edge the migration does
-/// not mention keeps its kind and name between the images of its
-/// endpoints, and an edge the migration names only as a target, the image
-/// of some other edge that it does not remap itself, has no image of its
-/// own, so extend refuses pairs held there. Relabelling an unmentioned edge
-/// can land it on an edge that something else already reaches: the image of
-/// a source edge (whether or not that source edge holds pairs), or the
-/// relabelling of another unmentioned edge the instance holds pairs on.
-/// Extend refuses such an edge too rather than merge its pairs there
-/// unasked; the only merges it makes are those of source edges that
-/// `edge_remap` sends to one image. An unmentioned edge whose relabelling is
-/// a source edge the migration remaps away is no merge, so it travels. A
-/// pair is kept when its rows lie in the carried edge's endpoint tables.
-///
-/// The target must have a relation-ified form ([`RelSchema::new`]). The
-/// input's schema is not a parameter, so its callers validate the input at
-/// their own boundary.
+/// target schema by moving every table to its image. Every realized row,
+/// column and relation pair must have an image. Rows keep their [`RowId`]s;
+/// thus a non-injective vertex map forms a disjoint union without
+/// renumbering. Equal relation pairs coalesce because a table relation is a
+/// set. Columns follow the table functor, with `Sigma_F` introducing labelled
+/// nulls for target columns outside the image and solving the equations of a
+/// non-injective column map. Field transforms run before that extension.
 ///
 /// # Errors
 ///
-/// [`RestrictError::RelSchema`] when the target has no relation-ified form,
-/// then [`RestrictError::VertexOutsideDomain`] when a row lies at a vertex the
-/// migration names only as a target, [`RestrictError::EdgeOutsideDomain`]
-/// when a pair lies on an edge the migration names only as a target, or on
-/// an unmentioned edge whose relabelling some other edge already reaches (of
-/// two unmentioned edges that collide, the later in edge order is named),
-/// [`RestrictError::NoEdgeFound`], naming the images of the edge's
-/// endpoints, when the migration carries an edge to an image that does not
-/// join them (it states no functor), and the error of a row's value
-/// transforms (its source table's field transforms, then its op-to-term
-/// assignments, applied as the tree extend applies them) when one fails.
-/// The output failing validation is [`RestrictError::Validation`] on the
-/// output side.
+/// [`RestrictError::RelSchema`] when either schema has no relation-ified
+/// form, [`RestrictError::UnmappedAnchor`] or
+/// [`RestrictError::UnmappedEdge`] for a realized element with no image, a
+/// `Sigma_F` equation error, a transform error, or
+/// [`RestrictError::Validation`] when either boundary does not validate.
 pub fn functor_extend(
     instance: &FInstance,
+    src_schema: &Schema,
     tgt_schema: &Schema,
     migration: &CompiledMigration,
-    tgt_protocol: &Protocol,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<FInstance, RestrictError> {
-    let tgt_plan = boundary_plan(tgt_schema, tgt_protocol);
-    functor_extend_validated(instance, tgt_schema, migration, tgt_protocol, &tgt_plan)
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_table_elements(instance, tgt_schema, &total)?;
+    let src_validation = boundary_plan(src_schema, protocols.src);
+    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
+    let plan =
+        RestrictPlan::compile_for_table_extension(src_schema, tgt_schema, &total, protocols)?;
+    functor_extend_validated(instance, &src_validation, &tgt_validation, &plan)
 }
 
-/// [`functor_extend`] with the target's validation plan compiled already.
+/// [`functor_extend`] with both boundary validation plans and the migration
+/// plan compiled already.
 ///
 /// # Errors
 ///
@@ -528,19 +500,18 @@ pub fn functor_extend(
 /// `tgt_schema`; otherwise as [`functor_extend`].
 pub fn functor_extend_validated(
     instance: &FInstance,
-    tgt_schema: &Schema,
-    migration: &CompiledMigration,
-    tgt_protocol: &Protocol,
+    src_plan: &ValidationPlan,
     tgt_plan: &ValidationPlan,
+    plan: &RestrictPlan,
 ) -> Result<FInstance, RestrictError> {
-    require_schema(
-        tgt_plan,
-        &crate::identity::schema_digest(tgt_schema),
-        BoundarySide::Output,
-    )?;
-    RelSchema::new(tgt_schema, tgt_protocol)?;
-    let extended = functor_extend_engine(instance, migration)?;
+    require_schema(src_plan, &plan.src_schema, BoundarySide::Input)?;
+    require_schema(tgt_plan, &plan.tgt_schema, BoundarySide::Output)?;
     let (budget, external) = unlimited();
+    require_passed(
+        src_plan.validate_table(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let extended = functor_extend_inner(instance, plan, false)?.0;
     require_passed(
         tgt_plan.validate_table(&extended, &budget, &external),
         BoundarySide::Output,
@@ -551,113 +522,220 @@ pub fn functor_extend_validated(
 /// The extend of a table instance with no classification and no
 /// validation: the engine of [`functor_extend`].
 ///
-/// It serves a caller that holds no target schema or protocol (the table lift of panproto-mig),
-/// which is why it is public. Rows and pairs move as [`functor_extend`] states.
+/// It is public for callers such as the table lift in `panproto-mig`. Rows
+/// and pairs move as [`functor_extend`] states.
 ///
 /// # Errors
 ///
-/// [`RestrictError::VertexOutsideDomain`] when a row lies at a vertex the
-/// migration names only as a target, [`RestrictError::EdgeOutsideDomain`]
-/// when a pair lies on an edge the migration names only as a target, or on
-/// an unmentioned edge whose relabelling some other edge already reaches (of
-/// two unmentioned edges that collide, the later in edge order is named),
-/// [`RestrictError::NoEdgeFound`], naming the images of the edge's
-/// endpoints, when the migration carries an edge to an image that does not
-/// join them (it states no functor), and the error of a row's value
-/// transforms (its source table's field transforms, then its op-to-term
-/// assignments, applied as the tree extend applies them) when one fails.
+/// As [`functor_extend`], except boundary validation errors.
 pub fn functor_extend_engine(
     instance: &FInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
     migration: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
 ) -> Result<FInstance, RestrictError> {
-    crate::adjunction::check_edge_endpoints(migration)?;
-    let domain = crate::adjunction::source_vertices(migration);
-    let images: std::collections::HashSet<&Name> = migration.vertex_remap.values().collect();
-    let mut out = FInstance::new();
-    for (src_vertex, table) in instance.tables() {
-        if !domain.contains(src_vertex) && images.contains(src_vertex) {
-            return Err(RestrictError::VertexOutsideDomain {
-                vertex: src_vertex.clone(),
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    require_total_table_elements(instance, tgt_schema, &total)?;
+    let plan =
+        RestrictPlan::compile_for_table_extension(src_schema, tgt_schema, &total, protocols)?;
+    functor_extend_inner(instance, &plan, false).map(|(extended, _)| extended)
+}
+
+/// Partial table extension: omit every unmapped row, cell, or pair and
+/// return the elements at which the omissions occurred.
+///
+/// # Errors
+///
+/// Plan compilation, Sigma, transform, or boundary validation errors.
+pub fn functor_extend_partial(
+    instance: &FInstance,
+    src_schema: &Schema,
+    tgt_schema: &Schema,
+    migration: &CompiledMigration,
+    protocols: BoundaryProtocols<'_>,
+) -> Result<(FInstance, Vec<crate::ViewRef>), RestrictError> {
+    let total = crate::wtype::total_extension_migration(src_schema, tgt_schema, migration);
+    let src_validation = boundary_plan(src_schema, protocols.src);
+    let tgt_validation = boundary_plan(tgt_schema, protocols.tgt);
+    let plan =
+        RestrictPlan::compile_for_table_extension(src_schema, tgt_schema, &total, protocols)?;
+    let (budget, external) = unlimited();
+    require_passed(
+        src_validation.validate_table(instance, &budget, &external),
+        BoundarySide::Input,
+    )?;
+    let result = functor_extend_inner(instance, &plan, true)?;
+    require_passed(
+        tgt_validation.validate_table(&result.0, &budget, &external),
+        BoundarySide::Output,
+    )?;
+    Ok(result)
+}
+
+fn sigma_error(error: crate::AdjunctionError) -> RestrictError {
+    match error {
+        crate::AdjunctionError::Sigma(error) | crate::AdjunctionError::Pi(error) => error,
+        crate::AdjunctionError::SigmaConstantClash {
+            row,
+            column,
+            left,
+            right,
+        } => RestrictError::SigmaConstantClash {
+            row,
+            column,
+            left,
+            right,
+        },
+        crate::AdjunctionError::NullIdsExhausted => RestrictError::NullIdsExhausted,
+        crate::AdjunctionError::NonConforming {
+            row,
+            column,
+            reason,
+        } => RestrictError::NonConforming {
+            row,
+            column,
+            reason,
+        },
+        other => RestrictError::NotTableRepresentable {
+            reason: other.to_string(),
+        },
+    }
+}
+
+fn require_total_table_elements(
+    instance: &FInstance,
+    target: &Schema,
+    migration: &CompiledMigration,
+) -> Result<(), RestrictError> {
+    for id in instance.row_ids() {
+        let Some(table) = instance.table_of(id) else {
+            continue;
+        };
+        if crate::wtype::extension_vertex_image(target, migration, table).is_none() {
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: table.clone(),
+                node_id: id.0,
             });
         }
-        let tgt_vertex = migration
-            .vertex_remap
-            .get(src_vertex)
-            .cloned()
-            .unwrap_or_else(|| src_vertex.clone());
-        let transforms = migration.value_transforms(src_vertex);
-        for (id, row) in table.rows() {
-            let mut new_row = row.clone();
-            if !transforms.is_empty() {
-                let ctx = TransformContext::for_table(None, instance, id, &transforms);
-                let mut node = Node::new(id.0, tgt_vertex.clone());
-                node.extra_fields = new_row;
-                crate::wtype::apply_field_transforms(&mut node, &transforms, &ctx)?;
-                new_row = node.extra_fields;
-            }
-            out.place_row(tgt_vertex.clone(), id, new_row);
+    }
+    for (edge, pairs) in instance.foreign_keys() {
+        if pairs.is_empty() || crate::wtype::extension_edge_image(target, migration, edge).is_some()
+        {
+            continue;
         }
-    }
-
-    let tables: Vec<Name> = out.table_names().into_iter().cloned().collect();
-    for table in tables {
-        let rows = out.rows(&table);
-        let ids: Vec<RowId> = rows.iter().map(|(id, _)| *id).collect();
-        let columns: BTreeSet<String> = rows
-            .iter()
-            .flat_map(|(_, row)| row.keys().cloned())
-            .collect();
-        for id in ids {
-            if let Some(row) = out.row_mut(id) {
-                for column in &columns {
-                    row.entry(column.clone()).or_insert(Value::Null);
-                }
-            }
-        }
-    }
-
-    let edge_images = crate::adjunction::edge_images(migration);
-    let target_only = crate::adjunction::target_only_edges(migration);
-    // Every edge the migration reaches is claimed by the migration itself,
-    // whether or not the source edges reaching it hold pairs; an unmentioned
-    // edge claims its relabelling only when that edge is still free.
-    let mut claimed: HashMap<Edge, Edge> = edge_images
-        .iter()
-        .map(|(source, image)| (image.clone(), source.clone()))
-        .collect();
-    for edge in &target_only {
-        claimed
-            .entry((*edge).clone())
-            .or_insert_with(|| (*edge).clone());
-    }
-    let foreign_keys = instance.foreign_keys();
-    let mut carried: Vec<(Edge, &PairSet)> = Vec::with_capacity(foreign_keys.len());
-    for (edge, pairs) in foreign_keys {
-        let new_edge = match edge_images.get(edge) {
-            Some(image) => image.clone(),
-            None if target_only.contains(edge) => {
-                return Err(RestrictError::EdgeOutsideDomain { edge: edge.clone() });
-            }
-            None => {
-                let relabelled = crate::adjunction::map_edge(migration, edge);
-                if claimed.contains_key(&relabelled) {
-                    return Err(RestrictError::EdgeOutsideDomain { edge: edge.clone() });
-                }
-                claimed.insert(relabelled.clone(), edge.clone());
-                relabelled
-            }
+        let Some(&(src, tgt)) = pairs.iter().next() else {
+            continue;
         };
-        carried.push((new_edge, pairs));
+        return Err(RestrictError::UnmappedEdge {
+            edge: Box::new(edge.clone()),
+            element: crate::ViewRef::Pair {
+                edge: edge.clone(),
+                src,
+                tgt,
+            },
+        });
     }
-    for (new_edge, pairs) in carried {
-        for &(s, t) in pairs {
-            if out.joins(&new_edge, s, t) {
-                out.place_pair(new_edge.clone(), s, t);
+    Ok(())
+}
+
+fn functor_extend_inner(
+    instance: &FInstance,
+    plan: &RestrictPlan,
+    partial: bool,
+) -> Result<(FInstance, Vec<crate::ViewRef>), RestrictError> {
+    let entity = plan
+        .table_functor()
+        .ok_or(RestrictError::TablePlanRequired)?;
+    let functor = entity.clone().into_kan()?;
+    let mut dropped = Vec::new();
+
+    for id in instance.row_ids() {
+        let Some(table) = instance.table_of(id) else {
+            continue;
+        };
+        if !functor.table_map().contains_key(table) {
+            if partial {
+                dropped.push(crate::ViewRef::Row(id));
+                continue;
+            }
+            return Err(RestrictError::UnmappedAnchor {
+                anchor: table.clone(),
+                node_id: id.0,
+            });
+        }
+        for edge in functor.source().columns(table).values() {
+            let Some(column) = functor.source().attribute_column(edge) else {
+                continue;
+            };
+            if functor.column_image(table.as_str(), column).is_none() {
+                let element = crate::ViewRef::Row(id);
+                if partial {
+                    dropped.push(element);
+                    continue;
+                }
+                return Err(RestrictError::UnmappedEdge {
+                    edge: Box::new(edge.clone()),
+                    element,
+                });
+            }
+        }
+    }
+    for (edge, pairs) in instance.foreign_keys() {
+        if functor.relation_map().contains_key(edge) {
+            continue;
+        }
+        for &(src, tgt) in pairs {
+            let element = crate::ViewRef::Pair {
+                edge: edge.clone(),
+                src,
+                tgt,
+            };
+            if partial {
+                dropped.push(element);
+            } else {
+                return Err(RestrictError::UnmappedEdge {
+                    edge: Box::new(edge.clone()),
+                    element,
+                });
             }
         }
     }
 
-    Ok(out)
+    let mut out = if partial {
+        let kept = crate::f_restrict_to_domain(instance, &functor).map_err(sigma_error)?;
+        crate::f_sigma_restricted(&kept, &functor)
+            .map(|(extended, _)| extended)
+            .map_err(sigma_error)?
+    } else {
+        crate::f_sigma(instance, &functor).map_err(sigma_error)?
+    };
+    let migration = plan.migration();
+    for id in out.row_ids() {
+        let Some(source_table) = instance.table_of(id) else {
+            continue;
+        };
+        let transforms = migration.value_transforms(source_table);
+        if transforms.is_empty() {
+            continue;
+        }
+        let Some(image_table) = out.table_of(id).cloned() else {
+            continue;
+        };
+        let Some(cells) = out.row(id).cloned() else {
+            continue;
+        };
+        let ctx = TransformContext::for_table(Some(plan.source()), instance, id, &transforms);
+        let mut node = Node::new(id.0, image_table);
+        node.extra_fields = cells;
+        plan.transform(&mut node, source_table, &ctx, false)?;
+        if let Some(row) = out.row_mut(id) {
+            *row = node.extra_fields;
+        }
+    }
+    dropped.sort_unstable();
+    dropped.dedup();
+    Ok((out, dropped))
 }
 
 #[cfg(test)]
@@ -702,72 +780,169 @@ mod tests {
         migration
     }
 
-    fn refuses_edge(result: Result<FInstance, RestrictError>, expected: &Edge) {
-        match result {
-            Err(RestrictError::EdgeOutsideDomain { edge }) => assert_eq!(&edge, expected),
-            other => panic!("expected EdgeOutsideDomain on {expected:?}, got {other:?}"),
+    fn table_schema(vertices: BTreeSet<Name>, edges: BTreeSet<Edge>) -> Schema {
+        let mut outgoing = HashMap::new();
+        let mut incoming = HashMap::new();
+        let mut between = HashMap::new();
+        for edge in &edges {
+            outgoing
+                .entry(edge.src.clone())
+                .or_insert_with(smallvec::SmallVec::new)
+                .push(edge.clone());
+            incoming
+                .entry(edge.tgt.clone())
+                .or_insert_with(smallvec::SmallVec::new)
+                .push(edge.clone());
+            between
+                .entry((edge.src.clone(), edge.tgt.clone()))
+                .or_insert_with(smallvec::SmallVec::new)
+                .push(edge.clone());
+        }
+        Schema {
+            protocol: "test".into(),
+            vertices: vertices
+                .into_iter()
+                .map(|id| {
+                    (
+                        id.clone(),
+                        panproto_schema::Vertex {
+                            id,
+                            kind: "record".into(),
+                            nsid: None,
+                        },
+                    )
+                })
+                .collect(),
+            edges: edges
+                .into_iter()
+                .map(|edge| (edge.clone(), edge.kind))
+                .collect(),
+            outgoing,
+            incoming,
+            between,
+            ..Schema::default()
         }
     }
 
-    /// An unmentioned edge relabelled onto the image of a remapped source
-    /// edge that holds pairs is refused, not merged into that image.
+    fn extend_for_test(
+        instance: &FInstance,
+        migration: &CompiledMigration,
+    ) -> Result<FInstance, RestrictError> {
+        let src_vertices: BTreeSet<Name> = instance.table_names().into_iter().cloned().collect();
+        let src_edges: BTreeSet<Edge> = instance
+            .foreign_keys()
+            .into_iter()
+            .map(|(edge, _)| edge.clone())
+            .collect();
+        let src = table_schema(src_vertices.clone(), src_edges.clone());
+
+        let mut tgt_vertices: BTreeSet<Name> = src_vertices
+            .iter()
+            .map(|vertex| {
+                migration
+                    .vertex_remap
+                    .get(vertex)
+                    .cloned()
+                    .unwrap_or_else(|| vertex.clone())
+            })
+            .collect();
+        tgt_vertices.extend(migration.surviving_verts.iter().cloned());
+        tgt_vertices.extend(migration.vertex_remap.values().cloned());
+        let mut tgt_edges: BTreeSet<Edge> = src_edges
+            .iter()
+            .map(|edge| crate::adjunction::map_edge(migration, edge))
+            .collect();
+        tgt_edges.extend(migration.surviving_edges.iter().cloned());
+        tgt_edges.extend(migration.edge_remap.values().cloned());
+        let tgt = table_schema(tgt_vertices, tgt_edges);
+
+        let protocol = panproto_schema::Protocol {
+            non_value_kinds: BTreeSet::from(["record".to_owned()]),
+            ..panproto_schema::Protocol::default()
+        };
+        functor_extend_engine(
+            instance,
+            &src,
+            &tgt,
+            migration,
+            BoundaryProtocols {
+                src: &protocol,
+                tgt: &protocol,
+            },
+        )
+    }
+
+    /// A relation whose structural image equals an explicit image coalesces
+    /// with it, as table foreign keys are sets of pairs.
     #[test]
-    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_remapped_image() -> TestResult {
+    fn extend_coalesces_an_implicit_and_explicit_relation_image() -> TestResult {
         let mut migration = c_onto_a();
         migration
             .edge_remap
             .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
         migration.surviving_edges.insert(named("a", "b", "fk", "y"));
         let z = named("c", "b", "fk", "y");
-        let inst = abc_with(&[(named("a", "b", "fk", "x"), (0, 1)), (z.clone(), (2, 1))])?;
-        refuses_edge(functor_extend_engine(&inst, &migration), &z);
+        let inst = abc_with(&[(named("a", "b", "fk", "x"), (0, 1)), (z, (2, 1))])?;
+        let out = extend_for_test(&inst, &migration)?;
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "y")),
+            &BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(1))])
+        );
         Ok(())
     }
 
-    /// An unmentioned edge relabelled onto the image of a source edge that
-    /// survives under its own name is refused.
+    /// The same coalescence applies to a relation surviving under its name.
     #[test]
-    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_surviving_edge() -> TestResult {
+    fn extend_coalesces_onto_a_surviving_relation() -> TestResult {
         let mut migration = c_onto_a();
         migration.surviving_edges.insert(named("a", "b", "fk", "w"));
         let z = named("c", "b", "fk", "w");
-        let inst = abc_with(&[(named("a", "b", "fk", "w"), (0, 1)), (z.clone(), (2, 1))])?;
-        refuses_edge(functor_extend_engine(&inst, &migration), &z);
+        let inst = abc_with(&[(named("a", "b", "fk", "w"), (0, 1)), (z, (2, 1))])?;
+        let out = extend_for_test(&inst, &migration)?;
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "w")),
+            &BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(1))])
+        );
         Ok(())
     }
 
-    /// An unmentioned edge relabelled onto a target-only edge is refused
-    /// even when the edge remapped onto it holds no pairs: the claim comes
-    /// from the migration, not from the instance.
+    /// An implicit relation uses the unique direct target relation even when
+    /// that relation is also an explicit image.
     #[test]
-    fn extend_refuses_an_unmentioned_edge_relabelled_onto_a_target_only_edge() -> TestResult {
+    fn extend_uses_a_unique_direct_target_relation() -> TestResult {
         let mut migration = c_onto_a();
         migration
             .edge_remap
             .insert(named("a", "b", "fk", "x"), named("a", "b", "fk", "y"));
         let z = named("c", "b", "fk", "y");
-        let inst = abc_with(&[(z.clone(), (2, 1))])?;
-        refuses_edge(functor_extend_engine(&inst, &migration), &z);
+        let inst = abc_with(&[(z, (2, 1))])?;
+        let out = extend_for_test(&inst, &migration)?;
+        assert_eq!(
+            out.pairs(&named("a", "b", "fk", "y")),
+            &BTreeSet::from([(RowId(2), RowId(1))])
+        );
         Ok(())
     }
 
-    /// Two unmentioned edges whose relabellings coincide are refused: the
-    /// later one in edge order is named.
+    /// Two implicit relations with the same structural image coalesce.
     #[test]
-    fn extend_refuses_two_unmentioned_edges_relabelled_onto_one_edge() -> TestResult {
+    fn extend_coalesces_two_implicit_relation_images() -> TestResult {
         let migration = c_onto_a();
         let z1 = named("c", "b", "k", "n");
         let z2 = named("a", "b", "k", "n");
-        let inst = abc_with(&[(z1.clone(), (2, 1)), (z2, (0, 1))])?;
-        refuses_edge(functor_extend_engine(&inst, &migration), &z1);
+        let inst = abc_with(&[(z1, (2, 1)), (z2, (0, 1))])?;
+        let out = extend_for_test(&inst, &migration)?;
+        assert_eq!(
+            out.pairs(&named("a", "b", "k", "n")),
+            &BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(1))])
+        );
         Ok(())
     }
 
-    /// An unmentioned edge whose relabelling is free travels with its pairs
-    /// between the images of its endpoints, also when it lands on a source
-    /// edge the migration remaps away.
+    /// An implicit edge is refused when several direct target edges join the
+    /// endpoint images, because its image is not uniquely determined.
     #[test]
-    fn extend_carries_an_unmentioned_edge_onto_a_free_relabelling() -> TestResult {
+    fn extend_refuses_an_ambiguous_direct_relation_image() -> TestResult {
         let mut migration = c_onto_a();
         migration
             .edge_remap
@@ -779,20 +954,17 @@ mod tests {
             (z, (2, 1)),
             (onto_key, (2, 1)),
         ])?;
-        let out = functor_extend_engine(&inst, &migration)?;
-        assert_eq!(
-            out.pairs(&named("a", "b", "fk", "free")),
-            &BTreeSet::from([(RowId(2), RowId(1))])
+        let Err(error) = extend_for_test(&inst, &migration) else {
+            return Err("ambiguous relation image unexpectedly extended".into());
+        };
+        assert!(
+            matches!(
+                error,
+                RestrictError::UnmappedEdge { ref edge, .. }
+                    if edge.as_ref() == &named("c", "b", "fk", "free")
+            ),
+            "{error:?}"
         );
-        assert_eq!(
-            out.pairs(&named("a", "b", "fk", "y")),
-            &BTreeSet::from([(RowId(0), RowId(1))])
-        );
-        assert_eq!(
-            out.pairs(&named("a", "b", "fk", "x")),
-            &BTreeSet::from([(RowId(2), RowId(1))])
-        );
-        assert_eq!(out.pair_count(), 3);
         Ok(())
     }
 
@@ -811,7 +983,7 @@ mod tests {
             (named("a", "b", "fk", "x"), (0, 1)),
             (named("c", "b", "fk", "x2"), (2, 1)),
         ])?;
-        let out = functor_extend_engine(&inst, &migration)?;
+        let out = extend_for_test(&inst, &migration)?;
         assert_eq!(
             out.pairs(&named("a", "b", "fk", "y")),
             &BTreeSet::from([(RowId(0), RowId(1)), (RowId(2), RowId(1))])
@@ -907,46 +1079,16 @@ mod tests {
                 let edges: Vec<usize> = edges.into_iter().collect();
                 let inst = instance(&edges)
                     .map_err(|e| TestCaseError::fail(e.to_string()))?;
-                let images = crate::adjunction::edge_images(&migration);
-                let target_only = crate::adjunction::target_only_edges(&migration);
-                // Every target-only edge is the image of the edge remapped
-                // onto it, so it is also an image value.
-                for e in &target_only {
-                    prop_assert!(images.values().any(|image| image == *e));
-                }
-                let Ok(out) = functor_extend_engine(&inst, &migration) else {
+                let Ok(out) = extend_for_test(&inst, &migration) else {
                     return Ok(());
                 };
-                // Which input edges sent pairs to each output edge.
-                let mut contributors: HashMap<Edge, Vec<Edge>> = HashMap::new();
-                for (edge, _) in inst.foreign_keys() {
-                    prop_assert!(!target_only.contains(edge));
-                    let carried = images
-                        .get(edge)
-                        .cloned()
-                        .unwrap_or_else(|| crate::adjunction::map_edge(&migration, edge));
-                    contributors.entry(carried).or_default().push(edge.clone());
-                }
-                for (edge, pairs) in out.foreign_keys() {
-                    let from = contributors.get(edge).cloned().unwrap_or_default();
-                    prop_assert!(!from.is_empty(), "{edge:?} has pairs but no preimage");
-                    let mut expected = BTreeSet::new();
-                    for source in &from {
-                        expected.extend(inst.pairs(source).iter().copied());
-                    }
-                    prop_assert!(pairs.is_subset(&expected));
-                    let unmentioned: Vec<&Edge> =
-                        from.iter().filter(|e| !images.contains_key(*e)).collect();
-                    if !unmentioned.is_empty() {
-                        prop_assert_eq!(
-                            from.len(), 1,
-                            "{:?} merges {:?} unasked", edge, from
-                        );
-                        prop_assert!(
-                            !images.values().any(|image| image == edge),
-                            "unmentioned {:?} lands on the image {:?}", unmentioned, edge
-                        );
-                    }
+                let input_pairs: BTreeSet<(RowId, RowId)> = inst
+                    .foreign_keys()
+                    .into_iter()
+                    .flat_map(|(_, pairs)| pairs.iter().copied())
+                    .collect();
+                for (_, pairs) in out.foreign_keys() {
+                    prop_assert!(pairs.is_subset(&input_pairs));
                 }
             }
         }

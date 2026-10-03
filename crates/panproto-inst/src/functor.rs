@@ -18,12 +18,11 @@
 //! `F` does not name. [`functor_restrict`] keeps the surviving fragment: a
 //! vertex's rows land in its image's table, a vertex the migration drops
 //! contributes none, and only the edges it remaps or lets survive carry their
-//! foreign keys across. [`functor_extend`] keeps everything: a vertex the
-//! migration says nothing about travels under its own name and merged rows are
-//! padded to a common column set, and rows at a vertex the migration names
-//! only as another vertex's image are refused rather than dropped. Both keep
-//! every row's id, and both read the migration's source vertices as
-//! [`crate::adjunction`] does.
+//! foreign keys across. [`functor_extend`] is total on elements: every row,
+//! cell and pair must have a target image, vertex fibres merge without
+//! renumbering their rows, equal image pairs coalesce, and target columns are
+//! filled or equated by `Sigma_F`. Both operations keep every carried row's
+//! id and read the migration's source vertices as [`crate::adjunction`] does.
 //!
 //! Neither is precomposition. Both take the coproduct over a fibre when the
 //! vertex map merges two vertices, which is what `Sigma_F` does. `Delta_F`
@@ -651,11 +650,6 @@ impl FInstance {
     /// whether the pair was added.
     pub(crate) fn place_pair(&mut self, edge: Edge, src: RowId, tgt: RowId) -> bool {
         self.foreign_keys.entry(edge).or_default().insert(src, tgt)
-    }
-
-    /// Whether `(src, tgt)` would join the endpoint tables of `edge`.
-    pub(crate) fn joins(&self, edge: &Edge, src: RowId, tgt: RowId) -> bool {
-        self.row_table.get(&src) == Some(&edge.src) && self.row_table.get(&tgt) == Some(&edge.tgt)
     }
 
     /// Remove the pair `(src, tgt)` from the foreign key of `edge`. Returns

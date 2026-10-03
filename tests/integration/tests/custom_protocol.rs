@@ -9,7 +9,7 @@ use std::collections::{HashMap, HashSet};
 
 use panproto_gat::{Name, Operation, Sort, Theory};
 use panproto_inst::value::FieldPresence;
-use panproto_inst::{CompiledMigration, Node, Value, WInstance};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, Node, Value, WInstance};
 use panproto_mig::{Migration, compile, lift_wtype};
 use panproto_schema::{Edge, EdgeRule, Protocol, Schema, SchemaBuilder, Vertex};
 use smallvec::SmallVec;
@@ -289,7 +289,17 @@ fn custom_protocol_build_instance_and_lift() -> Result<(), Box<dyn std::error::E
         expansion_path: HashMap::new(),
     };
 
-    let lifted = lift_wtype(&compiled, &schema, &schema, &instance)?;
+    let protocol = config_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &schema,
+        &schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
     assert_eq!(
         lifted.node_count(),
         6,
@@ -560,7 +570,17 @@ fn custom_protocol_projection_migration() -> Result<(), Box<dyn std::error::Erro
         "root".into(),
     );
 
-    let lifted = lift_wtype(&compiled, &tgt_schema, &tgt_schema, &instance)?;
+    let protocol = config_protocol();
+    let lifted = lift_wtype(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        BoundaryProtocols {
+            src: &protocol,
+            tgt: &protocol,
+        },
+    )?;
 
     // Should drop the logging section (2 nodes).
     assert!(

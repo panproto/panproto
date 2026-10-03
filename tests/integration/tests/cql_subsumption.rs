@@ -12,13 +12,38 @@
 //! We verify that `Delta_F` (the core operation) is exactly
 //! panproto's `functor_restrict`.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use panproto_gat::{Operation, Sort, Theory, TheoryMorphism, check_morphism};
 use panproto_inst::value::Value;
-use panproto_inst::{CompiledMigration, FInstance, functor_extend};
+use panproto_inst::{BoundaryProtocols, CompiledMigration, FInstance, functor_extend};
 use panproto_mig::lift_functor;
-use panproto_schema::Edge;
+use panproto_schema::{Edge, Protocol, ScalarKind, SchemaBuilder};
+
+fn table_protocol() -> Protocol {
+    Protocol {
+        name: "test".into(),
+        value_kinds: BTreeMap::from([("string".to_owned(), ScalarKind::Str)]),
+        non_value_kinds: BTreeSet::from(["record".to_owned()]),
+        ..Protocol::default()
+    }
+}
+
+const fn protocols(protocol: &Protocol) -> BoundaryProtocols<'_> {
+    BoundaryProtocols {
+        src: protocol,
+        tgt: protocol,
+    }
+}
+
+fn column(table: &str, name: &str) -> Edge {
+    Edge {
+        src: table.into(),
+        tgt: format!("{table}.{name}").into(),
+        kind: "prop".into(),
+        name: Some(name.into()),
+    }
+}
 
 #[test]
 fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
@@ -45,11 +70,38 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
 
     // The "functor" F maps employees -> workers.
     // Delta_F should pull the "workers" table back to "employees".
+    let protocol = table_protocol();
+    let worker_name = column("workers", "name");
+    let worker_dept = column("workers", "dept");
+    let employee_name = column("employees", "name");
+    let employee_dept = column("employees", "dept");
+    let src_schema = SchemaBuilder::new(&protocol)
+        .vertex("workers", "record", None)?
+        .vertex("workers.name", "string", None)?
+        .vertex("workers.dept", "string", None)?
+        .edge("workers", "workers.name", "prop", Some("name"))?
+        .edge("workers", "workers.dept", "prop", Some("dept"))?
+        .build()?;
+    let tgt_schema = SchemaBuilder::new(&protocol)
+        .vertex("employees", "record", None)?
+        .vertex("employees.name", "string", None)?
+        .vertex("employees.dept", "string", None)?
+        .edge("employees", "employees.name", "prop", Some("name"))?
+        .edge("employees", "employees.dept", "prop", Some("dept"))?
+        .build()?;
     let compiled = CompiledMigration {
-        surviving_verts: HashSet::from(["employees".into()]),
-        surviving_edges: HashSet::new(),
-        vertex_remap: HashMap::from([("workers".into(), "employees".into())]),
-        edge_remap: HashMap::new(),
+        surviving_verts: HashSet::from([
+            "employees".into(),
+            "employees.name".into(),
+            "employees.dept".into(),
+        ]),
+        surviving_edges: HashSet::from([employee_name.clone(), employee_dept.clone()]),
+        vertex_remap: HashMap::from([
+            ("workers".into(), "employees".into()),
+            ("workers.name".into(), "employees.name".into()),
+            ("workers.dept".into(), "employees.dept".into()),
+        ]),
+        edge_remap: HashMap::from([(worker_name, employee_name), (worker_dept, employee_dept)]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -58,7 +110,13 @@ fn delta_f_is_functor_restrict() -> Result<(), Box<dyn std::error::Error>> {
         expansion_path: HashMap::new(),
     };
 
-    let restricted = lift_functor(&compiled, &instance)?;
+    let restricted = lift_functor(
+        &compiled,
+        &src_schema,
+        &tgt_schema,
+        &instance,
+        protocols(&protocol),
+    )?;
 
     // Delta_F should produce an instance with "employees" table
     // containing the same rows as "workers".
@@ -149,10 +207,28 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
             ],
         )?;
 
+    let protocol = table_protocol();
+    let employee_name = column("employees", "name");
+    let department_name = column("departments", "name");
+    let schema = SchemaBuilder::new(&protocol)
+        .vertex("employees", "record", None)?
+        .vertex("employees.name", "string", None)?
+        .vertex("departments", "record", None)?
+        .vertex("departments.name", "string", None)?
+        .edge("employees", "employees.name", "prop", Some("name"))?
+        .edge("departments", "departments.name", "prop", Some("name"))?
+        .edge("employees", "departments", "fk", Some("works_in"))?
+        .build()?;
+
     // Identity migration: keep both tables.
     let compiled = CompiledMigration {
-        surviving_verts: HashSet::from(["employees".into(), "departments".into()]),
-        surviving_edges: HashSet::from([fk_edge.clone()]),
+        surviving_verts: HashSet::from([
+            "employees".into(),
+            "employees.name".into(),
+            "departments".into(),
+            "departments.name".into(),
+        ]),
+        surviving_edges: HashSet::from([fk_edge.clone(), employee_name, department_name]),
         vertex_remap: HashMap::new(),
         edge_remap: HashMap::new(),
         resolver: HashMap::new(),
@@ -163,7 +239,7 @@ fn functor_restrict_with_fk_is_delta() -> Result<(), Box<dyn std::error::Error>>
         expansion_path: HashMap::new(),
     };
 
-    let restricted = lift_functor(&compiled, &instance)?;
+    let restricted = lift_functor(&compiled, &schema, &schema, &instance, protocols(&protocol))?;
     assert_eq!(restricted.table_count(), 2, "both tables should survive");
     assert_eq!(restricted.row_count("employees"), 2);
     assert_eq!(restricted.row_count("departments"), 1);
@@ -214,11 +290,27 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
     )])];
     let small_instance = FInstance::new().with_table("A", a_rows)?;
 
+    let protocol = table_protocol();
+    let a_value = column("A", "value");
+    let src_schema = SchemaBuilder::new(&protocol)
+        .vertex("A", "record", None)?
+        .vertex("A.value", "string", None)?
+        .edge("A", "A.value", "prop", Some("value"))?
+        .build()?;
+    let tgt_schema = SchemaBuilder::new(&protocol)
+        .vertex("A", "record", None)?
+        .vertex("A.value", "string", None)?
+        .vertex("B", "record", None)?
+        .edge("A", "A.value", "prop", Some("value"))?
+        .build()?;
     let migration = CompiledMigration {
-        surviving_verts: HashSet::from(["A".into(), "B".into()]),
-        surviving_edges: HashSet::new(),
-        vertex_remap: HashMap::from([("A".into(), "A".into())]),
-        edge_remap: HashMap::new(),
+        surviving_verts: HashSet::from(["A".into(), "A.value".into(), "B".into()]),
+        surviving_edges: HashSet::from([a_value.clone()]),
+        vertex_remap: HashMap::from([
+            ("A".into(), "A".into()),
+            ("A.value".into(), "A.value".into()),
+        ]),
+        edge_remap: HashMap::from([(a_value.clone(), a_value)]),
         resolver: HashMap::new(),
         hyper_resolver: HashMap::new(),
         field_transforms: HashMap::new(),
@@ -227,7 +319,13 @@ fn sigma_as_theory_morphism_left_adjoint() -> Result<(), Box<dyn std::error::Err
         expansion_path: HashMap::new(),
     };
 
-    let extended = functor_extend(&small_instance, &migration)?;
+    let extended = functor_extend(
+        &small_instance,
+        &src_schema,
+        &tgt_schema,
+        &migration,
+        protocols(&protocol),
+    )?;
 
     // A table is a vertex with at least one row, so the empty B does not count.
     assert_eq!(extended.table_count(), 1, "only A holds rows");

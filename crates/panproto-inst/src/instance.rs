@@ -98,21 +98,25 @@ impl Instance {
     /// validate.
     pub fn extend(
         &self,
+        src_schema: &Schema,
         tgt_schema: &Schema,
         migration: &CompiledMigration,
-        tgt_protocol: &panproto_schema::Protocol,
+        protocols: crate::BoundaryProtocols<'_>,
     ) -> Result<Self, RestrictError> {
         match self {
             Self::WType(w) => {
-                let extended = crate::wtype_extend(w, tgt_schema, migration, tgt_protocol)?;
+                let extended =
+                    crate::wtype_extend(w, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::WType(extended))
             }
             Self::Functor(f) => {
-                let extended = crate::functor_extend(f, tgt_schema, migration, tgt_protocol)?;
+                let extended =
+                    crate::functor_extend(f, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::Functor(extended))
             }
             Self::Graph(g) => {
-                let extended = crate::graph_extend(g, tgt_schema, migration, tgt_protocol)?;
+                let extended =
+                    crate::graph_extend(g, src_schema, tgt_schema, migration, protocols)?;
                 Ok(Self::Graph(extended))
             }
         }

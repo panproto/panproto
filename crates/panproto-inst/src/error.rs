@@ -582,6 +582,37 @@ pub enum RestrictError {
         /// [`NonConformance::StrayCell`]: crate::NonConformance::StrayCell
         reason: crate::NonConformance,
     },
+
+    /// An edge-like source element has no image under a total extension:
+    /// the migration names no image and the target has either no direct
+    /// edge or more than one direct edge between the endpoint images.
+    #[error("{element:?} on edge {edge:?} has no unique image in the target schema")]
+    UnmappedEdge {
+        /// The source schema edge carried by the element.
+        edge: Box<Edge>,
+        /// The source element: a tree arc, graph edge, table pair, or the
+        /// row whose cell lies on an unmapped attribute arrow.
+        element: crate::ViewRef,
+    },
+
+    /// Table Sigma equates two distinct constants while extending a row.
+    #[error(
+        "Sigma equates the constants {left:?} and {right:?} in column `{column}` of row {row:?}"
+    )]
+    SigmaConstantClash {
+        /// The row whose column carries the inconsistent equation.
+        row: RowId,
+        /// The target column receiving the two values.
+        column: String,
+        /// The first constant.
+        left: Box<crate::Value>,
+        /// The second constant.
+        right: Box<crate::Value>,
+    },
+
+    /// A table extension needed a fresh labelled null but exhausted `u64`.
+    #[error("no labelled null id is free above the largest in use")]
+    NullIdsExhausted,
 }
 
 /// The place of a non-conforming row's violation in its message: ` at

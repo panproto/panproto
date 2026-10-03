@@ -107,6 +107,20 @@ pub enum LensError {
         found: usize,
     },
 
+    /// A graph complement carries state that no table complement can name.
+    #[error("graph complement is not table-shaped: {reason}")]
+    NotTableComplement {
+        /// The first unrepresentable field or element.
+        reason: String,
+    },
+
+    /// A graph complement carries state that no tree complement can name.
+    #[error("graph complement is not tree-shaped: {reason}")]
+    NotTreeComplement {
+        /// The first unrepresentable field or element.
+        reason: String,
+    },
+
     /// A caller that can store only one compiled lens received a path whose
     /// tree normal form has more than one group.
     #[error("lens path has {stages} normal-form groups; one is required")]
