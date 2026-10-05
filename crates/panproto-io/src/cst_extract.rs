@@ -1963,24 +1963,24 @@ fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
         }
         let token = cst_source_text(cst, name);
         serde_json::from_str::<String>(&token).map_err(|error| {
-            let (reason, stop) =
-                crate::json_pathway::json_string_token_error(token.as_bytes(), &error);
-            let start = cst_byte_offset(cst, name);
-            CstCodecError::Structure(match (start, stop) {
-                (Some(start), Some(stop)) => format!(
-                    "invalid JSON string token at byte {start}: {reason} at byte {}",
-                    start.saturating_add(u64::try_from(stop).unwrap_or(u64::MAX))
+            let fault = crate::json_pathway::json_string_fault(&token);
+            CstCodecError::Structure(match (cst_byte_offset(cst, name), fault) {
+                (Some(start), Some(fault)) => format!(
+                    "invalid JSON string token at byte {start}: {}",
+                    fault.placed_at(start)
                 ),
-                (Some(start), None) => {
-                    format!("invalid JSON string token at byte {start}: {reason}")
-                }
-                (None, Some(stop)) => format!(
-                    "invalid JSON string token at an unrecorded byte: {reason} at byte {stop} \
-                     of the token"
+                (None, Some(fault)) => format!(
+                    "invalid JSON string token at an unrecorded byte: {}",
+                    fault.within_token()
                 ),
-                (None, None) => {
-                    format!("invalid JSON string token at an unrecorded byte: {reason}")
-                }
+                (Some(start), None) => format!(
+                    "invalid JSON string token at byte {start}: {}",
+                    crate::json_pathway::json_decoder_reason(&error)
+                ),
+                (None, None) => format!(
+                    "invalid JSON string token at an unrecorded byte: {}",
+                    crate::json_pathway::json_decoder_reason(&error)
+                ),
             })
         })?;
     }
@@ -6047,21 +6047,38 @@ mod tests {
                 other => panic!("{token} must be refused, got {other:?}"),
             }
         };
-        // The hex escape ends at the closing quote, seven bytes into the
-        // token; the message places that offending byte in the document.
+        // An unterminated token has no offending byte: every byte it has can
+        // still be completed, and the input ends after its last byte.
+        assert_eq!(
+            message(r#""abc"#, Some("11")),
+            "invalid JSON string token at byte 11: EOF while parsing a string after byte 14"
+        );
+        assert_eq!(
+            message(r#""\"#, Some("11")),
+            "invalid JSON string token at byte 11: EOF while parsing a string after byte 12"
+        );
+        assert_eq!(
+            message(r#""abc"#, None),
+            "invalid JSON string token at an unrecorded byte: EOF while parsing a string \
+             after byte 3 of the token"
+        );
+        // The closing quote, seven bytes into the token, is the first byte
+        // that rules out a trailing surrogate escape; the message places that
+        // offending byte in the document.
         assert_eq!(
             message(r#""\ud800""#, Some("11")),
-            "invalid JSON string token at byte 11: unexpected end of hex escape at byte 18"
+            "invalid JSON string token at byte 11: leading surrogate in \\u escape not \
+             followed by a trailing surrogate escape at byte 18"
         );
         // Without a recorded start the offending byte is given within the
         // token, and no `Option` debug text appears.
         assert_eq!(
             message(r#""\ud800""#, None),
-            "invalid JSON string token at an unrecorded byte: unexpected end of hex escape \
-             at byte 7 of the token"
+            "invalid JSON string token at an unrecorded byte: leading surrogate in \\u escape \
+             not followed by a trailing surrogate escape at byte 7 of the token"
         );
-        // A raw line feed (serde_json's line 2, column 0) is byte 2 of the
-        // token, the line feed itself.
+        // A raw line feed is a control character; the offending byte is the
+        // line feed itself, byte 2 of the token.
         assert_eq!(
             message("\"a\nb\"", Some("11")),
             "invalid JSON string token at byte 11: control character (\\u0000-\\u001F) found \

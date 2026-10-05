@@ -166,53 +166,231 @@ enum RawJson<'a> {
     Object(Vec<(String, Self)>),
 }
 
-/// The reason `serde_json` gives for refusing the JSON string `token`, and the
-/// offset within `token` of the offending byte, if it reports a position.
-///
-/// `serde_json` places an error at a line and a column, both one-based, of
-/// the slice it decoded, and its `Display` appends ` at line L column C` to
-/// the reason whenever the line is nonzero. Column C counts the bytes of line
-/// L read up to and including the offending byte, so that byte is at offset
-/// C - 1 from the line's start; column 0 on a line after the first means the
-/// offending byte is the line feed that ends the line before. Decoding a
-/// single token, that position is relative to the token, so the reason is
-/// returned without it and the offending byte is returned as a token offset
-/// for the caller to place in the document. Column 0 on line 1 names no byte
-/// and gives no offset.
-pub(crate) fn json_string_token_error(
-    token: &[u8],
-    error: &serde_json::Error,
-) -> (String, Option<usize>) {
-    let display = error.to_string();
-    let line = error.line();
-    if line == 0 {
-        return (display, None);
+/// Where a refused JSON string token goes wrong, relative to the token.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum JsonStringFaultSite {
+    /// The offset of the offending byte: the first byte at which the token
+    /// can no longer be completed to a token `serde_json` accepts.
+    Byte(usize),
+    /// The token ends while it can still be completed, so no byte is at
+    /// fault. Carries the offset of its last byte; an empty token has none.
+    End(Option<usize>),
+}
+
+/// Why and where a JSON string token is refused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct JsonStringFault {
+    /// What is wrong, in `serde_json`'s vocabulary where it has a word.
+    pub(crate) reason: &'static str,
+    /// The token offset the reason applies to.
+    pub(crate) site: JsonStringFaultSite,
+}
+
+impl JsonStringFault {
+    /// The reason followed by its site, with the token placed at document
+    /// byte `origin`: "at byte N" names the offending byte, "after byte N"
+    /// the last byte of a token that ends too early.
+    pub(crate) fn placed_at(self, origin: u64) -> String {
+        let place =
+            |offset: usize| origin.saturating_add(u64::try_from(offset).unwrap_or(u64::MAX));
+        match self.site {
+            JsonStringFaultSite::Byte(offset) => {
+                format!("{} at byte {}", self.reason, place(offset))
+            }
+            JsonStringFaultSite::End(Some(last)) => {
+                format!("{} after byte {}", self.reason, place(last))
+            }
+            JsonStringFaultSite::End(None) => self.reason.to_owned(),
+        }
     }
-    let suffix = format!(" at line {line} column {}", error.column());
-    let reason = display.strip_suffix(&suffix).unwrap_or(&display).to_owned();
-    let line_start = if line == 1 {
-        Some(0)
-    } else {
-        token
-            .iter()
-            .enumerate()
-            .filter(|(_, byte)| **byte == b'\n')
-            .nth(line - 2)
-            .map(|(index, _)| index + 1)
+
+    /// The reason followed by its site as an offset within the token, for a
+    /// token whose document position is unrecorded.
+    pub(crate) fn within_token(self) -> String {
+        match self.site {
+            JsonStringFaultSite::Byte(offset) => {
+                format!("{} at byte {offset} of the token", self.reason)
+            }
+            JsonStringFaultSite::End(Some(last)) => {
+                format!("{} after byte {last} of the token", self.reason)
+            }
+            JsonStringFaultSite::End(None) => format!("{} in an empty token", self.reason),
+        }
+    }
+}
+
+const JSON_EOF_IN_VALUE: &str = "EOF while parsing a value";
+const JSON_EOF_IN_STRING: &str = "EOF while parsing a string";
+const JSON_EXPECTED_STRING: &str = "expected a JSON string";
+const JSON_CONTROL_CHARACTER: &str =
+    "control character (\\u0000-\\u001F) found while parsing a string";
+const JSON_INVALID_ESCAPE: &str = "invalid escape";
+const JSON_INVALID_HEX_DIGIT: &str = "invalid hex digit in \\u escape";
+const JSON_LONE_TRAILING_SURROGATE: &str = "lone trailing surrogate in \\u escape";
+const JSON_UNPAIRED_LEADING_SURROGATE: &str =
+    "leading surrogate in \\u escape not followed by a trailing surrogate escape";
+const JSON_TRAILING_CHARACTERS: &str = "trailing characters";
+
+/// The fault of the JSON string token `token`, or `None` when the token is
+/// one `serde_json::from_str::<String>` accepts: optional JSON whitespace, a
+/// string of RFC 8259 section 7 whose `\u` escapes spell Unicode scalar
+/// values (a leading surrogate escape immediately followed by a trailing
+/// surrogate escape, and no other surrogate), and optional whitespace.
+///
+/// `serde_json` places some of its string errors after the offending byte
+/// (it reads all four digits of a `\u` escape before checking them, and
+/// reports a truncated escape as the end of the input), so the decoder's
+/// own position is not used. The fault is found by scanning the token left
+/// to right: its site is the first byte at which no completion of the bytes
+/// read so far is accepted, or the token's end when every byte can still be
+/// completed.
+pub(crate) fn json_string_fault(token: &str) -> Option<JsonStringFault> {
+    let bytes = token.as_bytes();
+    let fault = |reason, offset| {
+        Some(JsonStringFault {
+            reason,
+            site: JsonStringFaultSite::Byte(offset),
+        })
     };
-    let offending = line_start.and_then(|start| (start + error.column()).checked_sub(1));
-    (reason, offending)
+    let end = |reason| {
+        Some(JsonStringFault {
+            reason,
+            site: JsonStringFaultSite::End(bytes.len().checked_sub(1)),
+        })
+    };
+    let is_whitespace = |byte: u8| matches!(byte, b' ' | b'\t' | b'\n' | b'\r');
+    let mut index = 0;
+    while bytes.get(index).copied().is_some_and(is_whitespace) {
+        index += 1;
+    }
+    match bytes.get(index).copied() {
+        None => return end(JSON_EOF_IN_VALUE),
+        Some(b'"') => index += 1,
+        Some(_) => return fault(JSON_EXPECTED_STRING, index),
+    }
+    loop {
+        let Some(byte) = bytes.get(index).copied() else {
+            return end(JSON_EOF_IN_STRING);
+        };
+        match byte {
+            b'"' => {
+                index += 1;
+                break;
+            }
+            b'\\' => {
+                index += 1;
+                match bytes.get(index).copied() {
+                    None => return end(JSON_EOF_IN_STRING),
+                    Some(b'"' | b'\\' | b'/' | b'b' | b'f' | b'n' | b'r' | b't') => index += 1,
+                    Some(b'u') => {
+                        index += 1;
+                        if let Err(found) = json_unicode_escape(bytes, &mut index) {
+                            return match found {
+                                Some((reason, offset)) => fault(reason, offset),
+                                None => end(JSON_EOF_IN_STRING),
+                            };
+                        }
+                    }
+                    Some(_) => return fault(JSON_INVALID_ESCAPE, index),
+                }
+            }
+            0x00..=0x1F => return fault(JSON_CONTROL_CHARACTER, index),
+            _ => index += 1,
+        }
+    }
+    while bytes.get(index).copied().is_some_and(is_whitespace) {
+        index += 1;
+    }
+    if index < bytes.len() {
+        return fault(JSON_TRAILING_CHARACTERS, index);
+    }
+    None
+}
+
+/// The reason `serde_json` gives for `error`, without the ` at line L column
+/// C` its `Display` appends whenever the line is nonzero: decoding a single
+/// token, that position is relative to the token, not to the document.
+pub(crate) fn json_decoder_reason(error: &serde_json::Error) -> String {
+    let display = error.to_string();
+    if error.line() == 0 {
+        return display;
+    }
+    let suffix = format!(" at line {} column {}", error.line(), error.column());
+    display.strip_suffix(&suffix).unwrap_or(&display).to_owned()
+}
+
+/// The value of the hex digit at `bytes[index]`. `Err(None)` means the
+/// token ends there; a byte that is not a hex digit is the offending byte.
+fn json_hex_digit(bytes: &[u8], index: usize) -> Result<u16, Option<(&'static str, usize)>> {
+    let byte = *bytes.get(index).ok_or(None)?;
+    char::from(byte)
+        .to_digit(16)
+        .and_then(|digit| u16::try_from(digit).ok())
+        .ok_or(Some((JSON_INVALID_HEX_DIGIT, index)))
+}
+
+/// Scan the four hex digits of a `\u` escape that start at `*index`, and the
+/// trailing surrogate escape that a leading surrogate needs, advancing
+/// `*index` past them. `Err(None)` means the token ends first;
+/// `Err(Some((reason, offset)))` names the offending byte.
+fn json_unicode_escape(
+    bytes: &[u8],
+    index: &mut usize,
+) -> Result<(), Option<(&'static str, usize)>> {
+    let start = *index;
+    let mut unit = 0_u16;
+    for offset in 0..4 {
+        unit = (unit << 4) | json_hex_digit(bytes, start + offset)?;
+        // `\uDC` to `\uDF` already spell a trailing surrogate, which no
+        // further digit can pair.
+        if offset == 1 && (0xDC..=0xDF).contains(&unit) {
+            return Err(Some((JSON_LONE_TRAILING_SURROGATE, start + offset)));
+        }
+    }
+    *index = start + 4;
+    if !(0xD800..=0xDBFF).contains(&unit) {
+        return Ok(());
+    }
+    for (offset, expected) in [(0, b'\\'), (1, b'u')] {
+        match bytes.get(*index + offset).copied() {
+            None => return Err(None),
+            Some(byte) if byte == expected => {}
+            Some(_) => return Err(Some((JSON_UNPAIRED_LEADING_SURROGATE, *index + offset))),
+        }
+    }
+    let start = *index + 2;
+    let mut unit = 0_u16;
+    for offset in 0..4 {
+        unit = (unit << 4) | json_hex_digit(bytes, start + offset)?;
+        // Only `\uDC` to `\uDF` begin a trailing surrogate.
+        let unpaired = match offset {
+            0 => unit != 0xD,
+            1 => !(0xDC..=0xDF).contains(&unit),
+            _ => false,
+        };
+        if unpaired {
+            return Err(Some((JSON_UNPAIRED_LEADING_SURROGATE, start + offset)));
+        }
+    }
+    *index = start + 4;
+    Ok(())
 }
 
 struct RawJsonParser<'a> {
     input: &'a [u8],
+    text: &'a str,
     pos: usize,
 }
 
 impl<'a> RawJsonParser<'a> {
     fn parse(input: &'a [u8]) -> Result<RawJson<'a>, String> {
-        std::str::from_utf8(input).map_err(|e| format!("JSON input is not UTF-8: {e}"))?;
-        let mut parser = Self { input, pos: 0 };
+        let text =
+            std::str::from_utf8(input).map_err(|e| format!("JSON input is not UTF-8: {e}"))?;
+        let mut parser = Self {
+            input,
+            text,
+            pos: 0,
+        };
         let value = parser.value(0)?;
         parser.whitespace();
         if parser.pos != parser.input.len() {
@@ -274,18 +452,18 @@ impl<'a> RawJsonParser<'a> {
             match byte {
                 b'"' => {
                     self.pos += 1;
-                    let token = &self.input[start..self.pos];
-                    return serde_json::from_slice(token).map_err(|error| {
-                        let (reason, stop) = json_string_token_error(token, &error);
-                        stop.map_or_else(
-                            || format!("invalid JSON string at byte {start}: {reason}"),
-                            |stop| {
-                                format!(
-                                    "invalid JSON string at byte {start}: {reason} at byte {}",
-                                    start + stop
-                                )
-                            },
-                        )
+                    // Both ends are quote bytes, so they are character
+                    // boundaries of the validated text.
+                    let token = self.text.get(start..self.pos).ok_or_else(|| {
+                        format!("JSON string at byte {start} does not end on a character boundary")
+                    })?;
+                    return serde_json::from_str(token).map_err(|error| {
+                        let origin = u64::try_from(start).unwrap_or(u64::MAX);
+                        let reason = json_string_fault(token).map_or_else(
+                            || json_decoder_reason(&error),
+                            |fault| fault.placed_at(origin),
+                        );
+                        format!("invalid JSON string at byte {start}: {reason}")
                     });
                 }
                 b'\\' => {
@@ -1988,21 +2166,43 @@ mod tests {
             message(b"{\"integer\":@}"),
             "unexpected JSON byte 0x40 at byte 11"
         );
-        // A string error is placed in the document, not in the string slice,
-        // at the offending byte. The token spans bytes 11-18 and the hex
-        // escape ends at its closing quote, byte 18.
+        // A bad hex digit is named itself, not the escape's last digit.
         assert_eq!(
-            message(br#"{"integer":"\ud800"}"#),
-            "invalid JSON string at byte 11: unexpected end of hex escape at byte 18"
+            message(br#"{"integer":"\uZZZZ"}"#),
+            "invalid JSON string at byte 11: invalid hex digit in \\u escape at byte 14"
+        );
+        assert_eq!(
+            message(br#"{"integer":"\u12Z4"}"#),
+            "invalid JSON string at byte 11: invalid hex digit in \\u escape at byte 16"
+        );
+        // A closing quote cut into the escape is the offending byte.
+        assert_eq!(
+            message(br#"{"integer":"\u1"}"#),
+            "invalid JSON string at byte 11: invalid hex digit in \\u escape at byte 15"
+        );
+        // `\udc` already spells a trailing surrogate, so its `c`, byte 15,
+        // is the offending byte.
+        assert_eq!(
+            message(br#"{"integer":"\udc00"}"#),
+            "invalid JSON string at byte 11: lone trailing surrogate in \\u escape at byte 15"
         );
         // The invalid escape character `q` is byte 13.
         assert_eq!(
             message(br#"{"integer":"\q"}"#),
             "invalid JSON string at byte 11: invalid escape at byte 13"
         );
-        // A raw line feed inside a string is a control character. serde_json
-        // reports it at column 0 of line 2; the offending byte is the line
-        // feed itself, byte 13.
+        // A string error is placed in the document, not in the string slice,
+        // at the offending byte: the first byte at which the token can no
+        // longer be completed. The token spans bytes 11-18; the leading
+        // surrogate needs a trailing surrogate escape, and the closing quote,
+        // byte 18, is the first byte that rules it out.
+        assert_eq!(
+            message(br#"{"integer":"\ud800"}"#),
+            "invalid JSON string at byte 11: leading surrogate in \\u escape not followed by \
+             a trailing surrogate escape at byte 18"
+        );
+        // A raw line feed inside a string is a control character, and the
+        // offending byte is the line feed itself, byte 13.
         assert_eq!(
             message(b"{\"integer\":\"a\nb\"}"),
             "invalid JSON string at byte 11: control character (\\u0000-\\u001F) found while \
@@ -2014,6 +2214,97 @@ mod tests {
             "invalid JSON string at byte 11: control character (\\u0000-\\u001F) found while \
              parsing a string at byte 14"
         );
+    }
+
+    /// Completions that finish every prefix of an accepted string token. A
+    /// prefix ends in one of these states, each finished by the listed
+    /// completion: before or inside leading whitespace (`""`); inside the
+    /// string outside any escape (`"`); just after `\` (`n"`); after `\u`
+    /// and k < 4 hex digits (4 - k zeros, then `"`, or then `\udc00"` when
+    /// the digits so far begin a leading surrogate); after a complete leading
+    /// surrogate escape (`\udc00"`), its `\` (`udc00"`), its `\u` (`dc00"`),
+    /// or one to three digits of the trailing escape (`c00"`, `00"`, `0"`);
+    /// after the closing quote (nothing). A prefix ending inside a multibyte
+    /// character is never formed below.
+    const STRING_TOKEN_COMPLETIONS: [&str; 16] = [
+        "",
+        "\"",
+        "\"\"",
+        "n\"",
+        "0\"",
+        "00\"",
+        "000\"",
+        "0000\"",
+        "0\\udc00\"",
+        "00\\udc00\"",
+        "000\\udc00\"",
+        "0000\\udc00\"",
+        "\\udc00\"",
+        "udc00\"",
+        "dc00\"",
+        "c00\"",
+    ];
+
+    /// The units the exhaustive token enumeration below is built from.
+    const STRING_TOKEN_UNITS: [&str; 14] = [
+        "\"", "\\", "u", "d", "8", "c", "0", "Z", "n", " ", "\u{1}", "\u{e9}", "\\ud800", "\\udc00",
+    ];
+
+    fn string_prefix_completes(prefix: &[u8]) -> bool {
+        STRING_TOKEN_COMPLETIONS.iter().any(|completion| {
+            serde_json::from_slice::<String>(&[prefix, completion.as_bytes()].concat()).is_ok()
+        })
+    }
+
+    #[test]
+    fn json_string_faults_match_serde_json_and_name_the_first_uncompletable_byte() {
+        let mut tokens = vec![String::new()];
+        let mut frontier = vec![String::new()];
+        for _ in 0..5 {
+            frontier = frontier
+                .iter()
+                .flat_map(|token| {
+                    STRING_TOKEN_UNITS
+                        .iter()
+                        .map(move |unit| format!("{token}{unit}"))
+                })
+                .collect();
+            tokens.extend(frontier.iter().cloned());
+        }
+        let mut refused = 0_usize;
+        for token in &tokens {
+            let accepted = serde_json::from_str::<String>(token).is_ok();
+            let fault = json_string_fault(token);
+            assert_eq!(accepted, fault.is_none(), "{token:?}: {fault:?}");
+            let Some(fault) = fault else { continue };
+            refused += 1;
+            let bytes = token.as_bytes();
+            match fault.site {
+                JsonStringFaultSite::Byte(offset) => {
+                    let Some(width) = token.get(offset..).and_then(|rest| rest.chars().next())
+                    else {
+                        panic!("{token:?}: fault offset {offset} is not a character start");
+                    };
+                    assert!(
+                        string_prefix_completes(&bytes[..offset]),
+                        "{token:?}: the bytes before {offset} cannot be completed"
+                    );
+                    assert!(
+                        !string_prefix_completes(&bytes[..offset + width.len_utf8()]),
+                        "{token:?}: the bytes through {offset} can still be completed"
+                    );
+                }
+                JsonStringFaultSite::End(last) => {
+                    assert_eq!(last, bytes.len().checked_sub(1), "{token:?}");
+                    assert!(
+                        string_prefix_completes(bytes),
+                        "{token:?}: an ended token must be completable"
+                    );
+                }
+            }
+        }
+        assert_eq!(tokens.len(), 579_195);
+        assert!(refused > 0);
     }
 
     #[test]
