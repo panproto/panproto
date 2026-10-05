@@ -1965,16 +1965,38 @@ mod tests {
     #[test]
     fn json_numerals_beyond_the_decimal_exponent_range_are_typed_refusals() {
         let schema = number_schema();
-        let edge = br#"{"integer":1,"decimal":1e2147483647}"#;
-        let instance = parse_json_bytes(&schema, "root", edge, "test").expect("largest exponent");
-        let decimal = instance
-            .nodes
-            .values()
-            .find(|node| node.anchor.as_ref() == "root:decimal")
-            .and_then(|node| node.value.as_ref());
-        assert!(
-            matches!(decimal, Some(FieldPresence::Present(Value::Decimal(value))) if value.exponent == i32::MAX)
-        );
+        // The stored exponent is the written exponent less the fractional
+        // digit count; every numeral whose stored exponent lies in `i32` is
+        // read exactly.
+        for (input, exponent) in [
+            (
+                br#"{"integer":1,"decimal":1e2147483647}"#.as_slice(),
+                i32::MAX,
+            ),
+            (
+                br#"{"integer":1,"decimal":0.1e2147483648}"#.as_slice(),
+                i32::MAX,
+            ),
+            (
+                br#"{"integer":1,"decimal":1e-2147483648}"#.as_slice(),
+                i32::MIN,
+            ),
+        ] {
+            let instance = parse_json_bytes(&schema, "root", input, "test").expect("in range");
+            let decimal = instance
+                .nodes
+                .values()
+                .find(|node| node.anchor.as_ref() == "root:decimal")
+                .and_then(|node| node.value.as_ref());
+            assert!(
+                matches!(
+                    decimal,
+                    Some(FieldPresence::Present(Value::Decimal(value)))
+                        if value.digits == "1" && !value.negative && value.exponent == exponent
+                ),
+                "{decimal:?}"
+            );
+        }
 
         for (input, lexeme) in [
             (
@@ -1984,6 +2006,10 @@ mod tests {
             (
                 br#"{"integer":1,"decimal":1e99999999999999999999999}"#.as_slice(),
                 "1e99999999999999999999999",
+            ),
+            (
+                br#"{"integer":1,"decimal":1.5e-2147483648}"#.as_slice(),
+                "1.5e-2147483648",
             ),
         ] {
             let result = parse_json_bytes(&schema, "root", input, "test");
