@@ -292,3 +292,34 @@ fn codec_library_code_has_no_panicking_macros() {
         violations.join("\n")
     );
 }
+
+/// No documentation or manifest names `simd-json` as a parser in use: the JSON
+/// pathway reads numerals exactly with its own lexer, and nothing depends on it.
+#[test]
+fn json_pathway_docs_and_manifests_name_no_simd_json_parser() {
+    let crate_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let sources = [
+        crate_dir.join("src/lib.rs"),
+        crate_dir.join("Cargo.toml"),
+        crate_dir.join("../../Cargo.toml"),
+    ];
+    let mut stale = Vec::new();
+    for path in &sources {
+        let text = std::fs::read_to_string(path).unwrap();
+        for (index, line) in text.lines().enumerate() {
+            let lower = line.to_ascii_lowercase();
+            if lower.contains("simd-json")
+                || lower.contains("simd_json")
+                || lower.contains("simd-accelerated json")
+                || lower.contains("simd-accelerated parsing")
+            {
+                stale.push(format!("{}:{}: {}", path.display(), index + 1, line.trim()));
+            }
+        }
+    }
+    assert!(
+        stale.is_empty(),
+        "stale simd-json claims:\n{}",
+        stale.join("\n")
+    );
+}
