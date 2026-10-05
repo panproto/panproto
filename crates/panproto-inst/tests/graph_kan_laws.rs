@@ -11,8 +11,9 @@ use panproto_inst::{
     RestrictError, Row, RowId, Value, WInstance, decode_graph, encode_graph, g_counit, g_delta,
     g_delta_along, g_delta_along_with_provenance, g_delta_with_provenance, g_pi, g_pi_along,
     g_pi_along_with_provenance, g_pi_counit, g_pi_restricted, g_pi_transpose_left,
-    g_pi_transpose_right, g_pi_unit, g_sigma_along, g_sigma_along_with_provenance,
-    g_sigma_restricted, g_transpose_left, g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
+    g_pi_transpose_right, g_pi_unit, g_pi_with_provenance, g_sigma, g_sigma_along,
+    g_sigma_along_with_provenance, g_sigma_restricted, g_sigma_with_provenance, g_transpose_left,
+    g_transpose_right, g_unit, wtype_extend_engine, wtype_pi,
 };
 use panproto_schema::{Edge, Protocol, ScalarKind, Schema, Vertex};
 use proptest::prelude::*;
@@ -24,6 +25,15 @@ fn edge(src: &str, tgt: &str, name: &str) -> Edge {
         tgt: tgt.into(),
         kind: "prop".into(),
         name: Some(name.into()),
+    }
+}
+
+/// An inner value edge; the empty name stands for an unnamed edge, whose
+/// column name is its target vertex.
+fn inner_edge(src: &str, tgt: &str, name: &str) -> Edge {
+    Edge {
+        name: (!name.is_empty()).then(|| name.into()),
+        ..edge(src, tgt, name)
     }
 }
 
@@ -172,8 +182,10 @@ fn naive_fold(graph: &GInstance, root: u32) -> Option<Value> {
             let fields = outgoing
                 .into_iter()
                 .map(|(_, edge)| {
-                    let name = edge.edge.name.as_ref()?.as_ref().to_owned();
-                    Some((name, fold(graph, edge.tgt, visiting)?))
+                    Some((
+                        oracle::name_of(&edge.edge),
+                        fold(graph, edge.tgt, visiting)?,
+                    ))
                 })
                 .collect::<Option<HashMap<_, _>>>()?;
             Value::Unknown(fields)
@@ -1181,12 +1193,327 @@ fn graph_kan_error_precedence_and_delta_boundaries_are_explicit() {
     ));
 }
 
-fn restriction_scenario() -> (MigrationFunctor, GInstance, GInstance) {
+/// Which schema-taking graph Kan form a precedence check runs.
+#[derive(Clone, Copy, Debug)]
+enum SchemaForm {
+    Sigma,
+    SigmaWithProvenance,
+    Pi,
+    PiWithProvenance,
+}
+
+impl SchemaForm {
+    const ALL: [Self; 4] = [
+        Self::Sigma,
+        Self::SigmaWithProvenance,
+        Self::Pi,
+        Self::PiWithProvenance,
+    ];
+
+    const fn is_sigma(self) -> bool {
+        matches!(self, Self::Sigma | Self::SigmaWithProvenance)
+    }
+
+    fn run(
+        self,
+        graph: &GInstance,
+        source: &Schema,
+        target: &Schema,
+        map: &CompiledMigration,
+    ) -> Result<GInstance, GraphKanError> {
+        let p = protocol();
+        match self {
+            Self::Sigma => g_sigma(graph, source, &p, target, &p, map),
+            Self::SigmaWithProvenance => {
+                g_sigma_with_provenance(graph, source, &p, target, &p, map).map(|(g, _)| g)
+            }
+            Self::Pi => g_pi(graph, source, &p, target, &p, map, 8),
+            Self::PiWithProvenance => {
+                g_pi_with_provenance(graph, source, &p, target, &p, map, 8).map(|(g, _)| g)
+            }
+        }
+    }
+}
+
+/// The schemas of the Sigma and Pi precedence checks: a source `a{x, y}`, a
+/// target `A{x, z}`, a migration sending both `x` and `y` to `x` (Sigma
+/// clashes when they hold different constants) and one sending only `x` to
+/// `x` (Pi refuses the target column `z` outside its image).
+struct PrecedenceFixture {
+    x: Edge,
+    y: Edge,
+    source: Schema,
+    target: Schema,
+    clashing: CompiledMigration,
+    partial: CompiledMigration,
+}
+
+fn precedence_fixture() -> PrecedenceFixture {
     let x = edge("a", "a.x", "x");
+    let y = edge("a", "a.y", "y");
+    let source = schema(
+        &[("a", "record"), ("a.x", "int"), ("a.y", "int")],
+        &[x.clone(), y.clone()],
+    );
+    let target_x = edge("A", "A.x", "x");
+    let target_z = edge("A", "A.z", "z");
+    let target = schema(
+        &[("A", "record"), ("A.x", "int"), ("A.z", "int")],
+        &[target_x.clone(), target_z],
+    );
+    let clashing = migration(
+        &[("a", "A"), ("a.x", "A.x"), ("a.y", "A.x")],
+        &[(x.clone(), target_x.clone()), (y.clone(), target_x.clone())],
+        &[],
+        &[],
+    );
+    let partial = migration(
+        &[("a", "A"), ("a.x", "A.x")],
+        &[(x.clone(), target_x)],
+        &[],
+        &[],
+    );
+    PrecedenceFixture {
+        x,
+        y,
+        source,
+        target,
+        clashing,
+        partial,
+    }
+}
+
+/// A relation `f: b -> c` carried to `f: B -> C`, with a second target
+/// relation `g: B -> C` outside the image, which Pi fills with all pairs.
+fn relation_outside_image() -> (Edge, Schema, Schema, CompiledMigration) {
+    let f = edge("b", "c", "f");
+    let target_f = edge("B", "C", "f");
+    let target_g = edge("B", "C", "g");
+    let related = schema(
+        &[("b", "record"), ("c", "record")],
+        std::slice::from_ref(&f),
+    );
+    let related_target = schema(
+        &[("B", "record"), ("C", "record")],
+        &[target_f.clone(), target_g],
+    );
+    let relating = migration(
+        &[("b", "B"), ("c", "C")],
+        &[(f.clone(), target_f)],
+        &[],
+        &[],
+    );
+    (f, related, related_target, relating)
+}
+
+/// Spec ruling S3 (11) for the schema-taking Sigma and Pi, in each form
+/// (with and without provenance): an input wrong at every later stage is
+/// refused at the earliest one, in the order classification (source before
+/// target), functor, encoding, table.
+#[test]
+fn graph_sigma_and_pi_error_precedence_is_explicit() {
+    let unclassified_source = schema(&[("source", "unknown")], &[]);
+    let unclassified_target = schema(&[("target", "unknown")], &[]);
+    let PrecedenceFixture {
+        x,
+        y,
+        source,
+        target,
+        clashing,
+        partial,
+    } = precedence_fixture();
+    let bad_map = migration(&[("a", "missing")], &[], &[], &[]);
+    let at_ceiling = |first: Value, second: Value| {
+        GInstance::new()
+            .with_node(Node::new(0, "a"))
+            .with_node(Node::new(1, "a.x").with_value(FieldPresence::Present(first)))
+            .with_node(Node::new(u32::MAX, "a.y").with_value(FieldPresence::Present(second)))
+            .with_edge_id(EdgeId(0), 0, 1, x.clone())
+            .with_edge_id(EdgeId(u32::MAX), 0, u32::MAX, y.clone())
+    };
+    let mut fan = at_ceiling(Value::Int(1), Value::Int(2));
+    fan.node_mut(0).unwrap().shape = NodeShape::HyperEdge;
+
+    for form in SchemaForm::ALL {
+        let table_map = if form.is_sigma() { &clashing } else { &partial };
+        assert!(
+            matches!(
+                form.run(&fan, &unclassified_source, &unclassified_target, &bad_map),
+                Err(GraphKanError::RelSchema(RelSchemaError::UnclassifiedKind { vertex, .. }))
+                    if vertex == "source"
+            ),
+            "{form:?}"
+        );
+        assert!(
+            matches!(
+                form.run(&fan, &source, &unclassified_target, &bad_map),
+                Err(GraphKanError::RelSchema(RelSchemaError::UnclassifiedKind { vertex, .. }))
+                    if vertex == "target"
+            ),
+            "{form:?}"
+        );
+        assert!(
+            matches!(
+                form.run(&fan, &source, &target, &bad_map),
+                Err(GraphKanError::Functor(_))
+            ),
+            "{form:?}"
+        );
+        assert!(
+            matches!(
+                form.run(&fan, &source, &target, table_map),
+                Err(GraphKanError::NotEncodable {
+                    reason: NotEncodableReason::FanNode { node: 0 }
+                })
+            ),
+            "{form:?}"
+        );
+        let refused = form.run(
+            &at_ceiling(Value::Int(1), Value::Int(2)),
+            &source,
+            &target,
+            table_map,
+        );
+        if form.is_sigma() {
+            assert!(
+                matches!(
+                    refused,
+                    Err(GraphKanError::Adjunction(
+                        AdjunctionError::SigmaConstantClash { .. }
+                    ))
+                ),
+                "{form:?}: {refused:?}"
+            );
+        } else {
+            assert!(
+                matches!(
+                    refused,
+                    Err(GraphKanError::Adjunction(AdjunctionError::Pi(
+                        RestrictError::AttributeOutsideImage { ref table, ref column }
+                    ))) if table == "A" && column == "z"
+                ),
+                "{form:?}: {refused:?}"
+            );
+        }
+    }
+}
+
+/// Spec ruling S3 (11), last stage: the schema-taking Sigma and Pi, in each
+/// form, refuse with the decoding error when every earlier stage succeeds
+/// and the output needs an id above `u32::MAX`.
+#[test]
+fn graph_sigma_and_pi_refuse_id_exhaustion_last() {
+    let PrecedenceFixture {
+        x,
+        y,
+        source,
+        target,
+        partial,
+        ..
+    } = precedence_fixture();
+    // Decoding: Sigma along `partial` writes a fresh labelled null at the
+    // target column `z`, whose value node needs an id above `u32::MAX`; Pi
+    // along a relation outside the image writes the all-pairs relation,
+    // whose edge needs an id above `u32::MAX`.
+    let node_ceiling = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(u32::MAX, "a.x").with_value(FieldPresence::Present(Value::Int(1))))
+        .with_node(Node::new(1, "a.y").with_value(FieldPresence::Present(Value::Int(2))))
+        .with_edge_id(EdgeId(0), 0, u32::MAX, x)
+        .with_edge_id(EdgeId(1), 0, 1, y);
+    let (f, related, related_target, relating) = relation_outside_image();
+    let edge_ceiling = GInstance::new()
+        .with_node(Node::new(0, "b"))
+        .with_node(Node::new(1, "c"))
+        .with_edge_id(EdgeId(u32::MAX), 0, 1, f);
+    for form in SchemaForm::ALL {
+        let decoded = if form.is_sigma() {
+            form.run(&node_ceiling, &source, &target, &partial)
+        } else {
+            form.run(&edge_ceiling, &related, &related_target, &relating)
+        };
+        assert!(
+            matches!(
+                (form.is_sigma(), &decoded),
+                (true, Err(GraphKanError::NodeIdsExhausted))
+                    | (false, Err(GraphKanError::EdgeIdsExhausted))
+            ),
+            "{form:?}: {decoded:?}"
+        );
+    }
+}
+
+/// The schema-taking Sigma and Pi, in each form, succeed on an input wrong
+/// at no stage and agree with the form along the checked functor.
+#[test]
+fn graph_sigma_and_pi_from_schemas_agree_with_their_forms_along_the_functor() {
+    let PrecedenceFixture {
+        x,
+        y,
+        source,
+        target,
+        clashing,
+        ..
+    } = precedence_fixture();
+    let (f, related, related_target, relating) = relation_outside_image();
+    let plain = GInstance::new()
+        .with_node(Node::new(0, "a"))
+        .with_node(Node::new(1, "a.x").with_value(FieldPresence::Present(Value::Int(1))))
+        .with_node(Node::new(2, "a.y").with_value(FieldPresence::Present(Value::Int(1))))
+        .with_edge_id(EdgeId(3), 0, 1, x)
+        .with_edge_id(EdgeId(4), 0, 2, y);
+    let functor =
+        MigrationFunctor::new(&source, &protocol(), &target, &protocol(), &clashing).unwrap();
+    let along_sigma = g_sigma_along(&plain, &functor).unwrap();
+    assert_eq!(along_sigma.node_count(), 3);
+    let related_graph = GInstance::new()
+        .with_node(Node::new(0, "b"))
+        .with_node(Node::new(1, "c"))
+        .with_edge_id(EdgeId(5), 0, 1, f);
+    let related_functor = MigrationFunctor::new(
+        &related,
+        &protocol(),
+        &related_target,
+        &protocol(),
+        &relating,
+    )
+    .unwrap();
+    let along_pi = g_pi_along(&related_graph, &related_functor, 8).unwrap();
+    assert_eq!(along_pi.edge_count(), 2);
+    for form in SchemaForm::ALL {
+        if form.is_sigma() {
+            let got = form.run(&plain, &source, &target, &clashing).unwrap();
+            assert!(GInstance::identical(&got, &along_sigma), "{form:?}");
+        } else {
+            let got = form
+                .run(&related_graph, &related, &related_target, &relating)
+                .unwrap();
+            assert!(GInstance::identical(&got, &along_pi), "{form:?}");
+        }
+    }
+}
+
+/// A source `a{x, w}` and `q` whose kept part is `a{x}`: the table `q` and
+/// the column `w` are dropped. Returns the functor, the schemas and
+/// migration it was built from, a whole-source graph with a node at `q` and
+/// a value node at `a.w`, and that graph restricted to the kept part.
+fn restriction_scenario() -> (
+    MigrationFunctor,
+    (Schema, Schema, CompiledMigration),
+    GInstance,
+    GInstance,
+) {
+    let x = edge("a", "a.x", "x");
+    let w = edge("a", "a.w", "w");
     let target_x = edge("A", "A.x", "x");
     let source = schema(
-        &[("a", "record"), ("a.x", "int"), ("q", "record")],
-        std::slice::from_ref(&x),
+        &[
+            ("a", "record"),
+            ("a.x", "int"),
+            ("a.w", "int"),
+            ("q", "record"),
+        ],
+        &[x.clone(), w.clone()],
     );
     let target = schema(
         &[("A", "record"), ("A.x", "int")],
@@ -1203,33 +1530,128 @@ fn restriction_scenario() -> (MigrationFunctor, GInstance, GInstance) {
     let whole = GInstance::new()
         .with_node(Node::new(0, "a"))
         .with_node(Node::new(1, "a.x").with_value(FieldPresence::Present(Value::Int(4))))
+        .with_node(Node::new(2, "a.w").with_value(FieldPresence::Present(Value::Int(9))))
         .with_node(Node::new(7, "q"))
-        .with_edge_id(EdgeId(3), 0, 1, x.clone());
+        .with_edge_id(EdgeId(3), 0, 1, x.clone())
+        .with_edge_id(EdgeId(4), 0, 2, w);
     let kept = GInstance::new()
         .with_node(Node::new(0, "a"))
         .with_node(Node::new(1, "a.x").with_value(FieldPresence::Present(Value::Int(4))))
         .with_edge_id(EdgeId(3), 0, 1, x);
-    (functor, whole, kept)
+    (functor, (source, target, migration), whole, kept)
 }
 
 #[test]
 fn graph_restriction_commutes_with_table_domain_restriction_on_fixture() {
-    let (functor, whole, kept) = restriction_scenario();
+    let (functor, _, whole, kept) = restriction_scenario();
     let (whole_tables, _) = encode_graph(&whole, EncodingSide::Whole(functor.source())).unwrap();
+    assert_eq!(whole_tables.rows("q").len(), 1);
+    assert_eq!(
+        whole_tables.rows("a")[0].1.get("w"),
+        Some(&Value::Int(9)),
+        "the whole table carries the dropped column"
+    );
     let restricted = panproto_inst::f_restrict_to_domain(&whole_tables, &functor).unwrap();
     let (kept_tables, _) = encode_graph(&kept, EncodingSide::Domain(&functor)).unwrap();
     assert_eq!(restricted, kept_tables);
 }
 
+/// Sigma and Pi restrict, rather than refuse, a whole-source graph with a
+/// node at a dropped table and a value node at a dropped column: every form
+/// (along a functor, from schemas, with and without provenance) gives on the
+/// whole graph exactly what it gives on the kept part.
 #[test]
 fn graph_sigma_and_pi_restrict_elements_outside_the_kept_part() {
-    let (functor, whole, _) = restriction_scenario();
+    let (functor, (source, target, migration), whole, kept) = restriction_scenario();
     let sigma = g_sigma_along(&whole, &functor).unwrap();
     let pi = g_pi_along(&whole, &functor, 32).unwrap();
-    assert!(sigma.nodes().values().all(|node| node.anchor != "q"));
-    assert!(pi.nodes().values().all(|node| node.anchor != "q"));
-    assert_eq!(sigma.node_count(), 2);
-    assert_eq!(pi.node_count(), 2);
+    for output in [&sigma, &pi] {
+        assert_eq!(output.node_count(), 2);
+        assert!(
+            output
+                .nodes()
+                .values()
+                .all(|node| node.anchor == "A" || node.anchor == "A.x")
+        );
+        assert!(
+            output
+                .nodes()
+                .values()
+                .all(|node| node.id != 2 && node.id != 7)
+        );
+    }
+    assert!(GInstance::identical(
+        &sigma,
+        &g_sigma_restricted(&kept, &functor).unwrap()
+    ));
+    assert!(GInstance::identical(
+        &pi,
+        &g_pi_restricted(&kept, &functor, 32).unwrap()
+    ));
+    let from_schemas = g_sigma(
+        &whole,
+        &source,
+        &protocol(),
+        &target,
+        &protocol(),
+        &migration,
+    )
+    .unwrap();
+    assert!(GInstance::identical(&sigma, &from_schemas));
+    let (with_provenance, provenance) = g_sigma_with_provenance(
+        &whole,
+        &source,
+        &protocol(),
+        &target,
+        &protocol(),
+        &migration,
+    )
+    .unwrap();
+    assert!(GInstance::identical(&sigma, &with_provenance));
+    assert_eq!(
+        provenance,
+        g_sigma_along_with_provenance(&whole, &functor).unwrap().1
+    );
+    assert!(
+        provenance
+            .nodes
+            .values()
+            .flatten()
+            .all(|input| *input != 2 && *input != 7)
+    );
+    let from_schemas = g_pi(
+        &whole,
+        &source,
+        &protocol(),
+        &target,
+        &protocol(),
+        &migration,
+        32,
+    )
+    .unwrap();
+    assert!(GInstance::identical(&pi, &from_schemas));
+    let (with_provenance, provenance) = g_pi_with_provenance(
+        &whole,
+        &source,
+        &protocol(),
+        &target,
+        &protocol(),
+        &migration,
+        32,
+    )
+    .unwrap();
+    assert!(GInstance::identical(&pi, &with_provenance));
+    assert_eq!(
+        provenance,
+        g_pi_along_with_provenance(&whole, &functor, 32).unwrap().1
+    );
+    assert!(
+        provenance
+            .nodes
+            .values()
+            .flatten()
+            .all(|input| *input != 2 && *input != 7)
+    );
 }
 
 #[test]
@@ -1406,7 +1828,7 @@ proptest! {
 
     #[test]
     fn graph_restriction_commutes_with_table_domain_restriction(value in any::<i64>()) {
-        let (functor, mut whole, mut kept) = restriction_scenario();
+        let (functor, _, mut whole, mut kept) = restriction_scenario();
         whole.node_mut(1).unwrap().value = Some(FieldPresence::Present(Value::Int(value)));
         kept.node_mut(1).unwrap().value = Some(FieldPresence::Present(Value::Int(value)));
         let (whole_tables, _) = encode_graph(&whole, EncodingSide::Whole(functor.source())).unwrap();
@@ -1644,12 +2066,12 @@ mod oracle {
     };
     use panproto_schema::{Edge, Schema};
 
-    use super::{edge, schema};
+    use super::{edge, inner_edge, schema};
 
     /// A test schema written out by hand: its tables in order, each with its
     /// columns `(column, kind of the column's value vertex)`, its relations,
     /// and its inner value edges `(source vertex, target vertex, name, target
-    /// kind)`. The value vertex of column `c` of table `t` is `t.c`.
+    /// kind)`, an empty name standing for an unnamed edge. The value vertex of column `c` of table `t` is `t.c`.
     #[derive(Clone, Debug, Default)]
     pub struct Spec {
         pub tables: Vec<(&'static str, Vec<(&'static str, &'static str)>)>,
@@ -1667,7 +2089,7 @@ mod oracle {
         pub fn inner_edges(&self) -> Vec<Edge> {
             self.inner
                 .iter()
-                .map(|(src, tgt, name, _)| edge(src, tgt, name))
+                .map(|(src, tgt, name, _)| inner_edge(src, tgt, name))
                 .collect()
         }
 
@@ -1908,6 +2330,15 @@ mod oracle {
         }
     }
 
+    /// The name a record's inner edge gives its field, as Spec ruling S3 (1)
+    /// (b) and (c) define it: the edge's name, or its target vertex when it
+    /// has none.
+    pub fn name_of(edge: &Edge) -> String {
+        edge.name
+            .as_ref()
+            .map_or_else(|| edge.tgt.to_string(), ToString::to_string)
+    }
+
     fn check_value_node(
         graph: &GInstance,
         side: &Side,
@@ -1945,10 +2376,7 @@ mod oracle {
             };
         }
         let positions: Vec<Option<u32>> = outgoing.iter().map(|(_, e)| e.position).collect();
-        let names: BTreeSet<Option<String>> = outgoing
-            .iter()
-            .map(|(_, e)| e.edge.name.as_ref().map(ToString::to_string))
-            .collect();
+        let names: BTreeSet<String> = outgoing.iter().map(|(_, e)| name_of(&e.edge)).collect();
         let record = positions.iter().all(Option::is_none) && names.len() == outgoing.len();
         let list = positions.iter().all(Option::is_some)
             && positions.iter().collect::<BTreeSet<_>>().len() == outgoing.len();
@@ -1975,7 +2403,7 @@ mod oracle {
 
     /// The cell a value node folds to: its value at a leaf, a list of its
     /// children's cells by ascending position when its out-edges carry
-    /// positions, and a record keyed by edge name otherwise.
+    /// positions, and a record keyed by the [`name_of`] each edge otherwise.
     pub fn fold(graph: &GInstance, node: u32) -> Value {
         let outgoing = out_edges(graph, node);
         if outgoing.is_empty() {
@@ -1995,14 +2423,7 @@ mod oracle {
         Value::Unknown(
             outgoing
                 .iter()
-                .map(|(_, e)| {
-                    let name = e
-                        .edge
-                        .name
-                        .as_ref()
-                        .map_or_else(String::new, ToString::to_string);
-                    (name, fold(graph, e.tgt))
-                })
+                .map(|(_, e)| (name_of(&e.edge), fold(graph, e.tgt)))
                 .collect(),
         )
     }
@@ -2395,7 +2816,7 @@ mod oracle {
     /// The graph form of one cell: a leaf value node, or a value node whose
     /// children are leaves along named inner edges, unpositioned for a record
     /// and positioned `0, 1, ..` for a list. A child is `(edge name, target
-    /// vertex, value)`.
+    /// vertex, value)`, an empty name standing for an unnamed edge.
     #[derive(Clone, Debug)]
     pub enum Form {
         Leaf(FieldPresence),
@@ -2459,7 +2880,7 @@ mod oracle {
                     Node::new(child, *vertex).with_value(FieldPresence::Present(value.clone())),
                 )
                 .unwrap_or_else(|e| panic!("{e}"));
-            let label = edge(&arrow.tgt, vertex, name);
+            let label = inner_edge(&arrow.tgt, vertex, name);
             let position = positioned.then(|| u32::try_from(position).unwrap_or(u32::MAX));
             graph
                 .insert_edge(
@@ -2639,6 +3060,28 @@ mod oracle {
             let renamed = GEdge::new(old.src, old.tgt, old.edge.clone()).with_position(position);
             out.insert_edge(id, renamed)
                 .unwrap_or_else(|e| panic!("{e}"));
+        }
+        out
+    }
+
+    /// The restriction `rho G` of a whole-source graph to the kept side: the
+    /// nodes at a table or value vertex of `kept`, and the edges between
+    /// them whose label is an arrow of `kept`. A value node at a dropped
+    /// column and a node at a dropped table go, with every edge they meet.
+    pub fn restrict(graph: &GInstance, kept: &Side) -> GInstance {
+        let mut out = GInstance::new();
+        for node in sorted_nodes(graph) {
+            if kept.tables.contains_key(&node.anchor) || kept.value_vertices.contains(&node.anchor)
+            {
+                out.insert_node(node.clone())
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
+        }
+        for (id, e) in sorted_edges(graph) {
+            if kept.has_label(&e.edge) && out.node(e.src).is_some() && out.node(e.tgt).is_some() {
+                out.insert_edge(id, e.clone())
+                    .unwrap_or_else(|e| panic!("{e}"));
+            }
         }
         out
     }
@@ -2939,11 +3382,14 @@ fn encoding_inverts_decoding_on_every_small_table_and_layout() {
     });
 }
 
-/// Layout isomorphism: for every conforming table `T` of the family and every
-/// layout `L` of it, the identity on table nodes is a homomorphism
-/// `D(T, default) -> D(T, L)` and back, both by `GraphKanHom::check` and by
-/// the oracle. So graphs that differ only in layout are isomorphic, and the
-/// layout selection of the Kan functions is a choice of representative.
+/// Layout isomorphism: for every conforming table `T` of the family and
+/// every ordered pair of layouts `L1`, `L2` of it (the record-free layout
+/// and every layout of the family), the identity on table nodes is a
+/// homomorphism `D(T, L1) -> D(T, L2)`, both by `GraphKanHom::check` and by
+/// the oracle. Layouts that decode `T` to the same graph are checked once.
+/// So graphs that differ only in layout are isomorphic, each pair checked
+/// directly, and the layout selection of the Kan functions is a choice of
+/// representative.
 #[test]
 fn graphs_that_differ_only_in_layout_are_isomorphic() {
     let spec = encoding_spec();
@@ -2952,10 +3398,23 @@ fn graphs_that_differ_only_in_layout_are_isomorphic() {
     let tables = encoding_tables();
     let layouts = encoding_layouts();
     let differing = std::sync::atomic::AtomicUsize::new(0);
+    let both_laid_out = std::sync::atomic::AtomicUsize::new(0);
     par(&tables, |table| {
-        let plain =
-            decode_graph(table, EncodingSide::Whole(&rel), &GraphLayout::default()).unwrap();
-        let plain_content = oracle::Content::of_graph(&plain, &side);
+        // Each distinct decoding, with whether a non-default layout gave it.
+        let mut decodings: Vec<(GInstance, bool)> = Vec::new();
+        for (index, layout) in layouts.iter().enumerate() {
+            let graph = decode_graph(table, EncodingSide::Whole(&rel), layout).unwrap();
+            match decodings
+                .iter_mut()
+                .find(|(seen, _)| GInstance::identical(seen, &graph))
+            {
+                Some((_, laid_out)) => *laid_out |= index > 0,
+                None => decodings.push((graph, index > 0)),
+            }
+        }
+        if decodings.len() > 1 {
+            differing.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
         let identity = GraphKanHom {
             node_map: table
                 .row_ids()
@@ -2964,32 +3423,28 @@ fn graphs_that_differ_only_in_layout_are_isomorphic() {
                 .collect(),
             null_map: BTreeMap::new(),
         };
-        let oracle_identity = oracle::Hom::identity(&plain_content);
-        for layout in &layouts {
-            let other = decode_graph(table, EncodingSide::Whole(&rel), layout).unwrap();
-            if !GInstance::identical(&plain, &other) {
-                differing.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let contents: Vec<oracle::Content> = decodings
+            .iter()
+            .map(|(graph, _)| oracle::Content::of_graph(graph, &side))
+            .collect();
+        let oracle_identity = oracle::Hom::identity(&contents[0]);
+        for (i, (first, first_laid_out)) in decodings.iter().enumerate() {
+            for (j, (second, second_laid_out)) in decodings.iter().enumerate() {
+                if i != j && *first_laid_out && *second_laid_out {
+                    both_laid_out.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                }
+                identity
+                    .check(first, second, EncodingSide::Whole(&rel))
+                    .unwrap();
+                assert!(oracle::is_hom(&contents[i], &contents[j], &oracle_identity));
             }
-            let other_content = oracle::Content::of_graph(&other, &side);
-            identity
-                .check(&plain, &other, EncodingSide::Whole(&rel))
-                .unwrap();
-            identity
-                .check(&other, &plain, EncodingSide::Whole(&rel))
-                .unwrap();
-            assert!(oracle::is_hom(
-                &plain_content,
-                &other_content,
-                &oracle_identity
-            ));
-            assert!(oracle::is_hom(
-                &other_content,
-                &plain_content,
-                &oracle_identity
-            ));
         }
     });
     assert!(differing.into_inner() > 0, "some layout changes the graph");
+    assert!(
+        both_laid_out.into_inner() > 0,
+        "some pair of distinct graphs comes from two non-default layouts"
+    );
 }
 
 /// A table `p` with one structured column `x` holding a record `{k}`.
@@ -3953,6 +4408,93 @@ fn graph_kan_adjunctions_hold_for_a_source_table_and_column_outside_the_kept_par
     adjunctions_hold_on_every_small_instance("a source table and column outside the kept part");
 }
 
+/// Spec ruling S3 (4) on every whole-source graph of the family functor
+/// with a dropped table and a dropped column, at most four table nodes:
+/// the oracle restriction `rho G` (computed from the graph and the kept
+/// side alone) lies in `Enc(S')`, `E_S'(rho G) = f_restrict_to_domain(E_S
+/// G)`, and Sigma and Pi of `G` (along the functor and from the schemas)
+/// are exactly Sigma and Pi of `rho G`, so no element at a dropped table or
+/// column makes either refuse.
+#[test]
+fn graph_sigma_and_pi_restrict_every_small_whole_source_graph() {
+    let case = kan_family()
+        .into_iter()
+        .find(|case| case.name == "a source table and column outside the kept part")
+        .unwrap();
+    let functor = case.functor();
+    let whole_side = case.source.side();
+    let kept_side = case.kept.side();
+    let wholes = case.graphs(&case.source);
+    let cells = case.cells.len();
+    assert_eq!(
+        wholes.len(),
+        oracle::labelled_count(&case.source, &|_: &str, _: &str| cells, 4)
+    );
+    let (source, target, migration) =
+        (case.source.schema(), case.target.schema(), case.migration());
+    let both_dropped = std::sync::atomic::AtomicUsize::new(0);
+    par(&wholes, |graph| {
+        assert_eq!(oracle::classify(graph, &whole_side), Ok(()));
+        let kept = oracle::restrict(graph, &kept_side);
+        assert_eq!(oracle::classify(&kept, &kept_side), Ok(()));
+        let anchors: BTreeSet<&str> = graph
+            .nodes()
+            .values()
+            .map(|node| node.anchor.as_ref())
+            .collect();
+        if anchors.contains("q") && anchors.contains("a.w") {
+            both_dropped.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        }
+        let (whole_tables, _) = encode_graph(graph, EncodingSide::Whole(functor.source())).unwrap();
+        let (kept_tables, _) = encode_graph(&kept, EncodingSide::Domain(&functor)).unwrap();
+        assert_eq!(
+            kept_tables,
+            oracle::Content::of_graph(&kept, &kept_side).table()
+        );
+        assert_eq!(
+            panproto_inst::f_restrict_to_domain(&whole_tables, &functor).unwrap(),
+            kept_tables,
+            "{graph:?}"
+        );
+        let sigma = g_sigma_along(graph, &functor).unwrap();
+        assert!(GInstance::identical(
+            &sigma,
+            &g_sigma_restricted(&kept, &functor).unwrap()
+        ));
+        assert!(GInstance::identical(
+            &sigma,
+            &g_sigma(
+                graph,
+                &source,
+                &protocol(),
+                &target,
+                &protocol(),
+                &migration
+            )
+            .unwrap()
+        ));
+        let pi = g_pi_along(graph, &functor, FAMILY_PI_MAX).unwrap();
+        assert!(GInstance::identical(
+            &pi,
+            &g_pi_restricted(&kept, &functor, FAMILY_PI_MAX).unwrap()
+        ));
+        assert!(GInstance::identical(
+            &pi,
+            &g_pi(
+                graph,
+                &source,
+                &protocol(),
+                &target,
+                &protocol(),
+                &migration,
+                FAMILY_PI_MAX
+            )
+            .unwrap()
+        ));
+    });
+    assert!(both_dropped.into_inner() > 0);
+}
+
 /// The prerequisite of `E D = id` in the transport: on every instance the
 /// adjunction oracles enumerate (the whole source `S`, its kept part `S'`
 /// and the target `T` of every family functor, at most four table nodes),
@@ -4184,7 +4726,13 @@ fn mutate(graph: &GInstance, kind: u8, pick: usize) -> GInstance {
 /// The code's answer for `graph` on the encoding family, as the oracle
 /// states it: `Ok` with the oracle's table, or the oracle's first reason.
 fn assert_encoding_matches_the_oracle(graph: &GInstance) -> Result<(), NotEncodableReason> {
-    let spec = encoding_spec();
+    assert_encoding_matches_the_oracle_on(&encoding_spec(), graph)
+}
+
+fn assert_encoding_matches_the_oracle_on(
+    spec: &oracle::Spec,
+    graph: &GInstance,
+) -> Result<(), NotEncodableReason> {
     let side = spec.side();
     let rel = RelSchema::new(&spec.schema(), &protocol()).unwrap();
     let expected = oracle::classify(graph, &side);
@@ -4204,6 +4752,86 @@ fn assert_encoding_matches_the_oracle(graph: &GInstance) -> Result<(), NotEncoda
         (got, want) => panic!("encode_graph gave {got:?}, the oracle {want:?}, on {graph:?}"),
     }
     expected
+}
+
+/// The unnamed-edge family: a table `a` with one structured column `x`
+/// whose inner edges to `a.x.k` and `a.x.item` carry no name, so that their
+/// column names are their target vertices.
+fn unnamed_inner_spec() -> oracle::Spec {
+    oracle::Spec {
+        tables: vec![("a", vec![("x", "value")])],
+        relations: vec![],
+        inner: vec![("a.x", "a.x.k", "", "str"), ("a.x", "a.x.item", "", "int")],
+    }
+}
+
+/// Spec ruling S3 (1) (b), (c) names a record's inner edges by the column
+/// name of the edge, the target vertex when the edge has no name. On every
+/// graph of the unnamed-edge family with at most two table nodes (a record
+/// over both targets, a record repeating one target, a list, and a leaf),
+/// the encoding agrees with the oracle, and the graph-only fold of every
+/// accepted cell is the cell the encoding reads.
+#[test]
+fn encoding_names_unnamed_inner_edges_by_their_target() {
+    use oracle::Form;
+    let spec = unnamed_inner_spec();
+    let side = spec.side();
+    let forms = vec![
+        Form::Record(vec![
+            ("", "a.x.k", Value::Str("s".into())),
+            ("", "a.x.item", Value::Int(1)),
+        ]),
+        Form::Record(vec![
+            ("", "a.x.k", Value::Str("s".into())),
+            ("", "a.x.k", Value::Str("t".into())),
+        ]),
+        Form::List(vec![
+            ("", "a.x.item", Value::Int(0)),
+            ("", "a.x.item", Value::Int(1)),
+        ]),
+        Form::Leaf(FieldPresence::Present(Value::Int(0))),
+    ];
+    let graphs = oracle::every_graph(&spec, &|_, _| forms.clone(), 2);
+    assert_eq!(graphs.len(), 1 + 4 + 16);
+    let mut accepted = 0;
+    let mut refused = 0;
+    for graph in &graphs {
+        if assert_encoding_matches_the_oracle_on(&spec, graph).is_ok() {
+            accepted += 1;
+            for node in graph.nodes().values() {
+                if node.anchor == "a" {
+                    let cell = graph
+                        .out_edges(node.id)
+                        .iter()
+                        .map(|id| graph.edge(*id).unwrap().tgt)
+                        .next()
+                        .unwrap();
+                    assert_eq!(
+                        naive_fold(graph, cell),
+                        Some(oracle::fold(graph, cell)),
+                        "{graph:?}"
+                    );
+                }
+            }
+        } else {
+            refused += 1;
+        }
+    }
+    let record = &graphs[1];
+    let (tables, _) = encode_graph(
+        record,
+        EncodingSide::Whole(&RelSchema::new(&spec.schema(), &protocol()).unwrap()),
+    )
+    .unwrap();
+    assert_eq!(
+        tables.rows("a")[0].1["x"],
+        Value::Unknown(HashMap::from([
+            ("a.x.k".to_owned(), Value::Str("s".into())),
+            ("a.x.item".to_owned(), Value::Int(1)),
+        ]))
+    );
+    assert_eq!(oracle::Content::of_graph(record, &side).table(), tables);
+    assert!(accepted > 0 && refused > 0, "{accepted} {refused}");
 }
 
 const fn reason_name(reason: &NotEncodableReason) -> &'static str {

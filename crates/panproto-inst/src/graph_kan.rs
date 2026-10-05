@@ -939,6 +939,13 @@ fn choose_edge_id(
     Ok(id)
 }
 
+/// The layout `cell` moved onto the column `arrow`: each inner edge of the
+/// subtree is relabelled to the inner edge of the side out of its source's
+/// new anchor with the same kind and the same field name ([`column_name`],
+/// which for an unnamed edge is its target vertex). Returns the moved layout
+/// when every edge has such an image, the anchors are coherent, and the
+/// moved subtree folds to `value`; otherwise `None`, and the cell is decoded
+/// without the layout.
 fn relabel_cell_layout(
     cell: &CellLayout,
     value: &Value,
@@ -951,10 +958,11 @@ fn relabel_cell_layout(
     for id in edge_order {
         let original = cell.edges.get(&id)?;
         let source = anchors.get(&original.src)?;
+        let field = column_name(&original.edge);
         let mapped = side.inner_edges.iter().find(|candidate| {
             candidate.src == *source
                 && candidate.kind == original.edge.kind
-                && candidate.name == original.edge.name
+                && column_name(candidate) == field
         })?;
         match anchors.entry(original.tgt) {
             std::collections::btree_map::Entry::Vacant(entry) => {
