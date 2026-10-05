@@ -123,9 +123,87 @@ impl InstanceEmitter for TabularCodec {
 
     fn emit_functor(
         &self,
-        _schema: &Schema,
+        schema: &Schema,
         instance: &FInstance,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        tabular_pathway::emit_tsv(instance, &self.protocol, &self.table_vertex, self.delimiter)
+        tabular_pathway::validate_canonical_tabular_structure(
+            instance,
+            &self.table_vertex,
+            match self.delimiter {
+                b',' => "csv",
+                b'\t' => "tsv",
+                _ => "tabular",
+            },
+        )?;
+        tabular_pathway::emit_tsv_with_schema_and_comments(
+            schema,
+            instance,
+            &self.protocol,
+            &self.table_vertex,
+            self.delimiter,
+            self.comment_prefix,
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::fmt::Display;
+
+    use panproto_inst::value::Value;
+    use panproto_schema::SchemaBuilder;
+
+    use super::*;
+    use crate::error::EmitValueReason;
+
+    fn success<T, E: Display>(result: Result<T, E>, context: &str) -> T {
+        match result {
+            Ok(value) => value,
+            Err(error) => panic!("{context}: {error}"),
+        }
+    }
+
+    fn schema() -> Schema {
+        let protocol = crate::json_pathway::protocol_definition("cassandra");
+        let builder = success(
+            SchemaBuilder::new(&protocol).vertex("rows", "table", None),
+            "table",
+        );
+        let builder = success(builder.vertex("value", "text", None), "value");
+        let builder = success(builder.edge("rows", "value", "prop", Some("value")), "edge");
+        success(builder.build(), "schema")
+    }
+
+    fn one_cell(column: &str, value: &str) -> FInstance {
+        success(
+            FInstance::new().with_table(
+                "rows",
+                vec![HashMap::from([(
+                    column.to_owned(),
+                    Value::Str(value.to_owned()),
+                )])],
+            ),
+            "table",
+        )
+    }
+
+    #[test]
+    fn canonical_tsv_refuses_lines_that_reparse_as_comments_or_blanks() {
+        let codec = TabularCodec::tsv("cassandra", "rows");
+        assert!(matches!(
+            codec.emit_functor(&schema(), &one_cell("#header", "value")),
+            Err(EmitInstanceError::Emit { message, .. })
+                if message.contains("classified")
+        ));
+        for value in ["#comment", ""] {
+            assert!(matches!(
+                codec.emit_functor(&schema(), &one_cell("value", value)),
+                Err(EmitInstanceError::Value(error))
+                    if error.reason == EmitValueReason::NotRepresentable
+                        && error.site.vertex.as_ref() == "value"
+                        && error.value_type == "str"
+            ));
+        }
     }
 }
