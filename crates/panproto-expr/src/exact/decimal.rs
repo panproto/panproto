@@ -65,6 +65,29 @@ const fn overflow() -> ExactParseError {
     ExactParseError::new(ExactKind::Decimal, FidelityReason::Overflow)
 }
 
+/// The stored exponent of a decimal lexeme: its written exponent (negative
+/// when `exponent_negative`, with significant digits `exponent_digits`) less
+/// its fractional digit count `frac_len`, or `None` when that leaves `i32`.
+///
+/// The difference is exact. A written exponent of more than twenty
+/// significant digits has magnitude at least 10^20: negative, the difference
+/// is below `i32::MIN`; positive, it exceeds `i32::MAX`, since `frac_len` is
+/// at most `u64::MAX` < 10^20 - `i32::MAX`. Twenty digits or fewer fit `i128`
+/// together with any `frac_len`.
+fn stored_exponent(exponent_negative: bool, exponent_digits: &str, frac_len: usize) -> Option<i32> {
+    if exponent_digits.len() > 20 {
+        return None;
+    }
+    let magnitude = i128::try_from(exponent_digits.parse::<u128>().ok()?).ok()?;
+    let written = if exponent_negative {
+        -magnitude
+    } else {
+        magnitude
+    };
+    let frac_len = i128::try_from(frac_len).ok()?;
+    i32::try_from(written - frac_len).ok()
+}
+
 /// Whether `text` (sign and case ignored) names a NaN or an infinity.
 fn names_non_finite(text: &str) -> bool {
     let unsigned = text.strip_prefix(['+', '-']).unwrap_or(text);
@@ -110,7 +133,9 @@ impl DecimalValue {
     /// # Errors
     ///
     /// [`FidelityReason::NonFinite`] for a NaN or infinity spelling,
-    /// [`FidelityReason::Overflow`] when the exponent leaves `i32`, and
+    /// [`FidelityReason::Overflow`] exactly when the stored exponent (the
+    /// written exponent, 0 when absent, less the number of fractional digits)
+    /// leaves `i32`, and
     /// [`FidelityReason::NotANumber`] for anything else that is not a
     /// decimal lexeme.
     pub fn parse(text: &str) -> Result<Self, ExactParseError> {
@@ -138,28 +163,22 @@ impl DecimalValue {
         {
             return Err(not_a_number());
         }
-        let written_exponent = match exponent_text {
-            None => 0_i64,
+        let (exponent_negative, exponent_digits) = match exponent_text {
+            None => (false, "0"),
             Some(e) => {
-                let (sign, magnitude) = match e.as_bytes().first() {
-                    Some(b'-') => (-1_i64, &e[1..]),
-                    Some(b'+') => (1, &e[1..]),
-                    _ => (1, e),
+                let (negative, magnitude) = match e.as_bytes().first() {
+                    Some(b'-') => (true, &e[1..]),
+                    Some(b'+') => (false, &e[1..]),
+                    _ => (false, e),
                 };
                 if magnitude.is_empty() || !all_digits(magnitude) {
                     return Err(not_a_number());
                 }
-                let magnitude = strip_leading_zeros(magnitude);
-                // Anything longer than eleven digits is outside `i32` even
-                // after the fractional digits are taken off.
-                if magnitude.len() > 11 {
-                    return Err(overflow());
-                }
-                sign * magnitude.parse::<i64>().map_err(|_| overflow())?
+                (negative, strip_leading_zeros(magnitude))
             }
         };
-        let frac_len = i64::try_from(frac_part.len()).map_err(|_| overflow())?;
-        let exponent = i32::try_from(written_exponent - frac_len).map_err(|_| overflow())?;
+        let exponent = stored_exponent(exponent_negative, exponent_digits, frac_part.len())
+            .ok_or_else(overflow)?;
         let mut digits = String::with_capacity(int_part.len() + frac_part.len());
         digits.push_str(int_part);
         digits.push_str(frac_part);
@@ -331,6 +350,72 @@ impl std::fmt::Display for DecimalValue {
         } else {
             let (int, frac) = self.digits.split_at(self.digits.len() - scale);
             write!(f, "{int}.{frac}")
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn stored_exponent_is_exact_at_the_i32_bounds() {
+        // A twelve-digit written exponent comes back into range once enough
+        // fractional digits are taken off: 10^11 - 97852516353 = i32::MAX.
+        assert_eq!(
+            stored_exponent(false, "100000000000", 97_852_516_353),
+            Some(i32::MAX)
+        );
+        assert_eq!(stored_exponent(false, "100000000000", 97_852_516_352), None);
+        // The bounds are reached exactly, with and without fractional digits.
+        assert_eq!(stored_exponent(false, "2147483647", 0), Some(i32::MAX));
+        assert_eq!(stored_exponent(true, "2147483648", 0), Some(i32::MIN));
+        assert_eq!(stored_exponent(false, "2147483648", 1), Some(i32::MAX));
+        assert_eq!(stored_exponent(true, "2147483647", 1), Some(i32::MIN));
+        assert_eq!(stored_exponent(false, "0", 0), Some(0));
+        assert_eq!(stored_exponent(true, "0", 3), Some(-3));
+        // Just outside the bounds.
+        assert_eq!(stored_exponent(false, "2147483648", 0), None);
+        assert_eq!(stored_exponent(true, "2147483649", 0), None);
+        assert_eq!(stored_exponent(true, "2147483648", 1), None);
+        assert_eq!(stored_exponent(false, "0", 2_147_483_649), None);
+        // Long exponents: twenty digits are computed, more are refused
+        // whatever the fractional digit count.
+        assert_eq!(stored_exponent(false, "100000000000000000000", 0), None);
+        assert_eq!(
+            stored_exponent(false, "100000000000000000000", usize::MAX),
+            None
+        );
+        assert_eq!(stored_exponent(true, "100000000000000000000", 0), None);
+        assert_eq!(
+            stored_exponent(false, "99999999999999999999", usize::MAX),
+            None
+        );
+        assert_eq!(stored_exponent(true, "99999999999999999999", 0), None);
+        // Every exponent refused by the eleven-digit length rule with a
+        // fractional digit count that leaves it outside `i32` stays refused.
+        assert_eq!(stored_exponent(false, "999999999999", 0), None);
+        assert_eq!(stored_exponent(true, "100000000000", 0), None);
+        assert_eq!(stored_exponent(false, "99999999999", 0), None);
+        assert_eq!(stored_exponent(true, "99999999999", 0), None);
+    }
+
+    #[test]
+    fn parse_refuses_exactly_outside_the_stored_exponent_range() {
+        let exponent = |text: &str| DecimalValue::parse(text).map(|value| value.exponent);
+        assert_eq!(exponent("1e2147483647"), Ok(i32::MAX));
+        assert_eq!(exponent("0.1e2147483648"), Ok(i32::MAX));
+        assert_eq!(exponent("1e-2147483648"), Ok(i32::MIN));
+        assert_eq!(exponent("1e000000000002147483647"), Ok(i32::MAX));
+        for text in [
+            "1e2147483648",
+            "1.5e-2147483648",
+            "1e99999999999",
+            "1e100000000000",
+            "1e99999999999999999999999",
+            "1e-99999999999999999999999",
+        ] {
+            assert_eq!(exponent(text), Err(overflow()), "{text}");
         }
     }
 }
