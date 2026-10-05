@@ -40,3 +40,18 @@ default-filter = 'not test(/corpus_verified_protocols_round_trip_full_corpus|str
 # around four minutes; the whole-corpus gates are excluded from this profile
 # by `default-filter` above and so are unaffected.
 slow-timeout = { period = "60s", terminate-after = 10, grace-period = "5s" }
+
+# The scaling tests of panproto-inst (every test named `*_not_charged_per_*`)
+# compare a workload's time at two sizes. Their measure is built to resist
+# machine load: it takes least times over interleaved repetitions and
+# normalises the large run by repeated small runs over windows of the same
+# length (`crates/panproto-inst/tests/common/mod.rs`). Running each of them
+# while no other test of the run holds a thread removes the load the suite
+# itself adds, and `max-threads = 1` keeps two of them from overlapping.
+[test-groups]
+scaling = { max-threads = 1 }
+
+[[profile.default.overrides]]
+filter = 'package(panproto-inst) & test(/_not_charged_per_/)'
+test-group = 'scaling'
+threads-required = 'num-cpus'
