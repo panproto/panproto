@@ -6047,18 +6047,25 @@ mod tests {
                 other => panic!("{token} must be refused, got {other:?}"),
             }
         };
-        // serde_json stops after the closing quote, eight bytes into the
-        // token; the message places that stop in the document.
+        // The hex escape ends at the closing quote, seven bytes into the
+        // token; the message places that offending byte in the document.
         assert_eq!(
             message(r#""\ud800""#, Some("11")),
-            "invalid JSON string token at byte 11: unexpected end of hex escape at byte 19"
+            "invalid JSON string token at byte 11: unexpected end of hex escape at byte 18"
         );
-        // Without a recorded start the stop is given within the token, and
-        // no `Option` debug text appears.
+        // Without a recorded start the offending byte is given within the
+        // token, and no `Option` debug text appears.
         assert_eq!(
             message(r#""\ud800""#, None),
             "invalid JSON string token at an unrecorded byte: unexpected end of hex escape \
-             at byte 8 of the token"
+             at byte 7 of the token"
+        );
+        // A raw line feed (serde_json's line 2, column 0) is byte 2 of the
+        // token, the line feed itself.
+        assert_eq!(
+            message("\"a\nb\"", Some("11")),
+            "invalid JSON string token at byte 11: control character (\\u0000-\\u001F) found \
+             while parsing a string at byte 13"
         );
     }
 

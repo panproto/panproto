@@ -167,14 +167,18 @@ enum RawJson<'a> {
 }
 
 /// The reason `serde_json` gives for refusing the JSON string `token`, and the
-/// byte offset within `token` at which it stopped, if it reports one.
+/// offset within `token` of the offending byte, if it reports a position.
 ///
-/// `serde_json` places an error at a line (1-based) and a column (the count of
-/// bytes since that line's start) of the slice it decoded, and its `Display`
-/// appends ` at line L column C` to the reason whenever the line is nonzero.
-/// Decoding a single token, that position is relative to the token, so the
-/// reason is returned without it and the position is returned as a token
-/// offset for the caller to place in the document.
+/// `serde_json` places an error at a line and a column, both one-based, of
+/// the slice it decoded, and its `Display` appends ` at line L column C` to
+/// the reason whenever the line is nonzero. Column C counts the bytes of line
+/// L read up to and including the offending byte, so that byte is at offset
+/// C - 1 from the line's start; column 0 on a line after the first means the
+/// offending byte is the line feed that ends the line before. Decoding a
+/// single token, that position is relative to the token, so the reason is
+/// returned without it and the offending byte is returned as a token offset
+/// for the caller to place in the document. Column 0 on line 1 names no byte
+/// and gives no offset.
 pub(crate) fn json_string_token_error(
     token: &[u8],
     error: &serde_json::Error,
@@ -196,7 +200,8 @@ pub(crate) fn json_string_token_error(
             .nth(line - 2)
             .map(|(index, _)| index + 1)
     };
-    (reason, line_start.map(|start| start + error.column()))
+    let offending = line_start.and_then(|start| (start + error.column()).checked_sub(1));
+    (reason, offending)
 }
 
 struct RawJsonParser<'a> {
@@ -1983,17 +1988,29 @@ mod tests {
             message(b"{\"integer\":@}"),
             "unexpected JSON byte 0x40 at byte 11"
         );
-        // A string error is placed in the document, not in the string slice:
-        // the token starts at byte 11 and serde_json stops after its closing
-        // quote, at byte 19.
+        // A string error is placed in the document, not in the string slice,
+        // at the offending byte. The token spans bytes 11-18 and the hex
+        // escape ends at its closing quote, byte 18.
         assert_eq!(
             message(br#"{"integer":"\ud800"}"#),
-            "invalid JSON string at byte 11: unexpected end of hex escape at byte 19"
+            "invalid JSON string at byte 11: unexpected end of hex escape at byte 18"
         );
-        // A raw line feed inside a string is a control character; the stop
-        // offset counts the bytes of every line before it.
+        // The invalid escape character `q` is byte 13.
+        assert_eq!(
+            message(br#"{"integer":"\q"}"#),
+            "invalid JSON string at byte 11: invalid escape at byte 13"
+        );
+        // A raw line feed inside a string is a control character. serde_json
+        // reports it at column 0 of line 2; the offending byte is the line
+        // feed itself, byte 13.
         assert_eq!(
             message(b"{\"integer\":\"a\nb\"}"),
+            "invalid JSON string at byte 11: control character (\\u0000-\\u001F) found while \
+             parsing a string at byte 13"
+        );
+        // The control character 0x01 is byte 14.
+        assert_eq!(
+            message(b"{\"integer\":\"ab\x01\"}"),
             "invalid JSON string at byte 11: control character (\\u0000-\\u001F) found while \
              parsing a string at byte 14"
         );
