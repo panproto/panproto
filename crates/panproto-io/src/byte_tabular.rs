@@ -26,10 +26,10 @@
 use std::collections::HashMap;
 
 use panproto_inst::value::Value;
-use panproto_inst::{FInstance, WInstance};
+use panproto_inst::{FInstance, RowId, ValueSite, WInstance};
 use panproto_schema::Schema;
 
-use crate::error::{EmitInstanceError, ParseInstanceError};
+use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason, ParseInstanceError};
 use crate::traits::{InstanceEmitter, InstanceParser, NativeRepr};
 
 /// Positional cell-name prefix used in the `FInstance` rows.
@@ -59,6 +59,9 @@ struct LineRecord {
 pub struct ByteTabularComplement {
     lines: Vec<LineRecord>,
     delimiter: u8,
+    protocol: String,
+    table_vertex: String,
+    comment_prefix: Option<u8>,
 }
 
 /// A byte-faithful codec for a single delimiter character.
@@ -108,6 +111,12 @@ impl ByteTabularCodec {
         &self,
         input: &[u8],
     ) -> Result<(FInstance, ByteTabularComplement), ParseInstanceError> {
+        if matches!(self.delimiter, b'\n' | b'\r') {
+            return Err(ParseInstanceError::Parse {
+                protocol: self.protocol.clone(),
+                message: "a line delimiter cannot also be the field delimiter".to_owned(),
+            });
+        }
         let lines = split_lines_with_endings(input);
         let mut records = Vec::with_capacity(lines.len());
         let mut rows: Vec<HashMap<String, Value>> = Vec::new();
@@ -150,6 +159,9 @@ impl ByteTabularCodec {
         let complement = ByteTabularComplement {
             lines: records,
             delimiter: self.delimiter,
+            protocol: self.protocol.clone(),
+            table_vertex: self.table_vertex.clone(),
+            comment_prefix: self.comment_prefix,
         };
         Ok((instance, complement))
     }
@@ -166,15 +178,33 @@ impl ByteTabularCodec {
     ///
     /// # Errors
     ///
-    /// This emit is total: a table the instance does not hold has no rows,
-    /// so its data lines replay verbatim. The `Result` is retained for
-    /// signature symmetry with the other codecs.
+    /// Returns a structured error when rows, row identities, or columns no
+    /// longer match the preserved source layout, or when an edited value has
+    /// no faithful single-field representation.
     pub fn emit(
         &self,
         instance: &FInstance,
         complement: &ByteTabularComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        if matches!(self.delimiter, b'\n' | b'\r') {
+            return Err(EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: "a line delimiter cannot also be the field delimiter".to_owned(),
+            });
+        }
+        if complement.delimiter != self.delimiter
+            || complement.protocol != self.protocol
+            || complement.table_vertex != self.table_vertex
+            || complement.comment_prefix != self.comment_prefix
+        {
+            return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                format: "byte-tabular".to_owned(),
+                detail: "the complement belongs to a different codec configuration".to_owned(),
+            });
+        }
         let rows = instance.rows(&self.table_vertex);
+        validate_preserved_structure(instance, &rows, complement, &self.table_vertex)?;
+        reject_labeled_nulls(&rows)?;
 
         let mut output = Vec::with_capacity(complement.lines.len() * 16);
         let mut data_idx = 0usize;
@@ -187,10 +217,15 @@ impl ByteTabularCodec {
             }
 
             // Pair this data line with the next instance row in row-id order.
-            let row = rows.get(data_idx).map(|(_, r)| *r);
+            let row = rows.get(data_idx).copied();
             data_idx += 1;
 
-            let updated = row.and_then(|r| splice_line(line, r, complement.delimiter));
+            let updated = match row {
+                Some((row_id, row)) => {
+                    splice_line(line, row_id, row, complement.delimiter, self.comment_prefix)?
+                }
+                None => None,
+            };
             match updated {
                 Some(bytes) => output.extend_from_slice(&bytes),
                 None => output.extend_from_slice(&line.raw),
@@ -202,10 +237,94 @@ impl ByteTabularCodec {
     }
 }
 
+fn validate_preserved_structure(
+    instance: &FInstance,
+    rows: &[(RowId, &HashMap<String, Value>)],
+    complement: &ByteTabularComplement,
+    table_vertex: &str,
+) -> Result<(), EmitInstanceError> {
+    let data_lines: Vec<_> = complement
+        .lines
+        .iter()
+        .filter(|line| line.is_data)
+        .collect();
+    let expected_tables: Vec<&str> = if data_lines.is_empty() {
+        Vec::new()
+    } else {
+        vec![table_vertex]
+    };
+    let actual_tables: Vec<_> = instance
+        .table_names()
+        .into_iter()
+        .map(AsRef::as_ref)
+        .collect();
+    if actual_tables != expected_tables {
+        return Err(EmitInstanceError::UnsupportedStructuralEdit {
+            format: "byte-tabular".to_owned(),
+            detail: "the set of non-empty tables changed".to_owned(),
+        });
+    }
+    if instance.pair_count() != 0 {
+        return Err(EmitInstanceError::UnsupportedStructuralEdit {
+            format: "byte-tabular".to_owned(),
+            detail: "foreign-key pairs cannot be written to a delimited source".to_owned(),
+        });
+    }
+    if rows.len() != data_lines.len() {
+        return Err(EmitInstanceError::UnsupportedStructuralEdit {
+            format: "byte-tabular".to_owned(),
+            detail: format!(
+                "data row count changed from {} to {}",
+                data_lines.len(),
+                rows.len()
+            ),
+        });
+    }
+    for (index, ((row_id, row), line)) in rows.iter().zip(data_lines).enumerate() {
+        let expected_id = u32::try_from(index).map(RowId).map_err(|_| {
+            EmitInstanceError::UnsupportedStructuralEdit {
+                format: "byte-tabular".to_owned(),
+                detail: "source has more rows than row ids can address".to_owned(),
+            }
+        })?;
+        if *row_id != expected_id {
+            return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                format: "byte-tabular".to_owned(),
+                detail: format!(
+                    "row at source position {index} has id {} rather than {}",
+                    row_id.0, expected_id.0
+                ),
+            });
+        }
+        for column in row.keys() {
+            let supported = column
+                .strip_prefix(COL_PREFIX)
+                .and_then(|suffix| suffix.parse::<usize>().ok())
+                .is_some_and(|column_index| {
+                    column == &format!("{COL_PREFIX}{column_index}")
+                        && column_index < line.fields.len()
+                });
+            if !supported {
+                return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                    format: "byte-tabular".to_owned(),
+                    detail: format!("row {} added unaddressed column '{column}'", row_id.0),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Rebuild a data line from a possibly-edited instance row, or return `None`
 /// when every cell is byte-identical to the recorded original (so the caller
 /// can replay the raw bytes verbatim).
-fn splice_line(line: &LineRecord, row: &HashMap<String, Value>, delimiter: u8) -> Option<Vec<u8>> {
+fn splice_line(
+    line: &LineRecord,
+    row_id: RowId,
+    row: &HashMap<String, Value>,
+    delimiter: u8,
+    comment_prefix: Option<u8>,
+) -> Result<Option<Vec<u8>>, EmitInstanceError> {
     let mut changed = false;
     let mut out_fields: Vec<Vec<u8>> = Vec::with_capacity(line.fields.len());
 
@@ -213,18 +332,30 @@ fn splice_line(line: &LineRecord, row: &HashMap<String, Value>, delimiter: u8) -
         let key = format!("{COL_PREFIX}{i}");
         match row.get(&key) {
             Some(value) => {
-                let bytes = value_bytes(value);
+                if value_matches_original_bytes(value, original) {
+                    out_fields.push(original.clone());
+                    continue;
+                }
+                let bytes = value_bytes(value, row_id, &key, delimiter)?;
                 if &bytes != original {
                     changed = true;
                 }
                 out_fields.push(bytes);
             }
-            None => out_fields.push(original.clone()),
+            None => {
+                return Err(EmitValueError::new(
+                    ValueSite::new(key.as_str(), None),
+                    "absent",
+                    "byte-tabular",
+                    EmitValueReason::AbsentNotRepresentable,
+                )
+                .into());
+            }
         }
     }
 
     if !changed {
-        return None;
+        return Ok(None);
     }
 
     let mut bytes = Vec::new();
@@ -234,7 +365,35 @@ fn splice_line(line: &LineRecord, row: &HashMap<String, Value>, delimiter: u8) -
         }
         bytes.extend_from_slice(field);
     }
-    Some(bytes)
+    reject_line_reclassified_as_non_data(&bytes, row, comment_prefix)?;
+    Ok(Some(bytes))
+}
+
+fn reject_line_reclassified_as_non_data(
+    bytes: &[u8],
+    row: &HashMap<String, Value>,
+    comment_prefix: Option<u8>,
+) -> Result<(), EmitInstanceError> {
+    if !bytes.is_empty() && comment_prefix.is_none_or(|prefix| bytes.first() != Some(&prefix)) {
+        return Ok(());
+    }
+
+    let value = row.get("col_0");
+    Err(EmitValueError::new(
+        ValueSite::new("col_0", None),
+        value.map_or("absent", Value::type_name),
+        "byte-tabular",
+        EmitValueReason::NotRepresentable,
+    )
+    .into())
+}
+
+fn value_matches_original_bytes(value: &Value, original: &[u8]) -> bool {
+    match value {
+        Value::Str(value) => value.as_bytes() == original,
+        Value::Bytes(value) => std::str::from_utf8(original).is_err() && value == original,
+        _ => false,
+    }
 }
 
 /// Surface one field's bytes as a [`Value`].
@@ -253,15 +412,124 @@ fn cell_value(field: &[u8]) -> Value {
 }
 
 /// Render a [`Value`] to its byte form for splicing into a delimited line.
-fn value_bytes(value: &Value) -> Vec<u8> {
-    match value {
-        Value::Str(s) => s.clone().into_bytes(),
-        Value::Int(n) => n.to_string().into_bytes(),
-        Value::Float(f) => f.to_string().into_bytes(),
-        Value::Bool(b) => if *b { "true" } else { "false" }.as_bytes().to_vec(),
-        Value::Bytes(b) => b.clone(),
-        other => format!("{other:?}").into_bytes(),
+fn value_bytes(
+    value: &Value,
+    row: RowId,
+    column: &str,
+    delimiter: u8,
+) -> Result<Vec<u8>, EmitInstanceError> {
+    let site = || ValueSite::new(column, None);
+    let bytes = match value {
+        Value::Str(s) => Ok(s.clone().into_bytes()),
+        Value::Float(number) if !number.is_finite() => Err(EmitValueError::new(
+            site(),
+            value.type_name(),
+            "byte-tabular",
+            EmitValueReason::NonFinite,
+        )
+        .into()),
+        Value::Bytes(bytes) if std::str::from_utf8(bytes).is_err() => Ok(bytes.clone()),
+        Value::Null => Err(EmitValueError::new(
+            site(),
+            value.type_name(),
+            "byte-tabular",
+            EmitValueReason::NullNotRepresentable,
+        )
+        .into()),
+        Value::LabeledNull(_) => Err(EmitInstanceError::LabeledNull {
+            row,
+            column: column.to_owned(),
+        }),
+        other => Err(EmitValueError::new(
+            site(),
+            other.type_name(),
+            "byte-tabular",
+            EmitValueReason::NotRepresentable,
+        )
+        .into()),
+    }?;
+    if bytes.contains(&delimiter) || bytes.contains(&b'\r') || bytes.contains(&b'\n') {
+        return Err(EmitValueError::new(
+            site(),
+            value.type_name(),
+            "byte-tabular",
+            EmitValueReason::NotRepresentable,
+        )
+        .into());
     }
+    Ok(bytes)
+}
+
+fn contains_labeled_null(value: &Value) -> bool {
+    let mut pending = vec![value];
+    while let Some(value) = pending.pop() {
+        match value {
+            Value::LabeledNull(_) => return true,
+            Value::Opaque { fields, .. } | Value::Unknown(fields) => {
+                pending.extend(fields.values());
+            }
+            Value::List(items) => pending.extend(items),
+            _ => {}
+        }
+    }
+    false
+}
+
+fn reject_labeled_nulls(
+    rows: &[(RowId, &HashMap<String, Value>)],
+) -> Result<(), EmitInstanceError> {
+    for (row_id, row) in rows {
+        let mut columns: Vec<_> = row.keys().collect();
+        columns.sort();
+        for column in columns {
+            if row.get(column).is_some_and(contains_labeled_null) {
+                return Err(EmitInstanceError::LabeledNull {
+                    row: *row_id,
+                    column: column.clone(),
+                });
+            }
+        }
+    }
+    Ok(())
+}
+
+fn canonical_positional_fields(
+    row_id: RowId,
+    row: &HashMap<String, Value>,
+) -> Result<Vec<&Value>, EmitInstanceError> {
+    let mut indexed = Vec::with_capacity(row.len());
+    for (column, value) in row {
+        let Some(index) = column
+            .strip_prefix(COL_PREFIX)
+            .and_then(|suffix| suffix.parse::<usize>().ok())
+            .filter(|index| column == &format!("{COL_PREFIX}{index}"))
+        else {
+            return Err(EmitInstanceError::UnsupportedStructuralEdit {
+                format: "byte-tabular".to_owned(),
+                detail: format!("row {} has non-positional column '{column}'", row_id.0),
+            });
+        };
+        indexed.push((index, value));
+    }
+    indexed.sort_unstable_by_key(|(index, _)| *index);
+
+    let expected_len = indexed.len().max(1);
+    for expected in 0..expected_len {
+        if indexed
+            .get(expected)
+            .is_none_or(|(actual, _)| *actual != expected)
+        {
+            let column = format!("{COL_PREFIX}{expected}");
+            return Err(EmitValueError::new(
+                ValueSite::new(column.as_str(), None),
+                "absent",
+                "byte-tabular",
+                EmitValueReason::AbsentNotRepresentable,
+            )
+            .into());
+        }
+    }
+    Ok(indexed.into_iter().map(|(_, value)| value).collect())
 }
 
 /// Split input into `(content, line_ending)` pairs.
@@ -361,23 +629,38 @@ impl InstanceEmitter for ByteTabularCodec {
         _schema: &Schema,
         instance: &FInstance,
     ) -> Result<Vec<u8>, EmitInstanceError> {
+        if matches!(self.delimiter, b'\n' | b'\r') {
+            return Err(EmitInstanceError::Emit {
+                protocol: self.protocol.clone(),
+                message: "a line delimiter cannot also be the field delimiter".to_owned(),
+            });
+        }
         // Without a complement there is nothing to replay; rebuild a canonical
         // delimited file from the positional cells. This is the non-preserving
         // fallback used by the generic `InstanceEmitter` seam; the byte-faithful
         // path is `emit` with a complement.
+        crate::tabular_pathway::validate_canonical_tabular_structure(
+            instance,
+            &self.table_vertex,
+            "byte-tabular",
+        )?;
         let rows = instance.rows(&self.table_vertex);
+        reject_labeled_nulls(&rows)?;
         let mut output = Vec::new();
-        for (_, row) in rows {
-            let mut i = 0usize;
-            loop {
+        for (row_id, row) in rows {
+            let mut line = Vec::new();
+            for (i, value) in canonical_positional_fields(row_id, row)?
+                .into_iter()
+                .enumerate()
+            {
                 let key = format!("{COL_PREFIX}{i}");
-                let Some(value) = row.get(&key) else { break };
                 if i > 0 {
-                    output.push(self.delimiter);
+                    line.push(self.delimiter);
                 }
-                output.extend_from_slice(&value_bytes(value));
-                i += 1;
+                line.extend_from_slice(&value_bytes(value, row_id, &key, self.delimiter)?);
             }
+            reject_line_reclassified_as_non_data(&line, row, self.comment_prefix)?;
+            output.extend_from_slice(&line);
             output.push(b'\n');
         }
         Ok(output)
@@ -400,6 +683,63 @@ mod tests {
         let (inst, comp) = c.parse(input).unwrap();
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, input);
+    }
+
+    #[test]
+    fn a_complement_cannot_be_replayed_through_another_codec_configuration() {
+        let source = ByteTabularCodec::new("source", "rows", b'|', Some(b'#'));
+        let target = ByteTabularCodec::new("target", "rows", b',', None);
+        let (instance, complement) = source.parse(b"left|right\n").unwrap();
+
+        assert!(matches!(
+            target.emit(&instance, &complement),
+            Err(EmitInstanceError::UnsupportedStructuralEdit {
+                ref format,
+                ..
+            }) if format == "byte-tabular"
+        ));
+    }
+
+    #[test]
+    fn a_literal_underscore_is_not_absence() {
+        let c = codec();
+        let (mut instance, complement) = c.parse(b"key value\n").unwrap();
+        let row = instance.table("entries").unwrap().ids()[0];
+        instance
+            .row_mut(row)
+            .unwrap()
+            .insert("col_1".into(), Value::Str("_".into()));
+        let emitted = c.emit(&instance, &complement).unwrap();
+        assert_eq!(emitted, b"key _\n");
+        let (reparsed, _) = c.parse(&emitted).unwrap();
+        assert_eq!(
+            reparsed.rows("entries")[0].1.get("col_1"),
+            Some(&Value::Str("_".into()))
+        );
+    }
+
+    #[test]
+    fn a_line_delimiter_cannot_also_split_fields() {
+        let codec = ByteTabularCodec::new("redis", "entries", b'\n', None);
+        assert!(matches!(
+            codec.parse(b"left\nright\n"),
+            Err(ParseInstanceError::Parse { ref message, .. })
+                if message.contains("line delimiter")
+        ));
+        let instance = FInstance::new()
+            .with_table(
+                "entries",
+                vec![HashMap::from([
+                    ("col_0".to_owned(), Value::Str("left".into())),
+                    ("col_1".to_owned(), Value::Str("right".into())),
+                ])],
+            )
+            .expect("table");
+        assert!(matches!(
+            codec.emit_functor(&Schema::default(), &instance),
+            Err(EmitInstanceError::Emit { message, .. })
+                if message.contains("line delimiter")
+        ));
     }
 
     #[test]
@@ -459,6 +799,115 @@ mod tests {
     }
 
     #[test]
+    fn edits_cannot_turn_a_data_row_into_a_comment_or_blank_line() {
+        let c = ByteTabularCodec::new("p", "t", b' ', Some(b'#'));
+        for replacement in ["# lost", ""] {
+            let (mut instance, complement) = c.parse(b"value\n").unwrap();
+            instance
+                .row_mut(RowId(0))
+                .unwrap()
+                .insert("col_0".into(), Value::Str(replacement.into()));
+
+            assert!(matches!(
+                c.emit(&instance, &complement),
+                Err(EmitInstanceError::Value(EmitValueError {
+                    reason: EmitValueReason::NotRepresentable,
+                    ..
+                }))
+            ));
+        }
+    }
+
+    #[test]
+    fn a_comment_prefix_outside_the_first_field_round_trips_as_data() {
+        let c = ByteTabularCodec::new("p", "t", b' ', Some(b'#'));
+        let (mut instance, complement) = c.parse(b"key value\n").unwrap();
+        instance
+            .row_mut(RowId(0))
+            .unwrap()
+            .insert("col_1".into(), Value::Str("#kept".into()));
+
+        let emitted = c.emit(&instance, &complement).unwrap();
+        let (reparsed, _) = c.parse(&emitted).unwrap();
+        assert_eq!(reparsed.row_count("t"), 1);
+        assert_eq!(
+            reparsed.rows("t")[0].1.get("col_1"),
+            Some(&Value::Str("#kept".into()))
+        );
+    }
+
+    fn assert_structural_refusal(
+        codec: &ByteTabularCodec,
+        instance: &FInstance,
+        complement: &ByteTabularComplement,
+    ) {
+        assert!(matches!(
+            codec.emit(instance, complement),
+            Err(EmitInstanceError::UnsupportedStructuralEdit {
+                ref format,
+                ..
+            }) if format == "byte-tabular"
+        ));
+    }
+
+    #[test]
+    fn structural_row_and_column_edits_are_refused_instead_of_replayed() {
+        let c = codec();
+        let (original, complement) = c.parse(b"first a\nmiddle b\nlast c\n").unwrap();
+
+        for row in [RowId(0), RowId(1), RowId(2)] {
+            let mut removed = original.clone();
+            assert!(removed.remove_row(row).is_some());
+            assert_structural_refusal(&c, &removed, &complement);
+        }
+
+        let mut added = original.clone();
+        added
+            .push_row(
+                "entries",
+                HashMap::from([("col_0".to_owned(), Value::Str("extra".to_owned()))]),
+            )
+            .unwrap();
+        assert_structural_refusal(&c, &added, &complement);
+
+        let mut replaced_row_identity = original.clone();
+        let (_, row, _) = replaced_row_identity.remove_row(RowId(0)).unwrap();
+        replaced_row_identity.push_row("entries", row).unwrap();
+        assert_structural_refusal(&c, &replaced_row_identity, &complement);
+
+        let mut extra_column = original;
+        extra_column
+            .row_mut(RowId(1))
+            .unwrap()
+            .insert("col_2".to_owned(), Value::Str("extra".to_owned()));
+        assert_structural_refusal(&c, &extra_column, &complement);
+    }
+
+    #[test]
+    fn canonical_emission_refuses_a_gap_in_positional_columns() {
+        let instance = FInstance::new()
+            .with_table(
+                "entries",
+                vec![HashMap::from([
+                    ("col_0".to_owned(), Value::Str("kept".to_owned())),
+                    (
+                        "col_2".to_owned(),
+                        Value::Str("must not disappear".to_owned()),
+                    ),
+                ])],
+            )
+            .unwrap();
+
+        assert!(matches!(
+            codec().emit_functor(&Schema::default(), &instance),
+            Err(EmitInstanceError::Value(EmitValueError {
+                reason: EmitValueReason::AbsentNotRepresentable,
+                ..
+            }))
+        ));
+    }
+
+    #[test]
     fn non_utf8_cells_round_trip_byte_identically() {
         // EDI X12 and SWIFT MT carry latin-1 payloads. A cell that is not
         // valid UTF-8 surfaces as `Value::Bytes` and replays verbatim.
@@ -485,6 +934,50 @@ mod tests {
             .insert("col_1".into(), Value::Str("cafe".into()));
         let out = c.emit(&inst, &comp).unwrap();
         assert_eq!(out, b"ISA*cafe*00\n");
+    }
+
+    #[test]
+    fn the_byte_tabular_codec_refuses_a_labelled_null() {
+        let input = b"key value\n";
+        let c = codec();
+        let (mut instance, complement) = c.parse(input).unwrap();
+        let row = instance.table("entries").unwrap().ids()[0];
+        instance
+            .row_mut(row)
+            .unwrap()
+            .insert("col_1".into(), Value::LabeledNull(3));
+
+        let error = c.emit(&instance, &complement).expect_err("must refuse");
+        assert!(matches!(
+            error,
+            EmitInstanceError::LabeledNull { ref column, .. } if column == "col_1"
+        ));
+    }
+
+    #[test]
+    fn byte_tabular_labelled_null_refusal_uses_row_then_column_order() {
+        let c = codec();
+        let (mut instance, complement) = c.parse(b"first row\nsecond row\n").unwrap();
+        let rows = instance.table("entries").unwrap().ids();
+        instance
+            .row_mut(rows[1])
+            .unwrap()
+            .insert("col_0".into(), Value::LabeledNull(1));
+        instance
+            .row_mut(rows[0])
+            .unwrap()
+            .insert("col_1".into(), Value::LabeledNull(2));
+        instance
+            .row_mut(rows[0])
+            .unwrap()
+            .insert("col_0".into(), Value::LabeledNull(3));
+
+        let error = c.emit(&instance, &complement).expect_err("must refuse");
+        assert!(matches!(
+            error,
+            EmitInstanceError::LabeledNull { row, ref column }
+                if row == rows[0] && column == "col_0"
+        ));
     }
 
     #[test]

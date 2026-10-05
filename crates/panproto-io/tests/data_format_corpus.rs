@@ -23,15 +23,18 @@
 //!   original layout as a complement and replays it, splicing only changed
 //!   cell values.
 
-#![cfg(feature = "tree-sitter")]
 #![allow(clippy::expect_used, clippy::unwrap_used, clippy::too_many_lines)]
 
 use panproto_inst::value::Value;
 use panproto_io::byte_tabular::ByteTabularCodec;
+#[cfg(feature = "tree-sitter")]
 use panproto_io::unified_codec::UnifiedCodec;
+#[cfg(feature = "tree-sitter")]
 use panproto_schema::{Protocol, SchemaBuilder};
+#[cfg(feature = "tree-sitter")]
 use std::path::{Path, PathBuf};
 
+#[cfg(feature = "tree-sitter")]
 fn generic_schema() -> panproto_schema::Schema {
     let proto = Protocol {
         name: "fixture".into(),
@@ -46,6 +49,7 @@ fn generic_schema() -> panproto_schema::Schema {
         .expect("build schema")
 }
 
+#[cfg(feature = "tree-sitter")]
 fn collect_fixtures(dir: &Path, out: &mut Vec<PathBuf>) {
     for entry in std::fs::read_dir(dir).expect("read fixtures dir") {
         let path = entry.expect("dir entry").path();
@@ -58,51 +62,151 @@ fn collect_fixtures(dir: &Path, out: &mut Vec<PathBuf>) {
 }
 
 /// Configuration for a delimited line-oriented (non-tree-sitter) format.
+#[cfg(feature = "tree-sitter")]
 struct DelimitedConfig {
     table: &'static str,
     delimiter: u8,
     comment_prefix: Option<u8>,
 }
 
-/// Resolve the [`ByteTabularCodec`] configuration for a fixture, keyed by the
-/// family directory or extension. Returns `None` for fixtures handled by a
-/// tree-sitter codec (JSON/XML/YAML/TOML/TSV).
-fn delimited_config(label: &str) -> Option<DelimitedConfig> {
-    // CoNLL-U: tab-delimited, `#` comment lines, blank-line boundaries.
-    if label.ends_with(".conllu") {
-        return Some(DelimitedConfig {
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+enum FixtureRoute {
+    Json,
+    Xml,
+    Yaml,
+    AmrTsv,
+    Delimited,
+}
+
+/// Select a syntax from the protocol declaration, never from the fixture's
+/// suffix. In particular, JSON-shaped fixtures for YAML-native protocols
+/// remain YAML inputs because JSON is a YAML subset.
+fn fixture_route(protocol: &str) -> FixtureRoute {
+    match protocol {
+        "asyncapi" | "raml" | "ansible" | "k8s-crd" | "cloudformation" => FixtureRoute::Yaml,
+        "elan" | "folia" | "iso-space" | "laf-graf" | "naf" | "paula" | "tei" | "timeml"
+        | "uima" | "rss-atom" | "docx" | "odf" => FixtureRoute::Xml,
+        "amr" => FixtureRoute::AmrTsv,
+        "conllu" | "redis" | "swift-mt" | "edi-x12" => FixtureRoute::Delimited,
+        _ => FixtureRoute::Json,
+    }
+}
+
+/// Name the protocol whose fixture `label` exercises.
+///
+/// This table is intentionally explicit. A suffix such as `.json` does not
+/// determine the codec: JSON is valid YAML, and the YAML-native protocols
+/// have both JSON-shaped and block-YAML fixtures. Routing by suffix would
+/// therefore test the old JSON registration rather than the protocol route.
+fn fixture_protocol(label: &str) -> Option<&'static str> {
+    let protocol = match label {
+        path if path.starts_with("amr/") || path == "annotation/amr_graph.tsv" => "amr",
+        path if path.starts_with("conllu/") || path == "annotation/sample.conllu" => "conllu",
+        path if path.starts_with("redis/") || path == "database/redis_resp.txt" => "redis",
+        path if path.starts_with("edi_x12/") || path == "domain/edi_x12_850.txt" => "edi-x12",
+        path if path.starts_with("swift_mt/") || path == "domain/swift_mt103.txt" => "swift-mt",
+        "annotation/bead_experiment.json" => "bead",
+        "annotation/brat_annotation.json" => "brat",
+        "annotation/concrete_comm.json" => "concrete",
+        "annotation/decomp_annotation.json" => "decomp",
+        "annotation/elan_annotation.xml" => "elan",
+        "annotation/folia_document.xml" => "folia",
+        "annotation/fovea_annotation.json" => "fovea",
+        "annotation/iso_space_document.xml" => "iso-space",
+        "annotation/laf_graf_annotation.xml" => "laf-graf",
+        "annotation/naf_document.xml" => "naf",
+        "annotation/nif_document.json" => "nif",
+        "annotation/paula_annotation.xml" => "paula",
+        "annotation/tei_document.xml" => "tei",
+        "annotation/timeml_document.xml" => "timeml",
+        "annotation/ucca_passage.json" => "ucca",
+        "annotation/uima_cas.xml" => "uima",
+        "annotation/web_annotation.json" => "web-annotation",
+        path if path.starts_with("api/asyncapi_") => "asyncapi",
+        path if path.starts_with("api/jsonapi_") => "jsonapi",
+        path if path.starts_with("api/openapi_") => "openapi",
+        path if path.starts_with("api/raml_") => "raml",
+        path if path.starts_with("config/ansible_") => "ansible",
+        path if path.starts_with("config/cloudformation_") => "cloudformation",
+        path if path.starts_with("config/k8s_") => "k8s-crd",
+        "data_schema/bson_instance.json" => "bson",
+        "data_schema/cddl_instance.json" => "cddl",
+        "data_science/arrow_batch.json" => "arrow",
+        "data_science/dataframe_instance.json" => "dataframe",
+        "data_science/parquet_record.json" => "parquet",
+        "database/cassandra_rows.json" => "cassandra",
+        "database/dynamodb_item.json" => "dynamodb",
+        "database/mongodb_document.json" => "mongodb",
+        "database/neo4j_result.json" => "neo4j",
+        "domain/atom_feed.xml" | "domain/rss_feed.xml" | "domain/rss_namespaced.xml" => "rss-atom",
+        path if path.starts_with("domain/fhir_") => "fhir",
+        path if path.starts_with("domain/geojson_") => "geojson",
+        "domain/ical_event.json" | "domain/vcard_contact.json" | "domain/vcard_minimal.json" => {
+            "vcard-ical"
+        }
+        "serialization/asn1_cert.json" => "asn1",
+        "serialization/avro_record.json" => "avro",
+        "serialization/bond_struct.json" => "bond",
+        "serialization/flatbuffers_table.json" => "flatbuffers",
+        "serialization/msgpack_data.json" => "msgpack-schema",
+        path if path.starts_with("web_document/atproto_") => "atproto",
+        path if path.starts_with("web_document/docx_") => "docx",
+        path if path.starts_with("web_document/odf_") => "odf",
+        _ => return None,
+    };
+    Some(protocol)
+}
+
+#[test]
+fn fixture_routes_are_selected_by_protocol_not_suffix() {
+    for label in [
+        "api/asyncapi_event.json",
+        "api/raml_response.json",
+        "config/ansible_playbook.json",
+        "config/cloudformation_template.json",
+        "config/k8s_crd.json",
+    ] {
+        let protocol = fixture_protocol(label).expect("declared protocol route");
+        assert_eq!(
+            fixture_route(protocol),
+            FixtureRoute::Yaml,
+            "{label} must not select JSON from its suffix"
+        );
+    }
+    assert_eq!(fixture_route("naf"), FixtureRoute::Xml);
+    assert_eq!(fixture_route("brat"), FixtureRoute::Json);
+}
+
+/// Resolve a non-tree-sitter codec from the protocol declaration, never from
+/// the fixture's suffix.
+#[cfg(feature = "tree-sitter")]
+fn delimited_config(protocol: &str) -> Option<DelimitedConfig> {
+    match protocol {
+        "conllu" => Some(DelimitedConfig {
             table: "rows",
             delimiter: b'\t',
             comment_prefix: Some(b'#'),
-        });
-    }
-    // redis (RESP key/value): space-delimited.
-    if label.starts_with("redis/") || label.ends_with("redis_resp.txt") {
-        return Some(DelimitedConfig {
+        }),
+        "redis" => Some(DelimitedConfig {
             table: "entries",
             delimiter: b' ',
             comment_prefix: None,
-        });
-    }
-    // SWIFT MT: colon-delimited.
-    if label.starts_with("swift_mt/") || label.contains("swift_mt") {
-        return Some(DelimitedConfig {
+        }),
+        "swift-mt" => Some(DelimitedConfig {
             table: "fields",
             delimiter: b':',
             comment_prefix: None,
-        });
-    }
-    // EDI X12: asterisk-delimited segments.
-    if label.starts_with("edi_x12/") || label.contains("edi_x12") {
-        return Some(DelimitedConfig {
+        }),
+        "edi-x12" => Some(DelimitedConfig {
             table: "segments",
             delimiter: b'*',
             comment_prefix: None,
-        });
+        }),
+        _ => None,
     }
-    None
 }
 
+#[cfg(feature = "tree-sitter")]
 #[test]
 fn fixture_corpus_is_byte_faithful() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures");
@@ -120,22 +224,21 @@ fn fixture_corpus_is_byte_faithful() {
     let mut failures: Vec<String> = Vec::new();
 
     for fixture in &fixtures {
-        let ext = fixture
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("")
-            .to_string();
         let label = fixture
             .strip_prefix(&dir)
             .unwrap_or(fixture)
             .display()
             .to_string();
         let input = std::fs::read(fixture).expect("read fixture");
+        let Some(protocol) = fixture_protocol(&label) else {
+            failures.push(format!("{label}: fixture has no declared protocol route"));
+            continue;
+        };
 
         // Delimited line-oriented formats with no tree-sitter grammar.
-        if let Some(cfg) = delimited_config(&label) {
+        if let Some(cfg) = delimited_config(protocol) {
             let codec =
-                ByteTabularCodec::new("fixture", cfg.table, cfg.delimiter, cfg.comment_prefix);
+                ByteTabularCodec::new(protocol, cfg.table, cfg.delimiter, cfg.comment_prefix);
             match codec.parse(&input) {
                 Ok((instance, complement)) => match codec.emit(&instance, &complement) {
                     Ok(out) if out == input => covered += 1,
@@ -152,8 +255,8 @@ fn fixture_corpus_is_byte_faithful() {
         }
 
         // AMR (TSV) goes through the tree-sitter CST-complement preserving path.
-        if ext == "tsv" {
-            let codec = match UnifiedCodec::tsv("fixture", "amr_graph") {
+        if fixture_route(protocol) == FixtureRoute::AmrTsv {
+            let codec = match UnifiedCodec::tsv(protocol, "amr_graph") {
                 Ok(c) => c,
                 Err(e) => {
                     failures.push(format!("{label}: codec init failed: {e}"));
@@ -177,17 +280,16 @@ fn fixture_corpus_is_byte_faithful() {
             continue;
         }
 
-        // Byte-faithfulness is protocol-agnostic on the unmodified preserving
-        // path (the preserved CST is replayed), so a generic protocol name +
-        // root schema exercises the same machinery every real protocol uses.
-        let codec = match ext.as_str() {
-            "json" => UnifiedCodec::json("fixture"),
-            "xml" => UnifiedCodec::xml("fixture"),
-            "yaml" | "yml" => UnifiedCodec::yaml("fixture"),
-            "toml" => UnifiedCodec::toml("fixture"),
-            other => {
-                failures.push(format!("{label}: unhandled extension .{other}"));
-                continue;
+        // Select the syntax from the protocol route. JSON-shaped fixtures of
+        // YAML-native protocols deliberately enter the YAML parser because
+        // JSON is a YAML subset; this exercises the declared YAML parser
+        // semantics rather than treating the fixture suffix as authoritative.
+        let codec = match fixture_route(protocol) {
+            FixtureRoute::Yaml => UnifiedCodec::yaml(protocol),
+            FixtureRoute::Xml => UnifiedCodec::xml(protocol),
+            FixtureRoute::Json => UnifiedCodec::json(protocol),
+            FixtureRoute::AmrTsv | FixtureRoute::Delimited => {
+                unreachable!("non-tree route handled above")
             }
         };
         let codec = match codec {
@@ -288,6 +390,7 @@ fn conllu_edit_rewrites_one_cell() {
     );
 }
 
+#[cfg(feature = "tree-sitter")]
 #[test]
 fn xml_mixed_content_round_trips_byte_faithfully() {
     // The four mixed-content XML fixtures interleave CDATA sections,
@@ -321,6 +424,7 @@ fn xml_mixed_content_round_trips_byte_faithfully() {
     }
 }
 
+#[cfg(feature = "tree-sitter")]
 #[test]
 fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
     // The coupled property: a text run containing an entity reference
@@ -328,11 +432,10 @@ fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
     // canonical (non-complement) emit re-escapes the value, so the re-parse
     // re-splits the run; the entity-merging extractor folds both shapes to the
     // same node count, keeping `emit_wtype`/`parse_wtype` idempotent (the
-    // property `roundtrip_rss_atom` also pins). Opaque constructs
-    // (CDATA/comments/PIs) are *not* covered here: their position and bytes
-    // live only in the layout complement, so they round-trip via the
-    // preserving path above, not the canonical emit, and the canonical section
-    // legitimately drops them. This test isolates the entity case (no opaque
+    // property `roundtrip_rss_atom` also pins). Comments and PIs are not
+    // covered here: their position and bytes live only in the layout
+    // complement. CDATA, by contrast, is character data and is exposed as
+    // text by the CST extractor. This test isolates the entity case (no opaque
     // siblings) to lock the merge fix.
     use panproto_io::traits::{InstanceEmitter, InstanceParser};
     let schema = generic_schema();
@@ -354,6 +457,7 @@ fn xml_entity_text_canonical_emit_is_node_count_idempotent() {
     assert_eq!(inst2.node_count(), inst3.node_count(), "second round-trip");
 }
 
+#[cfg(feature = "tree-sitter")]
 #[test]
 fn amr_edit_rewrites_one_cell() {
     // AMR rides the tree-sitter TSV preserving path; an edited cell value
