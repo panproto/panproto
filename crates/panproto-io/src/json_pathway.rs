@@ -166,6 +166,39 @@ enum RawJson<'a> {
     Object(Vec<(String, Self)>),
 }
 
+/// The reason `serde_json` gives for refusing the JSON string `token`, and the
+/// byte offset within `token` at which it stopped, if it reports one.
+///
+/// `serde_json` places an error at a line (1-based) and a column (the count of
+/// bytes since that line's start) of the slice it decoded, and its `Display`
+/// appends ` at line L column C` to the reason whenever the line is nonzero.
+/// Decoding a single token, that position is relative to the token, so the
+/// reason is returned without it and the position is returned as a token
+/// offset for the caller to place in the document.
+pub(crate) fn json_string_token_error(
+    token: &[u8],
+    error: &serde_json::Error,
+) -> (String, Option<usize>) {
+    let display = error.to_string();
+    let line = error.line();
+    if line == 0 {
+        return (display, None);
+    }
+    let suffix = format!(" at line {line} column {}", error.column());
+    let reason = display.strip_suffix(&suffix).unwrap_or(&display).to_owned();
+    let line_start = if line == 1 {
+        Some(0)
+    } else {
+        token
+            .iter()
+            .enumerate()
+            .filter(|(_, byte)| **byte == b'\n')
+            .nth(line - 2)
+            .map(|(index, _)| index + 1)
+    };
+    (reason, line_start.map(|start| start + error.column()))
+}
+
 struct RawJsonParser<'a> {
     input: &'a [u8],
     pos: usize,
@@ -214,8 +247,7 @@ impl<'a> RawJsonParser<'a> {
             Some(b'{') => self.object(depth + 1),
             Some(b'-' | b'0'..=b'9') => self.number(),
             Some(byte) => Err(format!(
-                "unexpected JSON byte {:?} at byte {}",
-                char::from(byte),
+                "unexpected JSON byte 0x{byte:02X} at byte {}",
                 self.pos
             )),
             None => Err("unexpected end of JSON input".to_owned()),
@@ -237,8 +269,19 @@ impl<'a> RawJsonParser<'a> {
             match byte {
                 b'"' => {
                     self.pos += 1;
-                    return serde_json::from_slice(&self.input[start..self.pos])
-                        .map_err(|e| format!("invalid JSON string at byte {start}: {e}"));
+                    let token = &self.input[start..self.pos];
+                    return serde_json::from_slice(token).map_err(|error| {
+                        let (reason, stop) = json_string_token_error(token, &error);
+                        stop.map_or_else(
+                            || format!("invalid JSON string at byte {start}: {reason}"),
+                            |stop| {
+                                format!(
+                                    "invalid JSON string at byte {start}: {reason} at byte {}",
+                                    start + stop
+                                )
+                            },
+                        )
+                    });
                 }
                 b'\\' => {
                     self.pos += 1;
@@ -1920,6 +1963,39 @@ mod tests {
         assert_eq!(
             emit_json_bytes(&schema, &instance, "test").expect("emit $type"),
             input
+        );
+    }
+
+    #[test]
+    fn json_parse_errors_name_input_bytes_and_document_offsets() {
+        let message = |input: &[u8]| match parse_json_bytes(&simple_schema(), "root", input, "test")
+        {
+            Err(ParseInstanceError::Json(message)) => message,
+            other => panic!("{input:?} must be a JSON error, got {other:?}"),
+        };
+        // A non-ASCII byte is named by its value, not by the Latin-1 character
+        // of that value: a UTF-8 byte order mark starts with 0xEF.
+        assert_eq!(
+            message("\u{feff}{\"integer\":1}".as_bytes()),
+            "unexpected JSON byte 0xEF at byte 0"
+        );
+        assert_eq!(
+            message(b"{\"integer\":@}"),
+            "unexpected JSON byte 0x40 at byte 11"
+        );
+        // A string error is placed in the document, not in the string slice:
+        // the token starts at byte 11 and serde_json stops after its closing
+        // quote, at byte 19.
+        assert_eq!(
+            message(br#"{"integer":"\ud800"}"#),
+            "invalid JSON string at byte 11: unexpected end of hex escape at byte 19"
+        );
+        // A raw line feed inside a string is a control character; the stop
+        // offset counts the bytes of every line before it.
+        assert_eq!(
+            message(b"{\"integer\":\"a\nb\"}"),
+            "invalid JSON string at byte 11: control character (\\u0000-\\u001F) found while \
+             parsing a string at byte 14"
         );
     }
 

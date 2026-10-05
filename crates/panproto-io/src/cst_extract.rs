@@ -1963,10 +1963,25 @@ fn validate_json_cst_string_tokens(cst: &Schema) -> Result<(), CstCodecError> {
         }
         let token = cst_source_text(cst, name);
         serde_json::from_str::<String>(&token).map_err(|error| {
-            CstCodecError::Structure(format!(
-                "invalid JSON string token at byte {:?}: {error}",
-                cst_byte_offset(cst, name)
-            ))
+            let (reason, stop) =
+                crate::json_pathway::json_string_token_error(token.as_bytes(), &error);
+            let start = cst_byte_offset(cst, name);
+            CstCodecError::Structure(match (start, stop) {
+                (Some(start), Some(stop)) => format!(
+                    "invalid JSON string token at byte {start}: {reason} at byte {}",
+                    start.saturating_add(u64::try_from(stop).unwrap_or(u64::MAX))
+                ),
+                (Some(start), None) => {
+                    format!("invalid JSON string token at byte {start}: {reason}")
+                }
+                (None, Some(stop)) => format!(
+                    "invalid JSON string token at an unrecorded byte: {reason} at byte {stop} \
+                     of the token"
+                ),
+                (None, None) => {
+                    format!("invalid JSON string token at an unrecorded byte: {reason}")
+                }
+            })
         })?;
     }
     Ok(())
@@ -6005,6 +6020,46 @@ mod tests {
                 .ok()?;
         }
         builder.build().ok()
+    }
+
+    fn json_string_token_cst(token: &str, start_byte: Option<&str>) -> Option<Schema> {
+        let protocol = Protocol::default();
+        let builder = SchemaBuilder::new(&protocol)
+            .vertex("s", "string", None)
+            .ok()?
+            .constraint("s", "literal-value", token);
+        match start_byte {
+            Some(start) => builder.constraint("s", "start-byte", start),
+            None => builder,
+        }
+        .build()
+        .ok()
+    }
+
+    #[test]
+    fn json_string_token_errors_name_document_offsets() {
+        let message = |token: &str, start: Option<&str>| {
+            let Some(cst) = json_string_token_cst(token, start) else {
+                panic!("valid JSON string token CST fixture");
+            };
+            match validate_json_cst_string_tokens(&cst) {
+                Err(CstCodecError::Structure(message)) => message,
+                other => panic!("{token} must be refused, got {other:?}"),
+            }
+        };
+        // serde_json stops after the closing quote, eight bytes into the
+        // token; the message places that stop in the document.
+        assert_eq!(
+            message(r#""\ud800""#, Some("11")),
+            "invalid JSON string token at byte 11: unexpected end of hex escape at byte 19"
+        );
+        // Without a recorded start the stop is given within the token, and
+        // no `Option` debug text appears.
+        assert_eq!(
+            message(r#""\ud800""#, None),
+            "invalid JSON string token at an unrecorded byte: unexpected end of hex escape \
+             at byte 8 of the token"
+        );
     }
 
     #[test]

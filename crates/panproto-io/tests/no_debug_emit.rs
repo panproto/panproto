@@ -24,10 +24,6 @@ const FILES: &[&str] = &[
 const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
     (
         "src/cst_extract.rs",
-        r#"format!( "invalid JSON string token at byte {:?}: {error}", cst_byte_offset(cst, name) )"#,
-    ),
-    (
-        "src/cst_extract.rs",
         r#"format!( "invalid TOML basic string token at byte {:?}: {error}", cst_byte_offset(cst, name) )"#,
     ),
     (
@@ -77,10 +73,6 @@ const ERROR_ONLY_ALLOWLIST: &[(&str, &str)] = &[
     (
         "src/cst_extract.rs",
         r#"format!( "data row {} at byte {:?} has {} fields but {} header fields are declared", row_idx + 1, cst_byte_offset(cst, row_name), fields.len(), headers.len() )"#,
-    ),
-    (
-        "src/json_pathway.rs",
-        r#"format!( "unexpected JSON byte {:?} at byte {}", char::from(byte), self.pos )"#,
     ),
     (
         "src/json_pathway.rs",
@@ -207,6 +199,74 @@ fn format_macro_spans(text: &str) -> Vec<(usize, &str)> {
     spans
 }
 
+/// Whether `span` holds a placeholder whose format spec selects `Debug`.
+///
+/// A placeholder is `{argument:spec}` with no brace inside; `{{` and `}}` are
+/// escaped braces, not placeholders. Under `std::fmt`'s grammar the spec ends
+/// in its type, and the `Debug` types are `?`, `x?` and `X?`, so a placeholder
+/// selects `Debug` exactly when its spec ends in `?`, whatever fill, alignment,
+/// sign, `#`, width or precision precede it.
+fn has_debug_spec(span: &str) -> bool {
+    let bytes = span.as_bytes();
+    let mut index = 0;
+    while index < bytes.len() {
+        match bytes[index] {
+            b'{' if bytes.get(index + 1) == Some(&b'{') => index += 2,
+            b'}' if bytes.get(index + 1) == Some(&b'}') => index += 2,
+            b'{' => {
+                let Some(length) = span[index + 1..].find(['{', '}']) else {
+                    return false;
+                };
+                let inner = &span[index + 1..index + 1 + length];
+                if bytes[index + 1 + length] == b'}'
+                    && inner
+                        .split_once(':')
+                        .is_some_and(|(_, spec)| spec.ends_with('?'))
+                {
+                    return true;
+                }
+                index += 1 + length;
+            }
+            _ => index += 1,
+        }
+    }
+    false
+}
+
+/// Macro texts whose format string selects `Debug` in some placeholder.
+const DEBUG_SPEC_SPANS: &[&str] = &[
+    r#"format!("{:?}", x)"#,
+    r#"format!("{x:?}")"#,
+    r#"format!("{x:#?}")"#,
+    r#"format!("{x:x?}")"#,
+    r#"format!("{x:X?}")"#,
+    r#"format!("{x:#x?}")"#,
+    r#"format!("{x:>10?}")"#,
+    r#"format!("{x:.3?}")"#,
+    r#"format!("{0:width$?}", x, width = 4)"#,
+    r#"format!("{{{x:#?}}}")"#,
+];
+
+/// Macro texts whose placeholders select no `Debug`, escaped braces included.
+const NON_DEBUG_SPEC_SPANS: &[&str] = &[
+    r#"format!("{x}")"#,
+    r#"format!("{x:>10}")"#,
+    r#"format!("{:x}", x)"#,
+    r#"format!("{{x:?}}")"#,
+    r#"format!("{{:?}}{x}")"#,
+    r#"format!("what? {x}")"#,
+];
+
+#[test]
+fn debug_spec_detection_covers_every_debug_format_spec() {
+    for debug in DEBUG_SPEC_SPANS {
+        assert!(has_debug_spec(debug), "{debug} selects Debug");
+    }
+    for display in NON_DEBUG_SPEC_SPANS {
+        assert!(!has_debug_spec(display), "{display} selects no Debug");
+    }
+}
+
 #[test]
 fn no_debug_formatting_reaches_emitted_output() {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
@@ -217,7 +277,7 @@ fn no_debug_formatting_reaches_emitted_output() {
         let text =
             std::fs::read_to_string(manifest.join(relative)).expect("read fixed source file");
         for (start, span) in format_macro_spans(&text) {
-            if !span.contains(":?}") {
+            if !has_debug_spec(span) {
                 continue;
             }
             let line = text[..start].bytes().filter(|byte| *byte == b'\n').count() + 1;
