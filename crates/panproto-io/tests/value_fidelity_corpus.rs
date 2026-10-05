@@ -2970,6 +2970,55 @@ timestamp: !!timestamp 2026-09-28T12:34:56.789+05:30
     }
 
     #[test]
+    fn xml_cst_reads_xsi_nil_as_an_xsd_boolean() {
+        let schema = open_yaml_schema();
+        let codec = UnifiedCodec::xml("fidelity-cst").expect("XML CST codec");
+        let document = |nil: &str| {
+            format!(
+                r#"<root xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:nil="{nil}"/>"#
+            )
+        };
+        for (nil, null) in [
+            (" true ", true),
+            ("1", true),
+            ("&#9;0&#10;", false),
+            ("false", false),
+        ] {
+            let input = document(nil);
+            let (instance, complement) = codec
+                .parse_wtype_preserving(&schema, input.as_bytes())
+                .unwrap_or_else(|error| panic!("xsi:nil={nil:?} parses: {error}"));
+            let root = instance.node(instance.root).expect("root");
+            assert_eq!(
+                matches!(root.value, Some(FieldPresence::Null)),
+                null,
+                "{nil}"
+            );
+            assert_eq!(
+                codec
+                    .emit_wtype_preserving(&schema, &instance, &complement)
+                    .unwrap_or_else(|error| panic!("xsi:nil={nil:?} re-emits: {error}")),
+                input.as_bytes()
+            );
+        }
+        for nil in ["TRUE", "yes", "", "t rue"] {
+            let input = document(nil);
+            let result = codec.parse_wtype_preserving(&schema, input.as_bytes());
+            assert!(
+                matches!(
+                    &result,
+                    Err(ParseInstanceError::Fidelity(errors))
+                        if errors.len() == 1
+                            && errors[0].lexeme == nil
+                            && errors[0].reason == panproto_inst::FidelityReason::InvalidEncoding
+                ),
+                "xsi:nil={nil:?} must be a typed refusal: {:?}",
+                result.err()
+            );
+        }
+    }
+
+    #[test]
     fn xml_cst_refuses_conflicting_nil_markers_and_namespace_rebinding() {
         let schema = open_yaml_schema();
         let codec = UnifiedCodec::xml("fidelity-cst").expect("XML CST codec");

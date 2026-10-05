@@ -20,6 +20,12 @@ use panproto_schema::{BytesText, Edge, Protocol, ScalarKind, Schema, ValueSpec};
 use crate::error::{EmitInstanceError, EmitValueError, EmitValueReason, ParseInstanceError};
 
 /// Maximum nesting accepted by the recursive lossless JSON reader.
+///
+/// The document's top value is level one and every value inside a container
+/// is one level deeper than the container, so an empty innermost container
+/// counts as a level exactly as a scalar does. One level is one node of the
+/// parsed tree, which keeps every accepted document within the canonical
+/// emitter's tree-depth bound of the same size.
 const MAX_JSON_DEPTH: usize = 128;
 pub(crate) const MAX_VALUE_EMIT_DEPTH: usize = 128;
 
@@ -76,7 +82,7 @@ pub(crate) fn plain_text_value_roundtrips(value: &Value, spec: &ValueSpec) -> bo
         | Value::List(_)
         | Value::LabeledNull(_) => return false,
     };
-    coerce_preserving_nan_sign(&Lexeme::new(&text, LexClass::String), spec).is_ok_and(|actual| {
+    coerce_exact_lexeme(&Lexeme::new(&text, LexClass::String), spec).is_ok_and(|actual| {
         match (value, actual) {
             (Value::Float(expected), Value::Float(actual)) => {
                 expected.to_bits() == actual.to_bits()
@@ -86,23 +92,68 @@ pub(crate) fn plain_text_value_roundtrips(value: &Value, spec: &ValueSpec) -> bo
     })
 }
 
-/// Apply shared coercion while retaining the sign carried by a textual NaN.
-pub(crate) fn coerce_preserving_nan_sign(
+/// Apply shared coercion, keeping the two facts its decimal carrier drops.
+///
+/// The shared decimal carrier has no negative zero and bounds its exponent,
+/// so this wrapper restores what a numeral denotes in both cases. First, the
+/// sign of a negative zero or of a negative textual NaN is kept when the
+/// result is a float. Second, a numeral whose significand digits are all
+/// zero denotes zero whatever its exponent, so an exponent outside the
+/// carrier's range is read as the same zero rather than refused as an
+/// overflow. Every other lexeme coerces exactly as the shared layer reads it.
+pub(crate) fn coerce_exact_lexeme(
     lexeme: &Lexeme<'_>,
     spec: &ValueSpec,
 ) -> Result<Value, panproto_inst::ValueFidelityError> {
-    coerce(lexeme, spec).map(|value| {
-        let negative_nan = lexeme
-            .text
-            .strip_prefix('-')
-            .map(|text| text.strip_prefix('.').unwrap_or(text))
-            .is_some_and(|text| text.eq_ignore_ascii_case("nan"));
-        if negative_nan && matches!(value, Value::Float(number) if number.is_nan()) {
-            Value::Float(-f64::NAN)
-        } else {
-            value
+    let zero = zero_numeral_sign(lexeme.text);
+    let value = match coerce(lexeme, spec) {
+        Err(error) if zero.is_some() && error.reason == panproto_inst::FidelityReason::Overflow => {
+            coerce(&Lexeme::new("0e0", lexeme.class.clone()), spec).map_err(|_| error)?
         }
+        other => other?,
+    };
+    let negative = zero == Some(true) || is_negative_nan_text(lexeme.text);
+    Ok(match value {
+        Value::Float(number) if negative && number.is_nan() => Value::Float(-f64::NAN),
+        Value::Float(number) if zero == Some(true) && number == 0.0 => Value::Float(-0.0),
+        other => other,
     })
+}
+
+/// Whether `text` spells a NaN with a leading minus sign.
+fn is_negative_nan_text(text: &str) -> bool {
+    text.strip_prefix('-')
+        .map(|text| text.strip_prefix('.').unwrap_or(text))
+        .is_some_and(|text| text.eq_ignore_ascii_case("nan"))
+}
+
+/// The sign of a decimal numeral whose significand digits are all zero:
+/// `Some(true)` for a leading minus, `Some(false)` otherwise, and `None` when
+/// `text` is not such a numeral. The grammar is an optional sign, digits with
+/// an optional fraction (at least one digit in all), and an optional exponent
+/// with at least one digit.
+fn zero_numeral_sign(text: &str) -> Option<bool> {
+    let (negative, unsigned) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    let (significand, exponent) = unsigned
+        .split_once(['e', 'E'])
+        .map_or((unsigned, None), |(significand, exponent)| {
+            (significand, Some(exponent))
+        });
+    let (whole, fraction) = significand
+        .split_once('.')
+        .map_or((significand, ""), |(whole, fraction)| (whole, fraction));
+    let zero_digits = |digits: &str| digits.bytes().all(|byte| byte == b'0');
+    let significand_ok =
+        !(whole.is_empty() && fraction.is_empty()) && zero_digits(whole) && zero_digits(fraction);
+    let exponent_ok = exponent.is_none_or(|exponent| {
+        let digits = exponent.strip_prefix(['+', '-']).unwrap_or(exponent);
+        !digits.is_empty() && digits.bytes().all(|byte| byte.is_ascii_digit())
+    });
+    (significand_ok && exponent_ok).then_some(negative)
 }
 
 #[derive(Debug)]
@@ -132,8 +183,10 @@ impl<'a> RawJsonParser<'a> {
         Ok(value)
     }
 
+    /// Read one value inside `depth` enclosing containers, which puts it at
+    /// level `depth + 1`.
     fn value(&mut self, depth: usize) -> Result<RawJson<'a>, String> {
-        if depth > MAX_JSON_DEPTH {
+        if depth >= MAX_JSON_DEPTH {
             return Err(format!("JSON nesting exceeds {MAX_JSON_DEPTH} levels"));
         }
         self.whitespace();
@@ -669,7 +722,7 @@ fn coerce_or_record(
     spec: &ValueSpec,
     state: &mut BuildState,
 ) -> FieldPresence {
-    match coerce(lexeme, spec) {
+    match coerce_exact_lexeme(lexeme, spec) {
         Ok(Value::Null) => FieldPresence::Null,
         Ok(value) => FieldPresence::Present(value),
         Err(error) => {
@@ -687,7 +740,7 @@ fn raw_to_value(raw: &RawJson<'_>, vertex: &str, state: &mut BuildState) -> Valu
         RawJson::Bool { value, .. } => Value::Bool(*value),
         RawJson::Number { lexeme, offset } => {
             let any = ValueSpec::new(ScalarKind::Any);
-            match coerce(&Lexeme::new(lexeme, LexClass::Number), &any) {
+            match coerce_exact_lexeme(&Lexeme::new(lexeme, LexClass::Number), &any) {
                 Ok(value) => value,
                 Err(error) => {
                     state
@@ -766,7 +819,7 @@ type TreeChildren = HashMap<u32, Vec<u32>>;
 type TreeIncidence = (TreeParents, TreeChildren);
 
 impl CanonicalTreeValidator<'_> {
-    const MAX_DEPTH: usize = 128;
+    const MAX_DEPTH: usize = MAX_JSON_DEPTH;
 
     fn error(&self, message: impl std::fmt::Display) -> EmitInstanceError {
         EmitInstanceError::Emit {
@@ -1564,7 +1617,7 @@ fn json_value_roundtrips_at_depth(value: &Value, spec: &ValueSpec, depth: usize)
             spec,
         ),
         Value::Int(value) => coerce(&Lexeme::new(&value.to_string(), LexClass::Number), spec),
-        Value::Float(value) if value.is_finite() => coerce(
+        Value::Float(value) if value.is_finite() => coerce_exact_lexeme(
             &Lexeme::new(&json_float_text(*value), LexClass::Number),
             spec,
         ),
@@ -2606,5 +2659,135 @@ mod tests {
                 ..
             }) if value_type == "labeled-null"
         ));
+    }
+
+    fn open_schema() -> Schema {
+        let protocol = Protocol {
+            name: "test".into(),
+            obj_kinds: vec!["value".into()],
+            ..Protocol::default()
+        };
+        SchemaBuilder::new(&protocol)
+            .vertex("root", "value", None)
+            .expect("root")
+            .build()
+            .expect("schema")
+    }
+
+    fn nested_arrays(arrays: usize, leaf: &str) -> String {
+        format!("{}{leaf}{}", "[".repeat(arrays), "]".repeat(arrays))
+    }
+
+    #[test]
+    fn json_nesting_bound_counts_every_value_including_empty_containers() {
+        // The document's top value is level one and each nested value adds a
+        // level, so 128 levels is the deepest a document may nest whatever
+        // the innermost value is, and every accepted document re-emits.
+        let open = open_schema();
+        let named = simple_schema();
+        let accepted = [
+            (&open, nested_arrays(128, "")),
+            (&open, nested_arrays(127, "1")),
+            (&open, format!("{{\"x\":{}}}", nested_arrays(127, ""))),
+            (&named, format!("{{\"name\":{}}}", nested_arrays(127, ""))),
+        ];
+        for (schema, input) in &accepted {
+            let instance = parse_json_bytes(schema, "root", input.as_bytes(), "test")
+                .unwrap_or_else(|error| panic!("128 levels parse: {error}"));
+            let emitted = emit_json_bytes(schema, &instance, "test")
+                .unwrap_or_else(|error| panic!("an accepted document re-emits: {error}"));
+            assert_eq!(emitted, input.as_bytes());
+        }
+        let refused = [
+            (&open, nested_arrays(129, "")),
+            (&open, nested_arrays(128, "1")),
+            (&open, format!("{{\"x\":{}}}", nested_arrays(128, ""))),
+            (&named, format!("{{\"name\":{}}}", nested_arrays(128, ""))),
+        ];
+        for (schema, input) in &refused {
+            let result = parse_json_bytes(schema, "root", input.as_bytes(), "test");
+            assert!(
+                matches!(
+                    &result,
+                    Err(ParseInstanceError::Json(message))
+                        if message == "JSON nesting exceeds 128 levels"
+                ),
+                "129 levels must be refused: {result:?}"
+            );
+        }
+    }
+
+    fn decimal_field(instance: &WInstance) -> Option<&FieldPresence> {
+        instance
+            .nodes
+            .values()
+            .find(|node| node.anchor.as_ref() == "root:decimal")
+            .and_then(|node| node.value.as_ref())
+    }
+
+    #[test]
+    fn json_zero_numerals_keep_their_sign_whatever_their_exponent() {
+        let schema = number_schema();
+        for (numeral, expected) in [
+            ("0e99999999999", 0.0_f64),
+            ("0.0e-99999999999", 0.0),
+            ("0E+99999999999999999999", 0.0),
+            ("-0.0", -0.0),
+            ("-0e99999999999", -0.0),
+            ("-0.000e-99999999999", -0.0),
+        ] {
+            let input = format!("{{\"integer\":1,\"decimal\":{numeral}}}");
+            let instance = parse_json_bytes(&schema, "root", input.as_bytes(), "test")
+                .unwrap_or_else(|error| panic!("{numeral} has an exact carrier: {error}"));
+            let Some(FieldPresence::Present(Value::Float(actual))) = decimal_field(&instance)
+            else {
+                panic!("{numeral} reads as a float: {:?}", decimal_field(&instance));
+            };
+            assert_eq!(actual.to_bits(), expected.to_bits(), "{numeral}");
+
+            let emitted = emit_json_bytes(&schema, &instance, "test")
+                .unwrap_or_else(|error| panic!("{numeral} re-emits: {error}"));
+            let reparsed = parse_json_bytes(&schema, "root", &emitted, "test").expect("reparse");
+            let Some(FieldPresence::Present(Value::Float(again))) = decimal_field(&reparsed) else {
+                panic!("{numeral} reparses as a float");
+            };
+            assert_eq!(
+                again.to_bits(),
+                expected.to_bits(),
+                "{numeral} after re-emission"
+            );
+        }
+
+        let open = open_schema();
+        let instance =
+            parse_json_bytes(&open, "root", br#"{"x":-0.0,"y":[-0e99999999999]}"#, "test")
+                .expect("open fields");
+        let root = instance.node(instance.root).expect("root");
+        assert!(
+            matches!(root.extra_fields.get("x"), Some(Value::Float(x)) if x.to_bits() == (-0.0_f64).to_bits())
+        );
+        assert!(matches!(
+            root.extra_fields.get("y"),
+            Some(Value::List(items))
+                if matches!(items.as_slice(), [Value::Float(y)] if y.to_bits() == (-0.0_f64).to_bits())
+        ));
+        assert_eq!(
+            emit_json_bytes(&open, &instance, "test").expect("negative zero is JSON"),
+            br#"{"x":-0.0,"y":[-0.0]}"#
+        );
+
+        let mut written = Node::new(0, "root:decimal");
+        written.value = Some(FieldPresence::Present(Value::Float(-0.0)));
+        let direct = WInstance::new(
+            HashMap::from([(0, written)]),
+            Vec::new(),
+            Vec::new(),
+            0,
+            "root:decimal".into(),
+        );
+        assert_eq!(
+            emit_json_bytes(&schema, &direct, "test").expect("negative zero emits"),
+            b"-0.0"
+        );
     }
 }

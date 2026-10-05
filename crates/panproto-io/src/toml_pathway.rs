@@ -439,10 +439,7 @@ pub(crate) fn toml_scalar_roundtrips(value: &Value, spec: &ValueSpec) -> bool {
             let Some(text) = toml_float_lexeme(*number) else {
                 return false;
             };
-            crate::json_pathway::coerce_preserving_nan_sign(
-                &Lexeme::new(&text, LexClass::Number),
-                spec,
-            )
+            crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(&text, LexClass::Number), spec)
         }
         Value::Bool(value) => coerce(
             &Lexeme::new(if *value { "true" } else { "false" }, LexClass::Bool),

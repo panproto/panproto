@@ -456,7 +456,7 @@ fn flush_text(
                 ));
             } else if let Some(node) = state.nodes.get_mut(&current.0) {
                 let spec = ValueSpec::for_vertex(schema, protocol, &node.anchor);
-                match crate::json_pathway::coerce_preserving_nan_sign(
+                match crate::json_pathway::coerce_exact_lexeme(
                     &Lexeme::new(text_buf, LexClass::String),
                     &spec,
                 ) {
@@ -938,12 +938,10 @@ fn validate_xml_nil_attributes(
     let Some(key) = semantic.first() else {
         return Ok(None);
     };
-    let value = attributes.get(key.as_str()).map(String::as_str);
-    let consistent = if null {
-        matches!(value, Some("true" | "1"))
-    } else {
-        matches!(value, Some("false" | "0"))
-    };
+    let consistent = attributes
+        .get(key.as_str())
+        .and_then(|value| xsd_boolean(value))
+        == Some(null);
     if !consistent {
         return Err(EmitValueError::new(
             site.clone(),
@@ -954,6 +952,33 @@ fn validate_xml_nil_attributes(
         .into());
     }
     Ok(Some(key.as_str().to_owned()))
+}
+
+/// The truth value of an `xs:boolean` lexeme, or `None` outside its lexical
+/// space.
+///
+/// `xs:boolean` collapses whitespace before it is read, so leading and
+/// trailing spaces, tabs, line feeds and carriage returns are dropped; the
+/// lexical space is then exactly `true`, `false`, `1` and `0`, with the two
+/// words in lower case. Whitespace inside a lexeme makes it invalid, since
+/// collapsing would leave a space that no literal contains.
+pub(crate) fn xsd_boolean(text: &str) -> Option<bool> {
+    match text.trim_matches([' ', '\t', '\n', '\r']) {
+        "true" | "1" => Some(true),
+        "false" | "0" => Some(false),
+        _ => None,
+    }
+}
+
+/// The typed refusal of an `xsi:nil` value outside the `xs:boolean` lexical
+/// space, sited at the element's schema vertex.
+pub(crate) fn invalid_xsi_nil(vertex: &str, lexeme: &str) -> ValueFidelityError {
+    ValueFidelityError {
+        site: ValueSite::new(vertex, None),
+        lexeme: lexeme.to_owned(),
+        target: ScalarKind::Bool,
+        reason: panproto_inst::FidelityReason::InvalidEncoding,
+    }
 }
 
 fn is_xml_nil_attribute(key: &str, namespaces: &HashMap<String, String>) -> bool {
@@ -1151,7 +1176,7 @@ fn ingest_xml_element(
         Some(parent) => find_child_vertex(schema, &parent.1, &tag)
             .unwrap_or_else(|| format!("{}:{}", parent.1, tag)),
     };
-    let (extra_fields, nil) = parse_xml_element_attributes(e, namespaces, protocol)?;
+    let (extra_fields, nil) = parse_xml_element_attributes(e, namespaces, &vertex_id, protocol)?;
 
     let node = Node {
         id: node_id,
@@ -1181,6 +1206,7 @@ fn ingest_xml_element(
 fn parse_xml_element_attributes(
     element: &quick_xml::events::BytesStart<'_>,
     namespaces: &NamespaceResolver,
+    vertex: &str,
     protocol: &str,
 ) -> Result<(HashMap<String, Value>, bool), ParseInstanceError> {
     let mut extra_fields = HashMap::new();
@@ -1218,7 +1244,9 @@ fn parse_xml_element_attributes(
                 if namespace.into_inner() == XML_SCHEMA_INSTANCE_NS.as_bytes()
                     && local_name.as_ref() == b"nil" =>
             {
-                nil = value == "true" || value == "1";
+                nil = xsd_boolean(&value).ok_or_else(|| {
+                    ParseInstanceError::Fidelity(vec![invalid_xsi_nil(vertex, &value)])
+                })?;
             }
             ResolveResult::Unknown(prefix) => {
                 return Err(ParseInstanceError::Parse {
@@ -1508,6 +1536,68 @@ mod tests {
             .find(|node| node.anchor.as_str() == "doc:title")
             .expect("title");
         assert!(!matches!(title.value, Some(FieldPresence::Null)));
+    }
+
+    #[test]
+    fn xsi_nil_reads_the_xsd_boolean_lexical_space() {
+        let schema = xml_schema();
+        let document = |nil: &str| {
+            format!(
+                r#"<doc xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"><title xsi:nil="{nil}"/></doc>"#
+            )
+        };
+        let title_value = |instance: &WInstance| {
+            instance
+                .nodes
+                .values()
+                .find(|node| node.anchor.as_str() == "doc:title")
+                .map(|node| node.value.clone())
+        };
+        // xs:boolean collapses whitespace, so surrounding spaces and the
+        // character references for tab, line feed and carriage return are
+        // part of the same four literals.
+        for (nil, null) in [
+            ("true", true),
+            ("1", true),
+            (" true ", true),
+            ("&#9;1&#10;", true),
+            ("&#13;true", true),
+            ("false", false),
+            ("0", false),
+            (" 0 ", false),
+            ("false&#10;", false),
+        ] {
+            let input = document(nil);
+            let instance = parse_xml_bytes(&schema, input.as_bytes(), "test_xml")
+                .unwrap_or_else(|error| panic!("xsi:nil={nil:?} parses: {error}"));
+            let expected = null.then_some(FieldPresence::Null);
+            assert_eq!(title_value(&instance), Some(expected.clone()), "{nil}");
+            let emitted = emit_xml_bytes(&schema, &instance, "test_xml")
+                .unwrap_or_else(|error| panic!("xsi:nil={nil:?} re-emits: {error}"));
+            let reparsed = parse_xml_bytes(&schema, &emitted, "test_xml").expect("reparse");
+            assert_eq!(
+                title_value(&reparsed),
+                Some(expected),
+                "{nil} after re-emission"
+            );
+        }
+        // Anything else is not an xs:boolean and is refused when read.
+        for nil in ["TRUE", "False", "yes", "", " ", "t rue", "01", "+1"] {
+            let input = document(nil);
+            let result = parse_xml_bytes(&schema, input.as_bytes(), "test_xml");
+            assert!(
+                matches!(
+                    &result,
+                    Err(ParseInstanceError::Fidelity(errors))
+                        if errors.len() == 1
+                            && errors[0].lexeme == nil
+                            && errors[0].target == ScalarKind::Bool
+                            && errors[0].reason == panproto_inst::FidelityReason::InvalidEncoding
+                            && errors[0].site.vertex.as_ref() == "doc:title"
+                ),
+                "xsi:nil={nil:?} must be a typed refusal: {result:?}"
+            );
+        }
     }
 
     #[test]

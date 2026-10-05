@@ -154,7 +154,7 @@ pub fn parse_tsv(
             if text != "_" {
                 let (vertex, spec) =
                     cell_spec(schema, &protocol_definition, table_vertex, &col_name);
-                match crate::json_pathway::coerce_preserving_nan_sign(
+                match crate::json_pathway::coerce_exact_lexeme(
                     &Lexeme::new(&text, LexClass::String),
                     &spec,
                 ) {
@@ -292,10 +292,7 @@ fn parse_conllu_metadata(
     let column = key.trim().replace(' ', "_");
     let text = value.trim();
     let (vertex, spec) = cell_spec(schema, protocol_definition, "sentence", &column);
-    match crate::json_pathway::coerce_preserving_nan_sign(
-        &Lexeme::new(text, LexClass::String),
-        &spec,
-    ) {
+    match crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(text, LexClass::String), &spec) {
         Ok(value) => {
             metadata.insert(column, value);
         }
@@ -337,10 +334,8 @@ fn parse_conllu_token_row(
             continue;
         }
         let (vertex, spec) = cell_spec(schema, protocol_definition, "token", column);
-        match crate::json_pathway::coerce_preserving_nan_sign(
-            &Lexeme::new(&text, LexClass::String),
-            &spec,
-        ) {
+        match crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(&text, LexClass::String), &spec)
+        {
             Ok(value) => {
                 row.insert(column.to_owned(), value);
             }

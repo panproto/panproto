@@ -185,7 +185,7 @@ impl UnifiedCodec {
 
         let (instance, complement) = match self.format {
             FormatKind::Json => {
-                { extract_json_cst_with_protocol(&cst_schema, schema, &protocol, root) }
+                extract_json_cst_with_protocol(&cst_schema, schema, &protocol, root)
                     .map_err(|error| map_cst_parse_error(error, &self.protocol))?
             }
             FormatKind::Toml => {
@@ -274,8 +274,9 @@ impl UnifiedCodec {
         schema: &Schema,
         input: &[u8],
     ) -> Result<(FInstance, CstComplement), ParseInstanceError> {
-        match self.format {
-            FormatKind::Csv | FormatKind::Tsv => {}
+        let complement_format = match self.format {
+            FormatKind::Csv => "csv",
+            FormatKind::Tsv => "tsv",
             _ => {
                 return Err(ParseInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
@@ -283,7 +284,7 @@ impl UnifiedCodec {
                     native: self.native_repr,
                 });
             }
-        }
+        };
         let table_vertex =
             resolve_entry_vertex(self.table_vertex.as_deref(), schema).ok_or_else(|| {
                 ParseInstanceError::SchemaMismatch {
@@ -296,12 +297,7 @@ impl UnifiedCodec {
         let (instance, mut complement) =
             extract_tabular_cst_with_protocol(&cst_schema, schema, &protocol, table_vertex)
                 .map_err(|error| map_cst_parse_error(error, &self.protocol))?;
-        complement.format = match self.format {
-            FormatKind::Csv => "csv",
-            FormatKind::Tsv => "tsv",
-            _ => unreachable!("tabular format checked above"),
-        }
-        .into();
+        complement.format = complement_format.into();
         Ok((instance, complement))
     }
 
@@ -322,8 +318,9 @@ impl UnifiedCodec {
         instance: &FInstance,
         complement: &CstComplement,
     ) -> Result<Vec<u8>, EmitInstanceError> {
-        match self.format {
-            FormatKind::Csv | FormatKind::Tsv => {}
+        let expected_complement_format = match self.format {
+            FormatKind::Csv => "csv",
+            FormatKind::Tsv => "tsv",
             _ => {
                 return Err(EmitInstanceError::UnsupportedRepresentation {
                     protocol: self.protocol.clone(),
@@ -331,11 +328,6 @@ impl UnifiedCodec {
                     native: self.native_repr,
                 });
             }
-        }
-        let expected_complement_format = match self.format {
-            FormatKind::Csv => "csv",
-            FormatKind::Tsv => "tsv",
-            _ => unreachable!("tabular format checked above"),
         };
         if complement.format != expected_complement_format {
             return Err(EmitInstanceError::UnsupportedStructuralEdit {

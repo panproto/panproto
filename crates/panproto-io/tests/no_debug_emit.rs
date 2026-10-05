@@ -250,3 +250,45 @@ fn no_debug_formatting_reaches_emitted_output() {
         violations.join("\n")
     );
 }
+
+/// The shared value path's library code, scanned for panicking macros.
+const LIBRARY_FILES: &[&str] = &[
+    "src/cst_extract.rs",
+    "src/byte_tabular.rs",
+    "src/json_codec.rs",
+    "src/xml_codec.rs",
+    "src/tabular_codec.rs",
+    "src/unified_codec.rs",
+    "src/json_pathway.rs",
+    "src/xml_pathway.rs",
+    "src/toml_pathway.rs",
+    "src/tabular_pathway.rs",
+    "src/error.rs",
+];
+
+#[test]
+fn codec_library_code_has_no_panicking_macros() {
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let mut violations = Vec::new();
+    for relative in LIBRARY_FILES {
+        let text =
+            std::fs::read_to_string(manifest.join(relative)).expect("read fixed source file");
+        // The unit-test module is the last item of each file.
+        let library = text
+            .find("\nmod tests {")
+            .map_or(text.as_str(), |end| &text[..end]);
+        for (index, line) in library.lines().enumerate() {
+            let code = line.split("//").next().unwrap_or_default();
+            for name in ["unreachable!", "panic!", "todo!", "unimplemented!"] {
+                if code.contains(name) {
+                    violations.push(format!("{relative}:{}: {}", index + 1, line.trim()));
+                }
+            }
+        }
+    }
+    assert!(
+        violations.is_empty(),
+        "panicking macros in codec library code:\n{}",
+        violations.join("\n")
+    );
+}

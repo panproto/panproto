@@ -313,10 +313,11 @@ fn validate_tree_structure(
 
 /// Errors returned by the source-compatible CST extraction API.
 ///
-/// This enum intentionally retains its original exhaustive four-variant
-/// surface. Protocol-aware callers use [`CstCodecError`], whose additional
-/// variants preserve structured value and format-refusal information.
+/// Every [`CstCodecError`] has a variant of the same shape here, so a value
+/// or fidelity refusal reaches callers of the schema-only functions as the
+/// same structured value the protocol-aware functions return.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CstExtractError {
     /// The CST Schema has an unexpected structure.
     #[error("CST structure error: {0}")]
@@ -335,6 +336,36 @@ pub enum CstExtractError {
     NestingTooDeep {
         /// The depth limit that was exceeded.
         limit: usize,
+    },
+
+    /// One or more scalar lexemes cannot be held by their declared kinds.
+    #[error("value fidelity errors: {0:?}")]
+    Fidelity(Vec<ValueFidelityError>),
+
+    /// A YAML mapping or sequence carried a tag with no instance-level
+    /// representation.
+    #[error("unsupported YAML tag {tag:?} on {container_kind} at byte {byte_offset:?}")]
+    UnsupportedTaggedContainer {
+        /// The tag's source spelling.
+        tag: String,
+        /// `mapping` or `sequence`.
+        container_kind: String,
+        /// Zero-based byte offset of the tag.
+        byte_offset: Option<u64>,
+    },
+
+    /// A value has no faithful representation in the output format.
+    #[error(transparent)]
+    Value(#[from] EmitValueError),
+
+    /// The preserved CST has no faithful representation for a structural
+    /// edit made to the extracted instance.
+    #[error("{format} format-preserving emission cannot represent structural edit: {detail}")]
+    UnsupportedStructuralEdit {
+        /// The format whose CST cannot carry the edit.
+        format: String,
+        /// The first unsupported structural difference found.
+        detail: String,
     },
 }
 
@@ -402,7 +433,20 @@ impl From<CstCodecError> for CstExtractError {
             CstCodecError::VertexNotFound(vertex) => Self::VertexNotFound(vertex),
             CstCodecError::SchemaMismatch(message) => Self::SchemaMismatch(message),
             CstCodecError::NestingTooDeep { limit } => Self::NestingTooDeep { limit },
-            other => Self::Structure(other.to_string()),
+            CstCodecError::Fidelity(errors) => Self::Fidelity(errors),
+            CstCodecError::UnsupportedTaggedContainer {
+                tag,
+                container_kind,
+                byte_offset,
+            } => Self::UnsupportedTaggedContainer {
+                tag,
+                container_kind,
+                byte_offset,
+            },
+            CstCodecError::Value(error) => Self::Value(error),
+            CstCodecError::UnsupportedStructuralEdit { format, detail } => {
+                Self::UnsupportedStructuralEdit { format, detail }
+            }
         }
     }
 }
@@ -768,7 +812,7 @@ fn take_low_surrogate(
 
 /// Parse one number token without a narrowing intermediate carrier.
 fn parse_number_value(text: &str) -> Result<Value, ValueFidelityError> {
-    coerce(
+    crate::json_pathway::coerce_exact_lexeme(
         &Lexeme::new(text, LexClass::Number),
         &ValueSpec::new(ScalarKind::Any),
     )
@@ -793,7 +837,7 @@ fn coerce_cst_scalar(
     state: &mut ExtractState,
 ) -> FieldPresence {
     let spec = ValueSpec::for_vertex(domain_schema, protocol, &Name::from(domain_vertex));
-    match crate::json_pathway::coerce_preserving_nan_sign(lexeme, &spec) {
+    match crate::json_pathway::coerce_exact_lexeme(lexeme, &spec) {
         Ok(Value::Null) => FieldPresence::Null,
         Ok(value) => FieldPresence::Present(value),
         Err(error) => {
@@ -843,7 +887,7 @@ fn coerce_yaml_lexeme(
         class
     };
     let LexClass::Tagged(tag) = &class else {
-        return crate::json_pathway::coerce_preserving_nan_sign(&Lexeme::new(text, class), spec);
+        return crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(text, class), spec);
     };
     let tag_name = yaml_tag_name(tag);
     match (&spec.kind, tag_name) {
@@ -864,7 +908,7 @@ fn coerce_yaml_lexeme(
         | (ScalarKind::DateTime, "timestamp" | "datetime" | "date-time") => {
             coerce(&Lexeme::new(text, LexClass::DateTime), spec)
         }
-        _ => crate::json_pathway::coerce_preserving_nan_sign(&Lexeme::new(text, class), spec),
+        _ => crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(text, class), spec),
     }
 }
 
@@ -1648,8 +1692,10 @@ fn json_scalar_unchanged(
     let parsed = match kind.as_str() {
         "string" => json_string_value(cst, cst_vertex)
             .and_then(|text| coerce(&Lexeme::new(&text, LexClass::String), spec).ok()),
-        "number" => literal_value(cst, cst_vertex)
-            .and_then(|text| coerce(&Lexeme::new(&text, LexClass::Number), spec).ok()),
+        "number" => literal_value(cst, cst_vertex).and_then(|text| {
+            crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(&text, LexClass::Number), spec)
+                .ok()
+        }),
         "true" => coerce(&Lexeme::new("true", LexClass::Bool), spec).ok(),
         "false" => coerce(&Lexeme::new("false", LexClass::Bool), spec).ok(),
         "null" => Some(Value::Null),
@@ -1690,33 +1736,17 @@ fn field_presence_to_json_text(
     spec: &ValueSpec,
     site: &ValueSite,
 ) -> Result<String, CstCodecError> {
-    let text = match presence {
-        FieldPresence::Present(value) => json_present_value_text(value, spec, site)?,
-        FieldPresence::Null => "null".to_owned(),
-        FieldPresence::Absent => {
-            return Err(EmitValueError::new(
-                site.clone(),
-                "absent",
-                "json",
-                EmitValueReason::AbsentNotRepresentable,
-            )
-            .into());
-        }
-    };
-    if text.is_empty() && matches!(presence, FieldPresence::Present(_)) {
-        let value_type = match presence {
-            FieldPresence::Present(value) => value.type_name(),
-            _ => "absent",
-        };
-        return Err(EmitValueError::new(
+    match presence {
+        FieldPresence::Present(value) => json_present_value_text(value, spec, site),
+        FieldPresence::Null => Ok("null".to_owned()),
+        FieldPresence::Absent => Err(EmitValueError::new(
             site.clone(),
-            value_type,
-            "xml",
-            EmitValueReason::NotRepresentable,
+            "absent",
+            "json",
+            EmitValueReason::AbsentNotRepresentable,
         )
-        .into());
+        .into()),
     }
-    Ok(text)
 }
 
 fn json_present_value_text(
@@ -2833,7 +2863,7 @@ fn normalize_radix_integer(text: &str, allow_binary: bool) -> Option<String> {
 /// The exact value a TOML scalar leaf denotes under an open schema.
 fn toml_scalar_value(cst: &Schema, cst_vertex: &Name) -> Result<Value, ValueFidelityError> {
     let (text, class) = toml_scalar_lexeme(cst, cst_vertex);
-    crate::json_pathway::coerce_preserving_nan_sign(
+    crate::json_pathway::coerce_exact_lexeme(
         &Lexeme::new(&text, class),
         &ValueSpec::new(ScalarKind::Any),
     )
@@ -2958,7 +2988,7 @@ fn toml_scalar_unchanged(
     spec: &ValueSpec,
 ) -> bool {
     let (text, class) = toml_scalar_lexeme(cst, cst_vertex);
-    crate::json_pathway::coerce_preserving_nan_sign(&Lexeme::new(&text, class), spec)
+    crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(&text, class), spec)
         .is_ok_and(|value| presence_matches_value(presence, &value))
 }
 
@@ -3219,15 +3249,23 @@ fn extract_xml_element(
         }
     }
     validate_xml_node_qnames(&node, &namespaces).map_err(CstCodecError::Structure)?;
-    let xsi_nil = node.extra_fields.iter().any(|(key, value)| {
-        key.rsplit_once(':').is_some_and(|(prefix, local)| {
+    let mut xsi_nil = false;
+    for (key, value) in &node.extra_fields {
+        let semantic = key.rsplit_once(':').is_some_and(|(prefix, local)| {
             local == "nil"
                 && namespaces
                     .get(prefix)
-                    .is_some_and(|uri| uri == "http://www.w3.org/2001/XMLSchema-instance")
-                && matches!(value, Value::Str(text) if text == "true" || text == "1")
-        })
-    });
+                    .is_some_and(|uri| uri == XML_SCHEMA_INSTANCE_NS)
+        });
+        if let (true, Value::Str(text)) = (semantic, value) {
+            xsi_nil |= crate::xml_pathway::xsd_boolean(text).ok_or_else(|| {
+                CstCodecError::Fidelity(vec![crate::xml_pathway::invalid_xsi_nil(
+                    node.anchor.as_ref(),
+                    text,
+                )])
+            })?;
+        }
+    }
     if xsi_nil {
         node.value = Some(FieldPresence::Null);
     }
@@ -3899,11 +3937,10 @@ fn validate_xml_nil_fields(
         return Ok(None);
     };
     let value = node.extra_fields.get(key.as_str());
-    let consistent = if null {
-        matches!(value, Some(Value::Str(text)) if text == "true" || text == "1")
-    } else {
-        matches!(value, Some(Value::Str(text)) if text == "false" || text == "0")
-    };
+    let consistent = matches!(
+        value,
+        Some(Value::Str(text)) if crate::xml_pathway::xsd_boolean(text) == Some(null)
+    );
     if !consistent {
         return Err(EmitValueError::new(
             site.clone(),
@@ -4016,14 +4053,13 @@ fn xml_scalar_unchanged(
     let Ok(Some(text)) = xml_text_run_value(cst, segments) else {
         return false;
     };
-    let original = match crate::json_pathway::coerce_preserving_nan_sign(
-        &Lexeme::new(&text, LexClass::String),
-        spec,
-    ) {
-        Ok(Value::Null) => FieldPresence::Null,
-        Ok(value) => FieldPresence::Present(value),
-        Err(_) => return false,
-    };
+    let original =
+        match crate::json_pathway::coerce_exact_lexeme(&Lexeme::new(&text, LexClass::String), spec)
+        {
+            Ok(Value::Null) => FieldPresence::Null,
+            Ok(value) => FieldPresence::Present(value),
+            Err(_) => return false,
+        };
     match original {
         FieldPresence::Present(value) => presence_matches_value(presence, &value),
         FieldPresence::Null => matches!(presence, FieldPresence::Null),
@@ -4279,10 +4315,9 @@ fn field_presence_to_text(
             .into());
         }
     };
-    if text.is_empty() && matches!(presence, FieldPresence::Present(_)) {
-        let FieldPresence::Present(value) = presence else {
-            unreachable!("presence was matched as present")
-        };
+    if let FieldPresence::Present(value) = presence
+        && text.is_empty()
+    {
         return Err(EmitValueError::new(
             site.clone(),
             value.type_name(),
@@ -5503,7 +5538,7 @@ pub fn extract_tabular_cst_with_protocol(
             if raw != "_" {
                 let text = decode_tabular_field(&raw);
                 let (vertex, spec) = tabular_cell_spec(domain_schema, protocol, table_vertex, &col);
-                match crate::json_pathway::coerce_preserving_nan_sign(
+                match crate::json_pathway::coerce_exact_lexeme(
                     &Lexeme::new(&text, LexClass::String),
                     &spec,
                 ) {
@@ -5745,7 +5780,7 @@ pub fn inject_tabular_cst_with_protocol(
                             .collect();
                         let original = decode_tabular_field(&original_raw);
                         if original_raw != "_"
-                            && crate::json_pathway::coerce_preserving_nan_sign(
+                            && crate::json_pathway::coerce_exact_lexeme(
                                 &Lexeme::new(&original, LexClass::String),
                                 &spec,
                             )
@@ -6659,5 +6694,69 @@ mod tests {
         };
         assert_eq!(decoded.source_vertex(), None);
         assert_eq!(decoded.node_to_cst_struct.len(), 1);
+    }
+
+    #[test]
+    fn source_compatible_errors_keep_structured_codec_errors() {
+        let value = EmitValueError::new(
+            ValueSite::new("x", None),
+            "float",
+            "json",
+            EmitValueReason::NonFinite,
+        );
+        assert!(matches!(
+            CstExtractError::from(CstCodecError::Value(value.clone())),
+            CstExtractError::Value(ref carried) if *carried == value
+        ));
+
+        let fidelity = vec![ValueFidelityError {
+            site: ValueSite::new("x", Some(5)),
+            lexeme: "1e2147483648".to_owned(),
+            target: ScalarKind::Any,
+            reason: panproto_inst::FidelityReason::Overflow,
+        }];
+        assert!(matches!(
+            CstExtractError::from(CstCodecError::Fidelity(fidelity.clone())),
+            CstExtractError::Fidelity(ref carried) if *carried == fidelity
+        ));
+
+        assert!(matches!(
+            CstExtractError::from(CstCodecError::UnsupportedTaggedContainer {
+                tag: "!set".to_owned(),
+                container_kind: "mapping".to_owned(),
+                byte_offset: Some(3),
+            }),
+            CstExtractError::UnsupportedTaggedContainer {
+                ref tag,
+                ref container_kind,
+                byte_offset: Some(3),
+            } if tag == "!set" && container_kind == "mapping"
+        ));
+        assert!(matches!(
+            CstExtractError::from(CstCodecError::UnsupportedStructuralEdit {
+                format: "json".to_owned(),
+                detail: "a new key".to_owned(),
+            }),
+            CstExtractError::UnsupportedStructuralEdit { ref format, ref detail }
+                if format == "json" && detail == "a new key"
+        ));
+    }
+
+    #[test]
+    fn cst_json_zero_numerals_keep_their_sign_whatever_their_exponent() {
+        for (numeral, expected) in [
+            ("0e99999999999", 0.0_f64),
+            ("0.0e-99999999999", 0.0),
+            ("-0.0", -0.0),
+            ("-0e99999999999", -0.0),
+        ] {
+            let Ok(Value::Float(actual)) = parse_number_value(numeral) else {
+                panic!(
+                    "{numeral} reads as a float: {:?}",
+                    parse_number_value(numeral)
+                );
+            };
+            assert_eq!(actual.to_bits(), expected.to_bits(), "{numeral}");
+        }
     }
 }
